@@ -1,0 +1,127 @@
+package com.inventory.data.repository
+
+import com.inventory.data.local.ProductDao
+import com.inventory.data.local.ProductEntity
+import com.inventory.data.remote.ApiClient
+import com.inventory.data.remote.ApiResult
+import com.inventory.data.remote.NetworkMonitor
+import com.inventory.data.remote.dto.ProductDto
+import com.inventory.data.remote.dto.ProductMovementDto
+import com.inventory.data.remote.dto.UpsertProductRequest
+import com.inventory.domain.model.Product
+import com.inventory.domain.model.ProductMovement
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class ProductRepository @Inject constructor(
+    private val apiClient: ApiClient,
+    private val productDao: ProductDao,
+    private val networkMonitor: NetworkMonitor,
+    private val syncRepository: SyncRepository
+) {
+    val products: Flow<List<Product>> = productDao.observeProducts().map { list ->
+        list.map { it.toDomain() }
+    }
+
+    fun observeProduct(id: String): Flow<Product?> = productDao.observeProduct(id).map { it?.toDomain() }
+
+    suspend fun refreshProducts(search: String? = null, category: String? = null): ApiResult<List<Product>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val response = apiClient.api.getProducts(search = search.takeUnless { it.isNullOrBlank() }, category = category.takeUnless { it.isNullOrBlank() })
+            val entities = response.data.map { it.toEntity() }
+            productDao.upsertAll(entities)
+            ApiResult.Success(entities.map { it.toDomain() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل المنتجات")
+        }
+    }
+
+    suspend fun findByQr(qrCode: String): ApiResult<Product?> {
+        val local = productDao.findByQr(qrCode)?.toDomain()
+        if (local != null) return ApiResult.Success(local)
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val response = apiClient.api.getProductByQr(qrCode)
+            val product = response.data?.toEntity()
+            if (product != null) productDao.upsertAll(listOf(product))
+            ApiResult.Success(product?.toDomain())
+        } catch (error: Exception) {
+            ApiResult.Success(null)
+        }
+    }
+
+    suspend fun saveProduct(id: String?, request: UpsertProductRequest) = if (id == null) {
+        if (!networkMonitor.isOnline()) {
+            syncRepository.enqueue("CREATE_PRODUCT", "POST", "products", request)
+            null
+        } else {
+            apiClient.api.createProduct(request)
+        }
+    } else {
+        if (!networkMonitor.isOnline()) {
+            syncRepository.enqueue("UPDATE_PRODUCT", "PUT", "products/$id", request)
+            null
+        } else {
+            apiClient.api.updateProduct(id, request)
+        }
+    }
+
+    suspend fun deleteProduct(id: String) {
+        apiClient.api.deleteProduct(id)
+        productDao.deleteProduct(id)
+    }
+
+    suspend fun movement(productId: String, from: String?, to: String?): ApiResult<List<ProductMovement>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val rows = apiClient.api.getProductMovement(productId, from.takeUnless { it.isNullOrBlank() }, to.takeUnless { it.isNullOrBlank() }).data?.rows.orEmpty()
+            ApiResult.Success(rows.map { it.toDomain() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل حركة المادة")
+        }
+    }
+}
+
+private fun ProductEntity.toDomain() = Product(
+    id = id,
+    itemNumber = itemNumber,
+    name = name,
+    qrCode = qrCode,
+    category = category,
+    openingBalancePcs = openingBalancePcs,
+    cartonsAvailable = cartonsAvailable,
+    pcsPerCarton = pcsPerCarton,
+    purchasePrice = purchasePrice,
+    salePrice = salePrice,
+    minStock = minStock,
+    updatedAt = updatedAt
+)
+
+private fun ProductDto.toEntity() = ProductEntity(
+    id = id,
+    itemNumber = itemNumber,
+    name = name,
+    qrCode = qrCode.orEmpty(),
+    category = category.orEmpty(),
+    openingBalancePcs = openingBalancePcs,
+    cartonsAvailable = cartonsAvailable,
+    pcsPerCarton = pcsPerCarton,
+    purchasePrice = purchasePrice,
+    salePrice = salePrice,
+    minStock = minStock,
+    updatedAt = updatedAt
+)
+
+private fun ProductMovementDto.toDomain() = ProductMovement(
+    date = date,
+    customerName = customerName ?: "-",
+    quantity = quantity,
+    unitPrice = unitPrice,
+    unit = unit,
+    invoiceNumber = invoiceNumber,
+    invoiceId = invoiceId.orEmpty()
+)

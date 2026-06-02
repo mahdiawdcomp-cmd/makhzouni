@@ -1,0 +1,154 @@
+{
+  "info": {
+    "name": "Inventory Backend API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "approvalId", "value": "" },
+    { "key": "productId", "value": "" },
+    { "key": "customerId", "value": "" },
+    { "key": "invoiceId", "value": "" },
+    { "key": "voucherId", "value": "" },
+    { "key": "templateId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /api/auth/login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"Password123!\"\n}" },
+            "url": "{{baseUrl}}/api/auth/login"
+          }
+        },
+        {
+          "name": "POST /api/auth/logout",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] },
+            "url": "{{baseUrl}}/api/auth/logout"
+          }
+        },
+        {
+          "name": "POST /api/auth/change-password",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"Password123!\",\n  \"newPassword\": \"NewPassword123!\"\n}" },
+            "url": "{{baseUrl}}/api/auth/change-password"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        { "name": "GET /api/users", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/users" } },
+        { "name": "POST /api/users", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Staff User\",\n  \"username\": \"staff2\",\n  \"password\": \"Password123!\",\n  \"role\": \"STAFF\"\n}" }, "url": "{{baseUrl}}/api/users" } },
+        { "name": "PUT /api/users/:id", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated User\",\n  \"role\": \"ADMIN\",\n  \"isActive\": true\n}" }, "url": "{{baseUrl}}/api/users/{{userId}}" } },
+        { "name": "DELETE /api/users/:id", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/users/{{userId}}" } }
+      ]
+    },
+    {
+      "name": "Approvals",
+      "item": [
+        { "name": "GET /api/approvals", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/approvals" } },
+        { "name": "PUT /api/approvals/:id", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"status\": \"APPROVED\"\n}" }, "url": "{{baseUrl}}/api/approvals/{{approvalId}}" } }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        { "name": "GET /api/products", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/products?search=&category=&lowStock=false&page=1&limit=20" } },
+        { "name": "POST /api/products", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"itemNumber\": \"ITEM-001\",\n  \"name\": \"Sample Product\",\n  \"qrCode\": \"ITEM-001\",\n  \"category\": \"General\",\n  \"openingBalancePcs\": 100,\n  \"cartonsAvailable\": 2,\n  \"pcsPerCarton\": 24,\n  \"purchasePrice\": 10,\n  \"salePrice\": 15,\n  \"minStock\": 20\n}" }, "url": "{{baseUrl}}/api/products" } },
+        { "name": "GET /api/products/:id", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/products/{{productId}}" } },
+        { "name": "GET /api/products/:id/qr", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/products/{{productId}}/qr" } },
+        { "name": "PUT /api/products/:id", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Product\",\n  \"minStock\": 25\n}" }, "url": "{{baseUrl}}/api/products/{{productId}}" } },
+        { "name": "DELETE /api/products/:id", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/products/{{productId}}" } }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        { "name": "GET /api/customers", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers?search=&page=1&limit=20" } },
+        { "name": "GET /api/customers/debts", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/debts" } },
+        { "name": "GET /api/customers/inactive", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/inactive?days=30" } },
+        { "name": "POST /api/customers", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Customer One\",\n  \"phone\": \"9647700000000\",\n  \"address\": \"Baghdad\",\n  \"notes\": \"\",\n  \"openingBalance\": 0\n}" }, "url": "{{baseUrl}}/api/customers" } },
+        { "name": "GET /api/customers/:id", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/{{customerId}}" } },
+        { "name": "PUT /api/customers/:id", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"Updated Customer\"\n}" }, "url": "{{baseUrl}}/api/customers/{{customerId}}" } },
+        { "name": "DELETE /api/customers/:id", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/{{customerId}}" } },
+        { "name": "GET /api/customers/:id/transactions", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/{{customerId}}/transactions?from=&to=" } },
+        { "name": "GET /api/customers/:id/last-transaction", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/{{customerId}}/last-transaction" } },
+        { "name": "GET /api/customers/:id/balance", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/customers/{{customerId}}/balance" } }
+      ]
+    },
+    {
+      "name": "Invoices",
+      "item": [
+        { "name": "GET /api/invoices", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/invoices?page=1&limit=20&status=ACTIVE" } },
+        { "name": "POST /api/invoices", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"discount\": 0,\n  \"tax\": 0,\n  \"paidAmount\": 0,\n  \"paymentType\": \"CREDIT\",\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"unit\": \"PIECE\", \"quantity\": 1, \"unitPrice\": 15 }\n  ]\n}" }, "url": "{{baseUrl}}/api/invoices" } },
+        { "name": "GET /api/invoices/:id", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/invoices/{{invoiceId}}" } },
+        { "name": "GET /api/invoices/:id/pdf", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/invoices/{{invoiceId}}/pdf" } },
+        { "name": "GET /api/invoices/:id/image", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/invoices/{{invoiceId}}/image" } },
+        { "name": "PUT /api/invoices/:id", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"discount\": 0,\n  \"tax\": 0,\n  \"paidAmount\": 0,\n  \"items\": [\n    { \"productId\": \"{{productId}}\", \"unit\": \"PIECE\", \"quantity\": 1, \"unitPrice\": 15 }\n  ]\n}" }, "url": "{{baseUrl}}/api/invoices/{{invoiceId}}" } },
+        { "name": "DELETE /api/invoices/:id", "request": { "method": "DELETE", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/invoices/{{invoiceId}}" } }
+      ]
+    },
+    {
+      "name": "Vouchers",
+      "item": [
+        { "name": "GET /api/vouchers", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/vouchers?page=1&limit=20" } },
+        { "name": "POST /api/vouchers", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"amount\": 100,\n  \"type\": \"RECEIPT\",\n  \"notes\": \"Payment received\"\n}" }, "url": "{{baseUrl}}/api/vouchers" } },
+        { "name": "GET /api/vouchers/:id", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/vouchers/{{voucherId}}" } }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        { "name": "GET /api/reports/dashboard", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/reports/dashboard" } },
+        { "name": "GET /api/reports/sales", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/reports/sales?from=&to=&groupBy=day" } },
+        { "name": "GET /api/reports/products/movement", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/reports/products/movement?productId={{productId}}&from=&to=" } },
+        { "name": "GET /api/reports/inventory/valuation", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/reports/inventory/valuation" } },
+        { "name": "GET /api/reports/customers/debts", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/reports/customers/debts?minDays=0&maxDays=999" } }
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "item": [
+        { "name": "GET /api/whatsapp/status", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/whatsapp/status" } },
+        { "name": "POST /api/whatsapp/send", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"phone\": \"9647700000000\",\n  \"message\": \"Hello\"\n}" }, "url": "{{baseUrl}}/api/whatsapp/send" } },
+        { "name": "POST /api/whatsapp/send-invoice/:invoiceId", "request": { "method": "POST", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/whatsapp/send-invoice/{{invoiceId}}" } }
+      ]
+    },
+    {
+      "name": "Settings",
+      "item": [
+        { "name": "GET /api/settings", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/settings" } },
+        { "name": "PUT /api/settings", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"storeName\": \"مخزوني\",\n  \"storePhone\": \"\",\n  \"storeAddress\": \"\",\n  \"currency\": \"IQD\",\n  \"debtReminderDays\": 14,\n  \"inactiveCustomerDays\": 30,\n  \"autoSendDebtReminder\": false,\n  \"autoSendInactiveMessage\": false\n}" }, "url": "{{baseUrl}}/api/settings" } }
+      ]
+    },
+    {
+      "name": "Message Templates",
+      "item": [
+        { "name": "GET /api/message-templates", "request": { "method": "GET", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "url": "{{baseUrl}}/api/message-templates" } },
+        { "name": "PUT /api/message-templates/:id", "request": { "method": "PUT", "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }] }, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"تذكير بالدين\",\n  \"body\": \"مرحبا {customerName}، مبلغ الدين {amount}\",\n  \"isActive\": true\n}" }, "url": "{{baseUrl}}/api/message-templates/{{templateId}}" } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,235 @@
+/**
+ * كشف الحساب السريع
+ * Search for any customer → show their full statement instantly.
+ */
+import { useMemo, useRef, useState } from "react"
+import { Link } from "react-router-dom"
+import { ArrowLeft, ExternalLink, Search, TrendingUp, Wallet } from "lucide-react"
+import { useCustomers, useCustomerDetails } from "../hooks/useCustomers"
+import { fmt } from "../utils/fmt"
+import { Button } from "../components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+
+import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+
+export function AccountLookupPage() {
+  const [query, setQuery] = useState("")
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const inputRef = useRef<HTMLInputElement | null>(null)
+
+  const { customersQuery } = useCustomers()
+  const customers = customersQuery.data ?? []
+
+  const suggestions = useMemo(
+    () =>
+      query.trim()
+        ? customers
+            .filter(
+              (c) =>
+                c.name.toLowerCase().includes(query.toLowerCase()) ||
+                c.phone.includes(query),
+            )
+            .slice(0, 10)
+        : [],
+    [customers, query],
+  )
+
+  const selectedCustomer = customers.find((c) => c.id === selectedId) ?? null
+
+  // Full details for selected customer
+  const details = useCustomerDetails(selectedId ?? undefined)
+  const transactions = details.transactionsQuery.data ?? []
+  const invoices = details.invoicesQuery.data ?? []
+  const vouchers = details.vouchersQuery.data ?? []
+
+  const totalSales = invoices
+    .filter((i) => i.type !== "PURCHASE")
+    .reduce((s, i) => s + Number(i.totalAmount ?? 0), 0)
+
+  const totalReceipts = vouchers
+    .filter((v) => v.type === "RECEIPT")
+    .reduce((s, v) => s + Number(v.amount ?? 0), 0)
+
+  function pick(id: string, name: string) {
+    setSelectedId(id)
+    setQuery(name)
+    setDropdownOpen(false)
+    inputRef.current?.blur()
+  }
+
+  return (
+    <div className="space-y-5 max-w-5xl mx-auto">
+      {/* Title */}
+      <div>
+        <h1 className="text-2xl font-bold">كشف الحساب</h1>
+        <p className="text-sm text-slate-500">ابحث عن أي زبون لعرض كامل حركاته ورصيده فوراً.</p>
+      </div>
+
+      {/* Search box */}
+      <div className="relative max-w-md">
+        <div className="flex items-center gap-2 rounded-xl border-2 border-[var(--theme-accent)] bg-white px-4 py-2.5 shadow-sm dark:bg-slate-900">
+          <Search className="h-5 w-5 shrink-0 text-[var(--theme-accent)]" />
+          <input
+            ref={inputRef}
+            className="flex-1 bg-transparent text-base outline-none placeholder:text-slate-400"
+            placeholder="اسم الزبون أو رقم الهاتف..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setSelectedId(null)
+              setDropdownOpen(true)
+            }}
+            onFocus={() => setDropdownOpen(true)}
+            onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
+          />
+          {query ? (
+            <button type="button" className="text-slate-400 hover:text-slate-600" onClick={() => { setQuery(""); setSelectedId(null) }}>✕</button>
+          ) : null}
+        </div>
+
+        {/* Dropdown suggestions */}
+        {dropdownOpen && suggestions.length > 0 ? (
+          <div className="absolute z-30 mt-1 w-full rounded-xl border bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+            {suggestions.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="flex w-full items-center justify-between px-4 py-3 text-right text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(c.id, c.name)}
+              >
+                <span className="font-medium">{c.name}</span>
+                <span className="text-slate-500">{c.phone}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {/* No selection state */}
+      {!selectedCustomer && (
+        <div className="rounded-xl border-2 border-dashed border-slate-200 p-12 text-center dark:border-slate-700">
+          <Search className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+          <p className="text-slate-500">ابحث عن زبون لعرض كشف حسابه</p>
+        </div>
+      )}
+
+      {/* Customer found */}
+      {selectedCustomer ? (
+        <div className="space-y-4">
+          {/* Customer header */}
+          <div
+            className="rounded-xl p-5 text-white shadow-sm"
+            style={{ background: `linear-gradient(135deg, var(--theme-accent), var(--theme-primaryBtn))` }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-bold">{selectedCustomer.name}</h2>
+                <p className="text-sm opacity-80">{selectedCustomer.phone}</p>
+                {selectedCustomer.address ? <p className="text-sm opacity-70">{selectedCustomer.address}</p> : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="rounded-lg bg-white/20 px-4 py-2 text-center backdrop-blur">
+                  <div className="text-xs opacity-80">الرصيد الحالي</div>
+                  <div className="text-xl font-bold">{fmt(selectedCustomer.currentBalance)}</div>
+                  <div className="text-xs opacity-70">د.ع</div>
+                </div>
+                <Button asChild variant="outline" className="bg-white/90 hover:bg-white text-slate-900">
+                  <Link to={`/customers/${selectedCustomer.id}`}>
+                    <ExternalLink className="h-4 w-4" /> صفحة الزبون
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Metrics row */}
+          <div className="grid gap-3 sm:grid-cols-4">
+            <MetricCard title="الرصيد الافتتاحي" value={selectedCustomer.openingBalance} />
+            <MetricCard title="إجمالي المبيعات" value={totalSales} icon={TrendingUp} color="text-emerald-600" />
+            <MetricCard title="إجمالي القبضات" value={totalReceipts} icon={Wallet} color="text-sky-600" />
+            <MetricCard title="الرصيد النهائي" value={selectedCustomer.currentBalance}
+              color={selectedCustomer.currentBalance > 0 ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"} />
+          </div>
+
+          {/* Transactions */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>حركات الحساب</CardTitle>
+                <span className="text-xs text-slate-500">{transactions.length} حركة</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {transactions.length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-500">لا توجد حركات</p>
+              ) : (
+                <div className="max-h-[450px] overflow-y-auto">
+                  <Table>
+                    <THead>
+                      <TR>
+                        <TH>التاريخ</TH>
+                        <TH>النوع</TH>
+                        <TH>الرقم</TH>
+                        <TH>مدين / دائن</TH>
+                        <TH>الرصيد المتراكم</TH>
+                        <TH></TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {transactions.map((tx) => {
+                        const t = tx.type?.toUpperCase() ?? ""
+                        const isInvoice = t === "SALE" || t === "PURCHASE" || t.includes("INVOICE")
+                        const link = isInvoice ? `/invoices/${tx.id}` : `/vouchers/${tx.id}`
+                        const typeLabel = t === "SALE" ? "🧾 بيع"
+                          : t === "PURCHASE" ? "🛒 شراء"
+                          : t === "RECEIPT" ? "💚 قبض"
+                          : t === "PAYMENT" ? "🔸 دفع"
+                          : "💸 مصاريف"
+                        return (
+                          <TR key={tx.id}>
+                            <TD className="text-xs">{String(tx.date).slice(0, 10)}</TD>
+                            <TD><span className="text-sm font-medium">{typeLabel}</span></TD>
+                            <TD className="font-mono text-xs">{tx.referenceNumber}</TD>
+                            <TD className="font-semibold">
+                              {fmt(tx.debit ?? tx.amount ?? 0)}
+                              {tx.credit ? <span className="mr-1 text-emerald-600">({fmt(tx.credit)})</span> : null}
+                            </TD>
+                            <TD className={`font-bold ${Number(tx.runningBalance) > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                              {fmt(tx.runningBalance)}
+                            </TD>
+                            <TD>
+                              <Button asChild variant="ghost" size="sm">
+                                <Link to={link}><ArrowLeft className="h-4 w-4" /></Link>
+                              </Button>
+                            </TD>
+                          </TR>
+                        )
+                      })}
+                    </TBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function MetricCard({ title, value, icon: Icon, color }: {
+  title: string; value: number
+  icon?: typeof TrendingUp; color?: string
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-xs text-slate-500 mb-1">{title}</div>
+        <div className={`text-lg font-bold ${color ?? ""}`}>{fmt(value)} <span className="text-xs font-normal">د.ع</span></div>
+        {Icon ? <Icon className={`mt-1 h-4 w-4 ${color}`} /> : null}
+      </CardContent>
+    </Card>
+  )
+}

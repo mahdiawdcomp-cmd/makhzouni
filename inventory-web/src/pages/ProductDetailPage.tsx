@@ -1,0 +1,392 @@
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useNavigate, useParams } from "react-router-dom"
+import { ArrowRight, Download, Edit, Printer, ScanQrCode, Trash2 } from "lucide-react"
+
+import { productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
+import { useProductDetails, useProducts } from "../hooks/useProducts"
+import { fmt } from "../utils/fmt"
+import type { Product, ProductPayload } from "../types/api"
+import { Badge } from "../components/ui/badge"
+import { Button } from "../components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
+import { Input } from "../components/ui/input"
+import { ModalForm } from "../components/ui/modal-form"
+import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+
+function stockOf(product: Product) {
+  return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
+}
+
+function selectAllOnFocus(e: React.FocusEvent<HTMLInputElement>) {
+  e.target.select()
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-xs font-medium text-slate-700 dark:text-slate-300">{label}</span>
+      {children}
+      {hint ? <span className="block text-[11px] text-slate-500">{hint}</span> : null}
+    </label>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-sm dark:border-slate-800">
+      <span className="text-slate-500">{label}</span>
+      <span className="font-semibold text-right">{value}</span>
+    </div>
+  )
+}
+
+async function openPdf(promise: Promise<string>) {
+  const url = await promise
+  window.open(url, "_blank", "noopener,noreferrer")
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+const emptyEditForm: ProductPayload = {
+  itemNumber: "", name: "", qrCode: "", cartonQrCode: "", category: "",
+  openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1,
+  purchasePrice: 0, salePrice: 0, minStock: 5,
+}
+
+export function ProductDetailPage() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const { productQuery, movementQuery } = useProductDetails(id)
+  const { updateMutation } = useProducts()
+  const product = productQuery.data
+  const movements = movementQuery.data ?? []
+
+  // Edit modal state
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState<ProductPayload>(emptyEditForm)
+
+  // Delete confirm state
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  // QR piece
+  const [pieceQrUrl, setPieceQrUrl] = useState<string | null>(null)
+  // QR carton
+  const [cartonQrUrl, setCartonQrUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!product?.id) return
+    let active = true
+    let objPiece: string | null = null
+    let objCarton: string | null = null
+
+    void productQrObjectUrl(product.id, "piece").then((url) => {
+      objPiece = url
+      if (active) setPieceQrUrl(url)
+    })
+    void productQrObjectUrl(product.id, "carton").then((url) => {
+      objCarton = url
+      if (active) setCartonQrUrl(url)
+    }).catch(() => {/* carton QR might not exist */})
+
+    return () => {
+      active = false
+      if (objPiece)  URL.revokeObjectURL(objPiece)
+      if (objCarton) URL.revokeObjectURL(objCarton)
+    }
+  }, [product?.id])
+
+  function startEdit() {
+    if (!product) return
+    setEditForm({
+      itemNumber: product.itemNumber,
+      name: product.name,
+      qrCode: product.qrCode ?? "",
+      cartonQrCode: product.cartonQrCode ?? "",
+      category: product.category ?? "",
+      openingBalancePcs: product.openingBalancePcs,
+      cartonsAvailable: product.cartonsAvailable,
+      pcsPerCarton: product.pcsPerCarton,
+      purchasePrice: product.purchasePrice,
+      salePrice: product.salePrice,
+      minStock: product.minStock,
+    })
+    setEditOpen(true)
+  }
+
+  function submitEdit(e: FormEvent) {
+    e.preventDefault()
+    if (!product?.id || !editForm.name) return
+    updateMutation.mutateAsync({ id: product.id, payload: editForm }).then(() => {
+      setEditOpen(false)
+      void productQuery.refetch()
+    })
+  }
+
+  if (!product) {
+    return <div className="py-10 text-center text-slate-500">جار تحميل المنتج...</div>
+  }
+
+  const totalStock = stockOf(product)
+  const isLow      = totalStock <= product.minStock && totalStock > 0
+  const isOut      = totalStock <= 0
+  const stockColor = isOut ? "text-red-600" : isLow ? "text-amber-600" : "text-emerald-600"
+  const stockBadge = isOut
+    ? <Badge variant="danger">نفذت الكمية</Badge>
+    : isLow
+      ? <Badge variant="warning">مخزون منخفض</Badge>
+      : <Badge variant="success">متوفر</Badge>
+
+  return (
+    <div className="space-y-4 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Button variant="ghost" className="px-0 mb-1" onClick={() => navigate(-1)}>
+            <ArrowRight className="h-4 w-4 ml-1" /> رجوع
+          </Button>
+          <h1 className="text-2xl font-bold">{product.name}</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-sm font-mono text-slate-500">{product.itemNumber}</span>
+            {product.category ? <Badge variant="secondary">{product.category}</Badge> : null}
+            {stockBadge}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => void openPdf(productPieceLabelPdf(product.id))}>
+            <Printer className="h-4 w-4" /> طباعة الملصق
+          </Button>
+          <Button variant="outline" onClick={startEdit}>
+            <Edit className="h-4 w-4" /> تعديل
+          </Button>
+          <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-4 w-4" /> حذف
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Product info */}
+        <div className="space-y-4 lg:col-span-2">
+          <Card>
+            <CardHeader><CardTitle>بيانات المنتج</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid gap-x-6 md:grid-cols-2">
+                <div>
+                  <InfoRow label="رقم الآيتم (SKU)" value={product.itemNumber} />
+                  <InfoRow label="الفئة" value={product.category ?? "—"} />
+                  <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />
+                  <InfoRow label="سعر البيع" value={`${fmt(product.salePrice)} د.ع`} />
+                </div>
+                <div>
+                  <InfoRow label="الكراتين المتوفرة" value={product.cartonsAvailable} />
+                  <InfoRow label="قطع بالكرتونة" value={product.pcsPerCarton} />
+                  <InfoRow label="قطع مفردة" value={product.openingBalancePcs} />
+                  <InfoRow label="حد التنبيه" value={product.minStock} />
+                </div>
+              </div>
+              {/* Stock total */}
+              <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">إجمالي المخزون الحالي</span>
+                  <span className={`text-2xl font-extrabold ${stockColor}`}>
+                    {fmt(totalStock)} قطعة
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {product.cartonsAvailable} كرتونة × {product.pcsPerCarton} = {product.cartonsAvailable * product.pcsPerCarton} + {product.openingBalancePcs} مفردة
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Movement table */}
+          <Card>
+            <CardHeader><CardTitle>حركة المادة</CardTitle></CardHeader>
+            <CardContent>
+              {movements.length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-500">لا توجد حركات مسجّلة.</p>
+              ) : (
+                <Table>
+                  <THead>
+                    <TR>
+                      <TH>التاريخ</TH>
+                      <TH>الزبون</TH>
+                      <TH>الكمية</TH>
+                      <TH>الوحدة</TH>
+                      <TH>سعر المفرد</TH>
+                      <TH>الفاتورة</TH>
+                    </TR>
+                  </THead>
+                  <TBody>
+                    {movements.map((row, i) => (
+                      <TR
+                        key={`${row.invoiceNumber}-${i}`}
+                        className="cursor-pointer"
+                        onClick={() => row.invoiceId && navigate(`/invoices/${row.invoiceId}`)}
+                      >
+                        <TD>{String(row.date).slice(0, 10)}</TD>
+                        <TD>{row.customerName}</TD>
+                        <TD className="font-semibold">{row.quantity}</TD>
+                        <TD>{row.unit ?? "قطعة"}</TD>
+                        <TD>{fmt(row.unitPrice ?? row.price ?? 0)}</TD>
+                        <TD>
+                          <span className="font-mono text-xs text-blue-600">{row.invoiceNumber}</span>
+                        </TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* QR Codes — right column */}
+        <div className="space-y-4">
+          {/* QR for piece */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ScanQrCode className="h-5 w-5 text-blue-600" />
+                QR القطعة المفردة
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {pieceQrUrl ? (
+                <img
+                  className="mx-auto h-40 w-40 rounded-lg border-2 border-slate-200 object-contain p-1"
+                  src={pieceQrUrl}
+                  alt="QR قطعة"
+                />
+              ) : (
+                <div className="mx-auto flex h-40 w-40 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-xs text-slate-400">
+                  جار التحميل...
+                </div>
+              )}
+              <p className="text-center text-xs font-mono text-slate-500">{product.qrCode ?? "—"}</p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 text-xs"
+                  disabled={!pieceQrUrl}
+                  onClick={() => void openPdf(productPieceLabelPdf(product.id))}
+                >
+                  <Printer className="h-3.5 w-3.5" /> طباعة ملصق
+                </Button>
+                {pieceQrUrl ? (
+                  <Button variant="outline" className="flex-1 text-xs" asChild>
+                    <a href={pieceQrUrl} download={`${product.itemNumber}-piece-qr.png`}>
+                      <Download className="h-3.5 w-3.5" /> تحميل
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* QR for carton */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ScanQrCode className="h-5 w-5 text-amber-600" />
+                QR الكرتونة
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {cartonQrUrl ? (
+                <img
+                  className="mx-auto h-40 w-40 rounded-lg border-2 border-amber-200 object-contain p-1"
+                  src={cartonQrUrl}
+                  alt="QR كرتون"
+                />
+              ) : (
+                <div className="mx-auto flex h-40 w-40 items-center justify-center rounded-lg border-2 border-dashed border-amber-200 text-xs text-slate-400">
+                  {product.cartonQrCode ? "جار التحميل..." : "لا يوجد QR للكرتون"}
+                </div>
+              )}
+              <p className="text-center text-xs font-mono text-slate-500">{product.cartonQrCode ?? "—"}</p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1 text-xs"
+                  disabled={!product.cartonQrCode}
+                  onClick={() => void openPdf(productCartonSheetPdf(product.id))}
+                >
+                  <Printer className="h-3.5 w-3.5" /> A4 (6 ملصقات)
+                </Button>
+                {cartonQrUrl ? (
+                  <Button variant="outline" className="flex-1 text-xs" asChild>
+                    <a href={cartonQrUrl} download={`${product.itemNumber}-carton-qr.png`}>
+                      <Download className="h-3.5 w-3.5" /> تحميل
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Edit Modal */}
+      <ModalForm open={editOpen} onOpenChange={setEditOpen} title="تعديل المنتج">
+        <form className="space-y-4" onSubmit={submitEdit}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="اسم المنتج *">
+              <Input required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+            </Field>
+            <Field label="الفئة">
+              <Input value={editForm.category ?? ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
+            </Field>
+            <Field label="رقم الآيتم">
+              <Input value={editForm.itemNumber ?? ""} onChange={(e) => setEditForm({ ...editForm, itemNumber: e.target.value })} />
+            </Field>
+            <Field label="QR القطعة">
+              <Input value={editForm.qrCode ?? ""} onChange={(e) => setEditForm({ ...editForm, qrCode: e.target.value })} />
+            </Field>
+            <Field label="QR الكرتون">
+              <Input value={editForm.cartonQrCode ?? ""} onChange={(e) => setEditForm({ ...editForm, cartonQrCode: e.target.value })} />
+            </Field>
+            <div className="hidden md:block" />
+            <Field label="قطع مفردة">
+              <Input type="number" value={editForm.openingBalancePcs ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, openingBalancePcs: Number(e.target.value) })} />
+            </Field>
+            <Field label="الكراتين المتوفرة">
+              <Input type="number" value={editForm.cartonsAvailable ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, cartonsAvailable: Number(e.target.value) })} />
+            </Field>
+            <Field label="قطع بالكرتونة">
+              <Input type="number" min={1} value={editForm.pcsPerCarton ?? 1} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, pcsPerCarton: Number(e.target.value) })} />
+            </Field>
+            <Field label="حد التنبيه">
+              <Input type="number" value={editForm.minStock ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, minStock: Number(e.target.value) })} />
+            </Field>
+            <Field label="سعر الشراء">
+              <Input type="number" value={editForm.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, purchasePrice: Number(e.target.value) })} />
+            </Field>
+            <Field label="سعر البيع">
+              <Input type="number" value={editForm.salePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, salePrice: Number(e.target.value) })} />
+            </Field>
+          </div>
+          <Button className="w-full" type="submit" disabled={updateMutation.isPending}>
+            {updateMutation.isPending ? "جار الحفظ..." : "حفظ التعديلات"}
+          </Button>
+        </form>
+      </ModalForm>
+
+      {/* Delete Confirm Dialog */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">تأكيد الحذف</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            هل تريد حذف <span className="font-bold">{product.name}</span>؟ هذا الإجراء لا يمكن التراجع عنه.
+          </p>
+          <div className="flex gap-2 mt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setDeleteOpen(false)}>إلغاء</Button>
+            <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={() => { setDeleteOpen(false); navigate(-1) }}>حذف</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

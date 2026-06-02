@@ -1,0 +1,289 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO-STYLE DESIGN SYSTEM — CSS Variables
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+:root {
+  color-scheme: light;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* ── Theme variables (set by applyTheme). Defaults = Zoho ── */
+  --theme-accent:           #006EEA;
+  --theme-accentSoft:       rgba(0, 110, 234, 0.10);
+  --theme-receipt:          #16a34a;
+  --theme-payment:          #d97706;
+  --theme-expense:          #dc2626;
+  --theme-sale:             #16a34a;
+  --theme-purchase:         #006EEA;
+  --theme-pageBg:           #F4F5F8;
+  --theme-cardBg:           #ffffff;
+  --theme-cardBorder:       #E8EAF0;
+  --theme-headerBg:         #ffffff;
+  --theme-sidebar:          #1E2D4D;
+  --theme-sidebarText:      #C8D3E8;
+  --theme-primaryBtn:       #006EEA;
+  --theme-primaryBtnHover:  #0057C2;
+  --theme-textPrimary:      #1A1D23;
+
+  /* ── Zoho-specific tokens ── */
+  --z-radius-sm:   4px;
+  --z-radius:      8px;
+  --z-radius-lg:   12px;
+  --z-shadow-xs:   0 1px 2px rgba(17, 17, 26, 0.05);
+  --z-shadow-sm:   0 1px 3px rgba(17, 17, 26, 0.08), 0 1px 2px rgba(17, 17, 26, 0.04);
+  --z-shadow:      0 4px 6px -1px rgba(17, 17, 26, 0.08), 0 2px 4px -2px rgba(17, 17, 26, 0.04);
+  --z-shadow-md:   0 10px 15px -3px rgba(17, 17, 26, 0.07), 0 4px 6px -4px rgba(17, 17, 26, 0.04);
+  --z-border:      1px solid var(--theme-cardBorder);
+  --z-tbl-header:  #F8F9FB;
+  --z-tbl-hover:   #F0F5FF;
+  --z-tbl-stripe:  #FAFBFD;
+}
+
+.dark {
+  color-scheme: dark;
+  --theme-pageBg:      #0D1117;
+  --theme-cardBg:      #161B22;
+  --theme-cardBorder:  #30363D;
+  --theme-headerBg:    #161B22;
+  --theme-sidebar:     #0D1117;
+  --theme-sidebarText: #8B949E;
+  --theme-textPrimary: #E6EDF3;
+  --z-tbl-header:  #1C2128;
+  --z-tbl-hover:   #1C2332;
+  --z-tbl-stripe:  #161B22;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   RESET & BASE
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  background: var(--theme-pageBg);
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: var(--theme-pageBg);
+  color: var(--theme-textPrimary);
+  line-height: 1.5;
+}
+
+button, input, select, textarea { font: inherit; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO CARD SYSTEM — applies to ALL Card components
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.z-card {
+  background-color: var(--theme-cardBg);
+  border: var(--z-border);
+  border-radius: var(--z-radius);
+  box-shadow: var(--z-shadow-sm);
+  color: var(--theme-textPrimary);
+  transition: box-shadow 0.15s ease;
+}
+
+.z-card:hover { box-shadow: var(--z-shadow); }
+
+/* Override Tailwind card classes to use Zoho shadow/border */
+.rounded-lg.border-slate-200,
+.rounded-xl.border-slate-200,
+.rounded-lg.border,
+.rounded-xl.border {
+  background-color: var(--theme-cardBg) !important;
+  border-color: var(--theme-cardBorder) !important;
+  box-shadow: var(--z-shadow-sm) !important;
+  color: var(--theme-textPrimary);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO TABLE SYSTEM
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* Table header — light gray, clean */
+thead tr {
+  background-color: var(--z-tbl-header) !important;
+  border-bottom: 2px solid var(--theme-cardBorder) !important;
+}
+
+thead th {
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6B7280 !important;
+  padding: 11px 16px !important;
+}
+
+.dark thead th { color: #8B949E !important; }
+
+/* Table rows — no vertical borders, subtle dividers */
+tbody tr {
+  border-bottom: 1px solid var(--theme-cardBorder) !important;
+  transition: background-color 0.1s ease !important;
+}
+
+tbody tr:last-child { border-bottom: none !important; }
+
+tbody tr:hover {
+  background-color: var(--z-tbl-hover) !important;
+}
+
+tbody td {
+  padding: 11px 16px !important;
+  font-size: 13.5px;
+  color: var(--theme-textPrimary);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO INPUT / FORM ELEMENTS
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+input, select, textarea {
+  border-color: #D1D5DB;
+  border-radius: var(--z-radius-sm) !important;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--theme-accent) !important;
+  box-shadow: 0 0 0 3px rgba(0, 110, 234, 0.12) !important;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO SCROLLBAR
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+.dark ::-webkit-scrollbar-thumb { background: #374151; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   DARK THEME OVERRIDES
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.dark .text-slate-500,
+.dark .text-slate-600 { color: #8B949E !important; }
+
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #1C2128 !important;
+  border-color: #30363D !important;
+  color: #E6EDF3 !important;
+}
+
+/* Exclusive (fully dark) theme */
+:root[data-theme="exclusive"] .rounded-lg,
+:root[data-theme="exclusive"] .rounded-xl { color: #fafafa; }
+:root[data-theme="exclusive"] .text-slate-500,
+:root[data-theme="exclusive"] .text-slate-600 { color: #a1a1aa !important; }
+:root[data-theme="exclusive"] input,
+:root[data-theme="exclusive"] select,
+:root[data-theme="exclusive"] textarea {
+  background-color: #27272a !important;
+  border-color: #52525b !important;
+  color: #fafafa !important;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   STATUS / BADGE COLORS — Zoho palette
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.status-paid     { background: #DCFCE7; color: #15803D; }
+.status-pending  { background: #FEF3C7; color: #B45309; }
+.status-overdue  { background: #FEE2E2; color: #B91C1C; }
+.status-info     { background: #DBEAFE; color: #1D4ED8; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO PAGE HEADER UTILITY
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--theme-textPrimary);
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  font-size: 13px;
+  color: #6B7280;
+  margin-top: 2px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO STAT CARD
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.stat-card {
+  background: var(--theme-cardBg);
+  border: var(--z-border);
+  border-radius: var(--z-radius);
+  box-shadow: var(--z-shadow-sm);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--theme-accent);
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ZOHO SIDEBAR ITEM ANIMATIONS
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.sidebar-item {
+  position: relative;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.sidebar-item.active::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--theme-accent);
+  border-radius: 3px 0 0 3px;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   PRINT
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+@media print {
+  @page { size: auto; margin: 0; }
+  aside, header, nav, .print\:hidden, .no-print { display: none !important; }
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    margin: 1cm;
+  }
+  main { padding: 0 !important; overflow: visible !important; }
+  .rounded-xl, .rounded-lg { border-radius: 0 !important; box-shadow: none !important; }
+  [style*="border-top"] { border-top-width: 6px !important; }
+}

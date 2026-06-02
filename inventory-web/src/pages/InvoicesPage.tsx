@@ -1,0 +1,222 @@
+import { useEffect, useMemo, useState } from "react"
+import { Link, useSearchParams } from "react-router-dom"
+import {
+  flexRender,
+  getCoreRowModel,
+  getPaginationRowModel,
+  useReactTable,
+  type ColumnDef,
+} from "@tanstack/react-table"
+import { Eye, Plus, Receipt, ShoppingCart } from "lucide-react"
+import { useInvoices } from "../hooks/useInvoices"
+import type { Invoice } from "../types/api"
+import { Button } from "../components/ui/button"
+import { Badge } from "../components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { Input } from "../components/ui/input"
+import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { cn } from "../utils/cn"
+
+type TypeFilter = "ALL" | "SALE" | "PURCHASE"
+
+const typeChipStyles: Record<TypeFilter, string> = {
+  ALL:      "bg-slate-900 text-white",
+  SALE:     "bg-emerald-600 text-white",
+  PURCHASE: "bg-amber-600 text-white",
+}
+const typeChipIdleStyles =
+  "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+
+export function InvoicesPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlType = searchParams.get("type")
+  // Derive typeFilter DIRECTLY from URL (not useState) so navigating from another page always syncs
+  const typeFilter: TypeFilter = urlType === "SALE" || urlType === "PURCHASE" ? urlType : "ALL"
+
+  // Read date/status filters from URL so dashboard "today's invoices" link works
+  const urlFrom = searchParams.get("from") ?? ""
+  const urlTo   = searchParams.get("to")   ?? ""
+
+  const [query, setQuery] = useState("")
+  const [draftFrom, setDraftFrom] = useState(urlFrom)
+  const [draftTo, setDraftTo] = useState(urlTo)
+  const [draftStatus, setDraftStatus] = useState("all")
+  const [draftPaymentType, setDraftPaymentType] = useState("all")
+  const [appliedFilters, setAppliedFilters] = useState({
+    from: urlFrom,
+    to:   urlTo,
+    status: "all",
+    paymentType: "all",
+  })
+
+  function selectType(next: TypeFilter) {
+    if (next === "ALL") searchParams.delete("type")
+    else searchParams.set("type", next)
+    setSearchParams(searchParams, { replace: true })
+  }
+
+  // Auto-open create dialog if URL has ?new=1
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      searchParams.delete("new")
+      setSearchParams(searchParams, { replace: true })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const invoicesQuery = useInvoices({
+    from: appliedFilters.from || undefined,
+    to: appliedFilters.to || undefined,
+    status: appliedFilters.status === "ACTIVE" || appliedFilters.status === "CANCELLED" ? appliedFilters.status : undefined,
+    type: typeFilter === "ALL" ? undefined : typeFilter,
+    paymentType:
+      appliedFilters.paymentType === "CASH" ||
+      appliedFilters.paymentType === "CREDIT" ||
+      appliedFilters.paymentType === "PARTIAL"
+        ? appliedFilters.paymentType
+        : undefined,
+  })
+  const invoices = invoicesQuery.data ?? []
+  const filtered = invoices.filter((invoice) => {
+    const paid = Number(invoice.remainingAmount ?? 0) <= 0
+    const matchesStatus =
+      appliedFilters.status === "all" ||
+      appliedFilters.status === "ACTIVE" ||
+      appliedFilters.status === "CANCELLED" ||
+      (appliedFilters.status === "paid" && paid && invoice.status !== "CANCELLED") ||
+      (appliedFilters.status === "unpaid" && !paid && invoice.status !== "CANCELLED")
+    const matchesSearch =
+      query.trim() === "" ||
+      invoice.invoiceNumber.toLowerCase().includes(query.toLowerCase()) ||
+      (invoice.customer?.name?.toLowerCase().includes(query.toLowerCase()) ?? false)
+    return matchesStatus && matchesSearch
+  })
+
+  const columns = useMemo<ColumnDef<Invoice>[]>(
+    () => [
+      {
+        id: "type",
+        header: "النوع",
+        cell: ({ row }) => {
+          const t = row.original.type ?? "SALE"
+          return t === "PURCHASE" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+              <ShoppingCart className="h-3 w-3" /> شراء
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+              <Receipt className="h-3 w-3" /> بيع
+            </span>
+          )
+        },
+      },
+      { accessorKey: "invoiceNumber", header: "رقم الفاتورة" },
+      { id: "customer", header: "الزبون / المورّد", cell: ({ row }) => row.original.customer?.name ?? row.original.customerId },
+      { accessorKey: "date", header: "التاريخ", cell: ({ row }) => String(row.original.date).slice(0, 10) },
+      { accessorKey: "totalAmount", header: "الإجمالي" },
+      { accessorKey: "paidAmount", header: "المدفوع" },
+      { accessorKey: "remainingAmount", header: "الباقي" },
+      { 
+        accessorKey: "status", 
+        header: "الحالة",
+        cell: ({ row }) => {
+          const s = row.original.status;
+          let variant: "success" | "danger" | "warning" | "default" = "default";
+          let label = s;
+          if (s === "ACTIVE") { variant = "success"; label = "نشطة"; }
+          if (s === "CANCELLED") { variant = "danger"; label = "ملغاة"; }
+          if (s === "PENDING") { variant = "warning"; label = "قيد الانتظار"; }
+          return <Badge variant={variant}>{label}</Badge>
+        }
+      },
+      {
+        id: "actions",
+        header: "إجراءات",
+        cell: ({ row }) => (
+          <Button variant="outline" asChild>
+            <Link to={`/invoices/${row.original.id}`}><Eye className="h-4 w-4" /></Link>
+          </Button>
+        ),
+      },
+    ],
+    [],
+  )
+
+  const table = useReactTable({
+    data: filtered,
+    columns,
+    autoResetPageIndex: false,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  })
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">الفواتير</h1>
+          <p className="text-slate-500">قائمة الفواتير والبحث والتصفية.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/invoices/new?type=PURCHASE"><ShoppingCart className="h-4 w-4" /> فاتورة شراء</Link>
+          </Button>
+          <Button asChild>
+            <Link to="/invoices/new?type=SALE"><Plus className="h-4 w-4" /> فاتورة بيع</Link>
+          </Button>
+        </div>
+      </div>
+
+      {/* Type filter chips */}
+      <div className="flex gap-2">
+        {(["ALL", "SALE", "PURCHASE"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => selectType(t)}
+            className={cn(
+              "rounded-full px-4 py-1.5 text-sm font-medium transition",
+              typeFilter === t ? typeChipStyles[t] : typeChipIdleStyles,
+            )}
+          >
+            {t === "ALL" ? "الكل" : t === "SALE" ? "فواتير البيع" : "فواتير الشراء"}
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle>جدول الفواتير</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 xl:grid-cols-[1fr_170px_170px_180px_180px_120px]">
+            <Input placeholder="بحث برقم الفاتورة أو اسم الزبون" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <Input type="date" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} />
+            <Input type="date" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} />
+            <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={draftStatus} onChange={(event) => setDraftStatus(event.target.value)}>
+              <option value="all">الكل</option>
+              <option value="ACTIVE">نشطة</option>
+              <option value="CANCELLED">ملغاة</option>
+              <option value="paid">مدفوعة</option>
+              <option value="unpaid">غير مدفوعة</option>
+            </select>
+            <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={draftPaymentType} onChange={(event) => setDraftPaymentType(event.target.value)}>
+              <option value="all">كل الدفع</option>
+              <option value="CASH">كاش</option>
+              <option value="CREDIT">آجل</option>
+              <option value="PARTIAL">جزئي</option>
+            </select>
+            <Button onClick={() => setAppliedFilters({ from: draftFrom, to: draftTo, status: draftStatus, paymentType: draftPaymentType })}>بحث</Button>
+          </div>
+          <Table>
+            <THead>{table.getHeaderGroups().map((hg) => <TR key={hg.id}>{hg.headers.map((h) => <TH key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</TH>)}</TR>)}</THead>
+            <TBody>{table.getRowModel().rows.map((row) => <TR key={row.id}>{row.getVisibleCells().map((cell) => <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>)}</TR>)}</TBody>
+          </Table>
+          <div className="flex items-center justify-between">
+            <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
+            <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}</span>
+            <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

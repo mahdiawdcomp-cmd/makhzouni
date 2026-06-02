@@ -1,0 +1,36 @@
+import { Router } from "express";
+import approvalsRoutes from "./approvals.routes";
+import auditLogsRoutes from "./audit-logs.routes";
+import branchesRoutes from "./branches.routes";
+import authRoutes from "./auth.routes";
+import customersRoutes from "./customers.routes";
+import invoicesRoutes from "./invoices.routes";
+import messageTemplatesRoutes from "./message-templates.routes";
+import notificationsRoutes from "./notifications.routes";
+import productsRoutes from "./products.routes";
+import reportsRoutes from "./reports.routes";
+import settingsRoutes from "./settings.routes";
+import usersRoutes from "./users.routes";
+import vouchersRoutes from "./vouchers.routes";
+import transfersRoutes from "./transfers.routes";
+import whatsappRoutes from "./whatsapp.routes";
+
+const router = Router();
+
+router.use("/auth", authRoutes);
+router.use("/users", usersRoutes);
+router.use("/approvals", approvalsRoutes);
+router.use("/audit-logs", auditLogsRoutes);
+router.use("/branches", branchesRoutes);
+router.use("/customers", customersRoutes);
+router.use("/products", productsRoutes);
+router.use("/invoices", invoicesRoutes);
+router.use("/vouchers", vouchersRoutes);
+router.use("/transfers", transfersRoutes);
+router.use("/reports", reportsRoutes);
+router.use("/whatsapp", whatsappRoutes);
+router.use("/settings", settingsRoutes);
+router.use("/message-templates", messageTemplatesRoutes);
+router.use("/notifications", notificationsRoutes);
+
+export default router;
