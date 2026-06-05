@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { AlertTriangle, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
+import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
 import { applyCoupon, invoiceImageObjectUrl } from "../api/endpoints"
@@ -16,6 +16,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
+import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -158,6 +159,9 @@ export function InvoiceCreatePage() {
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+
+  // ---- OCR state ----
+  const [ocrOpen, setOcrOpen] = useState(false)
 
   // ---- barcode state ----
   const [scanBuffer, setScanBuffer] = useState("")
@@ -369,6 +373,24 @@ export function InvoiceCreatePage() {
       setProductModal(true)
       window.setTimeout(() => productSearchRef.current?.focus(), 50)
     }, 0)
+  }
+
+  // إضافة منتجات من OCR مباشرة للفاتورة
+  function addOcrItems(ocrItems: OcrReadyItem[]) {
+    const newItems = ocrItems
+      .map((ocr) => {
+        const product = products.find((p) => p.id === ocr.productId)
+        if (!product) return null
+        return {
+          product,
+          unit: ocr.unit,
+          quantity: ocr.quantity,
+          unitPrice: ocr.unitPrice > 0 ? ocr.unitPrice : unitPriceFor(product, ocr.unit),
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+
+    setItems((current) => [...current, ...newItems])
   }
 
   function addProduct(product: Product) {
@@ -670,10 +692,37 @@ export function InvoiceCreatePage() {
         </div>
       ) : null}
 
-      {/* Voice Invoice Button */}
-      <div className="flex justify-center py-2">
+      {/* AI Buttons Row — صوت + كاميرا */}
+      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-2">
         <VoiceInvoiceButton />
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setOcrOpen(true)}
+            className="h-20 w-20 rounded-full bg-emerald-600 text-white shadow-xl
+                       flex items-center justify-center hover:bg-emerald-700
+                       hover:scale-105 active:scale-95 transition-all duration-200"
+            title="قراءة فاتورة بالكاميرا"
+          >
+            <Camera className="h-8 w-8" />
+          </button>
+          <p className="text-xs text-slate-400 text-center">
+            مسح فاتورة ورقية
+          </p>
+        </div>
       </div>
+
+      {/* OCR Dialog */}
+      {ocrOpen && (
+        <Dialog open={ocrOpen} onOpenChange={setOcrOpen}>
+          <DialogContent className="max-w-md">
+            <OcrInvoiceScanner
+              onItemsReady={addOcrItems}
+              onClose={() => setOcrOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Header banner */}
       <div className={`rounded-xl bg-gradient-to-l ${accentBg} p-5 text-white shadow-sm`}>
