@@ -42,6 +42,14 @@ app.use((_req, _res, next) => {
 });
 app.use(errorHandler);
 
+// Prevent WhatsApp/Puppeteer crashes from killing the whole server
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException] Server kept alive:", err.message);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection] Server kept alive:", reason);
+});
+
 app.listen(port, "0.0.0.0", () => {
   console.log(`Inventory backend is running on port ${port}`);
   startNotificationJobs();

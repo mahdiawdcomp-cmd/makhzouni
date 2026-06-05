@@ -55,11 +55,18 @@ export function initializeWhatsApp() {
       headless: true,
       executablePath: chromePath,
       timeout: 120000,
+      protocolTimeout: 300000,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-gpu",
         "--disable-dev-shm-usage",
+        "--no-zygote",
+        "--single-process",
+        "--disable-extensions",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
       ],
     },
   });
