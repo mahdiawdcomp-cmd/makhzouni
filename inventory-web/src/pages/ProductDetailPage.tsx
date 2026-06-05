@@ -48,9 +48,22 @@ async function openPdf(promise: Promise<string>) {
 }
 
 const emptyEditForm: ProductPayload = {
-  itemNumber: "", name: "", qrCode: "", cartonQrCode: "", category: "",
+  itemNumber: "", name: "", qrCode: "", cartonQrCode: "", imageUrl: null, category: "",
   openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1,
   purchasePrice: 0, salePrice: 0, minStock: 5,
+}
+
+async function compressProductImage(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+  const maxSide = 900
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Image compression failed")
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL("image/jpeg", 0.82)
 }
 
 export function ProductDetailPage() {
@@ -102,6 +115,7 @@ export function ProductDetailPage() {
       name: product.name,
       qrCode: product.qrCode ?? "",
       cartonQrCode: product.cartonQrCode ?? "",
+      imageUrl: product.imageUrl ?? null,
       category: product.category ?? "",
       openingBalancePcs: product.openingBalancePcs,
       cartonsAvailable: product.cartonsAvailable,
@@ -163,6 +177,10 @@ export function ProductDetailPage() {
           </Button>
         </div>
       </div>
+
+      {product.imageUrl ? (
+        <img src={product.imageUrl} alt={product.name} className="h-44 w-full rounded-xl object-cover ring-1 ring-slate-200 md:h-64" />
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Product info */}
@@ -330,6 +348,38 @@ export function ProductDetailPage() {
       {/* Edit Modal */}
       <ModalForm open={editOpen} onOpenChange={setEditOpen} title="تعديل المنتج">
         <form className="space-y-4" onSubmit={submitEdit}>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex flex-wrap items-center gap-3">
+              {editForm.imageUrl ? (
+                <img src={editForm.imageUrl} alt={editForm.name || "صورة المادة"} className="h-20 w-20 rounded-xl object-cover ring-1 ring-slate-200" />
+              ) : (
+                <div className="grid h-20 w-20 place-items-center rounded-xl bg-white text-xs font-bold text-slate-400 ring-1 ring-slate-200 dark:bg-slate-950">صورة</div>
+              )}
+              <div className="flex-1 space-y-2">
+                <div className="text-sm font-semibold">صورة المادة</div>
+                <div className="text-xs text-slate-500">تنضغط تلقائياً قبل الحفظ.</div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" asChild>
+                    <label className="cursor-pointer">
+                      اختيار صورة
+                      <input
+                        className="hidden"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0]
+                          if (!file) return
+                          void compressProductImage(file).then((imageUrl) => setEditForm((current) => ({ ...current, imageUrl })))
+                          event.target.value = ""
+                        }}
+                      />
+                    </label>
+                  </Button>
+                  {editForm.imageUrl ? <Button type="button" variant="outline" onClick={() => setEditForm({ ...editForm, imageUrl: null })}>حذف الصورة</Button> : null}
+                </div>
+              </div>
+            </div>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="اسم المنتج *">
               <Input required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />

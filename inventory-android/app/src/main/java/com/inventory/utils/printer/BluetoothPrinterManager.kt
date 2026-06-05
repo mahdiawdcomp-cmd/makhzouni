@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 import java.util.UUID
@@ -37,8 +38,8 @@ class BluetoothPrinterManager(private val context: Context) {
             outputStream.write(bytes)
             outputStream.flush()
             
-            // Allow buffer to empty
-            Thread.sleep(1000)
+            // Allow buffer to empty — use coroutine delay (not Thread.sleep) to free the IO thread
+            delay(1000)
             socket.close()
             true
         } catch (e: Exception) {

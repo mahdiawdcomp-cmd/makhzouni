@@ -8,9 +8,11 @@ import {
 import {
   createUser,
   deactivateUser,
+  deleteUserPermanently,
   listUsers,
   updateUser,
 } from "../services/user.service";
+import { hasPermission } from "../middleware/permission.middleware";
 
 function ensureAuthenticatedUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
@@ -50,7 +52,7 @@ export const getUsers = asyncHandler(async (_req, res) => {
 export const addUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_USERS")) {
     const response = await queueStaffApproval(
       "CREATE_USER",
       { body: req.body },
@@ -73,7 +75,7 @@ export const editUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_USERS")) {
     const response = await queueStaffApproval(
       "UPDATE_USER",
       { params: { id }, body: req.body },
@@ -96,7 +98,7 @@ export const deleteUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_USERS")) {
     const response = await queueStaffApproval(
       "DEACTIVATE_USER",
       { params: { id } },
@@ -112,5 +114,17 @@ export const deleteUser = asyncHandler(async (req, res) => {
     success: true,
     message: "User deactivated successfully",
     data: deactivatedUser,
+  });
+});
+
+export const permanentlyDeleteUser = asyncHandler(async (req, res) => {
+  const user = ensureAuthenticatedUser(req.user);
+  const id = String(req.params.id);
+
+  await deleteUserPermanently(id, user.id);
+
+  res.json({
+    success: true,
+    message: "User deleted permanently",
   });
 });

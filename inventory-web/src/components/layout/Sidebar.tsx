@@ -15,14 +15,19 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  ScanBarcode,
   Users,
   Wallet,
   ArrowRightLeft,
+  BadgePercent,
+  FileCheck2,
+  RotateCcw,
   Zap,
 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { getApprovals } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
+import type { UserPermission } from "../../types/api"
 import { cn } from "../../utils/cn"
 
 type Leaf  = { to: string; label: string; icon: ComponentType<{ className?: string }>; dotColor?: string }
@@ -30,6 +35,18 @@ type Group = { id: string; label: string; icon: ComponentType<{ className?: stri
 type Item  = Leaf | Group
 
 function isGroup(item: Item): item is Group { return "children" in item }
+
+function permissionForItem(item: Item): UserPermission | null {
+  if ("to" in item && item.to === "/") return null
+  const path = "basePath" in item ? item.basePath : item.to
+  if (path.startsWith("/inventory")) return "MANAGE_PRODUCTS"
+  if (path.startsWith("/invoices") || path.startsWith("/pos") || path.startsWith("/quotations")) return "MANAGE_INVOICES"
+  if (path.startsWith("/vouchers")) return "MANAGE_VOUCHERS"
+  if (path.startsWith("/customers") || path.startsWith("/account")) return "MANAGE_CUSTOMERS"
+  if (path.startsWith("/reports")) return "VIEW_REPORTS"
+  if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
+  return null
+}
 
 const navItems: Item[] = [
   { to: "/",          label: "الرئيسية",    icon: Home },
@@ -45,8 +62,11 @@ const navItems: Item[] = [
     children: [
       { to: "/invoices?type=SALE",     label: "فواتير البيع",   icon: Receipt,      dotColor: "#16A34A" },
       { to: "/invoices?type=PURCHASE", label: "فواتير الشراء",  icon: ShoppingCart, dotColor: "#D97706" },
+      { to: "/invoices/returns",       label: "مرتجع مبيعات",   icon: RotateCcw,    dotColor: "#DC2626" },
+      { to: "/quotations",             label: "عروض الأسعار",   icon: FileCheck2,   dotColor: "#2563EB" },
     ],
   },
+  { to: "/pos", label: "POS سريع", icon: ScanBarcode },
   {
     id: "vouchers", label: "السندات", icon: ReceiptText, basePath: "/vouchers",
     children: [
@@ -66,6 +86,7 @@ const adminItems = [
   { to: "/approvals",  label: "الموافقات",   Icon: ShieldCheck  },
   { to: "/audit-logs", label: "سجل التدقيق", Icon: ClipboardList },
   { to: "/branches",   label: "الفروع",      Icon: Building2    },
+  { to: "/coupons",    label: "الكوبونات",   Icon: BadgePercent },
 ]
 
 /* ── Sidebar leaf link ── */
@@ -191,11 +212,23 @@ function SideLink({ to, label, Icon, badge }: {
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 export function Sidebar() {
   const isAdmin = useAuthStore((state) => state.isAdmin())
+  const hasPermission = useAuthStore((state) => state.hasPermission)
+  const canManageUsers = useAuthStore((state) => state.hasPermission("MANAGE_USERS"))
+  const canManageApprovals = useAuthStore((state) => state.hasPermission("MANAGE_APPROVALS"))
   const { data: approvals = [] } = useQuery({
     queryKey: ["approvals", "badge"],
     queryFn: getApprovals,
-    enabled: isAdmin,
+    enabled: isAdmin || canManageApprovals,
     refetchInterval: 30_000,
+  })
+  const visibleAdminItems = adminItems.filter((item) => {
+    if (item.to === "/users") return isAdmin || canManageUsers
+    if (item.to === "/approvals") return isAdmin || canManageApprovals
+    return isAdmin
+  })
+  const visibleNavItems = navItems.filter((item) => {
+    const permission = permissionForItem(item)
+    return !permission || isAdmin || hasPermission(permission)
   })
 
   return (
@@ -222,7 +255,7 @@ export function Sidebar() {
 
       {/* ── Navigation ── */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-        {navItems.map((item) =>
+        {visibleNavItems.map((item) =>
           isGroup(item) ? (
             <SideGroup key={item.id} item={item} />
           ) : (
@@ -231,12 +264,12 @@ export function Sidebar() {
         )}
 
         {/* ── Admin Section ── */}
-        {isAdmin ? (
+        {visibleAdminItems.length > 0 ? (
           <div className="mt-4 pt-4 border-t border-white/8">
             <div className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-white/30">
               إدارة النظام
             </div>
-            {adminItems.map(({ to, label, Icon }) => (
+            {visibleAdminItems.map(({ to, label, Icon }) => (
               <SideLink
                 key={to}
                 to={to}

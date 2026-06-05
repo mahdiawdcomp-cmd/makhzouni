@@ -36,6 +36,9 @@ export interface CreateInvoiceInput {
   customerId: string;
   type?: InvoiceType;
   date?: string;
+  clientRequestId?: string;
+  couponCode?: string;
+  originalInvoiceId?: string;
   discount: number;
   tax: number;
   paidAmount: number;
@@ -81,12 +84,36 @@ function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: numb
   return price;
 }
 
+function isStockInflow(type: InvoiceType) {
+  return type === InvoiceType.PURCHASE || type === InvoiceType.SALES_RETURN;
+}
+
+function isCustomerCreditInvoice(type: InvoiceType) {
+  return type === InvoiceType.PURCHASE || type === InvoiceType.SALES_RETURN;
+}
+
 function productStock(product: {
   openingBalancePcs: number;
   cartonsAvailable: number;
   pcsPerCarton: number;
 }) {
   return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
+}
+
+function normalizeStock(balanceInPieces: number, pcsPerCarton: number) {
+  if (balanceInPieces < 0) {
+    return { openingBalancePcs: balanceInPieces, cartonsAvailable: 0 };
+  }
+
+  if (pcsPerCarton <= 0) {
+    return { openingBalancePcs: balanceInPieces, cartonsAvailable: 0 };
+  }
+
+  const cartonsAvailable = Math.floor(balanceInPieces / pcsPerCarton);
+  return {
+    openingBalancePcs: balanceInPieces - cartonsAvailable * pcsPerCarton,
+    cartonsAvailable,
+  };
 }
 
 function openingBalanceForStock(
@@ -96,18 +123,57 @@ function openingBalanceForStock(
   return desiredStock - product.cartonsAvailable * product.pcsPerCarton;
 }
 
+async function couponDiscount(
+  tx: Db,
+  code: string | undefined,
+  subtotal: number
+) {
+  const normalizedCode = code?.trim().toUpperCase();
+  if (!normalizedCode) return { couponId: null as string | null, discount: 0 };
+
+  const coupon = await tx.coupon.findUnique({
+    where: { code: normalizedCode },
+    include: { _count: { select: { redemptions: true } } },
+  });
+
+  const now = new Date();
+  if (!coupon || !coupon.isActive) {
+    throw new AppError("Coupon is not active", 400, "COUPON_INACTIVE");
+  }
+  if (coupon.startsAt && coupon.startsAt > now) {
+    throw new AppError("Coupon has not started yet", 400, "COUPON_NOT_STARTED");
+  }
+  if (coupon.endsAt && coupon.endsAt < now) {
+    throw new AppError("Coupon has expired", 400, "COUPON_EXPIRED");
+  }
+  if (coupon.maxUses !== null && coupon._count.redemptions >= coupon.maxUses) {
+    throw new AppError("Coupon usage limit reached", 400, "COUPON_LIMIT_REACHED");
+  }
+
+  const raw =
+    coupon.discountType === "PERCENT"
+      ? subtotal * (toNumber(coupon.discountValue) / 100)
+      : toNumber(coupon.discountValue);
+
+  return {
+    couponId: coupon.id,
+    discount: Math.min(subtotal, Math.max(0, raw)),
+  };
+}
+
 async function generateInvoiceNumber(tx: Db, date: Date) {
   const year = date.getFullYear();
-  const prefix = `INV-${year}-`;
-  const lastInvoice = await tx.invoice.findFirst({
-    where: { invoiceNumber: { startsWith: prefix } },
-    orderBy: { invoiceNumber: "desc" },
-  });
-  const lastNumber = lastInvoice
-    ? Number(lastInvoice.invoiceNumber.replace(prefix, ""))
-    : 0;
+  const counterKey = `invoice-${year}`;
 
-  return `${prefix}${String(lastNumber + 1).padStart(4, "0")}`;
+  // Atomic increment using the Counter table — avoids text-sort race condition
+  // that would fail after 9999 invoices/year.
+  const counter = await tx.counter.upsert({
+    where: { key: counterKey },
+    update: { value: { increment: 1 } },
+    create: { key: counterKey, value: 1 },
+  });
+
+  return `INV-${year}-${String(counter.value).padStart(4, "0")}`;
 }
 
 function getDateFilter(from?: string, to?: string) {
@@ -153,13 +219,13 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
     throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
   }
 
-  const [saleTotals, purchaseTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] = await Promise.all([
+  const [saleTotals, creditInvoiceTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] = await Promise.all([
     tx.invoice.aggregate({
       where: { customerId, status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE },
       _sum: { remainingAmount: true },
     }),
     tx.invoice.aggregate({
-      where: { customerId, status: InvoiceStatus.ACTIVE, type: InvoiceType.PURCHASE },
+      where: { customerId, status: InvoiceStatus.ACTIVE, type: { in: [InvoiceType.PURCHASE, InvoiceType.SALES_RETURN] } },
       _sum: { remainingAmount: true },
     }),
     tx.paymentVoucher.aggregate({
@@ -188,7 +254,7 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
   const currentBalance =
     toNumber(customer.openingBalance) +
     toNumber(saleTotals._sum.remainingAmount) -
-    toNumber(purchaseTotals._sum.remainingAmount) -
+    toNumber(creditInvoiceTotals._sum.remainingAmount) -
     toNumber(receiptTotals._sum.amount) +
     toNumber(paymentTotals._sum.amount);
 
@@ -224,22 +290,20 @@ async function applyStockMovement(
 
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const balanceBefore = productStock(product);
-  const isPurchase = invoiceType === InvoiceType.PURCHASE;
-  // PURCHASE adds to stock (we're buying in); SALE subtracts (we're selling out).
+  const addsStock = isStockInflow(invoiceType);
+  // PURCHASE and SALES_RETURN add stock; SALE subtracts.
   // Negative balanceAfter is allowed — the product will show negative stock as a warning.
-  const balanceAfter = isPurchase ? balanceBefore + quantityInPieces : balanceBefore - quantityInPieces;
+  const balanceAfter = addsStock ? balanceBefore + quantityInPieces : balanceBefore - quantityInPieces;
 
   // Normalize carton / piece split so the display always reflects reality.
   // If stock is negative we keep cartonsAvailable = 0 and openingBalancePcs carries the deficit.
-  const normalizedCartons =
-    balanceAfter >= 0 ? Math.floor(balanceAfter / product.pcsPerCarton) : 0;
-  const normalizedPcs = balanceAfter - normalizedCartons * product.pcsPerCarton;
+  const normalized = normalizeStock(balanceAfter, product.pcsPerCarton);
 
   await tx.product.update({
     where: { id: product.id },
     data: {
-      openingBalancePcs: normalizedPcs,
-      cartonsAvailable: normalizedCartons,
+      openingBalancePcs: normalized.openingBalancePcs,
+      cartonsAvailable: normalized.cartonsAvailable,
     },
   });
 
@@ -248,15 +312,15 @@ async function applyStockMovement(
       productId: product.id,
       branchId,
       invoiceId,
-      type: isPurchase ? StockMovementType.IN : StockMovementType.OUT,
+      type: addsStock ? StockMovementType.IN : StockMovementType.OUT,
       quantity: quantityInPieces,
       balanceBefore,
       balanceAfter,
     },
   });
 
-  // Default unit price: SALE uses sale price; PURCHASE uses purchase price.
-  const defaultPriceSource = isPurchase ? product.purchasePrice : product.salePrice;
+  // Default unit price: SALE/SALES_RETURN use sale price; PURCHASE uses purchase price.
+  const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : product.salePrice;
   const unitPrice =
     item.unitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton);
 
@@ -268,51 +332,118 @@ async function applyStockMovement(
   };
 }
 
-// Reverse every stock movement booked against this invoice (regardless of direction),
-// so it works for SALE (originally OUT → restore as IN) and PURCHASE (originally IN → restore as OUT).
-async function restoreInvoiceStock(tx: Db, invoiceId: string) {
-  const movements = await tx.stockMovement.findMany({
-    where: { invoiceId },
-    orderBy: { createdAt: "asc" },
+async function adjustProductStock(
+  tx: Db,
+  productId: string,
+  quantityInPieces: number,
+  direction: "IN" | "OUT"
+) {
+  const product = await tx.product.findUnique({
+    where: { id: productId },
   });
 
-  for (const movement of movements) {
-    const product = await tx.product.findUnique({
-      where: { id: movement.productId },
-    });
+  if (!product) return;
 
-    if (!product) continue;
+  const balanceBefore = productStock(product);
+  const balanceAfter =
+    direction === "IN" ? balanceBefore + quantityInPieces : balanceBefore - quantityInPieces;
 
-    const wasOut = movement.type === StockMovementType.OUT;
-    const balanceBefore = productStock(product);
-    // Allow negative restoration too — same policy as forward movements.
-    const balanceAfter = wasOut ? balanceBefore + movement.quantity : balanceBefore - movement.quantity;
+  const normalized = normalizeStock(balanceAfter, product.pcsPerCarton);
 
-    // Normalize carton / piece split.
-    const normalizedCartons =
-      balanceAfter >= 0 ? Math.floor(balanceAfter / product.pcsPerCarton) : 0;
-    const normalizedPcs = balanceAfter - normalizedCartons * product.pcsPerCarton;
+  await tx.product.update({
+    where: { id: product.id },
+    data: {
+      openingBalancePcs: normalized.openingBalancePcs,
+      cartonsAvailable: normalized.cartonsAvailable,
+    },
+  });
+}
 
-    await tx.product.update({
-      where: { id: product.id },
-      data: {
-        openingBalancePcs: normalizedPcs,
-        cartonsAvailable: normalizedCartons,
+async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
+  const invoice = await tx.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      items: {
+        include: { product: true },
       },
-    });
+    },
+  });
 
-    await tx.stockMovement.create({
-      data: {
-        productId: product.id,
-        branchId: movement.branchId,
-        invoiceId,
-        type: wasOut ? StockMovementType.IN : StockMovementType.OUT,
-        quantity: movement.quantity,
-        balanceBefore,
-        balanceAfter,
-      },
-    });
+  if (!invoice) {
+    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
   }
+
+  for (const item of invoice.items) {
+    const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    await adjustProductStock(
+      tx,
+      item.productId,
+      quantityInPieces,
+      isStockInflow(invoice.type) ? "OUT" : "IN"
+    );
+  }
+
+  await tx.stockMovement.deleteMany({ where: { invoiceId } });
+}
+
+async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {
+  const invoice = await tx.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { items: true },
+  });
+
+  if (!invoice) {
+    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+
+  await tx.stockMovement.deleteMany({ where: { invoiceId } });
+
+  for (const item of invoice.items) {
+    await applyStockMovement(
+      tx,
+      invoice.id,
+      {
+        productId: item.productId,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: toNumber(item.unitPrice),
+      },
+      invoice.type,
+      invoice.branchId
+    );
+  }
+}
+
+async function recalculateInvoiceBalances(tx: Db, invoiceId: string) {
+  const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
+
+  if (!invoice) {
+    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+
+  const { previousBalance } = await getCustomerBalance(tx, invoice.customerId);
+  const balanceDelta = isCustomerCreditInvoice(invoice.type)
+    ? -toNumber(invoice.remainingAmount)
+    : toNumber(invoice.remainingAmount);
+
+  const updated = await tx.invoice.update({
+    where: { id: invoiceId },
+    data: {
+      previousBalance,
+      finalBalance: previousBalance + balanceDelta,
+    },
+    include: {
+      customer: true,
+      items: true,
+      creator: {
+        select: { id: true, name: true, username: true, role: true },
+      },
+    },
+  });
+
+  await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
+
+  return serializeInvoice(updated);
 }
 
 async function createInvoiceInTransaction(
@@ -322,8 +453,31 @@ async function createInvoiceInTransaction(
   existingInvoiceId?: string,
   existingInvoiceNumber?: string
 ) {
-  const date = input.date ? new Date(input.date) : new Date();
   const invoiceType = input.type ?? InvoiceType.SALE;
+  const existingInvoice = existingInvoiceId
+    ? await tx.invoice.findUnique({ where: { id: existingInvoiceId }, select: { date: true } })
+    : null;
+  const date = existingInvoice?.date ?? new Date();
+  const manualDiscount = input.discount ?? 0;
+  const tax = input.tax ?? 0;
+
+  if (!existingInvoiceId && input.clientRequestId) {
+    const existing = await tx.invoice.findUnique({
+      where: { clientRequestId: input.clientRequestId },
+      include: {
+        customer: true,
+        items: true,
+        creator: {
+          select: { id: true, name: true, username: true, role: true },
+        },
+      },
+    });
+
+    if (existing) {
+      return serializeInvoice(existing);
+    }
+  }
+
   const { customer, previousBalance } = await getCustomerBalance(tx, input.customerId);
   const branchId = input.branchId ?? customer.branchId;
   const invoiceNumber =
@@ -338,15 +492,16 @@ async function createInvoiceInTransaction(
           branchId,
           date,
           subtotal: 0,
-          discount: input.discount,
-          tax: input.tax,
+          discount: manualDiscount,
+          tax,
           totalAmount: 0,
           paidAmount: input.paidAmount,
           remainingAmount: 0,
           previousBalance,
           finalBalance: previousBalance,
           paymentType: input.paymentType ?? PaymentType.CREDIT,
-          createdBy,
+          couponId: null,
+          originalInvoiceId: input.originalInvoiceId,
         },
       })
     : await tx.invoice.create({
@@ -357,14 +512,16 @@ async function createInvoiceInTransaction(
           branchId,
           date,
           subtotal: 0,
-          discount: input.discount,
-          tax: input.tax,
+          discount: manualDiscount,
+          tax,
           totalAmount: 0,
           paidAmount: input.paidAmount,
           remainingAmount: 0,
           previousBalance,
           finalBalance: previousBalance,
           paymentType: input.paymentType ?? PaymentType.CREDIT,
+          clientRequestId: input.clientRequestId,
+          originalInvoiceId: input.originalInvoiceId,
           createdBy,
         },
       });
@@ -388,7 +545,9 @@ async function createInvoiceInTransaction(
     });
   }
 
-  const totalAmount = subtotal - input.discount + input.tax;
+  const coupon = await couponDiscount(tx, input.couponCode, subtotal);
+  const discount = coupon.couponId ? coupon.discount : manualDiscount;
+  const totalAmount = subtotal - discount + tax;
   if (totalAmount < 0) {
     throw new AppError(
       "Invoice discount cannot be greater than subtotal plus tax",
@@ -409,20 +568,22 @@ async function createInvoiceInTransaction(
 
   // finalBalance from our perspective: SALE adds remaining to what the customer owes,
   // PURCHASE subtracts (because the supplier now owes us less / we owe them more).
-  const balanceDelta = invoiceType === InvoiceType.PURCHASE ? -remainingAmount : remainingAmount;
+  const balanceDelta = isCustomerCreditInvoice(invoiceType) ? -remainingAmount : remainingAmount;
 
   const updatedInvoice = await tx.invoice.update({
     where: { id: invoice.id },
     data: {
       subtotal,
+      discount,
       totalAmount,
       paidAmount,
       remainingAmount,
       previousBalance,
       finalBalance: previousBalance + balanceDelta,
       paymentType,
-      createdBy,
       branchId,
+      couponId: coupon.couponId,
+      ...(existingInvoiceId ? {} : { createdBy }),
     },
     include: {
       customer: true,
@@ -432,6 +593,18 @@ async function createInvoiceInTransaction(
       },
     },
   });
+
+  await tx.couponRedemption.deleteMany({ where: { invoiceId: invoice.id } });
+  if (coupon.couponId && discount > 0) {
+    await tx.couponRedemption.create({
+      data: {
+        couponId: coupon.couponId,
+        invoiceId: invoice.id,
+        customerId: input.customerId,
+        amount: discount,
+      },
+    });
+  }
 
   await recalculateCustomerBalanceInTransaction(tx, input.customerId);
 
@@ -513,6 +686,32 @@ export async function createInvoice(
   );
 }
 
+export async function getLastSoldPrice(customerId: string, productId: string) {
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      customerId,
+      type: InvoiceType.SALE,
+      status: InvoiceStatus.ACTIVE,
+      items: { some: { productId } },
+    },
+    include: {
+      items: { where: { productId }, take: 1 },
+    },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+  });
+  const item = invoice?.items[0];
+
+  return invoice && item
+    ? {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        date: invoice.date,
+        unit: item.unit,
+        unitPrice: toNumber(item.unitPrice),
+      }
+    : null;
+}
+
 async function updateInvoiceInTransaction(
   tx: Db,
   id: string,
@@ -545,11 +744,8 @@ async function updateInvoiceInTransaction(
       },
     });
     await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
+    await reverseInvoiceItemsStock(tx, id);
     await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
-    await restoreInvoiceStock(tx, id);
-    // Delete ALL movements for this invoice (original + the restore movements just created),
-    // so createInvoiceInTransaction starts with a clean slate.
-    await tx.stockMovement.deleteMany({ where: { invoiceId: id } });
 
     // Preserve the original invoice type if the caller didn't explicitly set one.
     return createInvoiceInTransaction(
@@ -588,7 +784,7 @@ async function cancelInvoiceInTransaction(tx: Db, id: string) {
     }
 
     await lockCustomer(tx, invoice.customerId);
-    await restoreInvoiceStock(tx, id);
+    await reverseInvoiceItemsStock(tx, id);
 
     const cancelled = await tx.invoice.update({
       where: { id },
@@ -610,4 +806,37 @@ export async function cancelInvoice(id: string, db?: Db) {
   }
 
   return prisma.$transaction((tx) => cancelInvoiceInTransaction(tx, id));
+}
+
+async function reactivateInvoiceInTransaction(tx: Db, id: string) {
+    const invoice = await tx.invoice.findUnique({
+      where: { id },
+      include: { items: true },
+    });
+
+    if (!invoice) {
+      throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    }
+
+    if (invoice.status === InvoiceStatus.ACTIVE) {
+      throw new AppError("Invoice is already active", 400, "INVOICE_ACTIVE");
+    }
+
+    await lockCustomer(tx, invoice.customerId);
+    await applyInvoiceItemsStock(tx, id);
+
+    await tx.invoice.update({
+      where: { id },
+      data: { status: InvoiceStatus.ACTIVE },
+    });
+
+    return recalculateInvoiceBalances(tx, id);
+}
+
+export async function reactivateInvoice(id: string, db?: Db) {
+  if (db) {
+    return reactivateInvoiceInTransaction(db, id);
+  }
+
+  return prisma.$transaction((tx) => reactivateInvoiceInTransaction(tx, id));
 }

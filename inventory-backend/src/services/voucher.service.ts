@@ -88,14 +88,14 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
     throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
   }
 
-  const [saleTotals, purchaseTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] =
+  const [saleTotals, creditInvoiceTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] =
     await Promise.all([
       tx.invoice.aggregate({
         where: { customerId, status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE },
         _sum: { remainingAmount: true },
       }),
       tx.invoice.aggregate({
-        where: { customerId, status: InvoiceStatus.ACTIVE, type: InvoiceType.PURCHASE },
+        where: { customerId, status: InvoiceStatus.ACTIVE, type: { in: [InvoiceType.PURCHASE, InvoiceType.SALES_RETURN] } },
         _sum: { remainingAmount: true },
       }),
       tx.paymentVoucher.aggregate({
@@ -120,7 +120,7 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
   const currentBalance =
     toNumber(customer.openingBalance) +
     toNumber(saleTotals._sum.remainingAmount) -
-    toNumber(purchaseTotals._sum.remainingAmount) -
+    toNumber(creditInvoiceTotals._sum.remainingAmount) -
     toNumber(receiptTotals._sum.amount) +
     toNumber(paymentTotals._sum.amount);
 
@@ -202,7 +202,7 @@ async function createVoucherInTransaction(
   input: CreateVoucherInput,
   createdBy: string
 ) {
-  const date = input.date ? new Date(input.date) : new Date();
+  const date = new Date();
   const voucherNumber = await generateVoucherNumber(tx, input.type, date);
 
   // EXPENSE vouchers have no customer — they reduce the cashier and are tracked separately.
@@ -294,7 +294,6 @@ async function updateVoucherInTransaction(
 
   const data: Prisma.PaymentVoucherUpdateInput = {};
   if (input.amount !== undefined) data.amount = input.amount;
-  if (input.date !== undefined) data.date = new Date(input.date);
   if (input.notes !== undefined) data.notes = input.notes;
   if (input.description !== undefined) data.description = input.description;
   if (existing.type !== VoucherType.EXPENSE && input.customerId !== undefined) {

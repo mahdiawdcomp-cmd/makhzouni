@@ -2,7 +2,11 @@ package com.inventory.ui.products
 
 import android.Manifest
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.net.Uri
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.*
@@ -12,9 +16,11 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -46,6 +52,20 @@ import com.inventory.domain.model.Product
 import com.inventory.ui.common.*
 import com.inventory.ui.theme.AppColor
 import java.util.concurrent.Executors
+import java.io.ByteArrayOutputStream
+
+private fun compressProductImage(context: android.content.Context, uri: Uri): String? {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+    val maxSide = 900f
+    val scale = minOf(1f, maxSide / maxOf(bitmap.width, bitmap.height).toFloat())
+    val outBitmap = if (scale < 1f) {
+        Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
+    } else bitmap
+    val out = ByteArrayOutputStream()
+    outBitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
+    return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  PRODUCT LIST
@@ -108,6 +128,27 @@ fun ProductListScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(
+                            "updated" to "آخر تعديل",
+                            "name" to "الاسم",
+                            "stockDesc" to "أعلى كمية",
+                            "stockAsc" to "أقل كمية",
+                            "purchaseDesc" to "سعر الشراء",
+                            "saleDesc" to "سعر البيع",
+                        ).forEach { (key, label) ->
+                            FilterChip(
+                                selected = state.sortBy == key,
+                                onClick = { viewModel.onSortChange(key) },
+                                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -160,10 +201,18 @@ private fun ProductListItem(product: Product, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        IconAvatar(
-            icon = if (product.isLowStock) Icons.Default.Warning else Icons.Default.Inventory2,
-            bgColor = iconBg, iconColor = iconClr, size = 46.dp, iconSize = 22.dp,
-        )
+        if (!product.imageUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = product.imageUrl,
+                contentDescription = product.name,
+                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
+            )
+        } else {
+            IconAvatar(
+                icon = if (product.isLowStock) Icons.Default.Warning else Icons.Default.Inventory2,
+                bgColor = iconBg, iconColor = iconClr, size = 46.dp, iconSize = 22.dp,
+            )
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(product.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("رقم: ${product.itemNumber}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
@@ -336,7 +385,7 @@ fun ProductDetailScreen(
                                 onClick = {
                                     val intent = Intent(Intent.ACTION_SEND).apply {
                                         type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, cur.qrCode + "-CTN")
+                                        putExtra(Intent.EXTRA_TEXT, cur.cartonQrCode)
                                     }
                                     context.startActivity(Intent.createChooser(intent, "شارك QR الكرتونة"))
                                 },
@@ -392,7 +441,13 @@ private fun PriceBox(label: String, price: Double, textColor: Color, bgColor: Co
 @Composable
 fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
     var unitExpanded by remember { mutableStateOf(false) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            compressProductImage(context, uri)?.let { viewModel.update("imageUrl", it) }
+        }
+    }
     LaunchedEffect(state.saved) { if (state.saved) onDone() }
 
     AppScreen(title = state.actionText, onBack = onDone) { padding ->
@@ -404,6 +459,34 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
             item {
                 SectionCard(title = "معلومات الصنف") {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (!state.imageUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = state.imageUrl,
+                                    contentDescription = state.name,
+                                    modifier = Modifier.size(76.dp).clip(RoundedCornerShape(14.dp)),
+                                )
+                            } else {
+                                IconAvatar(Icons.Default.PhotoCamera, AppColor.Blue100, AppColor.Blue600, size = 76.dp, iconSize = 28.dp)
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("صورة المادة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text("تُصغّر تلقائياً قبل الحفظ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(onClick = { imagePicker.launch("image/*") }, shape = RoundedCornerShape(10.dp)) {
+                                        Icon(Icons.Default.PhotoCamera, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("اختيار")
+                                    }
+                                    if (!state.imageUrl.isNullOrBlank()) {
+                                        TextButton(onClick = { viewModel.update("imageUrl", "") }) { Text("حذف") }
+                                    }
+                                }
+                            }
+                        }
                         AppTextField(state.name, { viewModel.update("name", it) }, "اسم الصنف", required = true)
                         AppTextField(state.itemNumber, { viewModel.update("itemNumber", it) }, "رقم الآيتم")
                         AppTextField(state.category, { viewModel.update("category", it) }, "الفئة")
@@ -518,12 +601,19 @@ fun QrScannerScreen(
     viewModel: QrScannerViewModel,
     onOpenProduct: (String) -> Unit,
     onAddProduct: (String) -> Unit,
-    onAddToInvoice: (String) -> Unit,
+    onAddToInvoice: (String, String) -> Unit,
+    autoAddToInvoice: Boolean = false,
 ) {
     val state by viewModel.state.collectAsState()
     var hasPermission by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasPermission = it }
     LaunchedEffect(Unit) { launcher.launch(Manifest.permission.CAMERA) }
+    LaunchedEffect(state, autoAddToInvoice) {
+        val found = state as? QrScannerState.Found
+        if (autoAddToInvoice && found != null) {
+            onAddToInvoice(found.product.id, found.unit)
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (hasPermission) {
@@ -563,7 +653,7 @@ fun QrScannerScreen(
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedButton(onClick = { onOpenProduct(current.product.id) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("التفاصيل") }
-                                Button(onClick = { onAddToInvoice(current.product.id) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
+                                Button(onClick = { onAddToInvoice(current.product.id, current.unit) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
                                     Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("للفاتورة")
                                 }
                             }

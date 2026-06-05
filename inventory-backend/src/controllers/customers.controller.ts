@@ -17,6 +17,7 @@ import {
   softDeleteCustomer,
   updateCustomer,
 } from "../services/customer.service";
+import { hasPermission } from "../middleware/permission.middleware";
 
 function requireUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
@@ -70,7 +71,7 @@ export const getCustomerDetails = asyncHandler(async (req, res) => {
 export const addCustomer = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_CUSTOMERS")) {
     const response = await queueStaffApproval(
       "CREATE_CUSTOMER",
       { body: req.body },
@@ -93,7 +94,7 @@ export const editCustomer = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_CUSTOMERS")) {
     const response = await queueStaffApproval(
       "UPDATE_CUSTOMER",
       { params: { id }, body: req.body },
@@ -116,7 +117,7 @@ export const deleteCustomer = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_CUSTOMERS")) {
     const response = await queueStaffApproval(
       "DELETE_CUSTOMER",
       { params: { id } },

@@ -26,6 +26,7 @@ data class ProductListUiState(
     val products: List<Product> = emptyList(),
     val query: String = "",
     val category: String? = null,
+    val sortBy: String = "updated",
     val isLoading: Boolean = false,
     val error: String? = null
 ) {
@@ -36,6 +37,15 @@ data class ProductListUiState(
             product.itemNumber.contains(query, ignoreCase = true)
         val matchesCategory = category == null || product.category == category
         matchesQuery && matchesCategory
+    }.let { rows ->
+        when (sortBy) {
+            "name" -> rows.sortedBy { it.name }
+            "stockDesc" -> rows.sortedByDescending { it.currentStock }
+            "stockAsc" -> rows.sortedBy { it.currentStock }
+            "purchaseDesc" -> rows.sortedByDescending { it.purchasePrice }
+            "saleDesc" -> rows.sortedByDescending { it.salePrice }
+            else -> rows.sortedByDescending { it.updatedAt.orEmpty() }
+        }
     }
 }
 
@@ -45,17 +55,17 @@ class ProductListViewModel @Inject constructor(
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val category = MutableStateFlow<String?>(null)
+    private val sortBy = MutableStateFlow("updated")
     private val isLoading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
 
     val state: StateFlow<ProductListUiState> = combine(
-        repository.products,
-        query,
-        category,
-        isLoading,
-        error
-    ) { products, queryValue, categoryValue, loadingValue, errorValue ->
-        ProductListUiState(products, queryValue, categoryValue, loadingValue, errorValue)
+        combine(repository.products, query, category, isLoading, error) { products, queryValue, categoryValue, loadingValue, errorValue ->
+            ProductListUiState(products, queryValue, categoryValue, isLoading = loadingValue, error = errorValue)
+        },
+        sortBy
+    ) { stateValue, sortValue ->
+        stateValue.copy(sortBy = sortValue)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProductListUiState())
 
     init {
@@ -71,6 +81,7 @@ class ProductListViewModel @Inject constructor(
 
     fun onQueryChange(value: String) { query.value = value }
     fun onCategoryChange(value: String?) { category.value = value }
+    fun onSortChange(value: String) { sortBy.value = value }
 
     fun refresh() {
         viewModelScope.launch {
@@ -88,7 +99,7 @@ class ProductListViewModel @Inject constructor(
 @HiltViewModel
 class ProductDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    repository: ProductRepository,
+    private val repository: ProductRepository,
     sessionManager: SessionManager
 ) : ViewModel() {
     private val productId: String = checkNotNull(savedStateHandle["productId"])
@@ -104,13 +115,27 @@ class ProductDetailViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), sessionManager.currentBaseUrl.trimEnd('/'))
 
-    fun deleteProduct() {
+    private val _deleteError = MutableStateFlow<String?>(null)
+    val deleteError: StateFlow<String?> = _deleteError.asStateFlow()
+
+    fun deleteProduct(onSuccess: () -> Unit = {}) {
         viewModelScope.launch {
-            try {
-                repository.deleteProduct(productId)
-            } catch (_: Exception) {}
+            when (val result = repository.deleteProduct(productId)) {
+                is ApiResult.Success -> {
+                    _deleteError.value = null
+                    onSuccess()
+                }
+                is ApiResult.Error   -> _deleteError.value = result.message
+                ApiResult.Offline    -> _deleteError.value = "لا يوجد اتصال بالإنترنت"
+                is ApiResult.Queued  -> {
+                    _deleteError.value = null
+                    onSuccess()
+                }
+            }
         }
     }
+
+    fun clearDeleteError() { _deleteError.value = null }
 }
 
 data class BranchItem(val id: String, val name: String)
@@ -119,6 +144,7 @@ data class ProductFormUiState(
     val itemNumber: String = "",
     val name: String = "",
     val qrCode: String = "",
+    val imageUrl: String? = null,
     val category: String = "",
     val unit: String = "PIECE",
     val openingBalancePcs: String = "0",
@@ -136,7 +162,7 @@ data class ProductFormUiState(
 ) {
     val totalQuantity: Int = openingBalancePcs.toIntOrNull().orZero() +
         cartonsAvailable.toIntOrNull().orZero() * pcsPerCarton.toIntOrNull().orOne()
-    val actionText: String = if (isStaff) "سيُرسَل للموافقة" else "حفظ"
+    val actionText: String = if (isStaff) "سيُرسل للموافقة" else "حفظ"
 }
 
 @HiltViewModel
@@ -148,12 +174,16 @@ class ProductFormViewModel @Inject constructor(
 ) : ViewModel() {
     private val productId: String? = savedStateHandle["productId"]
     private val initialQrCode: String? = savedStateHandle["qrCode"]
+    private val initialName: String? = savedStateHandle["name"]
     private val _state = MutableStateFlow(ProductFormUiState())
     val state = _state.asStateFlow()
 
     init {
         if (!initialQrCode.isNullOrBlank()) {
             _state.value = _state.value.copy(qrCode = initialQrCode)
+        }
+        if (!initialName.isNullOrBlank()) {
+            _state.value = _state.value.copy(name = initialName)
         }
         viewModelScope.launch {
             sessionManager.role.collect { role ->
@@ -162,10 +192,16 @@ class ProductFormViewModel @Inject constructor(
         }
         // Load branches for optional branch selection
         viewModelScope.launch {
-            try {
-                val branches = repository.loadBranches()
-                _state.value = _state.value.copy(branches = branches)
-            } catch (_: Exception) {}
+            when (val result = repository.loadBranches()) {
+                is ApiResult.Success -> {
+                    _state.value = _state.value.copy(
+                        branches = result.data
+                            .filter { it.isActive }
+                            .map { BranchItem(id = it.id, name = it.name) }
+                    )
+                }
+                else -> Unit
+            }
         }
         if (productId != null) {
             viewModelScope.launch {
@@ -175,6 +211,7 @@ class ProductFormViewModel @Inject constructor(
                             itemNumber = product.itemNumber,
                             name = product.name,
                             qrCode = product.qrCode,
+                            imageUrl = product.imageUrl,
                             category = product.category,
                             openingBalancePcs = product.openingBalancePcs.toString(),
                             cartonsAvailable = product.cartonsAvailable.toString(),
@@ -194,6 +231,7 @@ class ProductFormViewModel @Inject constructor(
             "itemNumber"       -> _state.value.copy(itemNumber = value)
             "name"             -> _state.value.copy(name = value)
             "qrCode"           -> _state.value.copy(qrCode = value)
+            "imageUrl"         -> _state.value.copy(imageUrl = value.ifBlank { null })
             "category"         -> _state.value.copy(category = value)
             "unit"             -> _state.value.copy(unit = value)
             "openingBalancePcs"-> _state.value.copy(openingBalancePcs = value.filterNumber())
@@ -220,13 +258,15 @@ class ProductFormViewModel @Inject constructor(
                 itemNumber = current.itemNumber.trim(),
                 name = current.name.trim(),
                 qrCode = current.qrCode.trim(),
+                imageUrl = current.imageUrl,
                 category = current.category.trim(),
                 openingBalancePcs = current.openingBalancePcs.toInt(),
                 cartonsAvailable = current.cartonsAvailable.toInt(),
                 pcsPerCarton = current.pcsPerCarton.toInt(),
                 purchasePrice = current.purchasePrice.toDouble(),
                 salePrice = current.salePrice.toDouble(),
-                minStock = current.minStock.toInt()
+                minStock = current.minStock.toInt(),
+                branchId = current.branchId.ifBlank { null }
             )
             try {
                 repository.saveProduct(productId, request)
@@ -240,10 +280,7 @@ class ProductFormViewModel @Inject constructor(
     }
 
     private fun validate(state: ProductFormUiState): String? = when {
-        state.itemNumber.isBlank() -> "رقم الآيتم مطلوب"
         state.name.isBlank() -> "اسم المنتج مطلوب"
-        state.qrCode.isBlank() -> "QR مطلوب"
-        state.category.isBlank() -> "الفئة مطلوبة"
         state.pcsPerCarton.toIntOrNull().orZero() <= 0 -> "عدد القطع بالكرتونة يجب أن يكون أكبر من صفر"
         state.salePrice.toDoubleOrNull() == null -> "سعر البيع غير صحيح"
         state.purchasePrice.toDoubleOrNull() == null -> "سعر الشراء غير صحيح"
@@ -304,7 +341,12 @@ class QrScannerViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = QrScannerState.Loading(value)
             when (val result = repository.findByQr(value)) {
-                is ApiResult.Success -> _state.value = result.data?.let { QrScannerState.Found(it) } ?: QrScannerState.NotFound(value)
+                is ApiResult.Success -> _state.value = result.data?.let {
+                    QrScannerState.Found(
+                        it,
+                        if (it.qrCode == value) "PIECE" else if (it.cartonQrCode == value) "CARTON" else "PIECE"
+                    )
+                } ?: QrScannerState.NotFound(value)
                 is ApiResult.Error -> _state.value = QrScannerState.NotFound(value)
                 ApiResult.Offline -> _state.value = QrScannerState.NotFound(value)
             }
@@ -319,7 +361,7 @@ class QrScannerViewModel @Inject constructor(
 sealed interface QrScannerState {
     data object Scanning : QrScannerState
     data class Loading(val code: String) : QrScannerState
-    data class Found(val product: Product) : QrScannerState
+    data class Found(val product: Product, val unit: String) : QrScannerState
     data class NotFound(val code: String) : QrScannerState
 }
 

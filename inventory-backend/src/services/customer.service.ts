@@ -102,7 +102,7 @@ async function getCustomerOrThrow(id: string, db: Db = prisma) {
 export async function recalculateCustomerBalance(customerId: string, db: Db = prisma) {
   const customer = await getCustomerOrThrow(customerId, db);
 
-  const [saleTotals, purchaseTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] =
+  const [saleTotals, creditInvoiceTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] =
     await Promise.all([
       db.invoice.aggregate({
         where: {
@@ -116,7 +116,7 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
         where: {
           customerId,
           status: InvoiceStatus.ACTIVE,
-          type: InvoiceType.PURCHASE,
+          type: { in: [InvoiceType.PURCHASE, InvoiceType.SALES_RETURN] },
         },
         _sum: { remainingAmount: true },
       }),
@@ -155,7 +155,7 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
   const currentBalance =
     toNumber(customer.openingBalance) +
     toNumber(saleTotals._sum.remainingAmount) -
-    toNumber(purchaseTotals._sum.remainingAmount) -
+    toNumber(creditInvoiceTotals._sum.remainingAmount) -
     toNumber(receiptTotals._sum.amount) +
     toNumber(paymentTotals._sum.amount);
 
@@ -287,8 +287,12 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     prisma.invoice.findMany({
       where: {
         customerId: id,
-        status: InvoiceStatus.ACTIVE,
         ...(upperDateFilter ? { date: upperDateFilter } : {}),
+      },
+      include: {
+        creator: {
+          select: { id: true, name: true, username: true, role: true },
+        },
       },
       orderBy: { date: "asc" },
     }),
@@ -297,28 +301,65 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
         customerId: id,
         ...(upperDateFilter ? { date: upperDateFilter } : {}),
       },
+      include: {
+        creator: {
+          select: { id: true, name: true, username: true, role: true },
+        },
+      },
       orderBy: { date: "asc" },
     }),
   ]);
 
+  const recordIds = [...invoices.map((invoice) => invoice.id), ...vouchers.map((voucher) => voucher.id)];
+  const auditLogs = recordIds.length
+    ? await prisma.auditLog.findMany({
+        where: {
+          recordId: { in: recordIds },
+          entity: { in: ["invoices", "vouchers"] },
+          action: { in: ["UPDATE", "DELETE", "REACTIVATE"] },
+        },
+        include: {
+          user: { select: { id: true, name: true, username: true, role: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+  const latestAuditByRecord = new Map<string, (typeof auditLogs)[number]>();
+  for (const log of auditLogs) {
+    if (log.recordId && !latestAuditByRecord.has(log.recordId)) {
+      latestAuditByRecord.set(log.recordId, log);
+    }
+  }
+
   const invoiceMovements = invoices.flatMap((invoice) => {
-    const isSale = invoice.type !== "PURCHASE";
+    const isSale = invoice.type === "SALE";
+    const isReturn = invoice.type === "SALES_RETURN";
     const movements: Array<{
       date: Date;
       // SALE_INVOICE adds to balance (customer owes us more → debit).
       // PURCHASE_INVOICE subtracts (we owe supplier → credit).
       // SALE_PAYMENT / PURCHASE_PAYMENT are the upfront-paid portions on the invoice itself.
-      type: "SALE_INVOICE" | "SALE_PAYMENT" | "PURCHASE_INVOICE" | "PURCHASE_PAYMENT";
+      type: "SALE_INVOICE" | "SALE_PAYMENT" | "PURCHASE_INVOICE" | "PURCHASE_PAYMENT" | "SALES_RETURN_INVOICE";
       amount: number;
       referenceNumber: string;
+      recordId: string;
       sortKey: number;
+      createdAt: Date;
+      creator?: { id: string; name: string; username: string; role: string } | null;
+      lastAudit?: (typeof auditLogs)[number];
+      status?: InvoiceStatus;
     }> = [
       {
         date: invoice.date,
-        type: isSale ? "SALE_INVOICE" : "PURCHASE_INVOICE",
+        type: isReturn ? "SALES_RETURN_INVOICE" : isSale ? "SALE_INVOICE" : "PURCHASE_INVOICE",
         amount: toNumber(invoice.totalAmount),
         referenceNumber: invoice.invoiceNumber,
+        recordId: invoice.id,
         sortKey: invoice.createdAt.getTime(),
+        createdAt: invoice.createdAt,
+        creator: invoice.creator,
+        lastAudit: latestAuditByRecord.get(invoice.id),
+        status: invoice.status,
       },
     ];
 
@@ -329,7 +370,12 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
         type: isSale ? "SALE_PAYMENT" : "PURCHASE_PAYMENT",
         amount: paidAmount,
         referenceNumber: invoice.invoiceNumber,
+        recordId: invoice.id,
         sortKey: invoice.createdAt.getTime() + 1,
+        createdAt: invoice.createdAt,
+        creator: invoice.creator,
+        lastAudit: latestAuditByRecord.get(invoice.id),
+        status: invoice.status,
       });
     }
 
@@ -343,7 +389,12 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
       type: voucher.type as string,
       amount: toNumber(voucher.amount),
       referenceNumber: voucher.voucherNumber,
+      recordId: voucher.id,
       sortKey: voucher.createdAt.getTime(),
+      createdAt: voucher.createdAt,
+      creator: voucher.creator,
+      lastAudit: latestAuditByRecord.get(voucher.id),
+      status: undefined,
     })),
   ].sort((a, b) => a.date.getTime() - b.date.getTime() || a.sortKey - b.sortKey);
 
@@ -353,15 +404,19 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     // Sign convention (positive balance = customer owes us):
     //   Debit  (+): SALE invoice, PURCHASE payment (paid to supplier = reduces our debt), customer PAYMENT voucher
     //   Credit (−): PURCHASE invoice (we owe supplier), SALE payment upfront, RECEIPT voucher
+    const isCancelledInvoice = movement.status === InvoiceStatus.CANCELLED;
     const isCredit =
       movement.type === "RECEIPT" ||
       movement.type === "SALE_PAYMENT" ||
-      movement.type === "PURCHASE_INVOICE";
+      movement.type === "PURCHASE_INVOICE" ||
+      movement.type === "SALES_RETURN_INVOICE";
 
-    if (isCredit) {
-      runningBalance -= movement.amount;
-    } else {
-      runningBalance += movement.amount;
+    if (!isCancelledInvoice) {
+      if (isCredit) {
+        runningBalance -= movement.amount;
+      } else {
+        runningBalance += movement.amount;
+      }
     }
 
     if (outputStartDate && movement.date < outputStartDate) {
@@ -374,20 +429,42 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
 
     // Map internal movement types to display types for the client
     const displayType =
-      movement.type === "SALE_INVOICE" || movement.type === "PURCHASE_INVOICE"
+      movement.type === "SALE_INVOICE" || movement.type === "PURCHASE_INVOICE" || movement.type === "SALES_RETURN_INVOICE"
         ? "INVOICE"
         : movement.type === "SALE_PAYMENT" || movement.type === "PURCHASE_PAYMENT"
           ? "INVOICE_PAYMENT"
           : movement.type;
 
     return [{
-      id: `${movement.type}-${movement.referenceNumber}-${movement.sortKey}`,
+      id: movement.recordId,
       date: movement.date,
       type: displayType,
       amount: movement.amount,
       referenceNumber: movement.referenceNumber,
-      debit: !isCredit ? movement.amount : 0,
-      credit: isCredit ? movement.amount : 0,
+      status: movement.status,
+      createdAt: movement.createdAt,
+      createdByName: movement.creator?.name ?? movement.creator?.username ?? null,
+      createdBy: movement.creator
+        ? {
+            id: movement.creator.id,
+            name: movement.creator.name,
+            username: movement.creator.username,
+            role: movement.creator.role,
+          }
+        : null,
+      lastAction: movement.lastAudit?.action ?? null,
+      lastChangedAt: movement.lastAudit?.createdAt ?? null,
+      lastChangedByName:
+        movement.lastAudit?.user?.name ?? movement.lastAudit?.user?.username ?? null,
+      lastChangedBy: movement.lastAudit?.user ?? null,
+      lastChangeSummary:
+        movement.lastAudit?.metadata &&
+        typeof movement.lastAudit.metadata === "object" &&
+        "changes" in movement.lastAudit.metadata
+          ? (movement.lastAudit.metadata as { changes?: unknown }).changes
+          : null,
+      debit: !isCancelledInvoice && !isCredit ? movement.amount : 0,
+      credit: !isCancelledInvoice && isCredit ? movement.amount : 0,
       runningBalance,
     }];
   });

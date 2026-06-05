@@ -240,6 +240,7 @@ export async function getDashboardReport() {
 export async function getSalesReport(query: SalesReportQuery) {
   const invoiceWhere: Prisma.InvoiceWhereInput = {
     status: InvoiceStatus.ACTIVE,
+    type: InvoiceType.SALE,
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(dateFilter(query.from, query.to) ? { date: dateFilter(query.from, query.to) } : {}),
   };
@@ -295,6 +296,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
       productId: query.productId,
       invoice: {
         status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALE,
         ...(query.branchId ? { branchId: query.branchId } : {}),
         ...(invoicesDateFilter ? { date: invoicesDateFilter } : {}),
       },
@@ -496,4 +498,87 @@ export async function getEndOfDayReport(date?: string) {
       paid: toNumber(i.paidAmount),
     })),
   };
+}
+
+/**
+ * Returns customers who are "overdue" for a visit based on their own purchase rhythm.
+ *
+ * Algorithm:
+ *  1. For each customer, get their last N sale invoices.
+ *  2. Calculate their average interval between purchases (days).
+ *  3. If days-since-last-purchase > avgInterval * 1.5, they are at-risk.
+ *  4. Customers with only one purchase use a configurable fallback (default 30 days).
+ *
+ * Returns up to `limit` customers sorted by "most overdue" first.
+ */
+export async function getAtRiskCustomers(limit = 10) {
+  const now = new Date();
+
+  // Only regular customers (not suppliers) who have at least one sale invoice
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, isSupplier: false },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      currentBalance: true,
+      lastTransactionAt: true,
+      invoices: {
+        where: { type: "SALE", status: "ACTIVE" },
+        select: { date: true },
+        orderBy: { date: "desc" },
+        take: 6,
+      },
+    },
+  });
+
+  const results: Array<{
+    id: string;
+    name: string;
+    phone: string;
+    currentBalance: number;
+    lastTransactionAt: string | null;
+    avgIntervalDays: number;
+    daysSinceLastPurchase: number;
+    overdueDays: number;
+  }> = [];
+
+  for (const c of customers) {
+    if (c.invoices.length === 0) continue;
+
+    const lastInvoiceDate = c.invoices[0].date;
+    const daysSinceLast = Math.floor(
+      (now.getTime() - lastInvoiceDate.getTime()) / 86_400_000
+    );
+
+    let avgInterval = 30; // default fallback for single-purchase customers
+    if (c.invoices.length >= 2) {
+      let totalGap = 0;
+      for (let i = 0; i < c.invoices.length - 1; i++) {
+        const gap =
+          (c.invoices[i].date.getTime() - c.invoices[i + 1].date.getTime()) /
+          86_400_000;
+        totalGap += gap;
+      }
+      avgInterval = Math.max(1, totalGap / (c.invoices.length - 1));
+    }
+
+    const threshold = avgInterval * 1.5;
+    if (daysSinceLast < threshold) continue; // still within normal window
+
+    results.push({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      currentBalance: toNumber(c.currentBalance),
+      lastTransactionAt: c.lastTransactionAt?.toISOString() ?? null,
+      avgIntervalDays: Math.round(avgInterval),
+      daysSinceLastPurchase: daysSinceLast,
+      overdueDays: Math.round(daysSinceLast - threshold),
+    });
+  }
+
+  // Most overdue first
+  results.sort((a, b) => b.overdueDays - a.overdueDays);
+  return results.slice(0, limit);
 }

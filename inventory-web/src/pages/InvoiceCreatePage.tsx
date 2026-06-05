@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { invoiceImageObjectUrl, invoicePdfObjectUrl } from "../api/endpoints"
+import { applyCoupon, invoiceImageObjectUrl } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { cn } from "../utils/cn"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -39,6 +40,19 @@ function matchesProduct(product: Product, q: string) {
     (product.qrCode?.toLowerCase().includes(needle) ?? false) ||
     (product.cartonQrCode?.toLowerCase().includes(needle) ?? false)
   )
+}
+
+function itemQuantityInPieces(item: DraftItem) {
+  if (item.unit === "CARTON") return item.quantity * item.product.pcsPerCarton
+  if (item.unit === "DOZEN") return item.quantity * 12
+  return item.quantity
+}
+
+function ProductThumb({ product }: { product: Product }) {
+  if (product.imageUrl) {
+    return <img src={product.imageUrl} alt={product.name} className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
+  }
+  return <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
 }
 
 // Legacy single-draft key (kept for backward compat with old autosaves)
@@ -106,15 +120,16 @@ export function InvoiceCreatePage() {
     setDiscount(0)
     setTax(0)
     setPaidAmount(0)
-    setSavedInvoiceId(null)
-    setLastSavedAt(null)
-    setDate(new Date().toISOString().slice(0, 10))
-    setPaymentMode("CREDIT")
-    // Draft loading will run separately via the draftKey effect
-  }, [activeTid])
+	  setSavedInvoiceId(null)
+	  setLastSavedAt(null)
+	  setDate(new Date().toISOString().slice(0, 10))
+	  setPaymentMode("CREDIT")
+      clientRequestIdRef.current = crypto.randomUUID()
+	  // Draft loading will run separately via the draftKey effect
+	}, [activeTid])
 
   const { customersQuery } = useCustomers()
-  const { productsQuery } = useProducts()
+  const { productsQuery, createMutation: createProductMutation } = useProducts()
   const createMutation = useCreateInvoice()
 
   // ---- header state ----
@@ -135,6 +150,8 @@ export function InvoiceCreatePage() {
 
   // ---- totals state ----
   const [discount, setDiscount] = useState(0)
+  const [couponCode, setCouponCode] = useState("")
+  const [couponMessage, setCouponMessage] = useState("")
   const [tax, setTax] = useState(0)
   const [paidAmount, setPaidAmount] = useState(0)
   const [preview, setPreview] = useState(false)
@@ -145,6 +162,7 @@ export function InvoiceCreatePage() {
   const [scanBuffer, setScanBuffer] = useState("")
   const scanInputRef = useRef<HTMLInputElement | null>(null)
   const lastFocusRef = useRef(0)
+  const clientRequestIdRef = useRef(crypto.randomUUID())
 
   // ---- field refs ----
   const customerInputRef = useRef<HTMLInputElement | null>(null)
@@ -155,7 +173,6 @@ export function InvoiceCreatePage() {
   const quantityRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const priceRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const totalRefs = useRef<Record<string, HTMLInputElement | null>>({})
-  const unitRefs = useRef<Record<string, HTMLSelectElement | null>>({})
 
   const customers = customersQuery.data ?? []
   const products = productsQuery.data ?? []
@@ -183,12 +200,19 @@ export function InvoiceCreatePage() {
   }, [productHighlight])
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
-  const total = subtotal - discount + tax
+  const total = Math.max(0, subtotal - discount)
   const previousBalance = selectedCustomer?.currentBalance ?? 0
   const remaining = total - paidAmount
   const balanceDelta = isPurchase ? -remaining : remaining
   const finalBalance = previousBalance + balanceDelta
   const hasInvalidTotal = total < 0
+
+  function unitPriceFor(product: Product, unit: Unit) {
+    const base = isPurchase ? product.purchasePrice : product.salePrice
+    if (unit === "CARTON") return base * product.pcsPerCarton
+    if (unit === "DOZEN") return base * 12
+    return base
+  }
 
   // Items selling below purchase price
   const belowCostItems = useMemo(() => {
@@ -243,8 +267,8 @@ export function InvoiceCreatePage() {
       if (Date.now() - draft.savedAt > 7 * 86_400_000) return
       setDate(draft.date)
       setPaymentMode(draft.paymentMode)
-      setDiscount(draft.discount)
-      setTax(draft.tax)
+      setDiscount(draft.discount ?? 0)
+      setTax(0)
       setPaidAmount(draft.paidAmount)
       const cust = customers.find((c) => c.id === draft.customerId)
       if (cust) {
@@ -279,7 +303,7 @@ export function InvoiceCreatePage() {
           unitPrice: i.unitPrice,
         })),
         discount,
-        tax,
+        tax: 0,
         paidAmount,
         savedAt: Date.now(),
       }
@@ -304,7 +328,7 @@ export function InvoiceCreatePage() {
     }, 3000)
     return () => window.clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selectedCustomer, date, paymentMode, discount, tax, paidAmount, draftKey, savedInvoiceId, activeTid, uid, invoiceType])
+  }, [items, selectedCustomer, date, paymentMode, paidAmount, draftKey, savedInvoiceId, activeTid, uid, invoiceType])
 
   function clearDraft() {
     try { localStorage.removeItem(draftKey) } catch {}
@@ -347,18 +371,33 @@ export function InvoiceCreatePage() {
   }
 
   function addProduct(product: Product) {
+    const nextIndex = items.length
     setItems((current) => [
       ...current,
       {
         product,
         unit: "PIECE",
         quantity: 1,
-        unitPrice: isPurchase ? product.purchasePrice : product.salePrice,
+        unitPrice: unitPriceFor(product, "PIECE"),
       },
     ])
     setProductModal(false)
     setProductQuery("")
-    window.setTimeout(() => unitRefs.current[`${product.id}-${items.length}`]?.focus(), 0)
+    window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
+  }
+
+  function quickCreateProduct() {
+    const name = productQuery.trim()
+    if (!name || createProductMutation.isPending) return
+    createProductMutation.mutate(
+      { name, salePrice: 0, purchasePrice: 0, pcsPerCarton: 1, minStock: 0 },
+      {
+        onSuccess: (response) => {
+          const product = response.data
+          if (product) addProduct(product)
+        },
+      },
+    )
   }
 
   function addProductByCode(code: string) {
@@ -376,13 +415,20 @@ export function InvoiceCreatePage() {
         product: hit,
         unit: isCarton ? "CARTON" : "PIECE",
         quantity: 1,
-        unitPrice: isPurchase ? hit.purchasePrice : hit.salePrice,
+        unitPrice: unitPriceFor(hit, isCarton ? "CARTON" : "PIECE"),
       },
     ])
   }
 
   function updateItem(index: number, patch: Partial<DraftItem>) {
-    setItems((current) => current.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+    setItems((current) => current.map((item, i) => {
+      if (i !== index) return item
+      const next = { ...item, ...patch }
+      if (patch.unit && patch.unit !== item.unit && patch.unitPrice === undefined) {
+        next.unitPrice = unitPriceFor(item.product, patch.unit)
+      }
+      return next
+    }))
   }
 
   // When user edits total → recalculate unit price
@@ -424,7 +470,13 @@ export function InvoiceCreatePage() {
   }
 
   function handleProductSearchKey(e: KeyboardEvent<HTMLInputElement>) {
-    if (productSuggestions.length === 0) return
+    if (productSuggestions.length === 0) {
+      if (e.key === "Enter" && productQuery.trim()) {
+        e.preventDefault()
+        quickCreateProduct()
+      }
+      return
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault()
       setProductHighlight((i) => (i + 1) % productSuggestions.length)
@@ -484,9 +536,10 @@ export function InvoiceCreatePage() {
     const response = await createMutation.mutateAsync({
       customerId: selectedCustomer.id,
       type: invoiceType,
-      date,
+      clientRequestId: clientRequestIdRef.current,
+      couponCode: couponCode.trim() || undefined,
       discount,
-      tax,
+      tax: 0,
       paidAmount,
       paymentType: remaining <= 0 ? "CASH" : paidAmount > 0 ? "PARTIAL" : "CREDIT",
       items: items.map((item) => ({
@@ -507,6 +560,29 @@ export function InvoiceCreatePage() {
 
   function save() {
     void persistInvoice(true)
+  }
+
+  // Ctrl+S → save invoice from anywhere on this page
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault()
+        save()
+      }
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [selectedCustomer, items, hasInvalidTotal, paidAmount, discount, tax, couponCode, invoiceType])
+
+  async function applyCouponCode() {
+    if (!couponCode.trim() || subtotal <= 0) return
+    try {
+      const result = await applyCoupon(couponCode, subtotal)
+      setDiscount(result?.discount ?? 0)
+      setCouponMessage(result ? `تم تطبيق ${result.coupon.code}` : "")
+    } catch (error) {
+      setCouponMessage(error instanceof Error ? error.message : "تعذر تطبيق الكوبون")
+    }
   }
 
   async function openExport(kind: "pdf" | "image") {
@@ -630,7 +706,7 @@ export function InvoiceCreatePage() {
       ) : null}
 
       {/* Invoice header */}
-      <Card className={cardBorder}>
+      <Card className={cn(cardBorder, "border-sky-200 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-950/25")}>
         <CardHeader><CardTitle>رأس الفاتورة</CardTitle></CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-3">
           <div className="relative">
@@ -664,7 +740,9 @@ export function InvoiceCreatePage() {
               </div>
             ) : null}
           </div>
-          <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            تاريخ الفاتورة يثبت تلقائياً عند الحفظ
+          </div>
           <select
             className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
             value={paymentMode}
@@ -677,7 +755,7 @@ export function InvoiceCreatePage() {
       </Card>
 
       {/* Items table */}
-      <Card className={cardBorder}>
+      <Card className={cn(cardBorder, "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/20")}>
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <CardTitle>الأصناف</CardTitle>
@@ -706,11 +784,19 @@ export function InvoiceCreatePage() {
               <TBody>
                 {items.map((item, index) => {
                   const rowKey = `${index}`
+                  const stockAfterLine = isPurchase ? stockOf(item.product) + itemQuantityInPieces(item) : stockOf(item.product) - itemQuantityInPieces(item)
+                  const hasNegativeStock = stockOf(item.product) < 0 || stockAfterLine < 0
                   return (
                     <TR key={index}>
                       <TD>
-                        <div className="flex items-center gap-1.5 min-w-[100px]">
+                        <div className="flex items-center gap-2 min-w-[140px]">
+                          <ProductThumb product={item.product} />
                           <span className="font-medium">{item.product.name}</span>
+                          {hasNegativeStock ? (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              رصيد سالب
+                            </span>
+                          ) : null}
                           {belowCostItems.has(index) ? (
                             <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
                               ⚠ أقل من التكلفة
@@ -722,7 +808,6 @@ export function InvoiceCreatePage() {
                       </TD>
                       <TD>
                         <select
-                          ref={(el) => { unitRefs.current[rowKey] = el }}
                           className="h-9 w-24 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                           value={item.unit}
                           onChange={(event) => updateItem(index, { unit: event.target.value as Unit })}
@@ -787,19 +872,29 @@ export function InvoiceCreatePage() {
       </Card>
 
       {/* Financial summary — always BELOW items */}
-      <Card className={cardBorder}>
+      <Card className={cn(cardBorder, "border-amber-200 bg-amber-50/80 dark:border-amber-900 dark:bg-amber-950/20")}>
         <CardHeader><CardTitle>الملخص المالي</CardTitle></CardHeader>
         <CardContent>
           <div className="grid gap-6 sm:grid-cols-2">
             {/* Left: amounts */}
             <div className="space-y-3">
               <SummaryRow label="المجموع" value={subtotal} />
-              <div className="grid grid-cols-2 gap-3">
+              {!isPurchase ? (
+                <div>
+                  <label className="mb-1 block text-xs text-slate-500">كود الكوبون</label>
+                  <div className="flex gap-2">
+                    <Input value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="EID2026" />
+                    <Button type="button" variant="outline" onClick={() => void applyCouponCode()}>تطبيق</Button>
+                  </div>
+                  {couponMessage ? <p className="mt-1 text-xs text-slate-500">{couponMessage}</p> : null}
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="mb-1 block text-xs text-slate-500">الخصم</label>
                   <Input type="number" value={discount} onFocus={selectAllOnFocus} onChange={(e) => setDiscount(Number(e.target.value))} />
                 </div>
-                <div>
+                <div className="hidden">
                   <label className="mb-1 block text-xs text-slate-500">الضريبة</label>
                   <Input type="number" value={tax} onFocus={selectAllOnFocus} onChange={(e) => setTax(Number(e.target.value))} />
                 </div>
@@ -894,16 +989,28 @@ export function InvoiceCreatePage() {
                 key={`${product.id}-${idx}`}
                 ref={(el) => { productItemRefs.current[idx] = el }}
                 type="button"
-                className={`flex w-full justify-between border-b p-3 text-right text-sm ${idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"} dark:border-slate-800`}
+                className={`flex w-full items-center justify-between gap-3 border-b p-3 text-right text-sm ${idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"} dark:border-slate-800`}
                 onMouseEnter={() => setProductHighlight(idx)}
                 onClick={() => addProduct(product)}
               >
-                <span className="font-medium">{product.name}</span>
+                <span className="flex items-center gap-2 font-medium"><ProductThumb product={product} />{product.name}</span>
                 <span className="text-slate-500">{product.itemNumber}</span>
               </button>
             ))}
             {productSuggestions.length === 0 ? (
-              <div className="p-4 text-center text-sm text-slate-500">لا توجد نتائج</div>
+              <div className="space-y-3 p-4 text-center text-sm text-slate-500">
+                <div>{productQuery.trim() ? "لا توجد مادة بهذا الاسم" : "اكتب اسم المادة للبحث"}</div>
+                {productQuery.trim() ? (
+                  <Button
+                    type="button"
+                    className="mx-auto"
+                    onClick={quickCreateProduct}
+                    disabled={createProductMutation.isPending}
+                  >
+                    <Plus className="h-4 w-4" /> {createProductMutation.isPending ? "جار الإضافة..." : "إضافة مادة جديدة"}
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </DialogContent>
@@ -940,7 +1047,6 @@ export function InvoiceCreatePage() {
             </Table>
             <div className="mt-4 space-y-1 text-sm">
               {discount > 0 ? <div className="flex justify-between"><span className="text-slate-500">الخصم</span><span>{fmt(discount)}</span></div> : null}
-              {tax > 0 ? <div className="flex justify-between"><span className="text-slate-500">الضريبة</span><span>{fmt(tax)}</span></div> : null}
               <div className="flex justify-between text-base font-bold"><span>الإجمالي</span><span>{fmt(total)}</span></div>
             </div>
           </div>

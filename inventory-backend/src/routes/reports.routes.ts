@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  atRiskCustomersReport,
   customerDebtsReport,
   dashboardReport,
   endOfDayReport,
@@ -35,5 +36,6 @@ router.get(
 );
 router.get("/customers/top", topCustomersReport);
 router.get("/end-of-day", endOfDayReport);
+router.get("/customers/at-risk", atRiskCustomersReport);
 
 export default router;

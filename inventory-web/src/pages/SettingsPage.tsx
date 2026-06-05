@@ -6,8 +6,10 @@ import {
   Download,
   FileJson,
   ImagePlus,
+  KeyRound,
   MessageCircle,
   Palette,
+  Play,
   Save,
   Upload,
 } from "lucide-react"
@@ -18,6 +20,7 @@ import {
   getSettings,
   updateMessageTemplate,
   updateSettings,
+  triggerManualBackup,
 } from "../api/endpoints"
 import type { AppSettings, MessageTemplate } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -25,6 +28,7 @@ import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { useTheme } from "../theme/ThemeProvider"
 import { cn } from "../utils/cn"
+import { ChangePasswordForm } from "../components/settings/ChangePasswordForm"
 
 const WA_PLACEHOLDERS = [
   "{{customerName}}", "{{invoiceNumber}}", "{{voucherNumber}}", "{{amount}}",
@@ -65,13 +69,14 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup"
+type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "store",    label: "المتجر",        icon: Building2 },
   { id: "theme",    label: "المظهر",        icon: Palette },
   { id: "whatsapp", label: "واتساب",        icon: MessageCircle },
   { id: "alerts",   label: "التنبيهات",     icon: BellRing },
+  { id: "security", label: "الأمان", icon: KeyRound },
   { id: "backup",   label: "النسخ الاحتياطي", icon: Download },
 ]
 
@@ -86,6 +91,7 @@ export function SettingsPage() {
   const [importMsg, setImportMsg] = useState("")
   const [activeTab, setActiveTab] = useState<SettingsTab>("store")
   const [saved, setSaved] = useState(false)
+  const [backupMsg, setBackupMsg] = useState("")
 
   useEffect(() => { if (settingsQuery.data) setSettings({ ...fallbackSettings, ...settingsQuery.data }) }, [settingsQuery.data])
   useEffect(() => { if (templatesQuery.data) setTemplates(templatesQuery.data) }, [templatesQuery.data])
@@ -102,6 +108,15 @@ export function SettingsPage() {
   const saveTemplate = useMutation({
     mutationFn: (t: MessageTemplate) => updateMessageTemplate(t.id, t),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["message-templates"] }),
+  })
+
+  const backupMutation = useMutation({
+    mutationFn: triggerManualBackup,
+    onSuccess: (res) => {
+      const d = res.data
+      setBackupMsg(d ? `✓ تم: ${d.products} منتج، ${d.customers} زبون، ${d.invoices} فاتورة، ${d.vouchers} سند` : "✓ تم النسخ الاحتياطي")
+    },
+    onError: () => setBackupMsg("✗ فشل النسخ الاحتياطي"),
   })
 
   const backup = useMemo(() => ({
@@ -216,6 +231,10 @@ export function SettingsPage() {
         </Card>
       )}
 
+      {activeTab === "security" && (
+        <ChangePasswordForm />
+      )}
+
       {/* ── WHATSAPP ───────────────────────────────────────── */}
       {activeTab === "whatsapp" && (
         <Card>
@@ -299,29 +318,62 @@ export function SettingsPage() {
 
       {/* ── BACKUP ─────────────────────────────────────────── */}
       {activeTab === "backup" && (
-        <Card>
-          <CardContent className="p-5 space-y-4">
-            <SectionTitle>النسخ الاحتياطي والاستيراد</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Button onClick={() => downloadText("inventory-backup.json", JSON.stringify(backup, null, 2), "application/json")}>
-                <FileJson className="h-4 w-4" /> تصدير كامل JSON
-              </Button>
-              <Button variant="outline" onClick={() => downloadText("products.csv", toCsv(productsQuery.data ?? []), "text/csv;charset=utf-8")}>
-                <Download className="h-4 w-4" /> تصدير المنتجات CSV
-              </Button>
-              <Button variant="outline" onClick={() => downloadText("customers.csv", toCsv(customersQuery.data ?? []), "text/csv;charset=utf-8")}>
-                <Download className="h-4 w-4" /> تصدير الزبائن CSV
-              </Button>
-              <label className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 px-4 text-sm font-medium hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800">
-                <Upload className="h-4 w-4" /> استيراد من ملف
-                <input className="hidden" type="file" accept="application/json" onChange={(e) => importBackup(e.target.files?.[0])} />
-              </label>
-            </div>
-            {importMsg ? (
-              <div className={`rounded-md px-3 py-2 text-sm ${importMsg.startsWith("✓") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{importMsg}</div>
-            ) : null}
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          {/* ── Scheduled auto backup ── */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>النسخ الاحتياطي التلقائي</SectionTitle>
+              <p className="text-sm text-slate-500">
+                كل يوم أحد الساعة 2 صباحاً — يُحفظ ملف JSON على السيرفر تلقائياً (آخر 8 نسخ). يمكن إرسال ملخص عبر واتساب إلى رقم صاحب العمل.
+              </p>
+              <Field label="رقم واتساب لاستقبال ملخص النسخة (اختياري)">
+                <Input
+                  value={settings.backupWhatsappNumber ?? ""}
+                  onChange={(e) => upd("backupWhatsappNumber", e.target.value)}
+                  placeholder="9647xxxxxxxx"
+                  dir="ltr"
+                />
+              </Field>
+              <div className="flex items-center gap-3">
+                <Button onClick={() => backupMutation.mutate()} disabled={backupMutation.isPending}>
+                  <Play className="h-4 w-4" />
+                  {backupMutation.isPending ? "جاري النسخ..." : "تشغيل نسخة الآن"}
+                </Button>
+                {backupMsg ? (
+                  <span className={`text-sm ${backupMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
+                    {backupMsg}
+                  </span>
+                ) : null}
+              </div>
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+            </CardContent>
+          </Card>
+
+          {/* ── Manual export / import ── */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>تصدير واستيراد يدوي</SectionTitle>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button onClick={() => downloadText("inventory-backup.json", JSON.stringify(backup, null, 2), "application/json")}>
+                  <FileJson className="h-4 w-4" /> تصدير كامل JSON
+                </Button>
+                <Button variant="outline" onClick={() => downloadText("products.csv", toCsv(productsQuery.data ?? []), "text/csv;charset=utf-8")}>
+                  <Download className="h-4 w-4" /> تصدير المنتجات CSV
+                </Button>
+                <Button variant="outline" onClick={() => downloadText("customers.csv", toCsv(customersQuery.data ?? []), "text/csv;charset=utf-8")}>
+                  <Download className="h-4 w-4" /> تصدير الزبائن CSV
+                </Button>
+                <label className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 px-4 text-sm font-medium hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800">
+                  <Upload className="h-4 w-4" /> استيراد من ملف
+                  <input className="hidden" type="file" accept="application/json" onChange={(e) => importBackup(e.target.files?.[0])} />
+                </label>
+              </div>
+              {importMsg ? (
+                <div className={`rounded-md px-3 py-2 text-sm ${importMsg.startsWith("✓") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{importMsg}</div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   )

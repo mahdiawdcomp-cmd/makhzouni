@@ -1,9 +1,18 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+}
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -16,6 +25,24 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+    }
+
+    buildTypes {
+        debug {
+            val debugApiUrl = localProperties.getProperty(
+                "API_BASE_URL",
+                "https://inventory-backend-production-7e85.up.railway.app/api/"
+            )
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiUrl\"")
+        }
+        release {
+            val releaseApiUrl =
+                (findProperty("RAILWAY_URL") as String?)
+                    ?: localProperties.getProperty("RAILWAY_URL")
+                    ?: "https://inventory-backend-production-7e85.up.railway.app/api/"
+            buildConfigField("String", "API_BASE_URL", "\"$releaseApiUrl\"")
+            isMinifyEnabled = false
+        }
     }
 
     buildFeatures {

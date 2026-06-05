@@ -22,6 +22,7 @@ import {
 type Db = Prisma.TransactionClient;
 
 export const approvalRequestTypes = {
+  CATALOG_ORDER: "CATALOG_ORDER",
   CREATE_USER: "CREATE_USER",
   UPDATE_USER: "UPDATE_USER",
   DEACTIVATE_USER: "DEACTIVATE_USER",
@@ -71,6 +72,21 @@ export async function listPendingApprovals() {
   });
 }
 
+export async function listMyApprovals(userId: string) {
+  return prisma.pendingApproval.findMany({
+    where: { requestedBy: userId },
+    include: {
+      requester: {
+        select: { id: true, name: true, username: true, role: true },
+      },
+      reviewer: {
+        select: { id: true, name: true, username: true, role: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 async function executeApprovedRequest(
   requestType: string,
   requestData: unknown,
@@ -82,6 +98,56 @@ async function executeApprovedRequest(
   switch (requestType) {
     case approvalRequestTypes.CREATE_USER:
       return createUser(data.body as Parameters<typeof createUser>[0], tx);
+    case approvalRequestTypes.CATALOG_ORDER: {
+      const body = data.body as {
+        customerName?: string;
+        phone?: string;
+        address?: string;
+        notes?: string;
+        items?: Parameters<typeof createInvoice>[0]["items"];
+      };
+      const phone = String(body.phone ?? "").trim();
+      const customerName = String(body.customerName ?? "").trim();
+      if (!phone || !customerName || !Array.isArray(body.items) || body.items.length === 0) {
+        throw new AppError("Catalog order is missing required data", 400, "CATALOG_ORDER_INVALID");
+      }
+
+      const existingCustomer = await tx.customer.findUnique({ where: { phone } });
+      const customer = existingCustomer
+        ? await tx.customer.update({
+            where: { id: existingCustomer.id },
+            data: {
+              name: customerName,
+              address: body.address,
+              notes: body.notes,
+              deletedAt: null,
+            },
+          })
+        : await tx.customer.create({
+            data: {
+              name: customerName,
+              phone,
+              address: body.address,
+              notes: body.notes,
+              openingBalance: 0,
+              currentBalance: 0,
+            },
+          });
+
+      return createInvoice(
+        {
+          customerId: customer.id,
+          type: "SALE",
+          discount: 0,
+          tax: 0,
+          paidAmount: 0,
+          paymentType: "CREDIT",
+          items: body.items,
+        },
+        reviewerId,
+        tx
+      );
+    }
     case approvalRequestTypes.UPDATE_USER:
       return updateUser(
         data.params && typeof data.params === "object"

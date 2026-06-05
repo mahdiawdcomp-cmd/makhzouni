@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import {
+  getAtRiskCustomers,
   getCustomerDebts,
   getDashboardReport,
   getEndOfDayReport,
@@ -47,5 +48,13 @@ export function useEndOfDayReport(date?: string) {
   return useQuery({
     queryKey: ["reports", "end-of-day", date],
     queryFn: () => getEndOfDayReport(date),
+  })
+}
+
+export function useAtRiskCustomers(limit = 10) {
+  return useQuery({
+    queryKey: ["reports", "at-risk-customers", limit],
+    queryFn: () => getAtRiskCustomers(limit),
+    staleTime: 10 * 60 * 1000, // recompute every 10 min
   })
 }

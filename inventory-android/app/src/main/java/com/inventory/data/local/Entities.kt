@@ -9,6 +9,7 @@ data class UserEntity(
     val name: String,
     val username: String,
     val role: String,
+    val permissions: String = "",
     val isActive: Boolean,
     val updatedAt: String?
 )
@@ -19,6 +20,8 @@ data class ProductEntity(
     val itemNumber: String,
     val name: String,
     val qrCode: String,
+    val cartonQrCode: String = "",
+    val imageUrl: String? = null,
     val category: String,
     val openingBalancePcs: Int,
     val cartonsAvailable: Int,
@@ -50,6 +53,7 @@ data class InvoiceEntity(
     val invoiceNumber: String,
     val customerId: String,
     val date: String,
+    val type: String,
     val subtotal: Double,
     val discount: Double,
     val tax: Double,
@@ -79,7 +83,7 @@ data class InvoiceItemEntity(
 data class PaymentVoucherEntity(
     @PrimaryKey val id: String,
     val voucherNumber: String,
-    val customerId: String,
+    val customerId: String?,
     val amount: Double,
     val type: String,
     val date: String,

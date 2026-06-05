@@ -37,7 +37,6 @@ object AppColor {
 
     val Purple600 = Color(0xFF7C3AED)
     val Purple100 = Color(0xFFEDE9FE)
-    val Gray700   = Color(0xFF374151)
 
     val Sky500    = Color(0xFF0EA5E9)
     val Sky100    = Color(0xFFE0F2FE)

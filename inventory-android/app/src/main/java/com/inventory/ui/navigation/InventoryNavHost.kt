@@ -26,6 +26,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -75,7 +76,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
     Scaffold(
         topBar = {
             // Offline banner — Zoho amber style
-            AnimatedVisibility(visible = showShell && !shellState.isOnline) {
+            AnimatedVisibility(visible = showShell && (!shellState.isOnline || shellState.pendingSync > 0)) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -91,7 +92,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "أنت offline — البيانات محلية",
+                        text = if (!shellState.isOnline) "أنت offline — البيانات محلية${if (shellState.pendingSync > 0) " | بانتظار المزامنة: ${shellState.pendingSync}" else ""}" else "بانتظار المزامنة: ${shellState.pendingSync}",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF92400E)
                     )
@@ -199,7 +200,24 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         viewModel = hiltViewModel(),
                         onOpenProduct = { navController.navigate(Routes.productDetail(it)) },
                         onAddProduct = { navController.navigate(Routes.productAdd(it)) },
-                        onAddToInvoice = { }
+                        onAddToInvoice = { productId, unit ->
+                            navController.previousBackStackEntry?.savedStateHandle?.set("scannedProductId", productId)
+                            navController.previousBackStackEntry?.savedStateHandle?.set("scannedProductUnit", unit)
+                            navController.popBackStack()
+                        }
+                    )
+                }
+                composable(Routes.ProductScannerInvoice) {
+                    QrScannerScreen(
+                        viewModel = hiltViewModel(),
+                        onOpenProduct = { },
+                        onAddProduct = { code -> navController.navigate(Routes.productAdd(code)) },
+                        onAddToInvoice = { productId, unit ->
+                            navController.previousBackStackEntry?.savedStateHandle?.set("scannedProductId", productId)
+                            navController.previousBackStackEntry?.savedStateHandle?.set("scannedProductUnit", unit)
+                            navController.popBackStack()
+                        },
+                        autoAddToInvoice = true
                     )
                 }
                 composable(Routes.ProductAdd) { ProductFormScreen(viewModel = hiltViewModel(), onDone = { navController.popBackStack() }) }
@@ -231,7 +249,23 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onOpenReference = { }
                     )
                 }
-                composable(Routes.CustomerStatement) { CustomerStatementScreen(viewModel = hiltViewModel(), onOpenReference = { }) }
+                composable(Routes.CustomerStatement) {
+                    CustomerStatementScreen(
+                        viewModel = hiltViewModel(),
+                        onOpenReference = { ref ->
+                            val parts = ref.split("|")
+                            val type = parts.getOrNull(0).orEmpty()
+                            val rawId = parts.getOrNull(1).orEmpty()
+                            val id = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+                                .find(rawId)?.value ?: rawId
+                            if (type.contains("INVOICE", ignoreCase = true) && id.length == 36) {
+                                navController.navigate(Routes.invoiceDetail(id))
+                            } else if (id.length == 36) {
+                                navController.navigate(Routes.voucherEdit(id))
+                            }
+                        }
+                    )
+                }
                 composable(Routes.Receipt) { ReceiptScreen(viewModel = hiltViewModel(), onDone = { navController.popBackStack() }) }
                 composable(Routes.Invoices) {
                     InvoiceListScreen(
@@ -240,20 +274,70 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onOpen = { navController.navigate(Routes.invoiceDetail(it)) }
                     )
                 }
-                composable(Routes.InvoiceCreate) {
+                composable(Routes.InvoiceCreate) { backStackEntry ->
+                    val invoiceVm: com.inventory.ui.invoices.InvoiceCreateViewModel = hiltViewModel()
+                    val scannedProductId by backStackEntry.savedStateHandle
+                        .getStateFlow("scannedProductId", "")
+                        .collectAsState()
+                    val scannedProductUnit by backStackEntry.savedStateHandle
+                        .getStateFlow("scannedProductUnit", "PIECE")
+                        .collectAsState()
+                    LaunchedEffect(scannedProductId, scannedProductUnit) {
+                        if (scannedProductId.isNotBlank()) {
+                            invoiceVm.addProductById(scannedProductId, scannedProductUnit)
+                            backStackEntry.savedStateHandle["scannedProductId"] = ""
+                            backStackEntry.savedStateHandle["scannedProductUnit"] = "PIECE"
+                        }
+                    }
                     InvoiceCreateScreen(
-                        viewModel = hiltViewModel(),
+                        viewModel = invoiceVm,
                         onDone = { navController.navigate(Routes.invoiceDetail(it)) },
-                        onScanQr = { navController.navigate(Routes.ProductScanner) },
-                        onAddCustomer = { navController.navigate(Routes.CustomerAdd) }
+                        onScanQr = { navController.navigate(Routes.ProductScannerInvoice) },
+                        onAddCustomer = { navController.navigate(Routes.CustomerAdd) },
+                        onAddProduct = { navController.navigate(Routes.productAdd(name = it)) }
                     )
                 }
                 composable(Routes.InvoiceDetail) { backStackEntry ->
                     val id = backStackEntry.arguments?.getString("invoiceId") ?: ""
-                    InvoiceDetailScreen(invoiceId = id, viewModel = hiltViewModel(), onBack = { navController.popBackStack() })
+                    InvoiceDetailScreen(
+                        invoiceId = id,
+                        viewModel = hiltViewModel(),
+                        onBack = { navController.popBackStack() },
+                        onEdit = { navController.navigate(Routes.invoiceEdit(it)) }
+                    )
+                }
+                composable(Routes.InvoiceEdit) { backStackEntry ->
+                    val id = backStackEntry.arguments?.getString("invoiceId") ?: ""
+                    val invoiceVm: com.inventory.ui.invoices.InvoiceCreateViewModel = hiltViewModel()
+                    val scannedProductId by backStackEntry.savedStateHandle
+                        .getStateFlow("scannedProductId", "")
+                        .collectAsState()
+                    val scannedProductUnit by backStackEntry.savedStateHandle
+                        .getStateFlow("scannedProductUnit", "PIECE")
+                        .collectAsState()
+                    LaunchedEffect(scannedProductId, scannedProductUnit) {
+                        if (scannedProductId.isNotBlank()) {
+                            invoiceVm.addProductById(scannedProductId, scannedProductUnit)
+                            backStackEntry.savedStateHandle["scannedProductId"] = ""
+                            backStackEntry.savedStateHandle["scannedProductUnit"] = "PIECE"
+                        }
+                    }
+                    InvoiceCreateScreen(
+                        viewModel = invoiceVm,
+                        invoiceId = id,
+                        onDone = { navController.navigate(Routes.invoiceDetail(it)) },
+                        onScanQr = { navController.navigate(Routes.ProductScannerInvoice) },
+                        onAddCustomer = { navController.navigate(Routes.CustomerAdd) },
+                        onAddProduct = { navController.navigate(Routes.productAdd(name = it)) },
+                        onBack = { navController.popBackStack() }
+                    )
                 }
                 composable(Routes.VoucherCreate) {
                     VoucherCreateScreen(viewModel = hiltViewModel(), onBack = { navController.popBackStack() })
+                }
+                composable(Routes.VoucherEdit) { backStackEntry ->
+                    val id = backStackEntry.arguments?.getString("voucherId") ?: ""
+                    VoucherCreateScreen(viewModel = hiltViewModel(), voucherId = id, onBack = { navController.popBackStack() })
                 }
                 composable(Routes.Notifications) {
                     NotificationScreen(viewModel = hiltViewModel(), onBack = { navController.popBackStack() })

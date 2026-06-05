@@ -16,6 +16,7 @@ import {
 } from "../services/product.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
+import { hasPermission } from "../middleware/permission.middleware";
 
 function requireUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
@@ -57,7 +58,7 @@ export const getProductByQr = asyncHandler(async (req, res) => {
 export const addProduct = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_PRODUCTS")) {
     const approval = await createPendingApproval(
       approvalRequestTypes.CREATE_PRODUCT,
       { body: req.body },
@@ -84,7 +85,7 @@ export const editProduct = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_PRODUCTS")) {
     const approval = await createPendingApproval(
       approvalRequestTypes.UPDATE_PRODUCT,
       { params: { id }, body: req.body },
@@ -111,7 +112,7 @@ export const removeProduct = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_PRODUCTS")) {
     const approval = await createPendingApproval(
       approvalRequestTypes.DELETE_PRODUCT,
       { params: { id } },
@@ -223,7 +224,7 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
       doc
         .fontSize(9)
         .fillColor("#475569")
-        .text(`${product.itemNumber} · CTN`, x + 8, qrY + qrSize + 22, {
+        .text(`${product.itemNumber} · CTN · ${product.pcsPerCarton} pcs`, x + 8, qrY + qrSize + 22, {
           width: cellW - 16,
           align: "center",
         });

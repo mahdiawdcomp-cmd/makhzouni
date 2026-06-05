@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import {
   flexRender,
@@ -18,51 +18,56 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
 
 type TypeFilter = "ALL" | "SALE" | "PURCHASE"
+type InvoiceSort = "createdDesc" | "updatedDesc" | "dateDesc" | "totalDesc" | "remainingDesc" | "paidDesc"
 
 const typeChipStyles: Record<TypeFilter, string> = {
-  ALL:      "bg-slate-900 text-white",
-  SALE:     "bg-emerald-600 text-white",
+  ALL: "bg-slate-900 text-white",
+  SALE: "bg-emerald-600 text-white",
   PURCHASE: "bg-amber-600 text-white",
 }
+
 const typeChipIdleStyles =
   "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+
+function invoiceParty(invoice: Invoice) {
+  const fallbackName = (invoice as Invoice & { customerName?: string }).customerName
+  return invoice.customer?.name ?? fallbackName ?? invoice.customerId ?? "-"
+}
+
+function money(value: unknown) {
+  return Number(value ?? 0).toLocaleString("en-US")
+}
+
+function dateValue(value?: string | null) {
+  return value ? new Date(value).getTime() || 0 : 0
+}
 
 export function InvoicesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const urlType = searchParams.get("type")
-  // Derive typeFilter DIRECTLY from URL (not useState) so navigating from another page always syncs
   const typeFilter: TypeFilter = urlType === "SALE" || urlType === "PURCHASE" ? urlType : "ALL"
-
-  // Read date/status filters from URL so dashboard "today's invoices" link works
   const urlFrom = searchParams.get("from") ?? ""
-  const urlTo   = searchParams.get("to")   ?? ""
+  const urlTo = searchParams.get("to") ?? ""
 
   const [query, setQuery] = useState("")
   const [draftFrom, setDraftFrom] = useState(urlFrom)
   const [draftTo, setDraftTo] = useState(urlTo)
   const [draftStatus, setDraftStatus] = useState("all")
   const [draftPaymentType, setDraftPaymentType] = useState("all")
+  const [sortBy, setSortBy] = useState<InvoiceSort>("createdDesc")
   const [appliedFilters, setAppliedFilters] = useState({
     from: urlFrom,
-    to:   urlTo,
+    to: urlTo,
     status: "all",
     paymentType: "all",
   })
 
   function selectType(next: TypeFilter) {
-    if (next === "ALL") searchParams.delete("type")
-    else searchParams.set("type", next)
-    setSearchParams(searchParams, { replace: true })
+    const params = new URLSearchParams(searchParams)
+    if (next === "ALL") params.delete("type")
+    else params.set("type", next)
+    setSearchParams(params, { replace: true })
   }
-
-  // Auto-open create dialog if URL has ?new=1
-  useEffect(() => {
-    if (searchParams.get("new") === "1") {
-      searchParams.delete("new")
-      setSearchParams(searchParams, { replace: true })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const invoicesQuery = useInvoices({
     from: appliedFilters.from || undefined,
@@ -76,6 +81,7 @@ export function InvoicesPage() {
         ? appliedFilters.paymentType
         : undefined,
   })
+
   const invoices = invoicesQuery.data ?? []
   const filtered = invoices.filter((invoice) => {
     const paid = Number(invoice.remainingAmount ?? 0) <= 0
@@ -85,11 +91,19 @@ export function InvoicesPage() {
       appliedFilters.status === "CANCELLED" ||
       (appliedFilters.status === "paid" && paid && invoice.status !== "CANCELLED") ||
       (appliedFilters.status === "unpaid" && !paid && invoice.status !== "CANCELLED")
+    const search = query.trim().toLowerCase()
     const matchesSearch =
-      query.trim() === "" ||
-      invoice.invoiceNumber.toLowerCase().includes(query.toLowerCase()) ||
-      (invoice.customer?.name?.toLowerCase().includes(query.toLowerCase()) ?? false)
+      search === "" ||
+      invoice.invoiceNumber.toLowerCase().includes(search) ||
+      invoiceParty(invoice).toLowerCase().includes(search)
     return matchesStatus && matchesSearch
+  }).sort((a, b) => {
+    if (sortBy === "updatedDesc") return dateValue(b.updatedAt) - dateValue(a.updatedAt)
+    if (sortBy === "dateDesc") return dateValue(b.date) - dateValue(a.date)
+    if (sortBy === "totalDesc") return Number(b.totalAmount) - Number(a.totalAmount)
+    if (sortBy === "remainingDesc") return Number(b.remainingAmount) - Number(a.remainingAmount)
+    if (sortBy === "paidDesc") return Number(b.paidAmount) - Number(a.paidAmount)
+    return dateValue(b.createdAt ?? b.date) - dateValue(a.createdAt ?? a.date)
   })
 
   const columns = useMemo<ColumnDef<Invoice>[]>(
@@ -97,9 +111,8 @@ export function InvoicesPage() {
       {
         id: "type",
         header: "النوع",
-        cell: ({ row }) => {
-          const t = row.original.type ?? "SALE"
-          return t === "PURCHASE" ? (
+        cell: ({ row }) =>
+          row.original.type === "PURCHASE" ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               <ShoppingCart className="h-3 w-3" /> شراء
             </span>
@@ -107,34 +120,33 @@ export function InvoicesPage() {
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
               <Receipt className="h-3 w-3" /> بيع
             </span>
-          )
-        },
+          ),
       },
       { accessorKey: "invoiceNumber", header: "رقم الفاتورة" },
-      { id: "customer", header: "الزبون / المورّد", cell: ({ row }) => row.original.customer?.name ?? row.original.customerId },
+      { id: "customer", header: "الزبون / المورد", cell: ({ row }) => invoiceParty(row.original) },
       { accessorKey: "date", header: "التاريخ", cell: ({ row }) => String(row.original.date).slice(0, 10) },
-      { accessorKey: "totalAmount", header: "الإجمالي" },
-      { accessorKey: "paidAmount", header: "المدفوع" },
-      { accessorKey: "remainingAmount", header: "الباقي" },
-      { 
-        accessorKey: "status", 
+      { accessorKey: "totalAmount", header: "الإجمالي", cell: ({ row }) => money(row.original.totalAmount) },
+      { accessorKey: "paidAmount", header: "المدفوع", cell: ({ row }) => money(row.original.paidAmount) },
+      { accessorKey: "remainingAmount", header: "الباقي", cell: ({ row }) => money(row.original.remainingAmount) },
+      {
+        accessorKey: "status",
         header: "الحالة",
         cell: ({ row }) => {
-          const s = row.original.status;
-          let variant: "success" | "danger" | "warning" | "default" = "default";
-          let label = s;
-          if (s === "ACTIVE") { variant = "success"; label = "نشطة"; }
-          if (s === "CANCELLED") { variant = "danger"; label = "ملغاة"; }
-          if (s === "PENDING") { variant = "warning"; label = "قيد الانتظار"; }
-          return <Badge variant={variant}>{label}</Badge>
-        }
+          const status = row.original.status
+          if (status === "ACTIVE") return <Badge variant="success">نشطة</Badge>
+          if (status === "CANCELLED") return <Badge variant="danger">ملغاة</Badge>
+          if (status === "PENDING") return <Badge variant="warning">قيد الانتظار</Badge>
+          return <Badge>{status}</Badge>
+        },
       },
       {
         id: "actions",
         header: "إجراءات",
         cell: ({ row }) => (
           <Button variant="outline" asChild>
-            <Link to={`/invoices/${row.original.id}`}><Eye className="h-4 w-4" /></Link>
+            <Link to={`/invoices/${row.original.id}`} title="عرض الفاتورة">
+              <Eye className="h-4 w-4" />
+            </Link>
           </Button>
         ),
       },
@@ -152,7 +164,7 @@ export function InvoicesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold">الفواتير</h1>
           <p className="text-slate-500">قائمة الفواتير والبحث والتصفية.</p>
@@ -167,19 +179,18 @@ export function InvoicesPage() {
         </div>
       </div>
 
-      {/* Type filter chips */}
-      <div className="flex gap-2">
-        {(["ALL", "SALE", "PURCHASE"] as const).map((t) => (
+      <div className="flex flex-wrap gap-2">
+        {(["ALL", "SALE", "PURCHASE"] as const).map((type) => (
           <button
-            key={t}
+            key={type}
             type="button"
-            onClick={() => selectType(t)}
+            onClick={() => selectType(type)}
             className={cn(
               "rounded-full px-4 py-1.5 text-sm font-medium transition",
-              typeFilter === t ? typeChipStyles[t] : typeChipIdleStyles,
+              typeFilter === type ? typeChipStyles[type] : typeChipIdleStyles,
             )}
           >
-            {t === "ALL" ? "الكل" : t === "SALE" ? "فواتير البيع" : "فواتير الشراء"}
+            {type === "ALL" ? "الكل" : type === "SALE" ? "فواتير البيع" : "فواتير الشراء"}
           </button>
         ))}
       </div>
@@ -187,7 +198,7 @@ export function InvoicesPage() {
       <Card>
         <CardHeader><CardTitle>جدول الفواتير</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 xl:grid-cols-[1fr_170px_170px_180px_180px_120px]">
+          <div className="grid gap-3 xl:grid-cols-[1fr_150px_150px_160px_160px_190px_110px]">
             <Input placeholder="بحث برقم الفاتورة أو اسم الزبون" value={query} onChange={(event) => setQuery(event.target.value)} />
             <Input type="date" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} />
             <Input type="date" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} />
@@ -204,12 +215,29 @@ export function InvoicesPage() {
               <option value="CREDIT">آجل</option>
               <option value="PARTIAL">جزئي</option>
             </select>
+            <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={sortBy} onChange={(event) => setSortBy(event.target.value as InvoiceSort)}>
+              <option value="createdDesc">الأحدث إضافة</option>
+              <option value="updatedDesc">آخر تعديل</option>
+              <option value="dateDesc">تاريخ الفاتورة</option>
+              <option value="totalDesc">أعلى مبلغ</option>
+              <option value="remainingDesc">أعلى باقي</option>
+              <option value="paidDesc">أعلى مدفوع</option>
+            </select>
             <Button onClick={() => setAppliedFilters({ from: draftFrom, to: draftTo, status: draftStatus, paymentType: draftPaymentType })}>بحث</Button>
           </div>
+
           <Table>
-            <THead>{table.getHeaderGroups().map((hg) => <TR key={hg.id}>{hg.headers.map((h) => <TH key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</TH>)}</TR>)}</THead>
-            <TBody>{table.getRowModel().rows.map((row) => <TR key={row.id}>{row.getVisibleCells().map((cell) => <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>)}</TR>)}</TBody>
+            <THead>{table.getHeaderGroups().map((group) => <TR key={group.id}>{group.headers.map((header) => <TH key={header.id}>{flexRender(header.column.columnDef.header, header.getContext())}</TH>)}</TR>)}</THead>
+            <TBody>
+              {table.getRowModel().rows.map((row) => (
+                <TR key={row.id}>{row.getVisibleCells().map((cell) => <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>)}</TR>
+              ))}
+              {!invoicesQuery.isLoading && table.getRowModel().rows.length === 0 ? (
+                <TR><TD colSpan={columns.length} className="py-8 text-center text-slate-500">لا توجد فواتير مطابقة</TD></TR>
+              ) : null}
+            </TBody>
           </Table>
+
           <div className="flex items-center justify-between">
             <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
             <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}</span>

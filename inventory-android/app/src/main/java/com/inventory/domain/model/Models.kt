@@ -5,6 +5,7 @@ data class User(
     val name: String,
     val username: String,
     val role: String,
+    val permissions: List<String> = emptyList(),
     val isActive: Boolean
 )
 
@@ -25,6 +26,8 @@ data class Product(
     val itemNumber: String,
     val name: String,
     val qrCode: String,
+    val cartonQrCode: String = "",
+    val imageUrl: String? = null,
     val category: String,
     val openingBalancePcs: Int,
     val cartonsAvailable: Int,
@@ -69,7 +72,8 @@ data class CustomerTransaction(
     val credit: Double,
     val amount: Double,
     val referenceNumber: String,
-    val runningBalance: Double
+    val runningBalance: Double,
+    val status: String? = null
 )
 
 data class LastTransaction(
@@ -86,6 +90,7 @@ data class Invoice(
     val customerName: String,
     val customerId: String,
     val date: String,
+    val type: String = "SALE",
     val totalAmount: Double,
     val paidAmount: Double,
     val remainingAmount: Double,
@@ -103,6 +108,18 @@ data class InvoiceItem(
     val quantity: Int,
     val unitPrice: Double,
     val totalPrice: Double
+)
+
+data class Voucher(
+    val id: String,
+    val voucherNumber: String,
+    val customerId: String?,
+    val customerName: String?,
+    val amount: Double,
+    val type: String,
+    val date: String,
+    val notes: String?,
+    val description: String?
 )
 
 data class DashboardReport(

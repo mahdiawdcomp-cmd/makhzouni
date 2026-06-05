@@ -1,4 +1,6 @@
 import cron from "node-cron";
+import fs from "node:fs";
+import path from "node:path";
 import prisma from "../config/database";
 import { getSettings } from "./settings.service";
 import { renderTemplateByType } from "./message-template.service";
@@ -102,6 +104,89 @@ export async function runInactiveCustomerJob() {
   };
 }
 
+/** ----------------------------------------------------------------
+ *  Weekly backup job
+ *  - Runs every Sunday at 02:00 AM
+ *  - Dumps products, customers, invoices, vouchers to JSON
+ *  - Saves to BACKUP_DIR (env var, defaults to ./backups/)
+ *  - If ENABLE_WHATSAPP=true AND backupWhatsappNumber is set in settings,
+ *    sends a summary message to that number.
+ * ----------------------------------------------------------------*/
+export async function runWeeklyBackup() {
+  const settings = await getSettings();
+  const now = new Date();
+  const tag = now.toISOString().slice(0, 10);
+
+  const [products, customers, invoices, vouchers] = await Promise.all([
+    prisma.product.findMany({ where: { deletedAt: null } }),
+    prisma.customer.findMany({ where: { deletedAt: null } }),
+    prisma.invoice.findMany({
+      include: { items: true },
+      orderBy: { createdAt: "desc" },
+      take: 5000,
+    }),
+    prisma.paymentVoucher.findMany({ orderBy: { createdAt: "desc" }, take: 5000 }),
+  ]);
+
+  const backup = {
+    exportedAt: now.toISOString(),
+    storeName: settings.storeName,
+    counts: {
+      products: products.length,
+      customers: customers.length,
+      invoices: invoices.length,
+      vouchers: vouchers.length,
+    },
+    products,
+    customers,
+    invoices,
+    vouchers,
+  };
+
+  // ── Save to folder ──────────────────────────────────────────
+  const backupDir = process.env.BACKUP_DIR
+    ? path.resolve(process.env.BACKUP_DIR)
+    : path.join(process.cwd(), "backups");
+
+  try {
+    fs.mkdirSync(backupDir, { recursive: true });
+    const filename = path.join(backupDir, `backup-${tag}.json`);
+    fs.writeFileSync(filename, JSON.stringify(backup, null, 2), "utf-8");
+    console.log(`[backup] Saved: ${filename}`);
+
+    // Keep only the last 8 weekly backups to avoid disk bloat
+    const files = fs.readdirSync(backupDir)
+      .filter((f) => f.startsWith("backup-") && f.endsWith(".json"))
+      .sort();
+    while (files.length > 8) {
+      const old = files.shift()!;
+      fs.unlinkSync(path.join(backupDir, old));
+    }
+  } catch (err) {
+    console.error("[backup] Failed to write file:", err);
+  }
+
+  // ── WhatsApp summary (optional) ─────────────────────────────
+  if (process.env.ENABLE_WHATSAPP === "true") {
+    const ownerPhone = settings.backupWhatsappNumber;
+    if (ownerPhone) {
+      const msg =
+        `📦 *نسخة احتياطية أسبوعية — ${settings.storeName}*\n` +
+        `📅 التاريخ: ${tag}\n` +
+        `🗂 منتجات: ${products.length}\n` +
+        `👤 زبائن: ${customers.length}\n` +
+        `🧾 فواتير: ${invoices.length}\n` +
+        `💰 سندات: ${vouchers.length}\n` +
+        `✅ تم حفظ النسخة على السيرفر`;
+      await sendWhatsAppText(ownerPhone, msg).catch((e) =>
+        console.warn("[backup] WhatsApp send failed:", e)
+      );
+    }
+  }
+
+  return backup.counts;
+}
+
 export function startNotificationJobs() {
   if (jobsStarted) return;
   jobsStarted = true;
@@ -116,5 +201,17 @@ export function startNotificationJobs() {
     runInactiveCustomerJob().catch((error) => {
       console.error("Inactive customer job failed", error);
     });
+  });
+
+  // Weekly backup — every Sunday at 02:00
+  cron.schedule("0 2 * * 0", () => {
+    runWeeklyBackup().catch((error) => {
+      console.error("Weekly backup failed:", error);
+    });
+  });
+
+  // Keep Neon DB alive — ping every 4 minutes to prevent auto-suspend
+  cron.schedule("*/4 * * * *", () => {
+    prisma.$queryRaw`SELECT 1`.catch(() => {/* silent */});
   });
 }

@@ -19,7 +19,7 @@ export async function listTransfers(req: Request, res: Response, next: NextFunct
 
 export async function getTransfer(req: Request, res: Response, next: NextFunction) {
   try {
-    const transfer = await transferService.getTransferById(req.params.id);
+    const transfer = await transferService.getTransferById(String(req.params.id));
     res.json(transfer);
   } catch (error) {
     next(error);

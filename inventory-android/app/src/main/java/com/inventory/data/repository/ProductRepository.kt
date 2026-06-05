@@ -5,6 +5,7 @@ import com.inventory.data.local.ProductEntity
 import com.inventory.data.remote.ApiClient
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.NetworkMonitor
+import com.inventory.data.remote.dto.BranchDto
 import com.inventory.data.remote.dto.ProductDto
 import com.inventory.data.remote.dto.ProductMovementDto
 import com.inventory.data.remote.dto.UpsertProductRequest
@@ -28,12 +29,25 @@ class ProductRepository @Inject constructor(
 
     fun observeProduct(id: String): Flow<Product?> = productDao.observeProduct(id).map { it?.toDomain() }
 
+    suspend fun loadBranches(): ApiResult<List<BranchDto>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.getBranches().data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل الفروع")
+        }
+    }
+
     suspend fun refreshProducts(search: String? = null, category: String? = null): ApiResult<List<Product>> {
         if (!networkMonitor.isOnline()) return ApiResult.Offline
         return try {
             val response = apiClient.api.getProducts(search = search.takeUnless { it.isNullOrBlank() }, category = category.takeUnless { it.isNullOrBlank() })
             val entities = response.data.map { it.toEntity() }
-            productDao.upsertAll(entities)
+            if (search.isNullOrBlank() && category.isNullOrBlank()) {
+                productDao.replaceAll(entities)
+            } else {
+                productDao.upsertAll(entities)
+            }
             ApiResult.Success(entities.map { it.toDomain() })
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر تحميل المنتجات")
@@ -70,9 +84,28 @@ class ProductRepository @Inject constructor(
         }
     }
 
-    suspend fun deleteProduct(id: String) {
-        apiClient.api.deleteProduct(id)
-        productDao.deleteProduct(id)
+    suspend fun createQuickProduct(name: String): ApiResult<Product> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val dto = apiClient.api.createProduct(UpsertProductRequest(name = name.trim(), pcsPerCarton = 1)).data
+                ?: return ApiResult.Error("تعذر إنشاء المادة")
+            val entity = dto.toEntity()
+            productDao.upsertAll(listOf(entity))
+            ApiResult.Success(entity.toDomain())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر إنشاء المادة")
+        }
+    }
+
+    suspend fun deleteProduct(id: String): ApiResult<Unit> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            apiClient.api.deleteProduct(id)
+            productDao.deleteProduct(id)
+            ApiResult.Success(Unit)
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر حذف المادة")
+        }
     }
 
     suspend fun movement(productId: String, from: String?, to: String?): ApiResult<List<ProductMovement>> {
@@ -91,6 +124,8 @@ private fun ProductEntity.toDomain() = Product(
     itemNumber = itemNumber,
     name = name,
     qrCode = qrCode,
+    cartonQrCode = cartonQrCode,
+    imageUrl = imageUrl,
     category = category,
     openingBalancePcs = openingBalancePcs,
     cartonsAvailable = cartonsAvailable,
@@ -106,6 +141,8 @@ private fun ProductDto.toEntity() = ProductEntity(
     itemNumber = itemNumber,
     name = name,
     qrCode = qrCode.orEmpty(),
+    cartonQrCode = cartonQrCode.orEmpty(),
+    imageUrl = imageUrl,
     category = category.orEmpty(),
     openingBalancePcs = openingBalancePcs,
     cartonsAvailable = cartonsAvailable,

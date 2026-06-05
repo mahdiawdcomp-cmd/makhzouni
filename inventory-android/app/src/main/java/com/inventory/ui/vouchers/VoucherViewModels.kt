@@ -22,8 +22,12 @@ data class VoucherFormState(
     val selectedCustomerId: String = "",
     val amount: String = "",
     val type: String = "RECEIPT",
+    val date: String = "",
     val notes: String = "",
-    val description: String = ""   // for EXPENSE vouchers
+    val description: String = "",   // for EXPENSE vouchers
+    val editingVoucherId: String? = null,
+    val voucherNumber: String = "",
+    val editLoaded: Boolean = false
 ) {
     val isExpense: Boolean get() = type == "EXPENSE"
 }
@@ -39,6 +43,7 @@ class VoucherViewModel @Inject constructor(
 
     init {
         loadCustomers()
+        viewModelScope.launch { customerRepository.refreshCustomers() }
     }
 
     private fun loadCustomers() {
@@ -54,11 +59,37 @@ class VoucherViewModel @Inject constructor(
             is VoucherEvent.CustomerChanged -> _state.value = _state.value.copy(selectedCustomerId = event.id, error = null)
             is VoucherEvent.AmountChanged -> _state.value = _state.value.copy(amount = event.amount, error = null)
             is VoucherEvent.TypeChanged -> _state.value = _state.value.copy(type = event.type, error = null)
+            is VoucherEvent.DateChanged -> _state.value = _state.value.copy(date = event.date, error = null)
             is VoucherEvent.NotesChanged -> _state.value = _state.value.copy(notes = event.notes, error = null)
             is VoucherEvent.DescriptionChanged -> _state.value = _state.value.copy(description = event.description, error = null)
             is VoucherEvent.Submit -> submitVoucher()
             is VoucherEvent.DismissError -> _state.value = _state.value.copy(error = null)
             is VoucherEvent.DismissSuccess -> _state.value = _state.value.copy(success = false)
+        }
+    }
+
+    fun loadVoucher(voucherId: String) {
+        if (_state.value.editLoaded && _state.value.editingVoucherId == voucherId) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, editingVoucherId = voucherId)
+            val result = voucherRepository.getVoucher(voucherId)
+            result.onSuccess { voucher ->
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    error = null,
+                    editLoaded = true,
+                    editingVoucherId = voucher.id,
+                    voucherNumber = voucher.voucherNumber,
+                    selectedCustomerId = voucher.customerId.orEmpty(),
+                    amount = voucher.amount.toString(),
+                    type = voucher.type,
+                    date = voucher.date,
+                    notes = voucher.notes.orEmpty(),
+                    description = voucher.description.orEmpty()
+                )
+            }.onFailure {
+                _state.value = _state.value.copy(isLoading = false, error = it.message)
+            }
         }
     }
 
@@ -87,11 +118,12 @@ class VoucherViewModel @Inject constructor(
                 customerId = if (s.isExpense) null else s.selectedCustomerId,
                 amount = amountDouble,
                 type = s.type,
-                date = sdf.format(Date()),
+                date = s.date.takeIf { it.isNotBlank() } ?: sdf.format(Date()),
                 notes = s.notes.takeIf { it.isNotBlank() },
                 description = s.description.takeIf { it.isNotBlank() }
             )
-            val result = voucherRepository.createVoucher(request)
+            val result = s.editingVoucherId?.let { voucherRepository.updateVoucher(it, request).map { } }
+                ?: voucherRepository.createVoucher(request)
             result.onSuccess {
                 _state.value = _state.value.copy(
                     isLoading = false,
@@ -111,6 +143,7 @@ class VoucherViewModel @Inject constructor(
 sealed class VoucherEvent {
     data class CustomerChanged(val id: String) : VoucherEvent()
     data class AmountChanged(val amount: String) : VoucherEvent()
+    data class DateChanged(val date: String) : VoucherEvent()
     data class TypeChanged(val type: String) : VoucherEvent()
     data class NotesChanged(val notes: String) : VoucherEvent()
     data class DescriptionChanged(val description: String) : VoucherEvent()

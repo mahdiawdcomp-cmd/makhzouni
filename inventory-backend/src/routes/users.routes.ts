@@ -4,8 +4,8 @@ import {
   deleteUser,
   editUser,
   getUsers,
+  permanentlyDeleteUser,
 } from "../controllers/users.controller";
-import { adminOnly } from "../middleware/admin-only.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
 import {
@@ -13,14 +13,16 @@ import {
   idParamSchema,
   updateUserSchema,
 } from "../utils/schemas";
+import { requirePermission } from "../middleware/permission.middleware";
 
 const router = Router();
 
 router.use(authMiddleware);
 
-router.get("/", adminOnly, getUsers);
-router.post("/", adminOnly, validate(createUserSchema), addUser);
-router.put("/:id", adminOnly, validate(updateUserSchema), editUser);
-router.delete("/:id", adminOnly, validate(idParamSchema), deleteUser);
+router.get("/", requirePermission("MANAGE_USERS"), getUsers);
+router.post("/", requirePermission("MANAGE_USERS"), validate(createUserSchema), addUser);
+router.put("/:id", requirePermission("MANAGE_USERS"), validate(updateUserSchema), editUser);
+router.delete("/:id/permanent", requirePermission("MANAGE_USERS"), validate(idParamSchema), permanentlyDeleteUser);
+router.delete("/:id", requirePermission("MANAGE_USERS"), validate(idParamSchema), deleteUser);
 
 export default router;

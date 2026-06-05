@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 import { ArrowRightLeft, Plus, Search, X } from "lucide-react"
 
-import { getTransfers, createTransfer, getBranches, getProducts } from "../api/endpoints"
+import { getTransfers, createTransfer, getBranches, getProducts, createBranch } from "../api/endpoints"
 import type { InventoryTransfer } from "../api/endpoints"
 import type { Product } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -115,10 +115,13 @@ function CreateTransferDialog({
   onOpenChange: (open: boolean) => void
   onSuccess: () => void
 }) {
+  const queryClient = useQueryClient()
   const [fromBranchId, setFromBranchId] = useState("")
   const [toBranchId, setToBranchId]     = useState("")
   const [notes, setNotes]               = useState("")
   const [items, setItems]               = useState<TransferItem[]>([])
+  const [newBranchName, setNewBranchName] = useState("")
+  const [newBranchCode, setNewBranchCode] = useState("")
 
   // Product search state
   const [productSearch, setProductSearch] = useState("")
@@ -150,6 +153,24 @@ function CreateTransferDialog({
     },
     onError: (err: any) => {
       toast({ title: "خطأ", description: err.response?.data?.message ?? "فشل التحويل", variant: "destructive" })
+    },
+  })
+
+  const branchMutation = useMutation({
+    mutationFn: () => createBranch({
+      name: newBranchName.trim(),
+      code: newBranchCode.trim(),
+      isActive: true,
+    }),
+    onSuccess: (res) => {
+      toast({ title: "تم إنشاء المخزن" })
+      setNewBranchName("")
+      setNewBranchCode("")
+      queryClient.invalidateQueries({ queryKey: ["branches"] })
+      if (res.data?.id) setToBranchId(res.data.id)
+    },
+    onError: (err: any) => {
+      toast({ title: "خطأ", description: err.response?.data?.message ?? "فشل إنشاء المخزن", variant: "destructive" })
     },
   })
 
@@ -254,6 +275,30 @@ function CreateTransferDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
+            <Label>إضافة مخزن/فرع ثاني سريعاً</Label>
+            <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+              <Input
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="مثال: المخزن الرئيسي"
+              />
+              <Input
+                value={newBranchCode}
+                onChange={(e) => setNewBranchCode(e.target.value)}
+                placeholder="كود"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!newBranchName.trim() || !newBranchCode.trim() || branchMutation.isPending}
+                onClick={() => branchMutation.mutate()}
+              >
+                <Plus className="h-4 w-4" /> إضافة
+              </Button>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 import {
   createBranch,
   getBranchById,
+  listBranchSummaries,
   listBranches,
   updateBranch,
 } from "../services/branch.service";
@@ -14,6 +15,15 @@ export const getBranches = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     data: branches,
+  });
+});
+
+export const getBranchSummaries = asyncHandler(async (_req, res) => {
+  const data = await listBranchSummaries();
+
+  res.json({
+    success: true,
+    data,
   });
 });
 

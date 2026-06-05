@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import {
+  listMyApprovals,
   listPendingApprovals,
   reviewApproval,
 } from "../services/approval.service";
@@ -14,9 +15,25 @@ export const getPendingApprovals = asyncHandler(async (_req, res) => {
   });
 });
 
+export const getMyApprovals = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
+  }
+
+  const approvals = await listMyApprovals(req.user.id);
+
+  res.json({
+    success: true,
+    data: approvals,
+  });
+});
+
 export const reviewPendingApproval = asyncHandler(async (req, res) => {
   if (!req.user) {
     throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
+  }
+  if (req.user.role !== "ADMIN") {
+    throw new AppError("Only admins can review approval requests", 403, "ADMIN_REQUIRED");
   }
 
   const id = String(req.params.id);

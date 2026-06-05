@@ -20,7 +20,7 @@ class UserRepository @Inject constructor(
     private val networkMonitor: NetworkMonitor
 ) {
     val users: Flow<List<User>> = userDao.observeUsers().map { list ->
-        list.map { User(it.id, it.name, it.username, it.role, it.isActive) }
+        list.map { User(it.id, it.name, it.username, it.role, it.permissions.splitPermissions(), it.isActive) }
     }
 
     suspend fun refreshUsers(): ApiResult<List<User>> {
@@ -29,9 +29,9 @@ class UserRepository @Inject constructor(
             val response = apiClient.api.getUsers()
             val users = response.data.orEmpty()
             userDao.upsertAll(users.map {
-                UserEntity(it.id, it.name, it.username, it.role, it.isActive, it.updatedAt)
+                UserEntity(it.id, it.name, it.username, it.role, it.permissions.orEmpty().joinToString(","), it.isActive, it.updatedAt)
             })
-            ApiResult.Success(users.map { User(it.id, it.name, it.username, it.role, it.isActive) })
+            ApiResult.Success(users.map { User(it.id, it.name, it.username, it.role, it.permissions.orEmpty(), it.isActive) })
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر تحميل المستخدمين")
         }
@@ -40,4 +40,8 @@ class UserRepository @Inject constructor(
     suspend fun createUser(request: CreateUserRequest) = apiClient.api.createUser(request)
     suspend fun updateUser(id: String, request: UpdateUserRequest) = apiClient.api.updateUser(id, request)
     suspend fun deactivateUser(id: String) = apiClient.api.deactivateUser(id)
+    suspend fun deleteUserPermanently(id: String) = apiClient.api.deleteUserPermanently(id)
 }
+
+private fun String.splitPermissions(): List<String> =
+    split(",").map { it.trim() }.filter { it.isNotEmpty() }

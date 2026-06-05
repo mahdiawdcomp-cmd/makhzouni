@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react"
 import { Outlet } from "react-router-dom"
-import { Menu, X } from "lucide-react"
+import { Menu } from "lucide-react"
 import { Header } from "./Header"
 import { Sidebar } from "./Sidebar"
+import { PwaStatusBar } from "../PwaStatusBar"
+import { usePwaStatus } from "../../pwa/usePwaStatus"
+import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
+import { OnboardingWizard } from "../OnboardingWizard"
 
 export function AppLayout() {
   const [darkMode, setDarkMode] = useState(
     () => localStorage.getItem("inventory_theme") === "dark",
   )
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const pwa = usePwaStatus()
+  useGlobalShortcuts()
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode)
@@ -47,6 +53,13 @@ export function AppLayout() {
 
       {/* ── Main area ── */}
       <div className="flex min-w-0 flex-1 flex-col h-screen overflow-hidden">
+        <PwaStatusBar
+          isOnline={pwa.isOnline}
+          pendingCount={pwa.pendingCount}
+          needsRefresh={pwa.needsRefresh}
+          onRefresh={pwa.refreshApp}
+          onSync={pwa.syncNow}
+        />
         {/* Mobile header top bar with hamburger */}
         <div
           className="flex h-14 items-center gap-3 border-b px-4 lg:hidden"
@@ -74,6 +87,9 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Onboarding wizard — shows only for ADMIN on first use */}
+      <OnboardingWizard />
     </div>
   )
 }

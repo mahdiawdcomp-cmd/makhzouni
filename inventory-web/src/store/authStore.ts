@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { Role, User } from "../types/api"
+import type { Role, User, UserPermission } from "../types/api"
 
 interface AuthState {
   token: string | null
@@ -9,6 +9,7 @@ interface AuthState {
   logout: () => void
   isAuthenticated: () => boolean
   isAdmin: () => boolean
+  hasPermission: (permission: UserPermission) => boolean
 }
 
 function readUser() {
@@ -39,4 +40,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   isAuthenticated: () => Boolean(get().token && get().user),
   isAdmin: () => (get().user?.role as Role | undefined) === "ADMIN",
+  hasPermission: (permission) => {
+    const user = get().user
+    return Boolean(user && (user.role === "ADMIN" || user.permissions?.includes(permission)))
+  },
 }))

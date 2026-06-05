@@ -36,6 +36,7 @@ fun InvoiceDetailScreen(
     invoiceId: String,
     viewModel: InvoiceDetailViewModel = hiltViewModel(),
     onBack: () -> Unit,
+    onEdit: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -74,6 +75,9 @@ fun InvoiceDetailScreen(
                 },
                 actions = {
                     if (invoice != null) {
+                        IconButton(onClick = { onEdit(invoice.id) }) {
+                            Icon(Icons.Default.Edit, "تعديل")
+                        }
                         IconButton(onClick = {
                             pairedPrinters = printerManager.getPairedPrinters()
                             if (pairedPrinters.isEmpty()) Toast.makeText(context, "لا توجد طابعات مقترنة", Toast.LENGTH_SHORT).show()
@@ -107,7 +111,7 @@ fun InvoiceDetailScreen(
         ) {
             // ── Hero banner ──────────────────────────────────────────
             item {
-                val isPurchase = invoice.paymentType == "PURCHASE"
+                val isPurchase = invoice.type == "PURCHASE"
                 val bannerColor = if (isPurchase)
                     Brush.horizontalGradient(listOf(AppColor.Amber600, Color(0xFFF97316)))
                 else

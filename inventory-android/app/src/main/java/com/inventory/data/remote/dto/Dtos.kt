@@ -1,5 +1,16 @@
 package com.inventory.data.remote.dto
 
+import java.math.BigDecimal
+import java.math.RoundingMode
+
+/**
+ * Rounds a monetary Double to 2 decimal places using HALF_UP rounding.
+ * Avoids IEEE 754 floating-point drift (e.g. 0.1 + 0.2 = 0.30000000000000004).
+ * Usage: (quantity * unitPrice).roundMoney()
+ */
+internal fun Double.roundMoney(): Double =
+    BigDecimal(this.toString()).setScale(2, RoundingMode.HALF_UP).toDouble()
+
 data class ApiEnvelope<T>(
     val success: Boolean,
     val message: String? = null,
@@ -14,6 +25,7 @@ data class UserDto(
     val name: String,
     val username: String,
     val role: String,
+    val permissions: List<String>? = null,
     val isActive: Boolean,
     val createdAt: String? = null,
     val updatedAt: String? = null
@@ -29,6 +41,7 @@ data class CreateUserRequest(
     val username: String,
     val password: String,
     val role: String,
+    val permissions: List<String> = emptyList(),
     val isActive: Boolean = true
 )
 
@@ -37,6 +50,7 @@ data class UpdateUserRequest(
     val username: String? = null,
     val password: String? = null,
     val role: String? = null,
+    val permissions: List<String>? = null,
     val isActive: Boolean? = null
 )
 
@@ -69,6 +83,7 @@ data class ProductDto(
     val name: String,
     val qrCode: String? = null,
     val cartonQrCode: String? = null,
+    val imageUrl: String? = null,
     val category: String? = null,
     val openingBalancePcs: Int = 0,
     val cartonsAvailable: Int = 0,
@@ -87,6 +102,7 @@ data class UpsertProductRequest(
     val itemNumber: String? = null,
     val qrCode: String? = null,
     val cartonQrCode: String? = null,
+    val imageUrl: String? = null,
     val category: String? = null,
     val openingBalancePcs: Int = 0,
     val cartonsAvailable: Int = 0,
@@ -159,7 +175,8 @@ data class CustomerTransactionDto(
     val referenceNumber: String,
     val debit: Double? = null,
     val credit: Double? = null,
-    val runningBalance: Double
+    val runningBalance: Double,
+    val status: String? = null
 )
 
 data class CustomerTransactionsEnvelope(
@@ -198,12 +215,26 @@ data class CreateVoucherRequest(
     val description: String? = null // required for EXPENSE vouchers
 )
 
+data class VoucherDto(
+    val id: String,
+    val voucherNumber: String,
+    val customerId: String? = null,
+    val customer: CustomerDto? = null,
+    val amount: Double = 0.0,
+    val type: String,
+    val date: String,
+    val notes: String? = null,
+    val description: String? = null,
+    val createdAt: String? = null
+)
+
 data class InvoiceDto(
     val id: String,
     val invoiceNumber: String,
     val customerId: String,
     val customer: CustomerDto? = null,
     val date: String,
+    val type: String = "SALE",
     val subtotal: Double = 0.0,
     val discount: Double = 0.0,
     val tax: Double = 0.0,
@@ -226,12 +257,14 @@ data class InvoiceItemDto(
     val unit: String,
     val quantity: Int,
     val unitPrice: Double,
-    val totalPrice: Double = quantity * unitPrice
+    val totalPrice: Double = (quantity * unitPrice).roundMoney()
 )
 
 data class CreateInvoiceRequest(
     val customerId: String,
     val date: String,
+    val type: String = "SALE",
+    val clientRequestId: String = java.util.UUID.randomUUID().toString(),
     val discount: Double,
     val tax: Double,
     val paidAmount: Double,

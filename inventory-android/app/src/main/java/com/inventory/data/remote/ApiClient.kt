@@ -1,5 +1,6 @@
 package com.inventory.data.remote
 
+import com.inventory.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -21,7 +22,7 @@ class ApiClient @Inject constructor(
         .build()
 
     val api: InventoryApi = Retrofit.Builder()
-        .baseUrl("http://10.153.7.91:5000/api/")
+        .baseUrl(BuildConfig.API_BASE_URL)
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()

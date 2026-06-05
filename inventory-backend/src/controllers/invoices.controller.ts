@@ -9,13 +9,17 @@ import {
   cancelInvoice,
   createInvoice,
   getInvoiceById,
+  getLastSoldPrice,
   listInvoices,
+  reactivateInvoice,
   updateInvoice,
 } from "../services/invoice.service";
 import {
   generateInvoicePdf,
   generateInvoicePng,
 } from "../services/invoice-export.service";
+import { getInvoiceAuditTrail } from "../services/invoice-audit.service";
+import { hasPermission } from "../middleware/permission.middleware";
 
 function requireUser(user: Express.User | undefined) {
   if (!user) {
@@ -63,10 +67,28 @@ export const getInvoiceDetails = asyncHandler(async (req, res) => {
   });
 });
 
+export const getInvoiceAudit = asyncHandler(async (req, res) => {
+  const data = await getInvoiceAuditTrail(String(req.params.id));
+
+  res.json({
+    success: true,
+    data,
+  });
+});
+
+export const getLastSoldPriceForProduct = asyncHandler(async (req, res) => {
+  const data = await getLastSoldPrice(String(req.query.customerId), String(req.query.productId));
+
+  res.json({
+    success: true,
+    data,
+  });
+});
+
 export const addInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
     res.status(202).json(
       await queueInvoiceApproval("CREATE_INVOICE", { body: req.body }, user.id)
     );
@@ -86,7 +108,7 @@ export const editInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
     res.status(202).json(
       await queueInvoiceApproval(
         "UPDATE_INVOICE",
@@ -110,7 +132,7 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
     res.status(202).json(
       await queueInvoiceApproval("CANCEL_INVOICE", { params: { id } }, user.id)
     );
@@ -122,6 +144,23 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: "Invoice cancelled successfully",
+    data: invoice,
+  });
+});
+
+export const restoreInvoice = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+  const id = String(req.params.id);
+
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
+    throw new AppError("Invoice permission is required", 403, "PERMISSION_REQUIRED");
+  }
+
+  const invoice = await reactivateInvoice(id);
+
+  res.json({
+    success: true,
+    message: "Invoice reactivated successfully",
     data: invoice,
   });
 });

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   AlertTriangle,
@@ -19,7 +19,7 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, invoicePdfObjectUrl, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getInvoiceAuditTrail, reactivateInvoice, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -54,6 +54,11 @@ export function InvoiceDetailPage() {
   const queryClient = useQueryClient()
   const invoiceQuery = useInvoice(id)
   const invoice = invoiceQuery.data
+  const auditQuery = useQuery({
+    queryKey: ["invoices", id, "audit-trail"],
+    queryFn: () => getInvoiceAuditTrail(id!),
+    enabled: Boolean(id),
+  })
   const settingsQuery = useSettings()
   const settings = settingsQuery.data
   const { productsQuery } = useProducts()
@@ -97,6 +102,16 @@ export function InvoiceDetailPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
+      void queryClient.invalidateQueries({ queryKey: ["invoices", id, "audit-trail"] })
+    },
+  })
+
+  const reactivateMutation = useMutation({
+    mutationFn: () => reactivateInvoice(id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+      void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
+      void queryClient.invalidateQueries({ queryKey: ["invoices", id, "audit-trail"] })
     },
   })
 
@@ -118,7 +133,7 @@ export function InvoiceDetailPage() {
   function openEdit() {
     if (!invoice) return
     setEditDiscount(String(invoice.discount ?? 0))
-    setEditTax(String(invoice.tax ?? 0))
+    setEditTax("0")
     setEditPaid(String(invoice.paidAmount ?? 0))
     setEditItems((invoice.items ?? []).map((it) => ({
       productId: it.productId, productName: it.productName ?? it.productId,
@@ -142,7 +157,7 @@ export function InvoiceDetailPage() {
   const editMutation = useMutation({
     mutationFn: () => updateInvoice(id!, {
       type: invoice?.type, customerId: invoice?.customerId ?? "",
-      discount: Number(editDiscount), tax: Number(editTax), paidAmount: Number(editPaid),
+      discount: Number(editDiscount), tax: 0, paidAmount: Number(editPaid),
       paymentType: editTotal - Number(editPaid) <= 0 ? "CASH" : Number(editPaid) > 0 ? "PARTIAL" : "CREDIT",
       items: editItems.map((it) => ({ productId: it.productId, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice })),
     }),
@@ -150,6 +165,7 @@ export function InvoiceDetailPage() {
       setEditOpen(false)
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
+      void queryClient.invalidateQueries({ queryKey: ["invoices", id, "audit-trail"] })
     },
   })
 
@@ -194,11 +210,23 @@ export function InvoiceDetailPage() {
                 <Ban className="h-3.5 w-3.5" /> إلغاء
               </Button>
             </>
-          ) : <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">ملغاة</span>}
+          ) : (
+            <>
+              <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">ملغاة</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { if (window.confirm("هل تريد إرجاع الفاتورة نشطة؟ سيتم إرجاع تأثيرها على الحساب والمخزون.")) reactivateMutation.mutate() }}
+                disabled={reactivateMutation.isPending}
+              >
+                <RefreshCw className="h-3.5 w-3.5" /> إرجاع نشطة
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════
+      {/* ══════════════════════════════════════════════════════
           PRINTABLE INVOICE — matches the HTML design exactly   */}
       <div
         className="rounded-xl bg-white shadow-md overflow-hidden"
@@ -271,7 +299,6 @@ export function InvoiceDetailPage() {
             <h3 className="font-bold text-gray-800 border-b border-gray-200 pb-2 mb-3">تفاصيل الفاتورة الحالية</h3>
             <SummaryRow label="قيمة الفاتورة" value={`${money(invoice.subtotal)} ${currency}`} />
             {Number(invoice.discount) > 0 ? <SummaryRow label="الخصم" value={`${money(invoice.discount)} ${currency}`} /> : null}
-            {Number(invoice.tax) > 0 ? <SummaryRow label="الضريبة" value={`${money(invoice.tax)} ${currency}`} /> : null}
             <SummaryRow label="الإجمالي" value={`${money(invoice.totalAmount)} ${currency}`} strong />
             <SummaryRow label="الواصل (المدفوع)" value={`${money(invoice.paidAmount)} ${currency}`} color="text-emerald-600" />
             <div className="flex items-center justify-between rounded-lg bg-gray-200 px-3 py-2 mt-1">
@@ -299,6 +326,45 @@ export function InvoiceDetailPage() {
         </div>
       </div>
       {/* End printable section */}
+
+      <div className="print:hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-bold">تاريخ تعديلات الفاتورة</h2>
+          <span className="text-xs text-slate-500">{auditQuery.data?.length ?? 0} حركة</span>
+        </div>
+        <div className="space-y-2">
+          {(auditQuery.data ?? []).map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-semibold text-slate-800">{entry.actionLabel}</div>
+                <div className="text-xs text-slate-500">
+                  {new Date(entry.createdAt).toLocaleString("ar-IQ", { dateStyle: "short", timeStyle: "short" })}
+                  {" | "}
+                  {entry.user?.name ?? entry.user?.username ?? "-"}
+                </div>
+              </div>
+              {entry.changes.length ? (
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  {entry.changes.map((change) => (
+                    <div key={`${entry.id}-${change.field}`} className="rounded-md bg-white px-3 py-2 text-xs">
+                      <div className="mb-1 font-semibold text-slate-600">{change.label}</div>
+                      <div className="text-rose-600">قبل: {change.before}</div>
+                      <div className="text-emerald-600">بعد: {change.after}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-1 text-xs text-slate-500">تم تسجيل الحركة بدون تفاصيل قابلة للعرض.</div>
+              )}
+            </div>
+          ))}
+          {!auditQuery.isLoading && (auditQuery.data ?? []).length === 0 ? (
+            <div className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-400">
+              لا توجد تعديلات مسجلة على هذه الفاتورة.
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       {/* WhatsApp preview dialog */}
       <Dialog open={waPreview} onOpenChange={setWaPreview}>
@@ -369,8 +435,8 @@ export function InvoiceDetailPage() {
                 <Button variant="ghost" size="sm" className="mt-1" onClick={() => setEditProductOpen(false)}>إغلاق</Button>
               </div>
             ) : null}
-            <div className="grid grid-cols-3 gap-3">
-              {[["الخصم", editDiscount, setEditDiscount], ["الضريبة", editTax, setEditTax], ["المبلغ المدفوع", editPaid, setEditPaid]].map(([label, val, setter]) => (
+            <div className="grid grid-cols-2 gap-3">
+              {[["الخصم", editDiscount, setEditDiscount], ["المبلغ المدفوع", editPaid, setEditPaid]].map(([label, val, setter]) => (
                 <div key={label as string}>
                   <label className="mb-1 block text-xs text-slate-500">{label as string}</label>
                   <Input type="number" value={val as string} onFocus={(e) => e.target.select()} onChange={(e) => (setter as (v: string) => void)(e.target.value)} />

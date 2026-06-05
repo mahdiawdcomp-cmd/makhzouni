@@ -18,13 +18,15 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  Phone,
   Receipt,
   ReceiptText,
   Search,
   ShoppingCart,
+  UserCheck,
   Wallet,
 } from "lucide-react"
-import { useDashboardReport, useDebtReport, useInventoryReport } from "../hooks/useReports"
+import { useDashboardReport, useAtRiskCustomers, useDebtReport, useInventoryReport } from "../hooks/useReports"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
@@ -48,6 +50,7 @@ export function DashboardPage() {
   const dashboard = useDashboardReport()
   const inventory = useInventoryReport()
   const debts = useDebtReport({})
+  const atRisk = useAtRiskCustomers(8)
   const report = dashboard.data
   const inventoryRows = inventory.data?.products ?? []
   const categoryData = Object.values(
@@ -156,6 +159,63 @@ export function DashboardPage() {
             </Card>
           </div>
         </>
+      ) : null}
+
+      {/* ── At-risk customers ── */}
+      {(atRisk.data?.length ?? 0) > 0 ? (
+        <Card className="border-amber-300 dark:border-amber-700">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <UserCheck className="h-5 w-5" />
+              زبائن يحتاجون تواصل ({atRisk.data!.length})
+            </CardTitle>
+            <p className="text-xs text-slate-500">
+              هؤلاء الزبائن تجاوزوا موعد شرائهم المعتاد ولم يُشترَ منهم منذ فترة.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <THead>
+                <TR>
+                  <TH>الزبون</TH>
+                  <TH>متوسط الشراء</TH>
+                  <TH>آخر شراء</TH>
+                  <TH>تأخر</TH>
+                  <TH>الرصيد</TH>
+                  <TH />
+                </TR>
+              </THead>
+              <TBody>
+                {atRisk.data!.map((c) => (
+                  <TR key={c.id}>
+                    <TD className="font-medium">{c.name}</TD>
+                    <TD>كل {c.avgIntervalDays} يوم</TD>
+                    <TD>{c.daysSinceLastPurchase} يوم</TD>
+                    <TD>
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                        +{c.overdueDays} يوم
+                      </span>
+                    </TD>
+                    <TD className={c.currentBalance > 0 ? "text-rose-600 font-semibold" : ""}>
+                      {c.currentBalance.toLocaleString("en-US")}
+                    </TD>
+                    <TD>
+                      <a
+                        href={`https://wa.me/${c.phone.replace(/\D/g, "")}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 text-xs text-emerald-600 hover:underline"
+                      >
+                        <Phone className="h-3 w-3" />
+                        تواصل
+                      </a>
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+        </Card>
       ) : null}
     </div>
   )

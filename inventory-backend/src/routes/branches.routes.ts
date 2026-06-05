@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addBranch,
   editBranch,
+  getBranchSummaries,
   getBranchDetails,
   getBranches,
 } from "../controllers/branches.controller";
@@ -20,6 +21,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/", validate(listBranchesSchema), getBranches);
+router.get("/summaries", getBranchSummaries);
 router.get("/:id", validate(idParamSchema), getBranchDetails);
 router.post("/", adminOnly, validate(createBranchSchema), addBranch);
 router.put("/:id", adminOnly, validate(updateBranchSchema), editBranch);

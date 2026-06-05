@@ -126,7 +126,8 @@ private fun CustomerTransactionDto.toDomain(): CustomerTransaction {
         credit = creditValue,
         amount = amount,
         referenceNumber = referenceNumber,
-        runningBalance = runningBalance
+        runningBalance = runningBalance,
+        status = status
     )
 }
 

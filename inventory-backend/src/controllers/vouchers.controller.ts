@@ -16,6 +16,7 @@ import {
   generateVoucherPdf,
   generateVoucherPng,
 } from "../services/voucher-export.service";
+import { hasPermission } from "../middleware/permission.middleware";
 
 function requireUser(user: Express.User | undefined) {
   if (!user) {
@@ -48,7 +49,7 @@ export const getVoucherDetails = asyncHandler(async (req, res) => {
 export const addVoucher = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_VOUCHERS")) {
     const approval = await createPendingApproval(
       approvalRequestTypes.CREATE_VOUCHER,
       { body: req.body },
@@ -76,7 +77,7 @@ export const editVoucher = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_VOUCHERS")) {
     const approval = await createPendingApproval(
       approvalRequestTypes.UPDATE_VOUCHER,
       { params: { id }, body: req.body },
@@ -91,10 +92,9 @@ export const editVoucher = asyncHandler(async (req, res) => {
 });
 
 export const exportVoucherPdf = asyncHandler(async (req, res) => {
-  const pdf = await generateVoucherPdf(String(req.params.id));
-  res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `attachment; filename="voucher-${String(req.params.id)}.pdf"`);
-  res.send(pdf);
+  const html = await generateVoucherPdf(String(req.params.id));
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
 });
 
 export const exportVoucherImage = asyncHandler(async (req, res) => {
@@ -108,7 +108,7 @@ export const removeVoucher = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
-  if (user.role === UserRole.STAFF) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_VOUCHERS")) {
     const approval = await createPendingApproval(
       approvalRequestTypes.DELETE_VOUCHER,
       { params: { id } },

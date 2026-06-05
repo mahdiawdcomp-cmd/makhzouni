@@ -21,7 +21,7 @@ class AuthRepository @Inject constructor(
             val token = response.token
             val user = response.user
             if (response.success && token != null && user != null) {
-                sessionManager.saveSession(token, user.role, user.name, rememberMe)
+                sessionManager.saveSession(token, user.role, user.name, rememberMe, user.permissions.orEmpty())
                 ApiResult.Success(Unit)
             } else {
                 ApiResult.Error(response.message ?: "فشل تسجيل الدخول", response.code)

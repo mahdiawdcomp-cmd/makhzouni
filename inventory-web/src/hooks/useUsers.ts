@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createUser, deactivateUser, getUsers, updateUser } from "../api/endpoints"
-import type { CreateUserPayload, Role, User } from "../types/api"
+import { createUser, deactivateUser, deleteUserPermanently, getUsers, updateUser } from "../api/endpoints"
+import type { CreateUserPayload, Role, UpdateUserPayload, User } from "../types/api"
 
 export function useUsers() {
   const queryClient = useQueryClient()
@@ -21,8 +21,18 @@ export function useUsers() {
     onSuccess: invalidate,
   })
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateUserPayload }) => updateUser(id, payload),
+    onSuccess: invalidate,
+  })
+
   const deactivateMutation = useMutation({
     mutationFn: (id: string) => deactivateUser(id),
+    onSuccess: invalidate,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteUserPermanently(id),
     onSuccess: invalidate,
   })
 
@@ -30,6 +40,8 @@ export function useUsers() {
     usersQuery,
     createMutation,
     roleMutation,
+    updateMutation,
     deactivateMutation,
+    deleteMutation,
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Plus, Receipt, ReceiptText, RefreshCw, Wallet } from "lucide-react"
@@ -39,10 +39,11 @@ export function VouchersPage() {
   const [customerId, setCustomerId] = useState("")
   const [customerQuery, setCustomerQuery] = useState("")
   const [customerListOpen, setCustomerListOpen] = useState(false)
+  const [customerHighlight, setCustomerHighlight] = useState(0)
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
   const [description, setDescription] = useState("")
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const amountRef = useRef<HTMLInputElement | null>(null)
 
   // Auto-open dialog if URL has ?action=...
   useEffect(() => {
@@ -96,6 +97,8 @@ export function VouchersPage() {
     setCustomerId(id)
     setCustomerQuery(name)
     setCustomerListOpen(false)
+    setCustomerHighlight(0)
+    window.setTimeout(() => amountRef.current?.focus(), 0)
   }
 
   const createMutation = useMutation({
@@ -104,7 +107,6 @@ export function VouchersPage() {
         type,
         customerId: type === "EXPENSE" ? undefined : customerId,
         amount: Number(amount),
-        date,
         notes: notes || undefined,
         description: description || undefined,
       }),
@@ -113,6 +115,9 @@ export function VouchersPage() {
       setCustomerId(""); setAmount(""); setNotes(""); setDescription("")
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
+      void queryClient.invalidateQueries({ queryKey: ["customer"] })
+      void queryClient.invalidateQueries({ queryKey: ["transactions"] })
+      void queryClient.invalidateQueries({ queryKey: ["invoices"] })
     },
   })
 
@@ -271,17 +276,35 @@ export function VouchersPage() {
                       setCustomerQuery(e.target.value)
                       setCustomerId("")
                       setCustomerListOpen(true)
+                      setCustomerHighlight(0)
                     }}
                     onFocus={() => { if (customerQuery) setCustomerListOpen(true) }}
                     onBlur={() => window.setTimeout(() => setCustomerListOpen(false), 150)}
+                    onKeyDown={(e) => {
+                      if (!customerSuggestions.length) return
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault()
+                        setCustomerHighlight((i) => Math.min(i + 1, customerSuggestions.length - 1))
+                      } else if (e.key === "ArrowUp") {
+                        e.preventDefault()
+                        setCustomerHighlight((i) => Math.max(i - 1, 0))
+                      } else if (e.key === "Enter") {
+                        e.preventDefault()
+                        const selected = customerSuggestions[customerHighlight] ?? customerSuggestions[0]
+                        pickCustomer(selected.id, selected.name)
+                      }
+                    }}
                   />
                   {customerListOpen && customerSuggestions.length > 0 && (
                     <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-950">
-                      {customerSuggestions.map((c) => (
+                      {customerSuggestions.map((c, index) => (
                         <button
                           key={c.id}
                           type="button"
-                          className="flex w-full items-center justify-between border-b border-slate-100 px-4 py-2.5 text-right text-sm hover:bg-blue-50 dark:border-slate-800 dark:hover:bg-slate-800"
+                          className={cn(
+                            "flex w-full items-center justify-between border-b border-slate-100 px-4 py-2.5 text-right text-sm hover:bg-blue-50 dark:border-slate-800 dark:hover:bg-slate-800",
+                            index === customerHighlight && "bg-blue-50 dark:bg-slate-800",
+                          )}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => pickCustomer(c.id, c.name)}
                         >
@@ -324,12 +347,15 @@ export function VouchersPage() {
 
             <Input
               type="number"
+              ref={amountRef}
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
               placeholder="المبلغ"
               onFocus={(e) => e.target.select()}
             />
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+            <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              تاريخ السند يثبت تلقائياً عند الحفظ
+            </div>
             <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" />
 
             <Button className="w-full" onClick={() => createMutation.mutate()} disabled={!canSubmit}>

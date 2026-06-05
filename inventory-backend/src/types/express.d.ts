@@ -7,6 +7,7 @@ declare global {
       name: string;
       username: string;
       role: UserRole;
+      permissions: string[];
       isActive: boolean;
     }
 

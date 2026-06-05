@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import {
+  getAtRiskCustomers,
   getCustomerDebtsReport,
   getDashboardReport,
   getEndOfDayReport,
@@ -73,5 +74,11 @@ export const topCustomersReport = asyncHandler(async (req, res) => {
 export const endOfDayReport = asyncHandler(async (req, res) => {
   const { date } = req.query as Record<string, string>;
   const data = await getEndOfDayReport(date || undefined);
+  res.json({ success: true, data });
+});
+
+export const atRiskCustomersReport = asyncHandler(async (req, res) => {
+  const { limit } = req.query as Record<string, string>;
+  const data = await getAtRiskCustomers(limit ? Math.min(Number(limit), 50) : 10);
   res.json({ success: true, data });
 });

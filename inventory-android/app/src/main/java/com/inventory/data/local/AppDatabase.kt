@@ -18,7 +18,7 @@ import androidx.room.RoomDatabase
         SettingEntity::class,
         PendingSyncOperationEntity::class
     ],
-    version = 2,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -1,10 +1,18 @@
 import axios from "axios"
 
-// If VITE_API_URL is set explicitly use it; otherwise derive from the page host
-// so the app works from any device on the LAN (mobile, tablet, etc.)
+function cleanApiUrl(value: string | undefined) {
+  const cleaned = value
+    ?.replace(/^\uFEFF/, "")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .trim()
+
+  return cleaned || undefined
+}
+
+// If VITE_API_URL is set explicitly use it; otherwise route through the
+// same-origin proxy on hosted builds and Docker/nginx.
 export const API_BASE_URL =
-  import.meta.env.VITE_API_URL ??
-  `${window.location.protocol}//${window.location.hostname}:5000/api`
+  cleanApiUrl(import.meta.env.VITE_API_URL) ?? "/api"
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

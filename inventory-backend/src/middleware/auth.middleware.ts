@@ -30,6 +30,7 @@ export async function authMiddleware(
       name: user.name,
       username: user.username,
       role: user.role,
+      permissions: user.permissions,
       isActive: user.isActive,
     };
 

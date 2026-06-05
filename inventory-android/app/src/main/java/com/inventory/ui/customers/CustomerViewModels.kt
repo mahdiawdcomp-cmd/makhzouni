@@ -25,11 +25,20 @@ data class CustomerListUiState(
     val query: String = "",
     val isLoading: Boolean = false,
     val isSupplierFilter: Boolean = false,
+    val sortBy: String = "updated",
     val error: String? = null
 ) {
     val filteredCustomers: List<Customer> = customers.filter {
         (query.isBlank() || it.name.contains(query, true) || it.phone.contains(query)) &&
         it.isSupplier == isSupplierFilter
+    }.let { rows ->
+        when (sortBy) {
+            "name" -> rows.sortedBy { it.name }
+            "balanceDesc" -> rows.sortedByDescending { it.currentBalance }
+            "balanceAsc" -> rows.sortedBy { it.currentBalance }
+            "last" -> rows.sortedByDescending { it.lastTransactionAt.orEmpty() }
+            else -> rows.sortedByDescending { it.updatedAt.orEmpty() }
+        }
     }
 }
 
@@ -42,15 +51,15 @@ class CustomerListViewModel @Inject constructor(
     private val error = MutableStateFlow<String?>(null)
 
     private val isSupplierFilter = MutableStateFlow(false)
+    private val sortBy = MutableStateFlow("updated")
 
     val state: StateFlow<CustomerListUiState> = combine(
-        repository.customers,
-        query,
-        isSupplierFilter,
-        isLoading,
-        error
-    ) { customers, queryValue, supplierFilter, loading, errorValue ->
-        CustomerListUiState(customers, queryValue, loading, supplierFilter, errorValue)
+        combine(repository.customers, query, isSupplierFilter, isLoading, error) { customers, queryValue, supplierFilter, loading, errorValue ->
+            CustomerListUiState(customers, queryValue, loading, supplierFilter, error = errorValue)
+        },
+        sortBy
+    ) { stateValue, sortValue ->
+        stateValue.copy(sortBy = sortValue)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CustomerListUiState())
 
     init {
@@ -66,6 +75,7 @@ class CustomerListViewModel @Inject constructor(
 
     fun onQueryChange(value: String) { query.value = value }
     fun onSupplierFilterChange(isSupplier: Boolean) { isSupplierFilter.value = isSupplier }
+    fun onSortChange(value: String) { sortBy.value = value }
 
     fun refresh() {
         viewModelScope.launch {

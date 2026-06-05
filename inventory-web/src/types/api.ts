@@ -1,5 +1,15 @@
 export type Role = "ADMIN" | "STAFF"
 export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED"
+export type InvoiceType = "SALE" | "PURCHASE" | "SALES_RETURN"
+export type UserPermission =
+  | "MANAGE_USERS"
+  | "MANAGE_APPROVALS"
+  | "MANAGE_PRODUCTS"
+  | "MANAGE_CUSTOMERS"
+  | "MANAGE_INVOICES"
+  | "MANAGE_VOUCHERS"
+  | "VIEW_REPORTS"
+  | "MANAGE_SETTINGS"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -15,6 +25,7 @@ export interface User {
   name: string
   username: string
   role: Role
+  permissions: UserPermission[]
   isActive: boolean
   createdAt?: string
   updatedAt?: string
@@ -30,6 +41,7 @@ export interface CreateUserPayload {
   username: string
   password: string
   role: Role
+  permissions?: UserPermission[]
   isActive?: boolean
 }
 
@@ -38,6 +50,7 @@ export interface UpdateUserPayload {
   username?: string
   password?: string
   role?: Role
+  permissions?: UserPermission[]
   isActive?: boolean
 }
 
@@ -70,6 +83,7 @@ export interface Product {
   name: string
   qrCode?: string
   cartonQrCode?: string | null
+  imageUrl?: string | null
   category?: string | null
   openingBalancePcs: number
   cartonsAvailable: number
@@ -81,12 +95,36 @@ export interface Product {
   updatedAt?: string
 }
 
+export interface PublicCatalogProduct {
+  id: string
+  itemNumber: string
+  name: string
+  imageUrl?: string | null
+  category?: string | null
+  salePrice: number
+  pcsPerCarton: number
+  currentStock: number
+}
+
+export interface CatalogOrderPayload {
+  customerName: string
+  phone: string
+  address?: string
+  notes?: string
+  items: Array<{
+    productId: string
+    unit: "PIECE" | "DOZEN" | "CARTON"
+    quantity: number
+  }>
+}
+
 export interface ProductPayload {
   // Only `name` is required; the server will auto-generate item number / QR codes if omitted.
   name: string
   itemNumber?: string
   qrCode?: string
   cartonQrCode?: string
+  imageUrl?: string | null
   category?: string
   openingBalancePcs?: number
   cartonsAvailable?: number
@@ -144,12 +182,21 @@ export interface CustomerPayload {
 export interface CustomerTransaction {
   id: string
   date: string
+  createdAt?: string
   type: string
   amount: number
   referenceNumber: string
   debit?: number
   credit?: number
   runningBalance: number
+  status?: string
+  createdByName?: string | null
+  createdBy?: Pick<User, "id" | "name" | "username" | "role"> | null
+  lastAction?: string | null
+  lastChangedAt?: string | null
+  lastChangedByName?: string | null
+  lastChangedBy?: Pick<User, "id" | "name" | "username" | "role"> | null
+  lastChangeSummary?: unknown
 }
 
 export interface CustomerTransactionsResponse {
@@ -159,6 +206,19 @@ export interface CustomerTransactionsResponse {
     openingBalance: number
   }
   transactions: CustomerTransaction[]
+}
+
+export interface CustomerPortalLink {
+  token: string
+  urlPath: string
+  expiresAt?: string | null
+  customer: Pick<Customer, "id" | "name" | "phone">
+}
+
+export interface CustomerPortalResponse {
+  customer: Pick<Customer, "id" | "name" | "phone" | "openingBalance" | "currentBalance" | "lastTransactionAt">
+  transactions: CustomerTransaction[]
+  expiresAt?: string | null
 }
 
 export interface LastTransaction {
@@ -172,7 +232,7 @@ export interface LastTransaction {
 export interface Invoice {
   id: string
   invoiceNumber: string
-  type?: "SALE" | "PURCHASE"
+  type?: InvoiceType
   customerId: string
   customer?: Customer
   date: string
@@ -205,8 +265,11 @@ export interface InvoiceItem {
 
 export interface CreateInvoicePayload {
   customerId: string
-  type?: "SALE" | "PURCHASE"
+  type?: InvoiceType
   date?: string
+  clientRequestId?: string
+  originalInvoiceId?: string
+  couponCode?: string
   discount: number
   tax: number
   paidAmount: number
@@ -217,6 +280,35 @@ export interface CreateInvoicePayload {
     quantity: number
     unitPrice?: number
   }>
+}
+
+export interface Coupon {
+  id: string
+  code: string
+  name: string
+  discountType: "PERCENT" | "AMOUNT"
+  discountValue: number
+  startsAt?: string | null
+  endsAt?: string | null
+  maxUses?: number | null
+  isActive: boolean
+  usedCount?: number
+}
+
+export interface Quotation {
+  id: string
+  quotationNumber: string
+  customerId: string
+  customer?: Customer
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CONVERTED"
+  subtotal: number
+  discount: number
+  totalAmount: number
+  expiresAt?: string | null
+  notes?: string | null
+  items?: InvoiceItem[]
+  invoice?: Invoice | null
+  createdAt?: string
 }
 
 export interface Voucher {
@@ -338,6 +430,7 @@ export interface AppSettings {
   voucherTemplate?: string
   statementTemplate?: string
   themePreset?: ThemePreset
+  backupWhatsappNumber?: string
 }
 
 export interface MessageTemplate {
@@ -365,6 +458,22 @@ export interface AuditLog {
   createdAt: string
 }
 
+export interface InvoiceAuditChange {
+  field: string
+  label: string
+  before: string
+  after: string
+}
+
+export interface InvoiceAuditEntry {
+  id: string
+  action: string
+  actionLabel: string
+  createdAt: string
+  user?: Pick<User, "id" | "name" | "username" | "role"> | null
+  changes: InvoiceAuditChange[]
+}
+
 export interface Branch {
   id: string
   name: string
@@ -382,4 +491,16 @@ export interface BranchPayload {
   phone?: string
   address?: string
   isActive?: boolean
+}
+
+export interface BranchSummary {
+  branch: Branch
+  products: number
+  customers: number
+  customerBalance: number
+  sales: { count: number; total: number; paid: number; remaining: number }
+  purchases: { count: number; total: number }
+  vouchers: { receipts: number; payments: number; expenses: number }
+  stock: { lowStock: number; totalPieces?: number; openingPieces: number; cartons: number }
+  transfers: { out: number; in: number }
 }

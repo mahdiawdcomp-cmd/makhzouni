@@ -1,4 +1,4 @@
-package com.inventory.ui.invoices
+﻿package com.inventory.ui.invoices
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -22,30 +22,41 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.util.UUID
 import javax.inject.Inject
 
 data class InvoiceListUiState(
     val invoices: List<Invoice> = emptyList(),
     val query: String = "",
-    val filter: String = "today",
+    val filter: String = "all",
+    val sortBy: String = "dateDesc",
     val isLoading: Boolean = false,
     val error: String? = null
 ) {
     val filteredInvoices = invoices.filter {
         query.isBlank() || it.invoiceNumber.contains(query, true) || it.customerName.contains(query, true)
+    }.let { rows ->
+        when (sortBy) {
+            "totalDesc" -> rows.sortedByDescending { it.totalAmount }
+            "remainingDesc" -> rows.sortedByDescending { it.remainingAmount }
+            "paidDesc" -> rows.sortedByDescending { it.paidAmount }
+            "customer" -> rows.sortedBy { it.customerName }
+            else -> rows.sortedByDescending { it.date }
+        }
     }
 }
 
 @HiltViewModel
 class InvoiceListViewModel @Inject constructor(
-    private val repository: InvoiceRepository
+    private val repository: InvoiceRepository,
+    private val customerRepository: CustomerRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(InvoiceListUiState())
     val state = _state.asStateFlow()
 
     init {
         refresh()
-        // ── Auto-refresh every 30 seconds ──
+        // â”€â”€ Auto-refresh every 30 seconds â”€â”€
         viewModelScope.launch {
             while (true) {
                 delay(30_000L)
@@ -56,6 +67,7 @@ class InvoiceListViewModel @Inject constructor(
 
     fun setQuery(value: String) { _state.value = _state.value.copy(query = value) }
     fun setFilter(value: String) { _state.value = _state.value.copy(filter = value); refresh() }
+    fun setSort(value: String) { _state.value = _state.value.copy(sortBy = value) }
 
     fun refresh() {
         viewModelScope.launch { doRefresh(showLoading = true) }
@@ -65,21 +77,73 @@ class InvoiceListViewModel @Inject constructor(
         val (from, to) = rangeFor(_state.value.filter)
         if (showLoading) _state.value = _state.value.copy(isLoading = true)
         when (val result = repository.listInvoices(from, to)) {
-            is ApiResult.Success -> _state.value = _state.value.copy(invoices = result.data, isLoading = false, error = null)
-            is ApiResult.Error   -> _state.value = _state.value.copy(isLoading = false, error = result.message)
+            is ApiResult.Success -> {
+                val invoices = result.data.ifEmpty { loadInvoicesFromStatements(from, to) }
+                _state.value = _state.value.copy(invoices = invoices, isLoading = false, error = null)
+            }
+            is ApiResult.Error   -> {
+                val invoices = loadInvoicesFromStatements(from, to)
+                _state.value = _state.value.copy(
+                    invoices = invoices,
+                    isLoading = false,
+                    error = if (invoices.isEmpty()) result.message else null
+                )
+            }
             ApiResult.Offline    -> _state.value = _state.value.copy(isLoading = false, error = "لا يوجد اتصال")
         }
+    }
+
+    private suspend fun loadInvoicesFromStatements(from: String?, to: String?): List<Invoice> {
+        val customers = when (val result = customerRepository.refreshCustomers()) {
+            is ApiResult.Success -> result.data
+            else -> emptyList()
+        }
+        val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+        val seen = mutableSetOf<String>()
+        return customers.flatMap { customer ->
+            when (val rows = customerRepository.transactions(customer.id, from, to)) {
+                is ApiResult.Success -> rows.data.mapNotNull { row ->
+                    val type = row.type.uppercase()
+                    if (!type.contains("INVOICE") || type.contains("PAYMENT")) return@mapNotNull null
+                    val invoiceId = uuid.find(row.id)?.value ?: row.id
+                    if (!seen.add(invoiceId)) return@mapNotNull null
+                    Invoice(
+                        id = invoiceId,
+                        invoiceNumber = row.referenceNumber,
+                        customerName = customer.name,
+                        customerId = customer.id,
+                        date = row.date.take(10),
+                        type = if (row.credit > 0.0) "PURCHASE" else "SALE",
+                        totalAmount = row.amount,
+                        paidAmount = 0.0,
+                        remainingAmount = row.amount,
+                        previousBalance = 0.0,
+                        finalBalance = row.runningBalance,
+                        paymentType = "CREDIT",
+                        status = "ACTIVE"
+                    )
+                }
+                else -> emptyList()
+            }
+        }.sortedByDescending { it.date }
     }
 }
 
 data class InvoiceDraftItem(
     val product: Product,
+    val lineId: String = UUID.randomUUID().toString(),
     val unit: String = "PIECE",
-    val quantity: Int = 1,
-    val unitPrice: Double = product.salePrice
+    val quantity: Int = 0,
+    val unitPrice: Double = unitPriceFor(product, unit)
 ) {
     val totalPrice: Double = quantity * unitPrice
     fun toInvoiceItem() = InvoiceItem(product.id, product.name, unit, quantity, unitPrice, totalPrice)
+}
+
+private fun unitPriceFor(product: Product, unit: String): Double = when (unit) {
+    "CARTON" -> product.salePrice * product.pcsPerCarton
+    "DOZEN" -> product.salePrice * 12
+    else -> product.salePrice
 }
 
 data class InvoiceCreateUiState(
@@ -102,10 +166,20 @@ data class InvoiceCreateUiState(
     val isSaving: Boolean = false,
     val error: String? = null,
     val queuedMessage: String? = null,
-    val savedInvoiceId: String? = null
+    val savedInvoiceId: String? = null,
+    val editingInvoiceId: String? = null,
+    val editLoaded: Boolean = false
 ) {
-    val customerSuggestions = customers.filter { customerQuery.isBlank() || it.name.contains(customerQuery, true) || it.phone.contains(customerQuery) }.take(6)
-    val productSuggestions = products.filter { productQuery.isBlank() || it.name.contains(productQuery, true) || it.itemNumber.contains(productQuery, true) }.take(8)
+    val customerSuggestions = if (customerQuery.isBlank() || selectedCustomer != null) {
+        emptyList()
+    } else {
+        customers.filter { it.name.contains(customerQuery, true) || it.phone.contains(customerQuery) }.take(6)
+    }
+    val productSuggestions = if (productQuery.isBlank()) {
+        emptyList()
+    } else {
+        products.filter { it.name.contains(productQuery, true) || it.itemNumber.contains(productQuery, true) }.take(8)
+    }
     val subtotal = items.sumOf { it.totalPrice }
     val discountAmount = if (discountMode == "percent") subtotal * (discountValue.toDoubleOrNull().orZero() / 100.0) else discountValue.toDoubleOrNull().orZero()
     val afterDiscount = subtotal - discountAmount
@@ -145,33 +219,128 @@ class InvoiceCreateViewModel @Inject constructor(
     fun showPreview() { _state.value = _state.value.copy(preview = true) }
     fun hidePreview() { _state.value = _state.value.copy(preview = false) }
 
+    fun loadForEdit(invoiceId: String) {
+        if (_state.value.editLoaded && _state.value.editingInvoiceId == invoiceId) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isSaving = true, editingInvoiceId = invoiceId)
+            when (val result = invoiceRepository.getInvoice(invoiceId)) {
+                is ApiResult.Success -> {
+                    val invoice = result.data
+                    val products = _state.value.products
+                    val customers = _state.value.customers
+                    val customer = customers.find { it.id == invoice.customerId } ?: Customer(
+                        id = invoice.customerId,
+                        name = invoice.customerName,
+                        phone = "",
+                        address = null,
+                        notes = null,
+                        openingBalance = 0.0,
+                        currentBalance = invoice.previousBalance,
+                        isSupplier = false,
+                        lastTransactionAt = null,
+                        updatedAt = null
+                    )
+                    val draftItems = invoice.items.map { invoiceItem ->
+                        val product = products.find { it.id == invoiceItem.productId } ?: Product(
+                            id = invoiceItem.productId,
+                            itemNumber = invoiceItem.productId.take(8),
+                            name = invoiceItem.productName,
+                            qrCode = "",
+                            category = "",
+                            openingBalancePcs = 0,
+                            cartonsAvailable = 0,
+                            pcsPerCarton = 1,
+                            purchasePrice = 0.0,
+                            salePrice = invoiceItem.unitPrice,
+                            minStock = 0,
+                            updatedAt = null
+                        )
+                        InvoiceDraftItem(
+                            product = product,
+                            unit = invoiceItem.unit,
+                            quantity = invoiceItem.quantity,
+                            unitPrice = invoiceItem.unitPrice
+                        )
+                    }
+                    _state.value = _state.value.copy(
+                        selectedCustomer = customer,
+                        customerQuery = customer?.name ?: invoice.customerName,
+                        date = invoice.date,
+                        invoiceNumber = invoice.invoiceNumber,
+                        items = draftItems,
+                        paidAmount = invoice.paidAmount.toString(),
+                        paymentType = invoice.paymentType,
+                        isSaving = false,
+                        error = null,
+                        editLoaded = true
+                    )
+                }
+                is ApiResult.Error -> _state.value = _state.value.copy(isSaving = false, error = result.message)
+                ApiResult.Offline -> _state.value = _state.value.copy(isSaving = false, error = "لا يوجد اتصال")
+                else -> _state.value = _state.value.copy(isSaving = false)
+            }
+        }
+    }
+
     fun addProduct(product: Product) {
-        if (_state.value.items.any { it.product.id == product.id }) return
         _state.value = _state.value.copy(items = _state.value.items + InvoiceDraftItem(product), productQuery = "")
     }
 
-    fun updateItem(productId: String, unit: String? = null, quantity: Int? = null, price: Double? = null) {
+    fun addProductById(productId: String, unit: String = "PIECE") {
+        val product = _state.value.products.find { it.id == productId } ?: return
+        _state.value = _state.value.copy(
+            items = _state.value.items + InvoiceDraftItem(product = product, unit = unit, unitPrice = unitPriceFor(product, unit)),
+            productQuery = ""
+        )
+    }
+
+    fun quickCreateProduct() {
+        val name = _state.value.productQuery.trim()
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            when (val result = productRepository.createQuickProduct(name)) {
+                is ApiResult.Success -> addProduct(result.data)
+                is ApiResult.Error -> _state.value = _state.value.copy(error = result.message)
+                ApiResult.Offline -> _state.value = _state.value.copy(error = "لا يوجد اتصال لإضافة المادة")
+            }
+        }
+    }
+
+    fun updateItem(lineId: String, unit: String? = null, quantity: Int? = null, price: Double? = null) {
         _state.value = _state.value.copy(items = _state.value.items.map {
-            if (it.product.id == productId) it.copy(
-                unit = unit ?: it.unit,
+            val nextUnit = unit ?: it.unit
+            if (it.lineId == lineId) it.copy(
+                unit = nextUnit,
                 quantity = quantity ?: it.quantity,
-                unitPrice = price ?: it.unitPrice
+                unitPrice = price ?: if (unit != null) unitPriceFor(it.product, nextUnit) else it.unitPrice
             ) else it
         })
     }
 
-    fun removeItem(productId: String) {
-        _state.value = _state.value.copy(items = _state.value.items.filterNot { it.product.id == productId })
+    fun updateItemTotal(lineId: String, total: Double) {
+        _state.value = _state.value.copy(items = _state.value.items.map {
+            if (it.lineId == lineId) {
+                val qty = if (it.quantity <= 0) 1 else it.quantity
+                it.copy(unitPrice = total / qty)
+            } else {
+                it
+            }
+        })
+    }
+
+    fun removeItem(lineId: String) {
+        _state.value = _state.value.copy(items = _state.value.items.filterNot { it.lineId == lineId })
     }
 
     fun save() {
         val current = _state.value
         val customer = current.selectedCustomer
         val error = when {
+            current.items.any { it.quantity <= 0 } -> "أدخل العدد لكل مادة"
             customer == null -> "اختر الزبون"
             current.items.isEmpty() -> "أضف صنف واحد على الأقل"
             current.date.isBlank() -> "التاريخ مطلوب"
-            current.total < 0.0 -> "الخصم أكبر من مجموع الفاتورة"
+            current.total < 0.0 -> "المجموع غير صحيح"
             else -> null
         }
         if (error != null) {
@@ -183,14 +352,20 @@ class InvoiceCreateViewModel @Inject constructor(
             val request = CreateInvoiceRequest(
                 customerId = customer!!.id,
                 date = current.date,
-                discount = current.discountAmount,
-                tax = current.tax.toDoubleOrNull().orZero(),
+                discount = 0.0,
+                tax = 0.0,
                 paidAmount = current.paid,
                 paymentType = current.paymentType,
                 items = current.items.map { it.toInvoiceItem() }.toCreateItems()
             )
-            when (val result = invoiceRepository.createInvoice(request)) {
-                is ApiResult.Success -> _state.value = _state.value.copy(isSaving = false, savedInvoiceId = result.data.id, preview = false, error = null, queuedMessage = null)
+            val result = current.editingInvoiceId?.let { invoiceRepository.updateInvoice(it, request) }
+                ?: invoiceRepository.createInvoice(request)
+            when (result) {
+                is ApiResult.Success -> {
+                    customerRepository.refreshCustomers()
+                    productRepository.refreshProducts()
+                    _state.value = _state.value.copy(isSaving = false, savedInvoiceId = result.data.id, preview = false, error = null, queuedMessage = null)
+                }
                 is ApiResult.Queued -> _state.value = _state.value.copy(isSaving = false, preview = false, error = null, queuedMessage = result.message)
                 is ApiResult.Error -> _state.value = _state.value.copy(isSaving = false, error = result.message)
                 ApiResult.Offline -> _state.value = _state.value.copy(isSaving = false, error = "لا يوجد اتصال")

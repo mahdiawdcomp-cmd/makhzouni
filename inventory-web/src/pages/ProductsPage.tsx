@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { getBranches } from "../api/endpoints"
 import {
@@ -24,6 +24,12 @@ function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
 }
 
+type ProductSort = "updatedDesc" | "nameAsc" | "stockDesc" | "stockAsc" | "purchaseDesc" | "saleDesc" | "valueDesc"
+
+function dateValue(value?: string | null) {
+  return value ? new Date(value).getTime() || 0 : 0
+}
+
 interface ProductFormState extends ProductPayload {
   branchId?: string
   floor?: string
@@ -34,6 +40,7 @@ const emptyForm: ProductFormState = {
   name: "",
   qrCode: "",
   cartonQrCode: "",
+  imageUrl: null,
   category: "",
   openingBalancePcs: 0,
   cartonsAvailable: 0,
@@ -43,6 +50,30 @@ const emptyForm: ProductFormState = {
   minStock: 5,
   branchId: "",
   floor: "",
+}
+
+async function compressProductImage(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+  const maxSide = 900
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+  const canvas = document.createElement("canvas")
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Image compression failed")
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL("image/jpeg", 0.82)
+}
+
+function ProductThumb({ product, className = "" }: { product: Pick<Product, "name" | "imageUrl" | "itemNumber">; className?: string }) {
+  if (product.imageUrl) {
+    return <img src={product.imageUrl} alt={product.name} className={`h-11 w-11 rounded-lg object-cover ring-1 ring-slate-200 ${className}`} />
+  }
+  return (
+    <div className={`grid h-11 w-11 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200 ${className}`}>
+      {product.itemNumber?.slice(0, 3) || "IMG"}
+    </div>
+  )
 }
 
 function selectAllOnFocus(e: React.FocusEvent<HTMLInputElement>) {
@@ -130,7 +161,7 @@ function exportInventoryDesignedHtml(products: Product[]) {
     return `
       <tr class="${status.rowClass}">
         <td>${index + 1}</td>
-        <td><div class="item-image">QR</div></td>
+        <td>${p.imageUrl ? `<button class="image-button" data-src="${escapeHtml(p.imageUrl)}" data-title="${escapeHtml(p.name)}" onclick="showImage(this.dataset.src,this.dataset.title)"><img class="item-image" src="${escapeHtml(p.imageUrl)}" /></button>` : `<div class="item-image">IMG</div>`}</td>
         <td class="mono">${escapeHtml(p.itemNumber)}</td>
         <td class="name">${escapeHtml(p.name)}</td>
         <td>${escapeHtml(p.category ?? "-")}</td>
@@ -173,7 +204,13 @@ function exportInventoryDesignedHtml(products: Product[]) {
     .total { text-align: center; font-weight: 800; }
     .purchase { color: #dc2626; text-align: center; }
     .sale { color: #16a34a; text-align: center; }
-    .item-image { width: 42px; height: 42px; margin: auto; display: grid; place-items: center; border-radius: 8px; background: #eef2ff; color: #4f46e5; font-weight: 800; font-size: 11px; }
+    .item-image { width: 42px; height: 42px; margin: auto; display: grid; place-items: center; border-radius: 8px; background: #eef2ff; color: #4f46e5; font-weight: 800; font-size: 11px; object-fit: cover; }
+    .image-button { border: 0; background: transparent; padding: 0; cursor: zoom-in; display: block; margin: auto; }
+    .lightbox { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(15, 23, 42, .82); z-index: 50; padding: 24px; }
+    .lightbox.open { display: flex; }
+    .lightbox-card { max-width: min(92vw, 900px); max-height: 90vh; background: white; border-radius: 16px; padding: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+    .lightbox-card img { display: block; max-width: 100%; max-height: 76vh; object-fit: contain; border-radius: 12px; }
+    .lightbox-title { margin: 8px 4px 0; font-weight: 800; color: #111827; text-align: center; }
     .badge { display: inline-block; padding: 5px 9px; border-radius: 8px; font-size: 12px; font-weight: 800; white-space: nowrap; }
     .ok { background: #dcfce7; color: #15803d; }
     .warning { background: #fef3c7; color: #a16207; }
@@ -228,6 +265,25 @@ function exportInventoryDesignedHtml(products: Product[]) {
       </table>
     </div>
   </div>
+  <div id="lightbox" class="lightbox" onclick="hideImage()">
+    <div class="lightbox-card" onclick="event.stopPropagation()">
+      <img id="lightbox-img" alt="" />
+      <div id="lightbox-title" class="lightbox-title"></div>
+    </div>
+  </div>
+  <script>
+    function showImage(src, title) {
+      document.getElementById('lightbox-img').src = src;
+      document.getElementById('lightbox-title').textContent = title || '';
+      document.getElementById('lightbox').classList.add('open');
+    }
+    function hideImage() {
+      document.getElementById('lightbox').classList.remove('open');
+    }
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') hideImage();
+    });
+  </script>
 </body>
 </html>`
 
@@ -240,12 +296,14 @@ function moneyForExport(value: number | string | undefined | null) {
 
 export function ProductsPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { productsQuery, createMutation, updateMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("all")
   const [lowOnly, setLowOnly] = useState(false)
+  const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
@@ -262,6 +320,16 @@ export function ProductsPage() {
     const matchesCategory = category === "all" || product.category === category
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
     return matchesSearch && matchesCategory && matchesLow
+  })
+
+  const sortedProducts = [...filtered].sort((a, b) => {
+    if (sortBy === "nameAsc") return a.name.localeCompare(b.name)
+    if (sortBy === "stockDesc") return stockOf(b) - stockOf(a)
+    if (sortBy === "stockAsc") return stockOf(a) - stockOf(b)
+    if (sortBy === "purchaseDesc") return Number(b.purchasePrice) - Number(a.purchasePrice)
+    if (sortBy === "saleDesc") return Number(b.salePrice) - Number(a.salePrice)
+    if (sortBy === "valueDesc") return stockOf(b) * Number(b.purchasePrice ?? 0) - stockOf(a) * Number(a.purchasePrice ?? 0)
+    return dateValue(b.updatedAt) - dateValue(a.updatedAt)
   })
 
   async function printPiece(id: string) {
@@ -314,7 +382,7 @@ export function ProductsPage() {
   )
 
   const table = useReactTable({
-    data: filtered,
+    data: sortedProducts,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -330,6 +398,20 @@ export function ProductsPage() {
     setOpen(true)
   }
 
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return
+
+    const initialName = searchParams.get("name")?.trim() ?? ""
+    setEditing(null)
+    setForm({ ...emptyForm, name: initialName })
+    setOpen(true)
+
+    const next = new URLSearchParams(searchParams)
+    next.delete("new")
+    next.delete("name")
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
   function startEdit(product: Product) {
     setEditing(product)
     setForm({
@@ -337,6 +419,7 @@ export function ProductsPage() {
       name: product.name,
       qrCode: product.qrCode ?? "",
       cartonQrCode: product.cartonQrCode ?? "",
+      imageUrl: product.imageUrl ?? null,
       category: product.category ?? "",
       openingBalancePcs: product.openingBalancePcs,
       cartonsAvailable: product.cartonsAvailable,
@@ -359,6 +442,7 @@ export function ProductsPage() {
       itemNumber: form.itemNumber?.trim() || undefined,
       qrCode: form.qrCode?.trim() || undefined,
       cartonQrCode: form.cartonQrCode?.trim() || undefined,
+      imageUrl: form.imageUrl ?? null,
       category: form.category?.trim() || undefined,
       branchId: form.branchId?.trim() || undefined,
     }
@@ -408,11 +492,27 @@ export function ProductsPage() {
           <CardTitle>جدول المنتجات</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_220px_180px]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_220px_220px_180px]">
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالاسم أو رقم الآيتم أو الباركود" />
             <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">كل الفئات</option>
               {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <select
+              className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
+              value={sortBy}
+              onChange={(event) => {
+                setSortBy(event.target.value as ProductSort)
+                setSorting([])
+              }}
+            >
+              <option value="updatedDesc">آخر تعديل</option>
+              <option value="nameAsc">الاسم أ-ي</option>
+              <option value="stockDesc">أعلى كمية</option>
+              <option value="stockAsc">أقل كمية</option>
+              <option value="purchaseDesc">أعلى سعر شراء</option>
+              <option value="saleDesc">أعلى سعر بيع</option>
+              <option value="valueDesc">أعلى قيمة مخزون</option>
             </select>
             <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 dark:border-slate-700">
               <input type="checkbox" checked={lowOnly} onChange={(event) => setLowOnly(event.target.checked)} />
@@ -472,8 +572,13 @@ export function ProductsPage() {
                     <tr key={row.id} className={`border-b border-gray-200 hover:bg-yellow-50 transition ${rowBg}`}>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-gray-500 text-xs">{idx2 + 1}</td>
                       <td className="py-2 px-3 border-l border-gray-200">
-                        <p className={`font-bold text-gray-900 ${isOut ? "line-through text-gray-400" : ""}`}>{p.name}</p>
-                        <p className="text-xs text-gray-500 font-mono">{p.itemNumber}</p>
+                        <div className="flex items-center gap-3">
+                          <ProductThumb product={p} />
+                          <div>
+                            <p className={`font-bold text-gray-900 ${isOut ? "line-through text-gray-400" : ""}`}>{p.name}</p>
+                            <p className="text-xs text-gray-500 font-mono">{p.itemNumber}</p>
+                          </div>
+                        </div>
                       </td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs text-gray-500">{p.category ?? "—"}</td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center font-bold text-blue-700 bg-blue-50/30">{p.cartonsAvailable}</td>
@@ -531,6 +636,40 @@ export function ProductsPage() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
+            <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex flex-wrap items-center gap-3">
+                {form.imageUrl ? (
+                  <img src={form.imageUrl} alt={form.name || "صورة المادة"} className="h-20 w-20 rounded-xl object-cover ring-1 ring-slate-200" />
+                ) : (
+                  <div className="grid h-20 w-20 place-items-center rounded-xl bg-white text-xs font-bold text-slate-400 ring-1 ring-slate-200 dark:bg-slate-950">صورة</div>
+                )}
+                <div className="flex-1 space-y-2">
+                  <div className="text-sm font-semibold">صورة المادة</div>
+                  <div className="text-xs text-slate-500">تنضغط تلقائياً بحجم مناسب حتى تبقى واضحة وما تثقل النظام.</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" asChild>
+                      <label className="cursor-pointer">
+                        اختيار صورة
+                        <input
+                          className="hidden"
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            if (!file) return
+                            void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
+                            event.target.value = ""
+                          }}
+                        />
+                      </label>
+                    </Button>
+                    {form.imageUrl ? (
+                      <Button type="button" variant="outline" onClick={() => setForm({ ...form, imageUrl: null })}>حذف الصورة</Button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
             <Field label="اسم المنتج *">
               <Input required placeholder="مثلاً: سيارة بطارية" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
             </Field>

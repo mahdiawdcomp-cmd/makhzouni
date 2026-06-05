@@ -26,6 +26,7 @@ import com.inventory.data.remote.dto.UpdateUserRequest
 import com.inventory.data.remote.dto.UpsertCustomerRequest
 import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.data.remote.dto.UserDto
+import com.inventory.data.remote.dto.VoucherDto
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -55,6 +56,9 @@ interface InventoryApi {
 
     @DELETE("users/{id}")
     suspend fun deactivateUser(@Path("id") id: String): ApiEnvelope<UserDto>
+
+    @DELETE("users/{id}/permanent")
+    suspend fun deleteUserPermanently(@Path("id") id: String): ApiEnvelope<Unit>
 
     @GET("approvals")
     suspend fun getApprovals(): ApiEnvelope<List<ApprovalDto>>
@@ -136,6 +140,15 @@ interface InventoryApi {
     @POST("vouchers")
     suspend fun createVoucher(@Body body: CreateVoucherRequest): ApiEnvelope<Any>
 
+    @GET("vouchers/{id}")
+    suspend fun getVoucher(@Path("id") id: String): ApiEnvelope<VoucherDto>
+
+    @PUT("vouchers/{id}")
+    suspend fun updateVoucher(
+        @Path("id") id: String,
+        @Body body: CreateVoucherRequest
+    ): ApiEnvelope<VoucherDto>
+
     @GET("invoices")
     suspend fun getInvoices(
         @Query("from") from: String? = null,
@@ -149,6 +162,12 @@ interface InventoryApi {
 
     @POST("invoices")
     suspend fun createInvoice(@Body body: CreateInvoiceRequest): ApiEnvelope<InvoiceDto>
+
+    @PUT("invoices/{id}")
+    suspend fun updateInvoice(
+        @Path("id") id: String,
+        @Body body: CreateInvoiceRequest
+    ): ApiEnvelope<InvoiceDto>
 
     @DELETE("invoices/{id}")
     suspend fun cancelInvoice(@Path("id") id: String): ApiEnvelope<InvoiceDto>

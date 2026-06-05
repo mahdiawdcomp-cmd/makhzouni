@@ -21,12 +21,32 @@ import androidx.datastore.preferences.core.emptyPreferences
 
 private val Context.dataStore by preferencesDataStore(name = "inventory_session")
 
+const val DEFAULT_API_BASE_URL = "https://inventory-backend-production-7e85.up.railway.app/api/"
+
+private fun normalizeApiBaseUrl(value: String?): String {
+    val url = value?.trim().orEmpty()
+    val host = url
+        .removePrefix("http://")
+        .removePrefix("https://")
+        .substringBefore('/')
+        .substringBefore(':')
+    val private172 = Regex("""^172\.(1[6-9]|2\d|3[0-1])\.""").containsMatchIn(host)
+    val isLocalNetworkUrl = host == "localhost" ||
+        host == "127.0.0.1" ||
+        host.startsWith("10.") ||
+        host.startsWith("192.168.") ||
+        private172
+
+    return if (url.isBlank() || isLocalNetworkUrl) DEFAULT_API_BASE_URL else url
+}
+
 @Singleton
 class SessionManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val tokenKey = stringPreferencesKey("jwt_token")
     private val roleKey = stringPreferencesKey("user_role")
+    private val permissionsKey = stringPreferencesKey("user_permissions")
     private val userNameKey = stringPreferencesKey("user_name")
     private val rememberKey = booleanPreferencesKey("remember_me")
     private val baseUrlKey = stringPreferencesKey("base_url")
@@ -47,11 +67,18 @@ class SessionManager @Inject constructor(
 
     val token = preferencesFlow.map { it[tokenKey] }
     val role = preferencesFlow.map { it[roleKey] }
+    val permissions = preferencesFlow.map { preferences ->
+        preferences[permissionsKey]
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+    }
     val userName = preferencesFlow.map { it[userNameKey] }
     val rememberMe = preferencesFlow.map { it[rememberKey] ?: false }
     val baseUrl = preferencesFlow.map { 
         val saved = it[baseUrlKey]
-        if (saved == null || saved.contains("10.0.2.2")) "http://10.153.7.91:5000/api/" else saved
+        normalizeApiBaseUrl(saved)
     }
     val storeSettings = preferencesFlow.map {
         StoreSettings(
@@ -60,7 +87,7 @@ class SessionManager @Inject constructor(
             storePhone = it[storePhoneKey] ?: "",
             storeAddress = it[storeAddressKey] ?: "",
             currency = it[currencyKey] ?: "IQD",
-            baseUrl = if (it[baseUrlKey]?.contains("10.0.2.2") == true) "http://10.153.7.91:5000/api/" else (it[baseUrlKey] ?: "http://10.153.7.91:5000/api/"),
+            baseUrl = normalizeApiBaseUrl(it[baseUrlKey]),
             debtReminderEnabled = it[debtReminderEnabledKey] ?: true,
             debtReminderDays = it[debtReminderDaysKey] ?: 14,
             inactiveAlertEnabled = it[inactiveAlertEnabledKey] ?: true,
@@ -75,7 +102,7 @@ class SessionManager @Inject constructor(
     private var cachedToken: String? = null
 
     @Volatile
-    private var cachedBaseUrl: String = "http://10.153.7.91:5000/api/"
+    private var cachedBaseUrl: String = DEFAULT_API_BASE_URL
 
     val currentToken: String?
         get() = cachedToken
@@ -94,11 +121,12 @@ class SessionManager @Inject constructor(
         cachedBaseUrl = baseUrl.first()
     }
 
-    suspend fun saveSession(token: String, role: String, name: String, rememberMe: Boolean) {
+    suspend fun saveSession(token: String, role: String, name: String, rememberMe: Boolean, permissions: List<String> = emptyList()) {
         cachedToken = token
         context.dataStore.edit {
             it[tokenKey] = token
             it[roleKey] = role
+            it[permissionsKey] = permissions.joinToString(",")
             it[userNameKey] = name
             it[rememberKey] = rememberMe
         }
@@ -109,27 +137,30 @@ class SessionManager @Inject constructor(
         context.dataStore.edit {
             it.remove(tokenKey)
             it.remove(roleKey)
+            it.remove(permissionsKey)
             it.remove(userNameKey)
             it[rememberKey] = false
         }
     }
 
     suspend fun updateBaseUrl(baseUrl: String) {
-        cachedBaseUrl = baseUrl
+        val normalized = normalizeApiBaseUrl(baseUrl)
+        cachedBaseUrl = normalized
         context.dataStore.edit {
-            it[baseUrlKey] = baseUrl
+            it[baseUrlKey] = normalized
         }
     }
 
     suspend fun saveStoreSettings(settings: StoreSettings) {
-        cachedBaseUrl = settings.baseUrl
+        val normalizedBaseUrl = normalizeApiBaseUrl(settings.baseUrl)
+        cachedBaseUrl = normalizedBaseUrl
         context.dataStore.edit {
             it[storeNameKey] = settings.storeName
             settings.storeLogoUri?.let { value -> it[storeLogoKey] = value } ?: it.remove(storeLogoKey)
             it[storePhoneKey] = settings.storePhone
             it[storeAddressKey] = settings.storeAddress
             it[currencyKey] = settings.currency
-            it[baseUrlKey] = settings.baseUrl
+            it[baseUrlKey] = normalizedBaseUrl
             it[debtReminderEnabledKey] = settings.debtReminderEnabled
             it[debtReminderDaysKey] = settings.debtReminderDays
             it[inactiveAlertEnabledKey] = settings.inactiveAlertEnabled

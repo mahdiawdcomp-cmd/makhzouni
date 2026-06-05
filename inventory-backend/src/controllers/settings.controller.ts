@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import { getSettings, updateSettings } from "../services/settings.service";
+import { runWeeklyBackup } from "../services/notification-jobs.service";
 
 export const getAllSettings = asyncHandler(async (_req, res) => {
   const settings = await getSettings();
@@ -18,4 +19,9 @@ export const updateAppSettings = asyncHandler(async (req, res) => {
     message: "Settings updated successfully",
     data: settings,
   });
+});
+
+export const triggerManualBackup = asyncHandler(async (_req, res) => {
+  const counts = await runWeeklyBackup();
+  res.json({ success: true, message: "تم إنشاء النسخة الاحتياطية بنجاح", data: counts });
 });

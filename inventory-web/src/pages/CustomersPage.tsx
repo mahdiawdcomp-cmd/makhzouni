@@ -25,12 +25,19 @@ const emptyCustomer: CustomerPayload = {
   isSupplier: false,
 }
 
+type CustomerSort = "createdDesc" | "updatedDesc" | "balanceDesc" | "balanceAsc" | "nameAsc" | "lastDesc"
+
+function dateValue(value?: string | null) {
+  return value ? new Date(value).getTime() || 0 : 0
+}
+
 export function CustomersPage() {
   const navigate = useNavigate()
   const [isSupplierTab, setIsSupplierTab] = useState(false)
   const { customersQuery, createMutation } = useCustomers(isSupplierTab)
   const [query, setQuery] = useState("")
   const [filter, setFilter] = useState("all")
+  const [sortBy, setSortBy] = useState<CustomerSort>("createdDesc")
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState<CustomerPayload>(emptyCustomer)
   const customers = customersQuery.data ?? []
@@ -46,6 +53,13 @@ export function CustomersPage() {
     const isInactive = !last || now - last > 30 * 86400000
     const matchesFilter = filter === "all" || (filter === "debtors" && isDebtor) || (filter === "inactive" && isInactive)
     return matchesSearch && matchesFilter
+  }).sort((a, b) => {
+    if (sortBy === "updatedDesc") return dateValue(b.updatedAt) - dateValue(a.updatedAt)
+    if (sortBy === "balanceDesc") return Number(b.currentBalance) - Number(a.currentBalance)
+    if (sortBy === "balanceAsc") return Number(a.currentBalance) - Number(b.currentBalance)
+    if (sortBy === "nameAsc") return a.name.localeCompare(b.name)
+    if (sortBy === "lastDesc") return dateValue(b.lastTransactionAt) - dateValue(a.lastTransactionAt)
+    return dateValue(b.createdAt) - dateValue(a.createdAt)
   })
 
   const columns = useMemo<ColumnDef<Customer>[]>(
@@ -124,7 +138,7 @@ export function CustomersPage() {
       <Card>
         <CardHeader><CardTitle>جدول {isSupplierTab ? "الموردين" : "الزبائن"}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_220px_240px]">
             <Input placeholder="بحث بالاسم أو الهاتف" value={query} onChange={(event) => setQuery(event.target.value)} />
             <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={filter} onChange={(event) => setFilter(event.target.value)}>
               <option value="all">الكل</option>
@@ -132,6 +146,14 @@ export function CustomersPage() {
               <option value="inactive">الغائبون</option>
             </select>
           </div>
+            <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={sortBy} onChange={(event) => setSortBy(event.target.value as CustomerSort)}>
+              <option value="createdDesc">الأحدث إضافة</option>
+              <option value="updatedDesc">آخر تعديل</option>
+              <option value="lastDesc">آخر تعامل</option>
+              <option value="balanceDesc">أعلى رصيد</option>
+              <option value="balanceAsc">أقل رصيد</option>
+              <option value="nameAsc">الاسم أ-ي</option>
+            </select>
           <Table>
             <THead>
               {table.getHeaderGroups().map((headerGroup) => (

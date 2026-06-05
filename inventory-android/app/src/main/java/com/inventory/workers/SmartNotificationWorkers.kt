@@ -1,6 +1,13 @@
 package com.inventory.workers
 
 import android.content.Context
+import android.Manifest
+import android.app.NotificationManager
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -47,6 +54,13 @@ class DebtReminderWorker(
                 )
             }
             database.notificationDao().upsertAll(notifications)
+            if (notifications.isNotEmpty()) {
+                showPriorityNotification(
+                    applicationContext,
+                    "تنبيه ديون",
+                    "عندك ${notifications.size} زبون يحتاج متابعة دفع"
+                )
+            }
             Result.success()
         } catch (_: Exception) {
             Result.retry()
@@ -79,11 +93,36 @@ class InactiveCustomerWorker(
                     createdAt = java.time.Instant.now().toString()
                 )
             })
+            if (customers.isNotEmpty()) {
+                showPriorityNotification(
+                    applicationContext,
+                    "زبائن خامدين",
+                    "عندك ${customers.size} زبون ما عنده حركة من فترة"
+                )
+            }
             Result.success()
         } catch (_: Exception) {
             Result.retry()
         }
     }
+}
+
+private fun showPriorityNotification(context: Context, title: String, message: String) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) {
+        return
+    }
+    val notification = NotificationCompat.Builder(context, "inventory_priority_alerts")
+        .setSmallIcon(com.inventory.R.drawable.ic_launcher)
+        .setContentTitle(title)
+        .setContentText(message)
+        .setPriority(NotificationCompat.PRIORITY_MAX)
+        .setCategory(NotificationCompat.CATEGORY_ALARM)
+        .setDefaults(NotificationCompat.DEFAULT_ALL)
+        .setAutoCancel(true)
+        .build()
+    NotificationManagerCompat.from(context).notify(title.hashCode(), notification)
 }
 
 object SmartNotificationScheduler {

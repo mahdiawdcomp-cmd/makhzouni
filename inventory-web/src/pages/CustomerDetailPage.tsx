@@ -1,7 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react"
+import { useMutation } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { Document, Page, PDFDownloadLink, Text, View } from "@react-pdf/renderer"
-import { ArrowRight, MessageCircle } from "lucide-react"
+import { ArrowRight, Copy, Link2, MessageCircle } from "lucide-react"
+import { createCustomerPortalLink } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useCustomers, useCustomerDetails } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
@@ -17,6 +19,14 @@ const DEFAULT_STATEMENT_TEMPLATE =
   "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
 
 function money(value: number | undefined | null) { return fmt(value) }
+
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return "-"
+  return new Date(value).toLocaleString("en-US", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })
+}
 
 function translateLastType(type: string): string {
   const t = type.toUpperCase()
@@ -38,6 +48,59 @@ function lastActivityLink(last: { type?: string; id?: string } | undefined | nul
   return null
 }
 
+function transactionLink(row: CustomerTransaction): string | null {
+  if (!row.id || !row.type) return null
+  const t = String(row.type).toUpperCase()
+  if (t.includes("INVOICE") || t === "SALE" || t === "PURCHASE") return `/invoices/${row.id}`
+  if (t.includes("VOUCHER") || t === "RECEIPT" || t === "PAYMENT" || t === "EXPENSE") return `/vouchers/${row.id}`
+  return null
+}
+
+function transactionTone(row: CustomerTransaction) {
+  const type = String(row.type ?? "").toUpperCase()
+  const status = String(row.status ?? "").toUpperCase()
+  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE"
+  const isVoucher = type.includes("VOUCHER") || type === "RECEIPT" || type === "PAYMENT" || type === "EXPENSE"
+
+  if (status === "CANCELLED") {
+    return {
+      row: "border-r-4 border-rose-500 bg-rose-50/80 hover:bg-rose-100/80",
+      style: { backgroundColor: "#FFF1F2", borderRight: "4px solid #F43F5E" },
+      label: "bg-rose-100 text-rose-700 border border-rose-200",
+    }
+  }
+  if (isInvoice) {
+    return {
+      row: "border-r-4 border-blue-500 bg-blue-50/70 hover:bg-blue-100/70",
+      style: { backgroundColor: "#EFF6FF", borderRight: "4px solid #3B82F6" },
+      label: "bg-blue-100 text-blue-700 border border-blue-200",
+    }
+  }
+  if (isVoucher) {
+    return {
+      row: "border-r-4 border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70",
+      style: { backgroundColor: "#ECFDF5", borderRight: "4px solid #10B981" },
+      label: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+    }
+  }
+  return {
+    row: "border-r-4 border-slate-300 hover:bg-slate-50",
+    style: { borderRight: "4px solid #CBD5E1" },
+    label: "bg-slate-100 text-slate-700 border border-slate-200",
+  }
+}
+
+function auditNote(row: CustomerTransaction) {
+  if (!row.lastChangedAt) return "-"
+  const action = row.lastAction === "DELETE"
+    ? "إلغاء"
+    : row.lastAction === "REACTIVATE"
+      ? "إرجاع نشطة"
+      : "تعديل"
+  const user = row.lastChangedByName ? ` | ${row.lastChangedByName}` : ""
+  return `${action}: ${formatDateTime(row.lastChangedAt)}${user}`
+}
+
 export function CustomerDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -52,6 +115,9 @@ export function CustomerDetailPage() {
   const vouchers = details.vouchersQuery.data ?? []
   const last = details.lastTransactionQuery.data
   const settings = useSettings().data
+  const portalMutation = useMutation({
+    mutationFn: () => createCustomerPortalLink(id!, 30),
+  })
 
   const filteredTransactions = transactions.filter((row) => {
     const date = String(row.date).slice(0, 10)
@@ -77,6 +143,15 @@ export function CustomerDetailPage() {
     openWhatsApp(customer.phone, msg)
   }
 
+  async function createPortalLinkAndShare() {
+    if (!customer) return
+    const link = await portalMutation.mutateAsync()
+    if (!link) return
+    const fullUrl = `${window.location.origin}${link.urlPath}`
+    await navigator.clipboard?.writeText(fullUrl)
+    openWhatsApp(customer.phone, `رابط كشف حسابك:\n${fullUrl}`)
+  }
+
   const lastLink = lastActivityLink(last)
   const lastTimeStr = last?.date
     ? new Date(last.date).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })
@@ -99,6 +174,10 @@ export function CustomerDetailPage() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={sendStatement} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
+          </Button>
+          <Button variant="outline" onClick={createPortalLinkAndShare} disabled={portalMutation.isPending || !customer.phone}>
+            {portalMutation.isPending ? <Copy className="h-4 w-4 animate-pulse" /> : <Link2 className="h-4 w-4 text-sky-600" />}
+            رابط العميل
           </Button>
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>
@@ -202,8 +281,18 @@ function StatementTab({
   setTo: (value: string) => void
 }) {
   const csv = useMemo(() => {
-    const header = "date,type,debit,credit,balance"
-    const body = rows.map((row) => [row.date, row.type, row.debit ?? 0, row.credit ?? 0, row.runningBalance].join(","))
+    const header = "date,created_at,created_by,type,reference,debit,credit,balance,last_change"
+    const body = rows.map((row) => [
+      row.date,
+      row.createdAt ?? "",
+      row.createdByName ?? "",
+      row.type,
+      row.referenceNumber,
+      row.debit ?? 0,
+      row.credit ?? 0,
+      row.runningBalance,
+      row.lastChangedAt ?? "",
+    ].join(","))
     return [header, ...body].join("\n")
   }, [rows])
 
@@ -218,8 +307,30 @@ function StatementTab({
         </PDFDownloadLink>
       </div>
       <Table>
-        <THead><TR><TH>التاريخ</TH><TH>النوع</TH><TH>مدين</TH><TH>دائن</TH><TH>الرصيد</TH></TR></THead>
-        <TBody>{rows.map((row) => <TR key={row.id} className="cursor-pointer"><TD>{String(row.date).slice(0, 10)}</TD><TD>{row.type}</TD><TD>{row.debit ?? 0}</TD><TD>{row.credit ?? 0}</TD><TD>{row.runningBalance}</TD></TR>)}</TBody>
+        <THead><TR><TH>التاريخ</TH><TH>النوع</TH><TH>مدين</TH><TH>دائن</TH><TH>الرصيد</TH><TH>فتح</TH></TR></THead>
+        <TBody>{rows.map((row) => {
+          const link = transactionLink(row)
+          const tone = transactionTone(row)
+          const label = row.status === "CANCELLED" ? `${row.type} - ملغاة` : row.type
+          return (
+            <TR key={`${row.id}-${row.referenceNumber}`} className={`${tone.row} ${link ? "cursor-pointer" : ""}`} style={tone.style}>
+              <TD>
+                <div>{formatDateTime(row.date)}</div>
+                <div className="text-[11px] text-slate-500">إدخال: {formatDateTime(row.createdAt)}</div>
+              </TD>
+              <TD>
+                <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${tone.label}`}>{label}</span>
+                <div className="mt-1 text-[11px] text-slate-500">رقم: {row.referenceNumber}</div>
+                <div className="text-[11px] text-slate-500">أنشأه: {row.createdByName ?? "-"}</div>
+                <div className="text-[11px] text-slate-500">آخر تغيير: {auditNote(row)}</div>
+              </TD>
+              <TD>{row.debit ?? 0}</TD>
+              <TD>{row.credit ?? 0}</TD>
+              <TD>{row.runningBalance}</TD>
+              <TD>{link ? <Button asChild variant="outline"><Link to={link}>فتح</Link></Button> : null}</TD>
+            </TR>
+          )
+        })}</TBody>
       </Table>
     </div>
   )

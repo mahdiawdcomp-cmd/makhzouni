@@ -9,14 +9,20 @@ import { auditLogMiddleware } from "./middleware/audit-log.middleware";
 import { AppError } from "./utils/app-error";
 import { startNotificationJobs } from "./services/notification-jobs.service";
 import { initializeWhatsApp } from "./services/whatsapp.service";
+import { apiLimiter } from "./middleware/rate-limit.middleware";
 
 const app = express();
 const port = Number(process.env.PORT ?? 5000);
 const allowedOrigins = (
+  process.env.ALLOWED_ORIGINS ??
   process.env.ALLOWED_ORIGIN ??
   "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080"
-).split(",");
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({
   origin: allowedOrigins,
@@ -30,7 +36,7 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "inventory-backend" });
 });
 
-app.use("/api", apiRoutes);
+app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {
   next(new AppError("Route not found", 404, "ROUTE_NOT_FOUND"));
 });

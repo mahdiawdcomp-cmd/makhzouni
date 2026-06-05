@@ -82,6 +82,9 @@ export function VoucherDetailPage() {
     onSuccess: () => {
       setEditOpen(false)
       void qc.invalidateQueries({ queryKey: ["vouchers"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+      void qc.invalidateQueries({ queryKey: ["customer"] })
+      void qc.invalidateQueries({ queryKey: ["transactions"] })
     },
   })
 
@@ -89,6 +92,9 @@ export function VoucherDetailPage() {
     mutationFn: () => deleteVoucherApi(id!),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["vouchers"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+      void qc.invalidateQueries({ queryKey: ["customer"] })
+      void qc.invalidateQueries({ queryKey: ["transactions"] })
       navigate("/vouchers")
     },
   })

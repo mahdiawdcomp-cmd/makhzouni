@@ -11,6 +11,60 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import type { CustomerTransaction } from "../types/api"
+
+function formatDateTime(value?: string | Date | null) {
+  if (!value) return "-"
+  return new Date(value).toLocaleString("en-US", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })
+}
+
+function auditNote(row: CustomerTransaction) {
+  if (!row.lastChangedAt) return "-"
+  const action = row.lastAction === "DELETE"
+    ? "إلغاء"
+    : row.lastAction === "REACTIVATE"
+      ? "إرجاع نشطة"
+      : "تعديل"
+  const user = row.lastChangedByName ? ` | ${row.lastChangedByName}` : ""
+  return `${action}: ${formatDateTime(row.lastChangedAt)}${user}`
+}
+
+function transactionTone(tx: CustomerTransaction) {
+  const type = String(tx.type ?? "").toUpperCase()
+  const status = String(tx.status ?? "").toUpperCase()
+  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE"
+  const isVoucher = type.includes("VOUCHER") || type === "RECEIPT" || type === "PAYMENT" || type === "EXPENSE"
+
+  if (status === "CANCELLED") {
+    return {
+      row: "border-r-4 border-rose-500 bg-rose-50/80 hover:bg-rose-100/80",
+      style: { backgroundColor: "#FFF1F2", borderRight: "4px solid #F43F5E" },
+      label: "bg-rose-100 text-rose-700 border border-rose-200",
+    }
+  }
+  if (isInvoice) {
+    return {
+      row: "border-r-4 border-blue-500 bg-blue-50/70 hover:bg-blue-100/70",
+      style: { backgroundColor: "#EFF6FF", borderRight: "4px solid #3B82F6" },
+      label: "bg-blue-100 text-blue-700 border border-blue-200",
+    }
+  }
+  if (isVoucher) {
+    return {
+      row: "border-r-4 border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70",
+      style: { backgroundColor: "#ECFDF5", borderRight: "4px solid #10B981" },
+      label: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+    }
+  }
+  return {
+    row: "border-r-4 border-slate-300 hover:bg-slate-50",
+    style: { borderRight: "4px solid #CBD5E1" },
+    label: "bg-slate-100 text-slate-700 border border-slate-200",
+  }
+}
 
 export function AccountLookupPage() {
   const [query, setQuery] = useState("")
@@ -182,15 +236,24 @@ export function AccountLookupPage() {
                         const t = tx.type?.toUpperCase() ?? ""
                         const isInvoice = t === "SALE" || t === "PURCHASE" || t.includes("INVOICE")
                         const link = isInvoice ? `/invoices/${tx.id}` : `/vouchers/${tx.id}`
-                        const typeLabel = t === "SALE" ? "🧾 بيع"
+                        const tone = transactionTone(tx)
+                        const typeLabel = t === "SALE" || t.includes("INVOICE") ? "🧾 فاتورة"
                           : t === "PURCHASE" ? "🛒 شراء"
                           : t === "RECEIPT" ? "💚 قبض"
                           : t === "PAYMENT" ? "🔸 دفع"
                           : "💸 مصاريف"
+                        const label = tx.status === "CANCELLED" ? `${typeLabel} - ملغاة` : typeLabel
                         return (
-                          <TR key={tx.id}>
-                            <TD className="text-xs">{String(tx.date).slice(0, 10)}</TD>
-                            <TD><span className="text-sm font-medium">{typeLabel}</span></TD>
+                          <TR key={`${tx.id}-${tx.referenceNumber}`} className={tone.row} style={tone.style}>
+                            <TD className="text-xs">
+                              <div>{formatDateTime(tx.date)}</div>
+                              <div className="text-[11px] text-slate-500">إدخال: {formatDateTime(tx.createdAt)}</div>
+                            </TD>
+                            <TD>
+                              <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${tone.label}`}>{label}</span>
+                              <div className="mt-1 text-[11px] text-slate-500">أنشأه: {tx.createdByName ?? "-"}</div>
+                              <div className="text-[11px] text-slate-500">آخر تغيير: {auditNote(tx)}</div>
+                            </TD>
                             <TD className="font-mono text-xs">{tx.referenceNumber}</TD>
                             <TD className="font-semibold">
                               {fmt(tx.debit ?? tx.amount ?? 0)}

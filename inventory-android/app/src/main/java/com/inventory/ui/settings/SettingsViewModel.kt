@@ -3,6 +3,7 @@ package com.inventory.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
+import com.inventory.data.repository.DEFAULT_API_BASE_URL
 import com.inventory.data.repository.SettingsRepository
 import com.inventory.data.repository.StoreSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,7 +21,7 @@ data class SettingsUiState(
         storePhone = "",
         storeAddress = "",
         currency = "IQD",
-        baseUrl = "http://10.153.7.91:5000/api/",
+        baseUrl = DEFAULT_API_BASE_URL,
         debtReminderEnabled = true,
         debtReminderDays = 14,
         inactiveAlertEnabled = true,

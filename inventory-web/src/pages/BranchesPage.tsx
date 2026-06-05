@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-table"
 import { Building2, Edit, Plus, Search } from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createBranch, getBranches, updateBranch } from "../api/endpoints"
+import { createBranch, getBranches, getBranchSummaries, updateBranch } from "../api/endpoints"
 import type { Branch, BranchPayload } from "../types/api"
 import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
@@ -41,6 +41,10 @@ export function BranchesPage() {
         isActive: activeFilter === "all" ? undefined : activeFilter === "active",
       }),
   })
+  const summariesQuery = useQuery({
+    queryKey: ["branches", "summaries"],
+    queryFn: getBranchSummaries,
+  })
 
   const saveBranch = useMutation({
     mutationFn: (payload: BranchPayload) =>
@@ -50,6 +54,7 @@ export function BranchesPage() {
       setOpen(false)
       setEditingBranch(null)
       setForm(emptyForm)
+      queryClient.invalidateQueries({ queryKey: ["branches", "summaries"] })
     },
   })
 
@@ -99,9 +104,10 @@ export function BranchesPage() {
             <Button
               variant={row.original.isActive ? "destructive" : "secondary"}
               onClick={() =>
-                updateBranch(row.original.id, { isActive: !row.original.isActive }).then(() =>
-                  queryClient.invalidateQueries({ queryKey: ["branches"] }),
-                )
+                updateBranch(row.original.id, { isActive: !row.original.isActive }).then(() => {
+                  queryClient.invalidateQueries({ queryKey: ["branches"] })
+                  queryClient.invalidateQueries({ queryKey: ["branches", "summaries"] })
+                })
               }
             >
               {row.original.isActive ? "تعطيل" : "تفعيل"}
@@ -187,6 +193,35 @@ export function BranchesPage() {
         </CardContent>
       </Card>
 
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+        {(summariesQuery.data ?? []).map((summary) => (
+          <Card key={summary.branch.id} className="border-t-4 border-t-sky-500">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-bold">{summary.branch.name}</div>
+                  <div className="text-xs text-slate-500">{summary.branch.code}</div>
+                </div>
+                <Badge variant={summary.branch.isActive ? "success" : "secondary"}>
+                  {summary.branch.isActive ? "فعال" : "مغلق"}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <BranchMetric label="مبيعات" value={summary.sales.total} />
+                <BranchMetric label="مقبوض" value={summary.vouchers.receipts} good />
+                <BranchMetric label="باقي" value={summary.sales.remaining} danger={summary.sales.remaining > 0} />
+                <BranchMetric label="مصروف" value={summary.vouchers.expenses} danger={summary.vouchers.expenses > 0} />
+                <BranchMetric label="زبائن" value={summary.customers} plain />
+                <BranchMetric label="مواد" value={summary.products} plain />
+              </div>
+              <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                تحويلات: داخل {summary.transfers.in} | خارج {summary.transfers.out} | منخفض المخزون {summary.stock.lowStock}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -264,6 +299,29 @@ export function BranchesPage() {
           </Button>
         </form>
       </ModalForm>
+    </div>
+  )
+}
+
+function BranchMetric({
+  label,
+  value,
+  good,
+  danger,
+  plain,
+}: {
+  label: string
+  value: number
+  good?: boolean
+  danger?: boolean
+  plain?: boolean
+}) {
+  return (
+    <div className="rounded-md border border-slate-100 bg-white px-3 py-2">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className={plain ? "font-bold" : good ? "font-bold text-emerald-600" : danger ? "font-bold text-rose-600" : "font-bold text-slate-900"}>
+        {plain ? value : value.toLocaleString()}
+      </div>
     </div>
   )
 }

@@ -64,6 +64,7 @@ export function NotificationsBell() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
+  const firstLoadRef = useRef(true)
 
   const { data = [] } = useQuery({
     queryKey: ["notifications", "recent"],
@@ -87,10 +88,49 @@ export function NotificationsBell() {
   })
   const unreadCount = data.filter((n) => new Date(n.createdAt).getTime() > seenAt).length
 
+  useEffect(() => {
+    if (!data.length) return
+    const newest = data[0]
+    const newestTime = new Date(newest.createdAt).getTime()
+    if (!Number.isFinite(newestTime)) return
+
+    const lastPushed = Number(localStorage.getItem("notif_last_push_at") || 0)
+    if (firstLoadRef.current) {
+      firstLoadRef.current = false
+      localStorage.setItem("notif_last_push_at", String(Math.max(lastPushed, newestTime)))
+      return
+    }
+    if (newestTime <= lastPushed) return
+
+    localStorage.setItem("notif_last_push_at", String(newestTime))
+    playNotificationTone()
+
+    if ("Notification" in window && Notification.permission === "granted") {
+      const notification = new Notification(newest.title, {
+        body: newest.message,
+        icon: "/pwa-icon.svg",
+        badge: "/pwa-icon.svg",
+        tag: newest.id,
+        requireInteraction: newest.severity === "error",
+      })
+      notification.onclick = () => {
+        window.focus()
+        if (newest.link) navigate(newest.link)
+      }
+    }
+  }, [data, navigate])
+
   function markSeen() {
     const now = Date.now()
     setSeenAt(now)
     try { localStorage.setItem("notif_seen_at", String(now)) } catch {}
+  }
+
+  async function enableBrowserNotifications() {
+    if (!("Notification" in window)) return
+    if (Notification.permission === "default") {
+      await Notification.requestPermission()
+    }
   }
 
   return (
@@ -99,7 +139,7 @@ export function NotificationsBell() {
         variant="ghost"
         className="relative px-3"
         aria-label="الإشعارات"
-        onClick={() => { setOpen((v) => !v); if (!open) markSeen() }}
+        onClick={() => { setOpen((v) => !v); if (!open) { markSeen(); void enableBrowserNotifications() } }}
       >
         <Bell className="h-5 w-5" />
         {unreadCount > 0 ? (
@@ -159,4 +199,21 @@ export function NotificationsBell() {
       ) : null}
     </div>
   )
+}
+
+function playNotificationTone() {
+  try {
+    const context = new AudioContext()
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    oscillator.type = "sine"
+    oscillator.frequency.value = 880
+    gain.gain.value = 0.05
+    oscillator.connect(gain)
+    gain.connect(context.destination)
+    oscillator.start()
+    oscillator.stop(context.currentTime + 0.18)
+  } catch {
+    // Browsers may block audio until the user interacts with the page.
+  }
 }

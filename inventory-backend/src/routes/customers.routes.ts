@@ -14,7 +14,12 @@ import {
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
 import {
+  createPortalLink,
+  revokePortalLinks,
+} from "../controllers/customer-portal.controller";
+import {
   createCustomerSchema,
+  createPortalLinkSchema,
   customerTransactionsSchema,
   idParamSchema,
   inactiveCustomersSchema,
@@ -31,6 +36,8 @@ router.get("/debts", getDebts);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.post("/", validate(createCustomerSchema), addCustomer);
+router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
+router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);
 router.put("/:id", validate(updateCustomerSchema), editCustomer);
 router.delete("/:id", validate(idParamSchema), deleteCustomer);
 router.get(

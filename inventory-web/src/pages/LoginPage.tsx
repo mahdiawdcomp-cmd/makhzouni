@@ -27,7 +27,18 @@ export function LoginPage() {
         setError("استجابة الدخول غير مكتملة")
       }
     },
-    onError: () => setError("اسم المستخدم أو كلمة المرور غير صحيحة"),
+    onError: (err: unknown) => {
+      const e = err as { response?: { status?: number; data?: { message?: string } }; message?: string }
+      const status = e?.response?.status
+      const msg = e?.response?.data?.message ?? e?.message ?? "unknown"
+      if (status === 401) {
+        setError(`❌ كلمة المرور غير صحيحة (401)`)
+      } else if (status === 422) {
+        setError(`❌ أدخل البيانات (422)`)
+      } else {
+        setError(`خطأ ${status ?? "شبكة"}: ${msg}`)
+      }
+    },
   })
 
   if (isAuthenticated) return <Navigate to="/" replace />
@@ -52,7 +63,15 @@ export function LoginPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-sm font-medium">اسم المستخدم</label>
-              <Input value={username} onChange={(event) => setUsername(event.target.value)} autoFocus />
+              <Input
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                autoFocus
+                autoComplete="username"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">كلمة المرور</label>
@@ -60,6 +79,10 @@ export function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
               />
             </div>
             <label className="flex items-center gap-2 text-sm">

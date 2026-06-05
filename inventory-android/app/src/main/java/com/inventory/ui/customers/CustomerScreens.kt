@@ -2,12 +2,14 @@ package com.inventory.ui.customers
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -85,6 +87,26 @@ fun CustomerListScreen(
                                 Icon(Icons.Default.Business, null, Modifier.size(16.dp))
                                 Text("الموردين")
                             }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(
+                            "updated" to "آخر تعديل",
+                            "last" to "آخر تعامل",
+                            "balanceDesc" to "أعلى رصيد",
+                            "balanceAsc" to "أقل رصيد",
+                            "name" to "الاسم",
+                        ).forEach { (key, label) ->
+                            FilterChip(
+                                selected = state.sortBy == key,
+                                onClick = { viewModel.onSortChange(key) },
+                                label = { Text(label, style = MaterialTheme.typography.labelMedium) },
+                                shape = RoundedCornerShape(8.dp),
+                            )
                         }
                     }
                 }
@@ -353,11 +375,11 @@ fun CustomerStatementScreen(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     }
 
-                    itemsIndexed(state.rows, key = { _, r -> r.id }) { index, row ->
+                    itemsIndexed(state.rows, key = { index, r -> "${r.type}-${r.id}-$index" }) { index, row ->
                         StatementRowItem(
                             row = row,
                             isEven = index % 2 == 0,
-                            onClick = { onOpenReference(row.id) },
+                            onClick = { onOpenReference("${row.type}|${row.id}|${row.referenceNumber}") },
                         )
                     }
                 }
@@ -398,7 +420,23 @@ private fun StatementRowItem(
         "PAYMENT"                      -> "دفع"
         else                           -> row.type
     }
-    val bg = if (isEven) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.surface
+    val upperType = row.type.uppercase()
+    val isCancelled = row.status.equals("CANCELLED", ignoreCase = true)
+    val isInvoice = upperType.contains("INVOICE") || upperType == "SALE" || upperType == "PURCHASE"
+    val isVoucher = upperType.contains("VOUCHER") || upperType == "RECEIPT" || upperType == "PAYMENT" || upperType == "EXPENSE"
+    val typeColor = when {
+        isCancelled -> AppColor.Red600
+        isInvoice -> AppColor.Blue600
+        isVoucher -> AppColor.Green600
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val displayLabel = if (isCancelled) "$typeLabel - ملغاة" else typeLabel
+    val bg = when {
+        isCancelled -> AppColor.Red50.copy(alpha = if (isEven) 0.75f else 0.45f)
+        isInvoice -> AppColor.Blue50.copy(alpha = if (isEven) 0.55f else 0.25f)
+        isVoucher -> AppColor.Green50.copy(alpha = if (isEven) 0.55f else 0.25f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isEven) 0.45f else 0.18f)
+    }
 
     Row(
         modifier = Modifier
@@ -409,7 +447,7 @@ private fun StatementRowItem(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(row.date.toDisplayDate(), Modifier.weight(1.6f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-        Text(typeLabel, Modifier.weight(1.5f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(displayLabel, Modifier.weight(1.5f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = typeColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
         // Debit
         if (row.debit > 0)
             Text(row.debit.formatMoney(), Modifier.weight(1.3f), textAlign = TextAlign.End, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = AppColor.Red600, fontSize = 12.sp)
@@ -750,15 +788,37 @@ fun AccountLookupScreen(
                                     val isCredit = tx.credit > 0.0
                                     val amount = if (isCredit) tx.credit else if (tx.debit > 0.0) tx.debit else tx.amount
                                     val amountColor = if (isCredit) AppColor.Green600 else AppColor.Red600
+                                    val upperType = tx.type.uppercase()
+                                    val isCancelled = tx.status.equals("CANCELLED", ignoreCase = true)
+                                    val isInvoice = upperType.contains("INVOICE") || upperType == "SALE" || upperType == "PURCHASE"
+                                    val isVoucher = upperType.contains("VOUCHER") || upperType == "RECEIPT" || upperType == "PAYMENT" || upperType == "EXPENSE"
+                                    val rowBg = when {
+                                        isCancelled -> AppColor.Red50.copy(alpha = 0.75f)
+                                        isInvoice -> AppColor.Blue50.copy(alpha = 0.7f)
+                                        isVoucher -> AppColor.Green50.copy(alpha = 0.7f)
+                                        idx % 2 == 0 -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        else -> Color.Transparent
+                                    }
+                                    val refColor = when {
+                                        isCancelled -> AppColor.Red600
+                                        isInvoice -> AppColor.Blue600
+                                        isVoucher -> AppColor.Green600
+                                        else -> MaterialTheme.colorScheme.primary
+                                    }
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(if (idx % 2 == 0) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f) else Color.Transparent)
+                                            .background(rowBg)
                                             .padding(horizontal = 8.dp, vertical = 9.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Column(Modifier.weight(1f)) {
-                                            Text(tx.referenceNumber, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                            Text(
+                                                if (isCancelled) "${tx.referenceNumber} - ملغاة" else tx.referenceNumber,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = refColor,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
                                             Text(tx.date.take(10), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                                         }
                                         Text(

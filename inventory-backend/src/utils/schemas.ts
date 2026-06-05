@@ -10,6 +10,41 @@ const dateString = z
     message: "Invalid date",
   });
 
+const userPermissionSchema = z.enum([
+  "MANAGE_USERS",
+  "MANAGE_APPROVALS",
+  "MANAGE_PRODUCTS",
+  "MANAGE_CUSTOMERS",
+  "MANAGE_INVOICES",
+  "MANAGE_VOUCHERS",
+  "VIEW_REPORTS",
+  "MANAGE_SETTINGS",
+]);
+
+const auditEntitySchema = z.enum([
+  "invoices",
+  "vouchers",
+  "products",
+  "customers",
+  "users",
+  "branches",
+  "transfers",
+  "approvals",
+  "settings",
+  "coupons",
+  "quotations",
+]);
+
+const auditActionSchema = z.enum(["CREATE", "UPDATE", "DELETE", "REACTIVATE"]);
+
+const productImageSchema = z
+  .string()
+  .trim()
+  .max(620_000, "Product image is too large")
+  .regex(/^data:image\/(jpeg|jpg|png|webp);base64,/i, "Invalid product image")
+  .nullable()
+  .optional();
+
 export const loginSchema = z.object({
   body: z.object({
     username: z.string().trim().min(1),
@@ -20,7 +55,7 @@ export const loginSchema = z.object({
 export const changePasswordSchema = z.object({
   body: z.object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(8),
+    newPassword: z.string().min(4),
   }),
 });
 
@@ -28,8 +63,9 @@ export const createUserSchema = z.object({
   body: z.object({
     name: z.string().trim().min(2),
     username: z.string().trim().min(3),
-    password: z.string().min(8),
+    password: z.string().min(4),
     role: z.enum(["ADMIN", "STAFF"]).default("STAFF"),
+    permissions: z.array(userPermissionSchema).default([]),
     isActive: z.boolean().optional(),
   }),
 });
@@ -40,8 +76,9 @@ export const updateUserSchema = z.object({
     .object({
       name: z.string().trim().min(2).optional(),
       username: z.string().trim().min(3).optional(),
-      password: z.string().min(8).optional(),
+      password: z.string().min(4).optional(),
       role: z.enum(["ADMIN", "STAFF"]).optional(),
+      permissions: z.array(userPermissionSchema).optional(),
       isActive: z.boolean().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
@@ -51,6 +88,35 @@ export const updateUserSchema = z.object({
 
 export const idParamSchema = z.object({
   params: uuidParam,
+});
+
+export const portalTokenSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(128),
+  }),
+});
+
+export const createPortalLinkSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    expiresInDays: z.coerce.number().int().min(1).max(365).default(30),
+  }).partial().default({}),
+});
+
+const catalogOrderItemSchema = z.object({
+  productId: z.string().uuid(),
+  unit: z.enum(["PIECE", "DOZEN", "CARTON"]).default("PIECE"),
+  quantity: z.coerce.number().int().min(1),
+});
+
+export const createCatalogOrderSchema = z.object({
+  body: z.object({
+    customerName: z.string().trim().min(2).max(120),
+    phone: z.string().trim().min(5).max(40),
+    address: z.string().trim().max(240).optional(),
+    notes: z.string().trim().max(500).optional(),
+    items: z.array(catalogOrderItemSchema).min(1),
+  }),
 });
 
 export const invoiceIdParamSchema = z.object({
@@ -69,8 +135,8 @@ export const reviewApprovalSchema = z.object({
 export const listAuditLogsSchema = z.object({
   query: z.object({
     userId: z.string().uuid().optional(),
-    entity: z.string().trim().optional(),
-    action: z.string().trim().optional(),
+    entity: auditEntitySchema.optional(),
+    action: auditActionSchema.optional(),
     from: dateString.optional(),
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -191,6 +257,7 @@ export const createProductSchema = z.object({
     itemNumber: z.string().trim().optional(),
     qrCode: z.string().trim().optional(),
     cartonQrCode: z.string().trim().optional(),
+    imageUrl: productImageSchema,
     category: z.string().trim().optional(),
     openingBalancePcs: z.coerce.number().int().min(0).default(0),
     cartonsAvailable: z.coerce.number().int().min(0).default(0),
@@ -215,12 +282,19 @@ export const listInvoicesSchema = z.object({
     customerId: z.string().uuid().optional(),
     branchId: z.string().uuid().optional(),
     status: z.enum(["ACTIVE", "CANCELLED"]).optional(),
-    type: z.enum(["SALE", "PURCHASE"]).optional(),
+    type: z.enum(["SALE", "PURCHASE", "SALES_RETURN"]).optional(),
     paymentType: z.enum(["CASH", "CREDIT", "PARTIAL"]).optional(),
     from: dateString.optional(),
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const lastSoldPriceSchema = z.object({
+  query: z.object({
+    customerId: z.string().uuid(),
+    productId: z.string().uuid(),
   }),
 });
 
@@ -231,12 +305,16 @@ const invoiceItemSchema = z.object({
   unitPrice: z.coerce.number().nonnegative().optional(),
 });
 
+const invoiceTypeSchema = z.enum(["SALE", "PURCHASE", "SALES_RETURN"]);
+
 export const createInvoiceSchema = z.object({
   body: z.object({
     customerId: z.string().uuid(),
     branchId: z.string().uuid().optional(),
-    type: z.enum(["SALE", "PURCHASE"]).default("SALE"),
-    date: dateString.optional(),
+    type: invoiceTypeSchema.default("SALE"),
+    originalInvoiceId: z.string().uuid().optional(),
+    couponCode: z.string().trim().max(60).optional(),
+    clientRequestId: z.string().min(8).max(100).optional(),
     discount: z.coerce.number().nonnegative().default(0),
     tax: z.coerce.number().nonnegative().default(0),
     paidAmount: z.coerce.number().nonnegative().default(0),
@@ -248,13 +326,67 @@ export const createInvoiceSchema = z.object({
 export const updateInvoiceSchema = z.object({
   params: uuidParam,
   body: z.object({
-    type: z.enum(["SALE", "PURCHASE"]).optional(),
-    date: dateString.optional(),
+    type: invoiceTypeSchema.optional(),
+    originalInvoiceId: z.string().uuid().optional(),
+    couponCode: z.string().trim().max(60).optional(),
     discount: z.coerce.number().nonnegative().default(0),
     tax: z.coerce.number().nonnegative().default(0),
     paidAmount: z.coerce.number().nonnegative().default(0),
     paymentType: z.enum(["CASH", "CREDIT", "PARTIAL"]).optional(),
     items: z.array(invoiceItemSchema).min(1),
+  }),
+});
+
+export const couponSchema = z.object({
+  body: z.object({
+    code: z.string().trim().min(2).max(60).transform((value) => value.toUpperCase()),
+    name: z.string().trim().min(2).max(120),
+    discountType: z.enum(["PERCENT", "AMOUNT"]),
+    discountValue: z.coerce.number().positive(),
+    startsAt: dateString.optional(),
+    endsAt: dateString.optional(),
+    maxUses: z.coerce.number().int().positive().optional(),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const updateCouponSchema = z.object({
+  params: uuidParam,
+  body: couponSchema.shape.body.partial().refine((body) => Object.keys(body).length > 0, {
+    message: "At least one coupon field is required",
+  }),
+});
+
+export const applyCouponSchema = z.object({
+  body: z.object({
+    code: z.string().trim().min(2).max(60),
+    subtotal: z.coerce.number().nonnegative(),
+  }),
+});
+
+export const listQuotationsSchema = z.object({
+  query: z.object({
+    customerId: z.string().uuid().optional(),
+    status: z.enum(["PENDING", "ACCEPTED", "REJECTED", "EXPIRED", "CONVERTED"]).optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+  }),
+});
+
+export const createQuotationSchema = z.object({
+  body: z.object({
+    customerId: z.string().uuid(),
+    discount: z.coerce.number().nonnegative().default(0),
+    expiresAt: dateString.optional(),
+    notes: z.string().trim().max(500).optional(),
+    items: z.array(invoiceItemSchema).min(1),
+  }),
+});
+
+export const updateQuotationStatusSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    status: z.enum(["ACCEPTED", "REJECTED", "EXPIRED"]),
   }),
 });
 
@@ -278,7 +410,6 @@ export const createVoucherSchema = z.object({
       branchId: z.string().uuid().optional(),
       amount: z.coerce.number().positive(),
       type: z.enum(["RECEIPT", "PAYMENT", "EXPENSE"]),
-      date: dateString.optional(),
       notes: z.string().trim().optional(),
       // EXPENSE vouchers carry a short label (e.g. "أجور مولّدة"). Optional for the others.
       description: z.string().trim().optional(),
@@ -299,7 +430,6 @@ export const updateVoucherSchema = z.object({
     .object({
       customerId: z.string().uuid().optional(),
       amount: z.coerce.number().positive().optional(),
-      date: dateString.optional(),
       notes: z.string().trim().optional(),
       description: z.string().trim().optional(),
     })
@@ -355,6 +485,7 @@ export const updateSettingsSchema = z.object({
       voucherTemplate: z.string().trim().optional(),
       statementTemplate: z.string().trim().optional(),
       themePreset: z.enum(["classic", "iraqi", "exclusive", "bold", "designer"]).optional(),
+      backupWhatsappNumber: z.string().trim().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

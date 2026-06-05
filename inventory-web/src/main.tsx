@@ -5,6 +5,7 @@ import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import App from "./App"
 import "./index.css"
+import "virtual:pwa-register"
 
 const queryClient = new QueryClient({
   defaultOptions: {

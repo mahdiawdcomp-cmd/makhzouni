@@ -38,14 +38,15 @@ class DashboardViewModel @Inject constructor(
 
     val uiState: StateFlow<DashboardUiState> = combine(
         sessionManager.role,
+        sessionManager.permissions,
         approvalRepository.pending,
         notificationRepository.observeUnreadCount(),
         report
-    ) { role, approvals, unreadCount, dashboardReport ->
+    ) { role, permissions, approvals, unreadCount, dashboardReport ->
         DashboardUiState(
             role = role,
-            canManageUsers = permissionManager.canEditDirectly(role),
-            canApprove = permissionManager.canApprove(role),
+            canManageUsers = permissionManager.canManageUsers(role, permissions),
+            canApprove = permissionManager.canManageApprovals(role, permissions),
             pendingApprovalCount = approvals.size,
             unreadNotifications = unreadCount,
             report = dashboardReport

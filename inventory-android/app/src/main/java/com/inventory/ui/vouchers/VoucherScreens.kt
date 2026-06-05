@@ -25,10 +25,15 @@ import com.inventory.ui.theme.AppColor
 fun VoucherCreateScreen(
     viewModel: VoucherViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
     onBack: () -> Unit,
+    voucherId: String? = null,
 ) {
     val state by viewModel.state.collectAsState()
     var customerExpanded by remember { mutableStateOf(false) }
     var typeExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(voucherId) {
+        if (voucherId != null) viewModel.loadVoucher(voucherId)
+    }
 
     // Success dialog
     if (state.success) {
@@ -95,7 +100,7 @@ fun VoucherCreateScreen(
                             icon = Icons.Default.ArrowDownward,
                             selected = state.type == "RECEIPT",
                             color = AppColor.Green600,
-                            onClick = { viewModel.onEvent(VoucherEvent.TypeChanged("RECEIPT")) },
+                            onClick = { if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("RECEIPT")) },
                             modifier = Modifier.weight(1f),
                         )
                         VoucherTypeChip(
@@ -103,7 +108,7 @@ fun VoucherCreateScreen(
                             icon = Icons.Default.ArrowUpward,
                             selected = state.type == "PAYMENT",
                             color = AppColor.Amber600,
-                            onClick = { viewModel.onEvent(VoucherEvent.TypeChanged("PAYMENT")) },
+                            onClick = { if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("PAYMENT")) },
                             modifier = Modifier.weight(1f),
                         )
                         VoucherTypeChip(
@@ -111,7 +116,7 @@ fun VoucherCreateScreen(
                             icon = Icons.Default.MoneyOff,
                             selected = state.type == "EXPENSE",
                             color = AppColor.Red600,
-                            onClick = { viewModel.onEvent(VoucherEvent.TypeChanged("EXPENSE")) },
+                            onClick = { if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("EXPENSE")) },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -194,6 +199,12 @@ fun VoucherCreateScreen(
             item {
                 SectionCard(title = "تفاصيل السند") {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        AppTextField(
+                            value = state.date,
+                            onValueChange = { viewModel.onEvent(VoucherEvent.DateChanged(it)) },
+                            label = "التاريخ",
+                            placeholder = "yyyy-MM-dd",
+                        )
                         AppTextField(
                             value = state.amount,
                             onValueChange = { viewModel.onEvent(VoucherEvent.AmountChanged(it)) },

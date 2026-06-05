@@ -139,12 +139,13 @@ fun SectionCard(
     title: String? = null,
     titleAction: (@Composable () -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    containerColor: Color = MaterialTheme.colorScheme.surface,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surface,
+        color = containerColor,
         tonalElevation = 0.5.dp,
         shadowElevation = 1.dp,
     ) {

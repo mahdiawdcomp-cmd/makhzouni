@@ -17,6 +17,8 @@ export interface AppSettings {
   statementTemplate: string;
   // UI preferences
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
+  // Backup
+  backupWhatsappNumber?: string;
 }
 
 export const defaultSettings: AppSettings = {

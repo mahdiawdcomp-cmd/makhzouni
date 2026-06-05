@@ -10,6 +10,7 @@ type ProductInput = {
   name: string;
   qrCode?: string;
   cartonQrCode?: string;
+  imageUrl?: string | null;
   category?: string;
   openingBalancePcs?: number;
   cartonsAvailable?: number;
@@ -75,6 +76,17 @@ function generateQrCode() {
 
 function generateCartonQrCode() {
   return `CTN-${randomUUID()}`;
+}
+
+function normalizeQrCodes(input: { qrCode?: string | null; cartonQrCode?: string | null }) {
+  const qrCode = input.qrCode?.trim() || generateQrCode();
+  const cartonQrCodeInput = input.cartonQrCode?.trim();
+  const cartonQrCode =
+    cartonQrCodeInput && cartonQrCodeInput !== qrCode
+      ? cartonQrCodeInput
+      : generateCartonQrCode();
+
+  return { qrCode, cartonQrCode };
 }
 
 // ---------- CRUD ----------
@@ -185,8 +197,7 @@ export async function createProduct(
   // Auto-generate item number / QR codes if not provided.
   const runner = async (tx: Db) => {
     const itemNumber = input.itemNumber?.trim() || (await nextItemNumber(tx));
-    const qrCode = input.qrCode?.trim() || generateQrCode();
-    const cartonQrCode = input.cartonQrCode?.trim() || generateCartonQrCode();
+    const { qrCode, cartonQrCode } = normalizeQrCodes(input);
 
     const product = await tx.product.create({
       data: {
@@ -194,6 +205,7 @@ export async function createProduct(
         name: input.name,
         qrCode,
         cartonQrCode,
+        imageUrl: input.imageUrl || null,
         category: input.category?.trim() || null,
         openingBalancePcs: input.openingBalancePcs ?? 0,
         cartonsAvailable: input.cartonsAvailable ?? 0,
@@ -220,12 +232,22 @@ export async function updateProduct(
   input: Partial<ProductInput>,
   db: Db = prisma
 ) {
-  await getProductById(id, db);
+  const existing = await getProductById(id, db);
   const data: Prisma.ProductUpdateInput = {};
   if (input.itemNumber !== undefined) data.itemNumber = input.itemNumber;
   if (input.name !== undefined) data.name = input.name;
-  if (input.qrCode !== undefined) data.qrCode = input.qrCode;
-  if (input.cartonQrCode !== undefined) data.cartonQrCode = input.cartonQrCode;
+  if (input.qrCode !== undefined || input.cartonQrCode !== undefined) {
+    const nextQrCode = input.qrCode !== undefined ? input.qrCode : existing.qrCode;
+    const nextCartonQrCode =
+      input.cartonQrCode !== undefined ? input.cartonQrCode : existing.cartonQrCode;
+    const normalized = normalizeQrCodes({
+      qrCode: nextQrCode,
+      cartonQrCode: nextCartonQrCode,
+    });
+    data.qrCode = normalized.qrCode;
+    data.cartonQrCode = normalized.cartonQrCode;
+  }
+  if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl || null;
   if (input.category !== undefined) data.category = input.category?.trim() || null;
   if (input.openingBalancePcs !== undefined) data.openingBalancePcs = input.openingBalancePcs;
   if (input.cartonsAvailable !== undefined) data.cartonsAvailable = input.cartonsAvailable;
@@ -256,14 +278,17 @@ export async function deleteProduct(id: string, db: Db = prisma) {
 // Backfill missing QR codes / carton QR codes for legacy products (admin op).
 export async function backfillQrCodes() {
   const products = await prisma.product.findMany({
-    where: { deletedAt: null, OR: [{ qrCode: { equals: "" } }, { cartonQrCode: null }] },
+    where: { deletedAt: null },
     select: { id: true, qrCode: true, cartonQrCode: true },
   });
   let updated = 0;
   for (const p of products) {
     const data: { qrCode?: string; cartonQrCode?: string } = {};
     if (!p.qrCode) data.qrCode = generateQrCode();
-    if (!p.cartonQrCode) data.cartonQrCode = generateCartonQrCode();
+    const nextQrCode = data.qrCode ?? p.qrCode;
+    if (!p.cartonQrCode || p.cartonQrCode === nextQrCode) {
+      data.cartonQrCode = generateCartonQrCode();
+    }
     if (Object.keys(data).length) {
       await prisma.product.update({ where: { id: p.id }, data });
       updated++;

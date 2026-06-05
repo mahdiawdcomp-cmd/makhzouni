@@ -12,6 +12,17 @@ let lastQrDataUrl: string | null = null;
 let lastError: string | null = null;
 let initialized = false;
 
+function resolveChromePath() {
+  const configuredPath = process.env.CHROME_PATH?.trim();
+  if (configuredPath) {
+    if (fs.existsSync(configuredPath)) return configuredPath;
+    console.warn(`WhatsApp disabled: CHROME_PATH does not exist (${configuredPath})`);
+    return null;
+  }
+
+  return undefined;
+}
+
 function normalizePhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
 
@@ -27,8 +38,12 @@ export function initializeWhatsApp() {
   initialized = true;
   state = "INITIALIZING";
 
-  const chromePath =
-    "C:\\Users\\IRAQ CELL\\.cache\\puppeteer\\chrome\\win64-146.0.7680.31\\chrome-win64\\chrome.exe";
+  const chromePath = resolveChromePath();
+  if (chromePath === null) {
+    state = "ERROR";
+    lastError = "CHROME_PATH is configured but the file was not found";
+    return;
+  }
 
   client = new Client({
     authStrategy: new LocalAuth({
@@ -36,7 +51,7 @@ export function initializeWhatsApp() {
     }),
     puppeteer: {
       headless: true,
-      executablePath: fs.existsSync(chromePath) ? chromePath : undefined,
+      executablePath: chromePath,
       timeout: 120000,
       args: [
         "--no-sandbox",

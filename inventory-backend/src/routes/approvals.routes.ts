@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getMyApprovals,
   getPendingApprovals,
   reviewPendingApproval,
 } from "../controllers/approvals.controller";
@@ -10,9 +11,10 @@ import { reviewApprovalSchema } from "../utils/schemas";
 
 const router = Router();
 
-router.use(authMiddleware, adminOnly);
+router.use(authMiddleware);
 
-router.get("/", getPendingApprovals);
-router.put("/:id", validate(reviewApprovalSchema), reviewPendingApproval);
+router.get("/my-requests", getMyApprovals);
+router.get("/", adminOnly, getPendingApprovals);
+router.put("/:id", adminOnly, validate(reviewApprovalSchema), reviewPendingApproval);
 
 export default router;
