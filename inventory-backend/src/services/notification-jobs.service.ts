@@ -188,7 +188,7 @@ export async function runWeeklyBackup() {
   return backup.counts;
 }
 
-export async function runDailySummaryJob() {
+export async function runDailySummaryJob(force = false) {
   const settings = await getSettings();
   const data = await getDailySummaryData();
   const currency = settings.currency || "IQD";
@@ -233,7 +233,7 @@ export async function runDailySummaryJob() {
   let sentAt: Date | null = null;
   if (
     process.env.ENABLE_WHATSAPP === "true" &&
-    settings.autoSendDailySummary &&
+    (force || settings.autoSendDailySummary) &&
     settings.dailySummaryWhatsappNumber
   ) {
     await sendWhatsAppText(settings.dailySummaryWhatsappNumber, message).catch((e) =>
