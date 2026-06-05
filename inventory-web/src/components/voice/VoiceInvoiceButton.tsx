@@ -31,11 +31,6 @@ function unitLabel(unit: string) {
   return "قطعة"
 }
 
-function payLabel(pay: string) {
-  if (pay === "CASH") return "نقداً"
-  if (pay === "CREDIT") return "دين"
-  return "جزئي"
-}
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
