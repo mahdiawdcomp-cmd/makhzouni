@@ -231,22 +231,32 @@ export async function runDailySummaryJob(force = false) {
   const message = lines.join("\n");
 
   let sentAt: Date | null = null;
-  if (
-    process.env.ENABLE_WHATSAPP === "true" &&
-    (force || settings.autoSendDailySummary) &&
-    settings.dailySummaryWhatsappNumber
-  ) {
-    await sendWhatsAppText(settings.dailySummaryWhatsappNumber, message).catch((e) =>
-      console.warn("[daily-summary] WhatsApp send failed:", e)
-    );
-    sentAt = new Date();
+  let whatsappResult = "لم يُرسل";
+
+  const phone = settings.dailySummaryWhatsappNumber;
+  const waEnabled = process.env.ENABLE_WHATSAPP === "true";
+  const shouldSend = (force || settings.autoSendDailySummary) && !!phone;
+
+  if (!waEnabled) {
+    whatsappResult = "ENABLE_WHATSAPP غير مفعّل على السيرفر";
+  } else if (!phone) {
+    whatsappResult = "رقم الواتساب غير محفوظ في الإعدادات";
+  } else if (shouldSend) {
+    try {
+      await sendWhatsAppText(phone, message);
+      sentAt = new Date();
+      whatsappResult = `✓ أُرسل إلى ${phone}`;
+    } catch (e) {
+      whatsappResult = `فشل الإرسال: ${e instanceof Error ? e.message : String(e)}`;
+      console.warn("[daily-summary] WhatsApp send failed:", e);
+    }
   }
 
   await prisma.notification.create({
     data: { type: "DAILY_SUMMARY", message, sentAt },
   });
 
-  return { message };
+  return { message, whatsappResult };
 }
 
 export function startNotificationJobs() {

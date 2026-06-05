@@ -142,7 +142,9 @@ export function SettingsPage() {
   const dailySummaryMutation = useMutation({
     mutationFn: triggerDailySummary,
     onSuccess: (res) => {
-      setSummaryMsg(res.data?.message ? `✓ تم الإرسال:\n${res.data.message}` : "✓ تم إرسال الملخص")
+      const wa = (res.data as { whatsappResult?: string })?.whatsappResult ?? ""
+      const msg = (res.data as { message?: string })?.message ?? ""
+      setSummaryMsg(wa ? `${wa}\n\n${msg}` : msg || "✓ تم")
     },
     onError: () => setSummaryMsg("✗ فشل إرسال الملخص"),
   })

@@ -30,3 +30,4 @@ export const triggerDailySummary = asyncHandler(async (_req, res) => {
   const result = await runDailySummaryJob(true);
   res.json({ success: true, message: "تم إرسال الملخص اليومي", data: result });
 });
+
