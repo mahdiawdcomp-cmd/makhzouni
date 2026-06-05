@@ -544,8 +544,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
       _sum: { amount: true },
     }),
     prisma.product.findMany({ where: { deletedAt: null } }),
-    prisma.invoiceItem.groupBy({
-      by: ["productId", "productName"],
+    prisma.invoiceItem.findMany({
       where: {
         invoice: {
           status: InvoiceStatus.ACTIVE,
@@ -553,9 +552,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
           date: { gte: todayStart, lte: todayEnd },
         },
       },
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 1,
+      select: { productId: true, productName: true, quantity: true },
     }),
     prisma.customer.findMany({
       where: { deletedAt: null, currentBalance: { gt: 0 } },
@@ -587,10 +584,15 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
   );
   const lowStockNames = lowStockItems.slice(0, 3).map((p) => p.name);
 
-  const topProduct =
-    topItemsToday.length > 0
-      ? { name: topItemsToday[0].productName, quantity: topItemsToday[0]._sum.quantity ?? 0 }
-      : null;
+  const topProductMap = new Map<string, { name: string; quantity: number }>();
+  for (const item of topItemsToday) {
+    const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
+    cur.quantity += item.quantity;
+    topProductMap.set(item.productId, cur);
+  }
+  const topProduct = topProductMap.size > 0
+    ? Array.from(topProductMap.values()).sort((a, b) => b.quantity - a.quantity)[0]
+    : null;
 
   const mostOverdueCustomer =
     overdueCustomers.length > 0
