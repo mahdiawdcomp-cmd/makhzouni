@@ -380,14 +380,15 @@ export function SettingsPage() {
                   />
                 </Field>
                 <div className="sm:col-span-2">
-                <Field label="رقم الواتساب للملخص">
-                  <Input
-                    value={settings.dailySummaryWhatsappNumber ?? ""}
-                    onChange={(e) => upd("dailySummaryWhatsappNumber", e.target.value)}
-                    placeholder="9647xxxxxxxx"
-                    dir="ltr"
-                  />
-                </Field>
+                  <Field label="رقم الواتساب للملخص">
+                    <Input
+                      value={settings.dailySummaryWhatsappNumber ?? ""}
+                      onChange={(e) => upd("dailySummaryWhatsappNumber", e.target.value)}
+                      placeholder="9647xxxxxxxx"
+                      dir="ltr"
+                    />
+                  </Field>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
