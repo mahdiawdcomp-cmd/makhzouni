@@ -33,7 +33,7 @@ function unitLabel(unit: string) {
 
 function payLabel(pay: string) {
   if (pay === "CASH") return "نقداً"
-  if (unit === "CREDIT") return "دين"
+  if (pay === "CREDIT") return "دين"
   return "جزئي"
 }
 
@@ -43,7 +43,7 @@ export function VoiceInvoiceButton() {
   const [status, setStatus] = useState<Status>("idle")
   const [statusText, setStatusText] = useState("")
   const [lastInvoice, setLastInvoice] = useState<VoiceInvoiceResponse["invoice"] | null>(null)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<{ stop: () => void; abort: () => void } | null>(null)
 
   // ── إرسال النص للـ API ──────────────────────────────────────────────────────
   async function sendCommand(text: string) {
@@ -85,14 +85,17 @@ export function VoiceInvoiceButton() {
 
   // ── بدء الاستماع ────────────────────────────────────────────────────────────
   function startListening() {
+    type SpeechRecognitionCtor = new () => {
+      lang: string; continuous: boolean; interimResults: boolean; maxAlternatives: number;
+      start: () => void; stop: () => void; abort: () => void;
+      onstart: ((e: Event) => void) | null;
+      onresult: ((e: SpeechRecognitionEvent) => void) | null;
+      onerror: ((e: Event) => void) | null;
+      onend: (() => void) | null;
+    }
     const SpeechRecognitionAPI =
-      (window as unknown as { SpeechRecognition?: typeof SpeechRecognition })
-        .SpeechRecognition ??
-      (
-        window as unknown as {
-          webkitSpeechRecognition?: typeof SpeechRecognition
-        }
-      ).webkitSpeechRecognition
+      (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition
 
     if (!SpeechRecognitionAPI) {
       setStatus("error")

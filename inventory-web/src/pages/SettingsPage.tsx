@@ -94,6 +94,10 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
 
 export function SettingsPage() {
   const queryClient = useQueryClient()
+  const [activeTab, setActiveTab] = useState<SettingsTab>("store")
+  const [settings, setSettings] = useState<AppSettings>(fallbackSettings)
+  const [templates, setTemplates] = useState<MessageTemplate[]>([])
+  const [importMsg, setImportMsg] = useState("")
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const waQuery = useQuery({
     queryKey: ["whatsapp-status"],
@@ -109,10 +113,6 @@ export function SettingsPage() {
   const templatesQuery = useQuery({ queryKey: ["message-templates"], queryFn: getMessageTemplates })
   const productsQuery = useQuery({ queryKey: ["products", "backup"], queryFn: () => getProducts() })
   const customersQuery = useQuery({ queryKey: ["customers", "backup"], queryFn: () => getCustomers() })
-  const [settings, setSettings] = useState<AppSettings>(fallbackSettings)
-  const [templates, setTemplates] = useState<MessageTemplate[]>([])
-  const [importMsg, setImportMsg] = useState("")
-  const [activeTab, setActiveTab] = useState<SettingsTab>("store")
   const [saved, setSaved] = useState(false)
   const [backupMsg, setBackupMsg] = useState("")
   const [summaryMsg, setSummaryMsg] = useState("")
@@ -379,7 +379,8 @@ export function SettingsPage() {
                     onChange={(e) => upd("dailySummaryHour", Number(e.target.value))}
                   />
                 </Field>
-                <Field label="رقم الواتساب للملخص" className="sm:col-span-2">
+                <div className="sm:col-span-2">
+                <Field label="رقم الواتساب للملخص">
                   <Input
                     value={settings.dailySummaryWhatsappNumber ?? ""}
                     onChange={(e) => upd("dailySummaryWhatsappNumber", e.target.value)}
