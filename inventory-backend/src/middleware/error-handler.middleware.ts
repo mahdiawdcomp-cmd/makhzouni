@@ -25,6 +25,19 @@ export function errorHandler(
     });
   }
 
+  // صورة أكبر من الحد المسموح (يجب ألا يصل هنا بعد رفع الحد لـ 8mb)
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { type?: string }).type === "entity.too.large"
+  ) {
+    return res.status(413).json({
+      success: false,
+      message: "الصورة كبيرة جداً — قلّص حجمها أو اختر صورة أوضح وأصغر",
+      code: "PAYLOAD_TOO_LARGE",
+    });
+  }
+
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2002") {
       return res.status(409).json({

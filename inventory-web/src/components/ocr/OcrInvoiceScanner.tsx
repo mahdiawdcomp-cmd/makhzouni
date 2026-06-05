@@ -55,21 +55,34 @@ export function OcrInvoiceScanner({ onItemsReady, onClose }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
+  // ── تصغير الصورة قبل الإرسال (يمنع خطأ حجم الـ payload) ──────────────────
+  function compressImage(dataUrl: string, maxWidth = 1200): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.onload = () => {
+        const canvas = document.createElement("canvas")
+        const ratio = Math.min(1, maxWidth / img.width)
+        canvas.width  = Math.round(img.width  * ratio)
+        canvas.height = Math.round(img.height * ratio)
+        const ctx = canvas.getContext("2d")
+        if (!ctx) { resolve(dataUrl); return }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL("image/jpeg", 0.82))  // جودة 82% — كافية للـ OCR
+      }
+      img.src = dataUrl
+    })
+  }
+
   // ── تحميل الصورة ──────────────────────────────────────────────────────────
   function handleFile(file: File | undefined) {
     if (!file) return
 
-    const maxSize = 4 * 1024 * 1024 // 4MB
-    if (file.size > maxSize) {
-      setStatus("error")
-      setMessage("الصورة كبيرة جداً — يجب أن تكون أقل من 4MB")
-      return
-    }
-
     const reader = new FileReader()
     reader.onload = () => {
-      setImageDataUrl(String(reader.result))
-      setStatus("preview")
+      void compressImage(String(reader.result)).then((compressed) => {
+        setImageDataUrl(compressed)
+        setStatus("preview")
+      })
     }
     reader.readAsDataURL(file)
   }

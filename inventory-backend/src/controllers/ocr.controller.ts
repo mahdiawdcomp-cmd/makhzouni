@@ -38,7 +38,7 @@ export const scanInvoiceImage = asyncHandler(async (req, res) => {
 
   // ── الخطوة 1: Groq Vision يقرأ الفاتورة ──────────────────────────────────
   const completion = await groq.chat.completions.create({
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
+    model: "llama-3.2-11b-vision-preview",   // الموديل الرسمي للصور على Groq
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
