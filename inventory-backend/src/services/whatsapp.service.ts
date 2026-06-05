@@ -103,10 +103,14 @@ export function initializeWhatsApp() {
     }
   });
 
-  client.initialize().catch((error: unknown) => {
+  const initPromise = client.initialize();
+  initPromise.catch((error: unknown) => {
     state = "ERROR";
     lastError = error instanceof Error ? error.message : String(error);
+    console.warn("[WhatsApp] initialize() failed:", lastError);
   });
+  // Prevent Node.js from treating this as unhandled rejection
+  initPromise.then(() => {}).catch(() => {});
 }
 
 export function getWhatsAppStatus() {
