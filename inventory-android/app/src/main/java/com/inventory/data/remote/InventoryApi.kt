@@ -196,4 +196,10 @@ interface InventoryApi {
         @Query("minDays") minDays: Int = 0,
         @Query("maxDays") maxDays: Int = 999
     ): ApiEnvelope<List<CustomerDebtDto>>
+
+    // ── Voice Invoice ─────────────────────────────────────────────────────────
+    @POST("voice/invoice")
+    suspend fun processVoiceInvoice(
+        @Body body: com.inventory.data.remote.dto.VoiceCommandRequest
+    ): retrofit2.Response<com.inventory.data.remote.dto.VoiceInvoiceResponse>
 }

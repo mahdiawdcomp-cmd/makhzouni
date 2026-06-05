@@ -17,6 +17,7 @@ import usersRoutes from "./users.routes";
 import vouchersRoutes from "./vouchers.routes";
 import transfersRoutes from "./transfers.routes";
 import whatsappRoutes from "./whatsapp.routes";
+import voiceRoutes from "./voice.routes";
 
 const router = Router();
 
@@ -38,5 +39,6 @@ router.use("/whatsapp", whatsappRoutes);
 router.use("/settings", settingsRoutes);
 router.use("/message-templates", messageTemplatesRoutes);
 router.use("/notifications", notificationsRoutes);
+router.use("/voice", voiceRoutes);
 
 export default router;

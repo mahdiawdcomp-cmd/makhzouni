@@ -37,6 +37,7 @@ fun DashboardScreen(
     onReports: () -> Unit,
     onSettings: () -> Unit,
     onAccountLookup: () -> Unit = {},
+    onVoiceInvoice: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val report = state.report
@@ -111,6 +112,9 @@ fun DashboardScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             QuickActionBtn("كشف حساب",   Icons.Default.AccountBalance,   AppColor.Purple600, Modifier.weight(1f), onAccountLookup)
                             QuickActionBtn("المخزن",      Icons.Default.Inventory2,       AppColor.Gray700,   Modifier.weight(1f), onProducts)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            QuickActionBtn("🎤 فاتورة صوتية", Icons.Default.Mic, Color(0xFF6366F1), Modifier.fillMaxWidth(), onVoiceInvoice)
                         }
                     }
                 }

@@ -3,6 +3,28 @@ package com.inventory.data.remote.dto
 import java.math.BigDecimal
 import java.math.RoundingMode
 
+// ── Voice Invoice DTOs ────────────────────────────────────────────────────────
+
+data class VoiceCommandRequest(val command: String)
+
+data class VoiceInvoiceBasic(
+    val id: String,
+    val invoiceNumber: String,
+    val customerName: String,
+    val productName: String,
+    val quantity: Int,
+    val unit: String,
+    val totalAmount: Double,
+    val paymentType: String,
+)
+
+data class VoiceInvoiceResponse(
+    val success: Boolean? = null,
+    val message: String? = null,
+    val clarify: String? = null,
+    val invoice: VoiceInvoiceBasic? = null,
+)
+
 /**
  * Rounds a monetary Double to 2 decimal places using HALF_UP rounding.
  * Avoids IEEE 754 floating-point drift (e.g. 0.1 + 0.2 = 0.30000000000000004).

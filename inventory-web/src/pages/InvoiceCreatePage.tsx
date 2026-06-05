@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
+import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -668,6 +669,11 @@ export function InvoiceCreatePage() {
           </div>
         </div>
       ) : null}
+
+      {/* Voice Invoice Button */}
+      <div className="flex justify-center py-2">
+        <VoiceInvoiceButton />
+      </div>
 
       {/* Header banner */}
       <div className={`rounded-xl bg-gradient-to-l ${accentBg} p-5 text-white shadow-sm`}>

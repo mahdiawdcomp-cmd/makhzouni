@@ -64,6 +64,7 @@ import com.inventory.ui.reports.DashboardReportScreen
 import com.inventory.ui.reports.ReportsScreen
 import com.inventory.ui.settings.SettingsScreen
 import com.inventory.ui.users.UserManagementScreen
+import com.inventory.ui.voice.VoiceInvoiceScreen
 
 @Composable
 fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) {
@@ -182,7 +183,8 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onDashboardReport = { navController.navigate(Routes.DashboardReport) },
                         onReports = { navController.navigate(Routes.Reports) },
                         onSettings = { navController.navigate(Routes.Settings) },
-                        onAccountLookup = { navController.navigate(Routes.AccountLookup) }
+                        onAccountLookup = { navController.navigate(Routes.AccountLookup) },
+                        onVoiceInvoice  = { navController.navigate(Routes.VoiceInvoice) },
                     )
                 }
                 composable(Routes.Users) { UserManagementScreen(viewModel = hiltViewModel()) }
@@ -341,6 +343,15 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                 }
                 composable(Routes.Notifications) {
                     NotificationScreen(viewModel = hiltViewModel(), onBack = { navController.popBackStack() })
+                }
+                composable(Routes.VoiceInvoice) {
+                    VoiceInvoiceScreen(
+                        onNavigateToInvoice = { id ->
+                            navController.navigate(Routes.invoiceDetail(id))
+                        },
+                        onBack = { navController.popBackStack() },
+                        viewModel = hiltViewModel(),
+                    )
                 }
                 composable(Routes.DashboardReport) { DashboardReportScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Reports) { ReportsScreen(viewModel = hiltViewModel()) }
