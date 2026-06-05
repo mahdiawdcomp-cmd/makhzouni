@@ -5,6 +5,7 @@ import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings } from "../services/settings.service";
 import {
   getWhatsAppStatus,
+  restartWhatsApp,
   sendWhatsAppPdf,
   sendWhatsAppText,
 } from "../services/whatsapp.service";
@@ -14,6 +15,11 @@ export const whatsappStatus = asyncHandler(async (_req, res) => {
     success: true,
     data: getWhatsAppStatus(),
   });
+});
+
+export const whatsappRestart = asyncHandler(async (_req, res) => {
+  await restartWhatsApp();
+  res.json({ success: true, message: "جاري إعادة تشغيل الواتساب..." });
 });
 
 export const sendMessage = asyncHandler(async (req, res) => {

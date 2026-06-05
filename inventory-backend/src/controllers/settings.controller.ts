@@ -1,6 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import { getSettings, updateSettings } from "../services/settings.service";
-import { runWeeklyBackup } from "../services/notification-jobs.service";
+import { runWeeklyBackup, runDailySummaryJob } from "../services/notification-jobs.service";
 
 export const getAllSettings = asyncHandler(async (_req, res) => {
   const settings = await getSettings();
@@ -24,4 +24,9 @@ export const updateAppSettings = asyncHandler(async (req, res) => {
 export const triggerManualBackup = asyncHandler(async (_req, res) => {
   const counts = await runWeeklyBackup();
   res.json({ success: true, message: "تم إنشاء النسخة الاحتياطية بنجاح", data: counts });
+});
+
+export const triggerDailySummary = asyncHandler(async (_req, res) => {
+  const result = await runDailySummaryJob();
+  res.json({ success: true, message: "تم إرسال الملخص اليومي", data: result });
 });

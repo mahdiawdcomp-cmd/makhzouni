@@ -5,6 +5,7 @@ import prisma from "../config/database";
 import { getSettings } from "./settings.service";
 import { renderTemplateByType } from "./message-template.service";
 import { sendWhatsAppText } from "./whatsapp.service";
+import { getDailySummaryData } from "./report.service";
 
 let jobsStarted = false;
 
@@ -187,6 +188,67 @@ export async function runWeeklyBackup() {
   return backup.counts;
 }
 
+export async function runDailySummaryJob() {
+  const settings = await getSettings();
+  const data = await getDailySummaryData();
+  const currency = settings.currency || "IQD";
+
+  function fmt(n: number) {
+    return n.toLocaleString("ar-IQ");
+  }
+
+  const changeStr =
+    data.salesChangePercent !== null
+      ? ` (${data.salesChangePercent >= 0 ? "+" : ""}${data.salesChangePercent}% عن أمس)`
+      : "";
+
+  const lines: string[] = [
+    `📊 *ملخص اليوم — ${data.date}*\n`,
+    `✅ المبيعات: ${fmt(data.todaySales)} ${currency}${changeStr}`,
+  ];
+
+  if (data.topProduct) {
+    lines.push(`📦 أكثر منتج باع: ${data.topProduct.name} (${data.topProduct.quantity} وحدة)`);
+  }
+
+  if (data.lowStockCount > 0) {
+    const extra = data.lowStockNames.length > 0 ? `: ${data.lowStockNames.join("، ")}` : "";
+    lines.push(`⚠️ ${data.lowStockCount} منتج على وشك النفاد${extra}`);
+  }
+
+  lines.push(`💰 تحصيلات اليوم: ${fmt(data.collectionsToday)} ${currency}`);
+
+  if (data.mostOverdueCustomer) {
+    lines.push(
+      `🔴 ديون متأخرة: ${data.mostOverdueCustomer.name} (${data.mostOverdueCustomer.daysLate} يوم)`
+    );
+  }
+
+  if (data.smartTip) {
+    lines.push(`💡 ${data.smartTip}`);
+  }
+
+  const message = lines.join("\n");
+
+  let sentAt: Date | null = null;
+  if (
+    process.env.ENABLE_WHATSAPP === "true" &&
+    settings.autoSendDailySummary &&
+    settings.dailySummaryWhatsappNumber
+  ) {
+    await sendWhatsAppText(settings.dailySummaryWhatsappNumber, message).catch((e) =>
+      console.warn("[daily-summary] WhatsApp send failed:", e)
+    );
+    sentAt = new Date();
+  }
+
+  await prisma.notification.create({
+    data: { type: "DAILY_SUMMARY", message, sentAt },
+  });
+
+  return { message };
+}
+
 export function startNotificationJobs() {
   if (jobsStarted) return;
   jobsStarted = true;
@@ -208,6 +270,17 @@ export function startNotificationJobs() {
     runWeeklyBackup().catch((error) => {
       console.error("Weekly backup failed:", error);
     });
+  });
+
+  // Daily summary — runs every hour, fires only when current hour matches setting (default 21:00)
+  cron.schedule("0 * * * *", async () => {
+    const settings = await getSettings().catch(() => null);
+    const targetHour = settings?.dailySummaryHour ?? 21;
+    if (new Date().getHours() === targetHour) {
+      runDailySummaryJob().catch((error) => {
+        console.error("Daily summary job failed", error);
+      });
+    }
   });
 
   // Keep Neon DB alive — ping every 4 minutes to prevent auto-suspend

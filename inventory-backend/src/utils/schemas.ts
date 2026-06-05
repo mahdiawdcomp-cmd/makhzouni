@@ -486,6 +486,9 @@ export const updateSettingsSchema = z.object({
       statementTemplate: z.string().trim().optional(),
       themePreset: z.enum(["classic", "iraqi", "exclusive", "bold", "designer"]).optional(),
       backupWhatsappNumber: z.string().trim().optional(),
+      autoSendDailySummary: z.boolean().optional(),
+      dailySummaryWhatsappNumber: z.string().trim().optional(),
+      dailySummaryHour: z.coerce.number().int().min(0).max(23).optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

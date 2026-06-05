@@ -507,6 +507,11 @@ export async function triggerManualBackup() {
   return data
 }
 
+export async function triggerDailySummary() {
+  const { data } = await api.post<ApiEnvelope<{ message: string }>>("/settings/daily-summary/run")
+  return data
+}
+
 export async function getMessageTemplates() {
   const { data } = await api.get<ApiEnvelope<MessageTemplate[]>>("/message-templates")
   return data.data ?? []
@@ -519,6 +524,27 @@ export async function updateMessageTemplate(id: string, payload: Partial<Message
 
 export async function sendWhatsAppMessage(payload: { phone: string; message: string }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
+  return data
+}
+
+export type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR"
+
+export interface WhatsAppStatus {
+  initialized: boolean
+  state: WhatsAppState
+  isReady: boolean
+  qr: string | null
+  qrDataUrl: string | null
+  error: string | null
+}
+
+export async function getWhatsAppStatus() {
+  const { data } = await api.get<ApiEnvelope<WhatsAppStatus>>("/whatsapp/status")
+  return data.data
+}
+
+export async function restartWhatsApp() {
+  const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/restart")
   return data
 }
 

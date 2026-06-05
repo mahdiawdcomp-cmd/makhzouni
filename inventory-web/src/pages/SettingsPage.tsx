@@ -3,25 +3,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BellRing,
   Building2,
+  CheckCircle2,
   Download,
   FileJson,
   ImagePlus,
   KeyRound,
+  Loader2,
   MessageCircle,
   Palette,
   Play,
+  RefreshCw,
   Save,
   Upload,
+  WifiOff,
+  XCircle,
 } from "lucide-react"
 import {
   getCustomers,
   getMessageTemplates,
   getProducts,
   getSettings,
+  getWhatsAppStatus,
+  restartWhatsApp,
   updateMessageTemplate,
   updateSettings,
   triggerManualBackup,
+  triggerDailySummary,
 } from "../api/endpoints"
+import type { WhatsAppStatus } from "../api/endpoints"
 import type { AppSettings, MessageTemplate } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
@@ -49,6 +58,9 @@ const fallbackSettings: AppSettings = {
   invoiceTemplate: "",
   voucherTemplate: "",
   statementTemplate: "",
+  autoSendDailySummary: false,
+  dailySummaryWhatsappNumber: "",
+  dailySummaryHour: 21,
 }
 
 function downloadText(filename: string, content: string, type: string) {
@@ -83,6 +95,17 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
 export function SettingsPage() {
   const queryClient = useQueryClient()
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const waQuery = useQuery({
+    queryKey: ["whatsapp-status"],
+    queryFn: getWhatsAppStatus,
+    refetchInterval: (query) => {
+      const s = query.state.data?.state
+      if (s === "QR" || s === "INITIALIZING") return 3_000
+      if (s === "READY") return 60_000
+      return false
+    },
+    enabled: activeTab === "whatsapp",
+  })
   const templatesQuery = useQuery({ queryKey: ["message-templates"], queryFn: getMessageTemplates })
   const productsQuery = useQuery({ queryKey: ["products", "backup"], queryFn: () => getProducts() })
   const customersQuery = useQuery({ queryKey: ["customers", "backup"], queryFn: () => getCustomers() })
@@ -92,6 +115,7 @@ export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("store")
   const [saved, setSaved] = useState(false)
   const [backupMsg, setBackupMsg] = useState("")
+  const [summaryMsg, setSummaryMsg] = useState("")
 
   useEffect(() => { if (settingsQuery.data) setSettings({ ...fallbackSettings, ...settingsQuery.data }) }, [settingsQuery.data])
   useEffect(() => { if (templatesQuery.data) setTemplates(templatesQuery.data) }, [templatesQuery.data])
@@ -108,6 +132,19 @@ export function SettingsPage() {
   const saveTemplate = useMutation({
     mutationFn: (t: MessageTemplate) => updateMessageTemplate(t.id, t),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["message-templates"] }),
+  })
+
+  const waRestartMutation = useMutation({
+    mutationFn: restartWhatsApp,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] }),
+  })
+
+  const dailySummaryMutation = useMutation({
+    mutationFn: triggerDailySummary,
+    onSuccess: (res) => {
+      setSummaryMsg(res.data?.message ? `✓ تم الإرسال:\n${res.data.message}` : "✓ تم إرسال الملخص")
+    },
+    onError: () => setSummaryMsg("✗ فشل إرسال الملخص"),
   })
 
   const backupMutation = useMutation({
@@ -237,6 +274,8 @@ export function SettingsPage() {
 
       {/* ── WHATSAPP ───────────────────────────────────────── */}
       {activeTab === "whatsapp" && (
+        <>
+        <WhatsAppConnectCard status={waQuery.data ?? null} onRestart={() => waRestartMutation.mutate()} restarting={waRestartMutation.isPending} />
         <Card>
           <CardContent className="p-5 space-y-4">
             <SectionTitle>قوالب رسائل الواتساب</SectionTitle>
@@ -294,26 +333,80 @@ export function SettingsPage() {
             ) : null}
           </CardContent>
         </Card>
+        </>
       )}
 
       {/* ── ALERTS ─────────────────────────────────────────── */}
       {activeTab === "alerts" && (
-        <Card>
-          <CardContent className="p-5 space-y-4">
-            <SectionTitle>التنبيهات الذكية</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Toggle label="تفعيل تذكير الديون" checked={settings.autoSendDebtReminder} onChange={(v) => upd("autoSendDebtReminder", v)} />
-              <Field label="عدد أيام التأخر للتذكير">
-                <Input type="number" value={settings.debtReminderDays} onChange={(e) => upd("debtReminderDays", Number(e.target.value))} />
-              </Field>
-              <Toggle label="تفعيل تنبيه الغياب" checked={settings.autoSendInactiveMessage} onChange={(v) => upd("autoSendInactiveMessage", v)} />
-              <Field label="عدد أيام الغياب للتنبيه">
-                <Input type="number" value={settings.inactiveCustomerDays} onChange={(e) => upd("inactiveCustomerDays", Number(e.target.value))} />
-              </Field>
-            </div>
-            <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          {/* Existing alerts */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>التنبيهات الذكية</SectionTitle>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Toggle label="تفعيل تذكير الديون" checked={settings.autoSendDebtReminder} onChange={(v) => upd("autoSendDebtReminder", v)} />
+                <Field label="عدد أيام التأخر للتذكير">
+                  <Input type="number" value={settings.debtReminderDays} onChange={(e) => upd("debtReminderDays", Number(e.target.value))} />
+                </Field>
+                <Toggle label="تفعيل تنبيه الغياب" checked={settings.autoSendInactiveMessage} onChange={(v) => upd("autoSendInactiveMessage", v)} />
+                <Field label="عدد أيام الغياب للتنبيه">
+                  <Input type="number" value={settings.inactiveCustomerDays} onChange={(e) => upd("inactiveCustomerDays", Number(e.target.value))} />
+                </Field>
+              </div>
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+            </CardContent>
+          </Card>
+
+          {/* Daily WhatsApp summary */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>📊 الملخص اليومي عبر الواتساب</SectionTitle>
+              <p className="text-sm text-slate-500">
+                يُرسل تلقائياً كل يوم في الساعة المحددة: مبيعات اليوم، أكثر منتج باع، منتجات على وشك النفاد، التحصيلات، الديون المتأخرة، ونصيحة ذكية.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Toggle
+                  label="تفعيل الملخص اليومي"
+                  checked={settings.autoSendDailySummary ?? false}
+                  onChange={(v) => upd("autoSendDailySummary", v)}
+                />
+                <Field label="ساعة الإرسال (0–23)">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={23}
+                    value={settings.dailySummaryHour ?? 21}
+                    onChange={(e) => upd("dailySummaryHour", Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="رقم الواتساب للملخص" className="sm:col-span-2">
+                  <Input
+                    value={settings.dailySummaryWhatsappNumber ?? ""}
+                    onChange={(e) => upd("dailySummaryWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+                <Button
+                  variant="outline"
+                  onClick={() => { setSummaryMsg(""); dailySummaryMutation.mutate(); }}
+                  disabled={dailySummaryMutation.isPending}
+                >
+                  <Play className="h-4 w-4" />
+                  {dailySummaryMutation.isPending ? "جاري الإرسال..." : "إرسال ملخص الآن"}
+                </Button>
+              </div>
+              {summaryMsg ? (
+                <pre className={`rounded-md px-3 py-2 text-xs whitespace-pre-wrap font-sans ${summaryMsg.startsWith("✓") ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"}`}>
+                  {summaryMsg}
+                </pre>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ── BACKUP ─────────────────────────────────────────── */}
@@ -458,6 +551,86 @@ function TemplateField({ label, value, onChange }: { label: string; value: strin
         dir="rtl"
       />
     </div>
+  )
+}
+
+function WhatsAppConnectCard({
+  status,
+  onRestart,
+  restarting,
+}: {
+  status: WhatsAppStatus | null
+  onRestart: () => void
+  restarting: boolean
+}) {
+  const state = status?.state ?? "DISCONNECTED"
+
+  const badge = {
+    READY:        { icon: <CheckCircle2 className="h-4 w-4" />, label: "متصل",              cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" },
+    QR:           { icon: <Loader2 className="h-4 w-4 animate-spin" />, label: "في انتظار المسح...", cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" },
+    INITIALIZING: { icon: <Loader2 className="h-4 w-4 animate-spin" />, label: "جاري الاتصال...", cls: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800" },
+    AUTH_FAILURE: { icon: <XCircle className="h-4 w-4" />,    label: "فشل المصادقة",        cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
+    DISCONNECTED: { icon: <WifiOff className="h-4 w-4" />,    label: "غير متصل",             cls: "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700" },
+    ERROR:        { icon: <XCircle className="h-4 w-4" />,    label: "خطأ",                  cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
+  }[state] ?? { icon: <WifiOff className="h-4 w-4" />, label: "غير متصل", cls: "bg-slate-50 text-slate-600 border-slate-200" }
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <SectionTitle>ربط الواتساب</SectionTitle>
+          <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}>
+            {badge.icon}
+            {badge.label}
+          </span>
+        </div>
+
+        {state === "READY" && (
+          <p className="text-sm text-emerald-700 dark:text-emerald-400">
+            ✓ الواتساب متصل ويعمل. الرسائل التلقائية والملخص اليومي جاهزين.
+          </p>
+        )}
+
+        {state === "QR" && status?.qrDataUrl && (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              افتح واتساب على هاتفك ← <strong>الأجهزة المرتبطة</strong> ← <strong>ربط جهاز</strong> ← امسح الباركود
+            </p>
+            <img
+              src={status.qrDataUrl}
+              alt="WhatsApp QR Code"
+              className="h-56 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow dark:border-slate-700"
+            />
+            <p className="text-xs text-slate-400">يتحدث تلقائياً كل 3 ثواني</p>
+          </div>
+        )}
+
+        {(state === "INITIALIZING") && (
+          <p className="text-sm text-slate-500">جاري تهيئة الواتساب، انتظر لحظة...</p>
+        )}
+
+        {(state === "DISCONNECTED" || state === "AUTH_FAILURE" || state === "ERROR") && !status?.initialized && (
+          <p className="text-sm text-slate-500">
+            الواتساب غير مفعّل على السيرفر. تأكد من ضبط <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">ENABLE_WHATSAPP=true</code> في بيئة Railway.
+          </p>
+        )}
+
+        {status?.error && state !== "READY" && (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950 dark:text-red-400">
+            {status.error}
+          </p>
+        )}
+
+        <Button
+          variant="outline"
+          onClick={onRestart}
+          disabled={restarting || state === "INITIALIZING" || state === "QR"}
+        >
+          <RefreshCw className={`h-4 w-4 ${restarting ? "animate-spin" : ""}`} />
+          {restarting ? "جاري إعادة التشغيل..." : "إعادة ربط الواتساب"}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 

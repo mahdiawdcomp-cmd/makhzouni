@@ -431,6 +431,9 @@ export interface AppSettings {
   statementTemplate?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
+  autoSendDailySummary?: boolean
+  dailySummaryWhatsappNumber?: string
+  dailySummaryHour?: number
 }
 
 export interface MessageTemplate {

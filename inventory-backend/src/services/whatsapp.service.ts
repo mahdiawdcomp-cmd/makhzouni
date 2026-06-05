@@ -11,6 +11,8 @@ let lastQr: string | null = null;
 let lastQrDataUrl: string | null = null;
 let lastError: string | null = null;
 let initialized = false;
+let reconnectAttempts = 0;
+const MAX_RECONNECT = 5;
 
 function resolveChromePath() {
   const configuredPath = process.env.CHROME_PATH?.trim();
@@ -71,6 +73,7 @@ export function initializeWhatsApp() {
   client.on("ready", () => {
     state = "READY";
     lastError = null;
+    reconnectAttempts = 0;
   });
 
   client.on("auth_failure", (message) => {
@@ -81,6 +84,16 @@ export function initializeWhatsApp() {
   client.on("disconnected", (reason) => {
     state = "DISCONNECTED";
     lastError = reason;
+    client = null;
+    initialized = false;
+    if (reconnectAttempts < MAX_RECONNECT) {
+      reconnectAttempts++;
+      const delay = reconnectAttempts * 10_000;
+      console.log(`[WhatsApp] Disconnected (${reason}), reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT})`);
+      setTimeout(() => initializeWhatsApp(), delay);
+    } else {
+      console.warn("[WhatsApp] Max reconnect attempts reached. Scan QR again to reconnect.");
+    }
   });
 
   client.initialize().catch((error: unknown) => {
@@ -106,6 +119,20 @@ function requireReadyClient() {
   }
 
   return client;
+}
+
+export async function restartWhatsApp() {
+  if (client) {
+    try { await client.destroy(); } catch { /* ignore */ }
+    client = null;
+  }
+  state = "DISCONNECTED";
+  initialized = false;
+  reconnectAttempts = 0;
+  lastQr = null;
+  lastQrDataUrl = null;
+  lastError = null;
+  initializeWhatsApp();
 }
 
 export async function sendWhatsAppText(phone: string, message: string) {

@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   sendInvoice,
   sendMessage,
+  whatsappRestart,
   whatsappStatus,
 } from "../controllers/whatsapp.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -13,6 +14,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/status", whatsappStatus);
+router.post("/restart", whatsappRestart);
 router.post("/send", validate(sendWhatsAppSchema), sendMessage);
 router.post(
   "/send-invoice/:invoiceId",

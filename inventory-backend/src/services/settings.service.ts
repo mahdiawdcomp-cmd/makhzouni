@@ -19,6 +19,10 @@ export interface AppSettings {
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
   backupWhatsappNumber?: string;
+  // Daily summary
+  autoSendDailySummary: boolean;
+  dailySummaryWhatsappNumber?: string;
+  dailySummaryHour: number;
 }
 
 export const defaultSettings: AppSettings = {
@@ -38,6 +42,9 @@ export const defaultSettings: AppSettings = {
   statementTemplate:
     "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
   themePreset: "classic",
+  autoSendDailySummary: false,
+  dailySummaryWhatsappNumber: "",
+  dailySummaryHour: 21,
 };
 
 export async function getSettings(): Promise<AppSettings> {

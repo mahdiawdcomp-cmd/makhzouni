@@ -500,6 +500,161 @@ export async function getEndOfDayReport(date?: string) {
   };
 }
 
+// ── Daily Summary (for WhatsApp 9 PM report) ─────────────────────────────
+export interface DailySummaryData {
+  date: string;
+  todaySales: number;
+  yesterdaySales: number;
+  salesChangePercent: number | null;
+  topProduct: { name: string; quantity: number } | null;
+  lowStockCount: number;
+  lowStockNames: string[];
+  collectionsToday: number;
+  mostOverdueCustomer: { name: string; daysLate: number } | null;
+  smartTip: string | null;
+}
+
+export async function getDailySummaryData(): Promise<DailySummaryData> {
+  const now = new Date();
+  const todayStart = startOfDay(now);
+  const todayEnd = endOfDay(now);
+  const yesterdayStart = startOfDay(addDays(now, -1));
+  const yesterdayEnd = endOfDay(addDays(now, -1));
+  const last28Start = startOfDay(addDays(now, -28));
+
+  const [
+    todaySalesAgg,
+    yesterdaySalesAgg,
+    receiptsToday,
+    allProducts,
+    topItemsToday,
+    overdueCustomers,
+    last28Invoices,
+  ] = await Promise.all([
+    prisma.invoice.aggregate({
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: todayStart, lte: todayEnd } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.invoice.aggregate({
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: yesterdayStart, lte: yesterdayEnd } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.paymentVoucher.aggregate({
+      where: { type: "RECEIPT", date: { gte: todayStart, lte: todayEnd } },
+      _sum: { amount: true },
+    }),
+    prisma.product.findMany({ where: { deletedAt: null } }),
+    prisma.invoiceItem.groupBy({
+      by: ["productId", "productName"],
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALE,
+          date: { gte: todayStart, lte: todayEnd },
+        },
+      },
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 1,
+    }),
+    prisma.customer.findMany({
+      where: { deletedAt: null, currentBalance: { gt: 0 } },
+      orderBy: { lastTransactionAt: "asc" },
+      take: 1,
+      select: { name: true, lastTransactionAt: true, createdAt: true },
+    }),
+    prisma.invoice.findMany({
+      where: {
+        status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALE,
+        date: { gte: last28Start, lte: yesterdayEnd },
+      },
+      select: { date: true, totalAmount: true },
+    }),
+  ]);
+
+  const todaySales = toNumber(todaySalesAgg._sum.totalAmount);
+  const yesterdaySales = toNumber(yesterdaySalesAgg._sum.totalAmount);
+  const salesChangePercent =
+    yesterdaySales > 0
+      ? Math.round(((todaySales - yesterdaySales) / yesterdaySales) * 100)
+      : null;
+
+  const collectionsToday = toNumber(receiptsToday._sum.amount);
+
+  const lowStockItems = allProducts.filter(
+    (p) => currentStock(p) >= 0 && currentStock(p) <= p.minStock
+  );
+  const lowStockNames = lowStockItems.slice(0, 3).map((p) => p.name);
+
+  const topProduct =
+    topItemsToday.length > 0
+      ? { name: topItemsToday[0].productName, quantity: topItemsToday[0]._sum.quantity ?? 0 }
+      : null;
+
+  const mostOverdueCustomer =
+    overdueCustomers.length > 0
+      ? (() => {
+          const c = overdueCustomers[0];
+          const lastDate = c.lastTransactionAt ?? c.createdAt;
+          const daysLate = Math.floor((now.getTime() - lastDate.getTime()) / 86_400_000);
+          return { name: c.name, daysLate };
+        })()
+      : null;
+
+  // Smart tip: compare average for today's weekday vs overall 28-day daily average
+  const dayOfWeek = now.getDay();
+  const arabicDays = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+  const dailyMap = new Map<string, number>();
+  for (const inv of last28Invoices) {
+    const key = labelFor(inv.date, "day");
+    dailyMap.set(key, (dailyMap.get(key) ?? 0) + toNumber(inv.totalAmount));
+  }
+  const allDailyValues = Array.from(dailyMap.values());
+  const overallAvg =
+    allDailyValues.length > 0 ? allDailyValues.reduce((s, v) => s + v, 0) / allDailyValues.length : 0;
+
+  const sameDowMap = new Map<string, number>();
+  for (const inv of last28Invoices) {
+    if (new Date(inv.date).getDay() !== dayOfWeek) continue;
+    const key = labelFor(inv.date, "day");
+    sameDowMap.set(key, (sameDowMap.get(key) ?? 0) + toNumber(inv.totalAmount));
+  }
+  const sameDowValues = Array.from(sameDowMap.values());
+  const sameDowAvg =
+    sameDowValues.length > 0 ? sameDowValues.reduce((s, v) => s + v, 0) / sameDowValues.length : 0;
+
+  let smartTip: string | null = null;
+  if (overallAvg > 0 && sameDowAvg > 0) {
+    const diff = Math.round(((sameDowAvg - overallAvg) / overallAvg) * 100);
+    if (diff >= 15) {
+      smartTip = `مبيعات يوم ${arabicDays[dayOfWeek]} أعلى عادةً بـ ${diff}% — فكّر بزيادة المخزون`;
+    } else if (diff <= -15) {
+      smartTip = `مبيعات يوم ${arabicDays[dayOfWeek]} أقل عادةً بـ ${Math.abs(diff)}% — يوم مناسب للجرد والترتيب`;
+    }
+  }
+
+  const arabicMonths = [
+    "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+    "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر",
+  ];
+  const dateLabel = `${arabicDays[dayOfWeek]} ${now.getDate()} ${arabicMonths[now.getMonth()]}`;
+
+  return {
+    date: dateLabel,
+    todaySales,
+    yesterdaySales,
+    salesChangePercent,
+    topProduct,
+    lowStockCount: lowStockItems.length,
+    lowStockNames,
+    collectionsToday,
+    mostOverdueCustomer,
+    smartTip,
+  };
+}
+
 /**
  * Returns customers who are "overdue" for a visit based on their own purchase rhythm.
  *
