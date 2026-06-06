@@ -1,17 +1,18 @@
-import { useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { Document, Page, PDFDownloadLink, Text, View } from "@react-pdf/renderer"
-import { ArrowRight, Copy, Link2, MessageCircle } from "lucide-react"
+import { ArrowRight, Copy, Link2, MessageCircle, Pencil } from "lucide-react"
 import { createCustomerPortalLink } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
-import { useCustomers, useCustomerDetails } from "../hooks/useCustomers"
+import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, openWhatsApp } from "../utils/whatsapp"
-import type { Customer, CustomerTransaction, ReceiptPayload } from "../types/api"
+import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { Label } from "../components/ui/label"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
@@ -108,7 +109,9 @@ export function CustomerDetailPage() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [receiptOpen, setReceiptOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const details = useCustomerDetails(id)
+  const updateMutation = useUpdateCustomer(id)
   const customer = details.customerQuery.data
   const transactions = details.transactionsQuery.data ?? []
   const invoices = details.invoicesQuery.data ?? []
@@ -172,6 +175,9 @@ export function CustomerDetailPage() {
           <p className="text-slate-500">{customer.phone}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4 text-slate-600" /> تعديل البيانات
+          </Button>
           <Button variant="outline" onClick={sendStatement} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
@@ -250,6 +256,16 @@ export function CustomerDetailPage() {
       </Card>
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
+      <EditCustomerModal
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        customer={customer}
+        onSave={(payload) =>
+          updateMutation.mutate(payload, { onSuccess: () => setEditOpen(false) })
+        }
+        isPending={updateMutation.isPending}
+        isError={updateMutation.isError}
+      />
     </div>
   )
 }
@@ -373,6 +389,130 @@ function ReceiptModal({
         <Input required type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات" />
         <Button className="w-full" type="submit">حفظ السند</Button>
+      </form>
+    </ModalForm>
+  )
+}
+
+function EditCustomerModal({
+  open,
+  onOpenChange,
+  customer,
+  onSave,
+  isPending,
+  isError,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  customer: Customer
+  onSave: (payload: Partial<CustomerPayload>) => void
+  isPending: boolean
+  isError: boolean
+}) {
+  const [form, setForm] = useState({
+    name: customer.name,
+    phone: customer.phone,
+    address: customer.address ?? "",
+    notes: customer.notes ?? "",
+    isSupplier: customer.isSupplier ?? false,
+  })
+
+  // Reset form to latest customer data every time the modal opens
+  useEffect(() => {
+    if (open) {
+      setForm({
+        name: customer.name,
+        phone: customer.phone,
+        address: customer.address ?? "",
+        notes: customer.notes ?? "",
+        isSupplier: customer.isSupplier ?? false,
+      })
+    }
+  }, [open, customer])
+
+  function set(key: keyof typeof form, value: string | boolean) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!form.name.trim() || !form.phone.trim()) return
+    onSave({
+      name: form.name.trim(),
+      phone: form.phone.trim(),
+      address: form.address.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+      isSupplier: form.isSupplier,
+    })
+  }
+
+  return (
+    <ModalForm open={open} onOpenChange={onOpenChange} title="تعديل بيانات الزبون">
+      <form className="space-y-4" onSubmit={submit}>
+        <div className="space-y-1">
+          <Label>الاسم *</Label>
+          <Input
+            required
+            value={form.name}
+            onChange={(e) => set("name", e.target.value)}
+            placeholder="اسم الزبون"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label>رقم الهاتف *</Label>
+          <Input
+            required
+            value={form.phone}
+            onChange={(e) => set("phone", e.target.value)}
+            placeholder="رقم الهاتف"
+            inputMode="tel"
+            dir="ltr"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label>العنوان</Label>
+          <Input
+            value={form.address}
+            onChange={(e) => set("address", e.target.value)}
+            placeholder="العنوان (اختياري)"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label>ملاحظات</Label>
+          <Input
+            value={form.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            placeholder="ملاحظات (اختيارية)"
+          />
+        </div>
+
+        <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition hover:bg-slate-50">
+          <input
+            type="checkbox"
+            checked={form.isSupplier}
+            onChange={(e) => set("isSupplier", e.target.checked)}
+            className="h-4 w-4 accent-blue-600"
+          />
+          <span className="text-sm font-medium">مورّد (وليس زبون)</span>
+        </label>
+
+        {isError && (
+          <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            تعذر حفظ التعديلات. تأكد من المعلومات وحاول مرة أخرى.
+          </p>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <Button type="submit" className="flex-1" disabled={isPending}>
+            {isPending ? "جاري الحفظ..." : "حفظ التعديلات"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            إلغاء
+          </Button>
+        </div>
       </form>
     </ModalForm>
   )

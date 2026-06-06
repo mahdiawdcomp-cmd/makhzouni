@@ -8,6 +8,7 @@ import {
   getCustomers,
   getLastCustomerTransaction,
   getVouchers,
+  updateCustomer,
 } from "../api/endpoints"
 import type { CustomerPayload, ReceiptPayload } from "../types/api"
 
@@ -32,6 +33,17 @@ export function useCustomers(isSupplier?: boolean) {
   })
 
   return { customersQuery, createMutation, receiptMutation }
+}
+
+export function useUpdateCustomer(id: string | undefined) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Partial<CustomerPayload>) => updateCustomer(id!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customers"] })
+      queryClient.invalidateQueries({ queryKey: ["customers", id] })
+    },
+  })
 }
 
 export function useCustomerDetails(id: string | undefined) {
