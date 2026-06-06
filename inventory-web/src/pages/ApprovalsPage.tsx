@@ -174,7 +174,7 @@ export function ApprovalsPage() {
         ),
       },
     ],
-    [allowPricesById, reviewMutation],
+    [allowPricesById, showStockById, reviewMutation],
   )
 
   const table = useReactTable({

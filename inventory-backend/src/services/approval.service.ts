@@ -224,14 +224,34 @@ async function executeApprovedRequest(
         tx
       );
 
-      // Create preparation record (outside tx since it's non-critical)
-      const displayItems = (data.displayItems ?? body.items) as Array<{
+      // displayItems from the approval snapshot (includes productId + productName)
+      const displayItems = (data.displayItems ?? []) as Array<{
+        productId: string;
         productName?: string;
         unit: string;
         quantity: number;
         unitPrice?: number;
         totalPrice?: number;
       }>;
+
+      // Fallback: build from body.items if no displayItems
+      const prepItems: Array<{
+        productId: string;
+        productName?: string;
+        unit: string;
+        quantity: number;
+        unitPrice?: number;
+        totalPrice?: number;
+      }> = displayItems.length > 0
+        ? displayItems
+        : (body.items ?? []).map((it) => ({
+            productId: it.productId ?? "",
+            productName: String(it.productId ?? ""),
+            unit: it.unit,
+            quantity: it.quantity,
+            unitPrice: undefined,
+            totalPrice: undefined,
+          }));
 
       // Fire-and-forget (don't block tx)
       setImmediate(async () => {
@@ -240,9 +260,9 @@ async function executeApprovedRequest(
             invoice.id,
             customerName,
             phone,
-            displayItems.map((item, idx) => ({
-              productId: body.items![idx]?.productId ?? "",
-              productName: item.productName ?? String(body.items![idx]?.productId ?? ""),
+            prepItems.map((item) => ({
+              productId: item.productId ?? "",
+              productName: item.productName ?? item.productId ?? "",
               unit: item.unit,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
