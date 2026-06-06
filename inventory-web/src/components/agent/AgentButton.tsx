@@ -54,7 +54,7 @@ export function AgentButton() {
   const [open, setOpen]         = useState(false)
   const [status, setStatus]     = useState<AgentStatus>("idle")
   const [history, setHistory]   = useState<HistoryItem[]>([])
-  const [lastReply, setLastReply] = useState("")
+  const [, setLastReply] = useState("")
   const [muted, setMuted]       = useState(false)
   const [errorText, setErrorText] = useState("")
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
