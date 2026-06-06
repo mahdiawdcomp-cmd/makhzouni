@@ -51,39 +51,53 @@ const key = (productId: string, unit: CatalogUnit) => `${productId}:${unit}`
 ══════════════════════════════════════════════════════════════════════ */
 export function PublicCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [accessToken, setAccessToken] = useState(
-    () => searchParams.get("access") ?? localStorage.getItem(storageKey) ?? "",
+
+  // Single source of truth: URL param first, then localStorage
+  // useState so queryKey stays stable across renders
+  const [accessToken, setAccessToken] = useState<string>(
+    () => searchParams.get("access") || localStorage.getItem(storageKey) || "",
   )
 
-  useEffect(() => {
-    const fromUrl = searchParams.get("access")
-    if (fromUrl && fromUrl !== accessToken) setAccessToken(fromUrl)
-  }, [accessToken, searchParams])
+  // One clean handler — updates state + URL + localStorage atomically
+  function handleAccess(token: string) {
+    localStorage.setItem(storageKey, token)
+    setAccessToken(token)
+    setSearchParams({ access: token }, { replace: true })
+  }
 
-  useEffect(() => {
-    if (!accessToken) return
-    localStorage.setItem(storageKey, accessToken)
-    if (searchParams.get("access") !== accessToken) setSearchParams({ access: accessToken }, { replace: true })
-  }, [accessToken, searchParams, setSearchParams])
+  function clearAccess() {
+    localStorage.removeItem(storageKey)
+    setAccessToken("")
+    setSearchParams({}, { replace: true })
+  }
 
   const sessionQuery = useQuery({
     queryKey: ["catalog-session", accessToken],
     queryFn: () => getCatalogSession(accessToken),
     enabled: Boolean(accessToken),
     retry: false,
+    staleTime: 5 * 60_000,
   })
 
-  if (!accessToken || sessionQuery.isError) return <CatalogGate onAccess={setAccessToken} />
+  // Token rejected by server — clear it so Gate is shown clean
+  useEffect(() => {
+    if (sessionQuery.isError) clearAccess()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionQuery.isError])
 
-  if (sessionQuery.isLoading || !sessionQuery.data)
+  if (!accessToken) return <CatalogGate onAccess={handleAccess} />
+
+  if (sessionQuery.isPending || sessionQuery.isLoading)
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
         <div className="flex flex-col items-center gap-3 text-gray-400">
           <ShoppingBag className="h-10 w-10 animate-pulse" />
-          <p className="text-sm font-medium">جاري تحميل المتجر...</p>
+          <p className="text-sm font-medium">جاري فتح المتجر...</p>
         </div>
       </div>
     )
+
+  if (!sessionQuery.data) return <CatalogGate onAccess={handleAccess} />
 
   const { customer, allowPrices, showStock } = sessionQuery.data
   return (
