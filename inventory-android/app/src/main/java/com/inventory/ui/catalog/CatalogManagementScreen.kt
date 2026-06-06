@@ -344,12 +344,16 @@ private fun GrantAccessDialog(
 }
 
 /**
- * Returns the catalog base URL — reads from BuildConfig if available,
- * otherwise falls back to the production web URL.
+ * Returns the catalog base URL derived from the API URL.
+ * API is at https://…/api/ → web frontend is at https://inventory-web-six-kohl.vercel.app
  */
-private fun getCatalogBaseUrl(): String =
-    try {
-        com.inventory.BuildConfig.CATALOG_BASE_URL
-    } catch (_: Exception) {
-        "https://inventory-web.vercel.app"
+private fun getCatalogBaseUrl(): String {
+    val apiUrl = com.inventory.BuildConfig.API_BASE_URL
+    // If the API URL contains "railway.app", use the known Vercel frontend URL
+    return if (apiUrl.contains("railway.app")) {
+        "https://inventory-web-six-kohl.vercel.app/catalog?access="
+    } else {
+        // Local / custom deployment: replace /api/ suffix with /catalog?access=
+        apiUrl.removeSuffix("/").removeSuffix("api").trimEnd('/') + "/catalog?access="
     }
+}

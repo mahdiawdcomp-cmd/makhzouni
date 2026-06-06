@@ -19,13 +19,18 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  Globe,
   Phone,
   Receipt,
   ReceiptText,
   Search,
+  Settings2,
   ShoppingCart,
+  ScanBarcode,
   UserCheck,
+  UserPlus,
   Wallet,
+  X,
 } from "lucide-react"
 import { useDashboardReport, useAtRiskCustomers, useDebtReport, useInventoryReport } from "../hooks/useReports"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -33,20 +38,118 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { whatsappUrl } from "../utils/whatsapp"
 
 interface QuickAction {
+  id: string
   label: string
   to: string
   Icon: ComponentType<{ className?: string }>
-  color: string // background gradient
+  color: string
 }
 
-const quickActions: QuickAction[] = [
-  { label: "فاتورة بيع",   to: "/invoices?type=SALE",      Icon: Receipt,      color: "from-emerald-500 to-emerald-600" },
-  { label: "فاتورة شراء",  to: "/invoices?type=PURCHASE",  Icon: ShoppingCart, color: "from-amber-500 to-amber-600" },
-  { label: "سند قبض",      to: "/vouchers?action=RECEIPT", Icon: ReceiptText,  color: "from-sky-500 to-sky-600" },
-  { label: "سند دفع",      to: "/vouchers?action=PAYMENT", Icon: ReceiptText,  color: "from-orange-500 to-orange-600" },
-  { label: "مصاريف",       to: "/vouchers?action=EXPENSE", Icon: Wallet,       color: "from-rose-500 to-rose-600" },
-  { label: "كشف حساب",     to: "/account",                 Icon: Search,       color: "from-purple-500 to-purple-600" },
+// All available quick actions
+const ALL_QUICK_ACTIONS: QuickAction[] = [
+  { id: "invoice-sale",     label: "فاتورة بيع",    to: "/invoices?type=SALE",       Icon: Receipt,      color: "from-emerald-500 to-emerald-600" },
+  { id: "invoice-purchase", label: "فاتورة شراء",   to: "/invoices?type=PURCHASE",   Icon: ShoppingCart, color: "from-amber-500 to-amber-600" },
+  { id: "receipt",          label: "سند قبض",        to: "/vouchers?action=RECEIPT",  Icon: ReceiptText,  color: "from-sky-500 to-sky-600" },
+  { id: "payment",          label: "سند دفع",        to: "/vouchers?action=PAYMENT",  Icon: ReceiptText,  color: "from-orange-500 to-orange-600" },
+  { id: "expense",          label: "مصاريف",         to: "/vouchers?action=EXPENSE",  Icon: Wallet,       color: "from-rose-500 to-rose-600" },
+  { id: "account",          label: "كشف حساب",       to: "/account",                  Icon: Search,       color: "from-purple-500 to-purple-600" },
+  { id: "new-invoice",      label: "فاتورة جديدة",  to: "/invoices/new",             Icon: FileText,     color: "from-teal-500 to-teal-600" },
+  { id: "pos",              label: "POS سريع",       to: "/pos",                      Icon: ScanBarcode,  color: "from-indigo-500 to-indigo-600" },
+  { id: "catalog",          label: "الكاتلوك",       to: "/catalog-management",       Icon: Globe,        color: "from-cyan-500 to-cyan-600" },
+  { id: "products",         label: "المخزن",         to: "/inventory",                Icon: Boxes,        color: "from-slate-500 to-slate-600" },
+  { id: "customers",        label: "الزبائن",        to: "/customers",                Icon: UserCheck,    color: "from-pink-500 to-pink-600" },
+  { id: "new-customer",     label: "زبون جديد",      to: "/customers",                Icon: UserPlus,     color: "from-violet-500 to-violet-600" },
 ]
+
+const DEFAULT_ENABLED = ["invoice-sale", "invoice-purchase", "receipt", "payment", "expense", "account"]
+const STORAGE_KEY = "dashboard_quick_actions"
+
+function useQuickActions() {
+  const [enabled, setEnabled] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) return JSON.parse(saved) as string[]
+    } catch {}
+    return DEFAULT_ENABLED
+  })
+
+  function toggle(id: string) {
+    setEnabled((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      return next
+    })
+  }
+
+  function reset() {
+    setEnabled(DEFAULT_ENABLED)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_ENABLED))
+  }
+
+  const visible = ALL_QUICK_ACTIONS.filter((a) => enabled.includes(a.id))
+  return { enabled, visible, toggle, reset }
+}
+
+function QuickActionsEditor({ enabled, onToggle, onReset, onClose }: {
+  enabled: string[]
+  onToggle: (id: string) => void
+  onReset: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-bold text-slate-900">تخصيص الاختصارات</h3>
+            <p className="text-xs text-slate-500 mt-0.5">اختر الاختصارات اللي تريد تشوفها على الرئيسية</p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+          {ALL_QUICK_ACTIONS.map((action) => {
+            const on = enabled.includes(action.id)
+            return (
+              <label
+                key={action.id}
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition ${on ? "border-blue-200 bg-blue-50" : "border-slate-200 hover:bg-slate-50"}`}
+              >
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br ${action.color}`}>
+                  <action.Icon className="h-4 w-4 text-white" />
+                </div>
+                <span className="flex-1 text-sm font-medium text-slate-800">{action.label}</span>
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => onToggle(action.id)}
+                  className="h-4 w-4 accent-blue-600"
+                />
+              </label>
+            )
+          })}
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-xl bg-slate-900 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800"
+          >
+            حفظ
+          </button>
+          <button
+            onClick={onReset}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            إعادة تعيين
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function DashboardPage() {
   const dashboard = useDashboardReport()
@@ -66,6 +169,8 @@ export function DashboardPage() {
   const topCustomers = [...(debts.data ?? [])].slice(0, 5)
 
   const [statsOpen, setStatsOpen] = useState(false)
+  const [editActions, setEditActions] = useState(false)
+  const { enabled, visible, toggle, reset } = useQuickActions()
 
   return (
     <div className="space-y-6">
@@ -78,20 +183,47 @@ export function DashboardPage() {
       <PendingOrdersBanner />
 
       {/* Quick actions */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {quickActions.map(({ label, to, Icon, color }) => (
-          <Link
-            key={to}
-            to={to}
-            className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-5 text-white shadow-sm transition hover:shadow-lg hover:-translate-y-0.5`}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-sm font-medium text-slate-500">الاختصارات السريعة</p>
+          <button
+            type="button"
+            onClick={() => setEditActions(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
           >
-            <div className="flex items-center gap-3">
-              <Icon className="h-7 w-7 opacity-90" />
-              <span className="font-semibold">{label}</span>
+            <Settings2 className="h-3.5 w-3.5" />
+            تخصيص
+          </button>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {visible.map(({ id, label, to, Icon, color }) => (
+            <Link
+              key={id}
+              to={to}
+              className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-5 text-white shadow-sm transition hover:shadow-lg hover:-translate-y-0.5`}
+            >
+              <div className="flex items-center gap-3">
+                <Icon className="h-7 w-7 opacity-90" />
+                <span className="font-semibold">{label}</span>
+              </div>
+            </Link>
+          ))}
+          {visible.length === 0 && (
+            <div className="col-span-full rounded-xl border-2 border-dashed border-slate-200 p-6 text-center text-sm text-slate-400">
+              لا توجد اختصارات — اضغط "تخصيص" لإضافتها
             </div>
-          </Link>
-        ))}
+          )}
+        </div>
       </div>
+
+      {editActions && (
+        <QuickActionsEditor
+          enabled={enabled}
+          onToggle={toggle}
+          onReset={reset}
+          onClose={() => setEditActions(false)}
+        />
+      )}
 
       {/* Toggle for stats */}
       <button
