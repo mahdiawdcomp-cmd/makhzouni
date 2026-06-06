@@ -2,6 +2,7 @@ import { Client, LocalAuth, MessageMedia } from "whatsapp-web.js";
 import qrcode from "qrcode";
 import fs from "node:fs";
 import { AppError } from "../utils/app-error";
+import { logger } from "../utils/logger";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
 
@@ -14,25 +15,78 @@ let initialized = false;
 let reconnectAttempts = 0;
 const MAX_RECONNECT = 5;
 
+// Keep-alive: ping every 2 minutes to detect dead sessions early
+let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+
 function resolveChromePath() {
   const configuredPath = process.env.CHROME_PATH?.trim();
   if (configuredPath) {
     if (fs.existsSync(configuredPath)) return configuredPath;
-    console.warn(`WhatsApp disabled: CHROME_PATH does not exist (${configuredPath})`);
+    logger.warn(`WhatsApp disabled: CHROME_PATH does not exist (${configuredPath})`);
     return null;
   }
-
   return undefined;
 }
 
 function normalizePhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
-
-  if (!digits) {
-    throw new AppError("Invalid phone number", 422, "INVALID_PHONE");
-  }
-
+  if (!digits) throw new AppError("Invalid phone number", 422, "INVALID_PHONE");
   return `${digits}@c.us`;
+}
+
+/** Detect errors that mean the underlying Puppeteer page is dead */
+function isFrameDetachedError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("detached Frame") ||
+    msg.includes("Detached Frame") ||
+    msg.includes("Session closed") ||
+    msg.includes("Target closed") ||
+    msg.includes("Protocol error") ||
+    msg.includes("page has been closed") ||
+    msg.includes("Cannot find context with specified id")
+  );
+}
+
+function startKeepAlive() {
+  stopKeepAlive();
+  keepAliveTimer = setInterval(async () => {
+    if (state !== "READY" || !client) return;
+    try {
+      // Lightweight check — get WhatsApp Web version
+      await client.getWWebVersion();
+    } catch (err) {
+      if (isFrameDetachedError(err)) {
+        logger.warn("[WhatsApp] Keep-alive detected dead session — triggering restart");
+        triggerRestart();
+      }
+    }
+  }, 2 * 60_000); // every 2 minutes
+}
+
+function stopKeepAlive() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+}
+
+function triggerRestart() {
+  state = "DISCONNECTED";
+  initialized = false;
+  stopKeepAlive();
+  if (client) {
+    client.destroy().catch(() => {});
+    client = null;
+  }
+  if (reconnectAttempts < MAX_RECONNECT) {
+    reconnectAttempts++;
+    const delay = reconnectAttempts * 10_000;
+    logger.info(`[WhatsApp] Restarting in ${delay / 1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT})`);
+    setTimeout(() => initializeWhatsApp(), delay);
+  } else {
+    logger.warn("[WhatsApp] Max reconnect attempts reached. Scan QR again.");
+  }
 }
 
 export function initializeWhatsApp() {
@@ -48,9 +102,7 @@ export function initializeWhatsApp() {
   }
 
   client = new Client({
-    authStrategy: new LocalAuth({
-      clientId: "inventory-backend",
-    }),
+    authStrategy: new LocalAuth({ clientId: "inventory-backend" }),
     puppeteer: {
       headless: true,
       executablePath: chromePath,
@@ -81,14 +133,19 @@ export function initializeWhatsApp() {
     state = "READY";
     lastError = null;
     reconnectAttempts = 0;
+    logger.info("[WhatsApp] Ready ✓");
+    startKeepAlive();
   });
 
   client.on("auth_failure", (message) => {
     state = "AUTH_FAILURE";
     lastError = message;
+    stopKeepAlive();
   });
 
   client.on("disconnected", (reason) => {
+    logger.warn(`[WhatsApp] Disconnected: ${reason}`);
+    stopKeepAlive();
     state = "DISCONNECTED";
     lastError = reason;
     client = null;
@@ -96,10 +153,10 @@ export function initializeWhatsApp() {
     if (reconnectAttempts < MAX_RECONNECT) {
       reconnectAttempts++;
       const delay = reconnectAttempts * 10_000;
-      console.log(`[WhatsApp] Disconnected (${reason}), reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT})`);
+      logger.info(`[WhatsApp] Reconnecting in ${delay / 1000}s (attempt ${reconnectAttempts}/${MAX_RECONNECT})`);
       setTimeout(() => initializeWhatsApp(), delay);
     } else {
-      console.warn("[WhatsApp] Max reconnect attempts reached. Scan QR again to reconnect.");
+      logger.warn("[WhatsApp] Max reconnect attempts reached. Scan QR again.");
     }
   });
 
@@ -107,9 +164,8 @@ export function initializeWhatsApp() {
   initPromise.catch((error: unknown) => {
     state = "ERROR";
     lastError = error instanceof Error ? error.message : String(error);
-    console.warn("[WhatsApp] initialize() failed:", lastError);
+    logger.warn(`[WhatsApp] initialize() failed: ${lastError}`);
   });
-  // Prevent Node.js from treating this as unhandled rejection
   initPromise.then(() => {}).catch(() => {});
 }
 
@@ -128,11 +184,11 @@ function requireReadyClient() {
   if (!client || state !== "READY") {
     throw new AppError("WhatsApp is not connected yet", 503, "WHATSAPP_NOT_READY");
   }
-
   return client;
 }
 
 export async function restartWhatsApp() {
+  stopKeepAlive();
   if (client) {
     try { await client.destroy(); } catch { /* ignore */ }
     client = null;
@@ -146,34 +202,41 @@ export async function restartWhatsApp() {
   initializeWhatsApp();
 }
 
-export async function sendWhatsAppText(phone: string, message: string) {
+/** Send a text message. Auto-restarts WhatsApp if the page frame is dead. */
+export async function sendWhatsAppText(phone: string, message: string): Promise<{ to: string; message: string }> {
   const readyClient = requireReadyClient();
   const to = normalizePhone(phone);
-  await readyClient.sendMessage(to, message);
 
-  return {
-    to,
-    message,
-  };
+  try {
+    await readyClient.sendMessage(to, message);
+    return { to, message };
+  } catch (err) {
+    if (isFrameDetachedError(err)) {
+      logger.warn(`[WhatsApp] Frame detached while sending to ${to} — triggering restart`);
+      triggerRestart();
+    }
+    throw err;
+  }
 }
 
 export async function sendWhatsAppPdf(
   phone: string,
   message: string,
   pdf: Buffer,
-  filename: string
-) {
+  filename: string,
+): Promise<{ to: string; filename: string }> {
   const readyClient = requireReadyClient();
   const to = normalizePhone(phone);
-  const media = new MessageMedia(
-    "application/pdf",
-    pdf.toString("base64"),
-    filename
-  );
-  await readyClient.sendMessage(to, media, { caption: message });
 
-  return {
-    to,
-    filename,
-  };
+  try {
+    const media = new MessageMedia("application/pdf", pdf.toString("base64"), filename);
+    await readyClient.sendMessage(to, media, { caption: message });
+    return { to, filename };
+  } catch (err) {
+    if (isFrameDetachedError(err)) {
+      logger.warn(`[WhatsApp] Frame detached while sending PDF to ${to} — triggering restart`);
+      triggerRestart();
+    }
+    throw err;
+  }
 }

@@ -22,8 +22,19 @@ function unitAr(unit: string) {
 async function safeSendWA(phone: string, message: string) {
   try {
     await sendWhatsAppText(phone, message);
-  } catch (err) {
-    logger.warn(`[WhatsApp] Failed to send to ${phone}: ${(err as Error)?.message ?? err}`);
+    logger.info(`[WhatsApp] Sent to ${phone}`);
+  } catch (firstErr) {
+    const msg1 = (firstErr as Error)?.message ?? String(firstErr);
+    logger.warn(`[WhatsApp] Send failed (attempt 1) to ${phone}: ${msg1} — retrying in 40s`);
+    // Wait 40s for WhatsApp to auto-restart (triggerRestart schedules 10s delay)
+    await new Promise((resolve) => setTimeout(resolve, 40_000));
+    try {
+      await sendWhatsAppText(phone, message);
+      logger.info(`[WhatsApp] Sent to ${phone} (retry succeeded)`);
+    } catch (secondErr) {
+      const msg2 = (secondErr as Error)?.message ?? String(secondErr);
+      logger.warn(`[WhatsApp] Send failed (attempt 2) to ${phone}: ${msg2} — giving up`);
+    }
   }
 }
 
