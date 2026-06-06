@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   ChevronLeft,
   ImageIcon,
-  LockKeyhole,
   Minus,
   Plus,
   Search,
