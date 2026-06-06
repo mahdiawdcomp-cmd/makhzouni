@@ -3,8 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BookOpen,
   Check,
-  CheckCircle2,
-  ChevronDown,
   Copy,
   Eye,
   EyeOff,
@@ -13,7 +11,6 @@ import {
   Search,
   ShieldOff,
   Tag,
-  TagOff,
   Unlock,
   X,
 } from "lucide-react"
@@ -27,12 +24,10 @@ import {
   revokeCatalogAccess,
 } from "../api/endpoints"
 import type { CatalogCustomer } from "../types/api"
-import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { cn } from "../utils/cn"
-import { useAuthStore } from "../store/authStore"
 
 dayjs.extend(relativeTime)
 dayjs.locale("ar")
@@ -208,7 +203,7 @@ function CustomerRow({ customer }: { customer: CatalogCustomer }) {
             labelOn="ظاهرة"
             labelOff="مخفية"
             iconOn={<Tag className="h-3 w-3" />}
-            iconOff={<TagOff className="h-3 w-3" />}
+            iconOff={<Tag className="h-3 w-3 opacity-40" />}
             disabled={!customer.hasAccess || isLoading}
             onClick={() => patchMut.mutate({ allowPrices: !customer.allowPrices })}
           />
@@ -276,7 +271,6 @@ function CustomerRow({ customer }: { customer: CatalogCustomer }) {
 }
 
 export function CatalogManagementPage() {
-  const isAdmin = useAuthStore((s) => s.isAdmin())
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<"all" | "active" | "inactive">("all")
 
