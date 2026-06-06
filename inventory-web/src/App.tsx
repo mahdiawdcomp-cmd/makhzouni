@@ -28,6 +28,7 @@ import { UsersPage } from "./pages/UsersPage"
 import { VoucherDetailPage } from "./pages/VoucherDetailPage"
 import { VouchersPage } from "./pages/VouchersPage"
 import { TransfersPage } from "./pages/TransfersPage"
+import { CatalogManagementPage } from "./pages/CatalogManagementPage"
 
 export default function App() {
   return (
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="customers" element={<CustomersPage />} />
             <Route path="customers/:id" element={<CustomerDetailPage />} />
             <Route path="account" element={<AccountLookupPage />} />
+            <Route path="catalog-management" element={<CatalogManagementPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route element={<AdminRoute />}>

@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+.git
+.codex
+.claude
+.vercel
+graphify-out
+inventory-android
+inventory-web
+postman
+toy-website
+emulator-screen.png
+inventory-backend/dist
+inventory-backend/.wwebjs_auth

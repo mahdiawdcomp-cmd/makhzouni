@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import apiRoutes from "./routes";
 import { errorHandler } from "./middleware/error-handler.middleware";
 import { requestLogger } from "./middleware/request-logger.middleware";
@@ -10,6 +11,7 @@ import { AppError } from "./utils/app-error";
 import { startNotificationJobs } from "./services/notification-jobs.service";
 import { initializeWhatsApp } from "./services/whatsapp.service";
 import { apiLimiter } from "./middleware/rate-limit.middleware";
+import { logger } from "./utils/logger";
 
 const app = express();
 const port = Number(process.env.PORT ?? 5000);
@@ -24,6 +26,7 @@ const allowedOrigins = (
 
 app.set("trust proxy", 1);
 app.use(helmet());
+app.use(compression());
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
@@ -51,7 +54,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 app.listen(port, "0.0.0.0", () => {
-  console.log(`Inventory backend is running on port ${port}`);
+  logger.info(`Inventory backend is running on port ${port}`);
   startNotificationJobs();
   // WhatsApp only runs when explicitly enabled (requires local Chrome)
   if (process.env.ENABLE_WHATSAPP === "true") {

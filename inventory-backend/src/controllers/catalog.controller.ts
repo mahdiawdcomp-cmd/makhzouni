@@ -1,13 +1,38 @@
-import { listCatalogProducts, submitCatalogOrder } from "../services/catalog.service";
+import {
+  getCatalogAccess,
+  listCatalogProducts,
+  lookupCatalogAccess,
+  requestCatalogAccess,
+  submitCatalogOrder,
+} from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
 
-export const getCatalogProducts = asyncHandler(async (_req, res) => {
-  const products = await listCatalogProducts();
+export const createCatalogAccessRequest = asyncHandler(async (req, res) => {
+  const result = await requestCatalogAccess(req.body);
+  res.status(201).json({
+    success: true,
+    message: "Catalog access request submitted for approval",
+    data: result,
+  });
+});
+
+export const getCatalogAccessStatus = asyncHandler(async (req, res) => {
+  const result = await lookupCatalogAccess(String(req.query.phone ?? ""));
+  res.json({ success: true, data: result });
+});
+
+export const getCatalogSession = asyncHandler(async (req, res) => {
+  const result = await getCatalogAccess(String(req.query.access ?? ""));
+  res.json({ success: true, data: result });
+});
+
+export const getCatalogProducts = asyncHandler(async (req, res) => {
+  const products = await listCatalogProducts(String(req.query.access ?? ""));
   res.json({ success: true, data: products });
 });
 
 export const createCatalogOrder = asyncHandler(async (req, res) => {
-  const result = await submitCatalogOrder(req.body);
+  const result = await submitCatalogOrder(req.body, String(req.query.access ?? ""));
   res.status(201).json({
     success: true,
     message: "Catalog order submitted for approval",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
@@ -133,6 +134,7 @@ export function InvoiceCreatePage() {
   const { customersQuery } = useCustomers()
   const { productsQuery, createMutation: createProductMutation } = useProducts()
   const createMutation = useCreateInvoice()
+  const queryClient = useQueryClient()
 
   // ---- header state ----
   const [customerQuery, setCustomerQuery] = useState("")
@@ -191,7 +193,7 @@ export function InvoiceCreatePage() {
     [customers, customerQuery],
   )
   const productSuggestions = useMemo(
-    () => products.filter((p) => matchesProduct(p, productQuery)).slice(0, 12),
+    () => products.filter((p) => matchesProduct(p, productQuery)),
     [products, productQuery],
   )
 
@@ -376,10 +378,52 @@ export function InvoiceCreatePage() {
   }
 
   // إضافة منتجات من OCR مباشرة للفاتورة
+  function normalizeLookup(value: string) {
+    return value.trim().replace(/\s+/g, " ").toLowerCase()
+  }
+
+  function setCustomerSilently(customer: Customer) {
+    setSelectedCustomer(customer)
+    setCustomerQuery(customer.name)
+    setCustomerListOpen(false)
+  }
+
+  function handleOcrSupplierDetected(name: string) {
+    if (!isPurchase) return
+    const supplierName = name.trim()
+    if (!supplierName) return
+
+    const aliasKey = `ocr_supplier_alias:${normalizeLookup(supplierName)}`
+    const savedName = localStorage.getItem(aliasKey)
+    const targetName = savedName || supplierName
+    const directMatch = customers.find((customer) => {
+      const customerName = normalizeLookup(customer.name)
+      const target = normalizeLookup(targetName)
+      return customerName === target || customerName.includes(target) || target.includes(customerName)
+    })
+
+    if (directMatch) {
+      localStorage.setItem(aliasKey, directMatch.name)
+      setCustomerSilently(directMatch)
+      return
+    }
+
+    const answer = window.prompt(`قريت اسم المورد/المحل "${supplierName}". هذا مال يا مورد؟ اكتب اسم المورد مثل الموجود بالنظام:`)
+    if (!answer?.trim()) return
+    const answerMatch = customers.find((customer) => normalizeLookup(customer.name).includes(normalizeLookup(answer)))
+    if (answerMatch) {
+      localStorage.setItem(aliasKey, answerMatch.name)
+      setCustomerSilently(answerMatch)
+      return
+    }
+    setCustomerQuery(answer.trim())
+    setCustomerListOpen(true)
+  }
+
   function addOcrItems(ocrItems: OcrReadyItem[]) {
     const newItems = ocrItems
       .map((ocr) => {
-        const product = products.find((p) => p.id === ocr.productId)
+        const product = ocr.product ?? products.find((p) => p.id === ocr.productId)
         if (!product) return null
         return {
           product,
@@ -391,6 +435,7 @@ export function InvoiceCreatePage() {
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
     setItems((current) => [...current, ...newItems])
+    void queryClient.invalidateQueries({ queryKey: ["products"] })
   }
 
   function addProduct(product: Product) {
@@ -502,10 +547,10 @@ export function InvoiceCreatePage() {
     }
     if (e.key === "ArrowDown") {
       e.preventDefault()
-      setProductHighlight((i) => (i + 1) % productSuggestions.length)
+      setProductHighlight((i) => Math.min(i + 1, productSuggestions.length - 1))
     } else if (e.key === "ArrowUp") {
       e.preventDefault()
-      setProductHighlight((i) => (i - 1 + productSuggestions.length) % productSuggestions.length)
+      setProductHighlight((i) => Math.max(i - 1, 0))
     } else if (e.key === "Enter") {
       e.preventDefault()
       addProduct(productSuggestions[productHighlight])
@@ -694,30 +739,32 @@ export function InvoiceCreatePage() {
 
       {/* AI Buttons Row — صوت + كاميرا */}
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-2">
-        <VoiceInvoiceButton />
+        <VoiceInvoiceButton compact />
+        {isPurchase ? (
         <div className="flex flex-col items-center gap-2">
           <button
             type="button"
             onClick={() => setOcrOpen(true)}
-            className="h-20 w-20 rounded-full bg-emerald-600 text-white shadow-xl
-                       flex items-center justify-center hover:bg-emerald-700
-                       hover:scale-105 active:scale-95 transition-all duration-200"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 active:scale-95 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
             title="قراءة فاتورة بالكاميرا"
           >
-            <Camera className="h-8 w-8" />
+            <Camera className="h-4 w-4" />
+            قراءة صورة
           </button>
-          <p className="text-xs text-slate-400 text-center">
+          <p className="hidden text-xs text-slate-400 text-center">
             مسح فاتورة ورقية
           </p>
         </div>
+        ) : null}
       </div>
 
       {/* OCR Dialog */}
       {ocrOpen && (
         <Dialog open={ocrOpen} onOpenChange={setOcrOpen}>
-          <DialogContent className="max-w-md">
+          <DialogContent className="max-w-2xl">
             <OcrInvoiceScanner
               onItemsReady={addOcrItems}
+              onSupplierDetected={handleOcrSupplierDetected}
               onClose={() => setOcrOpen(false)}
             />
           </DialogContent>

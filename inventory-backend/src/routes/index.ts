@@ -19,6 +19,8 @@ import transfersRoutes from "./transfers.routes";
 import whatsappRoutes from "./whatsapp.routes";
 import voiceRoutes from "./voice.routes";
 import ocrRoutes from "./ocr.routes";
+import catalogManagementRoutes from "./catalog-management.routes";
+import orderPreparationsRoutes from "./order-preparations.routes";
 
 const router = Router();
 
@@ -42,5 +44,7 @@ router.use("/message-templates", messageTemplatesRoutes);
 router.use("/notifications", notificationsRoutes);
 router.use("/voice", voiceRoutes);
 router.use("/ocr", ocrRoutes);
+router.use("/catalog-management", catalogManagementRoutes);
+router.use("/order-preparations", orderPreparationsRoutes);
 
 export default router;

@@ -32,7 +32,7 @@ function dateValue(value?: string | null) {
 
 interface ProductFormState extends ProductPayload {
   branchId?: string
-  floor?: string
+  storageLocation?: string | null
 }
 
 const emptyForm: ProductFormState = {
@@ -49,7 +49,7 @@ const emptyForm: ProductFormState = {
   salePrice: 0,
   minStock: 5,
   branchId: "",
-  floor: "",
+  storageLocation: "",
 }
 
 async function compressProductImage(file: File): Promise<string> {
@@ -300,6 +300,8 @@ export function ProductsPage() {
   const { productsQuery, createMutation, updateMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
+  const branchName = (branchId?: string | null) =>
+    branchId ? branches.find((branch) => branch.id === branchId)?.name ?? "مخزن غير معروف" : "المخزن الرئيسي"
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("all")
   const [lowOnly, setLowOnly] = useState(false)
@@ -427,8 +429,8 @@ export function ProductsPage() {
       purchasePrice: product.purchasePrice,
       salePrice: product.salePrice,
       minStock: product.minStock,
-      branchId: "",
-      floor: "",
+      branchId: product.branchId ?? "",
+      storageLocation: product.storageLocation ?? "",
     })
     setOpen(true)
   }
@@ -444,6 +446,7 @@ export function ProductsPage() {
       cartonQrCode: form.cartonQrCode?.trim() || undefined,
       imageUrl: form.imageUrl ?? null,
       category: form.category?.trim() || undefined,
+      storageLocation: form.storageLocation?.trim() || null,
       branchId: form.branchId?.trim() || undefined,
     }
     const mutation = editing
@@ -531,6 +534,7 @@ export function ProductsPage() {
                     اسم الصنف ↕
                   </th>
                   <th className="py-3 px-3 border-l border-gray-300 text-center">الفئة</th>
+                  <th className="py-3 px-3 border-l border-gray-300 text-center">المخزن / الموقع</th>
                   <th className="py-3 px-3 border-l border-gray-300 text-center bg-blue-50 cursor-pointer" onClick={() => table.setSorting([{ id: "stock", desc: true }])}>
                     رصيد الكراتين ↕
                   </th>
@@ -581,6 +585,10 @@ export function ProductsPage() {
                         </div>
                       </td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs text-gray-500">{p.category ?? "—"}</td>
+                      <td className="py-2 px-3 border-l border-gray-200 text-center text-xs">
+                        <div className="font-semibold text-slate-700">{branchName(p.branchId)}</div>
+                        {p.storageLocation ? <div className="text-slate-500">{p.storageLocation}</div> : null}
+                      </td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center font-bold text-blue-700 bg-blue-50/30">{p.cartonsAvailable}</td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs bg-blue-50/30">{p.pcsPerCarton}</td>
                       <td className={`py-2 px-3 border-l border-gray-200 text-center font-bold ${isNegative ? "text-purple-700" : ""}`}>{totalPcs.toLocaleString("en-US")}</td>
@@ -603,7 +611,7 @@ export function ProductsPage() {
               {/* Footer totals */}
               <tfoot className="bg-gray-800 text-white font-bold">
                 <tr>
-                  <td colSpan={3} className="py-3 px-4 text-xs">الإجماليات ({filtered.length} صنف):</td>
+                  <td colSpan={4} className="py-3 px-4 text-xs">الإجماليات ({filtered.length} صنف):</td>
                   <td className="py-3 px-3 text-center border-l border-gray-600">
                     {filtered.reduce((s, p) => s + p.cartonsAvailable, 0).toLocaleString("en-US")} كرتون
                   </td>
@@ -733,8 +741,8 @@ export function ProductsPage() {
               <Field label="الطابق / القسم" hint="مثال: الطابق الأول، القسم A">
                 <Input
                   placeholder="اختياري"
-                  value={form.floor ?? ""}
-                  onChange={(e) => setForm({ ...form, floor: e.target.value })}
+                  value={form.storageLocation ?? ""}
+                  onChange={(e) => setForm({ ...form, storageLocation: e.target.value })}
                 />
               </Field>
             </div>

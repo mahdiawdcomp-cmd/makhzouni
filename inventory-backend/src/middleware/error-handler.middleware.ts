@@ -40,9 +40,14 @@ export function errorHandler(
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2002") {
+      const target = Array.isArray(error.meta?.target)
+        ? error.meta.target.join(", ")
+        : String(error.meta?.target ?? "");
       return res.status(409).json({
         success: false,
-        message: "Duplicate value violates a unique constraint",
+        message: target
+          ? `Duplicate value already exists: ${target}`
+          : "Duplicate value violates a unique constraint",
         code: error.code,
         meta: error.meta,
       });

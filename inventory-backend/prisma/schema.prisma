@@ -72,26 +72,26 @@ enum StockMovementType {
 }
 
 model User {
-  id                 String            @id @default(uuid()) @db.Uuid
+  id                 String              @id @default(uuid()) @db.Uuid
   name               String
-  username           String            @unique
-  passwordHash       String            @map("password_hash")
-  role               UserRole          @default(STAFF)
-  permissions        String[]          @default([])
-  isActive           Boolean           @default(true) @map("is_active")
-  createdAt          DateTime          @default(now()) @map("created_at")
-  updatedAt          DateTime          @updatedAt @map("updated_at")
-  products           Product[]         @relation("ProductCreatedBy")
-  invoices           Invoice[]         @relation("InvoiceCreatedBy")
-  paymentVouchers    PaymentVoucher[]  @relation("PaymentVoucherCreatedBy")
-  coupons            Coupon[]          @relation("CouponCreatedBy")
-  quotations         Quotation[]       @relation("QuotationCreatedBy")
-  requestedApprovals PendingApproval[] @relation("ApprovalRequestedBy")
-  reviewedApprovals  PendingApproval[] @relation("ApprovalReviewedBy")
+  username           String              @unique
+  passwordHash       String              @map("password_hash")
+  role               UserRole            @default(STAFF)
+  permissions        String[]            @default([])
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  products           Product[]           @relation("ProductCreatedBy")
+  invoices           Invoice[]           @relation("InvoiceCreatedBy")
+  paymentVouchers    PaymentVoucher[]    @relation("PaymentVoucherCreatedBy")
+  coupons            Coupon[]            @relation("CouponCreatedBy")
+  quotations         Quotation[]         @relation("QuotationCreatedBy")
+  requestedApprovals PendingApproval[]   @relation("ApprovalRequestedBy")
+  reviewedApprovals  PendingApproval[]   @relation("ApprovalReviewedBy")
   auditLogs          AuditLog[]
   branches           Branch[]
   createdTransfers   InventoryTransfer[] @relation("TransferCreatedBy")
-
+  preparedOrders     OrderPreparation[]  @relation("PreparedByUser")
 
   @@map("users")
 }
@@ -134,6 +134,7 @@ model Product {
   salePrice         Decimal         @default(0) @map("sale_price") @db.Decimal(12, 2)
   minStock          Int             @default(0) @map("min_stock")
   currentStock      Int             @map("current_stock") @ignore
+  storageLocation   String?         @map("storage_location")
   branchId          String?         @map("branch_id") @db.Uuid
   branch            Branch?         @relation(fields: [branchId], references: [id])
   createdBy         String          @map("created_by") @db.Uuid
@@ -179,6 +180,7 @@ model Customer {
   quotations         Quotation[]
   notifications     Notification[]
   portalLinks       CustomerPortalLink[]
+  catalogAccessLinks CatalogAccessLink[]
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
   deletedAt         DateTime?        @map("deleted_at")
@@ -189,6 +191,7 @@ model Customer {
 
 model CustomerPortalLink {
   id           String    @id @default(uuid()) @db.Uuid
+  token        String    @unique
   tokenHash    String    @unique @map("token_hash")
   customerId   String    @map("customer_id") @db.Uuid
   customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -200,6 +203,22 @@ model CustomerPortalLink {
   @@index([customerId])
   @@index([expiresAt])
   @@map("customer_portal_links")
+}
+
+model CatalogAccessLink {
+  id           String    @id @default(uuid()) @db.Uuid
+  token        String    @unique
+  tokenHash    String    @unique @map("token_hash")
+  customerId   String    @map("customer_id") @db.Uuid
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  allowPrices  Boolean   @default(false) @map("allow_prices")
+  showStock    Boolean   @default(true) @map("show_stock")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastViewedAt DateTime? @map("last_viewed_at")
+
+  @@index([customerId])
+  @@map("catalog_access_links")
 }
 
 model Invoice {
@@ -234,6 +253,7 @@ model Invoice {
   items            InvoiceItem[]
   stockMovements   StockMovement[]
   couponRedemptions CouponRedemption[]
+  preparation      OrderPreparation?
   createdAt        DateTime         @default(now()) @map("created_at")
 
   @@index([customerId])
@@ -498,4 +518,21 @@ model TransferItem {
   @@index([transferId])
   @@index([productId])
   @@map("transfer_items")
+}
+
+model OrderPreparation {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @unique @map("invoice_id") @db.Uuid
+  invoice       Invoice   @relation(fields: [invoiceId], references: [id])
+  customerName  String    @map("customer_name")
+  customerPhone String    @map("customer_phone")
+  items         Json
+  status        String    @default("PENDING")
+  preparedAt    DateTime? @map("prepared_at")
+  preparedById  String?   @map("prepared_by_id") @db.Uuid
+  preparedBy    User?     @relation("PreparedByUser", fields: [preparedById], references: [id])
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("order_preparations")
 }

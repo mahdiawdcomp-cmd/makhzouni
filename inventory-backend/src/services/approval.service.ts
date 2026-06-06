@@ -1,4 +1,5 @@
 import { ApprovalStatus, Prisma } from "@prisma/client";
+import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import {
@@ -18,10 +19,47 @@ import {
   deleteProduct,
   updateProduct,
 } from "./product.service";
+import {
+  createOrderPreparation,
+  notifyCatalogOrderApproved,
+} from "./order-preparation.service";
+import { getSettings } from "./settings.service";
 
 type Db = Prisma.TransactionClient;
 
+function hashCatalogToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function makeCatalogToken() {
+  return `cat_${randomBytes(32).toString("base64url")}`;
+}
+
+async function createCatalogAccessLink(tx: Db, customerId: string, allowPrices: boolean, showStock = true) {
+  await tx.$executeRaw`
+    UPDATE "catalog_access_links"
+    SET "revoked_at" = NOW()
+    WHERE "customer_id" = ${customerId}::uuid AND "revoked_at" IS NULL
+  `;
+
+  const token = makeCatalogToken();
+  const tokenHash = hashCatalogToken(token);
+
+  await tx.$executeRaw`
+    INSERT INTO "catalog_access_links" ("token", "token_hash", "customer_id", "allow_prices", "show_stock")
+    VALUES (${token}, ${tokenHash}, ${customerId}::uuid, ${allowPrices}, ${showStock})
+  `;
+
+  return {
+    token,
+    urlPath: `/catalog?access=${token}`,
+    allowPrices,
+    showStock,
+  };
+}
+
 export const approvalRequestTypes = {
+  CATALOG_ACCESS: "CATALOG_ACCESS",
   CATALOG_ORDER: "CATALOG_ORDER",
   CREATE_USER: "CREATE_USER",
   UPDATE_USER: "UPDATE_USER",
@@ -91,13 +129,51 @@ async function executeApprovedRequest(
   requestType: string,
   requestData: unknown,
   reviewerId: string,
-  tx: Db
+  tx: Db,
+  options?: { allowPrices?: boolean; showStock?: boolean }
 ) {
   const data = requestData as Record<string, unknown>;
 
   switch (requestType) {
     case approvalRequestTypes.CREATE_USER:
       return createUser(data.body as Parameters<typeof createUser>[0], tx);
+    case approvalRequestTypes.CATALOG_ACCESS: {
+      const body = data.body as {
+        customerName?: string;
+        phone?: string;
+        address?: string;
+        notes?: string;
+      };
+      const phone = String(body.phone ?? "").trim();
+      const customerName = String(body.customerName ?? "").trim();
+      if (!phone || !customerName) {
+        throw new AppError("Catalog access is missing required data", 400, "CATALOG_ACCESS_INVALID");
+      }
+
+      const existingCustomer = await tx.customer.findUnique({ where: { phone } });
+      const customer = existingCustomer
+        ? await tx.customer.update({
+            where: { id: existingCustomer.id },
+            data: {
+              name: customerName,
+              address: body.address,
+              notes: body.notes,
+              deletedAt: null,
+            },
+          })
+        : await tx.customer.create({
+            data: {
+              name: customerName,
+              phone,
+              address: body.address,
+              notes: body.notes,
+              openingBalance: 0,
+              currentBalance: 0,
+            },
+          });
+
+      return createCatalogAccessLink(tx, customer.id, Boolean(options?.allowPrices), options?.showStock ?? true);
+    }
     case approvalRequestTypes.CATALOG_ORDER: {
       const body = data.body as {
         customerName?: string;
@@ -134,7 +210,7 @@ async function executeApprovedRequest(
             },
           });
 
-      return createInvoice(
+      const invoice = await createInvoice(
         {
           customerId: customer.id,
           type: "SALE",
@@ -147,6 +223,48 @@ async function executeApprovedRequest(
         reviewerId,
         tx
       );
+
+      // Create preparation record (outside tx since it's non-critical)
+      const displayItems = (data.displayItems ?? body.items) as Array<{
+        productName?: string;
+        unit: string;
+        quantity: number;
+        unitPrice?: number;
+        totalPrice?: number;
+      }>;
+
+      // Fire-and-forget (don't block tx)
+      setImmediate(async () => {
+        try {
+          await createOrderPreparation(
+            invoice.id,
+            customerName,
+            phone,
+            displayItems.map((item, idx) => ({
+              productId: body.items![idx]?.productId ?? "",
+              productName: item.productName ?? String(body.items![idx]?.productId ?? ""),
+              unit: item.unit,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
+          );
+
+          const settings = await getSettings().catch(() => null);
+          const currency = settings?.currency ?? "IQD";
+          await notifyCatalogOrderApproved(
+            customerName,
+            phone,
+            invoice.invoiceNumber,
+            Number(invoice.totalAmount),
+            currency,
+          );
+        } catch (err) {
+          console.error("[CatalogOrder] post-approval tasks failed:", err);
+        }
+      });
+
+      return invoice;
     }
     case approvalRequestTypes.UPDATE_USER:
       return updateUser(
@@ -253,7 +371,8 @@ async function executeApprovedRequest(
 export async function reviewApproval(
   approvalId: string,
   status: "APPROVED" | "REJECTED",
-  reviewedBy: string
+  reviewedBy: string,
+  options?: { allowPrices?: boolean; showStock?: boolean }
 ) {
   const approval = await prisma.pendingApproval.findUnique({
     where: { id: approvalId },
@@ -303,7 +422,8 @@ export async function reviewApproval(
       approval.requestType,
       approval.requestData,
       reviewedBy,
-      tx
+      tx,
+      options
     );
 
     return {

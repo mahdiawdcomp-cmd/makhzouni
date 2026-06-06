@@ -203,14 +203,22 @@ function describe(log: {
 }
 
 export async function getRecentNotifications(limit = 30) {
-  const logs = await prisma.auditLog.findMany({
-    where: { entity: { in: ["invoices", "vouchers", "products", "customers"] } },
-    include: { user: { select: { id: true, name: true, role: true } } },
-    orderBy: { createdAt: "desc" },
-    take: limit * 2, // some rows may map to null, fetch a bit more
-  });
+  const [logs, catalogOrders] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: { entity: { in: ["invoices", "vouchers", "products", "customers"] } },
+      include: { user: { select: { id: true, name: true, role: true } } },
+      orderBy: { createdAt: "desc" },
+      take: limit * 2,
+    }),
+    // Pending catalog order approvals — always shown until approved/rejected
+    prisma.pendingApproval.findMany({
+      where: { requestType: "CATALOG_ORDER", status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+  ]);
 
-  return logs
+  const auditNotifs = logs
     .map((row) =>
       describe({
         id: row.id,
@@ -224,6 +232,25 @@ export async function getRecentNotifications(limit = 30) {
         user: row.user,
       }),
     )
-    .filter((n): n is FriendlyNotification => n !== null)
+    .filter((n): n is FriendlyNotification => n !== null);
+
+  const catalogNotifs: FriendlyNotification[] = catalogOrders.map((a) => {
+    const d = (a.requestData && typeof a.requestData === "object" ? a.requestData : {}) as Record<string, unknown>;
+    const customerName = typeof d.customerName === "string" ? d.customerName : "زبون";
+    const itemCount = Array.isArray(d.displayItems) ? d.displayItems.length : "?";
+    return {
+      id: a.id,
+      createdAt: a.createdAt,
+      severity: "warning" as const,
+      icon: "ShoppingBag",
+      title: "طلب كاتلوك جديد ينتظر موافقتك",
+      message: `${customerName} — ${itemCount} صنف — يحتاج موافقة`,
+      link: "/approvals",
+    };
+  });
+
+  // Merge and sort by date desc
+  return [...auditNotifs, ...catalogNotifs]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, limit);
 }

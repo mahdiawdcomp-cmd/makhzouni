@@ -134,6 +134,8 @@ export async function deleteUserPermanently(
     auditLogs,
     branches,
     transfers,
+    coupons,
+    quotations,
   ] = await Promise.all([
     db.product.count({ where: { createdBy: id } }),
     db.invoice.count({ where: { createdBy: id } }),
@@ -143,6 +145,8 @@ export async function deleteUserPermanently(
     db.auditLog.count({ where: { userId: id } }),
     db.branch.count({ where: { createdBy: id } }),
     db.inventoryTransfer.count({ where: { createdBy: id } }),
+    db.coupon.count({ where: { createdBy: id } }),
+    db.quotation.count({ where: { createdBy: id } }),
   ]);
 
   const hasHistory =
@@ -153,7 +157,9 @@ export async function deleteUserPermanently(
       reviewedApprovals +
       auditLogs +
       branches +
-      transfers >
+      transfers +
+      coupons +
+      quotations >
     0;
 
   if (hasHistory) {

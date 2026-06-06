@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createInvoice, getInvoice, getInvoices } from "../api/endpoints"
-import type { CreateInvoicePayload } from "../types/api"
+import type { CreateInvoicePayload, InvoiceType } from "../types/api"
 
 export function useInvoices(params?: {
   from?: string
   to?: string
   status?: "ACTIVE" | "CANCELLED"
-  type?: "SALE" | "PURCHASE"
+  type?: InvoiceType
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
 }) {
   return useQuery({

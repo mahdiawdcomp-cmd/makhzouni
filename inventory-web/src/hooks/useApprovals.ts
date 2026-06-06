@@ -14,8 +14,8 @@ export function useApprovals() {
     refetchInterval: 30_000,
   })
   const reviewMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "APPROVED" | "REJECTED" }) =>
-      reviewApproval(id, status),
+    mutationFn: ({ id, status, allowPrices, showStock }: { id: string; status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean }) =>
+      reviewApproval(id, status, { allowPrices, showStock }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
   })
 

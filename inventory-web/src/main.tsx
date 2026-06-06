@@ -1,6 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import App from "./App"
@@ -29,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
           <App />
         </RTLProvider>
       </ThemeProvider>
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />}
     </QueryClientProvider>
   </StrictMode>,
 )

@@ -109,7 +109,31 @@ const catalogOrderItemSchema = z.object({
   quantity: z.coerce.number().int().min(1),
 });
 
+export const catalogAccessRequestSchema = z.object({
+  body: z.object({
+    customerName: z.string().trim().min(2).max(120),
+    phone: z.string().trim().min(5).max(40),
+    address: z.string().trim().max(240).optional(),
+    notes: z.string().trim().max(500).optional(),
+  }),
+});
+
+export const catalogAccessStatusSchema = z.object({
+  query: z.object({
+    phone: z.string().trim().min(5).max(40),
+  }),
+});
+
+export const catalogAccessQuerySchema = z.object({
+  query: z.object({
+    access: z.string().trim().min(20),
+  }),
+});
+
 export const createCatalogOrderSchema = z.object({
+  query: z.object({
+    access: z.string().trim().min(20),
+  }),
   body: z.object({
     customerName: z.string().trim().min(2).max(120),
     phone: z.string().trim().min(5).max(40),
@@ -129,6 +153,7 @@ export const reviewApprovalSchema = z.object({
   params: uuidParam,
   body: z.object({
     status: z.enum(["APPROVED", "REJECTED"]),
+    allowPrices: z.coerce.boolean().optional(),
   }),
 });
 
@@ -265,6 +290,7 @@ export const createProductSchema = z.object({
     purchasePrice: z.coerce.number().nonnegative().default(0),
     salePrice: z.coerce.number().nonnegative().default(0),
     minStock: z.coerce.number().int().min(0).default(0),
+    storageLocation: z.string().trim().max(120).nullable().optional(),
     branchId: z.string().uuid().optional(),
   }),
 });

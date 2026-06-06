@@ -138,16 +138,27 @@ export async function getDashboardReport() {
 
   const [
     todaySales,
+    todayReturns,
     todayInvoices,
     totalDebts,
     lowStockProducts,
     topProducts,
+    topReturnProducts,
     lastSevenDaysInvoices,
+    lastSevenDaysReturnInvoices,
   ] = await Promise.all([
     prisma.invoice.aggregate({
       where: {
         status: InvoiceStatus.ACTIVE,
         type: InvoiceType.SALE,
+        date: { gte: todayStart, lte: todayEnd },
+      },
+      _sum: { totalAmount: true },
+    }),
+    prisma.invoice.aggregate({
+      where: {
+        status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALES_RETURN,
         date: { gte: todayStart, lte: todayEnd },
       },
       _sum: { totalAmount: true },
@@ -179,10 +190,33 @@ export async function getDashboardReport() {
         invoice: true,
       },
     }),
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALES_RETURN,
+          date: { gte: monthStart, lte: now },
+        },
+      },
+      include: {
+        invoice: true,
+      },
+    }),
     prisma.invoice.findMany({
       where: {
         status: InvoiceStatus.ACTIVE,
         type: InvoiceType.SALE,
+        date: { gte: sevenDaysAgo, lte: todayEnd },
+      },
+      select: {
+        date: true,
+        totalAmount: true,
+      },
+    }),
+    prisma.invoice.findMany({
+      where: {
+        status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALES_RETURN,
         date: { gte: sevenDaysAgo, lte: todayEnd },
       },
       select: {
@@ -204,6 +238,10 @@ export async function getDashboardReport() {
     const key = labelFor(invoice.date, "day");
     salesMap.set(key, (salesMap.get(key) ?? 0) + toNumber(invoice.totalAmount));
   }
+  for (const invoice of lastSevenDaysReturnInvoices) {
+    const key = labelFor(invoice.date, "day");
+    salesMap.set(key, (salesMap.get(key) ?? 0) - toNumber(invoice.totalAmount));
+  }
 
   const topProductMap = new Map<
     string,
@@ -221,9 +259,20 @@ export async function getDashboardReport() {
     current.totalSales += toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
+  for (const item of topReturnProducts) {
+    const current = topProductMap.get(item.productId) ?? {
+      productId: item.productId,
+      productName: item.productName,
+      quantitySold: 0,
+      totalSales: 0,
+    };
+    current.quantitySold -= item.quantity;
+    current.totalSales -= toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    topProductMap.set(item.productId, current);
+  }
 
   return {
-    todaySales: toNumber(todaySales._sum.totalAmount),
+    todaySales: toNumber(todaySales._sum.totalAmount) - toNumber(todayReturns._sum.totalAmount),
     todayInvoices,
     totalDebts: toNumber(totalDebts._sum.currentBalance),
     lowStockProducts: lowStockCount,
@@ -244,14 +293,26 @@ export async function getSalesReport(query: SalesReportQuery) {
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(dateFilter(query.from, query.to) ? { date: dateFilter(query.from, query.to) } : {}),
   };
+  const returnWhere: Prisma.InvoiceWhereInput = {
+    status: InvoiceStatus.ACTIVE,
+    type: InvoiceType.SALES_RETURN,
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(dateFilter(query.from, query.to) ? { date: dateFilter(query.from, query.to) } : {}),
+  };
 
-  const [invoiceTotals, items] = await Promise.all([
+  const [invoiceTotals, returnTotals, items, returnItems] = await Promise.all([
     prisma.invoice.aggregate({
       where: invoiceWhere,
       _sum: { totalAmount: true },
       _count: { id: true },
     }),
+    prisma.invoice.aggregate({
+      where: returnWhere,
+      _sum: { totalAmount: true },
+      _count: { id: true },
+    }),
     getInvoiceItemsForProfit(invoiceWhere),
+    getInvoiceItemsForProfit(returnWhere),
   ]);
 
   const chartMap = new Map<string, { totalSales: number; netProfit: number }>();
@@ -267,11 +328,22 @@ export async function getSalesReport(query: SalesReportQuery) {
     current.netProfit += revenue - cost;
     chartMap.set(key, current);
   }
+  for (const item of returnItems) {
+    const key = labelFor(item.invoice.date, query.groupBy);
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost =
+      unitPurchaseCost(item.unit, item.product.purchasePrice, item.product.pcsPerCarton) *
+      item.quantity;
+    const current = chartMap.get(key) ?? { totalSales: 0, netProfit: 0 };
+    current.totalSales -= revenue;
+    current.netProfit -= revenue - cost;
+    chartMap.set(key, current);
+  }
 
   return {
-    totalSales: toNumber(invoiceTotals._sum.totalAmount),
+    totalSales: toNumber(invoiceTotals._sum.totalAmount) - toNumber(returnTotals._sum.totalAmount),
     invoiceCount: invoiceTotals._count.id,
-    netProfit: calculateProfit(items),
+    netProfit: calculateProfit(items) - calculateProfit(returnItems),
     chart: Array.from(chartMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([period, values]) => ({
@@ -524,19 +596,31 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
 
   const [
     todaySalesAgg,
+    todayReturnsAgg,
     yesterdaySalesAgg,
+    yesterdayReturnsAgg,
     receiptsToday,
     allProducts,
     topItemsToday,
+    topReturnItemsToday,
     overdueCustomers,
     last28Invoices,
+    last28Returns,
   ] = await Promise.all([
     prisma.invoice.aggregate({
       where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: todayStart, lte: todayEnd } },
       _sum: { totalAmount: true },
     }),
     prisma.invoice.aggregate({
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALES_RETURN, date: { gte: todayStart, lte: todayEnd } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.invoice.aggregate({
       where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, date: { gte: yesterdayStart, lte: yesterdayEnd } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.invoice.aggregate({
+      where: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALES_RETURN, date: { gte: yesterdayStart, lte: yesterdayEnd } },
       _sum: { totalAmount: true },
     }),
     prisma.paymentVoucher.aggregate({
@@ -549,6 +633,16 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
         invoice: {
           status: InvoiceStatus.ACTIVE,
           type: InvoiceType.SALE,
+          date: { gte: todayStart, lte: todayEnd },
+        },
+      },
+      select: { productId: true, productName: true, quantity: true },
+    }),
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALES_RETURN,
           date: { gte: todayStart, lte: todayEnd },
         },
       },
@@ -568,10 +662,18 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
       },
       select: { date: true, totalAmount: true },
     }),
+    prisma.invoice.findMany({
+      where: {
+        status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALES_RETURN,
+        date: { gte: last28Start, lte: yesterdayEnd },
+      },
+      select: { date: true, totalAmount: true },
+    }),
   ]);
 
-  const todaySales = toNumber(todaySalesAgg._sum.totalAmount);
-  const yesterdaySales = toNumber(yesterdaySalesAgg._sum.totalAmount);
+  const todaySales = toNumber(todaySalesAgg._sum.totalAmount) - toNumber(todayReturnsAgg._sum.totalAmount);
+  const yesterdaySales = toNumber(yesterdaySalesAgg._sum.totalAmount) - toNumber(yesterdayReturnsAgg._sum.totalAmount);
   const salesChangePercent =
     yesterdaySales > 0
       ? Math.round(((todaySales - yesterdaySales) / yesterdaySales) * 100)
@@ -588,6 +690,11 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
   for (const item of topItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
     cur.quantity += item.quantity;
+    topProductMap.set(item.productId, cur);
+  }
+  for (const item of topReturnItemsToday) {
+    const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
+    cur.quantity -= item.quantity;
     topProductMap.set(item.productId, cur);
   }
   const topProduct = topProductMap.size > 0
@@ -613,6 +720,10 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
     const key = labelFor(inv.date, "day");
     dailyMap.set(key, (dailyMap.get(key) ?? 0) + toNumber(inv.totalAmount));
   }
+  for (const inv of last28Returns) {
+    const key = labelFor(inv.date, "day");
+    dailyMap.set(key, (dailyMap.get(key) ?? 0) - toNumber(inv.totalAmount));
+  }
   const allDailyValues = Array.from(dailyMap.values());
   const overallAvg =
     allDailyValues.length > 0 ? allDailyValues.reduce((s, v) => s + v, 0) / allDailyValues.length : 0;
@@ -622,6 +733,11 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
     if (new Date(inv.date).getDay() !== dayOfWeek) continue;
     const key = labelFor(inv.date, "day");
     sameDowMap.set(key, (sameDowMap.get(key) ?? 0) + toNumber(inv.totalAmount));
+  }
+  for (const inv of last28Returns) {
+    if (new Date(inv.date).getDay() !== dayOfWeek) continue;
+    const key = labelFor(inv.date, "day");
+    sameDowMap.set(key, (sameDowMap.get(key) ?? 0) - toNumber(inv.totalAmount));
   }
   const sameDowValues = Array.from(sameDowMap.values());
   const sameDowAvg =

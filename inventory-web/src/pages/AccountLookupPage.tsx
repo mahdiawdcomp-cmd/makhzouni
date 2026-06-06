@@ -35,7 +35,7 @@ function auditNote(row: CustomerTransaction) {
 function transactionTone(tx: CustomerTransaction) {
   const type = String(tx.type ?? "").toUpperCase()
   const status = String(tx.status ?? "").toUpperCase()
-  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE"
+  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE" || type === "SALES_RETURN"
   const isVoucher = type.includes("VOUCHER") || type === "RECEIPT" || type === "PAYMENT" || type === "EXPENSE"
 
   if (status === "CANCELLED") {
@@ -234,7 +234,7 @@ export function AccountLookupPage() {
                     <TBody>
                       {transactions.map((tx) => {
                         const t = tx.type?.toUpperCase() ?? ""
-                        const isInvoice = t === "SALE" || t === "PURCHASE" || t.includes("INVOICE")
+                        const isInvoice = t === "SALE" || t === "PURCHASE" || t === "SALES_RETURN" || t.includes("INVOICE")
                         const link = isInvoice ? `/invoices/${tx.id}` : `/vouchers/${tx.id}`
                         const tone = transactionTone(tx)
                         const typeLabel = t === "SALE" || t.includes("INVOICE") ? "🧾 فاتورة"

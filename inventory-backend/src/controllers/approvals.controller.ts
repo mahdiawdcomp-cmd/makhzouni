@@ -37,8 +37,8 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
   }
 
   const id = String(req.params.id);
-  const { status } = req.body as { status: "APPROVED" | "REJECTED" };
-  const result = await reviewApproval(id, status, req.user.id);
+  const { status, allowPrices, showStock } = req.body as { status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean };
+  const result = await reviewApproval(id, status, req.user.id, { allowPrices, showStock });
 
   res.json({
     success: true,

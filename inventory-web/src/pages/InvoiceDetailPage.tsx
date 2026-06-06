@@ -173,9 +173,10 @@ export function InvoiceDetailPage() {
   if (!invoice) return <div className="text-sm text-slate-500">الفاتورة غير موجودة.</div>
 
   const isPurchase = invoice.type === "PURCHASE"
-  const accentColor = isPurchase ? "#f59e0b" : "#4F46E5"
-  const customerLabel = isPurchase ? "المورّد" : "الزبون / العميل"
-  const typeLabel = isPurchase ? "فاتورة شراء" : "فاتورة مبيعات"
+  const isReturn = invoice.type === "SALES_RETURN"
+  const accentColor = isPurchase ? "#f59e0b" : isReturn ? "#dc2626" : "#4F46E5"
+  const customerLabel = isPurchase ? "المورد" : "الزبون / العميل"
+  const typeLabel = isPurchase ? "فاتورة شراء" : isReturn ? "فاتورة مرتجع مبيعات" : "فاتورة مبيعات"
   const currency = settings?.currency ?? "د.ع"
 
   const lastEditNote = invoice.updatedAt && invoice.updatedAt !== invoice.createdAt
@@ -187,7 +188,7 @@ export function InvoiceDetailPage() {
       {/* Toolbar — hidden on print */}
       <div className="print:hidden flex flex-wrap items-center gap-2">
         <Button variant="ghost" asChild className="px-0">
-          <Link to={isPurchase ? "/invoices?type=PURCHASE" : "/invoices?type=SALE"}>
+          <Link to={isPurchase ? "/invoices?type=PURCHASE" : isReturn ? "/invoices?type=SALES_RETURN" : "/invoices?type=SALE"}>
             <ArrowRight className="h-4 w-4" /> رجوع
           </Link>
         </Button>
@@ -236,7 +237,7 @@ export function InvoiceDetailPage() {
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 px-8 py-6">
           <div>
             <div className="flex items-center gap-2">
-              {isPurchase ? <ShoppingCart className="h-7 w-7" style={{ color: accentColor }} /> : <ReceiptIcon className="h-7 w-7" style={{ color: accentColor }} />}
+              {isPurchase ? <ShoppingCart className="h-7 w-7" style={{ color: accentColor }} /> : isReturn ? <RefreshCw className="h-7 w-7" style={{ color: accentColor }} /> : <ReceiptIcon className="h-7 w-7" style={{ color: accentColor }} />}
               <h1 className="text-2xl font-extrabold" style={{ color: accentColor }}>{typeLabel}</h1>
             </div>
             <p className="mt-1.5 text-base font-bold text-gray-800">{settings?.storeName ?? "مخزوني"}</p>
@@ -311,7 +312,7 @@ export function InvoiceDetailPage() {
           <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-2">
             <h3 className="font-bold text-blue-900 border-b border-blue-200 pb-2 mb-3">كشف الحساب الكلي</h3>
             <SummaryRow label="الحساب السابق" value={`${money(invoice.previousBalance)} ${currency}`} />
-            <SummaryRow label={isPurchase ? "يُطرح المتبقي" : "يُضاف المتبقي"} value={`${money(invoice.remainingAmount)} ${currency}`} />
+            <SummaryRow label={isPurchase || isReturn ? "يطرح المتبقي" : "يضاف المتبقي"} value={`${money(invoice.remainingAmount)} ${currency}`} />
             <div className="flex items-center justify-between rounded-lg bg-blue-200 px-3 py-2 mt-1">
               <span className="font-bold text-blue-900 text-lg">الحساب النهائي:</span>
               <span className="font-extrabold text-xl text-blue-900">{money(invoice.finalBalance)} {currency}</span>

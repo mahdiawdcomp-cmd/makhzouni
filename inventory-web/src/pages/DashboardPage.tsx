@@ -1,5 +1,6 @@
 import { useState, type ComponentType } from "react"
 import { Link } from "react-router-dom"
+import { PendingOrdersBanner } from "../components/dashboard/PendingOrdersBanner"
 import {
   CartesianGrid,
   Cell,
@@ -29,6 +30,7 @@ import {
 import { useDashboardReport, useAtRiskCustomers, useDebtReport, useInventoryReport } from "../hooks/useReports"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { whatsappUrl } from "../utils/whatsapp"
 
 interface QuickAction {
   label: string
@@ -71,6 +73,9 @@ export function DashboardPage() {
         <h1 className="text-2xl font-bold">الرئيسية</h1>
         <p className="text-slate-500">اختصارات سريعة لأكثر العمليات استخداماً.</p>
       </div>
+
+      {/* ── Pending Orders Alert ── */}
+      <PendingOrdersBanner />
 
       {/* Quick actions */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
@@ -201,7 +206,7 @@ export function DashboardPage() {
                     </TD>
                     <TD>
                       <a
-                        href={`https://wa.me/${c.phone.replace(/\D/g, "")}`}
+                        href={whatsappUrl(c.phone) ?? "#"}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-1 text-xs text-emerald-600 hover:underline"

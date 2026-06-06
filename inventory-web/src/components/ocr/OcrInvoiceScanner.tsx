@@ -1,16 +1,16 @@
 import { useRef, useState } from "react"
-import { Camera, Upload, Loader2, CheckCircle2, AlertCircle, X, Plus } from "lucide-react"
+import { AlertCircle, Camera, CheckCircle2, Loader2, Plus, Upload, X } from "lucide-react"
 import { api } from "../../api/client"
+import type { ApiEnvelope, Product } from "../../types/api"
 import { Button } from "../ui/button"
 import { cn } from "../../utils/cn"
-
-// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface OcrProduct {
   id: string
   name: string
   itemNumber: string
   purchasePrice: number
+  salePrice?: number
   pcsPerCarton: number
 }
 
@@ -20,6 +20,7 @@ interface OcrItem {
   unit: "PIECE" | "DOZEN" | "CARTON"
   unitPrice: number
   product: OcrProduct | null
+  suggestions?: OcrProduct[]
   matched: boolean
 }
 
@@ -34,49 +35,90 @@ interface OcrResponse {
 export interface OcrReadyItem {
   productId: string
   productName: string
+  product?: Product
   quantity: number
   unit: "PIECE" | "DOZEN" | "CARTON"
   unitPrice: number
 }
 
+interface RowDecision {
+  action: "match" | "create" | "skip"
+  productId: string
+  name: string
+  quantity: string
+  unitPrice: string
+  purchasePrice: string
+  salePrice: string
+  pcsPerCarton: string
+}
+
 interface Props {
   onItemsReady: (items: OcrReadyItem[]) => void
+  onSupplierDetected?: (supplierName: string) => void
   onClose: () => void
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+function unitLabel(unit: OcrItem["unit"]) {
+  if (unit === "CARTON") return "كارتون"
+  if (unit === "DOZEN") return "درزن"
+  return "قطعة"
+}
 
-export function OcrInvoiceScanner({ onItemsReady, onClose }: Props) {
+function toNumber(value: string | number | undefined, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
+
+function createDecisions(items: OcrItem[]): RowDecision[] {
+  return items.map((item) => {
+    const productId = item.product?.id ?? item.suggestions?.[0]?.id ?? ""
+    const price = item.unitPrice > 0 ? item.unitPrice : item.product?.purchasePrice ?? 0
+    return {
+      action: item.matched ? "match" : "create",
+      productId,
+      name: item.extractedName,
+      quantity: String(Math.max(1, item.quantity || 1)),
+      unitPrice: String(price),
+      purchasePrice: String(price),
+      salePrice: String(item.product?.salePrice ?? price),
+      pcsPerCarton: String(item.product?.pcsPerCarton ?? 1),
+    }
+  })
+}
+
+export function OcrInvoiceScanner({ onItemsReady, onSupplierDetected, onClose }: Props) {
   const [status, setStatus] = useState<"idle" | "preview" | "loading" | "result" | "error">("idle")
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null)
   const [message, setMessage] = useState("")
+  const [supplierName, setSupplierName] = useState<string | null>(null)
   const [ocrItems, setOcrItems] = useState<OcrItem[]>([])
-  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [decisions, setDecisions] = useState<RowDecision[]>([])
+  const [creating, setCreating] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
-  // ── تصغير الصورة قبل الإرسال (يمنع خطأ حجم الـ payload) ──────────────────
   function compressImage(dataUrl: string, maxWidth = 1200): Promise<string> {
     return new Promise((resolve) => {
       const img = new Image()
       img.onload = () => {
         const canvas = document.createElement("canvas")
         const ratio = Math.min(1, maxWidth / img.width)
-        canvas.width  = Math.round(img.width  * ratio)
+        canvas.width = Math.round(img.width * ratio)
         canvas.height = Math.round(img.height * ratio)
         const ctx = canvas.getContext("2d")
-        if (!ctx) { resolve(dataUrl); return }
+        if (!ctx) {
+          resolve(dataUrl)
+          return
+        }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL("image/jpeg", 0.82))  // جودة 82% — كافية للـ OCR
+        resolve(canvas.toDataURL("image/jpeg", 0.82))
       }
       img.src = dataUrl
     })
   }
 
-  // ── تحميل الصورة ──────────────────────────────────────────────────────────
   function handleFile(file: File | undefined) {
     if (!file) return
-
     const reader = new FileReader()
     reader.onload = () => {
       void compressImage(String(reader.result)).then((compressed) => {
@@ -87,253 +129,334 @@ export function OcrInvoiceScanner({ onItemsReady, onClose }: Props) {
     reader.readAsDataURL(file)
   }
 
-  // ── إرسال للـ API ──────────────────────────────────────────────────────────
   async function scanImage() {
     if (!imageDataUrl) return
     setStatus("loading")
     setMessage("جاري قراءة الفاتورة...")
 
     try {
-      const { data } = await api.post<OcrResponse>("/ocr/invoice", {
-        imageBase64: imageDataUrl,
-      })
-
+      const { data } = await api.post<OcrResponse>("/ocr/invoice", { imageBase64: imageDataUrl })
       setOcrItems(data.items)
+      setDecisions(createDecisions(data.items))
+      setSupplierName(data.supplierName)
       setMessage(data.message)
-
-      // حدد تلقائياً العناصر المطابقة
-      const autoSelected = new Set<number>()
-      data.items.forEach((item, i) => {
-        if (item.matched) autoSelected.add(i)
-      })
-      setSelected(autoSelected)
+      if (data.supplierName) onSupplierDetected?.(data.supplierName)
       setStatus("result")
-
     } catch (err: unknown) {
       const msg =
-        (err as { response?: { data?: { message?: string } } })
-          ?.response?.data?.message ?? "فشل الاتصال — حاول مرة ثانية"
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        "فشل الاتصال، حاول مرة ثانية"
       setStatus("error")
       setMessage(msg)
     }
   }
 
-  // ── إضافة العناصر المحددة للفاتورة ────────────────────────────────────────
-  function confirmItems() {
-    const readyItems: OcrReadyItem[] = []
-
-    ocrItems.forEach((item, i) => {
-      if (!selected.has(i) || !item.product) return
-      readyItems.push({
-        productId:   item.product.id,
-        productName: item.product.name,
-        quantity:    item.quantity,
-        unit:        item.unit,
-        unitPrice:   item.unitPrice > 0 ? item.unitPrice : item.product.purchasePrice,
-      })
-    })
-
-    if (readyItems.length === 0) return
-    onItemsReady(readyItems)
-    onClose()
+  function patchDecision(index: number, patch: Partial<RowDecision>) {
+    setDecisions((current) =>
+      current.map((decision, i) => (i === index ? { ...decision, ...patch } : decision)),
+    )
   }
 
-  // ── UI ─────────────────────────────────────────────────────────────────────
-  return (
-    <div className="flex flex-col gap-4">
+  async function createProductFromDecision(decision: RowDecision) {
+    const payload = {
+      name: decision.name.trim(),
+      purchasePrice: Math.max(0, toNumber(decision.purchasePrice)),
+      salePrice: Math.max(0, toNumber(decision.salePrice)),
+      pcsPerCarton: Math.max(1, Math.round(toNumber(decision.pcsPerCarton, 1))),
+      minStock: 0,
+    }
 
-      {/* ── Header ── */}
+    if (!payload.name) throw new Error("اسم المادة مطلوب")
+    const { data } = await api.post<ApiEnvelope<Product>>("/products", payload)
+    if (!data.data) {
+      throw new Error(data.message ?? "لم يتم إنشاء المادة. قد تحتاج موافقة المدير.")
+    }
+    return data.data
+  }
+
+  async function confirmItems() {
+    setCreating(true)
+    setMessage("")
+    try {
+      const readyItems: OcrReadyItem[] = []
+
+      for (let i = 0; i < ocrItems.length; i += 1) {
+        const item = ocrItems[i]
+        const decision = decisions[i]
+        if (!decision || decision.action === "skip") continue
+
+        const quantity = Math.max(1, toNumber(decision.quantity, item.quantity || 1))
+        const unitPrice = Math.max(0, toNumber(decision.unitPrice, item.unitPrice))
+
+        if (decision.action === "match") {
+          const product =
+            item.product?.id === decision.productId
+              ? item.product
+              : item.suggestions?.find((candidate) => candidate.id === decision.productId)
+          if (!product) continue
+          readyItems.push({
+            productId: product.id,
+            productName: product.name,
+            quantity,
+            unit: item.unit,
+            unitPrice: unitPrice > 0 ? unitPrice : product.purchasePrice,
+          })
+          continue
+        }
+
+        const product = await createProductFromDecision(decision)
+        readyItems.push({
+          productId: product.id,
+          productName: product.name,
+          product,
+          quantity,
+          unit: item.unit,
+          unitPrice: unitPrice > 0 ? unitPrice : product.purchasePrice,
+        })
+      }
+
+      if (readyItems.length === 0) {
+        setMessage("اختار مادة واحدة على الأقل أو أنشئ مادة جديدة.")
+        return
+      }
+
+      onItemsReady(readyItems)
+      onClose()
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : "تعذر تثبيت المواد")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="flex max-h-[80vh] flex-col gap-4 overflow-hidden">
       <div className="flex items-center justify-between">
-        <h2 className="font-bold text-base">قراءة فاتورة بالكاميرا</h2>
-        <button type="button" onClick={onClose}
-          className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <div>
+          <h2 className="text-base font-bold">قراءة فاتورة من صورة</h2>
+          <p className="text-xs text-slate-500">راجع المواد قبل تثبيتها حتى ما تنضاف مادة غلط.</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
           <X className="h-5 w-5" />
         </button>
       </div>
 
-      {/* ── Idle: أزرار الرفع ── */}
-      {status === "idle" && (
+      {status === "idle" ? (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-slate-500 text-center">
-            صوّر فاتورة الشراء الورقية أو ارفع صورة منها
-          </p>
-
           <div className="grid grid-cols-2 gap-3">
-            {/* كاميرا الجوال */}
             <button
               type="button"
               onClick={() => cameraInputRef.current?.click()}
-              className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed
-                         border-indigo-300 bg-indigo-50 p-5 hover:bg-indigo-100
-                         dark:border-indigo-700 dark:bg-indigo-950/30"
+              className="flex items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-4 text-sm font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-300"
             >
-              <Camera className="h-8 w-8 text-indigo-500" />
-              <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
-                تصوير
-              </span>
+              <Camera className="h-5 w-5" />
+              تصوير
             </button>
-
-            {/* رفع ملف */}
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed
-                         border-slate-300 bg-slate-50 p-5 hover:bg-slate-100
-                         dark:border-slate-700 dark:bg-slate-800/50"
+              className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
             >
-              <Upload className="h-8 w-8 text-slate-500" />
-              <span className="text-sm font-medium text-slate-600 dark:text-slate-300">
-                رفع صورة
-              </span>
+              <Upload className="h-5 w-5" />
+              رفع صورة
             </button>
           </div>
-
-          {/* inputs مخفية */}
-          <input ref={cameraInputRef} type="file" accept="image/*"
-            capture="environment" className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])} />
-          <input ref={fileInputRef} type="file" accept="image/*"
-            className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])} />
         </div>
-      )}
+      ) : null}
 
-      {/* ── Preview: معاينة الصورة ── */}
-      {status === "preview" && imageDataUrl && (
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(event) => handleFile(event.target.files?.[0])}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => handleFile(event.target.files?.[0])}
+      />
+
+      {status === "preview" && imageDataUrl ? (
         <div className="flex flex-col gap-3">
           <img
             src={imageDataUrl}
             alt="فاتورة"
-            className="w-full max-h-64 object-contain rounded-xl border border-slate-200"
+            className="max-h-64 w-full rounded-xl border border-slate-200 object-contain"
           />
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1"
-              onClick={() => { setStatus("idle"); setImageDataUrl(null) }}>
+            <Button variant="outline" className="flex-1" onClick={() => { setStatus("idle"); setImageDataUrl(null) }}>
               تغيير الصورة
             </Button>
             <Button className="flex-1" onClick={() => void scanImage()}>
-              قراءة الفاتورة ✨
+              قراءة الفاتورة
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {/* ── Loading ── */}
-      {status === "loading" && (
+      {status === "loading" ? (
         <div className="flex flex-col items-center gap-4 py-8">
           <Loader2 className="h-12 w-12 animate-spin text-indigo-500" />
           <p className="text-sm text-slate-500">{message}</p>
         </div>
-      )}
+      ) : null}
 
-      {/* ── Error ── */}
-      {status === "error" && (
+      {status === "error" ? (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-4
-                          dark:bg-rose-950/30">
-            <AlertCircle className="h-5 w-5 text-rose-500 shrink-0" />
+          <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-4 dark:bg-rose-950/30">
+            <AlertCircle className="h-5 w-5 shrink-0 text-rose-500" />
             <p className="text-sm text-rose-700 dark:text-rose-300">{message}</p>
           </div>
           <Button variant="outline" onClick={() => setStatus("idle")}>
             حاول مرة ثانية
           </Button>
         </div>
-      )}
+      ) : null}
 
-      {/* ── Result: النتائج ── */}
-      {status === "result" && (
-        <div className="flex flex-col gap-3">
-          {/* رسالة النجاح */}
-          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3
-                          dark:bg-emerald-950/30">
-            <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" />
-            <p className="text-sm text-emerald-700 dark:text-emerald-300">{message}</p>
+      {status === "result" ? (
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 shrink-0" />
+              <span>{message}</span>
+            </div>
+            {supplierName ? <div className="mt-1 text-xs">المورد المقروء: {supplierName}</div> : null}
           </div>
 
-          {/* قائمة المنتجات */}
-          <div className="flex flex-col gap-2 max-h-72 overflow-y-auto">
-            {ocrItems.map((item, i) => (
-              <div
-                key={i}
-                onClick={() => {
-                  if (!item.matched) return
-                  setSelected((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(i)) next.delete(i)
-                    else next.add(i)
-                    return next
-                  })
-                }}
-                className={cn(
-                  "flex items-start gap-3 rounded-xl border p-3 transition",
-                  item.matched
-                    ? selected.has(i)
-                      ? "border-indigo-400 bg-indigo-50 cursor-pointer dark:border-indigo-600 dark:bg-indigo-950/40"
-                      : "border-slate-200 bg-white cursor-pointer hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900"
-                    : "border-amber-200 bg-amber-50 opacity-70 dark:border-amber-800 dark:bg-amber-950/30"
-                )}
-              >
-                {/* Checkbox */}
-                <div className={cn(
-                  "mt-0.5 h-5 w-5 shrink-0 rounded border-2 flex items-center justify-center",
-                  item.matched && selected.has(i)
-                    ? "border-indigo-500 bg-indigo-500"
-                    : "border-slate-300 dark:border-slate-600"
-                )}>
-                  {item.matched && selected.has(i) && (
-                    <CheckCircle2 className="h-3 w-3 text-white" />
-                  )}
-                </div>
+          {message && creating ? (
+            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+              {message}
+            </div>
+          ) : null}
 
-                {/* البيانات */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium truncate">
-                      {item.product?.name ?? item.extractedName}
-                    </span>
-                    {!item.matched && (
-                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5
-                                       rounded-full shrink-0 dark:bg-amber-900/40 dark:text-amber-300">
-                        غير موجود
-                      </span>
-                    )}
+          <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
+            {ocrItems.map((item, i) => {
+              const decision = decisions[i]
+              const suggestions = item.suggestions?.length ? item.suggestions : item.product ? [item.product] : []
+              return (
+                <div
+                  key={`${item.extractedName}-${i}`}
+                  className={cn(
+                    "rounded-xl border p-3",
+                    decision?.action === "create"
+                      ? "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20"
+                      : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+                  )}
+                >
+                  <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-slate-100">{item.extractedName}</div>
+                      <div className="text-xs text-slate-500">
+                        {item.quantity} {unitLabel(item.unit)} - {item.unitPrice ? item.unitPrice.toLocaleString("en-US") : 0} د.ع
+                      </div>
+                    </div>
+                    <select
+                      value={decision?.action ?? "skip"}
+                      onChange={(event) => patchDecision(i, { action: event.target.value as RowDecision["action"] })}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      {suggestions.length ? <option value="match">نفس مادة موجودة</option> : null}
+                      <option value="create">إنشاء مادة جديدة</option>
+                      <option value="skip">تجاهل</option>
+                    </select>
                   </div>
 
-                  {/* الاسم المستخرج إذا مختلف */}
-                  {item.matched && item.product?.name !== item.extractedName && (
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      قرأ: "{item.extractedName}"
-                    </p>
-                  )}
+                  {decision?.action === "match" ? (
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        هل هذه المادة الجديدة نفس مادة قديمة؟
+                      </label>
+                      <select
+                        value={decision.productId}
+                        onChange={(event) => patchDecision(i, { productId: event.target.value })}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                      >
+                        {suggestions.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name} - {product.itemNumber}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
 
-                  <div className="flex gap-3 mt-1 text-xs text-slate-500">
-                    <span>{item.quantity} {item.unit === "CARTON" ? "كرتون" : item.unit === "DOZEN" ? "درزن" : "قطعة"}</span>
-                    {item.unitPrice > 0 && (
-                      <span>{item.unitPrice.toLocaleString("en-US")} د.ع</span>
-                    )}
-                  </div>
+                  {decision?.action === "create" ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-amber-800 dark:text-amber-300">
+                        تريد أخلق هذه المادة بهذا الاسم والسعر والعدد؟
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          value={decision.name}
+                          onChange={(event) => patchDecision(i, { name: event.target.value })}
+                          className="col-span-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          placeholder="اسم المادة"
+                        />
+                        <input
+                          value={decision.quantity}
+                          onChange={(event) => patchDecision(i, { quantity: event.target.value })}
+                          inputMode="decimal"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          placeholder="العدد بالفاتورة"
+                        />
+                        <input
+                          value={decision.unitPrice}
+                          onChange={(event) => patchDecision(i, { unitPrice: event.target.value, purchasePrice: event.target.value })}
+                          inputMode="decimal"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          placeholder="سعر الفاتورة"
+                        />
+                        <input
+                          value={decision.salePrice}
+                          onChange={(event) => patchDecision(i, { salePrice: event.target.value })}
+                          inputMode="decimal"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          placeholder="سعر البيع"
+                        />
+                        <input
+                          value={decision.pcsPerCarton}
+                          onChange={(event) => patchDecision(i, { pcsPerCarton: event.target.value })}
+                          inputMode="numeric"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          placeholder="قطع الكارتون"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          {/* أزرار التأكيد */}
-          <div className="flex gap-2 pt-1">
-            <Button variant="outline" className="flex-1"
-              onClick={() => { setStatus("idle"); setImageDataUrl(null); setOcrItems([]) }}>
+          <div className="flex gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+            <Button
+              variant="outline"
+              className="flex-1"
+              disabled={creating}
+              onClick={() => {
+                setStatus("idle")
+                setImageDataUrl(null)
+                setOcrItems([])
+                setDecisions([])
+              }}
+            >
               إعادة المسح
             </Button>
-            <Button
-              className="flex-1"
-              disabled={selected.size === 0}
-              onClick={confirmItems}
-            >
-              <Plus className="h-4 w-4 ml-1" />
-              إضافة {selected.size} منتج
+            <Button className="flex-1" disabled={creating} onClick={() => void confirmItems()}>
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              تثبيت المواد
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

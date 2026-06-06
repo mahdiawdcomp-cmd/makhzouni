@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.git
+.codex
+.claude
+graphify-out
+inventory-android
+inventory-backend
+inventory-web/dist
+inventory-web/.vercel
+postman
+toy-website
+emulator-screen.png

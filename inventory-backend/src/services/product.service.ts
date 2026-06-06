@@ -18,6 +18,7 @@ type ProductInput = {
   purchasePrice?: number;
   salePrice?: number;
   minStock?: number;
+  storageLocation?: string | null;
   branchId?: string;
 };
 
@@ -213,6 +214,7 @@ export async function createProduct(
         purchasePrice: input.purchasePrice ?? 0,
         salePrice: input.salePrice ?? 0,
         minStock: input.minStock ?? 0,
+        storageLocation: input.storageLocation?.trim() || null,
         branchId: input.branchId,
         createdBy,
       },
@@ -255,6 +257,7 @@ export async function updateProduct(
   if (input.purchasePrice !== undefined) data.purchasePrice = input.purchasePrice;
   if (input.salePrice !== undefined) data.salePrice = input.salePrice;
   if (input.minStock !== undefined) data.minStock = input.minStock;
+  if (input.storageLocation !== undefined) data.storageLocation = input.storageLocation?.trim() || null;
   if (input.branchId !== undefined) data.branch = input.branchId ? { connect: { id: input.branchId } } : { disconnect: true };
 
   const product = await db.product.update({

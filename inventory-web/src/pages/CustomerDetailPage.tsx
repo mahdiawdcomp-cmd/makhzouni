@@ -44,14 +44,14 @@ function lastActivityLink(last: { type?: string; id?: string } | undefined | nul
   if (!last?.id || !last?.type) return null
   const t = String(last.type).toUpperCase()
   if (t.includes("VOUCHER") || t === "RECEIPT" || t === "PAYMENT" || t === "EXPENSE") return `/vouchers/${last.id}`
-  if (t.includes("INVOICE") || t === "SALE" || t === "PURCHASE") return `/invoices/${last.id}`
+  if (t.includes("INVOICE") || t === "SALE" || t === "PURCHASE" || t === "SALES_RETURN") return `/invoices/${last.id}`
   return null
 }
 
 function transactionLink(row: CustomerTransaction): string | null {
   if (!row.id || !row.type) return null
   const t = String(row.type).toUpperCase()
-  if (t.includes("INVOICE") || t === "SALE" || t === "PURCHASE") return `/invoices/${row.id}`
+  if (t.includes("INVOICE") || t === "SALE" || t === "PURCHASE" || t === "SALES_RETURN") return `/invoices/${row.id}`
   if (t.includes("VOUCHER") || t === "RECEIPT" || t === "PAYMENT" || t === "EXPENSE") return `/vouchers/${row.id}`
   return null
 }
@@ -59,7 +59,7 @@ function transactionLink(row: CustomerTransaction): string | null {
 function transactionTone(row: CustomerTransaction) {
   const type = String(row.type ?? "").toUpperCase()
   const status = String(row.status ?? "").toUpperCase()
-  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE"
+  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE" || type === "SALES_RETURN"
   const isVoucher = type.includes("VOUCHER") || type === "RECEIPT" || type === "PAYMENT" || type === "EXPENSE"
 
   if (status === "CANCELLED") {

@@ -128,6 +128,14 @@ export const scanInvoiceImage = asyncHandler(async (req, res) => {
       }
 
       const matched = products[0] ?? null;
+      const suggestions = products.map((product) => ({
+        id: product.id,
+        name: product.name,
+        itemNumber: product.itemNumber,
+        purchasePrice: Number(product.purchasePrice),
+        salePrice: Number(product.salePrice),
+        pcsPerCarton: product.pcsPerCarton,
+      }));
 
       return {
         // البيانات المستخرجة من الصورة
@@ -148,6 +156,7 @@ export const scanInvoiceImage = asyncHandler(async (req, res) => {
             }
           : null,
 
+        suggestions,
         matched: matched !== null,
       };
     })

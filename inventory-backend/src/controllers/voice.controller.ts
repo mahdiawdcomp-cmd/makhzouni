@@ -1,6 +1,8 @@
 import Groq from "groq-sdk";
+import { VoucherType } from "@prisma/client";
 import prisma from "../config/database";
 import { createInvoice } from "../services/invoice.service";
+import { createVoucher } from "../services/voucher.service";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 
@@ -9,16 +11,37 @@ const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface ParsedCommand {
+  operation?: "INVOICE" | "VOUCHER";
   customerName?: string;
   productName?: string;
   quantity?: number;
   unit?: "PIECE" | "DOZEN" | "CARTON";
   unitPrice?: number;
   paymentType?: "CASH" | "CREDIT" | "PARTIAL";
+  amount?: number;
+  voucherType?: "RECEIPT" | "PAYMENT";
   missing?: string[];
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
+
+function normalizeArabicDigits(value: string) {
+  return value
+    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+}
+
+function extractAmount(command: string) {
+  const normalized = normalizeArabicDigits(command).replace(/,/g, "");
+  const match = normalized.match(/\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : undefined;
+}
+
+function inferVoucherType(command: string) {
+  return /دفع|ادفع|دفعت|صرف|سددت لمورد|للمورد/.test(command)
+    ? VoucherType.PAYMENT
+    : VoucherType.RECEIPT;
+}
 
 export const processVoiceCommand = asyncHandler(async (req, res) => {
   const { command } = req.body as { command?: string };
@@ -29,6 +52,13 @@ export const processVoiceCommand = asyncHandler(async (req, res) => {
 
   if (!process.env.GROQ_API_KEY) {
     throw new AppError("GROQ_API_KEY غير مضبوط", 500, "GROQ_NOT_CONFIGURED");
+  }
+
+  const rawCommand = command.trim();
+  if (/(عدل|هدل|تعديل).*(فاتورة)/.test(rawCommand)) {
+    return void res.json({
+      clarify: "تعديل الفاتورة يحتاج رقم الفاتورة أو فتح الفاتورة أولاً حتى ما أعدل على فاتورة غلط.",
+    });
   }
 
   const userId = req.user!.id;
@@ -74,6 +104,66 @@ export const processVoiceCommand = asyncHandler(async (req, res) => {
   }
 
   // ── الخطوة 2: معلومات ناقصة؟ اطلب توضيح ─────────────────────────────────
+  const commandText = command.trim();
+  const operation =
+    parsed.operation ??
+    (/سند|وصل|قبض|دفع|استلام/.test(commandText) ? "VOUCHER" : "INVOICE");
+
+  if (operation === "VOUCHER") {
+    const amount = parsed.amount ?? extractAmount(commandText);
+    if (!parsed.customerName || !amount || amount <= 0) {
+      const missing = [
+        !parsed.customerName ? "اسم الزبون" : null,
+        !amount || amount <= 0 ? "المبلغ" : null,
+      ].filter(Boolean).join(" و ");
+      return void res.json({ clarify: `وضح للسند: ${missing}` });
+    }
+
+    const customers = await prisma.customer.findMany({
+      where: {
+        deletedAt: null,
+        name: { contains: parsed.customerName, mode: "insensitive" },
+      },
+      take: 5,
+      orderBy: { name: "asc" },
+    });
+
+    if (customers.length === 0) {
+      return void res.json({
+        clarify: `ما لقيت زبون باسم "${parsed.customerName}"، تأكد من الاسم`,
+      });
+    }
+
+    const customer = customers[0];
+    const type =
+      parsed.voucherType === "PAYMENT"
+        ? VoucherType.PAYMENT
+        : parsed.voucherType === "RECEIPT"
+          ? VoucherType.RECEIPT
+          : inferVoucherType(commandText);
+    const voucher = await createVoucher(
+      {
+        customerId: customer.id,
+        amount,
+        type,
+        notes: "أنشئ بالأمر الصوتي",
+      },
+      userId,
+    );
+
+    return void res.status(201).json({
+      success: true,
+      message: `تم إنشاء ${type === VoucherType.PAYMENT ? "سند دفع" : "سند قبض"} رقم ${voucher.voucherNumber} لـ ${customer.name} بمبلغ ${amount.toLocaleString("en-US")} د.ع`,
+      voucher: {
+        id: voucher.id,
+        voucherNumber: voucher.voucherNumber,
+        customerName: customer.name,
+        amount,
+        type,
+      },
+    });
+  }
+
   if (parsed.missing && parsed.missing.length > 0) {
     const labels: Record<string, string> = {
       customerName: "اسم الزبون",

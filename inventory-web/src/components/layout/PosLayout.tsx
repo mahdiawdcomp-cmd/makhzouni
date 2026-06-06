@@ -2,11 +2,6 @@ import { useEffect } from "react"
 import { Outlet, useNavigate } from "react-router-dom"
 import { X } from "lucide-react"
 
-/**
- * Fullscreen layout for the POS cashier screen.
- * No sidebar, no header — just the page + an exit button.
- * Press Escape to exit back to dashboard.
- */
 export function PosLayout() {
   const navigate = useNavigate()
 
@@ -15,8 +10,8 @@ export function PosLayout() {
   }
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") exit()
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") exit()
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
@@ -27,7 +22,6 @@ export function PosLayout() {
       className="fixed inset-0 z-50 flex flex-col overflow-hidden"
       style={{ backgroundColor: "var(--theme-pageBg)", color: "var(--theme-textPrimary)" }}
     >
-      {/* Thin top bar — only exit button */}
       <div
         className="flex h-9 shrink-0 items-center justify-between border-b px-3"
         style={{ backgroundColor: "var(--theme-headerBg)", borderColor: "var(--theme-cardBorder)" }}

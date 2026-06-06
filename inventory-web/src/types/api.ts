@@ -91,6 +91,9 @@ export interface Product {
   purchasePrice: number
   salePrice: number
   minStock: number
+  storageLocation?: string | null
+  branchId?: string | null
+  branch?: Branch | null
   currentStock?: number
   updatedAt?: string
 }
@@ -101,9 +104,31 @@ export interface PublicCatalogProduct {
   name: string
   imageUrl?: string | null
   category?: string | null
-  salePrice: number
+  salePrice?: number | null
   pcsPerCarton: number
   currentStock: number
+  showStock?: boolean
+}
+
+export interface CatalogAccessRequestPayload {
+  customerName: string
+  phone: string
+  address?: string
+  notes?: string
+}
+
+export interface CatalogAccessStatus {
+  approved: boolean
+  customer?: Pick<Customer, "id" | "name" | "phone">
+  token?: string
+  urlPath?: string
+  allowPrices?: boolean
+}
+
+export interface CatalogSession {
+  customer: Pick<Customer, "id" | "name" | "phone">
+  allowPrices: boolean
+  showStock: boolean
 }
 
 export interface CatalogOrderPayload {
@@ -132,6 +157,7 @@ export interface ProductPayload {
   purchasePrice?: number
   salePrice?: number
   minStock?: number
+  storageLocation?: string | null
   branchId?: string   // optional — defaults to main branch on server
 }
 
@@ -494,6 +520,36 @@ export interface BranchPayload {
   phone?: string
   address?: string
   isActive?: boolean
+}
+
+export interface OrderPreparation {
+  id: string
+  invoiceId: string
+  invoiceNumber: string
+  totalAmount: number
+  customerName: string
+  customerPhone: string
+  items: Array<{
+    productId: string
+    productName: string
+    unit: string
+    quantity: number
+    unitPrice?: number
+    totalPrice?: number
+  }>
+  createdAt: string
+}
+
+export interface CatalogCustomer {
+  id: string
+  name: string
+  phone: string
+  hasAccess: boolean
+  allowPrices: boolean
+  showStock: boolean
+  token: string | null
+  lastViewedAt: string | null
+  createdAt: string | null
 }
 
 export interface BranchSummary {

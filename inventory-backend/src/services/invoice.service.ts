@@ -167,13 +167,21 @@ async function generateInvoiceNumber(tx: Db, date: Date) {
 
   // Atomic increment using the Counter table — avoids text-sort race condition
   // that would fail after 9999 invoices/year.
-  const counter = await tx.counter.upsert({
-    where: { key: counterKey },
-    update: { value: { increment: 1 } },
-    create: { key: counterKey, value: 1 },
-  });
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const counter = await tx.counter.upsert({
+      where: { key: counterKey },
+      update: { value: { increment: 1 } },
+      create: { key: counterKey, value: 1 },
+    });
+    const candidate = `INV-${year}-${String(counter.value).padStart(4, "0")}`;
+    const exists = await tx.invoice.findUnique({
+      where: { invoiceNumber: candidate },
+      select: { id: true },
+    });
+    if (!exists) return candidate;
+  }
 
-  return `INV-${year}-${String(counter.value).padStart(4, "0")}`;
+  throw new AppError("Could not generate a unique invoice number", 409, "INVOICE_NUMBER_CONFLICT");
 }
 
 function getDateFilter(from?: string, to?: string) {

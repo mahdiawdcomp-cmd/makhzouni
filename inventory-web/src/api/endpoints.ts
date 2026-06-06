@@ -7,7 +7,12 @@ import type {
   Branch,
   BranchSummary,
   BranchPayload,
+  CatalogCustomer,
+  OrderPreparation,
   CatalogOrderPayload,
+  CatalogAccessRequestPayload,
+  CatalogAccessStatus,
+  CatalogSession,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -89,13 +94,28 @@ export async function getMyApprovals() {
   return data.data ?? []
 }
 
-export async function getPublicCatalogProducts() {
-  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products")
+export async function requestCatalogAccess(payload: CatalogAccessRequestPayload) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/access/request", payload)
+  return data
+}
+
+export async function getCatalogAccessStatus(phone: string) {
+  const { data } = await api.get<ApiEnvelope<CatalogAccessStatus>>("/public/catalog/access/status", { params: { phone } })
+  return data.data
+}
+
+export async function getCatalogSession(access: string) {
+  const { data } = await api.get<ApiEnvelope<CatalogSession>>("/public/catalog/session", { params: { access } })
+  return data.data
+}
+
+export async function getPublicCatalogProducts(access: string) {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access } })
   return data.data ?? []
 }
 
-export async function submitPublicCatalogOrder(payload: CatalogOrderPayload) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload)
+export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access } })
   return data
 }
 
@@ -132,9 +152,10 @@ export async function updateBranch(id: string, payload: Partial<BranchPayload>) 
   return data
 }
 
-export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED") {
+export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean }) {
   const { data } = await api.put<ApiEnvelope<Approval>>(`/approvals/${id}`, {
     status,
+    ...options,
   })
   return data
 }
@@ -592,5 +613,43 @@ export async function getTransfer(id: string) {
 
 export async function createTransfer(payload: CreateTransferPayload) {
   const { data } = await api.post<InventoryTransfer>("/transfers", payload)
+  return data
+}
+
+// ── Catalog Management ──────────────────────────────────────────────────────
+export async function getCatalogCustomers() {
+  const { data } = await api.get<ApiEnvelope<CatalogCustomer[]>>("/catalog-management")
+  return data.data ?? []
+}
+
+export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean }) {
+  const { data } = await api.post<ApiEnvelope<{ token: string; urlPath: string; allowPrices: boolean; showStock: boolean }>>(
+    `/catalog-management/${customerId}/grant`,
+    opts,
+  )
+  return data.data!
+}
+
+export async function patchCatalogAccess(customerId: string, patch: { allowPrices?: boolean; showStock?: boolean }) {
+  const { data } = await api.patch<ApiEnvelope<{ allowPrices: boolean; showStock: boolean; token: string }>>(
+    `/catalog-management/${customerId}`,
+    patch,
+  )
+  return data.data!
+}
+
+export async function revokeCatalogAccess(customerId: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/catalog-management/${customerId}`)
+  return data
+}
+
+// ── Order Preparations ───────────────────────────────────────────────────────
+export async function getOrderPreparations() {
+  const { data } = await api.get<ApiEnvelope<OrderPreparation[]>>("/order-preparations")
+  return data.data ?? []
+}
+
+export async function markOrderPrepared(id: string) {
+  const { data } = await api.post<ApiEnvelope<never>>(`/order-preparations/${id}/mark-prepared`)
   return data
 }

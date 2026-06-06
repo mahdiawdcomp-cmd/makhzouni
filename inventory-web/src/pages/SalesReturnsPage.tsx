@@ -1,10 +1,11 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { RotateCcw, Search } from "lucide-react"
 import { createInvoice, getCustomers, getLastSoldPrice, getProducts } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { apiErrorMessage } from "../utils/apiError"
 
 function money(value: number) {
   return new Intl.NumberFormat("ar-IQ").format(Math.round(value))
@@ -12,6 +13,7 @@ function money(value: number) {
 
 export function SalesReturnsPage() {
   const queryClient = useQueryClient()
+  const clientRequestIdRef = useRef(crypto.randomUUID())
   const customersQuery = useQuery({ queryKey: ["customers"], queryFn: () => getCustomers({ limit: 100 }) })
   const productsQuery = useQuery({ queryKey: ["products"], queryFn: () => getProducts({ limit: 100 }) })
   const [customerId, setCustomerId] = useState("")
@@ -39,6 +41,7 @@ export function SalesReturnsPage() {
       createInvoice({
         customerId,
         type: "SALES_RETURN",
+        clientRequestId: clientRequestIdRef.current,
         originalInvoiceId,
         discount: 0,
         tax: 0,
@@ -47,9 +50,13 @@ export function SalesReturnsPage() {
         items: [{ productId, unit: "PIECE", quantity, unitPrice }],
       }),
     onSuccess: () => {
+      clientRequestIdRef.current = crypto.randomUUID()
       setProductId(""); setQuantity(1); setUnitPrice(0); setOriginalInvoiceId(undefined); setLastPriceNote("")
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
+    },
+    onError: () => {
+      clientRequestIdRef.current = crypto.randomUUID()
     },
   })
 
@@ -88,7 +95,7 @@ export function SalesReturnsPage() {
             <RotateCcw className="h-4 w-4" /> حفظ مرتجع المبيعات
           </Button>
           {createMutation.isSuccess ? <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">تم حفظ المرتجع وتحديث المخزون والحساب.</div> : null}
-          {createMutation.isError ? <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{createMutation.error instanceof Error ? createMutation.error.message : "تعذر الحفظ"}</div> : null}
+          {createMutation.isError ? <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">{apiErrorMessage(createMutation.error, "تعذر حفظ المرتجع")}</div> : null}
         </CardContent>
       </Card>
     </div>

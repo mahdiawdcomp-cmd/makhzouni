@@ -9,6 +9,7 @@ import {
   Pencil,
   Receipt,
   ReceiptText,
+  ShoppingBag,
   ShoppingCart,
   Trash2,
   UserPlus,
@@ -31,7 +32,7 @@ interface Notification {
 }
 
 const iconMap: Record<string, ComponentType<{ className?: string }>> = {
-  Receipt, ReceiptText, ShoppingCart, Wallet, Package, PackageMinus, Pencil, Trash2, FileText, UserPlus,
+  Receipt, ReceiptText, ShoppingCart, ShoppingBag, Wallet, Package, PackageMinus, Pencil, Trash2, FileText, UserPlus,
 }
 
 const severityStyles: Record<Notification["severity"], { dot: string; row: string }> = {

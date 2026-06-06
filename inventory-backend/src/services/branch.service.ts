@@ -85,6 +85,7 @@ export async function listBranchSummaries() {
         products,
         customers,
         sales,
+        salesReturns,
         purchases,
         receipts,
         payments,
@@ -105,6 +106,11 @@ export async function listBranchSummaries() {
         }),
         prisma.invoice.aggregate({
           where: { branchId: branch.id, status: "ACTIVE", type: "SALE" },
+          _count: { _all: true },
+          _sum: { totalAmount: true, paidAmount: true, remainingAmount: true },
+        }),
+        prisma.invoice.aggregate({
+          where: { branchId: branch.id, status: "ACTIVE", type: "SALES_RETURN" },
           _count: { _all: true },
           _sum: { totalAmount: true, paidAmount: true, remainingAmount: true },
         }),
@@ -153,9 +159,9 @@ export async function listBranchSummaries() {
         customerBalance: toNumber(customers._sum.currentBalance),
         sales: {
           count: sales._count._all,
-          total: toNumber(sales._sum.totalAmount),
-          paid: toNumber(sales._sum.paidAmount),
-          remaining: toNumber(sales._sum.remainingAmount),
+          total: toNumber(sales._sum.totalAmount) - toNumber(salesReturns._sum.totalAmount),
+          paid: toNumber(sales._sum.paidAmount) - toNumber(salesReturns._sum.paidAmount),
+          remaining: toNumber(sales._sum.remainingAmount) - toNumber(salesReturns._sum.remainingAmount),
         },
         purchases: {
           count: purchases._count._all,
