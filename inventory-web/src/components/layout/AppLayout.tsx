@@ -7,7 +7,6 @@ import { PwaStatusBar } from "../PwaStatusBar"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { OnboardingWizard } from "../OnboardingWizard"
-import { AgentButton } from "../agent/AgentButton"
 
 export function AppLayout() {
   const [darkMode, setDarkMode] = useState(
@@ -91,9 +90,6 @@ export function AppLayout() {
 
       {/* Onboarding wizard — shows only for ADMIN on first use */}
       <OnboardingWizard />
-
-      {/* AI Agent — يظهر في كل الصفحات */}
-      <AgentButton />
     </div>
   )
 }
