@@ -19,6 +19,7 @@ import transfersRoutes from "./transfers.routes";
 import whatsappRoutes from "./whatsapp.routes";
 import voiceRoutes from "./voice.routes";
 import ocrRoutes from "./ocr.routes";
+import agentRoutes from "./agent.routes";
 import catalogManagementRoutes from "./catalog-management.routes";
 import orderPreparationsRoutes from "./order-preparations.routes";
 
@@ -44,6 +45,7 @@ router.use("/message-templates", messageTemplatesRoutes);
 router.use("/notifications", notificationsRoutes);
 router.use("/voice", voiceRoutes);
 router.use("/ocr", ocrRoutes);
+router.use("/agent", agentRoutes);
 router.use("/catalog-management", catalogManagementRoutes);
 router.use("/order-preparations", orderPreparationsRoutes);
 
