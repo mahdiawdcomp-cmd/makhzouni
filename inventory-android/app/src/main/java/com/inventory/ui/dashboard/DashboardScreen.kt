@@ -1,5 +1,7 @@
 package com.inventory.ui.dashboard
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,9 +18,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.inventory.data.remote.dto.OrderPreparationDto
 import com.inventory.ui.common.*
 import com.inventory.ui.reports.SalesLineChart
 import com.inventory.ui.theme.AppColor
@@ -38,6 +42,7 @@ fun DashboardScreen(
     onSettings: () -> Unit,
     onAccountLookup: () -> Unit = {},
     onVoiceInvoice: () -> Unit = {},
+    onCatalogManagement: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
     val report = state.report
@@ -97,6 +102,16 @@ fun DashboardScreen(
                 }
             }
 
+            // ── Pending Orders Banner ─────────────────────────────────
+            if (state.pendingOrders.isNotEmpty()) {
+                item {
+                    PendingOrdersSection(
+                        orders = state.pendingOrders,
+                        onMarkPrepared = { id -> viewModel.markPrepared(id) }
+                    )
+                }
+            }
+
             // ── Quick actions ────────────────────────────────────────
             item {
                 SectionCard(title = "إجراءات سريعة") {
@@ -114,7 +129,8 @@ fun DashboardScreen(
                             QuickActionBtn("المخزن",      Icons.Default.Inventory2,       AppColor.Gray700,   Modifier.weight(1f), onProducts)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            QuickActionBtn("🎤 فاتورة صوتية", Icons.Default.Mic, Color(0xFF6366F1), Modifier.fillMaxWidth(), onVoiceInvoice)
+                            QuickActionBtn("🎤 فاتورة صوتية", Icons.Default.Mic, Color(0xFF6366F1), Modifier.weight(1f), onVoiceInvoice)
+                            QuickActionBtn("الكاتلوك", Icons.Default.Storefront, AppColor.Sky500, Modifier.weight(1f), onCatalogManagement)
                         }
                     }
                 }
@@ -195,6 +211,89 @@ fun DashboardScreen(
             }
 
             item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+// ── Pending Orders Section ───────────────────────────────────────────────────────
+@Composable
+private fun PendingOrdersSection(
+    orders: List<OrderPreparationDto>,
+    onMarkPrepared: (String) -> Unit
+) {
+    val context = LocalContext.current
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = AppColor.Amber50),
+        border = androidx.compose.foundation.BorderStroke(1.dp, AppColor.Amber600.copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PendingActions,
+                    contentDescription = null,
+                    tint = AppColor.Amber600,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "طلبات كاتلوك تحتاج تجهيز (${orders.size})",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColor.Amber600
+                )
+            }
+
+            orders.forEach { order ->
+                HorizontalDivider(color = AppColor.Amber600.copy(alpha = 0.2f))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = order.customerName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = order.customerPhone,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "${order.items.size} صنف • فاتورة ${order.invoiceNumber}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                onMarkPrepared(order.id)
+                                // Send WhatsApp message to customer
+                                val phone = order.customerPhone.trimStart('0').let { "+964$it" }
+                                val message = "مرحباً ${order.customerName}، تم تجهيز طلبك رقم ${order.invoiceNumber} وهو جاهز للاستلام. شكراً لك!"
+                                val uri = Uri.parse("https://wa.me/${phone.replace("+", "")}?text=${Uri.encode(message)}")
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                                } catch (_: Exception) { }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AppColor.Green600),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("تم التجهيز", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
         }
     }
 }

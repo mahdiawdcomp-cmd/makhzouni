@@ -2,14 +2,17 @@ package com.inventory.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.inventory.data.remote.ApiResult
+import com.inventory.data.remote.dto.OrderPreparationDto
 import com.inventory.data.repository.ApprovalRepository
+import com.inventory.data.repository.CatalogRepository
+import com.inventory.data.repository.NotificationRepository
 import com.inventory.data.repository.ReportRepository
 import com.inventory.data.repository.SessionManager
-import com.inventory.data.repository.NotificationRepository
-import com.inventory.data.remote.ApiResult
 import com.inventory.domain.model.DashboardReport
 import com.inventory.utils.PermissionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -23,7 +26,8 @@ data class DashboardUiState(
     val canApprove: Boolean = false,
     val pendingApprovalCount: Int = 0,
     val unreadNotifications: Int = 0,
-    val report: DashboardReport? = null
+    val report: DashboardReport? = null,
+    val pendingOrders: List<OrderPreparationDto> = emptyList()
 )
 
 @HiltViewModel
@@ -32,11 +36,14 @@ class DashboardViewModel @Inject constructor(
     permissionManager: PermissionManager,
     approvalRepository: ApprovalRepository,
     notificationRepository: NotificationRepository,
-    private val reportRepository: ReportRepository
+    private val reportRepository: ReportRepository,
+    private val catalogRepository: CatalogRepository
 ) : ViewModel() {
-    private val report = kotlinx.coroutines.flow.MutableStateFlow<DashboardReport?>(null)
+    private val report = MutableStateFlow<DashboardReport?>(null)
+    private val pendingOrders = MutableStateFlow<List<OrderPreparationDto>>(emptyList())
 
-    val uiState: StateFlow<DashboardUiState> = combine(
+    // Combine first 5 flows then zip with pendingOrders
+    private val baseState = combine(
         sessionManager.role,
         sessionManager.permissions,
         approvalRepository.pending,
@@ -51,15 +58,36 @@ class DashboardViewModel @Inject constructor(
             unreadNotifications = unreadCount,
             report = dashboardReport
         )
+    }
+
+    val uiState: StateFlow<DashboardUiState> = combine(baseState, pendingOrders) { base, orders ->
+        base.copy(pendingOrders = orders)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
     init {
-        viewModelScope.launch {
-            approvalRepository.refreshPending()
-        }
+        viewModelScope.launch { approvalRepository.refreshPending() }
         viewModelScope.launch {
             when (val result = reportRepository.dashboard()) {
                 is ApiResult.Success -> report.value = result.data
+                else -> Unit
+            }
+        }
+        loadOrderPreparations()
+    }
+
+    private fun loadOrderPreparations() {
+        viewModelScope.launch {
+            when (val result = catalogRepository.getOrderPreparations()) {
+                is ApiResult.Success -> pendingOrders.value = result.data
+                else -> Unit
+            }
+        }
+    }
+
+    fun markPrepared(id: String) {
+        viewModelScope.launch {
+            when (catalogRepository.markPrepared(id)) {
+                is ApiResult.Success -> loadOrderPreparations()
                 else -> Unit
             }
         }

@@ -89,7 +89,9 @@ data class ApprovalDto(
 )
 
 data class ReviewApprovalRequest(
-    val status: String
+    val status: String,
+    val allowPrices: Boolean? = null,
+    val showStock: Boolean? = null
 )
 
 data class PagedEnvelope<T>(
@@ -375,4 +377,48 @@ data class CustomerDebtDto(
     val currentBalance: Double,
     val lastTransactionAt: String? = null,
     val debtAgeDays: Int = 0
+)
+
+// ── Catalog Management DTOs ───────────────────────────────────────────────────
+
+data class CatalogCustomerDto(
+    val id: String,
+    val name: String,
+    val phone: String,
+    val hasAccess: Boolean,
+    val allowPrices: Boolean,
+    val showStock: Boolean,
+    val token: String? = null,
+    val lastViewedAt: String? = null,
+    val createdAt: String? = null
+)
+
+data class GrantCatalogAccessRequest(
+    val allowPrices: Boolean,
+    val showStock: Boolean
+)
+
+data class PatchCatalogAccessRequest(
+    val allowPrices: Boolean? = null,
+    val showStock: Boolean? = null
+)
+
+data class OrderPreparationItemDto(
+    val productId: String,
+    val productName: String,
+    val unit: String,
+    val quantity: Int,
+    val unitPrice: Double? = null,
+    val totalPrice: Double? = null
+)
+
+data class OrderPreparationDto(
+    val id: String,
+    val invoiceId: String,
+    val invoiceNumber: String,
+    val totalAmount: Double,
+    val customerName: String,
+    val customerPhone: String,
+    val items: List<OrderPreparationItemDto>,
+    val createdAt: String
 )

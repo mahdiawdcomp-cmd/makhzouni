@@ -27,9 +27,15 @@ import com.inventory.data.remote.dto.UpsertCustomerRequest
 import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.data.remote.dto.UserDto
 import com.inventory.data.remote.dto.VoucherDto
+import com.inventory.data.remote.dto.CatalogCustomerDto
+import com.inventory.data.remote.dto.GrantCatalogAccessRequest
+import com.inventory.data.remote.dto.OrderPreparationDto
+import com.inventory.data.remote.dto.PatchCatalogAccessRequest
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.HTTP
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -202,4 +208,30 @@ interface InventoryApi {
     suspend fun processVoiceInvoice(
         @Body body: com.inventory.data.remote.dto.VoiceCommandRequest
     ): retrofit2.Response<com.inventory.data.remote.dto.VoiceInvoiceResponse>
+
+    // ── Catalog Management ────────────────────────────────────────────────────
+    @GET("catalog-management")
+    suspend fun getCatalogCustomers(): ApiEnvelope<List<CatalogCustomerDto>>
+
+    @POST("catalog-management/{id}/grant")
+    suspend fun grantCatalogAccess(
+        @Path("id") id: String,
+        @Body body: GrantCatalogAccessRequest
+    ): ApiEnvelope<Any>
+
+    @PATCH("catalog-management/{id}")
+    suspend fun patchCatalogAccess(
+        @Path("id") id: String,
+        @Body body: PatchCatalogAccessRequest
+    ): ApiEnvelope<Any>
+
+    @HTTP(method = "DELETE", path = "catalog-management/{id}", hasBody = false)
+    suspend fun revokeCatalogAccess(@Path("id") id: String): ApiEnvelope<Any>
+
+    // ── Order Preparations ────────────────────────────────────────────────────
+    @GET("order-preparations")
+    suspend fun getOrderPreparations(): ApiEnvelope<List<OrderPreparationDto>>
+
+    @POST("order-preparations/{id}/mark-prepared")
+    suspend fun markOrderPrepared(@Path("id") id: String): ApiEnvelope<Any>
 }

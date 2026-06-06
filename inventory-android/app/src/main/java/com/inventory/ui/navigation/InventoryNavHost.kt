@@ -64,6 +64,7 @@ import com.inventory.ui.reports.DashboardReportScreen
 import com.inventory.ui.reports.ReportsScreen
 import com.inventory.ui.settings.SettingsScreen
 import com.inventory.ui.users.UserManagementScreen
+import com.inventory.ui.catalog.CatalogManagementScreen
 import com.inventory.ui.voice.VoiceInvoiceScreen
 
 @Composable
@@ -185,6 +186,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onSettings = { navController.navigate(Routes.Settings) },
                         onAccountLookup = { navController.navigate(Routes.AccountLookup) },
                         onVoiceInvoice  = { navController.navigate(Routes.VoiceInvoice) },
+                        onCatalogManagement = { navController.navigate(Routes.CatalogManagement) },
                     )
                 }
                 composable(Routes.Users) { UserManagementScreen(viewModel = hiltViewModel()) }
@@ -351,6 +353,12 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         },
                         onBack = { navController.popBackStack() },
                         viewModel = hiltViewModel(),
+                    )
+                }
+                composable(Routes.CatalogManagement) {
+                    CatalogManagementScreen(
+                        viewModel = hiltViewModel(),
+                        onBack = { navController.popBackStack() }
                     )
                 }
                 composable(Routes.DashboardReport) { DashboardReportScreen(viewModel = hiltViewModel()) }
