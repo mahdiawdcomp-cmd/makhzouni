@@ -209,6 +209,10 @@ export const listCustomersSchema = z.object({
       .enum(["true", "false"])
       .optional()
       .transform((value) => (value === undefined ? undefined : value === "true")),
+    includeDeleted: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((value) => value === "true"),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   }),
@@ -512,9 +516,15 @@ export const updateSettingsSchema = z.object({
       statementTemplate: z.string().trim().optional(),
       themePreset: z.enum(["classic", "iraqi", "exclusive", "bold", "designer"]).optional(),
       backupWhatsappNumber: z.string().trim().optional(),
+      catalogPublicUrl: z.string().trim().optional(),
+      catalogAdminWhatsappNumber: z.string().trim().optional(),
+      orderPreparationWhatsappNumbers: z.string().trim().optional(),
       autoSendDailySummary: z.boolean().optional(),
       dailySummaryWhatsappNumber: z.string().trim().optional(),
       dailySummaryHour: z.coerce.number().int().min(0).max(23).optional(),
+      whatsappProvider: z.enum(["web", "cloud"]).optional(),
+      whatsappCloudToken: z.string().trim().optional(),
+      whatsappCloudPhoneNumberId: z.string().trim().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",
