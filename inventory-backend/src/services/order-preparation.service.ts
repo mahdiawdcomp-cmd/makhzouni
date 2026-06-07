@@ -1,8 +1,10 @@
+import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { sendWhatsAppText } from "./whatsapp.service";
-import { getSettings } from "./settings.service";
 import { logger } from "../utils/logger";
+import { generateInvoicePdf } from "./invoice-export.service";
+import { getSettings } from "./settings.service";
+import { sendWhatsAppPdf, sendWhatsAppText } from "./whatsapp.service";
 
 type PreparationItem = {
   productId: string;
@@ -13,28 +15,99 @@ type PreparationItem = {
   totalPrice?: number;
 };
 
+const retryDelays = [3000, 8000, 15000, 30000];
+
 function unitAr(unit: string) {
   if (unit === "CARTON") return "كارتون";
   if (unit === "DOZEN") return "درزن";
   return "قطعة";
 }
 
+function money(value: number) {
+  return Number(value ?? 0).toLocaleString("en-US");
+}
+
+function catalogBaseUrl(settings: Awaited<ReturnType<typeof getSettings>> | null) {
+  const configured = settings?.catalogPublicUrl?.trim() || process.env.PUBLIC_CATALOG_URL?.trim();
+  return (configured || "https://inventory-web-six-kohl.vercel.app/catalog").replace(/\/$/, "");
+}
+
+function catalogUrl(settings: Awaited<ReturnType<typeof getSettings>> | null, urlPath?: string) {
+  const base = catalogBaseUrl(settings);
+  if (!urlPath) return base;
+  if (urlPath.startsWith("http://") || urlPath.startsWith("https://")) return urlPath;
+  const query = urlPath.includes("?") ? urlPath.slice(urlPath.indexOf("?")) : "";
+  return `${base}${query}`;
+}
+
+function adminPhone(settings: Awaited<ReturnType<typeof getSettings>> | null) {
+  return settings?.catalogAdminWhatsappNumber?.trim() || settings?.backupWhatsappNumber?.trim() || "";
+}
+
+function preparationPhones(settings: Awaited<ReturnType<typeof getSettings>> | null) {
+  const raw = settings?.orderPreparationWhatsappNumbers ?? "";
+  return raw
+    .split(/[\n,،;]+/)
+    .map((phone) => phone.trim())
+    .filter(Boolean);
+}
+
+function itemLines(items: PreparationItem[]) {
+  return items.map((item) => `- ${item.productName}: ${item.quantity} ${unitAr(item.unit)}`).join("\n");
+}
+
+function scheduleTextRetry(phone: string, message: string, attempt = 0) {
+  const delay = retryDelays[attempt];
+  if (!delay) return;
+  setTimeout(async () => {
+    try {
+      await sendWhatsAppText(phone, message);
+      logger.info(`[WhatsApp] Retry sent to ${phone} (attempt ${attempt + 1})`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[WhatsApp] Retry failed to ${phone} (attempt ${attempt + 1}): ${msg}`);
+      scheduleTextRetry(phone, message, attempt + 1);
+    }
+  }, delay);
+}
+
+function scheduleInvoiceRetry(phone: string, message: string, invoiceId: string, invoiceNumber: string, attempt = 0) {
+  const delay = retryDelays[attempt];
+  if (!delay) return;
+  setTimeout(async () => {
+    try {
+      const pdf = await generateInvoicePdf(invoiceId);
+      await sendWhatsAppPdf(phone, message, pdf, `${invoiceNumber}.pdf`);
+      logger.info(`[WhatsApp] Invoice PDF retry sent to ${phone} (attempt ${attempt + 1})`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(`[WhatsApp] Invoice PDF retry failed to ${phone} (attempt ${attempt + 1}): ${msg}`);
+      scheduleInvoiceRetry(phone, message, invoiceId, invoiceNumber, attempt + 1);
+    }
+  }, delay);
+}
+
 async function safeSendWA(phone: string, message: string) {
   try {
     await sendWhatsAppText(phone, message);
     logger.info(`[WhatsApp] Sent to ${phone}`);
-  } catch (firstErr) {
-    const msg1 = (firstErr as Error)?.message ?? String(firstErr);
-    logger.warn(`[WhatsApp] Send failed (attempt 1) to ${phone}: ${msg1} — retrying in 40s`);
-    // Wait 40s for WhatsApp to auto-restart (triggerRestart schedules 10s delay)
-    await new Promise((resolve) => setTimeout(resolve, 40_000));
-    try {
-      await sendWhatsAppText(phone, message);
-      logger.info(`[WhatsApp] Sent to ${phone} (retry succeeded)`);
-    } catch (secondErr) {
-      const msg2 = (secondErr as Error)?.message ?? String(secondErr);
-      logger.warn(`[WhatsApp] Send failed (attempt 2) to ${phone}: ${msg2} — giving up`);
-    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] Send failed to ${phone}: ${msg}`);
+    scheduleTextRetry(phone, message);
+  }
+}
+
+async function safeSendInvoicePdf(phone: string, message: string, invoiceId: string, invoiceNumber: string) {
+  try {
+    const pdf = await generateInvoicePdf(invoiceId);
+    await sendWhatsAppPdf(phone, message, pdf, `${invoiceNumber}.pdf`);
+    logger.info(`[WhatsApp] Invoice PDF sent to ${phone}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] Invoice PDF send failed to ${phone}: ${msg}`);
+    await safeSendWA(phone, message);
+    scheduleInvoiceRetry(phone, message, invoiceId, invoiceNumber);
   }
 }
 
@@ -49,7 +122,7 @@ export async function createOrderPreparation(
       invoiceId,
       customerName,
       customerPhone,
-      items: items as unknown as import("@prisma/client").Prisma.InputJsonValue,
+      items: items as unknown as Prisma.InputJsonValue,
     },
   });
 }
@@ -101,76 +174,129 @@ export async function markPrepared(preparationId: string, userId: string) {
     },
   });
 
-  // WhatsApp to customer — step 3 of the flow
-  const msg =
-    `🚀 *مرحباً ${prep.customerName}!*\n\n` +
-    `تم تجهيز طلبك بنجاح وهو في طريقه إليك 📦✨\n\n` +
-    `شكراً لثقتك بنا 💚`;
-
-  await safeSendWA(prep.customerPhone, msg);
+  // Text only — customer already received the PDF when the order was approved
+  await safeSendWA(prep.customerPhone, "طلبك تجهز وكامل وهو بطريقه اليك 🎉");
 
   return prep;
 }
 
-/** Called when a catalog order is submitted by the customer (before approval).
- *  Sends WhatsApp to admin backup number + confirmation to customer. */
+export async function notifyCatalogAccessRequested(
+  customerName: string,
+  customerPhone: string,
+  address?: string,
+  notes?: string,
+) {
+  const settings = await getSettings().catch(() => null);
+  const admin = adminPhone(settings);
+
+  await safeSendWA(customerPhone, "لقد تم تقديم طلبك للدخول الى المتجر الالكتروني");
+
+  if (admin) {
+    const parts = [
+      "طلب دخول كتلوك معلق",
+      "",
+      `الزبون: ${customerName}`,
+      `الهاتف: ${customerPhone}`,
+      address ? `العنوان: ${address}` : "",
+      notes ? `ملاحظات: ${notes}` : "",
+      "",
+      "راجع صفحة الموافقات حتى تسمح له بالدخول وتحدد هل يشوف الأسعار أو لا.",
+    ].filter(Boolean);
+    await safeSendWA(admin, parts.join("\n"));
+  }
+}
+
+export async function notifyCatalogAccessApproved(
+  customerName: string,
+  customerPhone: string,
+  urlPath: string,
+  _allowPrices: boolean,
+) {
+  const settings = await getSettings().catch(() => null);
+  const url = catalogUrl(settings, urlPath);
+  await safeSendWA(
+    customerPhone,
+    `لقد تم الموافقه على طلبك يمكنك الدخول عبر الرابط\n${url}`,
+  );
+}
+
 export async function notifyCatalogOrderSubmitted(
   customerName: string,
   customerPhone: string,
   items: PreparationItem[],
 ) {
   const settings = await getSettings().catch(() => null);
-  const adminPhone = settings?.backupWhatsappNumber;
+  const admin = adminPhone(settings);
 
-  const itemLines = items
-    .map((i) => `• ${i.productName}: ${i.quantity} ${unitAr(i.unit)}`)
-    .join("\n");
+  await safeSendWA(customerPhone, "تم تثبيت الفاتورة وفي انتضار الموافقه والتجهيز");
 
-  // To customer
-  const customerMsg =
-    `🛍️ *تم استلام طلبك!*\n\n` +
-    `مرحباً ${customerName}،\n` +
-    `وصلنا طلبك وجاري مراجعته من قبل الإدارة.\n\n` +
-    `📋 *تفاصيل طلبك:*\n${itemLines}\n\n` +
-    `سنتواصل معك بعد الموافقة 🌟`;
-
-  await safeSendWA(customerPhone, customerMsg);
-
-  // To admin
-  if (adminPhone) {
-    const adminMsg =
-      `🔔 *طلب كاتلوك جديد!*\n\n` +
-      `الزبون: ${customerName}\n` +
-      `الهاتف: ${customerPhone}\n\n` +
-      `📦 المواد المطلوبة:\n${itemLines}\n\n` +
-      `يرجى الدخول على صفحة الموافقات للمراجعة.`;
-    await safeSendWA(adminPhone, adminMsg);
+  if (admin) {
+    await safeSendWA(
+      admin,
+      [
+        "طلب فاتورة من الكتلوك",
+        "",
+        `الزبون: ${customerName}`,
+        `الهاتف: ${customerPhone}`,
+        "",
+        "المواد المطلوبة:",
+        itemLines(items),
+        "",
+        "روح لصفحة الموافقات، اقرأ الطلب، وإذا مضبوط وافق عليه.",
+      ].join("\n"),
+    );
   }
 
-  // Create system notification in DB
   await prisma.notification.create({
     data: {
       type: "CATALOG_ORDER_PENDING",
-      message: `طلب كاتلوك جديد من ${customerName} — ${items.length} صنف`,
+      message: `طلب كتلوك جديد من ${customerName} - ${items.length} صنف`,
     },
   });
 }
 
-/** Called when admin approves a catalog order (invoice just created).
- *  Sends WhatsApp approval confirmation + invoice summary to customer. */
 export async function notifyCatalogOrderApproved(
   customerName: string,
   customerPhone: string,
+  invoiceId: string,
   invoiceNumber: string,
   totalAmount: number,
   currency: string,
 ) {
-  const msg =
-    `✅ *السلام عليكم ${customerName}!*\n\n` +
-    `تمت الموافقة على فاتورتك من قبل الإدارة 🎉\n\n` +
-    `📄 فاتورة رقم: *${invoiceNumber}*\n` +
-    `💰 المجموع: *${Number(totalAmount).toLocaleString("en-US")} ${currency}*\n\n` +
-    `⏳ سيتم تجهيز طلبك في أقرب وقت ✨`;
+  const message = [
+    `مرحبا ${customerName}`,
+    "",
+    "تمت الموافقة على طلبك وسيتم تجهيزه باسرع وقت.",
+    "",
+    `رقم الفاتورة: ${invoiceNumber}`,
+    `المجموع: ${money(totalAmount)} ${currency}`,
+  ].join("\n");
 
-  await safeSendWA(customerPhone, msg);
+  // Send the invoice PDF to the customer
+  await safeSendInvoicePdf(customerPhone, message, invoiceId, invoiceNumber);
+}
+
+export async function notifyPreparationStaff(
+  customerName: string,
+  _customerPhone: string,
+  invoiceId: string,
+  invoiceNumber: string,
+  _totalAmount: number,
+  _currency: string,
+  items: PreparationItem[],
+) {
+  const settings = await getSettings().catch(() => null);
+  const phones = preparationPhones(settings);
+  if (phones.length === 0) return;
+
+  const msg = [
+    `مرحبا لديك فاتورة باسم ${customerName} بيها ${items.length} صنف`,
+    "",
+    itemLines(items),
+    "",
+    "يرجى تجهيزها بأسرع وقت.",
+  ].join("\n");
+
+  // Send invoice PDF to each preparation staff member
+  await Promise.all(phones.map((phone) => safeSendInvoicePdf(phone, msg, invoiceId, invoiceNumber)));
 }

@@ -58,9 +58,15 @@ const fallbackSettings: AppSettings = {
   invoiceTemplate: "",
   voucherTemplate: "",
   statementTemplate: "",
+  catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
+  catalogAdminWhatsappNumber: "",
+  orderPreparationWhatsappNumbers: "",
   autoSendDailySummary: false,
   dailySummaryWhatsappNumber: "",
   dailySummaryHour: 21,
+  whatsappProvider: "web",
+  whatsappCloudToken: "",
+  whatsappCloudPhoneNumberId: "",
 }
 
 function downloadText(filename: string, content: string, type: string) {
@@ -278,6 +284,106 @@ export function SettingsPage() {
       {activeTab === "whatsapp" && (
         <>
         <WhatsAppConnectCard status={waQuery.data ?? null} onRestart={() => waRestartMutation.mutate()} restarting={waRestartMutation.isPending} />
+        <Card>
+          <CardContent className="p-5 space-y-4">
+            <SectionTitle>تنبيهات الكتالوج وتجهيز الطلبات</SectionTitle>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="رقمك الخاص لاستقبال طلبات الكتالوج">
+                <Input
+                  value={settings.catalogAdminWhatsappNumber ?? ""}
+                  onChange={(e) => upd("catalogAdminWhatsappNumber", e.target.value)}
+                  placeholder="9647xxxxxxxx"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="رابط الكتالوج العام">
+                <Input
+                  value={settings.catalogPublicUrl ?? ""}
+                  onChange={(e) => upd("catalogPublicUrl", e.target.value)}
+                  placeholder="https://inventory-web-six-kohl.vercel.app/catalog"
+                  dir="ltr"
+                />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="أرقام موظفين التجهيز">
+                  <textarea
+                    className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                    value={settings.orderPreparationWhatsappNumbers ?? ""}
+                    onChange={(e) => upd("orderPreparationWhatsappNumbers", e.target.value)}
+                    placeholder={"9647xxxxxxxx\n9647xxxxxxxx"}
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  اكتب كل رقم بسطر، أو افصل الأرقام بفارزة. إذا تركت رقمك الخاص فارغ يستخدم رقم النسخ الاحتياطي كبديل.
+                </p>
+              </div>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                catalogAdminWhatsappNumber: settings.catalogAdminWhatsappNumber,
+                catalogPublicUrl: settings.catalogPublicUrl,
+                orderPreparationWhatsappNumbers: settings.orderPreparationWhatsappNumbers,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5 space-y-4">
+            <SectionTitle>إعداد واتساب Cloud API للإنتاج</SectionTitle>
+            <div className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300 space-y-1">
+              <p className="font-semibold">لإرسال الواتساب من السيرفر السحابي (Railway) بشكل موثوق:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>اذهب إلى <strong>Meta for Developers</strong> وأنشئ تطبيقاً من نوع WhatsApp Business</li>
+                <li>احصل على <strong>Access Token</strong> و<strong>Phone Number ID</strong></li>
+                <li>أدخلهم أدناه واختر "Cloud API"</li>
+                <li>فعّل <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">ENABLE_WHATSAPP=true</code> في Railway</li>
+              </ol>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="نوع الاتصال">
+                <select
+                  className="h-10 w-full rounded-md border bg-white px-3 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                  value={settings.whatsappProvider ?? "web"}
+                  onChange={(e) => upd("whatsappProvider", e.target.value as "web" | "cloud")}
+                >
+                  <option value="web">QR Code (محلي فقط)</option>
+                  <option value="cloud">Cloud API (موصى به للإنتاج)</option>
+                </select>
+              </Field>
+              <Field label="Phone Number ID">
+                <Input
+                  value={settings.whatsappCloudPhoneNumberId ?? ""}
+                  onChange={(e) => upd("whatsappCloudPhoneNumberId", e.target.value)}
+                  placeholder="123456789012345"
+                  dir="ltr"
+                />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="Access Token">
+                  <Input
+                    type="password"
+                    value={settings.whatsappCloudToken ?? ""}
+                    onChange={(e) => upd("whatsappCloudToken", e.target.value)}
+                    placeholder="EAAxxxxx..."
+                    dir="ltr"
+                  />
+                </Field>
+              </div>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                whatsappProvider: settings.whatsappProvider,
+                whatsappCloudToken: settings.whatsappCloudToken,
+                whatsappCloudPhoneNumberId: settings.whatsappCloudPhoneNumberId,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-5 space-y-4">
             <SectionTitle>قوالب رسائل الواتساب</SectionTitle>
@@ -625,10 +731,16 @@ function WhatsAppConnectCard({
           </p>
         )}
 
+        {status?.provider === "web" && (
+          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            WhatsApp Web QR on cloud hosting can fail or expire. For reliable automatic messages, configure WhatsApp Cloud API.
+          </p>
+        )}
+
         <Button
           variant="outline"
           onClick={onRestart}
-          disabled={restarting || state === "INITIALIZING" || state === "QR"}
+          disabled={restarting || state === "INITIALIZING"}
         >
           <RefreshCw className={`h-4 w-4 ${restarting ? "animate-spin" : ""}`} />
           {restarting ? "جاري إعادة التشغيل..." : "إعادة ربط الواتساب"}

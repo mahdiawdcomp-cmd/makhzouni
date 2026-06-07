@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
+import { setCloudCredentials } from "./whatsapp.service";
 
 export interface AppSettings {
   debtReminderDays: number;
@@ -19,10 +20,18 @@ export interface AppSettings {
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
   backupWhatsappNumber?: string;
+  // Public catalog / WhatsApp workflow
+  catalogPublicUrl?: string;
+  catalogAdminWhatsappNumber?: string;
+  orderPreparationWhatsappNumbers?: string;
   // Daily summary
   autoSendDailySummary: boolean;
   dailySummaryWhatsappNumber?: string;
   dailySummaryHour: number;
+  // WhatsApp Cloud API credentials (stored in DB so admin can configure from UI)
+  whatsappProvider?: "web" | "cloud";
+  whatsappCloudToken?: string;
+  whatsappCloudPhoneNumberId?: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -42,9 +51,15 @@ export const defaultSettings: AppSettings = {
   statementTemplate:
     "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
   themePreset: "classic",
+  catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
+  catalogAdminWhatsappNumber: "",
+  orderPreparationWhatsappNumbers: "",
   autoSendDailySummary: false,
   dailySummaryWhatsappNumber: "",
   dailySummaryHour: 21,
+  whatsappProvider: "web",
+  whatsappCloudToken: "",
+  whatsappCloudPhoneNumberId: "",
 };
 
 export async function getSettings(): Promise<AppSettings> {
@@ -55,7 +70,16 @@ export async function getSettings(): Promise<AppSettings> {
     values[row.key] = row.value;
   }
 
-  return values as unknown as AppSettings;
+  const settings = values as unknown as AppSettings;
+
+  // Sync WhatsApp Cloud credentials into the WA service module
+  setCloudCredentials(
+    settings.whatsappCloudToken ?? "",
+    settings.whatsappCloudPhoneNumberId ?? "",
+    settings.whatsappProvider,
+  );
+
+  return settings;
 }
 
 export async function updateSettings(input: Partial<AppSettings>) {
@@ -72,5 +96,6 @@ export async function updateSettings(input: Partial<AppSettings>) {
     });
   }
 
+  // getSettings() re-syncs WhatsApp credentials automatically
   return getSettings();
 }

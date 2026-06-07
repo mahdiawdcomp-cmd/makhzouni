@@ -10,6 +10,7 @@ import { auditLogMiddleware } from "./middleware/audit-log.middleware";
 import { AppError } from "./utils/app-error";
 import { startNotificationJobs } from "./services/notification-jobs.service";
 import { initializeWhatsApp } from "./services/whatsapp.service";
+import { getSettings } from "./services/settings.service";
 import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger } from "./utils/logger";
 
@@ -56,7 +57,11 @@ process.on("unhandledRejection", (reason) => {
 app.listen(port, "0.0.0.0", () => {
   logger.info(`Inventory backend is running on port ${port}`);
   startNotificationJobs();
-  // WhatsApp only runs when explicitly enabled (requires local Chrome)
+
+  // Load DB settings to sync WhatsApp Cloud API credentials into the WA service
+  getSettings().catch((e) => logger.warn("Failed to preload settings:", e));
+
+  // WhatsApp only runs when explicitly enabled (requires local Chrome for web provider)
   if (process.env.ENABLE_WHATSAPP === "true") {
     try { initializeWhatsApp(); } catch (e) { console.warn("WhatsApp init skipped:", e); }
   }

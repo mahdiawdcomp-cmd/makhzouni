@@ -194,6 +194,7 @@ export interface Customer {
   lastTransactionAt?: string | null
   createdAt?: string
   updatedAt?: string
+  deletedAt?: string | null
 }
 
 export interface CustomerPayload {
@@ -457,9 +458,16 @@ export interface AppSettings {
   statementTemplate?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
+  catalogPublicUrl?: string
+  catalogAdminWhatsappNumber?: string
+  orderPreparationWhatsappNumbers?: string
   autoSendDailySummary?: boolean
   dailySummaryWhatsappNumber?: string
   dailySummaryHour?: number
+  // WhatsApp Cloud API credentials
+  whatsappProvider?: "web" | "cloud"
+  whatsappCloudToken?: string
+  whatsappCloudPhoneNumberId?: string
 }
 
 export interface MessageTemplate {

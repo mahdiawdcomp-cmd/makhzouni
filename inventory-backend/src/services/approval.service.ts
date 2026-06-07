@@ -21,7 +21,9 @@ import {
 } from "./product.service";
 import {
   createOrderPreparation,
+  notifyCatalogAccessApproved,
   notifyCatalogOrderApproved,
+  notifyPreparationStaff,
 } from "./order-preparation.service";
 import { getSettings } from "./settings.service";
 
@@ -172,7 +174,16 @@ async function executeApprovedRequest(
             },
           });
 
-      return createCatalogAccessLink(tx, customer.id, Boolean(options?.allowPrices), options?.showStock ?? true);
+      const link = await createCatalogAccessLink(tx, customer.id, Boolean(options?.allowPrices), options?.showStock ?? true);
+      setImmediate(() => {
+        notifyCatalogAccessApproved(
+          customer.name,
+          customer.phone,
+          link.urlPath,
+          link.allowPrices,
+        ).catch((err) => console.error("[CatalogAccess] approval notify failed:", err));
+      });
+      return link;
     }
     case approvalRequestTypes.CATALOG_ORDER: {
       const body = data.body as {
@@ -275,9 +286,26 @@ async function executeApprovedRequest(
           await notifyCatalogOrderApproved(
             customerName,
             phone,
+            invoice.id,
             invoice.invoiceNumber,
             Number(invoice.totalAmount),
             currency,
+          );
+          await notifyPreparationStaff(
+            customerName,
+            phone,
+            invoice.id,
+            invoice.invoiceNumber,
+            Number(invoice.totalAmount),
+            currency,
+            prepItems.map((item) => ({
+              productId: item.productId ?? "",
+              productName: item.productName ?? item.productId ?? "",
+              unit: item.unit,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              totalPrice: item.totalPrice,
+            })),
           );
         } catch (err) {
           console.error("[CatalogOrder] post-approval tasks failed:", err);
