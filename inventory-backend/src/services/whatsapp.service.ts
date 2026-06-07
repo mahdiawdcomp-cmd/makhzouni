@@ -6,7 +6,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
-type WhatsAppProvider = "web" | "cloud";
+type WhatsAppProvider = "web" | "cloud" | "greenapi";
 
 let client: Client | null = null;
 let state: WhatsAppState = "DISCONNECTED";
@@ -20,10 +20,12 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 const authDataPath = process.env.WHATSAPP_AUTH_PATH?.trim() || ".wwebjs_auth";
 const graphVersion = process.env.WHATSAPP_CLOUD_GRAPH_VERSION?.trim() || "v20.0";
 
-// DB-sourced credential overrides (set via setCloudCredentials at startup + settings update)
+// DB-sourced credential overrides
 let _dbCloudToken = "";
 let _dbCloudPhoneNumberId = "";
 let _dbProviderOverride: WhatsAppProvider | null = null;
+let _greenApiInstanceId = "";
+let _greenApiToken = "";
 
 /** Called by settings service when credentials change, and at server startup */
 export function setCloudCredentials(token: string, phoneNumberId: string, providerOverride?: string) {
@@ -31,24 +33,94 @@ export function setCloudCredentials(token: string, phoneNumberId: string, provid
   _dbCloudPhoneNumberId = phoneNumberId?.trim() ?? "";
   _dbProviderOverride =
     providerOverride === "cloud" ? "cloud" :
+    providerOverride === "greenapi" ? "greenapi" :
     providerOverride === "web" ? "web" :
     null;
 }
 
+export function setGreenApiCredentials(instanceId: string, token: string) {
+  _greenApiInstanceId = instanceId?.trim() ?? "";
+  _greenApiToken = token?.trim() ?? "";
+}
+
 function provider(): WhatsAppProvider {
-  if (_dbProviderOverride === "cloud") return "cloud";
+  // env override takes priority
   const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
+  if (configured === "greenapi") return "greenapi";
   if (configured === "cloud") return "cloud";
-  const hasEnvToken = Boolean(process.env.WHATSAPP_CLOUD_TOKEN?.trim() && process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim());
-  const hasDbToken = Boolean(_dbCloudToken && _dbCloudPhoneNumberId);
-  if (hasEnvToken || hasDbToken) return "cloud";
-  if (_dbProviderOverride === "web") return "web";
+
+  // DB override
+  if (_dbProviderOverride === "greenapi") return "greenapi";
+  if (_dbProviderOverride === "cloud") return "cloud";
+
+  // auto-detect from credentials
+  const hasGreenApi = Boolean(
+    (process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId) &&
+    (process.env.GREENAPI_TOKEN?.trim() || _greenApiToken),
+  );
+  if (hasGreenApi) return "greenapi";
+
+  const hasCloud = Boolean(
+    (process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken) &&
+    (process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId),
+  );
+  if (hasCloud) return "cloud";
+
   return "web";
 }
 
 function whatsappEnabled() {
   return process.env.ENABLE_WHATSAPP === "true";
 }
+
+// ── Green API ────────────────────────────────────────────────────────────────
+
+function greenApiConfig() {
+  const instanceId = process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId;
+  const token = process.env.GREENAPI_TOKEN?.trim() || _greenApiToken;
+  if (!instanceId || !token) throw new AppError("Green API is not configured", 503, "GREENAPI_NOT_CONFIGURED");
+  return { instanceId, token, baseUrl: `https://api.green-api.com/waInstance${instanceId}` };
+}
+
+function normalizeGreenPhone(phone: string) {
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = `964${digits.slice(1)}`;
+  if (digits.startsWith("7")) digits = `964${digits}`;
+  return `${digits}@c.us`;
+}
+
+async function sendGreenApiText(phone: string, message: string) {
+  const { baseUrl, token } = greenApiConfig();
+  const chatId = normalizeGreenPhone(phone);
+  const res = await fetch(`${baseUrl}/sendMessage/${token}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chatId, message }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new AppError(`Green API send failed: ${text}`, 502, "GREENAPI_SEND_FAILED");
+  }
+}
+
+async function sendGreenApiDocument(phone: string, pdf: Buffer, filename: string, caption: string) {
+  const { baseUrl, token } = greenApiConfig();
+  const chatId = normalizeGreenPhone(phone);
+  const form = new FormData();
+  const bytes = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
+  form.append("chatId", chatId);
+  form.append("caption", caption);
+  form.append("fileName", filename);
+  form.append("file", new Blob([bytes], { type: "application/pdf" }), filename);
+  const res = await fetch(`${baseUrl}/sendFileByUpload/${token}`, { method: "POST", body: form });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new AppError(`Green API file send failed: ${text}`, 502, "GREENAPI_FILE_FAILED");
+  }
+}
+
+// ── Meta Cloud API ───────────────────────────────────────────────────────────
 
 function cloudConfig() {
   const token = process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken;
@@ -381,13 +453,20 @@ export async function restartWhatsApp() {
   initializeWhatsApp();
 }
 
-/** Send a text message. Auto-restarts WhatsApp if the page frame is dead. */
+/** Send a text message. */
 export async function sendWhatsAppText(phone: string, message: string): Promise<{ to: string; message: string }> {
   if (!whatsappEnabled()) {
     throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
   }
 
-  if (provider() === "cloud") {
+  const prov = provider();
+
+  if (prov === "greenapi") {
+    await sendGreenApiText(phone, message);
+    return { to: phone, message };
+  }
+
+  if (prov === "cloud") {
     const to = normalizeCloudPhone(phone);
     await sendCloudMessage({
       to,
@@ -424,7 +503,14 @@ export async function sendWhatsAppPdf(
     throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
   }
 
-  if (provider() === "cloud") {
+  const prov = provider();
+
+  if (prov === "greenapi") {
+    await sendGreenApiDocument(phone, pdf, filename, message);
+    return { to: phone, filename };
+  }
+
+  if (prov === "cloud") {
     const to = normalizeCloudPhone(phone);
     const mediaId = await uploadCloudMedia(pdf, filename);
     await sendCloudMessage({
