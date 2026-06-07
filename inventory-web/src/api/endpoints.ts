@@ -94,6 +94,16 @@ export async function getMyApprovals() {
   return data.data ?? []
 }
 
+export async function sendCatalogOtp(phone: string) {
+  const { data } = await api.post<ApiEnvelope<never>>("/public/otp/send", { phone })
+  return data
+}
+
+export async function verifyCatalogOtp(phone: string, code: string) {
+  const { data } = await api.post<ApiEnvelope<never>>("/public/otp/verify", { phone, code })
+  return data
+}
+
 export async function requestCatalogAccess(payload: CatalogAccessRequestPayload) {
   const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/access/request", payload)
   return data
@@ -213,13 +223,19 @@ export async function productCartonSheetPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
-export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number }) {
+export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean }) {
   const { data } = await api.get<PagedResponse<Customer>>("/customers", { params })
   return data.data ?? []
 }
 
 export async function getCustomer(id: string) {
   const { data } = await api.get<ApiEnvelope<Customer>>(`/customers/${id}`)
+  return data.data
+}
+
+/** Fetch a customer including soft-deleted ones — for account lookup */
+export async function getCustomerAny(id: string) {
+  const { data } = await api.get<ApiEnvelope<Customer>>(`/customers/${id}/any`)
   return data.data
 }
 
@@ -551,6 +567,9 @@ export async function sendWhatsAppMessage(payload: { phone: string; message: str
 export type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR"
 
 export interface WhatsAppStatus {
+  provider: "web" | "cloud"
+  enabled: boolean
+  cloudConfigured: boolean
   initialized: boolean
   state: WhatsAppState
   isReady: boolean

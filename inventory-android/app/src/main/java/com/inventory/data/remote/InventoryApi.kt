@@ -1,10 +1,18 @@
 package com.inventory.data.remote
 
 import com.inventory.data.remote.dto.ApiEnvelope
+import com.inventory.data.remote.dto.AgentChatRequest
+import com.inventory.data.remote.dto.AgentChatResponse
 import com.inventory.data.remote.dto.ApprovalDto
 import com.inventory.data.remote.dto.BranchDto
+import com.inventory.data.remote.dto.BranchRequest
+import com.inventory.data.remote.dto.CouponDto
+import com.inventory.data.remote.dto.CouponRequest
 import com.inventory.data.remote.dto.CreateVoucherRequest
 import com.inventory.data.remote.dto.CreateInvoiceRequest
+import com.inventory.data.remote.dto.CreateQuotationRequest
+import com.inventory.data.remote.dto.CreateTransferRequest
+import com.inventory.data.remote.dto.AuditLogDto
 import com.inventory.data.remote.dto.CustomerDebtDto
 import com.inventory.data.remote.dto.CreateUserRequest
 import com.inventory.data.remote.dto.CustomerBalanceDto
@@ -20,8 +28,11 @@ import com.inventory.data.remote.dto.InventoryValuationDto
 import com.inventory.data.remote.dto.InvoiceDto
 import com.inventory.data.remote.dto.ProductDto
 import com.inventory.data.remote.dto.ProductMovementResponse
+import com.inventory.data.remote.dto.QuotationDto
 import com.inventory.data.remote.dto.ReviewApprovalRequest
 import com.inventory.data.remote.dto.SalesReportDto
+import com.inventory.data.remote.dto.TransferDto
+import com.inventory.data.remote.dto.UpdateQuotationStatusRequest
 import com.inventory.data.remote.dto.UpdateUserRequest
 import com.inventory.data.remote.dto.UpsertCustomerRequest
 import com.inventory.data.remote.dto.UpsertProductRequest
@@ -47,6 +58,11 @@ interface InventoryApi {
 
     @POST("auth/logout")
     suspend fun logout(): ApiEnvelope<Unit>
+
+    @POST("agent/chat")
+    suspend fun agentChat(
+        @Body body: AgentChatRequest
+    ): retrofit2.Response<AgentChatResponse>
 
     @GET("users")
     suspend fun getUsers(): ApiEnvelope<List<UserDto>>
@@ -109,6 +125,18 @@ interface InventoryApi {
     @GET("branches")
     suspend fun getBranches(): ApiEnvelope<List<BranchDto>>
 
+    @GET("branches/summaries")
+    suspend fun getBranchSummaries(): ApiEnvelope<List<Any>>
+
+    @POST("branches")
+    suspend fun createBranch(@Body body: BranchRequest): ApiEnvelope<BranchDto>
+
+    @PUT("branches/{id}")
+    suspend fun updateBranch(
+        @Path("id") id: String,
+        @Body body: BranchRequest
+    ): ApiEnvelope<BranchDto>
+
     @GET("customers")
     suspend fun getCustomers(
         @Query("search") search: String? = null,
@@ -159,6 +187,7 @@ interface InventoryApi {
     suspend fun getInvoices(
         @Query("from") from: String? = null,
         @Query("to") to: String? = null,
+        @Query("type") type: String? = null,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 100
     ): PaginationEnvelope<InvoiceDto>
@@ -183,6 +212,58 @@ interface InventoryApi {
 
     @GET("invoices/{id}/image")
     suspend fun invoiceImage(@Path("id") id: String): okhttp3.ResponseBody
+
+    @POST("invoices/{id}/reactivate")
+    suspend fun reactivateInvoice(@Path("id") id: String): ApiEnvelope<InvoiceDto>
+
+    @GET("quotations")
+    suspend fun getQuotations(
+        @Query("status") status: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 100
+    ): PaginationEnvelope<QuotationDto>
+
+    @POST("quotations")
+    suspend fun createQuotation(@Body body: CreateQuotationRequest): ApiEnvelope<QuotationDto>
+
+    @PATCH("quotations/{id}/status")
+    suspend fun updateQuotationStatus(
+        @Path("id") id: String,
+        @Body body: UpdateQuotationStatusRequest
+    ): ApiEnvelope<QuotationDto>
+
+    @POST("quotations/{id}/convert")
+    suspend fun convertQuotation(@Path("id") id: String): ApiEnvelope<InvoiceDto>
+
+    @GET("transfers")
+    suspend fun getTransfers(
+        @Query("branchId") branchId: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 100
+    ): PaginationEnvelope<TransferDto>
+
+    @POST("transfers")
+    suspend fun createTransfer(@Body body: CreateTransferRequest): TransferDto
+
+    @GET("coupons")
+    suspend fun getCoupons(): ApiEnvelope<List<CouponDto>>
+
+    @POST("coupons")
+    suspend fun createCoupon(@Body body: CouponRequest): ApiEnvelope<CouponDto>
+
+    @PUT("coupons/{id}")
+    suspend fun updateCoupon(
+        @Path("id") id: String,
+        @Body body: CouponRequest
+    ): ApiEnvelope<CouponDto>
+
+    @GET("audit-logs")
+    suspend fun getAuditLogs(
+        @Query("entity") entity: String? = null,
+        @Query("action") action: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 100
+    ): PaginationEnvelope<AuditLogDto>
 
     @GET("reports/dashboard")
     suspend fun dashboardReport(): ApiEnvelope<DashboardReportDto>

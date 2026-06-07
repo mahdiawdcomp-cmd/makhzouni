@@ -5,7 +5,7 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Check, Copy, ExternalLink, Eye, ShoppingCart, X } from "lucide-react"
+import { Check, Copy, ExternalLink, Eye, ShoppingCart, UserPlus, X } from "lucide-react"
 import { useApprovals } from "../hooks/useApprovals"
 import type { Approval } from "../types/api"
 import { Badge } from "../components/ui/badge"
@@ -22,6 +22,9 @@ type ApprovalData = {
   address?: string
   notes?: string
   subtotal?: number
+  customerId?: string
+  isFirstOrder?: boolean
+  isExistingCustomer?: boolean
   displayItems?: Array<{
     productId: string
     productName: string
@@ -92,9 +95,16 @@ export function ApprovalsPage() {
           if (row.original.requestType === "CATALOG_ORDER") {
             return (
               <div className="space-y-0.5">
-                <div className="font-semibold">{data.customerName ?? "-"}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold">{data.customerName ?? "-"}</span>
+                  {data.isFirstOrder && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                      أول طلب
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-slate-500">
-                  {data.phone ?? "-"} - {money(data.subtotal)} د.ع
+                  {data.phone ?? "-"} — {money(data.subtotal)} د.ع
                 </div>
               </div>
             )
@@ -102,9 +112,20 @@ export function ApprovalsPage() {
           if (row.original.requestType === "CATALOG_ACCESS") {
             return (
               <div className="space-y-0.5">
-                <div className="font-semibold">{data.customerName ?? "-"}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold">{data.customerName ?? "-"}</span>
+                  {data.isExistingCustomer ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                      موجود
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                      جديد
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-slate-500">
-                  {data.phone ?? "-"} - طلب دخول كتالوج
+                  {data.phone ?? "-"} — طلب دخول كتالوج
                 </div>
               </div>
             )
@@ -131,7 +152,16 @@ export function ApprovalsPage() {
         id: "actions",
         header: "الإجراء",
         cell: ({ row }) => (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {row.original.requestType === "CATALOG_ORDER" && approvalData(row.original).customerId && (
+              <Button
+                variant="outline"
+                onClick={() => window.open(`/customers/${approvalData(row.original).customerId}`, "_blank")}
+                title="فتح بروفايل الزبون"
+              >
+                <UserPlus className="h-4 w-4" />
+              </Button>
+            )}
             {row.original.requestType === "CATALOG_ACCESS" && (
               <div className="flex flex-col gap-1 text-xs">
                 <label className="flex items-center gap-1 cursor-pointer">

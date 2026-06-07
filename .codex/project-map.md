@@ -21,3 +21,4 @@
 - Added visible sales-return filter/listing support in invoices page.
 - Added sales-return links from customer/account statements.
 - Updated dashboard, sales report, daily summary, and branch summary calculations to subtract sales returns.
+- Current uncommitted customer/account lookup change: backend supports `includeDeleted=true` on `GET /customers` and `GET /customers/:id/any`; web account lookup uses these to show archived customers with a "مؤرشف" badge while normal customer screens still use active customers.

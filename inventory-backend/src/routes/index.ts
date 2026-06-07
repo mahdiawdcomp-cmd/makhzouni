@@ -1,5 +1,6 @@
 import { Router } from "express";
 import approvalsRoutes from "./approvals.routes";
+import agentRoutes from "./agent.routes";
 import auditLogsRoutes from "./audit-logs.routes";
 import branchesRoutes from "./branches.routes";
 import authRoutes from "./auth.routes";
@@ -25,6 +26,7 @@ import orderPreparationsRoutes from "./order-preparations.routes";
 const router = Router();
 
 router.use("/public", publicRoutes);
+router.use("/agent", agentRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);
 router.use("/approvals", approvalsRoutes);

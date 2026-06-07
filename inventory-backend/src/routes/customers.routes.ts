@@ -5,6 +5,7 @@ import {
   editCustomer,
   getBalance,
   getCustomerDetails,
+  getCustomerDetailsAny,
   getCustomers,
   getDebts,
   getInactiveCustomers,
@@ -35,6 +36,7 @@ router.get("/", validate(listCustomersSchema), getCustomers);
 router.get("/debts", getDebts);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
+router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);
 router.post("/", validate(createCustomerSchema), addCustomer);
 router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
 router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);

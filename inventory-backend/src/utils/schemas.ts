@@ -109,6 +109,25 @@ const catalogOrderItemSchema = z.object({
   quantity: z.coerce.number().int().min(1),
 });
 
+export const sendOtpSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(7).max(20),
+  }),
+});
+
+export const verifyOtpSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(7).max(20),
+    code: z.string().trim().min(4).max(8),
+  }),
+});
+
+export const checkVerifiedSchema = z.object({
+  query: z.object({
+    phone: z.string().trim().min(7).max(20),
+  }),
+});
+
 export const catalogAccessRequestSchema = z.object({
   body: z.object({
     customerName: z.string().trim().min(2).max(120),

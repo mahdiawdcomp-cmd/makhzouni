@@ -3,6 +3,7 @@ import {
   createCustomer,
   createReceipt,
   getCustomer,
+  getCustomerAny,
   getCustomerInvoices,
   getCustomerTransactions,
   getCustomers,
@@ -46,10 +47,19 @@ export function useUpdateCustomer(id: string | undefined) {
   })
 }
 
-export function useCustomerDetails(id: string | undefined) {
+/** For account lookup — fetches customers including soft-deleted ones */
+export function useAllCustomers() {
+  return useQuery({
+    queryKey: ["customers", "all-including-deleted"],
+    queryFn: () => getCustomers({ includeDeleted: true, limit: 100 }),
+    staleTime: 30_000,
+  })
+}
+
+export function useCustomerDetails(id: string | undefined, includeDeleted = false) {
   const customerQuery = useQuery({
-    queryKey: ["customers", id],
-    queryFn: () => getCustomer(id!),
+    queryKey: ["customers", id, includeDeleted ? "any" : "active"],
+    queryFn: () => includeDeleted ? getCustomerAny(id!) : getCustomer(id!),
     enabled: Boolean(id),
   })
   const transactionsQuery = useQuery({

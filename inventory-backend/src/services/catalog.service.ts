@@ -3,7 +3,11 @@ import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
-import { notifyCatalogOrderSubmitted } from "./order-preparation.service";
+import { isVerified } from "./otp.service";
+import {
+  notifyCatalogAccessRequested,
+  notifyCatalogOrderSubmitted,
+} from "./order-preparation.service";
 
 type CatalogOrderInput = {
   customerName: string;
@@ -196,19 +200,35 @@ export async function listCustomersWithCatalogStatus(): Promise<CatalogCustomerR
 
 export async function requestCatalogAccess(input: CatalogAccessInput) {
   const phone = normalizePhone(input.phone);
+
+  // OTP must be verified before submitting
+  if (!isVerified(phone)) {
+    throw new AppError("رقم الهاتف غير مُتحقق منه. أرسل رمز OTP أولاً.", 403, "PHONE_NOT_VERIFIED");
+  }
+
+  // Smart customer: if phone exists in DB, use stored name (phone is the identity)
+  const existingCustomer = await prisma.customer.findUnique({
+    where: { phone },
+    select: { id: true, name: true },
+  });
+  const isExistingCustomer = Boolean(existingCustomer);
+  const customerName = existingCustomer ? existingCustomer.name : input.customerName.trim();
+
   const requester = await findApprovalRequester();
   const approval = await createPendingApproval(
     approvalRequestTypes.CATALOG_ACCESS,
     {
       source: "PUBLIC_CATALOG_ACCESS",
-      customerName: input.customerName,
+      customerName,
       phone,
       originalPhone: input.phone,
       address: input.address,
       notes: input.notes,
       allowPrices: false,
+      isExistingCustomer,
+      existingCustomerId: existingCustomer?.id ?? null,
       body: {
-        customerName: input.customerName,
+        customerName,
         phone,
         address: input.address,
         notes: input.notes,
@@ -216,6 +236,15 @@ export async function requestCatalogAccess(input: CatalogAccessInput) {
     },
     requester.id
   );
+
+  setImmediate(() => {
+    notifyCatalogAccessRequested(
+      customerName,
+      phone,
+      input.address,
+      input.notes,
+    ).catch((err) => console.error("[CatalogAccess] request notify failed:", err));
+  });
 
   return { approvalId: approval.id };
 }
@@ -366,6 +395,12 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
     };
   });
 
+  // Check if this is customer's first order
+  const invoiceCount = await prisma.invoice.count({
+    where: { customerId: access.customer.id, status: "ACTIVE" },
+  });
+  const isFirstOrder = invoiceCount === 0;
+
   const requester = await findApprovalRequester();
 
   const approval = await createPendingApproval(
@@ -374,6 +409,8 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       source: "PUBLIC_CATALOG",
       customerName: access.customer.name,
       phone: access.customer.phone,
+      customerId: access.customer.id,
+      isFirstOrder,
       address: input.address,
       notes: input.notes,
       subtotal: normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0),

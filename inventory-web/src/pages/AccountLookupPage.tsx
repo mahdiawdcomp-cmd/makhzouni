@@ -5,7 +5,7 @@
 import { useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { ArrowLeft, ExternalLink, Search, TrendingUp, Wallet } from "lucide-react"
-import { useCustomers, useCustomerDetails } from "../hooks/useCustomers"
+import { useAllCustomers, useCustomerDetails } from "../hooks/useCustomers"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -72,8 +72,9 @@ export function AccountLookupPage() {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const { customersQuery } = useCustomers()
-  const customers = customersQuery.data ?? []
+  // Include deleted customers — account lookup should show all history
+  const allCustomersQuery = useAllCustomers()
+  const customers = allCustomersQuery.data ?? []
 
   const suggestions = useMemo(
     () =>
@@ -91,8 +92,8 @@ export function AccountLookupPage() {
 
   const selectedCustomer = customers.find((c) => c.id === selectedId) ?? null
 
-  // Full details for selected customer
-  const details = useCustomerDetails(selectedId ?? undefined)
+  // Full details — pass includeDeleted=true so deleted customers are visible
+  const details = useCustomerDetails(selectedId ?? undefined, true)
   const transactions = details.transactionsQuery.data ?? []
   const invoices = details.invoicesQuery.data ?? []
   const vouchers = details.vouchersQuery.data ?? []
@@ -153,7 +154,12 @@ export function AccountLookupPage() {
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(c.id, c.name)}
               >
-                <span className="font-medium">{c.name}</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{c.name}</span>
+                  {c.deletedAt && (
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">مؤرشف</span>
+                  )}
+                </span>
                 <span className="text-slate-500">{c.phone}</span>
               </button>
             ))}

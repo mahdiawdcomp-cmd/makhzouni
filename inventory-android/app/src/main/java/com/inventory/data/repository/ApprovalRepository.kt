@@ -7,6 +7,7 @@ import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.NetworkMonitor
 import com.inventory.data.remote.dto.ReviewApprovalRequest
 import com.inventory.domain.model.Approval
+import com.inventory.domain.model.ApprovalDisplayItem
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -39,14 +40,63 @@ class ApprovalRepository @Inject constructor(
                     createdAt = it.createdAt
                 )
             })
-            ApiResult.Success(approvals.map {
-                Approval(it.id, it.requestType, it.requester?.name ?: it.requestedBy, it.createdAt)
-            })
+            ApiResult.Success(approvals.map { it.toDomain() })
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر تحميل الطلبات")
         }
     }
 
-    suspend fun approve(id: String) = apiClient.api.reviewApproval(id, ReviewApprovalRequest("APPROVED"))
+    suspend fun approve(id: String, allowPrices: Boolean? = null, showStock: Boolean? = null) =
+        apiClient.api.reviewApproval(id, ReviewApprovalRequest("APPROVED", allowPrices, showStock))
+
     suspend fun reject(id: String) = apiClient.api.reviewApproval(id, ReviewApprovalRequest("REJECTED"))
+
+    private fun com.inventory.data.remote.dto.ApprovalDto.toDomain(): Approval {
+        val data = requestData.orEmpty()
+        val body = data.mapValue("body").orEmpty()
+        val items = data.listValue("displayItems").map { row ->
+            ApprovalDisplayItem(
+                productName = row.stringValue("productName") ?: row.stringValue("productId") ?: "-",
+                unit = row.stringValue("unit") ?: "PIECE",
+                quantity = row.intValue("quantity") ?: 0,
+                unitPrice = row.doubleValue("unitPrice"),
+                totalPrice = row.doubleValue("totalPrice")
+            )
+        }
+        return Approval(
+            id = id,
+            requestType = requestType,
+            requesterName = requester?.name ?: requestedBy,
+            createdAt = createdAt,
+            customerName = data.stringValue("customerName") ?: body.stringValue("customerName"),
+            phone = data.stringValue("phone") ?: body.stringValue("phone"),
+            address = data.stringValue("address") ?: body.stringValue("address"),
+            notes = data.stringValue("notes") ?: body.stringValue("notes"),
+            subtotal = data.doubleValue("subtotal"),
+            itemCount = items.size,
+            displayItems = items
+        )
+    }
+
+    private fun Map<String, Any?>.stringValue(key: String): String? =
+        this[key]?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+
+    private fun Map<String, Any?>.doubleValue(key: String): Double? = when (val value = this[key]) {
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull()
+        else -> null
+    }
+
+    private fun Map<String, Any?>.intValue(key: String): Int? = when (val value = this[key]) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, Any?>.mapValue(key: String): Map<String, Any?>? = this[key] as? Map<String, Any?>
+
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, Any?>.listValue(key: String): List<Map<String, Any?>> =
+        (this[key] as? List<*>)?.mapNotNull { it as? Map<String, Any?> }.orEmpty()
 }

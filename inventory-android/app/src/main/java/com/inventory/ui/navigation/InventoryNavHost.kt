@@ -1,4 +1,4 @@
-package com.inventory.ui.navigation
+﻿package com.inventory.ui.navigation
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -41,6 +41,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.inventory.ui.approvals.PendingApprovalsScreen
+import com.inventory.ui.agent.AgentScreen
 import com.inventory.ui.auth.LoginScreen
 import com.inventory.ui.auth.SplashScreen
 import com.inventory.ui.customers.AccountLookupScreen
@@ -55,6 +56,13 @@ import com.inventory.ui.invoices.InvoiceListScreen
 import com.inventory.ui.invoices.InvoiceDetailScreen
 import com.inventory.ui.vouchers.VoucherCreateScreen
 import com.inventory.ui.notifications.NotificationScreen
+import com.inventory.ui.operations.AuditLogsScreen
+import com.inventory.ui.operations.BranchesScreen
+import com.inventory.ui.operations.CouponsScreen
+import com.inventory.ui.operations.OperationsHubScreen
+import com.inventory.ui.operations.QuotationsScreen
+import com.inventory.ui.operations.SalesOperationScreen
+import com.inventory.ui.operations.TransfersScreen
 import com.inventory.ui.products.ProductDetailScreen
 import com.inventory.ui.products.ProductFormScreen
 import com.inventory.ui.products.ProductListScreen
@@ -77,7 +85,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
 
     Scaffold(
         topBar = {
-            // Offline banner — Zoho amber style
+            // Offline banner â€” Zoho amber style
             AnimatedVisibility(visible = showShell && (!shellState.isOnline || shellState.pendingSync > 0)) {
                 Row(
                     modifier = Modifier
@@ -94,7 +102,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = if (!shellState.isOnline) "أنت offline — البيانات محلية${if (shellState.pendingSync > 0) " | بانتظار المزامنة: ${shellState.pendingSync}" else ""}" else "بانتظار المزامنة: ${shellState.pendingSync}",
+                        text = if (!shellState.isOnline) "أنت بدون إنترنت - البيانات محلية${if (shellState.pendingSync > 0) " | بانتظار المزامنة: ${shellState.pendingSync}" else ""}" else "بانتظار المزامنة: ${shellState.pendingSync}",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF92400E)
                     )
@@ -110,11 +118,11 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     modifier = Modifier.navigationBarsPadding()
                 ) {
                     listOf(
-                        BottomItem("الرئيسية", Routes.Dashboard,  Icons.Default.Home,        0),
-                        BottomItem("المخزن",   Routes.Products,   Icons.Default.Inventory2,   0),
-                        BottomItem("الفواتير", Routes.Invoices,   Icons.Default.ReceiptLong,  0),
-                        BottomItem("الزبائن",  Routes.Customers,  Icons.Default.Groups,       0),
-                        BottomItem("التقارير", Routes.Reports,    Icons.Default.BarChart,     reportBadge),
+                        BottomItem("الرئيسية", Routes.Dashboard, Icons.Default.Home, 0),
+                        BottomItem("المخزن", Routes.Products, Icons.Default.Inventory2, 0),
+                        BottomItem("الفواتير", Routes.Invoices, Icons.Default.ReceiptLong, 0),
+                        BottomItem("الزبائن", Routes.Customers, Icons.Default.Groups, 0),
+                        BottomItem("التقارير", Routes.Reports, Icons.Default.BarChart, reportBadge),
                     ).forEach { item ->
                         NavigationBarItem(
                             selected = currentRoute == item.route,
@@ -186,7 +194,9 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onSettings = { navController.navigate(Routes.Settings) },
                         onAccountLookup = { navController.navigate(Routes.AccountLookup) },
                         onVoiceInvoice  = { navController.navigate(Routes.VoiceInvoice) },
+                        onAgent = { navController.navigate(Routes.Agent) },
                         onCatalogManagement = { navController.navigate(Routes.CatalogManagement) },
+                        onOperations = { navController.navigate(Routes.Operations) },
                     )
                 }
                 composable(Routes.Users) { UserManagementScreen(viewModel = hiltViewModel()) }
@@ -355,12 +365,76 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         viewModel = hiltViewModel(),
                     )
                 }
+                composable(Routes.Agent) {
+                    AgentScreen(
+                        onBack = { navController.popBackStack() },
+                        viewModel = hiltViewModel(),
+                    )
+                }
                 composable(Routes.CatalogManagement) {
                     CatalogManagementScreen(
                         viewModel = hiltViewModel(),
                         onBack = { navController.popBackStack() }
                     )
                 }
+                composable(Routes.Operations) {
+                    OperationsHubScreen(
+                        onBack = { navController.popBackStack() },
+                        onPos = { navController.navigate(Routes.Pos) },
+                        onReturns = { navController.navigate(Routes.Returns) },
+                        onQuotations = { navController.navigate(Routes.Quotations) },
+                        onTransfers = { navController.navigate(Routes.Transfers) },
+                        onBranches = { navController.navigate(Routes.Branches) },
+                        onCoupons = { navController.navigate(Routes.Coupons) },
+                        onAudit = { navController.navigate(Routes.AuditLogs) }
+                    )
+                }
+                composable(Routes.Pos) {
+                    val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
+                    val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
+                    val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
+                    LaunchedEffect(scannedProductId, scannedProductUnit) {
+                        if (scannedProductId.isNotBlank()) {
+                            vm.addProductById(scannedProductId, scannedProductUnit)
+                            it.savedStateHandle["scannedProductId"] = ""
+                            it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                        }
+                    }
+                    SalesOperationScreen("POS", "POS سريع", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
+                }
+                composable(Routes.Returns) {
+                    val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
+                    val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
+                    val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
+                    LaunchedEffect(scannedProductId, scannedProductUnit) {
+                        if (scannedProductId.isNotBlank()) {
+                            vm.addProductById(scannedProductId, scannedProductUnit)
+                            it.savedStateHandle["scannedProductId"] = ""
+                            it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                        }
+                    }
+                    SalesOperationScreen("RETURN", "مرتجع مبيعات", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
+                }
+                composable(Routes.Quotations) {
+                    QuotationsScreen(hiltViewModel(), onBack = { navController.popBackStack() }, onCreate = { navController.navigate(Routes.QuotationCreate) })
+                }
+                composable(Routes.QuotationCreate) {
+                    val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
+                    val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
+                    val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
+                    LaunchedEffect(scannedProductId, scannedProductUnit) {
+                        if (scannedProductId.isNotBlank()) {
+                            vm.addProductById(scannedProductId, scannedProductUnit)
+                            it.savedStateHandle["scannedProductId"] = ""
+                            it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                        }
+                    }
+                    SalesOperationScreen("QUOTATION", "عرض سعر", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
+                }
+                composable(Routes.Transfers) { TransfersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.Branches) { BranchesScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.Coupons) { CouponsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.AuditLogs) { AuditLogsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.DashboardReport) { DashboardReportScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Reports) { ReportsScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Settings) { SettingsScreen(viewModel = hiltViewModel()) }

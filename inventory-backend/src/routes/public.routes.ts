@@ -6,23 +6,36 @@ import {
   getCatalogProducts,
   getCatalogSession,
 } from "../controllers/catalog.controller";
+import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import { getClientPortal } from "../controllers/customer-portal.controller";
 import { validate } from "../middleware/validate";
+import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
 import {
   catalogAccessQuerySchema,
   catalogAccessRequestSchema,
   catalogAccessStatusSchema,
   createCatalogOrderSchema,
   portalTokenSchema,
+  sendOtpSchema,
+  verifyOtpSchema,
+  checkVerifiedSchema,
 } from "../utils/schemas";
 
 const router = Router();
 
-router.post("/catalog/access/request", validate(catalogAccessRequestSchema), createCatalogAccessRequest);
-router.get("/catalog/access/status", validate(catalogAccessStatusSchema), getCatalogAccessStatus);
-router.get("/catalog/session", validate(catalogAccessQuerySchema), getCatalogSession);
-router.get("/catalog/products", validate(catalogAccessQuerySchema), getCatalogProducts);
-router.post("/catalog/orders", validate(createCatalogOrderSchema), createCatalogOrder);
+// OTP verification (strict rate limit on send)
+router.post("/otp/send", otpLimiter, validate(sendOtpSchema), sendOtp);
+router.post("/otp/verify", catalogLimiter, validate(verifyOtpSchema), confirmOtp);
+router.get("/otp/check", catalogLimiter, validate(checkVerifiedSchema), checkVerified);
+
+// Catalog public endpoints
+router.post("/catalog/access/request", catalogLimiter, validate(catalogAccessRequestSchema), createCatalogAccessRequest);
+router.get("/catalog/access/status", catalogLimiter, validate(catalogAccessStatusSchema), getCatalogAccessStatus);
+router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogSession);
+router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
+router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
+
+// Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);
 
 export default router;

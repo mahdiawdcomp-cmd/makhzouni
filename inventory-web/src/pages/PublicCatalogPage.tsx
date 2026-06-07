@@ -18,6 +18,8 @@ import {
   getCatalogSession,
   getPublicCatalogProducts,
   requestCatalogAccess,
+  sendCatalogOtp,
+  verifyCatalogOtp,
   submitPublicCatalogOrder,
 } from "../api/endpoints"
 import type { PublicCatalogProduct } from "../types/api"
@@ -114,18 +116,35 @@ export function PublicCatalogPage() {
 /* ══════════════════════════════════════════════════════════════════════
    GATE (login screen)
 ══════════════════════════════════════════════════════════════════════ */
+type GateStep = "phone" | "otp" | "details" | "check"
+
 function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
-  const [name, setName] = useState("")
+  const [step, setStep] = useState<GateStep>("phone")
   const [phone, setPhone] = useState("")
+  const [otp, setOtp] = useState("")
+  const [name, setName] = useState("")
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
   const [msg, setMsg] = useState("")
-  const [tab, setTab] = useState<"request" | "check">("request")
+
+  const sendOtpMut = useMutation({
+    mutationFn: () => sendCatalogOtp(phone.trim()),
+    onSuccess: () => { setMsg(""); setStep("otp") },
+    onError: () => setMsg("تعذر إرسال الرمز. تأكد من الرقم وحاول مرة ثانية."),
+  })
+
+  const verifyOtpMut = useMutation({
+    mutationFn: () => verifyCatalogOtp(phone.trim(), otp.trim()),
+    onSuccess: () => { setMsg(""); setStep("details") },
+    onError: () => setMsg("الرمز غير صحيح أو انتهت صلاحيته."),
+  })
 
   const requestMut = useMutation({
     mutationFn: () => requestCatalogAccess({ customerName: name.trim(), phone: phone.trim(), address: address.trim() || undefined, notes: notes.trim() || undefined }),
-    onSuccess: () => { setMsg("تم إرسال طلبك! انتظر موافقة الإدارة ثم اضغط «فحص الموافقة»."); setTab("check") },
+    onSuccess: () => { setMsg("تم إرسال طلبك! انتظر موافقة الإدارة ثم اضغط «فحص الموافقة»."); setStep("check") },
+    onError: () => setMsg("تعذر إرسال الطلب. حاول مرة ثانية."),
   })
+
   const checkMut = useMutation({
     mutationFn: () => getCatalogAccessStatus(phone.trim()),
     onSuccess: (s) => s?.approved && s.token ? onAccess(s.token) : setMsg("طلبك لم يُوافق عليه بعد، حاول لاحقاً."),
@@ -133,7 +152,6 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8" dir="rtl">
-      {/* Logo/Header */}
       <div className="mb-6 flex flex-col items-center gap-2">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
           <ShoppingBag className="h-8 w-8 text-white" />
@@ -143,38 +161,84 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
       </div>
 
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
-        {/* Tabs */}
-        <div className="mb-6 flex rounded-xl bg-gray-100 p-1">
-          {(["request", "check"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={cn(
-                "flex-1 rounded-lg py-2 text-sm font-semibold transition-all",
-                tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700",
-              )}
-            >
-              {t === "request" ? "طلب دخول" : "فحص الموافقة"}
-            </button>
-          ))}
-        </div>
 
-        {tab === "request" ? (
+        {/* Step 1 — أدخل رقمك */}
+        {step === "phone" && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <p className="font-semibold text-gray-800">أدخل رقم هاتفك</p>
+              <p className="mt-1 text-xs text-gray-500">سنرسل رمز تحقق عبر الواتساب</p>
+            </div>
+            <Field icon="📱" placeholder="07xxxxxxxx" value={phone} onChange={setPhone} type="tel" />
+            <button
+              disabled={phone.trim().length < 9 || sendOtpMut.isPending}
+              onClick={() => sendOtpMut.mutate()}
+              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sendOtpMut.isPending ? "جاري الإرسال..." : "إرسال رمز التحقق"}
+            </button>
+            <button onClick={() => setStep("check")} className="w-full text-center text-xs text-emerald-600 hover:underline">
+              لدي طلب سابق — فحص الموافقة
+            </button>
+          </div>
+        )}
+
+        {/* Step 2 — أدخل رمز OTP */}
+        {step === "otp" && (
+          <div className="space-y-4">
+            <div className="text-center">
+              <p className="font-semibold text-gray-800">أدخل رمز التحقق</p>
+              <p className="mt-1 text-xs text-gray-500">أُرسل إلى {phone} عبر الواتساب</p>
+            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+              placeholder="000000"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-2xl font-bold tracking-widest outline-none focus:border-emerald-400 focus:bg-white"
+              dir="ltr"
+            />
+            <button
+              disabled={otp.length < 4 || verifyOtpMut.isPending}
+              onClick={() => verifyOtpMut.mutate()}
+              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {verifyOtpMut.isPending ? "جاري التحقق..." : "تحقق"}
+            </button>
+            <button onClick={() => { setStep("phone"); setOtp(""); setMsg("") }} className="w-full text-center text-xs text-gray-400 hover:underline">
+              ← تغيير الرقم
+            </button>
+          </div>
+        )}
+
+        {/* Step 3 — بيانات الطلب */}
+        {step === "details" && (
           <div className="space-y-3">
+            <div className="text-center mb-2">
+              <p className="font-semibold text-gray-800">أكمل بياناتك</p>
+              <p className="mt-1 text-xs text-emerald-600">✓ تم التحقق من {phone}</p>
+            </div>
             <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
-            <Field icon="📱" placeholder="رقم الهاتف" value={phone} onChange={setPhone} type="tel" />
             <Field icon="📍" placeholder="العنوان (اختياري)" value={address} onChange={setAddress} />
             <Field icon="📝" placeholder="ملاحظات (اختيارية)" value={notes} onChange={setNotes} />
             <button
-              disabled={name.trim().length < 2 || phone.trim().length < 5 || requestMut.isPending}
+              disabled={name.trim().length < 2 || requestMut.isPending}
               onClick={() => requestMut.mutate()}
               className="mt-2 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {requestMut.isPending ? "جاري الإرسال..." : "إرسال طلب الدخول"}
             </button>
           </div>
-        ) : (
+        )}
+
+        {/* Step 4 — فحص الموافقة */}
+        {step === "check" && (
           <div className="space-y-3">
+            <div className="text-center mb-2">
+              <p className="font-semibold text-gray-800">فحص حالة الطلب</p>
+            </div>
             <Field icon="📱" placeholder="رقم الهاتف المسجل" value={phone} onChange={setPhone} type="tel" />
             <button
               disabled={phone.trim().length < 5 || checkMut.isPending}
@@ -183,17 +247,20 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
             >
               {checkMut.isPending ? "جاري الفحص..." : "فحص الموافقة"}
             </button>
+            <button onClick={() => { setStep("phone"); setMsg("") }} className="w-full text-center text-xs text-emerald-600 hover:underline">
+              ← طلب جديد
+            </button>
           </div>
         )}
 
         {msg && (
-          <div className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 border border-emerald-100">
+          <div className={cn(
+            "mt-4 rounded-xl px-4 py-3 text-sm border",
+            msg.includes("تعذر") || msg.includes("غير صحيح") || msg.includes("لم يُوافق")
+              ? "bg-red-50 text-red-700 border-red-100"
+              : "bg-emerald-50 text-emerald-800 border-emerald-100"
+          )}>
             {msg}
-          </div>
-        )}
-        {(requestMut.isError || checkMut.isError) && (
-          <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 border border-red-100">
-            تعذر تنفيذ الطلب. تأكد من المعلومات وحاول مرة ثانية.
           </div>
         )}
       </div>

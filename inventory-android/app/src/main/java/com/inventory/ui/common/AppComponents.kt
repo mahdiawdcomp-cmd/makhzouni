@@ -50,6 +50,7 @@ fun AppScreen(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     fab: @Composable () -> Unit = {},
+    snackbarHost: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
     Scaffold(
@@ -78,6 +79,7 @@ fun AppScreen(
             )
         },
         floatingActionButton = fab,
+        snackbarHost = snackbarHost,
         containerColor = MaterialTheme.colorScheme.background,
         content = content,
     )

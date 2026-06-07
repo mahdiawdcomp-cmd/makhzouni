@@ -25,6 +25,22 @@ data class VoiceInvoiceResponse(
     val invoice: VoiceInvoiceBasic? = null,
 )
 
+data class AgentMessageDto(
+    val role: String,
+    val content: String
+)
+
+data class AgentChatRequest(
+    val message: String,
+    val history: List<AgentMessageDto>
+)
+
+data class AgentChatResponse(
+    val success: Boolean? = null,
+    val reply: String? = null,
+    val history: List<AgentMessageDto>? = null
+)
+
 /**
  * Rounds a monetary Double to 2 decimal places using HALF_UP rounding.
  * Avoids IEEE 754 floating-point drift (e.g. 0.1 + 0.2 = 0.30000000000000004).
@@ -139,6 +155,16 @@ data class UpsertProductRequest(
 
 data class BranchDto(
     val id: String,
+    val name: String,
+    val code: String,
+    val phone: String? = null,
+    val address: String? = null,
+    val isActive: Boolean = true,
+    val createdAt: String? = null,
+    val updatedAt: String? = null
+)
+
+data class BranchRequest(
     val name: String,
     val code: String,
     val phone: String? = null,
@@ -288,6 +314,9 @@ data class CreateInvoiceRequest(
     val customerId: String,
     val date: String,
     val type: String = "SALE",
+    val branchId: String? = null,
+    val originalInvoiceId: String? = null,
+    val couponCode: String? = null,
     val clientRequestId: String = java.util.UUID.randomUUID().toString(),
     val discount: Double,
     val tax: Double,
@@ -315,6 +344,122 @@ data class PaginationDto(
     val page: Int,
     val limit: Int,
     val pages: Int
+)
+
+data class QuotationDto(
+    val id: String,
+    val quotationNumber: String,
+    val customerId: String,
+    val customer: CustomerDto? = null,
+    val status: String = "PENDING",
+    val subtotal: Double = 0.0,
+    val discount: Double = 0.0,
+    val totalAmount: Double = 0.0,
+    val expiresAt: String? = null,
+    val notes: String? = null,
+    val items: List<QuotationItemDto> = emptyList(),
+    val createdAt: String? = null
+)
+
+data class QuotationItemDto(
+    val id: String? = null,
+    val productId: String,
+    val productName: String? = null,
+    val unit: String,
+    val quantity: Int,
+    val unitPrice: Double,
+    val totalPrice: Double = (quantity * unitPrice).roundMoney()
+)
+
+data class CreateQuotationRequest(
+    val customerId: String,
+    val discount: Double = 0.0,
+    val expiresAt: String? = null,
+    val notes: String? = null,
+    val items: List<CreateInvoiceItemRequest>
+)
+
+data class UpdateQuotationStatusRequest(val status: String)
+
+data class CouponDto(
+    val id: String,
+    val code: String,
+    val name: String,
+    val discountType: String,
+    val discountValue: Double = 0.0,
+    val startsAt: String? = null,
+    val endsAt: String? = null,
+    val maxUses: Int? = null,
+    val usedCount: Int = 0,
+    val isActive: Boolean = true,
+    val createdAt: String? = null
+)
+
+data class CouponRequest(
+    val code: String,
+    val name: String,
+    val discountType: String,
+    val discountValue: Double,
+    val startsAt: String? = null,
+    val endsAt: String? = null,
+    val maxUses: Int? = null,
+    val isActive: Boolean = true
+)
+
+data class TransferDto(
+    val id: String,
+    val transferNumber: String,
+    val fromBranchId: String,
+    val toBranchId: String,
+    val fromBranch: BranchNameDto? = null,
+    val toBranch: BranchNameDto? = null,
+    val creator: UserNameDto? = null,
+    val status: String = "COMPLETED",
+    val notes: String? = null,
+    val items: List<TransferItemDto> = emptyList(),
+    val createdAt: String? = null
+)
+
+data class BranchNameDto(val name: String? = null)
+data class UserNameDto(val name: String? = null, val username: String? = null)
+
+data class TransferItemDto(
+    val id: String? = null,
+    val productId: String,
+    val product: TransferProductDto? = null,
+    val quantity: Int,
+    val unit: String
+)
+
+data class TransferProductDto(
+    val name: String? = null,
+    val itemNumber: String? = null,
+    val pcsPerCarton: Int = 1
+)
+
+data class CreateTransferRequest(
+    val fromBranchId: String,
+    val toBranchId: String,
+    val notes: String? = null,
+    val items: List<CreateTransferItemRequest>
+)
+
+data class CreateTransferItemRequest(
+    val productId: String,
+    val quantity: Int,
+    val unit: String
+)
+
+data class AuditLogDto(
+    val id: String,
+    val action: String,
+    val entity: String,
+    val recordId: String? = null,
+    val user: UserDto? = null,
+    val before: Map<String, Any?>? = null,
+    val after: Map<String, Any?>? = null,
+    val metadata: Map<String, Any?>? = null,
+    val createdAt: String? = null
 )
 
 data class DashboardReportDto(

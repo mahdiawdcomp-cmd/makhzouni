@@ -9,6 +9,7 @@ import {
   createCustomer,
   getCustomerBalance,
   getCustomerById,
+  getCustomerByIdAny,
   getCustomerTransactions,
   getLastCustomerTransaction,
   listCustomers,
@@ -61,11 +62,13 @@ export const getCustomers = asyncHandler(async (req, res) => {
 
 export const getCustomerDetails = asyncHandler(async (req, res) => {
   const customer = await getCustomerById(String(req.params.id));
+  res.json({ success: true, data: customer });
+});
 
-  res.json({
-    success: true,
-    data: customer,
-  });
+/** Same as getCustomerDetails but includes soft-deleted customers (for account lookup) */
+export const getCustomerDetailsAny = asyncHandler(async (req, res) => {
+  const customer = await getCustomerByIdAny(String(req.params.id));
+  res.json({ success: true, data: customer });
 });
 
 export const addCustomer = asyncHandler(async (req, res) => {

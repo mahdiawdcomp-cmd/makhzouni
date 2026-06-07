@@ -10,6 +10,8 @@ export interface ListCustomersQuery {
   hasDebt?: boolean;
   branchId?: string;
   isSupplier?: boolean;
+  /** When true, includes soft-deleted customers (used by account lookup) */
+  includeDeleted?: boolean;
   page: number;
   limit: number;
 }
@@ -99,6 +101,15 @@ async function getCustomerOrThrow(id: string, db: Db = prisma) {
   return customer;
 }
 
+/** Fetch a customer by ID regardless of deletedAt — used for account lookup */
+export async function getCustomerByIdAny(id: string) {
+  const customer = await prisma.customer.findFirst({ where: { id } });
+  if (!customer) {
+    throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
+  }
+  return serializeCustomer(customer);
+}
+
 export async function recalculateCustomerBalance(customerId: string, db: Db = prisma) {
   const customer = await getCustomerOrThrow(customerId, db);
 
@@ -179,7 +190,8 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
 
 export async function listCustomers(query: ListCustomersQuery) {
   const where: Prisma.CustomerWhereInput = {
-    deletedAt: null,
+    // includeDeleted=true → show all (including archived); default → active only
+    ...(query.includeDeleted ? {} : { deletedAt: null }),
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(query.isSupplier !== undefined ? { isSupplier: query.isSupplier } : {}),
   };

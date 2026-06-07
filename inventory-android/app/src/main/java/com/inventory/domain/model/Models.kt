@@ -13,7 +13,22 @@ data class Approval(
     val id: String,
     val requestType: String,
     val requesterName: String,
-    val createdAt: String?
+    val createdAt: String?,
+    val customerName: String? = null,
+    val phone: String? = null,
+    val address: String? = null,
+    val notes: String? = null,
+    val subtotal: Double? = null,
+    val itemCount: Int = 0,
+    val displayItems: List<ApprovalDisplayItem> = emptyList()
+)
+
+data class ApprovalDisplayItem(
+    val productName: String,
+    val unit: String,
+    val quantity: Int,
+    val unitPrice: Double? = null,
+    val totalPrice: Double? = null
 )
 
 enum class UserRole {
