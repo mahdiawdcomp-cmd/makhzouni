@@ -1,12 +1,12 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import {
-  Bar, BarChart, CartesianGrid, Line, LineChart,
+  Bar, BarChart, CartesianGrid,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import {
-  useDebtReport, useEndOfDayReport,
+  useEndOfDayReport,
   useInventoryReport, useSalesReport, useTopCustomers,
 } from "../hooks/useReports"
 import { sendWhatsAppWeb } from "../utils/whatsapp"
@@ -179,7 +179,7 @@ function ProfitsTab() {
             <Table>
               <THead><TR><TH>المنتج</TH><TH>الإيراد</TH><TH>التكلفة</TH><TH>الربح</TH><TH>الهامش %</TH></TR></THead>
               <TBody>
-                {data?.topProducts.map((p) => (
+                {data?.topProducts.map((p: { id: string; name: string; revenue: number; cost: number; profit: number; margin: number }) => (
                   <TR key={p.id}>
                     <TD className="font-medium">{p.name}</TD>
                     <TD>{fmt(p.revenue)}</TD>

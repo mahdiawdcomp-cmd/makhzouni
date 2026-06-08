@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+// useQueryClient used in StocktakePage only
 import { CheckCircle2, ChevronRight, ClipboardList, Plus, Save } from "lucide-react"
 import {
   closeStocktakeSession,
@@ -49,8 +50,8 @@ export function StocktakePage() {
   const closeMut = useMutation({
     mutationFn: (id: string) => closeStocktakeSession(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["stocktake-session", selectedId] })
-      qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
+      void qc.invalidateQueries({ queryKey: ["stocktake-session", selectedId] })
+      void qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
     },
   })
 
@@ -155,7 +156,6 @@ function SessionView({
   closing: boolean
   onRefresh: () => void
 }) {
-  const qc = useQueryClient()
   const updateMut = useMutation({
     mutationFn: (p: { productId: string; actualQty: number; notes?: string }) =>
       updateStocktakeItem(session.id, p.productId, p.actualQty, p.notes),

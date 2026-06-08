@@ -42,6 +42,10 @@ import type {
   VoucherPayload,
   TopCustomer,
   EndOfDayReport,
+  ProfitReport,
+  DebtCustomer,
+  StocktakeSessionSummary,
+  StocktakeSessionDetail,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
