@@ -8,7 +8,11 @@ import {
   getProductMovementReport,
   getSalesReport,
   getTopCustomersReport,
+  getProfitReport,
+  getDebtCustomersForReminder,
 } from "../services/report.service";
+import { sendWhatsAppText } from "../services/whatsapp.service";
+import { getSettings } from "../services/settings.service";
 
 export const dashboardReport = asyncHandler(async (_req, res) => {
   const data = await getDashboardReport();
@@ -81,4 +85,49 @@ export const atRiskCustomersReport = asyncHandler(async (req, res) => {
   const { limit } = req.query as Record<string, string>;
   const data = await getAtRiskCustomers(limit ? Math.min(Number(limit), 50) : 10);
   res.json({ success: true, data });
+});
+
+export const profitReport = asyncHandler(async (req, res) => {
+  const data = await getProfitReport(
+    req.validatedQuery as Parameters<typeof getProfitReport>[0]
+  );
+  res.json({ success: true, data });
+});
+
+// GET /api/reports/debt-reminder?minDays=X  — returns eligible customers
+export const debtReminderList = asyncHandler(async (req, res) => {
+  const minDays = Number((req.query as Record<string, string>).minDays ?? 0);
+  const data = await getDebtCustomersForReminder(minDays);
+  res.json({ success: true, data });
+});
+
+// POST /api/reports/debt-reminder/send  — send WhatsApp to selected customers
+export const sendDebtReminder = asyncHandler(async (req, res) => {
+  const { customerIds, minDays } = req.body as { customerIds?: string[]; minDays?: number };
+  const settings = await getSettings().catch(() => null);
+  const currency = settings?.currency ?? "IQD";
+
+  const eligible = await getDebtCustomersForReminder(minDays ?? 0);
+  const targets = customerIds?.length
+    ? eligible.filter((c) => customerIds.includes(c.id))
+    : eligible;
+
+  let sent = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (const customer of targets) {
+    try {
+      await sendWhatsAppText(
+        customer.phone,
+        `مرحباً ${customer.name}،\nلديك رصيد مستحق بمقدار ${customer.currentBalance.toLocaleString("en-US")} ${currency}.\nنرجو التكرم بالتسوية في أقرب وقت.\nشكراً لتعاملكم معنا.`,
+      );
+      sent++;
+    } catch (err) {
+      failed++;
+      errors.push(`${customer.name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  res.json({ success: true, data: { sent, failed, errors } });
 });

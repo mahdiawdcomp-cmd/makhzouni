@@ -672,3 +672,63 @@ export async function markOrderPrepared(id: string) {
   const { data } = await api.post<ApiEnvelope<never>>(`/order-preparations/${id}/mark-prepared`)
   return data
 }
+
+// ── Profit Report ─────────────────────────────────────────────────────────────
+export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
+  const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })
+  return data.data!
+}
+
+// ── Debt Reminder ─────────────────────────────────────────────────────────────
+export async function getDebtReminderList(minDays: number) {
+  const { data } = await api.get<ApiEnvelope<DebtCustomer[]>>("/reports/debt-reminder", { params: { minDays } })
+  return data.data ?? []
+}
+
+export async function sendDebtReminder(payload: { customerIds?: string[]; minDays?: number }) {
+  const { data } = await api.post<ApiEnvelope<{ sent: number; failed: number; errors: string[] }>>("/reports/debt-reminder/send", payload)
+  return data.data!
+}
+
+// ── Stocktake ─────────────────────────────────────────────────────────────────
+export async function listStocktakeSessions() {
+  const { data } = await api.get<ApiEnvelope<StocktakeSessionSummary[]>>("/stocktake")
+  return data.data ?? []
+}
+
+export async function createStocktakeSession(payload: { branchId?: string; notes?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ id: string }>>("/stocktake", payload)
+  return data.data!
+}
+
+export async function getStocktakeSession(id: string) {
+  const { data } = await api.get<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${id}`)
+  return data.data!
+}
+
+export async function updateStocktakeItem(sessionId: string, productId: string, actualQty: number, notes?: string) {
+  const { data } = await api.patch<ApiEnvelope<never>>(`/stocktake/${sessionId}/items`, { productId, actualQty, notes })
+  return data
+}
+
+export async function submitStocktakeSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${id}/submit`)
+  return data.data!
+}
+
+export async function closeStocktakeSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${id}/close`)
+  return data.data!
+}
+
+// ── Excel Import ──────────────────────────────────────────────────────────────
+export async function importProductsExcel(file: File) {
+  const form = new FormData()
+  form.append("file", file)
+  const { data } = await api.post<ApiEnvelope<{ created: number; skipped: number; errors: string[] }>>("/import/products", form)
+  return data.data!
+}
+
+export function getImportTemplateUrl() {
+  return `${api.defaults.baseURL}/import/products/template`
+}

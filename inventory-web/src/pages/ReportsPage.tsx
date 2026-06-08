@@ -4,12 +4,14 @@ import {
   Bar, BarChart, CartesianGrid, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import {
   useDebtReport, useEndOfDayReport,
   useInventoryReport, useSalesReport, useTopCustomers,
 } from "../hooks/useReports"
 import { sendWhatsAppWeb } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
+import { getProfitReport, getDebtReminderList, sendDebtReminder } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -117,11 +119,12 @@ function ProfitsTab() {
   const [from, setFrom] = useState("")
   const [to, setTo]     = useState("")
   const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("month")
-  const report = useSalesReport({ from: from || undefined, to: to || undefined, groupBy })
-  const sales = report.data
-  const margin = sales && sales.totalSales > 0
-    ? ((sales.netProfit / sales.totalSales) * 100).toFixed(1)
-    : "0"
+
+  const report = useQuery({
+    queryKey: ["profit-report", from, to, groupBy],
+    queryFn: () => getProfitReport({ from: from || undefined, to: to || undefined, groupBy }),
+  })
+  const data = report.data
 
   return (
     <div className="space-y-4">
@@ -138,28 +141,58 @@ function ProfitsTab() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <MetricCard title="إجمالي المبيعات"  value={sales?.totalSales ?? 0} />
-        <MetricCard title="صافي الأرباح"     value={sales?.netProfit ?? 0} color="text-emerald-600" />
-        <MetricCard title="هامش الربح %"     value={Number(margin)} suffix="%" color="text-blue-600" />
-        <MetricCard title="عدد الفواتير"     value={sales?.invoiceCount ?? 0} suffix="" />
+      {!data?.summary.totalRevenue && !data?.summary.totalCost ? (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 dark:bg-amber-950 dark:border-amber-800">
+          <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">⚠️ لعرض الأرباح الدقيقة، أضف <strong>سعر الكلفة</strong> لكل منتج في صفحة المنتج.</p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
+        <MetricCard title="إجمالي الإيراد" value={data?.summary.totalRevenue ?? 0} />
+        <MetricCard title="إجمالي التكلفة" value={data?.summary.totalCost ?? 0} color="text-rose-600" />
+        <MetricCard title="صافي الربح" value={data?.summary.totalProfit ?? 0} color="text-emerald-600" />
+        <MetricCard title="متوسط هامش الربح" value={data?.summary.avgMargin ?? 0} suffix="%" color="text-blue-600" />
       </div>
 
-      <Card>
-        <CardHeader><CardTitle>منحنى الأرباح الصافية</CardTitle></CardHeader>
-        <CardContent className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={sales?.chart ?? []}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="period" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => fmt(v)} />
-              <Tooltip formatter={(v) => fmt(Number(v))} />
-              <Line type="monotone" dataKey="netProfit" stroke="#10b981" strokeWidth={2} name="الأرباح" />
-              <Line type="monotone" dataKey="totalSales" stroke="#6366f1" strokeWidth={1.5} strokeDasharray="4 4" name="المبيعات" />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {(data?.periods?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader><CardTitle>منحنى الأرباح</CardTitle></CardHeader>
+          <CardContent className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data?.periods ?? []}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => fmt(v)} />
+                <Tooltip formatter={(v) => fmt(Number(v))} />
+                <Bar dataKey="revenue" fill="#6366f1" name="الإيراد" />
+                <Bar dataKey="profit" fill="#10b981" name="الربح" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {(data?.topProducts?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader><CardTitle>أكثر المنتجات ربحاً</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <THead><TR><TH>المنتج</TH><TH>الإيراد</TH><TH>التكلفة</TH><TH>الربح</TH><TH>الهامش %</TH></TR></THead>
+              <TBody>
+                {data?.topProducts.map((p) => (
+                  <TR key={p.id}>
+                    <TD className="font-medium">{p.name}</TD>
+                    <TD>{fmt(p.revenue)}</TD>
+                    <TD className="text-rose-600">{fmt(p.cost)}</TD>
+                    <TD className={p.profit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(p.profit)}</TD>
+                    <TD className="text-blue-600">{p.margin}%</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -323,19 +356,72 @@ function InventoryTab() {
 // ─── Debts Tab ────────────────────────────────────────────────────────────────
 function DebtsTab() {
   const [minDays, setMinDays] = useState(0)
-  const report = useDebtReport({ minDays })
-  const rows = [...(report.data ?? [])].sort((a, b) => b.currentBalance - a.currentBalance)
+  const [customDays, setCustomDays] = useState("")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sendMsg, setSendMsg] = useState("")
+
+  const effectiveDays = customDays !== "" ? Number(customDays) : minDays
+
+  const reminderQ = useQuery({
+    queryKey: ["debt-reminder-list", effectiveDays],
+    queryFn: () => getDebtReminderList(effectiveDays),
+  })
+  const rows = [...(reminderQ.data ?? [])].sort((a, b) => b.currentBalance - a.currentBalance)
+
+  const sendMut = useMutation({
+    mutationFn: () => sendDebtReminder({ customerIds: Array.from(selected), minDays: effectiveDays }),
+    onSuccess: (d) => setSendMsg(`✓ تم الإرسال لـ ${d.sent} زبون${d.failed > 0 ? ` / فشل ${d.failed}` : ""}`),
+    onError: () => setSendMsg("✗ فشل الإرسال"),
+  })
+
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(rows.map((r) => r.id)) : new Set())
+  }
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium">تصفية حسب عمر الدين:</span>
-        {[0, 7, 14, 30].map((days) => (
-          <Button key={days} size="sm" variant={minDays === days ? "default" : "outline"} onClick={() => setMinDays(days)}>
-            {days === 0 ? "الكل" : `أقدم من ${days} يوم`}
+        <span className="text-sm font-medium">أقدم من:</span>
+        {[0, 7, 14, 30, 60].map((days) => (
+          <Button key={days} size="sm" variant={effectiveDays === days && customDays === "" ? "default" : "outline"}
+            onClick={() => { setMinDays(days); setCustomDays("") }}>
+            {days === 0 ? "الكل" : `${days} يوم`}
           </Button>
         ))}
+        <div className="flex items-center gap-1">
+          <input
+            type="number" min={0} placeholder="عدد مخصص"
+            className="w-24 rounded-md border px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-950"
+            value={customDays}
+            onChange={(e) => setCustomDays(e.target.value)}
+          />
+          <span className="text-xs text-slate-400">يوم</span>
+        </div>
       </div>
+
+      {rows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+          <span className="text-sm font-medium">{selected.size} مختار من {rows.length}</span>
+          <Button size="sm"
+            onClick={() => { setSendMsg(""); sendMut.mutate() }}
+            disabled={selected.size === 0 || sendMut.isPending}>
+            📲 {sendMut.isPending ? "جاري الإرسال..." : `إرسال واتساب للمختارين`}
+          </Button>
+          {sendMsg && (
+            <span className={`text-sm font-medium ${sendMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
+              {sendMsg}
+            </span>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -347,28 +433,39 @@ function DebtsTab() {
         </CardHeader>
         <CardContent>
           <Table>
-            <THead><TR><TH>الاسم</TH><TH>الرصيد</TH><TH>آخر تعامل</TH><TH>عمر الدين</TH><TH>إجراء</TH></TR></THead>
+            <THead>
+              <TR>
+                <TH>
+                  <input type="checkbox" checked={selected.size === rows.length && rows.length > 0}
+                    onChange={(e) => toggleAll(e.target.checked)} />
+                </TH>
+                <TH>الاسم</TH><TH>الرصيد</TH><TH>آخر تعامل</TH><TH>عمر الدين</TH><TH>واتساب</TH>
+              </TR>
+            </THead>
             <TBody>
               {rows.map((r) => (
                 <TR key={r.id}>
+                  <TD>
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
+                  </TD>
                   <TD className="font-medium">{r.name}</TD>
                   <TD className="font-bold text-rose-600">{fmt(r.currentBalance)}</TD>
                   <TD className="text-slate-500 text-xs">{r.lastTransactionAt?.slice(0, 10) ?? "-"}</TD>
                   <TD>
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      r.debtAgeDays > 30 ? "bg-red-100 text-red-700" :
-                      r.debtAgeDays > 14 ? "bg-orange-100 text-orange-700" :
-                      "bg-amber-100 text-amber-700"
+                      r.debtAgeDays > 30 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" :
+                      r.debtAgeDays > 14 ? "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300" :
+                      "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
                     }`}>{r.debtAgeDays} يوم</span>
                   </TD>
                   <TD>
                     <Button size="sm" variant="outline" onClick={() => sendWhatsAppWeb(r.phone, `مرحباً ${r.name}، رصيدك لدينا: ${fmt(r.currentBalance)} د.ع`)}>
-                      واتساب
+                      فردي
                     </Button>
                   </TD>
                 </TR>
               ))}
-              {rows.length === 0 ? <TR><TD colSpan={5} className="py-6 text-center text-slate-400">لا توجد ديون في هذه الفترة</TD></TR> : null}
+              {rows.length === 0 ? <TR><TD colSpan={6} className="py-6 text-center text-slate-400">لا توجد ديون في هذه الفترة</TD></TR> : null}
             </TBody>
           </Table>
         </CardContent>

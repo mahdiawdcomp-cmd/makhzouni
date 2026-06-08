@@ -244,6 +244,7 @@ export const createCustomerSchema = z.object({
     address: z.string().trim().optional(),
     notes: z.string().trim().optional(),
     openingBalance: z.coerce.number().default(0),
+    creditLimit: z.coerce.number().nonnegative().nullable().optional(),
     branchId: z.string().uuid().optional(),
     isSupplier: z.coerce.boolean().optional(),
   }),
@@ -258,6 +259,7 @@ export const updateCustomerSchema = z.object({
       address: z.string().trim().nullable().optional(),
       notes: z.string().trim().nullable().optional(),
       openingBalance: z.coerce.number().optional(),
+      creditLimit: z.coerce.number().nonnegative().nullable().optional(),
       branchId: z.string().uuid().nullable().optional(),
       isSupplier: z.coerce.boolean().optional(),
     })
@@ -312,6 +314,8 @@ export const createProductSchema = z.object({
     pcsPerCarton: z.coerce.number().int().min(1).default(1),
     purchasePrice: z.coerce.number().nonnegative().default(0),
     salePrice: z.coerce.number().nonnegative().default(0),
+    costPrice: z.coerce.number().nonnegative().default(0),
+    expiryDate: z.string().nullable().optional(),
     minStock: z.coerce.number().int().min(0).default(0),
     storageLocation: z.string().trim().max(120).nullable().optional(),
     branchId: z.string().uuid().optional(),
@@ -500,6 +504,14 @@ export const productMovementReportSchema = z.object({
     branchId: z.string().uuid().optional(),
     from: dateString.optional(),
     to: dateString.optional(),
+  }),
+});
+
+export const profitReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+    groupBy: z.enum(["day", "week", "month"]).optional(),
   }),
 });
 

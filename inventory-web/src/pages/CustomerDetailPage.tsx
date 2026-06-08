@@ -415,6 +415,7 @@ function EditCustomerModal({
     address: customer.address ?? "",
     notes: customer.notes ?? "",
     isSupplier: customer.isSupplier ?? false,
+    creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
   })
 
   // Reset form to latest customer data every time the modal opens
@@ -426,6 +427,7 @@ function EditCustomerModal({
         address: customer.address ?? "",
         notes: customer.notes ?? "",
         isSupplier: customer.isSupplier ?? false,
+        creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
       })
     }
   }, [open, customer])
@@ -443,6 +445,7 @@ function EditCustomerModal({
       address: form.address.trim() || undefined,
       notes: form.notes.trim() || undefined,
       isSupplier: form.isSupplier,
+      creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
     })
   }
 
@@ -486,6 +489,18 @@ function EditCustomerModal({
             value={form.notes}
             onChange={(e) => set("notes", e.target.value)}
             placeholder="ملاحظات (اختيارية)"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label>حد الائتمان (أقصى دين مسموح) — اتركه فارغاً لبلا حد</Label>
+          <Input
+            type="number"
+            min={0}
+            value={form.creditLimit}
+            onChange={(e) => set("creditLimit", e.target.value)}
+            placeholder="مثال: 500000"
+            dir="ltr"
           />
         </div>
 

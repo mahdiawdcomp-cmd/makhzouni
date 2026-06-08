@@ -22,6 +22,7 @@ export interface CreateCustomerInput {
   address?: string;
   notes?: string;
   openingBalance: number;
+  creditLimit?: number | null;
   branchId?: string;
   isSupplier?: boolean;
 }
@@ -32,6 +33,7 @@ export interface UpdateCustomerInput {
   address?: string | null;
   notes?: string | null;
   openingBalance?: number;
+  creditLimit?: number | null;
   branchId?: string | null;
   isSupplier?: boolean;
 }
@@ -245,6 +247,7 @@ export async function createCustomer(input: CreateCustomerInput, db: Db = prisma
       notes: input.notes,
       openingBalance: input.openingBalance,
       currentBalance: input.openingBalance,
+      creditLimit: input.creditLimit ?? null,
       branchId: input.branchId,
       isSupplier: input.isSupplier ?? false,
     },
@@ -267,6 +270,7 @@ export async function updateCustomer(
   if (input.address !== undefined) data.address = input.address;
   if (input.notes !== undefined) data.notes = input.notes;
   if (input.openingBalance !== undefined) data.openingBalance = input.openingBalance;
+  if (input.creditLimit !== undefined) data.creditLimit = input.creditLimit;
   if (input.branchId !== undefined) data.branchId = input.branchId;
   if (input.isSupplier !== undefined) data.isSupplier = input.isSupplier;
 

@@ -548,6 +548,7 @@ async function createInvoiceInTransaction(
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: pricedItem.unitPrice,
+        costPrice: toNumber(pricedItem.product.costPrice),
         totalPrice: pricedItem.totalPrice,
       },
     });
@@ -573,6 +574,21 @@ async function createInvoiceInTransaction(
       : paidAmount > 0
         ? PaymentType.PARTIAL
         : PaymentType.CREDIT);
+
+  // Credit limit check — only for SALE invoices with outstanding balance
+  if (invoiceType === InvoiceType.SALE && remainingAmount > 0) {
+    const creditLimit = customer.creditLimit ? toNumber(customer.creditLimit) : null;
+    if (creditLimit !== null) {
+      const newBalance = previousBalance + remainingAmount;
+      if (newBalance > creditLimit) {
+        throw new AppError(
+          `تجاوز حد الائتمان للزبون. الحد المسموح: ${creditLimit.toLocaleString("en-US")}, الرصيد الجديد سيكون: ${newBalance.toLocaleString("en-US")}`,
+          400,
+          "CREDIT_LIMIT_EXCEEDED"
+        );
+      }
+    }
+  }
 
   // finalBalance from our perspective: SALE adds remaining to what the customer owes,
   // PURCHASE subtracts (because the supplier now owes us less / we owe them more).

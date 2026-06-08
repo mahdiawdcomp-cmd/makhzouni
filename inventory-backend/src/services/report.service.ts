@@ -119,12 +119,26 @@ async function getInvoiceItemsForProfit(where: Prisma.InvoiceWhereInput) {
   });
 }
 
+function itemCostPrice(item: {
+  unit: Unit;
+  quantity: number;
+  costPrice: DecimalLike;
+  product: { costPrice: DecimalLike; purchasePrice: DecimalLike; pcsPerCarton: number };
+}) {
+  // Use the snapshot costPrice if non-zero, else fall back to product.costPrice, else purchasePrice
+  const snapshotCost = toNumber(item.costPrice);
+  const productCost = toNumber(item.product.costPrice);
+  const purchaseCost = toNumber(item.product.purchasePrice);
+  const baseCost = snapshotCost > 0 ? snapshotCost : productCost > 0 ? productCost : purchaseCost;
+  if (item.unit === Unit.CARTON) return baseCost * item.product.pcsPerCarton * item.quantity;
+  if (item.unit === Unit.DOZEN) return baseCost * 12 * item.quantity;
+  return baseCost * item.quantity;
+}
+
 function calculateProfit(items: Awaited<ReturnType<typeof getInvoiceItemsForProfit>>) {
   return items.reduce((sum, item) => {
-    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice); // FIXED
-    const cost =
-      unitPurchaseCost(item.unit, item.product.purchasePrice, item.product.pcsPerCarton) *
-      item.quantity;
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice(item);
     return sum + (revenue - cost);
   }, 0);
 }
@@ -854,4 +868,118 @@ export async function getAtRiskCustomers(limit = 10) {
   // Most overdue first
   results.sort((a, b) => b.overdueDays - a.overdueDays);
   return results.slice(0, limit);
+}
+
+// ── Profit Report ─────────────────────────────────────────────────────────────
+
+export interface ProfitReportQuery {
+  from?: string;
+  to?: string;
+  groupBy?: "day" | "week" | "month";
+}
+
+export async function getProfitReport(query: ProfitReportQuery) {
+  const df = dateFilter(query.from, query.to);
+  const gBy = query.groupBy ?? "month";
+
+  const saleItems = await prisma.invoiceItem.findMany({
+    where: {
+      invoice: {
+        status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALE,
+        ...(df ? { date: df } : {}),
+      },
+    },
+    include: { product: true, invoice: { select: { date: true, subtotal: true, totalAmount: true } } },
+  });
+
+  // Group by period
+  const periodMap = new Map<string, { revenue: number; cost: number }>();
+  for (const item of saleItems) {
+    const label = labelFor(item.invoice.date, gBy);
+    const existing = periodMap.get(label) ?? { revenue: 0, cost: 0 };
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice({ ...item, product: item.product });
+    periodMap.set(label, {
+      revenue: existing.revenue + revenue,
+      cost: existing.cost + cost,
+    });
+  }
+
+  const periodData = Array.from(periodMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([period, { revenue, cost }]) => ({
+      period,
+      revenue: Math.round(revenue),
+      cost: Math.round(cost),
+      profit: Math.round(revenue - cost),
+      margin: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 100) : 0,
+    }));
+
+  // Per-product profit
+  const productMap = new Map<string, { name: string; revenue: number; cost: number; qty: number }>();
+  for (const item of saleItems) {
+    const existing = productMap.get(item.productId) ?? { name: item.productName, revenue: 0, cost: 0, qty: 0 };
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice({ ...item, product: item.product });
+    productMap.set(item.productId, {
+      name: item.productName,
+      revenue: existing.revenue + revenue,
+      cost: existing.cost + cost,
+      qty: existing.qty + item.quantity,
+    });
+  }
+
+  const topProducts = Array.from(productMap.entries())
+    .map(([id, { name, revenue, cost, qty }]) => ({
+      id,
+      name,
+      revenue: Math.round(revenue),
+      cost: Math.round(cost),
+      profit: Math.round(revenue - cost),
+      margin: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 100) : 0,
+      qty,
+    }))
+    .sort((a, b) => b.profit - a.profit)
+    .slice(0, 20);
+
+  const totalRevenue = periodData.reduce((s, p) => s + p.revenue, 0);
+  const totalCost = periodData.reduce((s, p) => s + p.cost, 0);
+  const totalProfit = totalRevenue - totalCost;
+
+  return {
+    periods: periodData,
+    topProducts,
+    summary: {
+      totalRevenue: Math.round(totalRevenue),
+      totalCost: Math.round(totalCost),
+      totalProfit: Math.round(totalProfit),
+      avgMargin: totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0,
+    },
+  };
+}
+
+// ── Bulk Debt Reminder ────────────────────────────────────────────────────────
+
+export async function getDebtCustomersForReminder(minDays: number) {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, currentBalance: { gt: 0 } },
+    orderBy: { currentBalance: "desc" },
+  });
+
+  const now = Date.now();
+  return customers
+    .map((c) => {
+      const lastDate = c.lastTransactionAt ?? c.createdAt;
+      const debtAgeDays = Math.floor((now - lastDate.getTime()) / 86400000);
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        currentBalance: toNumber(c.currentBalance),
+        debtAgeDays,
+        lastTransactionAt: c.lastTransactionAt?.toISOString() ?? null,
+      };
+    })
+    .filter((c) => c.debtAgeDays >= minDays);
 }

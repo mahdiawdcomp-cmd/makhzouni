@@ -50,7 +50,7 @@ async function openPdf(promise: Promise<string>) {
 const emptyEditForm: ProductPayload = {
   itemNumber: "", name: "", qrCode: "", cartonQrCode: "", imageUrl: null, category: "",
   openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1,
-  purchasePrice: 0, salePrice: 0, minStock: 5,
+  purchasePrice: 0, salePrice: 0, costPrice: 0, minStock: 5,
 }
 
 async function compressProductImage(file: File): Promise<string> {
@@ -122,6 +122,7 @@ export function ProductDetailPage() {
       pcsPerCarton: product.pcsPerCarton,
       purchasePrice: product.purchasePrice,
       salePrice: product.salePrice,
+      costPrice: product.costPrice ?? 0,
       minStock: product.minStock,
     })
     setEditOpen(true)
@@ -193,6 +194,7 @@ export function ProductDetailPage() {
                   <InfoRow label="رقم الآيتم (SKU)" value={product.itemNumber} />
                   <InfoRow label="الفئة" value={product.category ?? "—"} />
                   <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />
+                  <InfoRow label="سعر الكلفة" value={`${fmt(product.costPrice ?? 0)} د.ع`} />
                   <InfoRow label="سعر البيع" value={`${fmt(product.salePrice)} د.ع`} />
                 </div>
                 <div>
@@ -411,6 +413,9 @@ export function ProductDetailPage() {
             </Field>
             <Field label="سعر الشراء">
               <Input type="number" value={editForm.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, purchasePrice: Number(e.target.value) })} />
+            </Field>
+            <Field label="سعر الكلفة">
+              <Input type="number" value={editForm.costPrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, costPrice: Number(e.target.value) })} />
             </Field>
             <Field label="سعر البيع">
               <Input type="number" value={editForm.salePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, salePrice: Number(e.target.value) })} />

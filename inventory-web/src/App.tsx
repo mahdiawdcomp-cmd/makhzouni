@@ -29,6 +29,7 @@ import { VoucherDetailPage } from "./pages/VoucherDetailPage"
 import { VouchersPage } from "./pages/VouchersPage"
 import { TransfersPage } from "./pages/TransfersPage"
 import { CatalogManagementPage } from "./pages/CatalogManagementPage"
+import { StocktakePage } from "./pages/StocktakePage"
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="inventory" element={<ProductsPage />} />
             <Route path="inventory/low-stock" element={<LowStockPage />} />
             <Route path="inventory/transfers" element={<TransfersPage />} />
+            <Route path="inventory/stocktake" element={<StocktakePage />} />
             <Route path="inventory/:id" element={<ProductDetailPage />} />
             <Route path="invoices" element={<InvoicesPage />} />
             <Route path="invoices/new" element={<InvoiceCreatePage />} />

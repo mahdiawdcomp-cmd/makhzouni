@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { getBranches } from "../api/endpoints"
+import { getBranches, importProductsExcel, getImportTemplateUrl } from "../api/endpoints"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -10,7 +10,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Download, Edit, Eye, FileText, Plus, Printer, ScanQrCode } from "lucide-react"
+import { Download, Edit, Eye, FileText, Plus, Printer, ScanQrCode, Upload } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload } from "../types/api"
@@ -483,6 +483,37 @@ export function ProductsPage() {
           >
             <Download className="h-4 w-4" /> تحميل الجرد المصمم
           </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/stocktake">
+              <FileText className="h-4 w-4" /> الجرد الدوري
+            </Link>
+          </Button>
+          <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-800">
+            <Upload className="h-4 w-4" />
+            استيراد Excel
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (!file) return
+                try {
+                  const res = await importProductsExcel(file)
+                  alert(`✓ تم استيراد ${res.created} منتج. تم تخطي ${res.skipped}.${res.errors.length ? `\nأخطاء:\n${res.errors.slice(0,5).join("\n")}` : ""}`)
+                  e.target.value = ""
+                } catch { alert("✗ فشل الاستيراد") }
+              }}
+            />
+          </label>
+          <a
+            href={getImportTemplateUrl()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-800"
+          >
+            <Download className="h-4 w-4" /> قالب Excel
+          </a>
           <Button onClick={startCreate}>
             <Plus className="h-4 w-4" />
             منتج جديد

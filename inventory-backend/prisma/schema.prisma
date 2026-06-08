@@ -92,6 +92,7 @@ model User {
   branches           Branch[]
   createdTransfers   InventoryTransfer[] @relation("TransferCreatedBy")
   preparedOrders     OrderPreparation[]  @relation("PreparedByUser")
+  stocktakeSessions  StocktakeSession[]
 
   @@map("users")
 }
@@ -110,10 +111,11 @@ model Branch {
   invoices        Invoice[]
   paymentVouchers PaymentVoucher[]
   stockMovements  StockMovement[]
-  transfersOut    InventoryTransfer[] @relation("TransfersOut")
-  transfersIn     InventoryTransfer[] @relation("TransfersIn")
-  createdAt       DateTime         @default(now()) @map("created_at")
-  updatedAt       DateTime         @updatedAt @map("updated_at")
+  transfersOut       InventoryTransfer[] @relation("TransfersOut")
+  transfersIn        InventoryTransfer[] @relation("TransfersIn")
+  stocktakeSessions  StocktakeSession[]
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
 
   @@index([createdBy])
   @@map("branches")
@@ -132,6 +134,8 @@ model Product {
   pcsPerCarton      Int             @default(1) @map("pcs_per_carton")
   purchasePrice     Decimal         @default(0) @map("purchase_price") @db.Decimal(12, 2)
   salePrice         Decimal         @default(0) @map("sale_price") @db.Decimal(12, 2)
+  costPrice         Decimal         @default(0) @map("cost_price") @db.Decimal(12, 2)
+  expiryDate        DateTime?       @map("expiry_date")
   minStock          Int             @default(0) @map("min_stock")
   currentStock      Int             @map("current_stock") @ignore
   storageLocation   String?         @map("storage_location")
@@ -143,6 +147,7 @@ model Product {
   quotationItems    QuotationItem[]
   stockMovements    StockMovement[]
   transferItems     TransferItem[]
+  stocktakeItems    StocktakeItem[]
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   deletedAt         DateTime?       @map("deleted_at")
@@ -171,6 +176,7 @@ model Customer {
   isSupplier        Boolean          @default(false) @map("is_supplier")
   openingBalance    Decimal          @default(0) @map("opening_balance") @db.Decimal(12, 2)
   currentBalance    Decimal          @default(0) @map("current_balance") @db.Decimal(12, 2)
+  creditLimit       Decimal?         @map("credit_limit") @db.Decimal(12, 2)
   lastTransactionAt DateTime?        @map("last_transaction_at")
   branchId          String?          @map("branch_id") @db.Uuid
   branch            Branch?          @relation(fields: [branchId], references: [id])
@@ -277,6 +283,7 @@ model InvoiceItem {
   unit        Unit
   quantity    Int
   unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  costPrice   Decimal @default(0) @map("cost_price") @db.Decimal(12, 2)
   totalPrice  Decimal @map("total_price") @db.Decimal(12, 2)
 
   @@index([invoiceId])
@@ -535,4 +542,42 @@ model OrderPreparation {
 
   @@index([status])
   @@map("order_preparations")
+}
+
+// ── Inventory Stocktake ──────────────────────────────────────────────────────
+
+model StocktakeSession {
+  id        String          @id @default(uuid()) @db.Uuid
+  branchId  String?         @map("branch_id") @db.Uuid
+  branch    Branch?         @relation(fields: [branchId], references: [id])
+  status    String          @default("OPEN")
+  notes     String?
+  createdBy String          @map("created_by") @db.Uuid
+  creator   User            @relation(fields: [createdBy], references: [id])
+  items     StocktakeItem[]
+  createdAt DateTime        @default(now()) @map("created_at")
+  closedAt  DateTime?       @map("closed_at")
+
+  @@index([branchId])
+  @@index([createdBy])
+  @@index([status])
+  @@map("stocktake_sessions")
+}
+
+model StocktakeItem {
+  id          String           @id @default(uuid()) @db.Uuid
+  sessionId   String           @map("session_id") @db.Uuid
+  session     StocktakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productId   String           @map("product_id") @db.Uuid
+  product     Product          @relation(fields: [productId], references: [id])
+  productName String           @map("product_name")
+  systemQty   Int              @map("system_qty")
+  actualQty   Int?             @map("actual_qty")
+  variance    Int?
+  notes       String?
+
+  @@unique([sessionId, productId])
+  @@index([sessionId])
+  @@index([productId])
+  @@map("stocktake_items")
 }

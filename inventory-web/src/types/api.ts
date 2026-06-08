@@ -90,12 +90,53 @@ export interface Product {
   pcsPerCarton: number
   purchasePrice: number
   salePrice: number
+  costPrice?: number
+  expiryDate?: string | null
   minStock: number
   storageLocation?: string | null
   branchId?: string | null
   branch?: Branch | null
   currentStock?: number
   updatedAt?: string
+}
+
+export interface ProfitReport {
+  summary: { totalRevenue: number; totalCost: number; totalProfit: number; avgMargin: number }
+  periods: Array<{ period: string; revenue: number; cost: number; profit: number; margin: number }>
+  topProducts: Array<{ id: string; name: string; revenue: number; cost: number; profit: number; margin: number; qty: number }>
+}
+
+export interface DebtCustomer {
+  id: string
+  name: string
+  phone: string
+  currentBalance: number
+  debtAgeDays: number
+  lastTransactionAt: string | null
+}
+
+export interface StocktakeSessionSummary {
+  id: string
+  status: string
+  notes: string | null
+  createdAt: string
+  closedAt: string | null
+  creator: { id: string; name: string }
+  branch: { id: string; name: string } | null
+  itemCount: number
+}
+
+export interface StocktakeSessionDetail extends StocktakeSessionSummary {
+  items: Array<{
+    id: string
+    productId: string
+    productName: string
+    category: string | null
+    systemQty: number | null
+    actualQty: number | null
+    variance: number | null
+    notes: string | null
+  }>
 }
 
 export interface PublicCatalogProduct {
@@ -156,6 +197,8 @@ export interface ProductPayload {
   pcsPerCarton?: number
   purchasePrice?: number
   salePrice?: number
+  costPrice?: number
+  expiryDate?: string | null
   minStock?: number
   storageLocation?: string | null
   branchId?: string   // optional — defaults to main branch on server
@@ -190,6 +233,7 @@ export interface Customer {
   notes?: string | null
   openingBalance: number
   currentBalance: number
+  creditLimit?: number | null
   isSupplier?: boolean
   lastTransactionAt?: string | null
   createdAt?: string
@@ -203,6 +247,7 @@ export interface CustomerPayload {
   address?: string
   notes?: string
   openingBalance: number
+  creditLimit?: number | null
   isSupplier?: boolean
 }
 
