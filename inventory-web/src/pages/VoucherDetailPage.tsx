@@ -20,13 +20,14 @@ import {
   deleteVoucher as deleteVoucherApi,
   getVoucher,
   getVouchers,
+  sendWhatsAppMessage,
   updateVoucher,
   voucherImageObjectUrl,
   voucherPdfObjectUrl,
 } from "../api/endpoints"
 import type { Voucher } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
-import { fillTemplate, openWhatsApp } from "../utils/whatsapp"
+import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -68,14 +69,20 @@ export function VoucherDetailPage() {
   const goto = (target?: string | null) => { if (target && target !== id) navigate(`/vouchers/${target}`) }
 
   const [editOpen, setEditOpen] = useState(false)
-  const [editAmount, setEditAmount] = useState("")
+  const [editAmountDisplay, setEditAmountDisplay] = useState("")
   const [editNotes, setEditNotes] = useState("")
   const [editDescription, setEditDescription] = useState("")
+
+  function fmtNumInput(raw: string): string {
+    const digits = raw.replace(/[^0-9]/g, "")
+    if (!digits) return ""
+    return Number(digits).toLocaleString("en-US")
+  }
 
   const editMutation = useMutation({
     mutationFn: () =>
       updateVoucher(id!, {
-        amount: Number(editAmount),
+        amount: Number(editAmountDisplay.replace(/,/g, "")),
         notes: editNotes || undefined,
         description: editDescription || undefined,
       }),
@@ -101,18 +108,21 @@ export function VoucherDetailPage() {
 
   function openEdit() {
     if (!voucher) return
-    setEditAmount(String(voucher.amount))
+    setEditAmountDisplay(Number(voucher.amount).toLocaleString("en-US"))
     setEditNotes(voucher.notes ?? "")
     setEditDescription(voucher.description ?? "")
     setEditOpen(true)
   }
 
-  function sendWhatsApp() {
+  const [waSending, setWaSending] = useState(false)
+  async function sendWhatsApp() {
     if (!voucher) return
     if (voucher.type === "EXPENSE") {
       window.alert("سندات المصاريف داخلية ولا ترسل عبر واتساب.")
       return
     }
+    const phone = voucher.customer?.phone
+    if (!phone) { window.alert("رقم الهاتف غير متوفر."); return }
     const tpl = settings?.voucherTemplate || DEFAULT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: voucher.customer?.name ?? "",
@@ -123,7 +133,15 @@ export function VoucherDetailPage() {
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
-    openWhatsApp(voucher.customer?.phone, msg)
+    setWaSending(true)
+    try {
+      await sendWhatsAppMessage({ phone: normalizePhone(phone), message: msg })
+      window.alert("✓ تم إرسال السند عبر واتساب.")
+    } catch {
+      window.alert("✗ تعذر الإرسال. تحقق من إعدادات واتساب.")
+    } finally {
+      setWaSending(false)
+    }
   }
 
   if (voucherQuery.isLoading) return <div className="text-sm text-slate-500">جاري التحميل...</div>
@@ -168,8 +186,8 @@ export function VoucherDetailPage() {
             </div>
 
             {voucher.type !== "EXPENSE" ? (
-              <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={sendWhatsApp}>
-                <MessageCircle className="h-4 w-4 text-emerald-600" /> واتساب
+              <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={() => void sendWhatsApp()} disabled={waSending}>
+                <MessageCircle className="h-4 w-4 text-emerald-600" /> {waSending ? "جاري الإرسال..." : "واتساب"}
               </Button>
             ) : null}
             <Button
@@ -250,11 +268,12 @@ export function VoucherDetailPage() {
           <DialogHeader><DialogTitle>تعديل السند</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <Input
-              type="number"
-              value={editAmount}
+              inputMode="numeric"
+              value={editAmountDisplay}
               onFocus={(e) => e.target.select()}
-              onChange={(e) => setEditAmount(e.target.value)}
+              onChange={(e) => setEditAmountDisplay(fmtNumInput(e.target.value))}
               placeholder="المبلغ"
+              dir="ltr"
             />
             {voucher.type === "EXPENSE" ? (
               <Input

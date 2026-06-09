@@ -194,15 +194,19 @@ export function CustomersPage() {
               اتركه صفر إذا كان زبون جديد بلا ديون سابقة.
             </p>
           </div>
-          <div className="flex items-center gap-2 mt-2 px-1">
-            <input
-              type="checkbox"
-              id="isSupplier"
-              className="h-4 w-4 rounded border-slate-300"
-              checked={form.isSupplier}
-              onChange={(e) => setForm({ ...form, isSupplier: e.target.checked })}
-            />
-            <label htmlFor="isSupplier" className="text-sm font-medium">تعيين كمورد (للمشتريات)</label>
+          <div className="space-y-1 mt-1">
+            <p className="text-xs font-medium text-slate-700 dark:text-slate-300">النوع</p>
+            <div className="flex gap-2">
+              {([
+                { label: "زبون", value: false },
+                { label: "مورد", value: true },
+              ] as const).map(({ label, value }) => (
+                <label key={label} className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 p-2.5 transition ${form.isSupplier === value ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"}`}>
+                  <input type="radio" name="newCustomerType" checked={form.isSupplier === value} onChange={() => setForm({ ...form, isSupplier: value })} className="accent-indigo-600" />
+                  <span className="font-semibold text-sm">{label}</span>
+                </label>
+              ))}
+            </div>
           </div>
           <Button className="w-full" type="submit">حفظ</Button>
         </form>

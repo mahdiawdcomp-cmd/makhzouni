@@ -9,9 +9,9 @@ import {
   useEndOfDayReport,
   useInventoryReport, useSalesReport, useTopCustomers,
 } from "../hooks/useReports"
-import { sendWhatsAppWeb } from "../utils/whatsapp"
+import { normalizePhone } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
-import { getProfitReport, getDebtReminderList, sendDebtReminder } from "../api/endpoints"
+import { getProfitReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -298,8 +298,12 @@ function EndOfDayTab() {
                   <THead><TR><TH>رقم الفاتورة</TH><TH>الزبون</TH><TH>الإجمالي</TH><TH>المدفوع</TH><TH>الباقي</TH></TR></THead>
                   <TBody>
                     {d.invoices.map((inv) => (
-                      <TR key={inv.invoiceNumber}>
-                        <TD className="font-mono text-sm">{inv.invoiceNumber}</TD>
+                      <TR key={inv.invoiceNumber} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <TD className="font-mono text-sm">
+                          {inv.id ? (
+                            <Link to={`/invoices/${inv.id}`} className="text-indigo-600 hover:underline font-semibold">{inv.invoiceNumber}</Link>
+                          ) : inv.invoiceNumber}
+                        </TD>
                         <TD>{inv.customerName}</TD>
                         <TD className="font-semibold">{fmt(inv.total)}</TD>
                         <TD className="text-emerald-600">{fmt(inv.paid)}</TD>
@@ -459,7 +463,11 @@ function DebtsTab() {
                     }`}>{r.debtAgeDays} يوم</span>
                   </TD>
                   <TD>
-                    <Button size="sm" variant="outline" onClick={() => sendWhatsAppWeb(r.phone, `مرحباً ${r.name}، رصيدك لدينا: ${fmt(r.currentBalance)} د.ع`)}>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      void sendWhatsAppMessage({ phone: normalizePhone(r.phone), message: `مرحباً ${r.name}، رصيدك لدينا: ${fmt(r.currentBalance)} د.ع` })
+                        .then(() => window.alert(`✓ تم إرسال التذكير لـ ${r.name}`))
+                        .catch(() => window.alert("✗ تعذر الإرسال"))
+                    }}>
                       فردي
                     </Button>
                   </TD>

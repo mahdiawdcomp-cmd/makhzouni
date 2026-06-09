@@ -101,12 +101,18 @@ export function VouchersPage() {
     window.setTimeout(() => amountRef.current?.focus(), 0)
   }
 
+  function fmtNumInput(raw: string): string {
+    const digits = raw.replace(/[^0-9]/g, "")
+    if (!digits) return ""
+    return Number(digits).toLocaleString("en-US")
+  }
+
   const createMutation = useMutation({
     mutationFn: () =>
       createVoucher({
         type,
         customerId: type === "EXPENSE" ? undefined : customerId,
-        amount: Number(amount),
+        amount: Number(amount.replace(/,/g, "")),
         notes: notes || undefined,
         description: description || undefined,
       }),
@@ -124,7 +130,7 @@ export function VouchersPage() {
   const vouchers = useMemo(() => vouchersQuery.data ?? [], [vouchersQuery.data])
 
   const canSubmit =
-    Number(amount) > 0 &&
+    Number(amount.replace(/,/g, "")) > 0 &&
     (type === "EXPENSE" ? description.trim().length > 0 : !!customerId) &&
     !createMutation.isPending
 
@@ -346,12 +352,13 @@ export function VouchersPage() {
             )}
 
             <Input
-              type="number"
+              inputMode="numeric"
               ref={amountRef}
               value={amount}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => setAmount(fmtNumInput(event.target.value))}
               placeholder="المبلغ"
               onFocus={(e) => e.target.select()}
+              dir="ltr"
             />
             <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">
               تاريخ السند يثبت تلقائياً عند الحفظ

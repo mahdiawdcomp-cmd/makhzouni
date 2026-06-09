@@ -7,7 +7,8 @@ import { createCustomerPortalLink } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
-import { fillTemplate, openWhatsApp } from "../utils/whatsapp"
+import { fillTemplate, normalizePhone } from "../utils/whatsapp"
+import { sendWhatsAppMessage } from "../api/endpoints"
 import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
@@ -132,8 +133,9 @@ export function CustomerDetailPage() {
     .filter((v) => v.type === "RECEIPT")
     .reduce((sum, v) => sum + Number(v.amount ?? 0), 0)
 
-  function sendStatement() {
+  async function sendStatement() {
     if (!customer) return
+    if (!customer.phone) { window.alert("رقم الهاتف غير متوفر."); return }
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: customer.name,
@@ -143,7 +145,12 @@ export function CustomerDetailPage() {
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
-    openWhatsApp(customer.phone, msg)
+    try {
+      await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: msg })
+      window.alert("✓ تم إرسال الكشف عبر واتساب.")
+    } catch {
+      window.alert("✗ تعذر الإرسال. تحقق من إعدادات واتساب.")
+    }
   }
 
   async function createPortalLinkAndShare() {
@@ -152,7 +159,11 @@ export function CustomerDetailPage() {
     if (!link) return
     const fullUrl = `${window.location.origin}${link.urlPath}`
     await navigator.clipboard?.writeText(fullUrl)
-    openWhatsApp(customer.phone, `رابط كشف حسابك:\n${fullUrl}`)
+    try {
+      await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: `رابط كشف حسابك:\n${fullUrl}` })
+    } catch {
+      window.alert("تم نسخ الرابط. تعذر الإرسال التلقائي.")
+    }
   }
 
   const lastLink = lastActivityLink(last)
@@ -178,7 +189,7 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4 text-slate-600" /> تعديل البيانات
           </Button>
-          <Button variant="outline" onClick={sendStatement} disabled={!customer.phone}>
+          <Button variant="outline" onClick={() => void sendStatement()} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
           <Button variant="outline" onClick={createPortalLinkAndShare} disabled={portalMutation.isPending || !customer.phone}>
@@ -504,15 +515,23 @@ function EditCustomerModal({
           />
         </div>
 
-        <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition hover:bg-slate-50">
-          <input
-            type="checkbox"
-            checked={form.isSupplier}
-            onChange={(e) => set("isSupplier", e.target.checked)}
-            className="h-4 w-4 accent-blue-600"
-          />
-          <span className="text-sm font-medium">مورّد (وليس زبون)</span>
-        </label>
+        <div className="space-y-1">
+          <Label>النوع</Label>
+          <div className="flex gap-2">
+            {([
+              { label: "زبون", value: false, desc: "يظهر في قائمة الزبائن" },
+              { label: "مورد", value: true, desc: "يظهر في قائمة الموردين" },
+            ] as const).map(({ label, value, desc }) => (
+              <label key={label} className={`flex flex-1 cursor-pointer flex-col gap-0.5 rounded-lg border-2 p-3 transition ${form.isSupplier === value ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"}`}>
+                <div className="flex items-center gap-2">
+                  <input type="radio" name="customerType" checked={form.isSupplier === value} onChange={() => set("isSupplier", value)} className="accent-indigo-600" />
+                  <span className="font-semibold text-sm">{label}</span>
+                </div>
+                <span className="text-xs text-slate-500 mr-5">{desc}</span>
+              </label>
+            ))}
+          </div>
+        </div>
 
         {isError && (
           <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">

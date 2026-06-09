@@ -30,6 +30,7 @@ import { VouchersPage } from "./pages/VouchersPage"
 import { TransfersPage } from "./pages/TransfersPage"
 import { CatalogManagementPage } from "./pages/CatalogManagementPage"
 import { StocktakePage } from "./pages/StocktakePage"
+import { PublicStocktakePage } from "./pages/PublicStocktakePage"
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/catalog" element={<PublicCatalogPage />} />
         <Route path="/client/:token" element={<ClientPortalPage />} />
+        <Route path="/stocktake/:token" element={<PublicStocktakePage />} />
 
         {/* ── Protected routes ── */}
         <Route element={<ProtectedRoute />}>

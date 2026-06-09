@@ -124,6 +124,7 @@ export interface StocktakeSessionSummary {
   creator: { id: string; name: string }
   branch: { id: string; name: string } | null
   itemCount: number
+  publicToken?: string
 }
 
 export interface StocktakeSessionDetail extends StocktakeSessionSummary {
@@ -136,7 +137,9 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
     actualQty: number | null
     variance: number | null
     notes: string | null
+    hasError?: boolean
   }>
+  stats?: { filled: number; total: number }
 }
 
 export interface PublicCatalogProduct {
@@ -483,7 +486,7 @@ export interface EndOfDayReport {
   receipts: { count: number; total: number }
   payments: { count: number; total: number }
   expenses: { count: number; total: number }
-  invoices: Array<{ invoiceNumber: string; customerName: string; total: number; paid: number }>
+  invoices: Array<{ id?: string; invoiceNumber: string; customerName: string; total: number; paid: number }>
 }
 
 export type ThemePreset = "classic" | "iraqi" | "exclusive" | "bold" | "designer"

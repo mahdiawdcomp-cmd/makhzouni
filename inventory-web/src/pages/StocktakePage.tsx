@@ -1,25 +1,26 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-// useQueryClient used in StocktakePage only
-import { CheckCircle2, ChevronRight, ClipboardList, Plus, Save } from "lucide-react"
+import { CheckCircle2, ChevronRight, ClipboardList, Copy, ExternalLink, Plus } from "lucide-react"
 import {
   closeStocktakeSession,
   createStocktakeSession,
   getStocktakeSession,
   listStocktakeSessions,
-  submitStocktakeSession,
-  updateStocktakeItem,
 } from "../api/endpoints"
 import type { StocktakeSessionDetail, StocktakeSessionSummary } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 
+const PUBLIC_BASE = `${window.location.origin}/stocktake`
+
 function statusLabel(s: string) {
-  if (s === "OPEN") return { label: "مفتوح", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" }
-  if (s === "SUBMITTED") return { label: "مرفوع", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" }
+  if (s === "OPEN") return { label: "مفتوح — جاري الجرد", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" }
+  if (s === "SUBMITTED") return { label: "مرفوع — بانتظار المراجعة", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" }
   return { label: "مغلق", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" }
 }
+
+// ── Root ──────────────────────────────────────────────────────────────────────
 
 export function StocktakePage() {
   const qc = useQueryClient()
@@ -31,20 +32,16 @@ export function StocktakePage() {
     queryKey: ["stocktake-session", selectedId],
     queryFn: () => getStocktakeSession(selectedId!),
     enabled: Boolean(selectedId),
+    refetchInterval: (q) => q.state.data?.status === "SUBMITTED" ? false : 15_000,
   })
 
   const createMut = useMutation({
     mutationFn: (p: { notes?: string }) => createStocktakeSession(p),
     onSuccess: (d) => {
-      qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
+      void qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
       setSelectedId(d.id)
       setShowNew(false)
     },
-  })
-
-  const submitMut = useMutation({
-    mutationFn: (id: string) => submitStocktakeSession(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["stocktake-session", selectedId] }),
   })
 
   const closeMut = useMutation({
@@ -56,15 +53,14 @@ export function StocktakePage() {
   })
 
   if (selectedId && sessionQ.data) {
-    return <SessionView
-      session={sessionQ.data}
-      onBack={() => setSelectedId(null)}
-      onSubmit={() => submitMut.mutate(selectedId)}
-      onClose={() => closeMut.mutate(selectedId)}
-      submitting={submitMut.isPending}
-      closing={closeMut.isPending}
-      onRefresh={() => qc.invalidateQueries({ queryKey: ["stocktake-session", selectedId] })}
-    />
+    return (
+      <SessionView
+        session={sessionQ.data}
+        onBack={() => setSelectedId(null)}
+        onClose={() => closeMut.mutate(selectedId)}
+        closing={closeMut.isPending}
+      />
+    )
   }
 
   return (
@@ -72,7 +68,7 @@ export function StocktakePage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">الجرد الدوري</h1>
-          <p className="text-slate-500">أنشئ جلسة جرد، وزّعها على الموظفين، وراجع الفروقات.</p>
+          <p className="text-slate-500">أنشئ جلسة جرد، أرسل الرابط للعمال، راجع الفروقات.</p>
         </div>
         <Button onClick={() => setShowNew(true)}>
           <Plus className="h-4 w-4" /> جلسة جرد جديدة
@@ -88,12 +84,18 @@ export function StocktakePage() {
       )}
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><ClipboardList className="h-5 w-5" /> جلسات الجرد</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ClipboardList className="h-5 w-5" /> جلسات الجرد
+          </CardTitle>
+        </CardHeader>
         <CardContent>
           {listQ.isLoading ? (
             <p className="text-slate-500 text-sm">جاري التحميل...</p>
           ) : (listQ.data ?? []).length === 0 ? (
-            <p className="text-slate-400 text-sm text-center py-8">لا توجد جلسات جرد. اضغط «جلسة جرد جديدة» للبدء.</p>
+            <p className="text-slate-400 text-sm text-center py-8">
+              لا توجد جلسات. اضغط «جلسة جرد جديدة» للبدء.
+            </p>
           ) : (
             <div className="space-y-2">
               {(listQ.data ?? []).map((s) => (
@@ -107,109 +109,209 @@ export function StocktakePage() {
   )
 }
 
-function NewSessionCard({ onCancel, onCreate, loading }: { onCancel: () => void; onCreate: (notes?: string) => void; loading: boolean }) {
+// ── New session card ──────────────────────────────────────────────────────────
+
+function NewSessionCard({
+  onCancel,
+  onCreate,
+  loading,
+}: {
+  onCancel: () => void
+  onCreate: (notes?: string) => void
+  loading: boolean
+}) {
   const [notes, setNotes] = useState("")
   return (
     <Card className="border-blue-200 dark:border-blue-800">
       <CardContent className="p-4 space-y-3">
         <p className="font-medium">جلسة جرد جديدة</p>
-        <Input placeholder="ملاحظات (اختياري)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <Input
+          placeholder="اسم الجرد أو ملاحظة (اختياري) — مثال: جرد شهر يونيو"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
         <div className="flex gap-2">
           <Button onClick={() => onCreate(notes || undefined)} disabled={loading}>
             {loading ? "جاري الإنشاء..." : "إنشاء الجلسة"}
           </Button>
           <Button variant="outline" onClick={onCancel}>إلغاء</Button>
         </div>
-        <p className="text-xs text-slate-500">سيتم استيراد قائمة جميع المنتجات مع كمياتها الحالية في النظام.</p>
+        <p className="text-xs text-slate-500">
+          سيُنشأ رابط خارجي للعمال — لا يحتاجون تسجيل دخول.
+        </p>
       </CardContent>
     </Card>
   )
 }
 
-function SessionRow({ session, onClick }: { session: StocktakeSessionSummary; onClick: () => void }) {
+// ── Session row ───────────────────────────────────────────────────────────────
+
+function SessionRow({
+  session,
+  onClick,
+}: {
+  session: StocktakeSessionSummary
+  onClick: () => void
+}) {
   const st = statusLabel(session.status)
+  const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
+
   return (
-    <button type="button" onClick={onClick}
-      className="w-full flex items-center justify-between rounded-lg border p-3 text-right hover:bg-slate-50 dark:hover:bg-slate-800 transition">
-      <div>
-        <div className="flex items-center gap-2">
-          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${st.cls}`}>{st.label}</span>
-          <span className="text-sm font-medium">{session.createdAt.slice(0, 10)}</span>
-          {session.branch && <span className="text-xs text-slate-400">— {session.branch.name}</span>}
-        </div>
-        <p className="text-xs text-slate-500 mt-0.5">{session.creator.name} · {session.itemCount} منتج</p>
-        {session.notes && <p className="text-xs text-slate-400 mt-0.5">{session.notes}</p>}
+    <div className="rounded-lg border p-3 dark:border-slate-700">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={onClick}
+          className="flex-1 text-right hover:text-blue-600 transition"
+        >
+          <div className="flex items-center gap-2">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${st.cls}`}>{st.label}</span>
+            <span className="text-sm font-medium">{session.createdAt.slice(0, 10)}</span>
+            {session.branch && <span className="text-xs text-slate-400">— {session.branch.name}</span>}
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {session.creator.name} · {session.itemCount} منتج
+            {session.notes ? ` · ${session.notes}` : ""}
+          </p>
+        </button>
+        <ChevronRight className="h-4 w-4 text-slate-400 mr-2" />
       </div>
-      <ChevronRight className="h-4 w-4 text-slate-400" />
-    </button>
+
+      {/* Public link */}
+      {session.status !== "CLOSED" && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+          <p className="flex-1 text-xs text-slate-500 font-mono truncate" dir="ltr">{publicUrl}</p>
+          <button
+            type="button"
+            title="نسخ الرابط"
+            onClick={() => navigator.clipboard.writeText(publicUrl)}
+            className="text-slate-400 hover:text-slate-700 transition"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <a
+            href={publicUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-400 hover:text-blue-600 transition"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        </div>
+      )}
+    </div>
   )
 }
 
+// ── Session detail view ───────────────────────────────────────────────────────
+
 function SessionView({
-  session, onBack, onSubmit, onClose, submitting, closing, onRefresh,
+  session,
+  onBack,
+  onClose,
+  closing,
 }: {
   session: StocktakeSessionDetail
   onBack: () => void
-  onSubmit: () => void
   onClose: () => void
-  submitting: boolean
   closing: boolean
-  onRefresh: () => void
 }) {
-  const updateMut = useMutation({
-    mutationFn: (p: { productId: string; actualQty: number; notes?: string }) =>
-      updateStocktakeItem(session.id, p.productId, p.actualQty, p.notes),
-    onSuccess: () => onRefresh(),
-  })
+  const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
+  const [copied, setCopied] = useState(false)
 
-  const [localQty, setLocalQty] = useState<Record<string, string>>({})
-  const filled = session.items.filter((i) => i.actualQty !== null).length
-  const total = session.items.length
-  const discrepancies = session.items.filter((i) => i.variance !== null && i.variance !== 0)
-
-  function save(productId: string) {
-    const val = localQty[productId]
-    if (val === undefined || val === "") return
-    updateMut.mutate({ productId, actualQty: Number(val) })
+  function copy() {
+    navigator.clipboard.writeText(publicUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
+
+  const errors = session.items.filter((i: StocktakeSessionDetail["items"][0]) => i.hasError)
+  const ok = session.items.filter((i: StocktakeSessionDetail["items"][0]) => i.variance === 0)
+  const uncounted = session.items.filter((i: StocktakeSessionDetail["items"][0]) => i.actualQty === null)
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex items-center gap-3">
-        <Button variant="outline" onClick={onBack}><ChevronRight className="h-4 w-4" /> رجوع</Button>
+        <Button variant="outline" onClick={onBack}>
+          <ChevronRight className="h-4 w-4" /> رجوع
+        </Button>
         <div>
-          <h1 className="text-xl font-bold">جلسة جرد — {session.createdAt.slice(0, 10)}</h1>
-          <p className="text-xs text-slate-500">{filled} / {total} منتج تم عده — {discrepancies.length} فرق</p>
+          <h1 className="text-xl font-bold">
+            جرد {session.createdAt.slice(0, 10)}
+            {session.notes ? ` — ${session.notes}` : ""}
+          </h1>
+          <p className="text-xs text-slate-500">
+            {session.stats ? `${session.stats.filled}/${session.stats.total}` : `${session.items.length - uncounted.length}/${session.items.length}`} منتج ·
+            <span className="text-red-600 mx-1">{errors.length} خطأ</span>·
+            <span className="text-emerald-600">{ok.length} صحيح</span>·
+            <span className="text-slate-400 ml-1">{uncounted.length} لم يُحسب</span>
+          </p>
         </div>
       </div>
 
-      {session.status === "OPEN" && (
-        <div className="flex gap-2 flex-wrap">
-          <Button onClick={onSubmit} disabled={submitting}>
-            <Save className="h-4 w-4" />
-            {submitting ? "جاري الرفع..." : "رفع الجرد للمراجعة"}
-          </Button>
-        </div>
+      {/* Public link */}
+      {session.status !== "CLOSED" && (
+        <Card className="border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4 space-y-2">
+            <p className="text-sm font-semibold">رابط العمال</p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={publicUrl}
+                dir="ltr"
+                className="flex-1 rounded-lg border bg-slate-50 px-3 py-2 text-xs font-mono dark:bg-slate-900"
+              />
+              <Button size="sm" variant="outline" onClick={copy}>
+                <Copy className="h-4 w-4" />
+                {copied ? "تم النسخ!" : "نسخ"}
+              </Button>
+              <a href={publicUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="outline">
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </a>
+            </div>
+            <p className="text-xs text-slate-400">
+              أرسل هذا الرابط للعمال — يفتح بدون تسجيل دخول ويُحفظ تلقائياً.
+            </p>
+          </CardContent>
+        </Card>
       )}
+
+      {/* Status banners */}
       {session.status === "SUBMITTED" && (
-        <div className="space-y-2">
-          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 dark:bg-amber-950 dark:border-amber-800">
-            <p className="font-semibold text-amber-800 dark:text-amber-300">الجلسة مرفوعة للمراجعة</p>
-            <p className="text-xs text-amber-600 mt-1">راجع الفروقات أدناه وأغلق الجلسة للتأكيد.</p>
-          </div>
+        <div className="space-y-3">
+          {errors.length > 0 && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 dark:bg-red-950 dark:border-red-800">
+              <p className="font-semibold text-red-800 dark:text-red-300">
+                ⚠️ {errors.length} منتج بها فروقات
+              </p>
+            </div>
+          )}
+          {errors.length === 0 && uncounted.length === 0 && (
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 dark:bg-emerald-950 dark:border-emerald-800">
+              <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+                ✓ الجرد مطابق بالكامل!
+              </p>
+            </div>
+          )}
           <Button onClick={onClose} disabled={closing} variant="outline">
             <CheckCircle2 className="h-4 w-4" />
             {closing ? "جاري الإغلاق..." : "إغلاق الجلسة وتأكيد الجرد"}
           </Button>
         </div>
       )}
+
       {session.status === "CLOSED" && (
         <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 dark:bg-emerald-950 dark:border-emerald-800">
-          <p className="font-semibold text-emerald-800 dark:text-emerald-300">✓ الجلسة مغلقة — الجرد مكتمل</p>
+          <p className="font-semibold text-emerald-800 dark:text-emerald-300">
+            ✓ الجلسة مغلقة — الجرد مكتمل
+          </p>
         </div>
       )}
 
-      {/* Items table */}
+      {/* Items table — errors first */}
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -218,57 +320,40 @@ function SessionView({
                 <tr>
                   <th className="px-3 py-2 text-right font-medium">المادة</th>
                   <th className="px-3 py-2 text-right font-medium">الفئة</th>
-                  <th className="px-3 py-2 text-center font-medium">النظام<br/><span className="text-xs text-slate-400">(كارتون)</span></th>
-                  <th className="px-3 py-2 text-center font-medium">الفعلي<br/><span className="text-xs text-slate-400">(كارتون)</span></th>
+                  <th className="px-3 py-2 text-center font-medium">بالنظام</th>
+                  <th className="px-3 py-2 text-center font-medium">فعلي</th>
                   <th className="px-3 py-2 text-center font-medium">الفرق</th>
-                  {session.status === "OPEN" && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {session.items.map((item) => {
-                  const hasVariance = item.variance !== null && item.variance !== 0
+                {(session.items as StocktakeSessionDetail["items"]).map((item) => {
+                  const rowCls =
+                    item.hasError
+                      ? "bg-red-50 dark:bg-red-950"
+                      : item.actualQty === null
+                        ? ""
+                        : "bg-emerald-50/40 dark:bg-emerald-950/20"
                   return (
-                    <tr key={item.id} className={hasVariance ? "bg-red-50 dark:bg-red-950" : ""}>
+                    <tr key={item.id} className={rowCls}>
                       <td className="px-3 py-2 font-medium">{item.productName}</td>
-                      <td className="px-3 py-2 text-slate-500">{item.category ?? "—"}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs">{item.category ?? "—"}</td>
+                      <td className="px-3 py-2 text-center">{item.systemQty}</td>
                       <td className="px-3 py-2 text-center">
-                        {item.systemQty !== null ? item.systemQty : <span className="text-slate-300">مخفي</span>}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {session.status === "OPEN" ? (
-                          <Input
-                            type="number"
-                            min={0}
-                            className="w-20 text-center mx-auto"
-                            placeholder={item.actualQty !== null ? String(item.actualQty) : "أدخل"}
-                            value={localQty[item.productId] ?? (item.actualQty !== null ? String(item.actualQty) : "")}
-                            onChange={(e) => setLocalQty((p) => ({ ...p, [item.productId]: e.target.value }))}
-                            onBlur={() => save(item.productId)}
-                            onKeyDown={(e) => e.key === "Enter" && save(item.productId)}
-                          />
-                        ) : (
-                          item.actualQty !== null ? item.actualQty : "—"
-                        )}
+                        {item.actualQty !== null ? item.actualQty : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-3 py-2 text-center">
                         {item.variance !== null ? (
-                          <span className={item.variance === 0 ? "text-emerald-600" : item.variance > 0 ? "text-blue-600" : "text-red-600 font-bold"}>
+                          <span className={
+                            item.variance === 0
+                              ? "text-emerald-600 font-bold"
+                              : item.variance > 0
+                                ? "text-blue-600 font-bold"
+                                : "text-red-600 font-bold text-base"
+                          }>
                             {item.variance > 0 ? `+${item.variance}` : item.variance}
                           </span>
                         ) : "—"}
                       </td>
-                      {session.status === "OPEN" && (
-                        <td className="px-3 py-2 text-center">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={!localQty[item.productId] && item.actualQty === null}
-                            onClick={() => save(item.productId)}
-                          >
-                            <Save className="h-3 w-3" />
-                          </Button>
-                        </td>
-                      )}
                     </tr>
                   )
                 })}

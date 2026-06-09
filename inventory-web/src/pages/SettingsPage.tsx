@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  BadgePercent,
   BellRing,
   Building2,
   CheckCircle2,
+  ClipboardList,
   Download,
   FileJson,
   ImagePlus,
@@ -14,7 +17,9 @@ import {
   Play,
   RefreshCw,
   Save,
+  ShieldCheck,
   Upload,
+  Users,
   WifiOff,
   XCircle,
 } from "lucide-react"
@@ -87,15 +92,16 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security"
+type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "store",    label: "المتجر",        icon: Building2 },
   { id: "theme",    label: "المظهر",        icon: Palette },
   { id: "whatsapp", label: "واتساب",        icon: MessageCircle },
   { id: "alerts",   label: "التنبيهات",     icon: BellRing },
-  { id: "security", label: "الأمان", icon: KeyRound },
+  { id: "security", label: "الأمان",        icon: KeyRound },
   { id: "backup",   label: "النسخ الاحتياطي", icon: Download },
+  { id: "admin",    label: "الإدارة",       icon: ShieldCheck },
 ]
 
 export function SettingsPage() {
@@ -278,6 +284,35 @@ export function SettingsPage() {
 
       {activeTab === "security" && (
         <ChangePasswordForm />
+      )}
+
+      {/* ── ADMIN ──────────────────────────────────────────── */}
+      {activeTab === "admin" && (
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <SectionTitle>أدوات الإدارة</SectionTitle>
+            <p className="text-sm text-slate-500">إدارة المستخدمين، الصلاحيات، الفروع، والكوبونات.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {([
+                { to: "/users",      label: "المستخدمين",   desc: "إدارة حسابات المستخدمين والصلاحيات", Icon: Users },
+                { to: "/audit-logs", label: "سجل التدقيق",  desc: "مراجعة جميع العمليات والتغييرات",     Icon: ClipboardList },
+                { to: "/branches",   label: "الفروع",        desc: "إضافة وتعديل الفروع",                 Icon: Building2 },
+                { to: "/coupons",    label: "الكوبونات",     desc: "إنشاء وإدارة كوبونات الخصم",          Icon: BadgePercent },
+              ] as const).map(({ to, label, desc, Icon }) => (
+                <Link key={to} to={to}
+                  className="flex items-center gap-3 rounded-xl border border-slate-200 p-4 transition hover:border-indigo-300 hover:bg-indigo-50 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+                    <Icon className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">{label}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{desc}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* ── WHATSAPP ───────────────────────────────────────── */}

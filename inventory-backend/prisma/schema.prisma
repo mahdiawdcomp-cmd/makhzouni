@@ -547,16 +547,17 @@ model OrderPreparation {
 // ── Inventory Stocktake ──────────────────────────────────────────────────────
 
 model StocktakeSession {
-  id        String          @id @default(uuid()) @db.Uuid
-  branchId  String?         @map("branch_id") @db.Uuid
-  branch    Branch?         @relation(fields: [branchId], references: [id])
-  status    String          @default("OPEN")
-  notes     String?
-  createdBy String          @map("created_by") @db.Uuid
-  creator   User            @relation(fields: [createdBy], references: [id])
-  items     StocktakeItem[]
-  createdAt DateTime        @default(now()) @map("created_at")
-  closedAt  DateTime?       @map("closed_at")
+  id          String          @id @default(uuid()) @db.Uuid
+  publicToken String          @unique @map("public_token")
+  branchId    String?         @map("branch_id") @db.Uuid
+  branch      Branch?         @relation(fields: [branchId], references: [id])
+  status      String          @default("OPEN")
+  notes       String?
+  createdBy   String          @map("created_by") @db.Uuid
+  creator     User            @relation(fields: [createdBy], references: [id])
+  items       StocktakeItem[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  closedAt    DateTime?       @map("closed_at")
 
   @@index([branchId])
   @@index([createdBy])

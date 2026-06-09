@@ -19,12 +19,12 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getInvoiceAuditTrail, reactivateInvoice, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getInvoiceAuditTrail, reactivateInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
-import { fillTemplate, openWhatsApp } from "../utils/whatsapp"
+import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import type { Product } from "../types/api"
 import { Button } from "../components/ui/button"
 
@@ -80,6 +80,7 @@ export function InvoiceDetailPage() {
   // WhatsApp preview
   const [waPreview, setWaPreview] = useState(false)
   const [waMessage, setWaMessage] = useState("")
+  const [waSending, setWaSending] = useState(false)
   function openWaPreview() {
     if (!invoice) return
     const tpl = settings?.invoiceTemplate || DEFAULT_INVOICE_TEMPLATE
@@ -95,6 +96,20 @@ export function InvoiceDetailPage() {
       storeName: settings?.storeName ?? "",
     }))
     setWaPreview(true)
+  }
+  async function sendWaMessage() {
+    const phone = invoice?.customer?.phone
+    if (!phone) { window.alert("رقم الهاتف غير متوفر."); return }
+    setWaSending(true)
+    try {
+      await sendWhatsAppMessage({ phone: normalizePhone(phone), message: waMessage })
+      setWaPreview(false)
+      window.alert("✓ تم إرسال الفاتورة عبر واتساب.")
+    } catch {
+      window.alert("✗ تعذر الإرسال. تحقق من إعدادات واتساب.")
+    } finally {
+      setWaSending(false)
+    }
   }
 
   const cancelMutation = useMutation({
@@ -115,6 +130,12 @@ export function InvoiceDetailPage() {
     },
   })
 
+  function fmtNumInput(raw: string): string {
+    const digits = raw.replace(/[^0-9]/g, "")
+    if (!digits) return ""
+    return Number(digits).toLocaleString("en-US")
+  }
+
   // Full edit dialog
   const [editOpen, setEditOpen] = useState(false)
   const [editDiscount, setEditDiscount] = useState("")
@@ -134,7 +155,7 @@ export function InvoiceDetailPage() {
     if (!invoice) return
     setEditDiscount(String(invoice.discount ?? 0))
     setEditTax("0")
-    setEditPaid(String(invoice.paidAmount ?? 0))
+    setEditPaid(Number(invoice.paidAmount ?? 0).toLocaleString("en-US"))
     setEditItems((invoice.items ?? []).map((it) => ({
       productId: it.productId, productName: it.productName ?? it.productId,
       unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "CARTON",
@@ -157,8 +178,8 @@ export function InvoiceDetailPage() {
   const editMutation = useMutation({
     mutationFn: () => updateInvoice(id!, {
       type: invoice?.type, customerId: invoice?.customerId ?? "",
-      discount: Number(editDiscount), tax: 0, paidAmount: Number(editPaid),
-      paymentType: editTotal - Number(editPaid) <= 0 ? "CASH" : Number(editPaid) > 0 ? "PARTIAL" : "CREDIT",
+      discount: Number(editDiscount), tax: 0, paidAmount: Number(editPaid.replace(/,/g, "")),
+      paymentType: editTotal - Number(editPaid.replace(/,/g, "")) <= 0 ? "CASH" : Number(editPaid.replace(/,/g, "")) > 0 ? "PARTIAL" : "CREDIT",
       items: editItems.map((it) => ({ productId: it.productId, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice })),
     }),
     onSuccess: () => {
@@ -373,8 +394,8 @@ export function InvoiceDetailPage() {
           <DialogHeader><DialogTitle>معاينة رسالة واتساب</DialogTitle></DialogHeader>
           <div className="rounded-xl bg-emerald-50 p-4 text-sm whitespace-pre-wrap">{waMessage}</div>
           <div className="flex gap-2">
-            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => { openWhatsApp(invoice.customer?.phone, waMessage); setWaPreview(false) }}>
-              <MessageCircle className="h-4 w-4" /> إرسال
+            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => void sendWaMessage()} disabled={waSending}>
+              <MessageCircle className="h-4 w-4" /> {waSending ? "جاري الإرسال..." : "إرسال"}
             </Button>
             <Button variant="outline" onClick={() => setWaPreview(false)}>إلغاء</Button>
           </div>
@@ -437,12 +458,14 @@ export function InvoiceDetailPage() {
               </div>
             ) : null}
             <div className="grid grid-cols-2 gap-3">
-              {[["الخصم", editDiscount, setEditDiscount], ["المبلغ المدفوع", editPaid, setEditPaid]].map(([label, val, setter]) => (
-                <div key={label as string}>
-                  <label className="mb-1 block text-xs text-slate-500">{label as string}</label>
-                  <Input type="number" value={val as string} onFocus={(e) => e.target.select()} onChange={(e) => (setter as (v: string) => void)(e.target.value)} />
-                </div>
-              ))}
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">الخصم</label>
+                <Input type="number" value={editDiscount} onFocus={(e) => e.target.select()} onChange={(e) => setEditDiscount(e.target.value)} />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">المبلغ المدفوع</label>
+                <Input inputMode="numeric" dir="ltr" value={editPaid} onFocus={(e) => e.target.select()} onChange={(e) => setEditPaid(fmtNumInput(e.target.value))} />
+              </div>
             </div>
             <div className="rounded-lg bg-slate-50 dark:bg-slate-900 p-3 text-sm flex justify-between font-bold text-base">
               <span>الإجمالي بعد التعديل</span><span>{fmt(editTotal)}</span>

@@ -2,13 +2,10 @@ import { useState, type ComponentType } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import {
   ArrowRightLeft,
-  BadgePercent,
   BarChart3,
   Boxes,
-  Building2,
   ChevronDown,
   ChevronRight,
-  ClipboardList,
   FileCheck2,
   FileText,
   Globe,
@@ -97,11 +94,7 @@ const navItems: Item[] = [
 ]
 
 const adminItems = [
-  { to: "/users", label: "المستخدمين", Icon: Users },
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
-  { to: "/audit-logs", label: "سجل التدقيق", Icon: ClipboardList },
-  { to: "/branches", label: "الفروع", Icon: Building2 },
-  { to: "/coupons", label: "الكوبونات", Icon: BadgePercent },
 ]
 
 function SideLeaf({ item }: { item: Leaf }) {
@@ -229,7 +222,6 @@ function SideLink({
 export function Sidebar() {
   const isAdmin = useAuthStore((state) => state.isAdmin())
   const hasPermission = useAuthStore((state) => state.hasPermission)
-  const canManageUsers = useAuthStore((state) => state.hasPermission("MANAGE_USERS"))
   const canManageApprovals = useAuthStore((state) => state.hasPermission("MANAGE_APPROVALS"))
   const { data: approvals = [] } = useQuery({
     queryKey: ["approvals", "badge"],
@@ -239,7 +231,6 @@ export function Sidebar() {
   })
 
   const visibleAdminItems = adminItems.filter((item) => {
-    if (item.to === "/users") return isAdmin || canManageUsers
     if (item.to === "/approvals") return isAdmin || canManageApprovals
     return isAdmin
   })

@@ -305,6 +305,7 @@ export function ProductsPage() {
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState("all")
   const [lowOnly, setLowOnly] = useState(false)
+  const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "stock" | "category">("all")
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
@@ -312,6 +313,15 @@ export function ProductsPage() {
   const [form, setForm] = useState<ProductFormState>(emptyForm)
   const products = productsQuery.data ?? []
   const categories = Array.from(new Set(products.map((item) => item.category).filter(Boolean) as string[]))
+
+  function getMissing(product: Product): string[] {
+    const missing: string[] = []
+    if (!product.purchasePrice || product.purchasePrice === 0) missing.push("purchasePrice")
+    if (!product.salePrice || product.salePrice === 0) missing.push("salePrice")
+    if (!product.category) missing.push("category")
+    if (stockOf(product) <= 0 && product.openingBalancePcs === 0 && product.cartonsAvailable === 0) missing.push("stock")
+    return missing
+  }
 
   const filtered = products.filter((product) => {
     const matchesSearch =
@@ -321,7 +331,12 @@ export function ProductsPage() {
       product.qrCode?.toLowerCase().includes(query.toLowerCase())
     const matchesCategory = category === "all" || product.category === category
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
-    return matchesSearch && matchesCategory && matchesLow
+    const missing = getMissing(product)
+    const matchesMissing =
+      missingFilter === "all" ? true :
+      missingFilter === "any" ? missing.length > 0 :
+      missing.includes(missingFilter)
+    return matchesSearch && matchesCategory && matchesLow && matchesMissing
   })
 
   const sortedProducts = [...filtered].sort((a, b) => {
@@ -526,7 +541,7 @@ export function ProductsPage() {
           <CardTitle>جدول المنتجات</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_220px_220px_180px]">
+          <div className="grid gap-3 lg:grid-cols-[1fr_200px_220px]">
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالاسم أو رقم الآيتم أو الباركود" />
             <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">كل الفئات</option>
@@ -548,7 +563,26 @@ export function ProductsPage() {
               <option value="saleDesc">أعلى سعر بيع</option>
               <option value="valueDesc">أعلى قيمة مخزون</option>
             </select>
-            <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 dark:border-slate-700">
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              className={`h-9 rounded-md border px-3 text-sm dark:bg-slate-950 ${missingFilter !== "all" ? "border-amber-400 bg-amber-50 font-semibold text-amber-800 dark:border-amber-600 dark:bg-amber-950/20 dark:text-amber-300" : "border-slate-200 bg-white dark:border-slate-700"}`}
+              value={missingFilter}
+              onChange={(event) => setMissingFilter(event.target.value as typeof missingFilter)}
+            >
+              <option value="all">كل المواد</option>
+              <option value="any">⚠️ ناقصة معلومات (الكل)</option>
+              <option value="purchasePrice">⚠️ ناقص سعر الشراء</option>
+              <option value="salePrice">⚠️ ناقص سعر البيع</option>
+              <option value="stock">⚠️ ناقص الكمية</option>
+              <option value="category">⚠️ ناقص الفئة</option>
+            </select>
+            {missingFilter !== "all" && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
+                {filtered.length} مادة
+              </span>
+            )}
+            <label className="flex items-center gap-2 rounded-md border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700">
               <input type="checkbox" checked={lowOnly} onChange={(event) => setLowOnly(event.target.checked)} />
               نقص المخزون
             </label>
@@ -612,6 +646,15 @@ export function ProductsPage() {
                           <div>
                             <p className={`font-bold text-gray-900 ${isOut ? "line-through text-gray-400" : ""}`}>{p.name}</p>
                             <p className="text-xs text-gray-500 font-mono">{p.itemNumber}</p>
+                            {getMissing(p).length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {getMissing(p).map((m) => (
+                                  <span key={m} className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                                    {m === "purchasePrice" ? "بلا سعر شراء" : m === "salePrice" ? "بلا سعر بيع" : m === "stock" ? "بلا كمية" : "بلا فئة"}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>

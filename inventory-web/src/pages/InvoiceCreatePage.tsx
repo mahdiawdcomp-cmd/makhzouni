@@ -1010,10 +1010,15 @@ export function InvoiceCreatePage() {
                 <label className="mb-1 block text-xs text-slate-500">{isPurchase ? "المبلغ المدفوع للمورّد" : "المبلغ الواصل"}</label>
                 <Input
                   ref={paidInputRef}
-                  type="number"
-                  value={paidAmount}
+                  inputMode="numeric"
+                  dir="ltr"
+                  value={paidAmount === 0 ? "" : paidAmount.toLocaleString("en-US")}
+                  placeholder="0"
                   onFocus={selectAllOnFocus}
-                  onChange={(e) => setPaidAmount(Number(e.target.value))}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^0-9]/g, "")
+                    setPaidAmount(raw ? Number(raw) : 0)
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault()
