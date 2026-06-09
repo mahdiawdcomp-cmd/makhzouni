@@ -34,11 +34,11 @@ export function UnsavedChangesDialog({
 
   async function handleSaveAndLeave() {
     try {
-      await onSave?.()
-      blocker.proceed()
+      if (onSave) await onSave()
+      if (blocker.proceed) blocker.proceed()
     } catch {
       // Save failed — stay on the page so the user can fix it
-      blocker.reset()
+      if (blocker.reset) blocker.reset()
     }
   }
 
@@ -73,7 +73,7 @@ export function UnsavedChangesDialog({
           <Button
             variant="outline"
             className="w-full border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/20"
-            onClick={() => blocker.proceed()}
+            onClick={() => blocker.proceed?.()}
           >
             🚪 خروج بدون حفظ
           </Button>
@@ -82,7 +82,7 @@ export function UnsavedChangesDialog({
           <Button
             variant="outline"
             className="w-full"
-            onClick={() => blocker.reset()}
+            onClick={() => blocker.reset?.()}
           >
             البقاء في الصفحة
           </Button>
