@@ -208,10 +208,8 @@ export function InvoiceDetailPage() {
     <div className="space-y-3 max-w-4xl mx-auto">
       {/* Toolbar — hidden on print */}
       <div className="print:hidden flex flex-wrap items-center gap-2">
-        <Button variant="ghost" asChild className="px-0">
-          <Link to={isPurchase ? "/invoices?type=PURCHASE" : isReturn ? "/invoices?type=SALES_RETURN" : "/invoices?type=SALE"}>
-            <ArrowRight className="h-4 w-4" /> رجوع
-          </Link>
+        <Button variant="ghost" className="px-0" onClick={() => navigate(-1)}>
+          <ArrowRight className="h-4 w-4" /> رجوع
         </Button>
         {/* Navigation */}
         <div className="flex items-center gap-1 rounded-md border border-slate-200 p-0.5 dark:border-slate-700">

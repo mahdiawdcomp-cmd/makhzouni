@@ -127,9 +127,24 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
   const [notes, setNotes] = useState("")
   const [msg, setMsg] = useState("")
 
+  // Check first if already approved → skip OTP entirely
   const sendOtpMut = useMutation({
-    mutationFn: () => sendCatalogOtp(phone.trim()),
-    onSuccess: () => { setMsg(""); setStep("otp") },
+    mutationFn: async () => {
+      // Fast-path: if the phone is already approved, return the token immediately
+      const status = await getCatalogAccessStatus(phone.trim())
+      if (status?.approved && status.token) return { skip: true, token: status.token }
+      // Normal path: send OTP
+      await sendCatalogOtp(phone.trim())
+      return { skip: false, token: null }
+    },
+    onSuccess: (result) => {
+      setMsg("")
+      if (result.skip && result.token) {
+        onAccess(result.token)
+      } else {
+        setStep("otp")
+      }
+    },
     onError: () => setMsg("تعذر إرسال الرمز. تأكد من الرقم وحاول مرة ثانية."),
   })
 
@@ -300,11 +315,28 @@ function CatalogShop({
   const [search, setSearch] = useState("")
   const [activeSugg, setActiveSugg] = useState(0)
   const [category, setCategory] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
   const [cart, setCart] = useState<CartLine[]>([])
   const [cartOpen, setCartOpen] = useState(false)
   const [notes, setNotes] = useState("")
   const [submitted, setSubmitted] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+
+  // Welcome banner — shown once per session
+  const welcomeKey = "catalog_welcome_seen"
+  const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem(welcomeKey))
+  function dismissWelcome() {
+    sessionStorage.setItem(welcomeKey, "1")
+    setShowWelcome(false)
+  }
+
+  // Load predefined categories for filter panel
+  const catsQuery = useQuery({
+    queryKey: ["catalog-categories-public"],
+    queryFn: () => api.get("/catalog-categories").then(r => (r.data as { data?: Array<{ name: string; types: string[] }> }).data ?? []).catch(() => []),
+    staleTime: 10 * 60_000,
+  })
+  const catalogCatsList: Array<{ name: string; types: string[] }> = catsQuery.data ?? []
 
   const products = productsQuery.data ?? []
   const categories = useMemo(
@@ -312,15 +344,31 @@ function CatalogShop({
     [products],
   )
 
+  // Available types for the currently selected category
+  const availableTypes = useMemo(() => {
+    if (category === "all") return []
+    const catDef = catalogCatsList.find(c => c.name === category)
+    if (catDef?.types.length) return catDef.types
+    return []
+  }, [category, catalogCatsList])
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     return products.filter((p) => {
       if (p.currentStock <= 0) return false
-      if (category !== "all" && p.category !== category) return false
+      if (category !== "all") {
+        // Match by categoryTags (multi) or legacy category field
+        const tags: string[] = (p as PublicCatalogProduct & { categoryTags?: string[] }).categoryTags ?? []
+        if (tags.length > 0 ? !tags.includes(category) : p.category !== category) return false
+      }
+      if (typeFilter !== "all") {
+        const tTags: string[] = (p as PublicCatalogProduct & { typeTags?: string[] }).typeTags ?? []
+        if (!tTags.includes(typeFilter)) return false
+      }
       if (!q) return true
       return [p.name, p.itemNumber, p.category ?? ""].some((s) => s.toLowerCase().includes(q))
     })
-  }, [products, search, category])
+  }, [products, search, category, typeFilter])
 
   const suggestions = visible.slice(0, 6)
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
@@ -382,6 +430,27 @@ function CatalogShop({
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
+
+      {/* ── Welcome Banner ── */}
+      {showWelcome && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3" dir="rtl">
+          <div className="mx-auto flex max-w-7xl items-start justify-between gap-3">
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 text-lg">💡</span>
+              <p className="text-sm font-medium text-amber-800">
+                تنبيه: الأسعار المعروضة تتغير حسب الكمية — تواصل معنا لأسعار الجملة والكميات الكبيرة.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissWelcome}
+              className="mt-0.5 shrink-0 rounded-full p-1 text-amber-600 hover:bg-amber-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Sticky Header ── */}
       <header className="sticky top-0 z-30 bg-white shadow-sm">
@@ -448,7 +517,7 @@ function CatalogShop({
             {["all", ...categories].map((cat) => (
               <button
                 key={cat}
-                onClick={() => setCategory(cat)}
+                onClick={() => { setCategory(cat); setTypeFilter("all") }}
                 className={cn(
                   "shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold transition-all",
                   category === cat
@@ -461,6 +530,28 @@ function CatalogShop({
             ))}
           </div>
         </div>
+
+        {/* Types bar — only shown when a category is selected and it has types */}
+        {availableTypes.length > 0 && (
+          <div className="overflow-x-auto border-t border-gray-100 bg-gray-50 scrollbar-hide">
+            <div className="flex gap-2 px-3 py-1.5">
+              {["all", ...availableTypes].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTypeFilter(t)}
+                  className={cn(
+                    "shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all",
+                    typeFilter === t
+                      ? "bg-violet-600 text-white shadow-sm"
+                      : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50",
+                  )}
+                >
+                  {t === "all" ? "كل الأنواع" : t}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </header>
 
       {/* ── Welcome banner ── */}

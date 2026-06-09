@@ -187,20 +187,16 @@ export function InvoicesPage() {
           <p className="text-slate-500">قائمة الفواتير مع البحث والتصفية والفرز.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" asChild>
-            <Link to="/invoices/new?type=PURCHASE">
-              <ShoppingCart className="h-4 w-4" /> فاتورة شراء
-            </Link>
+          <Button variant="outline" onClick={() => window.open("/invoices/new?type=PURCHASE", "_blank", "noopener")}>
+            <ShoppingCart className="h-4 w-4" /> فاتورة شراء
           </Button>
           <Button variant="outline" asChild>
             <Link to="/invoices/returns">
               <RotateCcw className="h-4 w-4" /> مرتجع مبيعات
             </Link>
           </Button>
-          <Button asChild>
-            <Link to="/invoices/new?type=SALE">
-              <Plus className="h-4 w-4" /> فاتورة بيع
-            </Link>
+          <Button onClick={() => window.open("/invoices/new?type=SALE", "_blank", "noopener")}>
+            <Plus className="h-4 w-4" /> فاتورة بيع
           </Button>
         </div>
       </div>

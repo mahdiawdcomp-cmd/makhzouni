@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { ArrowRight, Printer, ScanQrCode } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
@@ -16,14 +16,15 @@ async function openBlob(url: string) {
 }
 
 export function LowStockPage() {
+  const navigate = useNavigate()
   const { productsQuery } = useProducts()
   const rows = (productsQuery.data ?? []).filter((product) => stockOf(product) <= product.minStock)
 
   return (
     <div className="space-y-4">
       <div>
-        <Button variant="ghost" asChild className="mb-2 px-0">
-          <Link to="/inventory"><ArrowRight className="h-4 w-4" /> رجوع للمخزن</Link>
+        <Button variant="ghost" className="mb-2 px-0" onClick={() => navigate(-1)}>
+          <ArrowRight className="h-4 w-4" /> رجوع
         </Button>
         <h1 className="text-2xl font-bold">المخزون الناقص</h1>
         <p className="text-slate-500">منتجات نزل مخزونها للحد الأدنى أو أقل.</p>

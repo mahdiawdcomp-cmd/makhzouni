@@ -152,8 +152,8 @@ export function VoucherDetailPage() {
 
   return (
     <div className="space-y-4">
-      <Button variant="ghost" asChild className="px-0">
-        <Link to="/vouchers"><ArrowRight className="h-4 w-4" /> رجوع للسندات</Link>
+      <Button variant="ghost" className="px-0" onClick={() => navigate(-1)}>
+        <ArrowRight className="h-4 w-4" /> رجوع
       </Button>
 
       <div className={`rounded-xl bg-gradient-to-l ${meta.bg} p-5 text-white shadow-sm`}>

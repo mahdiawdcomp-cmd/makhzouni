@@ -12,6 +12,8 @@ type ProductInput = {
   cartonQrCode?: string;
   imageUrl?: string | null;
   category?: string;
+  categoryTags?: string[];
+  typeTags?: string[];
   openingBalancePcs?: number;
   cartonsAvailable?: number;
   pcsPerCarton?: number;
@@ -210,6 +212,8 @@ export async function createProduct(
         cartonQrCode,
         imageUrl: input.imageUrl || null,
         category: input.category?.trim() || null,
+        categoryTags: input.categoryTags ?? [],
+        typeTags: input.typeTags ?? [],
         openingBalancePcs: input.openingBalancePcs ?? 0,
         cartonsAvailable: input.cartonsAvailable ?? 0,
         pcsPerCarton: input.pcsPerCarton ?? 1,
@@ -265,6 +269,8 @@ export async function updateProduct(
   if (input.minStock !== undefined) data.minStock = input.minStock;
   if (input.storageLocation !== undefined) data.storageLocation = input.storageLocation?.trim() || null;
   if (input.branchId !== undefined) data.branch = input.branchId ? { connect: { id: input.branchId } } : { disconnect: true };
+  if (input.categoryTags !== undefined) data.categoryTags = input.categoryTags;
+  if (input.typeTags !== undefined) data.typeTags = input.typeTags;
 
   const product = await db.product.update({
     where: { id },

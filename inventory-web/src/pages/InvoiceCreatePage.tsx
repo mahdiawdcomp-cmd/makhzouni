@@ -9,12 +9,14 @@ import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useAuthStore } from "../store/authStore"
+import { useUnsavedWarning } from "../hooks/useUnsavedWarning"
 import type { Customer, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { UnsavedChangesDialog } from "../components/ui/UnsavedChangesDialog"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
@@ -161,6 +163,20 @@ export function InvoiceCreatePage() {
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+
+  // ── Tab title: shows customer name so user knows which tab is which ──────────
+  useEffect(() => {
+    const customerLabel = selectedCustomer?.name ?? ""
+    const typeLabel = isPurchase ? "فاتورة شراء" : "فاتورة بيع"
+    document.title = customerLabel
+      ? `${typeLabel} — ${customerLabel}`
+      : typeLabel
+    return () => { document.title = "مخزوني" }
+  }, [selectedCustomer, isPurchase])
+
+  // ── Unsaved warning: active when there are items and no saved invoice ─────
+  const isDirty = items.length > 0 && !savedInvoiceId
+  const blocker = useUnsavedWarning(isDirty)
 
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
@@ -1163,6 +1179,12 @@ export function InvoiceCreatePage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── Unsaved changes blocker dialog ───────────────────────────────── */}
+      <UnsavedChangesDialog
+        blocker={blocker}
+        message="لديك أصناف في الفاتورة لم تُحفظ. إذا غادرت الصفحة ستُفقد هذه البيانات."
+      />
     </div>
   )
 }

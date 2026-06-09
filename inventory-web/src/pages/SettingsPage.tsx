@@ -15,6 +15,7 @@ import {
   MessageCircle,
   Palette,
   Play,
+  Plus,
   RefreshCw,
   Save,
   ShieldCheck,
@@ -288,6 +289,8 @@ export function SettingsPage() {
 
       {/* ── ADMIN ──────────────────────────────────────────── */}
       {activeTab === "admin" && (
+        <>
+        <CatalogCategoriesManager />
         <Card>
           <CardContent className="p-5 space-y-3">
             <SectionTitle>أدوات الإدارة</SectionTitle>
@@ -313,6 +316,7 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+        </>
       )}
 
       {/* ── WHATSAPP ───────────────────────────────────────── */}
@@ -780,6 +784,122 @@ function WhatsAppConnectCard({
           <RefreshCw className={`h-4 w-4 ${restarting ? "animate-spin" : ""}`} />
           {restarting ? "جاري إعادة التشغيل..." : "إعادة ربط الواتساب"}
         </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Catalog Categories Manager ───────────────────────────────────────────────
+function CatalogCategoriesManager() {
+  const qc = useQueryClient()
+  const { data: cats = [], isLoading } = useQuery({
+    queryKey: ["catalog-categories"],
+    queryFn: () => import("../api/endpoints").then(m => m.getCatalogCategories()),
+  })
+
+  const [newName, setNewName] = useState("")
+  const [newTypes, setNewTypes] = useState("")
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState("")
+  const [editTypes, setEditTypes] = useState("")
+
+  const upsertMut = useMutation({
+    mutationFn: ({ name, types }: { name: string; types: string[] }) =>
+      import("../api/endpoints").then(m => m.upsertCatalogCategory({ name, types })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog-categories"] })
+      setNewName(""); setNewTypes(""); setEditId(null)
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => import("../api/endpoints").then(m => m.deleteCatalogCategory(id)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["catalog-categories"] }),
+  })
+
+  function parseTypes(raw: string) {
+    return raw.split(/[،,\n]+/).map(t => t.trim()).filter(Boolean)
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <SectionTitle>فئات الكتالوج وأنواعها</SectionTitle>
+        <p className="text-sm text-slate-500">أضف الفئات وأنواعها — تظهر في فورم المنتج وفي فلتر الكتالوج.</p>
+
+        {/* Add new category */}
+        <div className="grid gap-2 sm:grid-cols-[1fr_1.5fr_auto]">
+          <input
+            className="h-9 rounded-lg border border-slate-200 px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+            placeholder="اسم الفئة (مثال: سيارات)"
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+          />
+          <input
+            className="h-9 rounded-lg border border-slate-200 px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+            placeholder="أنواعها مفصولة بفاصلة (مثال: 4 اتجاه، 2 اتجاه)"
+            value={newTypes}
+            onChange={e => setNewTypes(e.target.value)}
+          />
+          <Button
+            size="sm"
+            disabled={!newName.trim() || upsertMut.isPending}
+            onClick={() => upsertMut.mutate({ name: newName.trim(), types: parseTypes(newTypes) })}
+          >
+            <Plus className="h-4 w-4" /> إضافة
+          </Button>
+        </div>
+
+        {/* Existing categories */}
+        {isLoading ? <p className="text-sm text-slate-400">جاري التحميل...</p> : (
+          <div className="space-y-2">
+            {cats.map(cat => (
+              <div key={cat.id} className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                {editId === cat.id ? (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1.5fr_auto_auto]">
+                    <input
+                      className="h-9 rounded-lg border border-slate-200 px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                    />
+                    <input
+                      className="h-9 rounded-lg border border-slate-200 px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+                      value={editTypes}
+                      onChange={e => setEditTypes(e.target.value)}
+                    />
+                    <Button size="sm" onClick={() => upsertMut.mutate({ name: editName.trim(), types: parseTypes(editTypes) })}>
+                      حفظ
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditId(null)}>إلغاء</Button>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-semibold text-sm">{cat.name}</span>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {cat.types.map(t => (
+                          <span key={t} className="rounded-full bg-violet-100 px-2 py-0.5 text-xs text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                            {t}
+                          </span>
+                        ))}
+                        {cat.types.length === 0 && <span className="text-xs text-slate-400">لا أنواع</span>}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button size="sm" variant="outline" onClick={() => {
+                        setEditId(cat.id); setEditName(cat.name); setEditTypes(cat.types.join("، "))
+                      }}>تعديل</Button>
+                      <Button size="sm" variant="destructive" onClick={() => {
+                        if (confirm(`حذف فئة "${cat.name}"؟`)) deleteMut.mutate(cat.id)
+                      }}>حذف</Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {cats.length === 0 && <p className="text-sm text-slate-400 text-center py-4">لا توجد فئات بعد — أضف فئة جديدة أعلاه.</p>}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

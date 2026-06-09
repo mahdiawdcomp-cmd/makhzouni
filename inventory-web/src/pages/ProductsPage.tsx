@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { getBranches, importProductsExcel, getImportTemplateUrl } from "../api/endpoints"
+import { getBranches, importProductsExcel, getImportTemplateUrl, getCatalogCategories } from "../api/endpoints"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -13,7 +13,7 @@ import {
 import { Download, Edit, Eye, FileText, Plus, Printer, ScanQrCode, Upload } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
-import type { Product, ProductPayload } from "../types/api"
+import type { Product, ProductPayload, CatalogCategory } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -42,6 +42,8 @@ const emptyForm: ProductFormState = {
   cartonQrCode: "",
   imageUrl: null,
   category: "",
+  categoryTags: [],
+  typeTags: [],
   openingBalancePcs: 0,
   cartonsAvailable: 0,
   pcsPerCarton: 1,
@@ -300,6 +302,8 @@ export function ProductsPage() {
   const { productsQuery, createMutation, updateMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
+  const catalogCatsQuery = useQuery({ queryKey: ["catalog-categories"], queryFn: getCatalogCategories })
+  const catalogCats: CatalogCategory[] = catalogCatsQuery.data ?? []
   const branchName = (branchId?: string | null) =>
     branchId ? branches.find((branch) => branch.id === branchId)?.name ?? "مخزن غير معروف" : "المخزن الرئيسي"
   const [query, setQuery] = useState("")
@@ -438,6 +442,8 @@ export function ProductsPage() {
       cartonQrCode: product.cartonQrCode ?? "",
       imageUrl: product.imageUrl ?? null,
       category: product.category ?? "",
+      categoryTags: product.categoryTags ?? [],
+      typeTags: product.typeTags ?? [],
       openingBalancePcs: product.openingBalancePcs,
       cartonsAvailable: product.cartonsAvailable,
       pcsPerCarton: product.pcsPerCarton,
@@ -710,7 +716,17 @@ export function ProductsPage() {
         </CardContent>
       </Card>
 
-      <ModalForm open={open} onOpenChange={setOpen} title={editing ? "تعديل منتج" : "إضافة منتج جديد"}>
+      <ModalForm
+        open={open}
+        onOpenChange={(v) => {
+          if (!v && !editing && form.name.trim()) {
+            if (!window.confirm("لم تحفظ المادة بعد. هل تريد الخروج بدون حفظ؟")) return
+            setForm(emptyForm)
+          }
+          setOpen(v)
+        }}
+        title={editing ? "تعديل منتج" : "إضافة منتج جديد"}
+      >
         <form className="space-y-4" onSubmit={submit}>
           <div className="rounded-md bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
             <FileText className="ml-1 inline h-3.5 w-3.5" />
@@ -758,6 +774,81 @@ export function ProductsPage() {
             <Field label="الفئة (اختياري)">
               <Input placeholder="مثلاً: ألعاب" value={form.category ?? ""} onChange={(event) => setForm({ ...form, category: event.target.value })} />
             </Field>
+
+            {/* ── Multi-category tags ────────────────────────────────────── */}
+            {catalogCats.length > 0 && (
+              <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 space-y-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+                <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">الفئات المتعددة (للكتالوج)</p>
+
+                {/* Category chips */}
+                <div className="flex flex-wrap gap-2">
+                  {catalogCats.map((cat) => {
+                    const selected = (form.categoryTags ?? []).includes(cat.name)
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          const tags = form.categoryTags ?? []
+                          setForm({
+                            ...form,
+                            categoryTags: selected ? tags.filter(t => t !== cat.name) : [...tags, cat.name],
+                            // remove typeTags that no longer belong to any selected category
+                            typeTags: selected
+                              ? (form.typeTags ?? []).filter(t => {
+                                  const remaining = tags.filter(tt => tt !== cat.name)
+                                  return remaining.some(cn => catalogCats.find(c => c.name === cn)?.types.includes(t))
+                                })
+                              : form.typeTags,
+                          })
+                        }}
+                        className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                          selected
+                            ? "border-indigo-500 bg-indigo-600 text-white"
+                            : "border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50"
+                        }`}
+                      >
+                        {cat.name}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Types based on selected categories */}
+                {(() => {
+                  const selectedCats = catalogCats.filter(c => (form.categoryTags ?? []).includes(c.name))
+                  const allTypes = [...new Set(selectedCats.flatMap(c => c.types))].sort()
+                  if (!allTypes.length) return null
+                  return (
+                    <div>
+                      <p className="text-xs font-medium text-indigo-600 mb-1.5">الأنواع</p>
+                      <div className="flex flex-wrap gap-2">
+                        {allTypes.map((t) => {
+                          const selType = (form.typeTags ?? []).includes(t)
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => {
+                                const tags = form.typeTags ?? []
+                                setForm({ ...form, typeTags: selType ? tags.filter(x => x !== t) : [...tags, t] })
+                              }}
+                              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                                selType
+                                  ? "border-violet-500 bg-violet-600 text-white"
+                                  : "border-violet-200 bg-white text-violet-600 hover:bg-violet-50"
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
             <Field label="رقم الآيتم" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً (مثل AB0001)"}>
               <Input placeholder="تلقائي" value={form.itemNumber ?? ""} onChange={(event) => setForm({ ...form, itemNumber: event.target.value })} />
             </Field>

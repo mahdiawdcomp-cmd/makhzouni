@@ -173,7 +173,17 @@ export function CustomersPage() {
           </div>
         </CardContent>
       </Card>
-      <ModalForm open={open} onOpenChange={setOpen} title="إضافة زبون">
+      <ModalForm
+        open={open}
+        onOpenChange={(v) => {
+          if (!v && (form.name.trim() || form.phone.trim())) {
+            if (!window.confirm("لم تحفظ الزبون بعد. هل تريد الخروج بدون حفظ؟")) return
+            setForm(emptyCustomer)
+          }
+          setOpen(v)
+        }}
+        title="إضافة زبون"
+      >
         <form className="space-y-3" onSubmit={submit}>
           <Input required placeholder="الاسم" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
           <Input required placeholder="الهاتف" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />

@@ -43,6 +43,8 @@ interface QuickAction {
   to: string
   Icon: ComponentType<{ className?: string }>
   color: string
+  /** If true, opens in a new browser tab */
+  newTab?: boolean
 }
 
 // All available quick actions
@@ -53,7 +55,7 @@ const ALL_QUICK_ACTIONS: QuickAction[] = [
   { id: "payment",          label: "سند دفع",        to: "/vouchers?action=PAYMENT",  Icon: ReceiptText,  color: "from-orange-500 to-orange-600" },
   { id: "expense",          label: "مصاريف",         to: "/vouchers?action=EXPENSE",  Icon: Wallet,       color: "from-rose-500 to-rose-600" },
   { id: "account",          label: "كشف حساب",       to: "/account",                  Icon: Search,       color: "from-purple-500 to-purple-600" },
-  { id: "new-invoice",      label: "فاتورة جديدة",  to: "/invoices/new",             Icon: FileText,     color: "from-teal-500 to-teal-600" },
+  { id: "new-invoice",      label: "فاتورة جديدة",  to: "/invoices/new",             Icon: FileText,     color: "from-teal-500 to-teal-600", newTab: true },
   { id: "pos",              label: "POS سريع",       to: "/pos",                      Icon: ScanBarcode,  color: "from-indigo-500 to-indigo-600" },
   { id: "catalog",          label: "الكاتلوك",       to: "/catalog-management",       Icon: Globe,        color: "from-cyan-500 to-cyan-600" },
   { id: "products",         label: "المخزن",         to: "/inventory",                Icon: Boxes,        color: "from-slate-500 to-slate-600" },
@@ -196,17 +198,31 @@ export function DashboardPage() {
           </button>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-          {visible.map(({ id, label, to, Icon, color }) => (
-            <Link
-              key={id}
-              to={to}
-              className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-5 text-white shadow-sm transition hover:shadow-lg hover:-translate-y-0.5`}
-            >
-              <div className="flex items-center gap-3">
-                <Icon className="h-7 w-7 opacity-90" />
-                <span className="font-semibold">{label}</span>
-              </div>
-            </Link>
+          {visible.map(({ id, label, to, Icon, color, newTab }) => (
+            newTab ? (
+              <button
+                key={id}
+                type="button"
+                onClick={() => window.open(to, "_blank", "noopener")}
+                className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-5 text-white shadow-sm transition hover:shadow-lg hover:-translate-y-0.5 text-right`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className="h-7 w-7 opacity-90" />
+                  <span className="font-semibold">{label}</span>
+                </div>
+              </button>
+            ) : (
+              <Link
+                key={id}
+                to={to}
+                className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${color} p-5 text-white shadow-sm transition hover:shadow-lg hover:-translate-y-0.5`}
+              >
+                <div className="flex items-center gap-3">
+                  <Icon className="h-7 w-7 opacity-90" />
+                  <span className="font-semibold">{label}</span>
+                </div>
+              </Link>
+            )
           ))}
           {visible.length === 0 && (
             <div className="col-span-full rounded-xl border-2 border-dashed border-slate-200 p-6 text-center text-sm text-slate-400">

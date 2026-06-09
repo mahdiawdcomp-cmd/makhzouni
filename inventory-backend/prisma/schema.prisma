@@ -152,10 +152,26 @@ model Product {
   updatedAt         DateTime        @updatedAt @map("updated_at")
   deletedAt         DateTime?       @map("deleted_at")
 
+  // Multi-category & type tags (stored as PostgreSQL text arrays)
+  categoryTags  String[]  @default([]) @map("category_tags")
+  typeTags      String[]  @default([]) @map("type_tags")
+
   @@index([createdBy])
   @@index([branchId])
   @@index([deletedAt])
   @@map("products")
+}
+
+// Predefined catalog categories with their sub-types
+model CatalogCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  types     String[] @default([])
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("catalog_categories")
 }
 
 // Generic sequence counters (item-number generator, etc.)

@@ -85,6 +85,8 @@ export interface Product {
   cartonQrCode?: string | null
   imageUrl?: string | null
   category?: string | null
+  categoryTags?: string[]
+  typeTags?: string[]
   openingBalancePcs: number
   cartonsAvailable: number
   pcsPerCarton: number
@@ -98,6 +100,13 @@ export interface Product {
   branch?: Branch | null
   currentStock?: number
   updatedAt?: string
+}
+
+export interface CatalogCategory {
+  id: string
+  name: string
+  types: string[]
+  sortOrder: number
 }
 
 export interface ProfitReport {
@@ -195,6 +204,8 @@ export interface ProductPayload {
   cartonQrCode?: string
   imageUrl?: string | null
   category?: string
+  categoryTags?: string[]
+  typeTags?: string[]
   openingBalancePcs?: number
   cartonsAvailable?: number
   pcsPerCarton?: number

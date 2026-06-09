@@ -31,6 +31,7 @@ import type {
   MessageTemplate,
   PagedResponse,
   Product,
+  CatalogCategory,
   Quotation,
   PublicCatalogProduct,
   ProductMovementResponse,
@@ -735,4 +736,19 @@ export async function importProductsExcel(file: File) {
 
 export function getImportTemplateUrl() {
   return `${api.defaults.baseURL}/import/products/template`
+}
+
+// ── Catalog Categories ────────────────────────────────────────────────────────
+export async function getCatalogCategories() {
+  const { data } = await api.get<ApiEnvelope<CatalogCategory[]>>("/catalog-categories")
+  return data.data ?? []
+}
+
+export async function upsertCatalogCategory(payload: { name: string; types: string[]; sortOrder?: number }) {
+  const { data } = await api.post<ApiEnvelope<CatalogCategory>>("/catalog-categories", payload)
+  return data.data!
+}
+
+export async function deleteCatalogCategory(id: string) {
+  await api.delete(`/catalog-categories/${id}`)
 }

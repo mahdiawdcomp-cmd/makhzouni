@@ -233,8 +233,17 @@ export function VouchersPage() {
         </CardContent>
       </Card>
 
-      {/* Create dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      {/* Create dialog — warn if amount filled but not saved */}
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open && amount.replace(/,/g, "").trim() !== "") {
+            if (!window.confirm("لم تحفظ السند بعد. هل تريد الخروج بدون حفظ؟")) return
+            setAmount(""); setNotes(""); setDescription(""); setCustomerId(""); setCustomerQuery("")
+          }
+          setDialogOpen(open)
+        }}
+      >
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>
