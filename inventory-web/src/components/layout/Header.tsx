@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { ChevronDown, LogOut, Moon, Sun } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { ChevronDown, LogOut, Moon, Sun, Sparkles } from "lucide-react"
 import { useMutation } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import { logout } from "../../api/endpoints"
@@ -65,85 +66,139 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
   const avatarLetter = displayName.charAt(0)
 
   return (
-    <header
-      className="flex h-14 shrink-0 items-center justify-between border-b px-5"
-      style={{
-        backgroundColor: "var(--theme-headerBg)",
-        borderColor: "var(--theme-cardBorder)",
-        color: "var(--theme-textPrimary)",
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <h1 className="text-[15px] font-semibold text-[var(--theme-textPrimary)]">{pageTitle}</h1>
+    <header className="glass flex h-14 shrink-0 items-center justify-between px-5 sticky top-0 z-30">
+      {/* Page title */}
+      <div className="flex items-center gap-3">
+        <div
+          className="h-5 w-[3px] rounded-full"
+          style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
+        />
+        <h1 className="text-[15px] font-semibold tracking-tight" style={{ color: "var(--theme-textPrimary)" }}>
+          {pageTitle}
+        </h1>
       </div>
 
+      {/* Right side actions */}
       <div className="flex items-center gap-1">
-        <button
+        {/* Theme toggle */}
+        <motion.button
           type="button"
           onClick={onToggleTheme}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="flex h-8 w-8 items-center justify-center rounded-lg transition"
+          style={{ color: "var(--theme-textSecondary)" }}
           aria-label="تبديل الوضع"
         >
-          {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </button>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={darkMode ? "sun" : "moon"}
+              initial={{ rotate: -90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: 90, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </motion.div>
+          </AnimatePresence>
+        </motion.button>
 
         <NotificationsBell />
 
-        <div className="mx-2 h-6 w-px bg-slate-200 dark:bg-slate-700" />
+        {/* Divider */}
+        <div className="mx-2 h-5 w-px" style={{ background: "var(--theme-cardBorder)" }} />
 
+        {/* User menu */}
         <div className="relative">
-          <button
+          <motion.button
             type="button"
-            onClick={() => setUserMenuOpen((value) => !value)}
+            onClick={() => setUserMenuOpen((v) => !v)}
             onBlur={() => setTimeout(() => setUserMenuOpen(false), 150)}
-            className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800"
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition"
+            style={{ color: "var(--theme-textPrimary)" }}
           >
+            {/* Avatar */}
             <div
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-              style={{ backgroundColor: "var(--theme-accent)" }}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold text-white"
+              style={{
+                background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
+                boxShadow: "0 2px 8px rgba(99,102,241,0.35)",
+              }}
             >
               {avatarLetter}
             </div>
             <div className="hidden text-right sm:block">
-              <div className="text-[13px] font-semibold leading-none text-[var(--theme-textPrimary)]">
+              <div className="text-[13px] font-semibold leading-none" style={{ color: "var(--theme-textPrimary)" }}>
                 {displayName}
               </div>
-              <div className="mt-0.5 text-[11px] leading-none text-slate-500">{roleLabel}</div>
+              <div className="mt-0.5 text-[10px] leading-none" style={{ color: "var(--theme-textSecondary)" }}>
+                {roleLabel}
+              </div>
             </div>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-          </button>
+            <motion.div animate={{ rotate: userMenuOpen ? 180 : 0 }} transition={{ duration: 0.2 }}>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--theme-textSecondary)" }} />
+            </motion.div>
+          </motion.button>
 
-          {userMenuOpen ? (
-            <div
-              className="absolute left-0 top-full z-50 mt-1.5 w-52 rounded-lg border bg-white py-1.5 shadow-lg dark:bg-slate-900"
-              style={{ borderColor: "var(--theme-cardBorder)" }}
-            >
-              <div className="border-b px-4 py-3 dark:border-slate-700" style={{ borderColor: "var(--theme-cardBorder)" }}>
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-                    style={{ backgroundColor: "var(--theme-accent)" }}
-                  >
-                    {avatarLetter}
-                  </div>
-                  <div>
-                    <div className="text-[13px] font-semibold text-[var(--theme-textPrimary)]">{displayName}</div>
-                    <div className="text-[11px] text-slate-500">{roleLabel}</div>
+          <AnimatePresence>
+            {userMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute left-0 top-full z-50 mt-2 w-56 rounded-xl border py-1.5 shadow-xl"
+                style={{
+                  backgroundColor: "var(--theme-cardBg)",
+                  borderColor: "var(--theme-cardBorder)",
+                  boxShadow: "var(--z-shadow-lg)",
+                }}
+              >
+                {/* User info */}
+                <div
+                  className="mx-2 mb-1.5 rounded-xl p-3"
+                  style={{ background: "var(--theme-accentSoft)" }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white"
+                      style={{
+                        background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)",
+                        boxShadow: "0 4px 12px rgba(99,102,241,0.4)",
+                      }}
+                    >
+                      {avatarLetter}
+                    </div>
+                    <div>
+                      <div className="text-[13px] font-semibold" style={{ color: "var(--theme-textPrimary)" }}>
+                        {displayName}
+                      </div>
+                      <div
+                        className="mt-0.5 flex items-center gap-1 text-[11px]"
+                        style={{ color: "var(--theme-accent)" }}
+                      >
+                        <Sparkles className="h-2.5 w-2.5" />
+                        {roleLabel}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => logoutMutation.mutate()}
-                disabled={logoutMutation.isPending}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-[13px] text-red-600 transition hover:bg-red-50 dark:hover:bg-red-950/20"
-              >
-                <LogOut className="h-4 w-4" />
-                تسجيل الخروج
-              </button>
-            </div>
-          ) : null}
+                {/* Logout */}
+                <button
+                  type="button"
+                  onClick={() => logoutMutation.mutate()}
+                  disabled={logoutMutation.isPending}
+                  className="flex w-[calc(100%-16px)] items-center gap-3 rounded-lg mx-2 px-3 py-2.5 text-[13px] text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950/20 active:scale-95"
+                >
+                  <LogOut className="h-4 w-4" />
+                  {logoutMutation.isPending ? "جاري الخروج..." : "تسجيل الخروج"}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </header>
