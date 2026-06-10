@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
+import { usePageTitle } from "../hooks/usePageTitle"
 import {
   flexRender,
   getCoreRowModel,
@@ -73,6 +74,8 @@ function invoiceTypeBadge(type?: InvoiceType) {
 }
 
 export function InvoicesPage() {
+  usePageTitle("الفواتير")
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const urlType = searchParams.get("type")
   const typeFilter: TypeFilter = urlType === "SALE" || urlType === "PURCHASE" || urlType === "SALES_RETURN" ? urlType : "ALL"
@@ -189,7 +192,7 @@ export function InvoicesPage() {
           <p className="text-slate-500">قائمة الفواتير مع البحث والتصفية والفرز.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => window.open("/invoices/new?type=PURCHASE", "_blank", "noopener")}>
+          <Button variant="outline" onClick={() => navigate("/invoices/new?type=PURCHASE")}>
             <ShoppingCart className="h-4 w-4" /> فاتورة شراء
           </Button>
           <Button variant="outline" asChild>
@@ -197,7 +200,7 @@ export function InvoicesPage() {
               <RotateCcw className="h-4 w-4" /> مرتجع مبيعات
             </Link>
           </Button>
-          <Button onClick={() => window.open("/invoices/new?type=SALE", "_blank", "noopener")}>
+          <Button onClick={() => navigate("/invoices/new?type=SALE")}>
             <Plus className="h-4 w-4" /> فاتورة بيع
           </Button>
         </div>

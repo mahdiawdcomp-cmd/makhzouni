@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
+import { usePageTitle } from "../hooks/usePageTitle"
 import {
   Bar, BarChart, CartesianGrid,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -29,6 +30,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
 ]
 
 export function ReportsPage() {
+  usePageTitle("التقارير")
   const [tab, setTab] = useState<Tab>("sales")
 
   return (

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
@@ -91,6 +92,7 @@ export function InvoiceCreatePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const invoiceType: InvoiceType = (searchParams.get("type") === "PURCHASE" ? "PURCHASE" : "SALE")
   const isPurchase = invoiceType === "PURCHASE"
+  usePageTitle(isPurchase ? "فاتورة شراء جديدة" : "فاتورة بيع جديدة")
 
   const userId = useAuthStore((s) => s.user?.id)
   const uid = userId ?? "anon"

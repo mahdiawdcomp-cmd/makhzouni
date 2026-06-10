@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Plus, Receipt, ReceiptText, RefreshCw, Wallet } from "lucide-react"
@@ -24,6 +25,7 @@ const filterChipIdle =
   "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
 
 export function VouchersPage() {
+  usePageTitle("السندات")
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const urlType = searchParams.get("type") as FilterType | null

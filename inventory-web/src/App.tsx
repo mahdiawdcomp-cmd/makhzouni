@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
+import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
 import { PosLayout } from "./components/layout/PosLayout"
@@ -32,58 +32,64 @@ import { CatalogManagementPage } from "./pages/CatalogManagementPage"
 import { StocktakePage } from "./pages/StocktakePage"
 import { PublicStocktakePage } from "./pages/PublicStocktakePage"
 
+const router = createBrowserRouter([
+  // ── Public routes ──
+  { path: "/login", element: <LoginPage /> },
+  { path: "/catalog", element: <PublicCatalogPage /> },
+  { path: "/client/:token", element: <ClientPortalPage /> },
+  { path: "/stocktake/:token", element: <PublicStocktakePage /> },
+
+  // ── Protected routes ──
+  {
+    element: <ProtectedRoute />,
+    children: [
+      // Normal layout (sidebar + header)
+      {
+        element: <AppLayout />,
+        children: [
+          { index: true, element: <DashboardPage /> },
+          { path: "inventory", element: <ProductsPage /> },
+          { path: "inventory/low-stock", element: <LowStockPage /> },
+          { path: "inventory/transfers", element: <TransfersPage /> },
+          { path: "inventory/stocktake", element: <StocktakePage /> },
+          { path: "inventory/:id", element: <ProductDetailPage /> },
+          { path: "invoices", element: <InvoicesPage /> },
+          { path: "invoices/new", element: <InvoiceCreatePage /> },
+          { path: "invoices/returns", element: <SalesReturnsPage /> },
+          { path: "invoices/:id", element: <InvoiceDetailPage /> },
+          { path: "quotations", element: <QuotationsPage /> },
+          { path: "vouchers", element: <VouchersPage /> },
+          { path: "vouchers/:id", element: <VoucherDetailPage /> },
+          { path: "customers", element: <CustomersPage /> },
+          { path: "customers/:id", element: <CustomerDetailPage /> },
+          { path: "account", element: <AccountLookupPage /> },
+          { path: "catalog-management", element: <CatalogManagementPage /> },
+          { path: "reports", element: <ReportsPage /> },
+          { path: "settings", element: <SettingsPage /> },
+          {
+            element: <AdminRoute />,
+            children: [
+              { path: "users", element: <UsersPage /> },
+              { path: "approvals", element: <ApprovalsPage /> },
+              { path: "audit-logs", element: <AuditLogsPage /> },
+              { path: "branches", element: <BranchesPage /> },
+              { path: "coupons", element: <CouponsPage /> },
+            ],
+          },
+        ],
+      },
+
+      // POS: fullscreen cashier mode — no sidebar / header
+      {
+        element: <PosLayout />,
+        children: [{ path: "pos", element: <POSPage /> }],
+      },
+    ],
+  },
+
+  { path: "*", element: <Navigate to="/" replace /> },
+])
+
 export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        {/* ── Public routes ── */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/catalog" element={<PublicCatalogPage />} />
-        <Route path="/client/:token" element={<ClientPortalPage />} />
-        <Route path="/stocktake/:token" element={<PublicStocktakePage />} />
-
-        {/* ── Protected routes ── */}
-        <Route element={<ProtectedRoute />}>
-
-          {/* Normal layout (sidebar + header) */}
-          <Route element={<AppLayout />}>
-            <Route index element={<DashboardPage />} />
-            <Route path="inventory" element={<ProductsPage />} />
-            <Route path="inventory/low-stock" element={<LowStockPage />} />
-            <Route path="inventory/transfers" element={<TransfersPage />} />
-            <Route path="inventory/stocktake" element={<StocktakePage />} />
-            <Route path="inventory/:id" element={<ProductDetailPage />} />
-            <Route path="invoices" element={<InvoicesPage />} />
-            <Route path="invoices/new" element={<InvoiceCreatePage />} />
-            <Route path="invoices/returns" element={<SalesReturnsPage />} />
-            <Route path="invoices/:id" element={<InvoiceDetailPage />} />
-            <Route path="quotations" element={<QuotationsPage />} />
-            <Route path="vouchers" element={<VouchersPage />} />
-            <Route path="vouchers/:id" element={<VoucherDetailPage />} />
-            <Route path="customers" element={<CustomersPage />} />
-            <Route path="customers/:id" element={<CustomerDetailPage />} />
-            <Route path="account" element={<AccountLookupPage />} />
-            <Route path="catalog-management" element={<CatalogManagementPage />} />
-            <Route path="reports" element={<ReportsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route element={<AdminRoute />}>
-              <Route path="users" element={<UsersPage />} />
-              <Route path="approvals" element={<ApprovalsPage />} />
-              <Route path="audit-logs" element={<AuditLogsPage />} />
-              <Route path="branches" element={<BranchesPage />} />
-              <Route path="coupons" element={<CouponsPage />} />
-            </Route>
-          </Route>
-
-          {/* POS: fullscreen cashier mode — no sidebar / header */}
-          <Route element={<PosLayout />}>
-            <Route path="pos" element={<POSPage />} />
-          </Route>
-
-        </Route>
-
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
-  )
+  return <RouterProvider router={router} />
 }

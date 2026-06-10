@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
@@ -53,6 +54,10 @@ export function VoucherDetailPage() {
   const qc = useQueryClient()
   const voucherQuery = useQuery({ queryKey: ["vouchers", id], queryFn: () => getVoucher(id!), enabled: !!id })
   const voucher = voucherQuery.data
+
+  const voucherTypeLabel = voucher?.type === "RECEIPT" ? "سند قبض" : "سند دفع"
+  const partyName = voucher?.customer?.name ?? voucher?.customerName ?? ""
+  usePageTitle(voucher ? `${voucherTypeLabel}${partyName ? ` (${partyName})` : ""}` : "تحميل السند...")
   const listQuery = useQuery({ queryKey: ["vouchers", "all-for-nav"], queryFn: () => getVouchers() })
   const settingsQuery = useSettings()
   const settings = settingsQuery.data

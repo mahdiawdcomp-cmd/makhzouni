@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { getBranches, importProductsExcel, getImportTemplateUrl, getCatalogCategories } from "../api/endpoints"
@@ -297,6 +298,7 @@ function moneyForExport(value: number | string | undefined | null) {
 }
 
 export function ProductsPage() {
+  usePageTitle("المخزن")
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { productsQuery, createMutation, updateMutation } = useProducts()

@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "react-router-dom"
 import {
@@ -54,6 +55,10 @@ export function InvoiceDetailPage() {
   const queryClient = useQueryClient()
   const invoiceQuery = useInvoice(id)
   const invoice = invoiceQuery.data
+
+  const invoiceTypeLabel = invoice?.type === "PURCHASE" ? "فاتورة شراء" : invoice?.type === "SALES_RETURN" ? "مرتجع" : "فاتورة بيع"
+  const partyName = invoice?.customer?.name ?? ""
+  usePageTitle(invoice ? `${invoiceTypeLabel}${partyName ? ` (${partyName})` : ""}` : "تحميل الفاتورة...")
   const auditQuery = useQuery({
     queryKey: ["invoices", id, "audit-trail"],
     queryFn: () => getInvoiceAuditTrail(id!),

@@ -1,4 +1,5 @@
 import { useMemo, useState, type KeyboardEvent } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FileText, Plus } from "lucide-react"
 import { convertQuotation, createQuotation, getCustomers, getProducts, getQuotations, updateQuotationStatus } from "../api/endpoints"
@@ -24,6 +25,7 @@ function normalize(value: string | undefined | null) {
 }
 
 export function QuotationsPage() {
+  usePageTitle("عروض الأسعار")
   const queryClient = useQueryClient()
   const customersQuery = useQuery({ queryKey: ["customers"], queryFn: () => getCustomers({ limit: 100 }) })
   const productsQuery = useQuery({ queryKey: ["products"], queryFn: () => getProducts({ limit: 100 }) })

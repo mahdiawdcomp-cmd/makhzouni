@@ -3,6 +3,7 @@
  * Search for any customer → show their full statement instantly.
  */
 import { useMemo, useRef, useState } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { Link } from "react-router-dom"
 import { ArrowLeft, ExternalLink, Search, TrendingUp, Wallet } from "lucide-react"
 import { useAllCustomers, useCustomerDetails } from "../hooks/useCustomers"
@@ -67,6 +68,7 @@ function transactionTone(tx: CustomerTransaction) {
 }
 
 export function AccountLookupPage() {
+  usePageTitle("كشف الحساب")
   const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)

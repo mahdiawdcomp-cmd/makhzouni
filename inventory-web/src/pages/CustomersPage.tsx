@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useNavigate } from "react-router-dom"
 import {
   flexRender,
@@ -32,6 +33,7 @@ function dateValue(value?: string | null) {
 }
 
 export function CustomersPage() {
+  usePageTitle("الزبائن")
   const navigate = useNavigate()
   const [isSupplierTab, setIsSupplierTab] = useState(false)
   const { customersQuery, createMutation } = useCustomers(isSupplierTab)

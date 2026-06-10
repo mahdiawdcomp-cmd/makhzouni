@@ -1,4 +1,5 @@
 import { useState, type ComponentType } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { Link } from "react-router-dom"
 import { PendingOrdersBanner } from "../components/dashboard/PendingOrdersBanner"
 import {
@@ -154,6 +155,7 @@ function QuickActionsEditor({ enabled, onToggle, onReset, onClose }: {
 }
 
 export function DashboardPage() {
+  usePageTitle("الرئيسية")
   const dashboard = useDashboardReport()
   const inventory = useInventoryReport()
   const debts = useDebtReport({})

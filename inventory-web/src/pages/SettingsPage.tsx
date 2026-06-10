@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BadgePercent,
@@ -106,6 +107,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
 ]
 
 export function SettingsPage() {
+  usePageTitle("الإعدادات")
   const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState<SettingsTab>("store")
   const [settings, setSettings] = useState<AppSettings>(fallbackSettings)

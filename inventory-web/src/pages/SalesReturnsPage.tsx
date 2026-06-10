@@ -1,4 +1,5 @@
 import { useRef, useState } from "react"
+import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { RotateCcw, Search } from "lucide-react"
 import { createInvoice, getCustomers, getLastSoldPrice, getProducts } from "../api/endpoints"
@@ -12,6 +13,7 @@ function money(value: number) {
 }
 
 export function SalesReturnsPage() {
+  usePageTitle("مرتجع المبيعات")
   const queryClient = useQueryClient()
   const clientRequestIdRef = useRef(crypto.randomUUID())
   const customersQuery = useQuery({ queryKey: ["customers"], queryFn: () => getCustomers({ limit: 100 }) })
