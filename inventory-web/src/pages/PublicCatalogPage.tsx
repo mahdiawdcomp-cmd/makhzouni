@@ -392,8 +392,9 @@ function CatalogShop({
         if (!inCat) return false
       }
       if (typeFilter !== "all") {
-        const tTags = p.typeTags ?? []
-        if (!tTags.includes(typeFilter)) return false
+        const tTags = (p.typeTags ?? []).map(t => t.trim())
+        // Products with no type tags are shown in all type filters (unclassified)
+        if (tTags.length > 0 && !tTags.includes(typeFilter.trim())) return false
       }
       if (!q) return true
       return [p.name, p.itemNumber, p.category ?? ""].some((s) => s.toLowerCase().includes(q))
@@ -720,6 +721,13 @@ function ProductCard({
       <div className="flex flex-1 flex-col p-2.5">
         <p className="line-clamp-2 text-xs font-bold leading-snug text-gray-900 min-h-[2.4rem]">{product.name}</p>
         <p className="mt-0.5 text-[10px] text-gray-400">{product.itemNumber}</p>
+        {product.typeTags && product.typeTags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {product.typeTags.map(t => (
+              <span key={t} className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700">{t}</span>
+            ))}
+          </div>
+        )}
 
         {/* Price + Stock */}
         <div className="mt-2 flex items-end justify-between gap-1">
