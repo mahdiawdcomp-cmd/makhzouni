@@ -26,6 +26,7 @@ import stocktakeRoutes from "./stocktake.routes";
 import importRoutes from "./import.routes";
 import catalogCategoryRoutes from "./catalog-category.routes";
 import licenseRoutes from "./license.routes";
+import clientsRoutes from "./clients.routes";
 
 const router = Router();
 
@@ -56,5 +57,6 @@ router.use("/stocktake", stocktakeRoutes);
 router.use("/import", importRoutes);
 router.use("/catalog-categories", catalogCategoryRoutes);
 router.use("/license", licenseRoutes);
+router.use("/clients", clientsRoutes);
 
 export default router;

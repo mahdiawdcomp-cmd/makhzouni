@@ -746,3 +746,37 @@ export async function upsertCatalogCategory(payload: { name: string; types: stri
 export async function deleteCatalogCategory(id: string) {
   await api.delete(`/catalog-categories/${id}`)
 }
+
+// ── Licensed Clients (SuperAdmin) ─────────────────────────────────────────────
+export interface LicensedClient {
+  id: string
+  name: string
+  licenseKey: string
+  expiresAt: string
+  months: number
+  notes?: string | null
+  isRevoked: boolean
+  createdAt: string
+  daysLeft?: number
+  status?: "valid" | "expiring" | "expired" | "revoked"
+}
+
+export async function getLicensedClients() {
+  const { data } = await api.get<ApiEnvelope<LicensedClient[]>>("/clients")
+  return data.data ?? []
+}
+
+export async function createLicensedClient(payload: { name: string; months: number; notes?: string }) {
+  const { data } = await api.post<ApiEnvelope<LicensedClient>>("/clients", payload)
+  return data.data!
+}
+
+export async function revokeLicensedClient(id: string) {
+  const { data } = await api.patch<ApiEnvelope<never>>(`/clients/${id}/revoke`)
+  return data
+}
+
+export async function deleteLicensedClient(id: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/clients/${id}`)
+  return data
+}

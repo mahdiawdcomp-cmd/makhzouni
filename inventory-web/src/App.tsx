@@ -31,6 +31,7 @@ import { TransfersPage } from "./pages/TransfersPage"
 import { CatalogManagementPage } from "./pages/CatalogManagementPage"
 import { StocktakePage } from "./pages/StocktakePage"
 import { PublicStocktakePage } from "./pages/PublicStocktakePage"
+import { SuperAdminPage } from "./pages/SuperAdminPage"
 
 const router = createBrowserRouter([
   // ── Public routes ──
@@ -74,6 +75,7 @@ const router = createBrowserRouter([
               { path: "audit-logs", element: <AuditLogsPage /> },
               { path: "branches", element: <BranchesPage /> },
               { path: "coupons", element: <CouponsPage /> },
+              { path: "super-admin", element: <SuperAdminPage /> },
             ],
           },
         ],

@@ -10,6 +10,7 @@ import {
   FileText,
   Globe,
   Home,
+  KeyRound,
   Plus,
   Receipt,
   ReceiptText,
@@ -96,6 +97,7 @@ const navItems: Item[] = [
 
 const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
+  { to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound },
 ]
 
 function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
