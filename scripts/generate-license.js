@@ -11,7 +11,8 @@
 
 const fs   = require("fs");
 const path = require("path");
-const jwt  = require("jsonwebtoken");
+// Resolve jsonwebtoken from backend node_modules
+const jwt  = require(path.join(__dirname, "../inventory-backend/node_modules/jsonwebtoken"));
 const { randomUUID } = require("crypto");
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
