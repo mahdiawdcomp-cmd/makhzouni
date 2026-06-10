@@ -509,6 +509,23 @@ export async function triggerManualBackup() {
   return data
 }
 
+export async function downloadFullBackup(): Promise<void> {
+  const response = await api.get("/settings/backup/download", { responseType: "blob" })
+  const blob = new Blob([response.data as BlobPart], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const date = new Date().toISOString().slice(0, 10)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `makhzouni-backup-${date}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export async function sendBackupToTelegram() {
+  const { data } = await api.post<ApiEnvelope<Record<string, number>>>("/settings/backup/telegram")
+  return data
+}
+
 export async function triggerDailySummary() {
   const { data } = await api.post<ApiEnvelope<{ message: string }>>("/settings/daily-summary/run")
   return data

@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Download,
   FileJson,
+  HardDrive,
   ImagePlus,
   KeyRound,
   Loader2,
@@ -19,6 +20,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Send,
   ShieldCheck,
   Upload,
   Users,
@@ -36,6 +38,8 @@ import {
   updateSettings,
   triggerManualBackup,
   triggerDailySummary,
+  downloadFullBackup,
+  sendBackupToTelegram,
 } from "../api/endpoints"
 import type { WhatsAppStatus } from "../api/endpoints"
 import type { AppSettings, MessageTemplate } from "../types/api"
@@ -131,6 +135,9 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false)
   const [backupMsg, setBackupMsg] = useState("")
   const [summaryMsg, setSummaryMsg] = useState("")
+  const [downloadMsg, setDownloadMsg] = useState("")
+  const [telegramMsg, setTelegramMsg] = useState("")
+  const [downloadPending, setDownloadPending] = useState(false)
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (settingsQuery.data) setSettings({ ...fallbackSettings, ...settingsQuery.data }) }, [settingsQuery.data])
@@ -174,6 +181,25 @@ export function SettingsPage() {
     },
     onError: () => setBackupMsg("✗ فشل النسخ الاحتياطي"),
   })
+
+  const telegramBackupMutation = useMutation({
+    mutationFn: sendBackupToTelegram,
+    onSuccess: (res) => setTelegramMsg(`✓ ${res.message ?? "تم الإرسال لتيليغرام"}`),
+    onError: (err: Error) => setTelegramMsg(`✗ ${err.message}`),
+  })
+
+  async function handleDownloadBackup() {
+    setDownloadPending(true)
+    setDownloadMsg("")
+    try {
+      await downloadFullBackup()
+      setDownloadMsg("✓ تم تحميل النسخة الكاملة")
+    } catch {
+      setDownloadMsg("✗ فشل تحميل النسخة")
+    } finally {
+      setDownloadPending(false)
+    }
+  }
 
   const backup = useMemo(() => ({
     exportedAt: new Date().toISOString(),
@@ -565,12 +591,84 @@ export function SettingsPage() {
       {/* ── BACKUP ─────────────────────────────────────────── */}
       {activeTab === "backup" && (
         <div className="space-y-4">
+
+          {/* ── One-click full download ── */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>نسخة احتياطية كاملة — زر واحد</SectionTitle>
+              <p className="text-sm text-slate-500">
+                يُصدّر جميع البيانات: المنتجات، الزبائن، الفواتير، السندات، عروض الأسعار، الإعدادات، الموظفين، الفروع… كل شيء في ملف JSON واحد.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={handleDownloadBackup}
+                  disabled={downloadPending}
+                  className="gap-2 bg-[var(--theme-accent)] hover:opacity-90 text-white"
+                >
+                  {downloadPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
+                  {downloadPending ? "جاري التصدير..." : "تحميل نسخة كاملة من السيرفر"}
+                </Button>
+                {downloadMsg && (
+                  <span className={`text-sm ${downloadMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
+                    {downloadMsg}
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── Telegram delivery ── */}
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>إرسال النسخة لتيليغرام</SectionTitle>
+              <p className="text-sm text-slate-500">
+                أنشئ بوت تيليغرام عبر @BotFather، احصل على التوكن، ثم أرسل أي رسالة للبوت واستخدم @userinfobot لمعرفة Chat ID.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Telegram Bot Token">
+                  <Input
+                    value={settings.telegramBotToken ?? ""}
+                    onChange={(e) => upd("telegramBotToken", e.target.value)}
+                    placeholder="123456789:AAF..."
+                    dir="ltr"
+                    type="password"
+                  />
+                </Field>
+                <Field label="Chat ID (رقمك أو ID المجموعة)">
+                  <Input
+                    value={settings.telegramChatId ?? ""}
+                    onChange={(e) => upd("telegramChatId", e.target.value)}
+                    placeholder="-1001234567890"
+                    dir="ltr"
+                  />
+                </Field>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={() => telegramBackupMutation.mutate()}
+                  disabled={telegramBackupMutation.isPending || !settings.telegramBotToken || !settings.telegramChatId}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  {telegramBackupMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {telegramBackupMutation.isPending ? "جاري الإرسال..." : "إرسال نسخة الآن لتيليغرام"}
+                </Button>
+                {telegramMsg && (
+                  <span className={`text-sm ${telegramMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
+                    {telegramMsg}
+                  </span>
+                )}
+              </div>
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+            </CardContent>
+          </Card>
+
           {/* ── Scheduled auto backup ── */}
           <Card>
             <CardContent className="p-5 space-y-4">
-              <SectionTitle>النسخ الاحتياطي التلقائي</SectionTitle>
+              <SectionTitle>النسخ الاحتياطي التلقائي (كل أحد 02:00)</SectionTitle>
               <p className="text-sm text-slate-500">
-                كل يوم أحد الساعة 2 صباحاً — يُحفظ ملف JSON على السيرفر تلقائياً (آخر 8 نسخ). يمكن إرسال ملخص عبر واتساب إلى رقم صاحب العمل.
+                يُحفظ تلقائياً على السيرفر (آخر 8 نسخ). يمكن إرسال ملخص عبر واتساب إلى رقم صاحب العمل.
               </p>
               <Field label="رقم واتساب لاستقبال ملخص النسخة (اختياري)">
                 <Input
@@ -581,44 +679,45 @@ export function SettingsPage() {
                 />
               </Field>
               <div className="flex items-center gap-3">
-                <Button onClick={() => backupMutation.mutate()} disabled={backupMutation.isPending}>
+                <Button onClick={() => backupMutation.mutate()} disabled={backupMutation.isPending} variant="outline">
                   <Play className="h-4 w-4" />
-                  {backupMutation.isPending ? "جاري النسخ..." : "تشغيل نسخة الآن"}
+                  {backupMutation.isPending ? "جاري النسخ..." : "تشغيل نسخة السيرفر الآن"}
                 </Button>
-                {backupMsg ? (
+                {backupMsg && (
                   <span className={`text-sm ${backupMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
                     {backupMsg}
                   </span>
-                ) : null}
+                )}
               </div>
               <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
             </CardContent>
           </Card>
 
-          {/* ── Manual export / import ── */}
+          {/* ── CSV exports ── */}
           <Card>
             <CardContent className="p-5 space-y-4">
-              <SectionTitle>تصدير واستيراد يدوي</SectionTitle>
+              <SectionTitle>تصدير CSV</SectionTitle>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Button onClick={() => downloadText("inventory-backup.json", JSON.stringify(backup, null, 2), "application/json")}>
-                  <FileJson className="h-4 w-4" /> تصدير كامل JSON
-                </Button>
                 <Button variant="outline" onClick={() => downloadText("products.csv", toCsv(productsQuery.data ?? []), "text/csv;charset=utf-8")}>
-                  <Download className="h-4 w-4" /> تصدير المنتجات CSV
+                  <Download className="h-4 w-4" /> المنتجات CSV
                 </Button>
                 <Button variant="outline" onClick={() => downloadText("customers.csv", toCsv(customersQuery.data ?? []), "text/csv;charset=utf-8")}>
-                  <Download className="h-4 w-4" /> تصدير الزبائن CSV
+                  <Download className="h-4 w-4" /> الزبائن CSV
+                </Button>
+                <Button variant="outline" onClick={() => downloadText("inventory-backup.json", JSON.stringify(backup, null, 2), "application/json")}>
+                  <FileJson className="h-4 w-4" /> تصدير إعدادات JSON
                 </Button>
                 <label className="flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 px-4 text-sm font-medium hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800">
-                  <Upload className="h-4 w-4" /> استيراد من ملف
+                  <Upload className="h-4 w-4" /> استيراد إعدادات من ملف
                   <input className="hidden" type="file" accept="application/json" onChange={(e) => importBackup(e.target.files?.[0])} />
                 </label>
               </div>
-              {importMsg ? (
+              {importMsg && (
                 <div className={`rounded-md px-3 py-2 text-sm ${importMsg.startsWith("✓") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>{importMsg}</div>
-              ) : null}
+              )}
             </CardContent>
           </Card>
+
         </div>
       )}
     </div>

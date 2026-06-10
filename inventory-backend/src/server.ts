@@ -1,4 +1,20 @@
 import "dotenv/config";
+
+// ── Startup environment validation ─────────────────────────────────────────
+const WEAK_JWT = "change-this-secret-before-production";
+if (!process.env.DATABASE_URL) {
+  console.error("[FATAL] DATABASE_URL is not set. Server cannot start.");
+  process.exit(1);
+}
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === WEAK_JWT) {
+  if (process.env.NODE_ENV === "production") {
+    console.error("[FATAL] JWT_SECRET must be set to a strong random value in production.");
+    process.exit(1);
+  } else {
+    console.warn("[WARN] JWT_SECRET is weak or missing. Set a strong secret before deploying.");
+  }
+}
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -26,7 +42,22 @@ const allowedOrigins = (
   .filter(Boolean);
 
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false,       // API only — no HTML served
+  crossOriginEmbedderPolicy: false,
+  hsts: {
+    maxAge: 60 * 60 * 24 * 365,      // 1 year HSTS
+    includeSubDomains: true,
+    preload: true,
+  },
+}));
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  next();
+});
 app.use(compression());
 app.use(cors({
   origin: allowedOrigins,

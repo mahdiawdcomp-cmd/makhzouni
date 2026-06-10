@@ -529,6 +529,9 @@ export interface AppSettings {
   whatsappProvider?: "web" | "cloud"
   whatsappCloudToken?: string
   whatsappCloudPhoneNumberId?: string
+  // Telegram backup delivery
+  telegramBotToken?: string
+  telegramChatId?: string
 }
 
 export interface MessageTemplate {
