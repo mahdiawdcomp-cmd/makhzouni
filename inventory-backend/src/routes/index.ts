@@ -27,6 +27,7 @@ import importRoutes from "./import.routes";
 import catalogCategoryRoutes from "./catalog-category.routes";
 import licenseRoutes from "./license.routes";
 import clientsRoutes from "./clients.routes";
+import paymentsRoutes from "./payments.routes";
 
 const router = Router();
 
@@ -58,5 +59,6 @@ router.use("/import", importRoutes);
 router.use("/catalog-categories", catalogCategoryRoutes);
 router.use("/license", licenseRoutes);
 router.use("/clients", clientsRoutes);
+router.use("/payments", paymentsRoutes);
 
 export default router;

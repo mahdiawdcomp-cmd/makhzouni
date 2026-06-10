@@ -795,3 +795,65 @@ export async function deleteLicensedClient(id: string) {
   const { data } = await api.delete<ApiEnvelope<never>>(`/clients/${id}`)
   return data
 }
+
+// ── Payments & Revenue (Phase 4) ──────────────────────────────────────────────
+export interface ClientPayment {
+  id: string
+  clientId: string
+  clientName: string
+  amount: number
+  currency: string
+  paidAt: string
+  method?: string | null
+  notes?: string | null
+  createdAt: string
+}
+
+export interface RevenueSummary {
+  totalAllTime: number
+  totalThisMonth: number
+  totalThisYear: number
+  currency: string
+  renewalsDueSoon: {
+    id: string; name: string; expiresAt: string; daysLeft: number
+    contactPhone: string | null; frontendUrl: string | null
+  }[]
+  monthlyChart: { month: string; amount: number }[]
+}
+
+export interface RenewResult {
+  newExpiresAt: string
+  licenseKey: string
+  payment: ClientPayment
+}
+
+export async function getRevenueSummary() {
+  const { data } = await api.get<ApiEnvelope<RevenueSummary>>("/payments/revenue")
+  return data.data!
+}
+
+export async function getPayments(clientId?: string) {
+  const { data } = await api.get<ApiEnvelope<ClientPayment[]>>("/payments", {
+    params: clientId ? { clientId } : undefined,
+  })
+  return data.data ?? []
+}
+
+export async function recordPayment(payload: {
+  clientId: string; amount: number; currency?: string
+  paidAt?: string; method?: string; notes?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<ClientPayment>>("/payments", payload)
+  return data.data!
+}
+
+export async function renewLicense(clientId: string, payload: {
+  months: number; amount: number; currency?: string; method?: string; notes?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<RenewResult>>(`/payments/renew/${clientId}`, payload)
+  return data.data!
+}
+
+export async function deletePayment(id: string) {
+  await api.delete(`/payments/${id}`)
+}
