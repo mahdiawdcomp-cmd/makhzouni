@@ -1,11 +1,12 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { ArrowRight, Download, Edit, Printer, ScanQrCode, Trash2 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 
-import { productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
+import { getCatalogCategories, productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
 import { useProductDetails, useProducts } from "../hooks/useProducts"
 import { fmt } from "../utils/fmt"
-import type { Product, ProductPayload } from "../types/api"
+import type { CatalogCategory, Product, ProductPayload } from "../types/api"
 import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -49,6 +50,7 @@ async function openPdf(promise: Promise<string>) {
 
 const emptyEditForm: ProductPayload = {
   itemNumber: "", name: "", qrCode: "", cartonQrCode: "", imageUrl: null, category: "",
+  categoryTags: [], typeTags: [],
   openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1,
   purchasePrice: 0, salePrice: 0, costPrice: 0, minStock: 5,
 }
@@ -73,6 +75,9 @@ export function ProductDetailPage() {
   const { updateMutation } = useProducts()
   const product = productQuery.data
   const movements = movementQuery.data ?? []
+
+  const catalogCatsQuery = useQuery({ queryKey: ["catalog-categories"], queryFn: getCatalogCategories })
+  const catalogCats: CatalogCategory[] = catalogCatsQuery.data ?? []
 
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false)
@@ -117,6 +122,8 @@ export function ProductDetailPage() {
       cartonQrCode: product.cartonQrCode ?? "",
       imageUrl: product.imageUrl ?? null,
       category: product.category ?? "",
+      categoryTags: product.categoryTags ?? [],
+      typeTags: product.typeTags ?? [],
       openingBalancePcs: product.openingBalancePcs,
       cartonsAvailable: product.cartonsAvailable,
       pcsPerCarton: product.pcsPerCarton,
@@ -189,6 +196,17 @@ export function ProductDetailPage() {
           <Card>
             <CardHeader><CardTitle>بيانات المنتج</CardTitle></CardHeader>
             <CardContent>
+              {/* Category + type tags */}
+              {((product.categoryTags ?? []).length > 0 || (product.typeTags ?? []).length > 0) && (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  {(product.categoryTags ?? []).map(t => (
+                    <span key={t} className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-bold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">{t}</span>
+                  ))}
+                  {(product.typeTags ?? []).map(t => (
+                    <span key={t} className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-bold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">{t}</span>
+                  ))}
+                </div>
+              )}
               <div className="grid gap-x-6 md:grid-cols-2">
                 <div>
                   <InfoRow label="رقم الآيتم (SKU)" value={product.itemNumber} />
@@ -386,9 +404,66 @@ export function ProductDetailPage() {
             <Field label="اسم المنتج *">
               <Input required value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
             </Field>
-            <Field label="الفئة">
-              <Input value={editForm.category ?? ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
-            </Field>
+            {catalogCats.length === 0 && (
+              <Field label="الفئة">
+                <Input value={editForm.category ?? ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
+              </Field>
+            )}
+            {/* Multi-category + multi-type when catalog categories exist */}
+            {catalogCats.length > 0 && (
+              <div className="md:col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+                <p className="text-[11px] font-semibold text-indigo-700 dark:text-indigo-400">الفئات والأنواع</p>
+                <div>
+                  <p className="mb-1.5 text-[11px] text-indigo-600">الفئة (اختر واحدة أو أكثر):</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {catalogCats.map(c => {
+                      const sel = (editForm.categoryTags ?? []).includes(c.name)
+                      return (
+                        <button key={c.id} type="button"
+                          onClick={() => {
+                            const tags = editForm.categoryTags ?? []
+                            const newTags = sel ? tags.filter(t => t !== c.name) : [...tags, c.name]
+                            const remainingCats = catalogCats.filter(x => newTags.includes(x.name))
+                            const validTypes = new Set(remainingCats.flatMap(x => x.types))
+                            setEditForm({
+                              ...editForm,
+                              category: newTags[0] ?? "",
+                              categoryTags: newTags,
+                              typeTags: (editForm.typeTags ?? []).filter(t => validTypes.has(t)),
+                            })
+                          }}
+                          className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold transition ${sel ? "border-indigo-500 bg-indigo-600 text-white" : "border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-slate-900"}`}
+                        >{c.name}</button>
+                      )
+                    })}
+                  </div>
+                </div>
+                {(() => {
+                  const selCats = catalogCats.filter(c => (editForm.categoryTags ?? []).includes(c.name))
+                  const allTypes = [...new Set(selCats.flatMap(c => c.types))].sort()
+                  if (!allTypes.length) return null
+                  return (
+                    <div>
+                      <p className="mb-1.5 text-[11px] text-violet-600">النوع (اختر واحداً أو أكثر):</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allTypes.map(t => {
+                          const sel = (editForm.typeTags ?? []).includes(t)
+                          return (
+                            <button key={t} type="button"
+                              onClick={() => {
+                                const tags = editForm.typeTags ?? []
+                                setEditForm({ ...editForm, typeTags: sel ? tags.filter(x => x !== t) : [...tags, t] })
+                              }}
+                              className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold transition ${sel ? "border-violet-500 bg-violet-600 text-white" : "border-violet-200 bg-white text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:bg-slate-900"}`}
+                            >{t}</button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
             <Field label="رقم الآيتم">
               <Input value={editForm.itemNumber ?? ""} onChange={(e) => setEditForm({ ...editForm, itemNumber: e.target.value })} />
             </Field>

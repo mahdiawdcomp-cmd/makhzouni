@@ -772,82 +772,121 @@ export function ProductsPage() {
               <Input required placeholder="مثلاً: سيارة بطارية" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
             </Field>
 
-            {/* ── الفئة الرئيسية + النوع ──────────────────────────────────── */}
+            {/* ── الفئات والأنواع (متعددة) ─────────────────────────────── */}
             <div className="md:col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-3 dark:border-indigo-900 dark:bg-indigo-950/20">
-              <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">الفئة والنوع (للكتالوج والمخزن)</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {/* Main category */}
-                <Field label="الفئة الرئيسية">
-                  {catalogCats.length > 0 ? (
-                    <select
-                      className="h-10 w-full rounded-md border border-indigo-200 bg-white px-3 text-sm dark:border-indigo-800 dark:bg-slate-950"
+              <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
+                الفئات والأنواع — يمكن اختيار أكثر من فئة وأكثر من نوع
+              </p>
+
+              {catalogCats.length === 0 ? (
+                <div className="space-y-1.5">
+                  <Field label="الفئة">
+                    <Input
+                      placeholder="مثلاً: مشروبات"
                       value={form.category ?? ""}
-                      onChange={(e) => {
-                        const cat = e.target.value
-                        setForm({
-                          ...form,
-                          category: cat || undefined,
-                          categoryTags: cat ? [cat] : [],
-                          typeTags: [],
-                        })
-                      }}
-                    >
-                      <option value="">— بدون فئة —</option>
-                      {catalogCats.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
+                      onChange={(event) => setForm({ ...form, category: event.target.value })}
+                    />
+                  </Field>
+                  <p className="text-[11px] text-indigo-500">
+                    لإضافة قائمة فئات:{" "}
+                    <Link to="/settings" className="underline hover:text-indigo-700">
+                      الإعدادات ← فئات الكتالوج
+                    </Link>
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* ── Category chips (multi-select) ── */}
+                  <div>
+                    <p className="mb-1.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+                      الفئة الرئيسية (اختر واحدة أو أكثر):
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {catalogCats.map(c => {
+                        const sel = (form.categoryTags ?? []).includes(c.name)
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              const tags = form.categoryTags ?? []
+                              const newTags = sel ? tags.filter(t => t !== c.name) : [...tags, c.name]
+                              // Remove typeTags that belong only to the removed category
+                              const remainingCats = catalogCats.filter(x => newTags.includes(x.name))
+                              const validTypes = new Set(remainingCats.flatMap(x => x.types))
+                              const newTypeTags = (form.typeTags ?? []).filter(t => validTypes.has(t))
+                              setForm({
+                                ...form,
+                                category: newTags[0] ?? "",
+                                categoryTags: newTags,
+                                typeTags: newTypeTags,
+                              })
+                            }}
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                              sel
+                                ? "border-indigo-500 bg-indigo-600 text-white"
+                                : "border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-slate-900 dark:text-indigo-300"
+                            }`}
+                          >
+                            {c.name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* ── Type chips from selected categories (multi-select) ── */}
+                  {(() => {
+                    const selCats = catalogCats.filter(c => (form.categoryTags ?? []).includes(c.name))
+                    const allTypes = [...new Set(selCats.flatMap(c => c.types))].sort()
+                    if (!allTypes.length) return null
+                    return (
+                      <div>
+                        <p className="mb-1.5 text-[11px] font-semibold text-violet-600 dark:text-violet-400">
+                          النوع (اختر واحداً أو أكثر):
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {allTypes.map(t => {
+                            const sel = (form.typeTags ?? []).includes(t)
+                            return (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => {
+                                  const tags = form.typeTags ?? []
+                                  setForm({
+                                    ...form,
+                                    typeTags: sel ? tags.filter(x => x !== t) : [...tags, t],
+                                  })
+                                }}
+                                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                                  sel
+                                    ? "border-violet-500 bg-violet-600 text-white"
+                                    : "border-violet-200 bg-white text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:bg-slate-900 dark:text-violet-300"
+                                }`}
+                              >
+                                {t}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })()}
+
+                  {/* ── Summary chips ── */}
+                  {((form.categoryTags ?? []).length > 0 || (form.typeTags ?? []).length > 0) && (
+                    <div className="flex flex-wrap gap-1.5 border-t border-indigo-100 pt-2 dark:border-indigo-800">
+                      <span className="text-[10px] text-slate-400 self-center">المحدد:</span>
+                      {(form.categoryTags ?? []).map(t => (
+                        <span key={t} className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-900/40">{t}</span>
                       ))}
-                    </select>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <Input
-                        placeholder="مثلاً: مشروبات"
-                        value={form.category ?? ""}
-                        onChange={(event) => setForm({ ...form, category: event.target.value })}
-                      />
-                      <p className="text-[11px] text-indigo-500">
-                        لإضافة قائمة فئات:{" "}
-                        <Link to="/settings" className="underline hover:text-indigo-700">
-                          الإعدادات ← فئات الكتالوج
-                        </Link>
-                      </p>
+                      {(form.typeTags ?? []).map(t => (
+                        <span key={t} className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-bold text-violet-700 dark:bg-violet-900/40">{t}</span>
+                      ))}
                     </div>
                   )}
-                </Field>
-
-                {/* Type — shown based on selected category */}
-                {(() => {
-                  const selCat = catalogCats.find(c => c.name === form.category)
-                  if (!selCat || !selCat.types.length) return <div />
-                  return (
-                    <Field label="النوع">
-                      <select
-                        className="h-10 w-full rounded-md border border-violet-200 bg-white px-3 text-sm dark:border-violet-800 dark:bg-slate-950"
-                        value={(form.typeTags ?? [])[0] ?? ""}
-                        onChange={(e) => {
-                          const t = e.target.value
-                          setForm({ ...form, typeTags: t ? [t] : [] })
-                        }}
-                      >
-                        <option value="">— كل الأنواع —</option>
-                        {selCat.types.map(t => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                      </select>
-                    </Field>
-                  )
-                })()}
-              </div>
-
-              {/* Show current tags as summary */}
-              {((form.categoryTags ?? []).length > 0 || (form.typeTags ?? []).length > 0) && (
-                <div className="flex flex-wrap gap-1.5">
-                  {(form.categoryTags ?? []).map(t => (
-                    <span key={t} className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">{t}</span>
-                  ))}
-                  {(form.typeTags ?? []).map(t => (
-                    <span key={t} className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-semibold text-violet-700">{t}</span>
-                  ))}
-                </div>
+                </>
               )}
             </div>
             <Field label="رقم الآيتم" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً (مثل AB0001)"}>
