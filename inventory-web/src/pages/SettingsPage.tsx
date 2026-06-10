@@ -130,7 +130,9 @@ export function SettingsPage() {
   const [backupMsg, setBackupMsg] = useState("")
   const [summaryMsg, setSummaryMsg] = useState("")
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (settingsQuery.data) setSettings({ ...fallbackSettings, ...settingsQuery.data }) }, [settingsQuery.data])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (templatesQuery.data) setTemplates(templatesQuery.data) }, [templatesQuery.data])
 
   const saveSettings = useMutation({

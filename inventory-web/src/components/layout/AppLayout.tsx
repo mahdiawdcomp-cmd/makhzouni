@@ -23,11 +23,6 @@ export function AppLayout() {
     localStorage.setItem("inventory_theme", darkMode ? "dark" : "light")
   }, [darkMode])
 
-  // Close mobile sidebar on route change
-  useEffect(() => {
-    setMobileSidebarOpen(false)
-  }, [])
-
   return (
     <div
       className="flex h-screen overflow-hidden"

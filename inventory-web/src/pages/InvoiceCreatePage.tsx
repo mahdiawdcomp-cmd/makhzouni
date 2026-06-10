@@ -111,27 +111,7 @@ export function InvoiceCreatePage() {
 
   // Tabs list (read fresh on each render; updated via localStorage)
   const [tabs, setTabs] = useState<DraftTabMeta[]>(() => listTabs(uid))
-
   const refreshTabs = useCallback(() => setTabs(listTabs(uid)), [uid])
-
-  // Reset all form state when the active tab changes (so tabs are truly isolated)
-  const prevTidRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!activeTid || activeTid === prevTidRef.current) return
-    prevTidRef.current = activeTid
-    setSelectedCustomer(null)
-    setCustomerQuery("")
-    setItems([])
-    setDiscount(0)
-    setTax(0)
-    setPaidAmount(0)
-	  setSavedInvoiceId(null)
-	  setLastSavedAt(null)
-	  setDate(new Date().toISOString().slice(0, 10))
-	  setPaymentMode("CREDIT")
-      clientRequestIdRef.current = crypto.randomUUID()
-	  // Draft loading will run separately via the draftKey effect
-	}, [activeTid])
 
   const { customersQuery } = useCustomers()
   const { productsQuery, createMutation: createProductMutation } = useProducts()
@@ -163,6 +143,25 @@ export function InvoiceCreatePage() {
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+
+  // Reset all form state when the active tab changes (so tabs are truly isolated)
+  const prevTidRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeTid || activeTid === prevTidRef.current) return
+    prevTidRef.current = activeTid
+    setSelectedCustomer(null)
+    setCustomerQuery("")
+    setItems([])
+    setDiscount(0)
+    setTax(0)
+    setPaidAmount(0)
+    setSavedInvoiceId(null)
+    setLastSavedAt(null)
+    setDate(new Date().toISOString().slice(0, 10))
+    setPaymentMode("CREDIT")
+    clientRequestIdRef.current = crypto.randomUUID()
+    // Draft loading will run separately via the draftKey effect
+  }, [activeTid])
 
   // ── Tab title: shows customer name so user knows which tab is which ──────────
   useEffect(() => {
@@ -197,8 +196,8 @@ export function InvoiceCreatePage() {
   const priceRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const totalRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
-  const customers = customersQuery.data ?? []
-  const products = productsQuery.data ?? []
+  const customers = useMemo(() => customersQuery.data ?? [], [customersQuery.data])
+  const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
 
   // All customers are eligible for any invoice type (supplier = customer, no distinction)
   const customerSuggestions = useMemo(
@@ -213,8 +212,7 @@ export function InvoiceCreatePage() {
     [products, productQuery],
   )
 
-  useEffect(() => { setCustomerHighlight(0) }, [customerQuery])
-  useEffect(() => { setProductHighlight(0) }, [productQuery])
+  // Highlights reset inline in change handlers (avoid setState-in-effect)
 
   // Scroll highlighted product item into view
   useEffect(() => {
@@ -704,6 +702,29 @@ export function InvoiceCreatePage() {
   const pageTint = isPurchase ? "bg-amber-50/30 dark:bg-amber-950/10" : "bg-emerald-50/30 dark:bg-emerald-950/10"
   const customerLabel = isPurchase ? "المورّد" : "الزبون"
 
+  // ── Loading skeleton while data fetches ──────────────────────────────────
+  const isInitialLoading = productsQuery.isLoading || customersQuery.isLoading
+  if (isInitialLoading && products.length === 0 && customers.length === 0) {
+    return (
+      <div className={`space-y-4 rounded-xl p-1 ${pageTint}`}>
+        <div className={`rounded-xl bg-gradient-to-l ${accentBg} p-5 text-white shadow-sm`}>
+          <div className="flex items-center gap-3">
+            <TitleIcon className="h-7 w-7 animate-pulse" />
+            <div>
+              <h1 className="text-xl font-bold">{titleText}</h1>
+              <p className="mt-1 text-sm opacity-80 animate-pulse">جاري تحميل البيانات...</p>
+            </div>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {[1,2,3].map(i => (
+            <div key={i} className="h-16 animate-pulse rounded-xl bg-slate-200 dark:bg-slate-800" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={`space-y-4 rounded-xl p-1 ${pageTint}`}>
       {/* ── Tabs bar ─────────────────────────────────────────────────────────── */}
@@ -834,6 +855,7 @@ export function InvoiceCreatePage() {
               value={customerQuery}
               onChange={(event) => {
                 setCustomerQuery(event.target.value)
+                setCustomerHighlight(0)
                 setSelectedCustomer(null)
                 setCustomerListOpen(true)
               }}
@@ -1103,7 +1125,7 @@ export function InvoiceCreatePage() {
             ref={productSearchRef}
             placeholder="بحث بالاسم أو رقم الصنف أو الباركود"
             value={productQuery}
-            onChange={(event) => setProductQuery(event.target.value)}
+            onChange={(event) => { setProductQuery(event.target.value); setProductHighlight(0) }}
             onKeyDown={handleProductSearchKey}
           />
           <div ref={productListRef} className="max-h-80 overflow-auto">

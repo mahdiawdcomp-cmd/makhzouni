@@ -432,6 +432,7 @@ function EditCustomerModal({
   // Reset form to latest customer data every time the modal opens
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setForm({
         name: customer.name,
         phone: customer.phone,

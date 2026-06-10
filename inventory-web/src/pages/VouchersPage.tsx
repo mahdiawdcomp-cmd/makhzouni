@@ -48,7 +48,9 @@ export function VouchersPage() {
   // Auto-open dialog if URL has ?action=...
   useEffect(() => {
     if (urlAction === "RECEIPT" || urlAction === "PAYMENT" || urlAction === "EXPENSE") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setType(urlAction)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDialogOpen(true)
       // Clear the param so refreshing doesn't keep reopening
       searchParams.delete("action")

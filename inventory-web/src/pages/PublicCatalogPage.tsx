@@ -84,6 +84,7 @@ export function PublicCatalogPage() {
 
   // Token rejected by server — clear it so Gate is shown clean
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (sessionQuery.isError) clearAccess()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionQuery.isError])
@@ -337,9 +338,12 @@ function CatalogShop({
     queryFn: () => api.get("/catalog-categories").then(r => (r.data as { data?: Array<{ name: string; types: string[] }> }).data ?? []).catch(() => []),
     staleTime: 10 * 60_000,
   })
-  const catalogCatsList: Array<{ name: string; types: string[] }> = catsQuery.data ?? []
+  const catalogCatsList = useMemo(
+    () => (catsQuery.data ?? []) as Array<{ name: string; types: string[] }>,
+    [catsQuery.data],
+  )
 
-  const products = productsQuery.data ?? []
+  const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
   // Build category list: use categoryTags when available, fall back to category field
   const categories = useMemo(() => {
     const catSet = new Set<string>()
