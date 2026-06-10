@@ -600,14 +600,18 @@ model StocktakeItem {
 }
 
 model LicensedClient {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String
-  licenseKey  String   @map("license_key") @db.Text
-  expiresAt   DateTime @map("expires_at")
-  months      Int
-  notes       String?
-  isRevoked   Boolean  @default(false) @map("is_revoked")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  licenseKey      String   @map("license_key") @db.Text
+  expiresAt       DateTime @map("expires_at")
+  months          Int
+  notes           String?
+  contactPhone    String?  @map("contact_phone")
+  contactEmail    String?  @map("contact_email")
+  backendUrl      String?  @map("backend_url")
+  frontendUrl     String?  @map("frontend_url")
+  isRevoked       Boolean  @default(false) @map("is_revoked")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("licensed_clients")
 }

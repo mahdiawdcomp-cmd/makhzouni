@@ -755,6 +755,10 @@ export interface LicensedClient {
   expiresAt: string
   months: number
   notes?: string | null
+  contactPhone?: string | null
+  contactEmail?: string | null
+  backendUrl?: string | null
+  frontendUrl?: string | null
   isRevoked: boolean
   createdAt: string
   daysLeft?: number
@@ -766,8 +770,19 @@ export async function getLicensedClients() {
   return data.data ?? []
 }
 
-export async function createLicensedClient(payload: { name: string; months: number; notes?: string }) {
+export async function createLicensedClient(payload: {
+  name: string; months: number; notes?: string
+  contactPhone?: string; contactEmail?: string
+}) {
   const { data } = await api.post<ApiEnvelope<LicensedClient>>("/clients", payload)
+  return data.data!
+}
+
+export async function updateLicensedClient(id: string, payload: {
+  backendUrl?: string; frontendUrl?: string
+  contactPhone?: string; contactEmail?: string; notes?: string
+}) {
+  const { data } = await api.patch<ApiEnvelope<LicensedClient>>(`/clients/${id}`, payload)
   return data.data!
 }
 
