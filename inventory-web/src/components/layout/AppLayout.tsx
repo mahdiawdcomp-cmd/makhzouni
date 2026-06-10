@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react"
-import { Outlet, useLocation } from "react-router-dom"
+import { Outlet, useLocation, Link } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { Menu, X, Zap } from "lucide-react"
+import { AlertTriangle, Menu, X, Zap } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { getLicenseStatus } from "../../api/endpoints"
+import { useAuthStore } from "../../store/authStore"
 import { Header } from "./Header"
 import { Sidebar } from "./Sidebar"
 import { PwaStatusBar } from "../PwaStatusBar"
@@ -20,6 +23,47 @@ const pageVariants = {
 const pageTransition = {
   duration: 0.24,
   ease: "easeOut" as const,
+}
+
+function LicenseBanner() {
+  const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
+  const [dismissed, setDismissed] = useState(false)
+  const { data: license } = useQuery({
+    queryKey: ["license-status"],
+    queryFn: getLicenseStatus,
+    staleTime: 60 * 60 * 1000, // re-check every hour
+    enabled: isAdmin,
+  })
+
+  if (!isAdmin || dismissed || !license) return null
+  if (license.status === "valid" || license.status === "missing") return null
+
+  const isExpired = license.status === "expired"
+  const label = isExpired
+    ? `انتهت صلاحية الترخيص${license.readOnlyMode ? " — وضع القراءة فقط" : " — فترة السماح"}`
+    : `ينتهي الترخيص خلال ${license.daysLeft} يوم`
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 px-4 py-2 text-sm font-medium"
+      style={{
+        background: isExpired ? "rgba(239,68,68,0.12)" : "rgba(245,158,11,0.12)",
+        borderBottom: `1px solid ${isExpired ? "rgba(239,68,68,0.25)" : "rgba(245,158,11,0.25)"}`,
+        color: isExpired ? "#ef4444" : "#f59e0b",
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-4 w-4 shrink-0" />
+        <span>{label}</span>
+        <Link to="/settings" className="underline underline-offset-2 opacity-80 hover:opacity-100">
+          الإعدادات
+        </Link>
+      </div>
+      <button type="button" onClick={() => setDismissed(true)} className="opacity-60 hover:opacity-100">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  )
 }
 
 export function AppLayout() {
@@ -119,6 +163,9 @@ export function AppLayout() {
             </span>
           </div>
         </div>
+
+        {/* License banner (admin only, when expiring/expired) */}
+        <LicenseBanner />
 
         {/* Desktop header */}
         <div className="hidden lg:block">

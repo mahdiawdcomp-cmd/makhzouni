@@ -315,4 +315,15 @@ interface InventoryApi {
 
     @POST("order-preparations/{id}/mark-prepared")
     suspend fun markOrderPrepared(@Path("id") id: String): ApiEnvelope<Any>
+
+    // ── Backup ────────────────────────────────────────────────────────────────
+    @POST("settings/backup/telegram")
+    suspend fun sendBackupToTelegram(): ApiEnvelope<Any>
+
+    @GET("settings/backup/download")
+    suspend fun downloadBackup(): okhttp3.ResponseBody
+
+    // ── License ───────────────────────────────────────────────────────────────
+    @GET("license/status")
+    suspend fun getLicenseStatus(): ApiEnvelope<LicenseStatusDto>
 }

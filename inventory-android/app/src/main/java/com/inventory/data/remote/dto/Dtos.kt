@@ -567,3 +567,12 @@ data class OrderPreparationDto(
     val items: List<OrderPreparationItemDto>,
     val createdAt: String
 )
+
+// ── License ───────────────────────────────────────────────────────────────────
+data class LicenseStatusDto(
+    val status: String,          // valid | expiring | expired | missing | invalid
+    val clientName: String? = null,
+    val expiresAt: String? = null,
+    val daysLeft: Int? = null,
+    val readOnlyMode: Boolean = false
+)

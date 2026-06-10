@@ -8,3 +8,5 @@ build/
 .DS_Store
 Thumbs.db
 graphify-out/
+# License private key — keep this file SECRET, never share or commit
+scripts/LICENSE_PRIVATE_KEY.pem

@@ -504,6 +504,23 @@ export async function updateSettings(payload: Partial<AppSettings>) {
   return data
 }
 
+export interface LicenseInfo {
+  status: "valid" | "expiring" | "expired" | "missing" | "invalid"
+  clientName: string | null
+  expiresAt: string | null
+  daysLeft: number | null
+  readOnlyMode: boolean
+}
+
+export async function getLicenseStatus(): Promise<LicenseInfo | null> {
+  try {
+    const { data } = await api.get<ApiEnvelope<LicenseInfo>>("/license/status")
+    return data.data ?? null
+  } catch {
+    return null
+  }
+}
+
 export async function triggerManualBackup() {
   const { data } = await api.post<ApiEnvelope<{ products: number; customers: number; invoices: number; vouchers: number }>>("/settings/backup/run")
   return data

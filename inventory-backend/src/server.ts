@@ -20,6 +20,7 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import apiRoutes from "./routes";
+import { verifyLicense } from "./services/license.service";
 import { errorHandler } from "./middleware/error-handler.middleware";
 import { requestLogger } from "./middleware/request-logger.middleware";
 import { auditLogMiddleware } from "./middleware/audit-log.middleware";
@@ -87,6 +88,8 @@ process.on("unhandledRejection", (reason) => {
 
 app.listen(port, "0.0.0.0", () => {
   logger.info(`Inventory backend is running on port ${port}`);
+  // Verify license on startup (non-fatal — system runs even without license)
+  verifyLicense();
   startNotificationJobs();
 
   // Load DB settings to sync WhatsApp Cloud API credentials into the WA service

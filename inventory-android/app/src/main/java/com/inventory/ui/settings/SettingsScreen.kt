@@ -162,11 +162,38 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     title = "النسخ الاحتياطي",
                     titleAction = { Icon(Icons.Default.SettingsBackupRestore, null, tint = MaterialTheme.colorScheme.primary) }
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(onClick = viewModel::exportBackup, modifier = Modifier.weight(1f)) { Text("تصدير JSON") }
-                        FilledTonalButton(onClick = viewModel::importBackup, modifier = Modifier.weight(1f)) { Text("استيراد") }
+                    Button(onClick = viewModel::downloadBackup, modifier = Modifier.fillMaxWidth()) {
+                        Text("تحميل نسخة كاملة من السيرفر")
                     }
-                    state.backupMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    FilledTonalButton(onClick = viewModel::sendTelegramBackup, modifier = Modifier.fillMaxWidth()) {
+                        Text("إرسال نسخة لتيليغرام")
+                    }
+                    state.backupMessage?.let {
+                        val ok = it.startsWith("✓")
+                        StatusStrip(text = it, ok = ok)
+                    }
+                }
+            }
+
+            // ── License status ────────────────────────────────────────────────
+            state.licenseStatus?.let { lic ->
+                if (lic.status != "valid" && lic.status != "missing") {
+                    item {
+                        SectionCard(title = "الترخيص") {
+                            val expired = lic.status == "expired"
+                            val msg = if (expired)
+                                "انتهت صلاحية الترخيص${if (lic.readOnlyMode) " — وضع القراءة فقط" else " — فترة السماح"}"
+                            else
+                                "ينتهي الترخيص خلال ${lic.daysLeft} يوم"
+                            StatusStrip(text = msg, ok = false)
+                            lic.clientName?.let { name ->
+                                Text("العميل: $name", style = MaterialTheme.typography.bodySmall)
+                            }
+                            lic.expiresAt?.let { exp ->
+                                Text("تاريخ الانتهاء: ${exp.take(10)}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                 }
             }
         }

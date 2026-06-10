@@ -25,6 +25,7 @@ import orderPreparationsRoutes from "./order-preparations.routes";
 import stocktakeRoutes from "./stocktake.routes";
 import importRoutes from "./import.routes";
 import catalogCategoryRoutes from "./catalog-category.routes";
+import licenseRoutes from "./license.routes";
 
 const router = Router();
 
@@ -54,5 +55,6 @@ router.use("/order-preparations", orderPreparationsRoutes);
 router.use("/stocktake", stocktakeRoutes);
 router.use("/import", importRoutes);
 router.use("/catalog-categories", catalogCategoryRoutes);
+router.use("/license", licenseRoutes);
 
 export default router;
