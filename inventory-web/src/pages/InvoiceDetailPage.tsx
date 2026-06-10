@@ -208,7 +208,7 @@ export function InvoiceDetailPage() {
     <div className="space-y-3 max-w-4xl mx-auto">
       {/* Toolbar — hidden on print */}
       <div className="print:hidden flex flex-wrap items-center gap-2">
-        <Button variant="ghost" className="px-0" onClick={() => navigate(-1)}>
+        <Button variant="ghost" className="px-0" onClick={() => history.length > 1 ? navigate(-1) : navigate("/invoices")}>
           <ArrowRight className="h-4 w-4" /> رجوع
         </Button>
         {/* Navigation */}

@@ -152,7 +152,7 @@ export function VoucherDetailPage() {
 
   return (
     <div className="space-y-4">
-      <Button variant="ghost" className="px-0" onClick={() => navigate(-1)}>
+      <Button variant="ghost" className="px-0" onClick={() => history.length > 1 ? navigate(-1) : navigate("/vouchers")}>
         <ArrowRight className="h-4 w-4" /> رجوع
       </Button>
 
