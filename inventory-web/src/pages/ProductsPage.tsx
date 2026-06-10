@@ -798,11 +798,19 @@ export function ProductsPage() {
                       ))}
                     </select>
                   ) : (
-                    <Input
-                      placeholder="مثلاً: مشروبات"
-                      value={form.category ?? ""}
-                      onChange={(event) => setForm({ ...form, category: event.target.value })}
-                    />
+                    <div className="space-y-1.5">
+                      <Input
+                        placeholder="مثلاً: مشروبات"
+                        value={form.category ?? ""}
+                        onChange={(event) => setForm({ ...form, category: event.target.value })}
+                      />
+                      <p className="text-[11px] text-indigo-500">
+                        لإضافة قائمة فئات:{" "}
+                        <Link to="/settings" className="underline hover:text-indigo-700">
+                          الإعدادات ← فئات الكتالوج
+                        </Link>
+                      </p>
+                    </div>
                   )}
                 </Field>
 
