@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { Outlet } from "react-router-dom"
+import { useEffect, useRef, useState } from "react"
+import { Outlet, useLocation } from "react-router-dom"
 import { Menu } from "lucide-react"
 import { Header } from "./Header"
 import { Sidebar } from "./Sidebar"
@@ -17,6 +17,13 @@ export function AppLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const pwa = usePwaStatus()
   useGlobalShortcuts()
+  const mainRef = useRef<HTMLElement>(null)
+  const { pathname } = useLocation()
+
+  // Scroll back to top on every page navigation
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0)
+  }, [pathname])
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode)
@@ -80,7 +87,7 @@ export function AppLayout() {
         </div>
 
         {/* Page content */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main ref={mainRef} className="flex-1 overflow-y-auto p-4 lg:p-6">
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>
