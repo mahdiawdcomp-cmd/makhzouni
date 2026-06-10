@@ -340,30 +340,55 @@ function CatalogShop({
   const catalogCatsList: Array<{ name: string; types: string[] }> = catsQuery.data ?? []
 
   const products = productsQuery.data ?? []
-  const categories = useMemo(
-    () => [...new Set(products.map((p) => p.category).filter(Boolean) as string[])].sort(),
-    [products],
-  )
+  // Build category list: use categoryTags when available, fall back to category field
+  const categories = useMemo(() => {
+    const catSet = new Set<string>()
+    products.forEach(p => {
+      if (p.categoryTags && p.categoryTags.length > 0) {
+        p.categoryTags.forEach(t => catSet.add(t))
+      } else if (p.category) {
+        catSet.add(p.category)
+      }
+    })
+    // Sort by catalogCatsList order if available, otherwise alphabetically
+    const sorted = [...catSet].sort((a, b) => {
+      const ai = catalogCatsList.findIndex(c => c.name === a)
+      const bi = catalogCatsList.findIndex(c => c.name === b)
+      if (ai !== -1 && bi !== -1) return ai - bi
+      if (ai !== -1) return -1
+      if (bi !== -1) return 1
+      return a.localeCompare(b)
+    })
+    return sorted
+  }, [products, catalogCatsList])
 
   // Available types for the currently selected category
+  // Uses backend catalog-categories first, then falls back to typeTags on products
   const availableTypes = useMemo(() => {
     if (category === "all") return []
     const catDef = catalogCatsList.find(c => c.name === category)
     if (catDef?.types.length) return catDef.types
-    return []
-  }, [category, catalogCatsList])
+    // Fallback: collect unique typeTags from products that belong to this category
+    const typeSet = new Set<string>()
+    products.forEach(p => {
+      const tags = p.categoryTags ?? []
+      const inCat = tags.length > 0 ? tags.includes(category) : p.category === category
+      if (inCat) (p.typeTags ?? []).forEach(t => typeSet.add(t))
+    })
+    return [...typeSet].sort()
+  }, [category, catalogCatsList, products])
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     return products.filter((p) => {
       if (p.currentStock <= 0) return false
       if (category !== "all") {
-        // Match by categoryTags (multi) or legacy category field
-        const tags: string[] = (p as PublicCatalogProduct & { categoryTags?: string[] }).categoryTags ?? []
-        if (tags.length > 0 ? !tags.includes(category) : p.category !== category) return false
+        const tags = p.categoryTags ?? []
+        const inCat = tags.length > 0 ? tags.includes(category) : p.category === category
+        if (!inCat) return false
       }
       if (typeFilter !== "all") {
-        const tTags: string[] = (p as PublicCatalogProduct & { typeTags?: string[] }).typeTags ?? []
+        const tTags = p.typeTags ?? []
         if (!tTags.includes(typeFilter)) return false
       }
       if (!q) return true

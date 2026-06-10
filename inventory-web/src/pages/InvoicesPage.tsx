@@ -160,10 +160,12 @@ export function InvoicesPage() {
         id: "actions",
         header: "إجراءات",
         cell: ({ row }) => (
-          <Button variant="outline" asChild>
-            <Link to={`/invoices/${row.original.id}`} title="عرض الفاتورة">
-              <Eye className="h-4 w-4" />
-            </Link>
+          <Button
+            variant="outline"
+            title="عرض الفاتورة (تبويب جديد)"
+            onClick={() => window.open(`/invoices/${row.original.id}`, "_blank", "noopener,noreferrer")}
+          >
+            <Eye className="h-4 w-4" />
           </Button>
         ),
       },
@@ -278,7 +280,11 @@ export function InvoicesPage() {
             </THead>
             <TBody>
               {table.getRowModel().rows.map((row) => (
-                <TR key={row.id}>
+                <TR
+                  key={row.id}
+                  className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                  onDoubleClick={() => window.open(`/invoices/${row.original.id}`, "_blank", "noopener,noreferrer")}
+                >
                   {row.getVisibleCells().map((cell) => (
                     <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>
                   ))}

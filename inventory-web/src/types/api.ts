@@ -157,6 +157,8 @@ export interface PublicCatalogProduct {
   name: string
   imageUrl?: string | null
   category?: string | null
+  categoryTags?: string[]
+  typeTags?: string[]
   salePrice?: number | null
   pcsPerCarton: number
   currentStock: number

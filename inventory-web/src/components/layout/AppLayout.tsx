@@ -8,6 +8,7 @@ import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
+import { ErrorBoundary } from "../ErrorBoundary"
 
 export function AppLayout() {
   const [darkMode, setDarkMode] = useState(
@@ -85,7 +86,9 @@ export function AppLayout() {
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

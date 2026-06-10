@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, Plus, Receipt, ReceiptText, RefreshCw, Wallet } from "lucide-react"
 import { createVoucher, getCustomers, getVouchers } from "../api/endpoints"
@@ -218,8 +218,12 @@ export function VouchersPage() {
                     <TD>{voucher.customer?.name ?? voucher.description ?? "—"}</TD>
                     <TD>{String(voucher.date).slice(0, 10)}</TD>
                     <TD>
-                      <Button variant="outline" asChild>
-                        <Link to={`/vouchers/${voucher.id}`}><Eye className="h-4 w-4" /></Link>
+                      <Button
+                        variant="outline"
+                        title="عرض السند (تبويب جديد)"
+                        onClick={() => window.open(`/vouchers/${voucher.id}`, "_blank", "noopener,noreferrer")}
+                      >
+                        <Eye className="h-4 w-4" />
                       </Button>
                     </TD>
                   </TR>

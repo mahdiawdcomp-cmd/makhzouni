@@ -6,10 +6,12 @@ import {
   Boxes,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   FileCheck2,
   FileText,
   Globe,
   Home,
+  Plus,
   Receipt,
   ReceiptText,
   RotateCcw,
@@ -165,6 +167,56 @@ function SideGroup({ item }: { item: Group }) {
           {item.children.map((child) => (
             <SideLeaf key={child.to} item={child} />
           ))}
+
+          {/* Quick-create buttons for invoice group */}
+          {item.id === "invoices" && (
+            <div className="flex gap-1 pt-1 pb-0.5">
+              <button
+                type="button"
+                title="فاتورة بيع جديدة (تبويب جديد)"
+                onClick={() => window.open("/invoices/new?type=SALE", "_blank", "noopener,noreferrer")}
+                className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-emerald-500/40 px-2 py-1 text-[11px] font-semibold text-emerald-400 transition hover:border-emerald-400 hover:bg-emerald-900/20 hover:text-emerald-300"
+              >
+                <Plus className="h-3 w-3" />
+                بيع
+                <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+              </button>
+              <button
+                type="button"
+                title="فاتورة شراء جديدة (تبويب جديد)"
+                onClick={() => window.open("/invoices/new?type=PURCHASE", "_blank", "noopener,noreferrer")}
+                className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-amber-500/40 px-2 py-1 text-[11px] font-semibold text-amber-400 transition hover:border-amber-400 hover:bg-amber-900/20 hover:text-amber-300"
+              >
+                <Plus className="h-3 w-3" />
+                شراء
+                <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+              </button>
+            </div>
+          )}
+
+          {/* Quick-create buttons for voucher group */}
+          {item.id === "vouchers" && (
+            <div className="flex gap-1 pt-1 pb-0.5">
+              <button
+                type="button"
+                title="سند قبض جديد (تبويب جديد)"
+                onClick={() => window.open("/vouchers?action=RECEIPT", "_blank", "noopener,noreferrer")}
+                className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-teal-500/40 px-2 py-1 text-[11px] font-semibold text-teal-400 transition hover:border-teal-400 hover:bg-teal-900/20 hover:text-teal-300"
+              >
+                <Plus className="h-3 w-3" />
+                قبض
+              </button>
+              <button
+                type="button"
+                title="سند دفع جديد (تبويب جديد)"
+                onClick={() => window.open("/vouchers?action=PAYMENT", "_blank", "noopener,noreferrer")}
+                className="flex flex-1 items-center justify-center gap-1 rounded-md border border-dashed border-orange-500/40 px-2 py-1 text-[11px] font-semibold text-orange-400 transition hover:border-orange-400 hover:bg-orange-900/20 hover:text-orange-300"
+              >
+                <Plus className="h-3 w-3" />
+                دفع
+              </button>
+            </div>
+          )}
         </div>
       ) : null}
     </div>

@@ -12,7 +12,7 @@ export function useProducts() {
   const queryClient = useQueryClient()
   const productsQuery = useQuery({
     queryKey: ["products"],
-    queryFn: () => getProducts({ limit: 100 }),
+    queryFn: () => getProducts({ limit: 999 }),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["products"] })
