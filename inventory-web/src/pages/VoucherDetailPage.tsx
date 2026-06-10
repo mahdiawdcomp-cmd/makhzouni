@@ -56,7 +56,7 @@ export function VoucherDetailPage() {
   const voucher = voucherQuery.data
 
   const voucherTypeLabel = voucher?.type === "RECEIPT" ? "سند قبض" : "سند دفع"
-  const partyName = voucher?.customer?.name ?? voucher?.customerName ?? ""
+  const partyName = voucher?.customer?.name ?? ""
   usePageTitle(voucher ? `${voucherTypeLabel}${partyName ? ` (${partyName})` : ""}` : "تحميل السند...")
   const listQuery = useQuery({ queryKey: ["vouchers", "all-for-nav"], queryFn: () => getVouchers() })
   const settingsQuery = useSettings()
