@@ -465,7 +465,7 @@ async function createInvoiceInTransaction(
   const existingInvoice = existingInvoiceId
     ? await tx.invoice.findUnique({ where: { id: existingInvoiceId }, select: { date: true } })
     : null;
-  const date = existingInvoice?.date ?? new Date();
+  const date = existingInvoice?.date ?? (input.date ? new Date(input.date) : new Date());
   const manualDiscount = input.discount ?? 0;
   const tax = input.tax ?? 0;
 

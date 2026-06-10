@@ -22,7 +22,7 @@ type TypeFilter = "ALL" | InvoiceType
 type InvoiceSort = "createdDesc" | "updatedDesc" | "dateDesc" | "totalDesc" | "remainingDesc" | "paidDesc"
 
 const typeChipStyles: Record<TypeFilter, string> = {
-  ALL: "bg-slate-900 text-white",
+  ALL: "bg-[var(--theme-accent)] text-white",
   SALE: "bg-emerald-600 text-white",
   PURCHASE: "bg-amber-600 text-white",
   SALES_RETURN: "bg-rose-600 text-white",

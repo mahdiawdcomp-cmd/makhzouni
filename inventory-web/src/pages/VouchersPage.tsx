@@ -165,7 +165,7 @@ export function VouchersPage() {
           onClick={() => selectFilter("ALL")}
           className={cn(
             "rounded-full px-4 py-1.5 text-sm font-medium transition",
-            typeFilter === "ALL" ? "bg-slate-900 text-white" : filterChipIdle,
+            typeFilter === "ALL" ? "bg-[var(--theme-accent)] text-white" : filterChipIdle,
           )}
         >
           الكل
@@ -181,7 +181,7 @@ export function VouchersPage() {
               onClick={() => selectFilter(t)}
               className={cn(
                 "inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition",
-                active ? "bg-slate-900 text-white" : filterChipIdle,
+                active ? "bg-[var(--theme-accent)] text-white" : filterChipIdle,
               )}
             >
               <Icon className="h-4 w-4" />
@@ -271,7 +271,7 @@ export function VouchersPage() {
                     className={cn(
                       "flex-1 rounded-md border px-3 py-2 text-sm font-medium transition",
                       type === t
-                        ? "bg-slate-900 text-white border-slate-900 dark:bg-amber-500 dark:text-slate-950 dark:border-amber-500"
+                        ? "bg-[var(--theme-accent)] text-white border-[var(--theme-accent)]"
                         : filterChipIdle,
                     )}
                   >

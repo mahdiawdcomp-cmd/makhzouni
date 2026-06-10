@@ -295,47 +295,7 @@ export async function getInvoices(params?: {
   limit?: number
 }) {
   const { data } = await api.get<PagedResponse<Invoice>>("/invoices", { params: { limit: 100, ...params } })
-  const invoices = data.data ?? []
-  if (invoices.length > 0 || params?.customerId) return invoices
-
-  const customers = await getCustomers()
-  const seen = new Set<string>()
-  const uuid = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/
-  const rows = await Promise.all(
-    customers.map(async (customer) => {
-      const transactions = await getCustomerTransactions(customer.id, { from: params?.from, to: params?.to })
-      return transactions
-        .filter((tx) => tx.type?.toUpperCase().includes("INVOICE") && !tx.type?.toUpperCase().includes("PAYMENT"))
-        .map((tx) => {
-          const id = String(tx.id ?? "").match(uuid)?.[0] ?? String(tx.id ?? tx.referenceNumber)
-          if (!id || seen.has(id)) return null
-          seen.add(id)
-          const type = Number(tx.credit ?? 0) > 0 ? "PURCHASE" : "SALE"
-          if (params?.type && params.type !== type) return null
-          return {
-            id,
-            invoiceNumber: tx.referenceNumber || id,
-            type,
-            customerId: customer.id,
-            customer,
-            date: tx.date,
-            subtotal: tx.amount ?? 0,
-            discount: 0,
-            tax: 0,
-            totalAmount: tx.amount ?? 0,
-            paidAmount: 0,
-            remainingAmount: tx.amount ?? 0,
-            previousBalance: 0,
-            finalBalance: tx.runningBalance ?? 0,
-            paymentType: "CREDIT",
-            status: "ACTIVE",
-            items: [],
-          } satisfies Invoice
-        })
-        .filter(Boolean) as Invoice[]
-    }),
-  )
-  return rows.flat().sort((a, b) => String(b.date).localeCompare(String(a.date)))
+  return data.data ?? []
 }
 
 export async function getLastSoldPrice(customerId: string, productId: string) {
@@ -449,8 +409,8 @@ export async function invoiceImageObjectUrl(id: string) {
   return URL.createObjectURL(data as Blob)
 }
 
-export async function getVouchers(params?: { customerId?: string; type?: "RECEIPT" | "PAYMENT" | "EXPENSE" }) {
-  const { data } = await api.get<PagedResponse<Voucher>>("/vouchers", { params })
+export async function getVouchers(params?: { customerId?: string; type?: "RECEIPT" | "PAYMENT" | "EXPENSE"; limit?: number }) {
+  const { data } = await api.get<PagedResponse<Voucher>>("/vouchers", { params: { limit: 1000, ...params } })
   return data.data ?? []
 }
 

@@ -173,6 +173,7 @@ export const reviewApprovalSchema = z.object({
   body: z.object({
     status: z.enum(["APPROVED", "REJECTED"]),
     allowPrices: z.coerce.boolean().optional(),
+    showStock: z.coerce.boolean().optional(),
   }),
 });
 
@@ -367,6 +368,7 @@ export const createInvoiceSchema = z.object({
     customerId: z.string().uuid(),
     branchId: z.string().uuid().optional(),
     type: invoiceTypeSchema.default("SALE"),
+    date: dateString.optional(),
     originalInvoiceId: z.string().uuid().optional(),
     couponCode: z.string().trim().max(60).optional(),
     clientRequestId: z.string().min(8).max(100).optional(),

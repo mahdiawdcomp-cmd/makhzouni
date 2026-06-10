@@ -620,6 +620,7 @@ export function InvoiceCreatePage() {
     const response = await createMutation.mutateAsync({
       customerId: selectedCustomer.id,
       type: invoiceType,
+      date,
       clientRequestId: clientRequestIdRef.current,
       couponCode: couponCode.trim() || undefined,
       discount,
