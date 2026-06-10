@@ -309,6 +309,8 @@ export const createProductSchema = z.object({
     cartonQrCode: z.string().trim().optional(),
     imageUrl: productImageSchema,
     category: z.string().trim().optional(),
+    categoryTags: z.array(z.string().trim()).optional(),
+    typeTags: z.array(z.string().trim()).optional(),
     openingBalancePcs: z.coerce.number().int().min(0).default(0),
     cartonsAvailable: z.coerce.number().int().min(0).default(0),
     pcsPerCarton: z.coerce.number().int().min(1).default(1),
