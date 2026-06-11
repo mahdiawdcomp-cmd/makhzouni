@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, invoiceImageObjectUrl } from "../api/endpoints"
+import { applyCoupon, createReceipt, invoiceImageObjectUrl } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -235,7 +235,9 @@ export function InvoiceCreatePage() {
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
   const total = Math.max(0, subtotal - discount)
   const previousBalance = selectedCustomer?.currentBalance ?? 0
-  const remaining = total - paidAmount
+  const overpayment = !isPurchase && paidAmount > total && total > 0 ? paidAmount - total : 0
+  const effectivePaid = overpayment > 0 ? total : paidAmount
+  const remaining = total - effectivePaid
   const balanceDelta = isPurchase ? -remaining : remaining
   const finalBalance = previousBalance + balanceDelta
   const hasInvalidTotal = total < 0
@@ -678,8 +680,8 @@ export function InvoiceCreatePage() {
       couponCode: couponCode.trim() || undefined,
       discount,
       tax: 0,
-      paidAmount,
-      paymentType: remaining <= 0 ? "CASH" : paidAmount > 0 ? "PARTIAL" : "CREDIT",
+      paidAmount: effectivePaid,
+      paymentType: remaining <= 0 ? "CASH" : effectivePaid > 0 ? "PARTIAL" : "CREDIT",
       items: items.map((item) => ({
         productId: item.product.id,
         unit: item.unit,
@@ -689,6 +691,12 @@ export function InvoiceCreatePage() {
     })
     const id = response.data?.id ?? null
     if (id) {
+      // If customer paid more than the invoice total, create a receipt voucher for the difference
+      if (overpayment > 0 && selectedCustomer) {
+        try {
+          await createReceipt({ customerId: selectedCustomer.id, amount: overpayment, type: "RECEIPT", date })
+        } catch { /* receipt failure shouldn't block invoice */ }
+      }
       setSavedInvoiceId(id)
       clearDraft()
       if (navigateAfterSave) navigate(`/invoices/${id}`)
@@ -953,7 +961,12 @@ export function InvoiceCreatePage() {
           <select
             className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
             value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+            onChange={(e) => {
+              const mode = e.target.value as PaymentMode
+              setPaymentMode(mode)
+              if (mode === "CASH") setPaidAmount(total)
+              else setPaidAmount(0)
+            }}
           >
             <option value="CREDIT">آجل</option>
             <option value="CASH">نقد</option>
@@ -1134,6 +1147,11 @@ export function InvoiceCreatePage() {
                 />
               </div>
               <SummaryRow label={isPurchase ? "المتبقي للمورّد" : "المبلغ الباقي"} value={remaining} />
+              {overpayment > 0 ? (
+                <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+                  زيادة {fmt(overpayment)} — سيُنشأ سند قبض تلقائياً
+                </div>
+              ) : null}
               <SummaryRow label="الحساب النهائي" value={finalBalance} strong />
             </div>
           </div>

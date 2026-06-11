@@ -308,19 +308,25 @@ function StatementTab({
   setTo: (value: string) => void
 }) {
   const csv = useMemo(() => {
-    const header = "date,created_at,created_by,type,reference,debit,credit,balance,last_change"
+    const fmtDate = (v: string | null | undefined) =>
+      v ? new Date(v).toLocaleString("ar-IQ", { dateStyle: "short", timeStyle: "short" }) : ""
+    const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
+    const header = [
+      "التاريخ", "وقت الإدخال", "أنشأه", "النوع", "الرقم المرجعي",
+      "مدين (على الزبون)", "دائن (للزبون)", "الرصيد", "آخر تعديل",
+    ].map(q).join(",")
     const body = rows.map((row) => [
-      row.date,
-      row.createdAt ?? "",
+      fmtDate(row.date),
+      fmtDate(row.createdAt),
       row.createdByName ?? "",
-      row.type,
+      translateLastType(row.type),
       row.referenceNumber,
-      row.debit ?? 0,
-      row.credit ?? 0,
-      row.runningBalance,
-      row.lastChangedAt ?? "",
-    ].join(","))
-    return [header, ...body].join("\n")
+      row.debit ? Number(row.debit).toLocaleString("en-US") : "",
+      row.credit ? Number(row.credit).toLocaleString("en-US") : "",
+      Number(row.runningBalance).toLocaleString("en-US"),
+      row.lastChangedAt ? fmtDate(row.lastChangedAt) : "",
+    ].map(q).join(","))
+    return "﻿" + [header, ...body].join("\n")
   }, [rows])
 
   return (
@@ -334,7 +340,7 @@ function StatementTab({
         </PDFDownloadLink>
       </div>
       <Table>
-        <THead><TR><TH>التاريخ</TH><TH>النوع</TH><TH>مدين</TH><TH>دائن</TH><TH>الرصيد</TH><TH>فتح</TH></TR></THead>
+        <THead><TR><TH>التاريخ</TH><TH>النوع</TH><TH>على الزبون</TH><TH>بيه الزبون</TH><TH>الرصيد</TH><TH>فتح</TH></TR></THead>
         <TBody>{rows.map((row) => {
           const link = transactionLink(row)
           const tone = transactionTone(row)
@@ -351,9 +357,9 @@ function StatementTab({
                 <div className="text-[11px] text-slate-500">أنشأه: {row.createdByName ?? "-"}</div>
                 <div className="text-[11px] text-slate-500">آخر تغيير: {auditNote(row)}</div>
               </TD>
-              <TD>{row.debit ?? 0}</TD>
-              <TD>{row.credit ?? 0}</TD>
-              <TD>{row.runningBalance}</TD>
+              <TD className={row.debit ? "font-semibold text-rose-700" : "text-slate-400"}>{row.debit ? money(row.debit) : "—"}</TD>
+              <TD className={row.credit ? "font-semibold text-emerald-700" : "text-slate-400"}>{row.credit ? money(row.credit) : "—"}</TD>
+              <TD className="font-bold">{money(row.runningBalance)}</TD>
               <TD>{link ? <Button asChild variant="outline"><Link to={link}>فتح</Link></Button> : null}</TD>
             </TR>
           )

@@ -107,7 +107,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["customers"] })
       void qc.invalidateQueries({ queryKey: ["customer"] })
       void qc.invalidateQueries({ queryKey: ["transactions"] })
-      navigate("/vouchers")
+      navigate(-1)
     },
   })
 

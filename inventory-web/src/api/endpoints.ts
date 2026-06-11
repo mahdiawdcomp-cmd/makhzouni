@@ -564,6 +564,11 @@ export async function updateMessageTemplate(id: string, payload: Partial<Message
   return data
 }
 
+export async function sendWhatsAppInvoice(invoiceId: string) {
+  const { data } = await api.post<ApiEnvelope<{ to: string; filename: string }>>(`/whatsapp/send-invoice/${invoiceId}`)
+  return data.data
+}
+
 export async function sendWhatsAppMessage(payload: { phone: string; message: string }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
   return data

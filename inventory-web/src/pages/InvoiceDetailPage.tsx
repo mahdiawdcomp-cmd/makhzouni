@@ -20,7 +20,7 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getInvoiceAuditTrail, reactivateInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getInvoiceAuditTrail, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -103,11 +103,17 @@ export function InvoiceDetailPage() {
     setWaPreview(true)
   }
   async function sendWaMessage() {
-    const phone = invoice?.customer?.phone
+    if (!invoice) return
+    const phone = invoice.customer?.phone
     if (!phone) { window.alert("رقم الهاتف غير متوفر."); return }
     setWaSending(true)
     try {
-      await sendWhatsAppMessage({ phone: normalizePhone(phone), message: waMessage })
+      // Try to send PDF with text caption; fall back to text-only if PDF fails
+      try {
+        await sendWhatsAppInvoice(invoice.id)
+      } catch {
+        await sendWhatsAppMessage({ phone: normalizePhone(phone), message: waMessage })
+      }
       setWaPreview(false)
       window.alert("✓ تم إرسال الفاتورة عبر واتساب.")
     } catch {

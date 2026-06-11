@@ -757,6 +757,10 @@ async function updateInvoiceInTransaction(
 
     await lockCustomer(tx, invoice.customerId);
 
+    // Save original previousBalance so the invoice always shows the balance at creation time,
+    // not the balance that includes later invoices.
+    const originalPreviousBalance = toNumber(invoice.previousBalance);
+
     await tx.invoice.update({
       where: { id },
       data: {
@@ -772,13 +776,26 @@ async function updateInvoiceInTransaction(
     await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
 
     // Preserve the original invoice type if the caller didn't explicitly set one.
-    return createInvoiceInTransaction(
+    const result = await createInvoiceInTransaction(
       tx,
       { ...input, type: input.type ?? invoice.type, customerId: invoice.customerId },
       updatedBy,
       id,
       invoice.invoiceNumber
     );
+
+    // Restore the display-only previousBalance/finalBalance so the invoice shows the
+    // balance at the time it was originally created (not the balance including later invoices).
+    const delta = result.finalBalance - result.previousBalance;
+    await tx.invoice.update({
+      where: { id },
+      data: {
+        previousBalance: originalPreviousBalance,
+        finalBalance: originalPreviousBalance + delta,
+      },
+    });
+
+    return { ...result, previousBalance: originalPreviousBalance, finalBalance: originalPreviousBalance + delta };
 }
 
 export async function updateInvoice(
