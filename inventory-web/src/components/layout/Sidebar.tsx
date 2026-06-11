@@ -149,11 +149,11 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
   )
 }
 
-function SideGroup({ item }: { item: Group }) {
+function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; onToggle: (id: string) => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const inGroup = location.pathname.startsWith(item.basePath)
-  const [open, setOpen] = useState(inGroup)
+  const open = isOpen
   const Icon = item.icon
 
   return (
@@ -162,7 +162,7 @@ function SideGroup({ item }: { item: Group }) {
         <button
           type="button"
           onClick={() => {
-            setOpen(true)
+            onToggle(item.id)
             navigate(item.id === "invoices" ? "/invoices?type=SALE" : item.basePath)
           }}
           className={cn(
@@ -184,7 +184,7 @@ function SideGroup({ item }: { item: Group }) {
         </button>
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
+          onClick={(e) => { e.stopPropagation(); onToggle(item.id) }}
           className="rounded-lg p-1.5 text-white/30 transition hover:text-white/70 hover:bg-white/6"
         >
           <motion.div animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
@@ -301,6 +301,17 @@ export function Sidebar() {
   const user = useAuthStore((state) => state.user)
   const permissions = user?.permissions ?? []
   const isAdmin = user?.role === "ADMIN"
+  const location = useLocation()
+
+  // Track which group is open — only one at a time
+  const defaultOpen = navItems.find(
+    (item) => isGroup(item) && location.pathname.startsWith(item.basePath)
+  ) as Group | undefined
+  const [openGroupId, setOpenGroupId] = useState<string | null>(defaultOpen?.id ?? null)
+
+  function toggleGroup(id: string) {
+    setOpenGroupId((prev) => (prev === id ? null : id))
+  }
 
   const approvalsQuery = useQuery({
     queryKey: ["approvals-pending-count"],
@@ -341,7 +352,19 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
         {visibleItems.map((item) =>
           isGroup(item) ? (
-            <SideGroup key={item.id} item={item} />
+            <SideGroup key={item.id} item={item} isOpen={openGroupId === item.id} onToggle={toggleGroup} />
+          ) : "to" in item && item.to === "/pos" ? (
+            <button
+              key="/pos"
+              type="button"
+              onClick={() => window.open("/pos", "_blank", "width=1024,height=768")}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-[var(--theme-sidebarText)] transition-all duration-150 hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
+                <ScanBarcode className="h-4 w-4" />
+              </span>
+              POS سريع
+            </button>
           ) : (
             <SideLink key={item.to} to={item.to} label={item.label} Icon={item.icon} />
           ),

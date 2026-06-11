@@ -309,6 +309,28 @@ export interface CustomerPortalResponse {
   expiresAt?: string | null
 }
 
+export interface PublicInvoiceDetail {
+  id: string
+  invoiceNumber: string
+  date: string
+  type: string
+  status: string
+  paymentType: string
+  totalAmount: number
+  paidAmount: number
+  remainingAmount: number
+  discount: number
+  items: Array<{
+    id: string
+    productName: string
+    itemNumber?: string | null
+    quantity: number
+    unitPrice: number
+    totalPrice: number
+    unit: string
+  }>
+}
+
 export interface LastTransaction {
   id?: string
   date?: string

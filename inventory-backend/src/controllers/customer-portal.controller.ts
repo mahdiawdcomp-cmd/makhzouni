@@ -2,6 +2,7 @@ import { asyncHandler } from "../utils/async-handler";
 import {
   createCustomerPortalLink,
   getCustomerPortalByToken,
+  getPublicInvoiceByToken,
   revokeCustomerPortalLinks,
 } from "../services/customer-portal.service";
 
@@ -24,5 +25,10 @@ export const revokePortalLinks = asyncHandler(async (req, res) => {
 
 export const getClientPortal = asyncHandler(async (req, res) => {
   const data = await getCustomerPortalByToken(String(req.params.token));
+  res.json({ success: true, data });
+});
+
+export const getClientPortalInvoice = asyncHandler(async (req, res) => {
+  const data = await getPublicInvoiceByToken(String(req.params.token), String(req.params.invoiceId));
   res.json({ success: true, data });
 });

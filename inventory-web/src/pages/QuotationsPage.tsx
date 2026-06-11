@@ -37,6 +37,9 @@ export function QuotationsPage() {
   const [expiresAt, setExpiresAt] = useState(todayDate())
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<Line[]>([])
+  const [productQuery, setProductQuery] = useState("")
+  const [productHighlight, setProductHighlight] = useState(0)
+  const [productListOpen, setProductListOpen] = useState(false)
 
   const products = productsQuery.data ?? []
   const customers = customersQuery.data ?? []
@@ -45,6 +48,17 @@ export function QuotationsPage() {
     if (!q) return customers.slice(0, 8)
     return customers.filter((customer) => normalize(customer.name).includes(q) || normalize(customer.phone).includes(q)).slice(0, 8)
   }, [customers, customerQuery])
+
+  const productSuggestions = useMemo(() => {
+    const q = normalize(productQuery)
+    if (!q) return []
+    return products.filter((p) =>
+      normalize(p.name).includes(q) ||
+      normalize(p.itemNumber).includes(q) ||
+      normalize(p.qrCode).includes(q) ||
+      normalize(p.cartonQrCode).includes(q)
+    ).slice(0, 10)
+  }, [products, productQuery])
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
   const total = Math.max(0, subtotal - discount)
 
@@ -151,10 +165,41 @@ export function QuotationsPage() {
             </label>
           </div>
           <div className="flex gap-2">
-            <select className="h-10 flex-1 rounded-md border px-3 text-sm" onChange={(e) => { addLine(e.target.value); e.currentTarget.value = "" }} defaultValue="">
-              <option value="">أضف مادة</option>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.name} - {money(p.salePrice)}</option>)}
-            </select>
+            <div className="relative flex-1">
+              <Input
+                placeholder="بحث بالاسم أو رقم الصنف أو الباركود"
+                value={productQuery}
+                onChange={(e) => { setProductQuery(e.target.value); setProductHighlight(0); setProductListOpen(true) }}
+                onFocus={() => { if (productQuery) setProductListOpen(true) }}
+                onBlur={() => window.setTimeout(() => setProductListOpen(false), 150)}
+                onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setProductHighlight((h) => Math.min(h + 1, productSuggestions.length - 1)) }
+                  if (e.key === "ArrowUp") { e.preventDefault(); setProductHighlight((h) => Math.max(h - 1, 0)) }
+                  if (e.key === "Enter" && productSuggestions[productHighlight]) {
+                    addLine(productSuggestions[productHighlight].id)
+                    setProductQuery(""); setProductListOpen(false)
+                  }
+                  if (e.key === "Escape") setProductListOpen(false)
+                }}
+              />
+              {productListOpen && productSuggestions.length > 0 && (
+                <div className="absolute z-20 mt-1 w-full rounded-md border bg-white shadow-lg dark:border-slate-700 dark:bg-slate-950 max-h-60 overflow-auto">
+                  {productSuggestions.map((p, idx) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={cn("flex w-full items-center justify-between px-3 py-2 text-sm text-right", idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-50 dark:hover:bg-slate-900")}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { addLine(p.id); setProductQuery(""); setProductListOpen(false) }}
+                      onMouseEnter={() => setProductHighlight(idx)}
+                    >
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-slate-400 text-xs">{p.itemNumber} — {money(p.salePrice)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <Button onClick={() => createMutation.mutate()} disabled={!customerId || lines.length === 0 || total < 0 || createMutation.isPending}>
               <Plus className="h-4 w-4" /> حفظ العرض
             </Button>

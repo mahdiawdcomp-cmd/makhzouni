@@ -143,7 +143,7 @@ export function InvoicesPage() {
     () => [
       { id: "type", header: "النوع", cell: ({ row }) => invoiceTypeBadge(row.original.type) },
       { accessorKey: "invoiceNumber", header: "رقم الفاتورة" },
-      { id: "customer", header: "الزبون / المورد", cell: ({ row }) => invoiceParty(row.original) },
+      { id: "customer", header: "الزبون / المورد", cell: ({ row }) => <span className="text-[15px] font-bold">{invoiceParty(row.original)}</span> },
       { accessorKey: "date", header: "التاريخ", cell: ({ row }) => String(row.original.date).slice(0, 10) },
       { accessorKey: "totalAmount", header: "الإجمالي", cell: ({ row }) => money(row.original.totalAmount) },
       { accessorKey: "paidAmount", header: "المدفوع", cell: ({ row }) => money(row.original.paidAmount) },

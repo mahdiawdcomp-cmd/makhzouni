@@ -7,7 +7,7 @@ import {
   getCatalogSession,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
-import { getClientPortal } from "../controllers/customer-portal.controller";
+import { getClientPortal, getClientPortalInvoice } from "../controllers/customer-portal.controller";
 import { validate } from "../middleware/validate";
 import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
 import {
@@ -37,5 +37,6 @@ router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema
 
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);
+router.get("/client/:token/invoice/:invoiceId", validate(portalTokenSchema), getClientPortalInvoice);
 
 export default router;

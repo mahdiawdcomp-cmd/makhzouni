@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { CalendarClock, FileText, ReceiptText, Wallet } from "lucide-react"
 import { getCustomerPortal } from "../api/endpoints"
 import { Card, CardContent } from "../components/ui/card"
@@ -30,8 +30,14 @@ function typeLabel(row: CustomerTransaction) {
   return row.type
 }
 
+function isInvoiceRow(row: CustomerTransaction) {
+  const t = row.type.toUpperCase()
+  return (t.includes("INVOICE") || t.includes("PAYMENT")) && row.status !== "CANCELLED"
+}
+
 export function ClientPortalPage() {
   const { token } = useParams()
+  const navigate = useNavigate()
   const query = useQuery({
     queryKey: ["client-portal", token],
     queryFn: () => getCustomerPortal(token!),
@@ -103,18 +109,30 @@ export function ClientPortalPage() {
                 </TR>
               </THead>
               <TBody>
-                {data.transactions.map((row) => (
-                  <TR key={`${row.id}-${row.type}-${row.referenceNumber}`} className={rowStyle(row)}>
-                    <TD>{formatDate(row.date)}</TD>
-                    <TD>
-                      <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold shadow-sm">{typeLabel(row)}</span>
-                    </TD>
-                    <TD>{row.referenceNumber}</TD>
-                    <TD>{fmt(row.debit ?? 0)}</TD>
-                    <TD>{fmt(row.credit ?? 0)}</TD>
-                    <TD className="font-bold">{fmt(row.runningBalance)}</TD>
-                  </TR>
-                ))}
+                {data.transactions.map((row) => {
+                  const clickable = isInvoiceRow(row)
+                  return (
+                    <TR
+                      key={`${row.id}-${row.type}-${row.referenceNumber}`}
+                      className={`${rowStyle(row)}${clickable ? " cursor-pointer hover:brightness-95" : ""}`}
+                      onClick={clickable ? () => navigate(`/client/${token}/invoice/${row.id}`) : undefined}
+                      title={clickable ? "اضغط لعرض تفاصيل الفاتورة" : undefined}
+                    >
+                      <TD>{formatDate(row.date)}</TD>
+                      <TD>
+                        <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold shadow-sm">{typeLabel(row)}</span>
+                      </TD>
+                      <TD>
+                        <span className={clickable ? "font-medium text-sky-700 underline decoration-dotted" : ""}>
+                          {row.referenceNumber}
+                        </span>
+                      </TD>
+                      <TD>{fmt(row.debit ?? 0)}</TD>
+                      <TD>{fmt(row.credit ?? 0)}</TD>
+                      <TD className="font-bold">{fmt(row.runningBalance)}</TD>
+                    </TR>
+                  )
+                })}
                 {data.transactions.length === 0 ? (
                   <TR>
                     <TD colSpan={6} className="py-8 text-center text-slate-400">لا توجد حركات بعد</TD>

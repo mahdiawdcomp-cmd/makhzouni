@@ -106,3 +106,51 @@ export async function getCustomerPortalByToken(token: string) {
     expiresAt: link.expires_at,
   };
 }
+
+export async function getPublicInvoiceByToken(token: string, invoiceId: string) {
+  const tokenHash = hashToken(token);
+  const rows = await prisma.$queryRaw<PortalLinkRow[]>`
+    SELECT "id", "customer_id", "expires_at", "revoked_at"
+    FROM "customer_portal_links"
+    WHERE "token_hash" = ${tokenHash}
+    LIMIT 1
+  `;
+  const link = rows[0];
+
+  if (!link || link.revoked_at || (link.expires_at && link.expires_at.getTime() < Date.now())) {
+    throw new AppError("Client link is invalid or expired", 404, "PORTAL_LINK_INVALID");
+  }
+
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, customerId: link.customer_id },
+    include: {
+      items: { include: { product: { select: { id: true, name: true, itemNumber: true } } } },
+    },
+  });
+
+  if (!invoice) {
+    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+  }
+
+  return {
+    id: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+    date: invoice.date,
+    type: invoice.type,
+    status: invoice.status,
+    paymentType: invoice.paymentType,
+    totalAmount: Number(invoice.totalAmount),
+    paidAmount: Number(invoice.paidAmount),
+    remainingAmount: Number(invoice.remainingAmount),
+    discount: Number(invoice.discount),
+    items: invoice.items.map((item) => ({
+      id: item.id,
+      productName: item.product?.name ?? item.productId,
+      itemNumber: item.product?.itemNumber ?? null,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      totalPrice: Number(item.totalPrice),
+      unit: item.unit,
+    })),
+  };
+}

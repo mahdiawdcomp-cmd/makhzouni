@@ -7,6 +7,7 @@ import { AuditLogsPage } from "./pages/AuditLogsPage"
 import { BranchesPage } from "./pages/BranchesPage"
 import { CustomerDetailPage } from "./pages/CustomerDetailPage"
 import { ClientPortalPage } from "./pages/ClientPortalPage"
+import { PublicInvoicePage } from "./pages/PublicInvoicePage"
 import { CouponsPage } from "./pages/CouponsPage"
 import { CustomersPage } from "./pages/CustomersPage"
 import { AccountLookupPage } from "./pages/AccountLookupPage"
@@ -38,6 +39,7 @@ const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/catalog", element: <PublicCatalogPage /> },
   { path: "/client/:token", element: <ClientPortalPage /> },
+  { path: "/client/:token/invoice/:invoiceId", element: <PublicInvoicePage /> },
   { path: "/stocktake/:token", element: <PublicStocktakePage /> },
 
   // ── Protected routes ──

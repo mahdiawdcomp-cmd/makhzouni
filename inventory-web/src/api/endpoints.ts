@@ -47,6 +47,7 @@ import type {
   DebtCustomer,
   StocktakeSessionSummary,
   StocktakeSessionDetail,
+  PublicInvoiceDetail,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -266,6 +267,11 @@ export async function createCustomerPortalLink(id: string, expiresInDays = 30) {
 
 export async function getCustomerPortal(token: string) {
   const { data } = await api.get<ApiEnvelope<CustomerPortalResponse>>(`/public/client/${token}`)
+  return data.data
+}
+
+export async function getPublicInvoice(token: string, invoiceId: string) {
+  const { data } = await api.get<ApiEnvelope<PublicInvoiceDetail>>(`/public/client/${token}/invoice/${invoiceId}`)
   return data.data
 }
 
