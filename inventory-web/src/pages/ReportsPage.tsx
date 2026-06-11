@@ -269,7 +269,8 @@ function EndOfDayTab() {
   const report = useEndOfDayReport(date)
   const d = report.data
 
-  const netCash = (d?.receipts.total ?? 0) - (d?.payments.total ?? 0) - (d?.expenses.total ?? 0)
+  // صافي الصندوق = كاش محصّل من الفواتير + سندات القبض − سندات الدفع − المصاريف
+  const netCash = (d?.sales.collected ?? 0) + (d?.receipts.total ?? 0) - (d?.payments.total ?? 0) - (d?.expenses.total ?? 0)
 
   function handleCloseRegister() {
     const now = new Date().toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" })
@@ -310,13 +311,17 @@ function EndOfDayTab() {
             <h3 className="mb-1 text-lg font-bold">إغلاق الكاشير 🔒</h3>
             <p className="mb-4 text-sm text-slate-500">تأكيد إغلاق يوم {date} وطباعة ملخص اليوم.</p>
             <div className="mb-4 space-y-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
-              <Row label="مبيعات اليوم" val={fmt(d.sales.total)} />
-              <Row label="مبالغ محصلة" val={fmt(d.sales.collected)} />
-              <Row label="سندات قبض" val={fmt(d.receipts.total)} />
-              <Row label="سندات دفع" val={fmt(d.payments.total)} />
-              <Row label="مصاريف" val={fmt(d.expenses.total)} />
+              <Row label="💵 مبيعات نقدية" val={fmt((d.sales as any).cashTotal ?? 0)} />
+              <Row label="📋 مبيعات آجلة" val={fmt((d.sales as any).creditTotal ?? 0)} />
+              <Row label="إجمالي البيع" val={fmt(d.sales.total)} />
+              <Row label="محصّل" val={fmt(d.sales.collected)} />
               <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
-                <Row label="💵 صافي الكاش" val={fmt(netCash)} bold />
+                <Row label="سندات قبض" val={fmt(d.receipts.total)} />
+                <Row label="سندات دفع" val={fmt(d.payments.total)} />
+                <Row label="مصاريف" val={fmt(d.expenses.total)} />
+              </div>
+              <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
+                <Row label="💰 صافي الصندوق" val={fmt(netCash)} bold />
               </div>
             </div>
             <div className="flex gap-3">
@@ -329,6 +334,27 @@ function EndOfDayTab() {
 
       {!d ? <div className="text-center text-slate-400 py-8">جاري التحميل...</div> : (
         <>
+          {/* Cash vs Credit banner */}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4">
+              <div className="text-xs font-semibold text-emerald-700 mb-0.5">💵 مبيعات نقدية</div>
+              <div className="text-xl font-extrabold text-emerald-800">{fmt((d.sales as any).cashTotal ?? 0)}</div>
+              <div className="text-xs text-emerald-600 mt-0.5">{(d.sales as any).cashCount ?? 0} فاتورة كاش</div>
+            </div>
+            <div className="rounded-xl border-2 border-sky-300 bg-sky-50 p-4">
+              <div className="text-xs font-semibold text-sky-700 mb-0.5">📋 مبيعات آجلة</div>
+              <div className="text-xl font-extrabold text-sky-800">{fmt((d.sales as any).creditTotal ?? 0)}</div>
+              <div className="text-xs text-sky-600 mt-0.5">{(d.sales as any).creditCount ?? 0} فاتورة ذمة</div>
+            </div>
+            <div className={`rounded-xl border-2 p-4 ${netCash >= 0 ? "border-slate-300 bg-slate-50" : "border-rose-300 bg-rose-50"}`}>
+              <div className="text-xs font-semibold text-slate-600 mb-0.5">💰 صافي الصندوق</div>
+              <div className={`text-xl font-extrabold ${netCash >= 0 ? "text-slate-800" : "text-rose-700"}`}>
+                {fmt(netCash)}
+              </div>
+              <div className="text-xs text-slate-400 mt-0.5">محصّل + قبض − دفع − مصاريف</div>
+            </div>
+          </div>
+
           {/* Summary metrics */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <SummaryBox title="🧾 فواتير البيع" count={d.sales.count} total={d.sales.total} collected={d.sales.collected} color="bg-emerald-50 border-emerald-200" />
@@ -336,13 +362,6 @@ function EndOfDayTab() {
             <SummaryBox title="💚 سندات قبض" count={d.receipts.count} total={d.receipts.total} color="bg-sky-50 border-sky-200" />
             <SummaryBox title="🔸 سندات دفع" count={d.payments.count} total={d.payments.total} color="bg-orange-50 border-orange-200" />
             <SummaryBox title="💸 مصاريف" count={d.expenses.count} total={d.expenses.total} color="bg-rose-50 border-rose-200" />
-            <div className="rounded-xl border-2 border-slate-300 bg-slate-50 p-4">
-              <div className="text-sm font-bold text-slate-600 mb-1">💵 صافي الكاش اليوم</div>
-              <div className={`text-2xl font-extrabold ${netCash >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                {fmt(netCash)} <span className="text-sm font-normal">د.ع</span>
-              </div>
-              <div className="text-xs text-slate-400 mt-1">قبض − دفع − مصاريف</div>
-            </div>
           </div>
 
           {/* Today's invoices list */}
@@ -351,23 +370,29 @@ function EndOfDayTab() {
               <CardHeader><CardTitle>فواتير اليوم</CardTitle></CardHeader>
               <CardContent>
                 <Table>
-                  <THead><TR><TH>رقم الفاتورة</TH><TH>الزبون</TH><TH>الإجمالي</TH><TH>المدفوع</TH><TH>الباقي</TH></TR></THead>
+                  <THead><TR><TH>رقم الفاتورة</TH><TH>الزبون</TH><TH>النوع</TH><TH>الإجمالي</TH><TH>المدفوع</TH><TH>الباقي</TH></TR></THead>
                   <TBody>
-                    {d.invoices.map((inv) => (
-                      <TR key={inv.invoiceNumber} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <TD className="font-mono text-sm">
-                          {inv.id ? (
-                            <Link to={`/invoices/${inv.id}`} className="text-indigo-600 hover:underline font-semibold">{inv.invoiceNumber}</Link>
-                          ) : inv.invoiceNumber}
-                        </TD>
-                        <TD>{inv.customerName}</TD>
-                        <TD className="font-semibold">{fmt(inv.total)}</TD>
-                        <TD className="text-emerald-600">{fmt(inv.paid)}</TD>
-                        <TD className={inv.total - inv.paid > 0 ? "text-rose-600 font-semibold" : "text-slate-400"}>
-                          {fmt(inv.total - inv.paid)}
-                        </TD>
-                      </TR>
-                    ))}
+                    {d.invoices.map((inv) => {
+                      const remaining = inv.total - inv.paid
+                      const ptLabel = (inv as any).paymentType === "CASH" ? "نقدي" : (inv as any).paymentType === "CHEQUE" ? "شيك" : (inv as any).paymentType === "TRANSFER" ? "تحويل" : "آجل"
+                      const ptColor = (inv as any).paymentType === "CASH" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"
+                      return (
+                        <TR key={inv.invoiceNumber} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <TD className="font-mono text-sm">
+                            {(inv as any).id ? (
+                              <Link to={`/invoices/${(inv as any).id}`} className="text-indigo-600 hover:underline font-semibold">{inv.invoiceNumber}</Link>
+                            ) : inv.invoiceNumber}
+                          </TD>
+                          <TD>{inv.customerName}</TD>
+                          <TD><span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${ptColor}`}>{ptLabel}</span></TD>
+                          <TD className="font-semibold">{fmt(inv.total)}</TD>
+                          <TD className="text-emerald-600">{fmt(inv.paid)}</TD>
+                          <TD className={remaining > 0 ? "text-rose-600 font-semibold" : "text-slate-400"}>
+                            {fmt(remaining)}
+                          </TD>
+                        </TR>
+                      )
+                    })}
                   </TBody>
                 </Table>
               </CardContent>

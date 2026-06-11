@@ -554,12 +554,20 @@ export async function getEndOfDayReport(date?: string) {
   const payments = vouchers.filter((v) => v.type === "PAYMENT");
   const expenses = vouchers.filter((v) => v.type === "EXPENSE");
 
+  // Cash vs credit breakdown
+  const cashSales   = saleInvoices.filter((i) => i.paymentType === "CASH");
+  const creditSales = saleInvoices.filter((i) => i.paymentType !== "CASH");
+
   return {
     date: start.toISOString().slice(0, 10),
     sales: {
       count: saleInvoices.length,
       total: saleInvoices.reduce((s, i) => s + toNumber(i.totalAmount), 0),
       collected: saleInvoices.reduce((s, i) => s + toNumber(i.paidAmount), 0),
+      cashCount: cashSales.length,
+      cashTotal: cashSales.reduce((s, i) => s + toNumber(i.totalAmount), 0),
+      creditCount: creditSales.length,
+      creditTotal: creditSales.reduce((s, i) => s + toNumber(i.totalAmount), 0),
     },
     purchases: {
       count: purchaseInvoices.length,
@@ -577,11 +585,13 @@ export async function getEndOfDayReport(date?: string) {
       count: expenses.length,
       total: expenses.reduce((s, v) => s + toNumber(v.amount), 0),
     },
-    invoices: saleInvoices.slice(0, 20).map((i) => ({
+    invoices: saleInvoices.slice(0, 50).map((i) => ({
+      id: i.id,
       invoiceNumber: i.invoiceNumber,
       customerName: i.customer?.name ?? "—",
       total: toNumber(i.totalAmount),
       paid: toNumber(i.paidAmount),
+      paymentType: i.paymentType,
     })),
   };
 }

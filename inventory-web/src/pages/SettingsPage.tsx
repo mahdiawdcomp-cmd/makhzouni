@@ -326,15 +326,7 @@ export function SettingsPage() {
       )}
 
       {/* ── THEME ──────────────────────────────────────────── */}
-      {activeTab === "theme" && (
-        <Card>
-          <CardContent className="p-5 space-y-3">
-            <SectionTitle>ثيم التطبيق</SectionTitle>
-            <p className="text-xs text-slate-500">اختر الثيم وسيتغير لون الشريط الجانبي، الأزرار، والبادج تلقائياً.</p>
-            <ThemeChooser />
-          </CardContent>
-        </Card>
-      )}
+      {activeTab === "theme" && <ThemePanel />}
 
       {activeTab === "security" && (
         <ChangePasswordForm />
@@ -912,40 +904,175 @@ function SaveRow({ onSave, isPending, saved }: { onSave: () => void; isPending: 
   )
 }
 
-function ThemeChooser() {
-  const { themeId, setThemeId, presets } = useTheme()
+function ThemePanel() {
+  const { themeId, setThemeId, presets, fontId, setFontId, fontDefs, customOverrides, setCustomOverrides } = useTheme()
+
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {presets.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          onClick={() => setThemeId(t.id)}
-          className={cn(
-            "group overflow-hidden rounded-xl border text-right transition hover:shadow-md",
-            themeId === t.id
-              ? "border-2 ring-2"
-              : "border-slate-200 dark:border-slate-700",
-          )}
-          style={themeId === t.id ? { borderColor: t.vars.accent, outlineColor: t.vars.accent } : {}}
-        >
-          {/* Color swatches */}
-          <div className="flex h-10">
-            <div className="flex-1" style={{ background: t.vars.sidebar }} />
-            <div className="flex-1" style={{ background: t.vars.accent }} />
-            <div className="flex-1" style={{ background: t.vars.sale }} />
-            <div className="flex-1" style={{ background: t.vars.purchase }} />
-            <div className="flex-1" style={{ background: t.vars.receipt }} />
+    <div className="space-y-6">
+      {/* ── Preset Themes ─── */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div>
+            <SectionTitle>ثيمات التطبيق</SectionTitle>
+            <p className="text-xs text-slate-500 mt-0.5">اختر الثيم وستتغير جميع الألوان تلقائياً.</p>
           </div>
-          <div className="space-y-0.5 bg-white p-3 dark:bg-slate-900">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold text-sm">{t.label}</span>
-              {themeId === t.id ? <span className="text-xs font-medium text-emerald-600">✓ مختار</span> : null}
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+            {presets.filter((t) => t.id !== "custom").map((t) => {
+              const active = themeId === t.id
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setThemeId(t.id)}
+                  className={cn(
+                    "group relative overflow-hidden rounded-xl border-2 text-right transition-all hover:scale-[1.03] hover:shadow-lg",
+                    active ? "ring-2" : "border-slate-200 dark:border-slate-700 hover:border-slate-300",
+                  )}
+                  style={active ? { borderColor: t.vars.accent, ringColor: t.vars.accent } : {}}
+                >
+                  {/* Mini app preview */}
+                  <div className="flex h-16 overflow-hidden">
+                    {/* Sidebar strip */}
+                    <div className="w-5 shrink-0 flex flex-col gap-0.5 p-1" style={{ background: t.vars.sidebar }}>
+                      {[1,2,3,4].map((i) => (
+                        <div key={i} className="h-1.5 rounded-sm opacity-50" style={{ background: t.vars.sidebarText, width: i === 1 ? "100%" : `${60 + i*8}%` }} />
+                      ))}
+                    </div>
+                    {/* Page area */}
+                    <div className="flex-1 p-1.5" style={{ background: t.vars.pageBg }}>
+                      <div className="h-2 w-10 rounded mb-1" style={{ background: t.vars.accent, opacity: 0.9 }} />
+                      <div className="h-1.5 w-full rounded mb-0.5" style={{ background: t.vars.cardBorder }} />
+                      <div className="h-1.5 w-3/4 rounded" style={{ background: t.vars.cardBorder }} />
+                    </div>
+                  </div>
+                  {/* Preview dots */}
+                  <div className="flex gap-0.5 px-2 py-1.5 bg-white dark:bg-slate-900">
+                    {[t.vars.accent, t.vars.sale, t.vars.receipt, t.vars.payment].map((c, i) => (
+                      <div key={i} className="h-2 w-2 rounded-full" style={{ background: c }} />
+                    ))}
+                  </div>
+                  <div className="px-2 pb-2 bg-white dark:bg-slate-900">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold truncate" style={{ color: t.vars.textPrimary }}>{t.label}</span>
+                      {active && <span className="text-[9px] font-bold text-emerald-600">✓</span>}
+                    </div>
+                  </div>
+                  {active && (
+                    <div className="absolute inset-0 rounded-xl pointer-events-none" style={{ boxShadow: `inset 0 0 0 2px ${t.vars.accent}` }} />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Custom Theme Builder ─── */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <SectionTitle>ثيم مخصص 🎛️</SectionTitle>
+              <p className="text-xs text-slate-500 mt-0.5">اختر ألوان شركتك بالضبط.</p>
             </div>
-            <div className="text-xs text-slate-500">{t.description}</div>
+            <button
+              type="button"
+              onClick={() => setThemeId("custom")}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition",
+                themeId === "custom"
+                  ? "bg-violet-600 text-white"
+                  : "border border-violet-300 text-violet-700 hover:bg-violet-50",
+              )}
+            >
+              {themeId === "custom" ? "✓ مفعّل" : "تفعيل"}
+            </button>
           </div>
-        </button>
-      ))}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <ColorPicker
+              label="لون الأساس (Accent)"
+              value={customOverrides.accent ?? "#7c3aed"}
+              onChange={(v) => setCustomOverrides({ ...customOverrides, accent: v })}
+            />
+            <ColorPicker
+              label="لون الشريط الجانبي"
+              value={customOverrides.sidebar ?? "#1e1b4b"}
+              onChange={(v) => setCustomOverrides({ ...customOverrides, sidebar: v })}
+            />
+            <ColorPicker
+              label="خلفية الصفحة"
+              value={customOverrides.pageBg ?? "#f5f3ff"}
+              onChange={(v) => setCustomOverrides({ ...customOverrides, pageBg: v })}
+            />
+          </div>
+          {/* Live preview bar */}
+          <div className="flex h-8 rounded-lg overflow-hidden border border-slate-200">
+            <div className="w-16" style={{ background: customOverrides.sidebar ?? "#1e1b4b" }} />
+            <div className="flex-1" style={{ background: customOverrides.pageBg ?? "#f5f3ff" }} />
+            <div className="w-10" style={{ background: customOverrides.accent ?? "#7c3aed" }} />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Font Selector ─── */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div>
+            <SectionTitle>الخط (Font)</SectionTitle>
+            <p className="text-xs text-slate-500 mt-0.5">اختر الخط الذي يناسب علامتك التجارية.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {fontDefs.map((f) => {
+              const active = fontId === f.id
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFontId(f.id)}
+                  className={cn(
+                    "flex items-center justify-between gap-2 rounded-xl border-2 px-3 py-2.5 text-right transition hover:shadow-sm",
+                    active ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:border-slate-300",
+                  )}
+                >
+                  <div>
+                    <div className="text-sm font-semibold" style={{ fontFamily: f.stack }}>{f.sample}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{f.label}</div>
+                  </div>
+                  {active && <span className="text-xs font-bold text-indigo-600 shrink-0">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function ColorPicker({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-slate-600">{label}</label>
+      <div className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => {
+            const v = e.target.value
+            if (/^#[0-9a-fA-F]{0,6}$/.test(v)) onChange(v)
+          }}
+          className="flex-1 bg-transparent text-xs font-mono outline-none"
+          maxLength={7}
+          dir="ltr"
+        />
+        <div className="h-5 w-5 shrink-0 rounded-md border border-slate-200" style={{ background: value }} />
+      </div>
     </div>
   )
 }

@@ -96,6 +96,8 @@ export function InvoiceCreatePage() {
 
   const userId = useAuthStore((s) => s.user?.id)
   const uid = userId ?? "anon"
+  const permissions = useAuthStore((s) => s.user?.permissions ?? [])
+  const hidePrice = !isPurchase && permissions.includes("VIEW_WITHOUT_PRICES" as never)
 
   // ── Tab ID from URL ──────────────────────────────────────────────────────────
   const urlTid = searchParams.get("tid")
@@ -1033,8 +1035,8 @@ export function InvoiceCreatePage() {
                   <TH>المادة</TH>
                   <TH>الوحدة</TH>
                   <TH>العدد</TH>
-                  <TH>سعر المفرد</TH>
-                  <TH>الإجمالي</TH>
+                  {!hidePrice && <TH>سعر المفرد</TH>}
+                  {!hidePrice && <TH>الإجمالي</TH>}
                   <TH>حذف</TH>
                 </TR>
               </THead>
@@ -1086,29 +1088,32 @@ export function InvoiceCreatePage() {
                           onKeyDown={(e) => handleRowKey(e, rowKey, "qty")}
                         />
                       </TD>
-                      <TD>
-                        <Input
-                          ref={(el) => { priceRefs.current[rowKey] = el }}
-                          type="number"
-                          className="w-24"
-                          value={item.unitPrice}
-                          onFocus={selectAllOnFocus}
-                          onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
-                          onKeyDown={(e) => handleRowKey(e, rowKey, "price")}
-                        />
-                      </TD>
-                      <TD>
-                        {/* Editable total: typing here recalculates unitPrice */}
-                        <Input
-                          ref={(el) => { totalRefs.current[rowKey] = el }}
-                          type="number"
-                          className="w-28 font-semibold"
-                          value={Math.round(item.quantity * item.unitPrice * 1000) / 1000}
-                          onFocus={selectAllOnFocus}
-                          onChange={(e) => updateItemTotal(index, Number(e.target.value))}
-                          onKeyDown={(e) => handleRowKey(e, rowKey, "total")}
-                        />
-                      </TD>
+                      {!hidePrice && (
+                        <TD>
+                          <Input
+                            ref={(el) => { priceRefs.current[rowKey] = el }}
+                            type="number"
+                            className="w-24"
+                            value={item.unitPrice}
+                            onFocus={selectAllOnFocus}
+                            onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
+                            onKeyDown={(e) => handleRowKey(e, rowKey, "price")}
+                          />
+                        </TD>
+                      )}
+                      {!hidePrice && (
+                        <TD>
+                          <Input
+                            ref={(el) => { totalRefs.current[rowKey] = el }}
+                            type="number"
+                            className="w-28 font-semibold"
+                            value={Math.round(item.quantity * item.unitPrice * 1000) / 1000}
+                            onFocus={selectAllOnFocus}
+                            onChange={(e) => updateItemTotal(index, Number(e.target.value))}
+                            onKeyDown={(e) => handleRowKey(e, rowKey, "total")}
+                          />
+                        </TD>
+                      )}
                       <TD>
                         <Button variant="ghost" size="sm" onClick={() => removeItem(index)}>
                           <Trash2 className="h-4 w-4 text-rose-500" />

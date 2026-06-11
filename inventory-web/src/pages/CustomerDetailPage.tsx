@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { Document, Page, PDFDownloadLink, Text, View } from "@react-pdf/renderer"
 import { ArrowRight, Copy, Link2, MessageCircle, Pencil } from "lucide-react"
-import { createCustomerPortalLink } from "../api/endpoints"
+import { createCustomerPortalLink, getCustomerRatings } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
@@ -129,6 +129,8 @@ export function CustomerDetailPage() {
   const details = useCustomerDetails(id)
   const updateMutation = useUpdateCustomer(id)
   const customer = details.customerQuery.data
+  const ratingsQuery = useQuery({ queryKey: ["customer-ratings"], queryFn: getCustomerRatings, staleTime: 5 * 60_000 })
+  const myRating = ratingsQuery.data?.find((r) => r.customerId === id)?.rating ?? null
   const transactions = details.transactionsQuery.data ?? []
   const invoices = details.invoicesQuery.data ?? []
   const vouchers = details.vouchersQuery.data ?? []
@@ -197,7 +199,16 @@ export function CustomerDetailPage() {
       </Button>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold">{customer.name}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">{customer.name}</h1>
+            {myRating && (
+              <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold ${
+                myRating === "A" ? "bg-emerald-100 text-emerald-700" :
+                myRating === "B" ? "bg-sky-100 text-sky-700" :
+                "bg-rose-100 text-rose-700"
+              }`}>{myRating}</span>
+            )}
+          </div>
           <p className="text-slate-500">{customer.phone}</p>
         </div>
         <div className="flex flex-wrap gap-2">
