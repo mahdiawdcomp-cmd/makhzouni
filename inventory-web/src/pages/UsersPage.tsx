@@ -19,15 +19,20 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
 type UserForm = CreateUserPayload & { id?: string; password: string }
 
-const allPermissions: Array<{ id: UserPermission; label: string; hint: string }> = [
-  { id: "MANAGE_USERS", label: "المستخدمين", hint: "إضافة وتعديل وتعطيل المستخدمين" },
-  { id: "MANAGE_APPROVALS", label: "الموافقات", hint: "مراجعة طلبات الموظفين" },
-  { id: "MANAGE_PRODUCTS", label: "المخزن", hint: "إضافة وتعديل المواد" },
-  { id: "MANAGE_CUSTOMERS", label: "الزبائن والموردين", hint: "إدارة الحسابات والكشوفات" },
-  { id: "MANAGE_INVOICES", label: "الفواتير", hint: "إنشاء وتعديل فواتير البيع والشراء" },
-  { id: "MANAGE_VOUCHERS", label: "السندات", hint: "سندات القبض والدفع والمصاريف" },
-  { id: "VIEW_REPORTS", label: "التقارير", hint: "عرض تقارير المبيعات والأرباح" },
-  { id: "MANAGE_SETTINGS", label: "الإعدادات", hint: "إعدادات النظام والرسائل" },
+const allPermissions: Array<{ id: UserPermission; label: string; hint: string; group?: string }> = [
+  { id: "MANAGE_USERS",        label: "المستخدمين",        hint: "إضافة وتعديل وتعطيل المستخدمين" },
+  { id: "MANAGE_APPROVALS",    label: "الموافقات",          hint: "مراجعة طلبات الموظفين" },
+  { id: "MANAGE_PRODUCTS",     label: "المخزن",             hint: "إضافة وتعديل المواد" },
+  { id: "MANAGE_CUSTOMERS",    label: "الزبائن والموردين", hint: "إدارة الحسابات والكشوفات" },
+  { id: "MANAGE_INVOICES",     label: "الفواتير",           hint: "إنشاء وتعديل فواتير البيع والشراء" },
+  { id: "MANAGE_VOUCHERS",     label: "السندات",            hint: "سندات القبض والدفع والمصاريف" },
+  { id: "VIEW_REPORTS",        label: "التقارير",           hint: "عرض تقارير المبيعات والأرباح" },
+  { id: "MANAGE_SETTINGS",     label: "الإعدادات",          hint: "إعدادات النظام والرسائل" },
+  // Granular sell-floor permissions
+  { id: "VIEW_WITHOUT_PRICES", label: "عرض بدون أسعار",    hint: "يرى المواد لكن بدون أسعار البيع والشراء", group: "sell" },
+  { id: "SELL_WITH_DISCOUNT",  label: "السماح بالخصم",     hint: "يمكنه تطبيق خصومات عند إنشاء الفواتير", group: "sell" },
+  { id: "VIEW_PURCHASE_PRICE", label: "عرض سعر الشراء",    hint: "يرى سعر الشراء للمواد", group: "sell" },
+  { id: "ACCESS_POS",          label: "نقطة البيع فقط",    hint: "صلاحية استخدام واجهة POS المبسطة فقط", group: "sell" },
 ]
 
 const fullPermissions = allPermissions.map((permission) => permission.id)
@@ -312,18 +317,29 @@ export function UsersPage() {
           </div>
 
           <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <div className="mb-3 text-sm font-semibold">الصلاحيات</div>
+            <div className="mb-3 text-sm font-semibold">الصلاحيات الرئيسية</div>
             <div className="grid gap-2 md:grid-cols-2">
-              {allPermissions.map((permission) => {
+              {allPermissions.filter((p) => !p.group).map((permission) => {
                 const checked = form.role === "ADMIN" || (form.permissions ?? []).includes(permission.id)
                 return (
                   <label key={permission.id} className="flex gap-3 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-800">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={form.role === "ADMIN"}
-                      onChange={() => togglePermission(permission.id)}
-                    />
+                    <input type="checkbox" checked={checked} disabled={form.role === "ADMIN"} onChange={() => togglePermission(permission.id)} />
+                    <span>
+                      <span className="block font-medium">{permission.label}</span>
+                      <span className="block text-xs text-slate-500">{permission.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="my-3 border-t border-slate-200 dark:border-slate-700" />
+            <div className="mb-2 text-sm font-semibold text-slate-600">صلاحيات المبيعات التفصيلية</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {allPermissions.filter((p) => p.group === "sell").map((permission) => {
+                const checked = form.role === "ADMIN" || (form.permissions ?? []).includes(permission.id)
+                return (
+                  <label key={permission.id} className="flex gap-3 rounded-md border border-amber-100 bg-amber-50/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+                    <input type="checkbox" checked={checked} disabled={form.role === "ADMIN"} onChange={() => togglePermission(permission.id)} />
                     <span>
                       <span className="block font-medium">{permission.label}</span>
                       <span className="block text-xs text-slate-500">{permission.hint}</span>

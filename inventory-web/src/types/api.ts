@@ -10,6 +10,10 @@ export type UserPermission =
   | "MANAGE_VOUCHERS"
   | "VIEW_REPORTS"
   | "MANAGE_SETTINGS"
+  | "VIEW_WITHOUT_PRICES"
+  | "SELL_WITH_DISCOUNT"
+  | "VIEW_PURCHASE_PRICE"
+  | "ACCESS_POS"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -567,6 +571,8 @@ export interface AppSettings {
   // Telegram backup delivery
   telegramBotToken?: string
   telegramChatId?: string
+  // Seasonal event alerts (JSON string: SeasonalAlert[])
+  seasonalAlerts?: string
 }
 
 export interface MessageTemplate {

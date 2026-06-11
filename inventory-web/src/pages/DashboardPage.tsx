@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react"
 import { useDashboardReport, useAtRiskCustomers, useCustomerRatings, useDailySummary, useDebtAging, useDebtReport, useInventoryReport } from "../hooks/useReports"
+import { useSettings } from "../hooks/useSettings"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { whatsappUrl } from "../utils/whatsapp"
@@ -216,8 +217,28 @@ export function DashboardPage() {
   const [statsOpen, setStatsOpen] = useState(false)
   const [editActions, setEditActions] = useState(false)
   const { enabled, visible, toggle, reset } = useQuickActions()
+  const settingsData = useSettings()
 
   const today = new Date().toISOString().slice(0, 10)
+
+  const upcomingEvents = (() => {
+    try {
+      const raw = settingsData.data?.seasonalAlerts
+      if (!raw) return []
+      const alerts = JSON.parse(raw) as Array<{ id: string; label: string; month: number; day: number; daysBefore: number; enabled: boolean }>
+      const now = new Date()
+      return alerts
+        .filter((a) => a.enabled)
+        .map((a) => {
+          const eventDate = new Date(now.getFullYear(), a.month - 1, a.day)
+          if (eventDate < now) eventDate.setFullYear(eventDate.getFullYear() + 1)
+          const daysLeft = Math.ceil((eventDate.getTime() - now.getTime()) / 86_400_000)
+          return { ...a, daysLeft, eventDate }
+        })
+        .filter((a) => a.daysLeft <= a.daysBefore)
+        .sort((a, b) => a.daysLeft - b.daysLeft)
+    } catch { return [] }
+  })()
 
   const CHART_COLORS = ["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"]
 
@@ -234,6 +255,24 @@ export function DashboardPage() {
       </div>
 
       <PendingOrdersBanner />
+
+      {/* Seasonal event alerts */}
+      {upcomingEvents.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {upcomingEvents.map((event) => (
+            <div
+              key={event.id}
+              className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-300"
+            >
+              <span className="text-base">🗓️</span>
+              <span>{event.label}</span>
+              <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold dark:bg-amber-800/50">
+                {event.daysLeft === 0 ? "اليوم!" : `${event.daysLeft} يوم`}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Smart tip + daily comparison */}
       {daily && (

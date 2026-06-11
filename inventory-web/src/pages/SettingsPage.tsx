@@ -50,6 +50,29 @@ import { useTheme } from "../theme/ThemeProvider"
 import { cn } from "../utils/cn"
 import { ChangePasswordForm } from "../components/settings/ChangePasswordForm"
 
+interface SeasonalAlert {
+  id: string
+  label: string
+  month: number
+  day: number
+  daysBefore: number
+  enabled: boolean
+}
+
+const MONTHS_AR = ["يناير","فبراير","مارس","أبريل","مايو","يونيو","يوليو","أغسطس","سبتمبر","أكتوبر","نوفمبر","ديسمبر"]
+
+function parseSeasonalAlerts(raw?: string): SeasonalAlert[] {
+  try { return raw ? (JSON.parse(raw) as SeasonalAlert[]) : [] } catch { return [] }
+}
+
+const DEFAULT_SEASONAL_ALERTS: SeasonalAlert[] = [
+  { id: "eid-al-fitr",   label: "عيد الفطر",          month: 4,  day: 10, daysBefore: 30, enabled: true },
+  { id: "eid-al-adha",   label: "عيد الأضحى",         month: 6,  day: 16, daysBefore: 30, enabled: true },
+  { id: "chinese-new-year", label: "رأس السنة الصينية", month: 1, day: 29, daysBefore: 90, enabled: false },
+  { id: "new-year",      label: "رأس السنة الميلادية", month: 1,  day: 1,  daysBefore: 14, enabled: false },
+  { id: "ramadan",       label: "شهر رمضان",           month: 3,  day: 1,  daysBefore: 45, enabled: true },
+]
+
 const WA_PLACEHOLDERS = [
   "{{customerName}}", "{{invoiceNumber}}", "{{voucherNumber}}", "{{amount}}",
   "{{total}}", "{{paid}}", "{{remaining}}", "{{finalBalance}}",
@@ -585,6 +608,15 @@ export function SettingsPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          {/* Seasonal alerts */}
+          <SeasonalAlertsCard
+            raw={settings.seasonalAlerts}
+            onChange={(v) => upd("seasonalAlerts", v)}
+            onSave={() => saveSettings.mutate(settings)}
+            isPending={saveSettings.isPending}
+            saved={saved}
+          />
         </div>
       )}
 
@@ -725,6 +757,136 @@ export function SettingsPage() {
 }
 
 // ── Sub-components ──────────────────────────────────────────────────────────
+
+function SeasonalAlertsCard({ raw, onChange, onSave, isPending, saved }: {
+  raw?: string
+  onChange: (v: string) => void
+  onSave: () => void
+  isPending: boolean
+  saved: boolean
+}) {
+  const [alerts, setAlerts] = useState<SeasonalAlert[]>(() => {
+    const parsed = parseSeasonalAlerts(raw)
+    return parsed.length > 0 ? parsed : DEFAULT_SEASONAL_ALERTS
+  })
+  const [newLabel, setNewLabel] = useState("")
+  const [newMonth, setNewMonth] = useState(1)
+  const [newDay, setNewDay] = useState(1)
+  const [newDaysBefore, setNewDaysBefore] = useState(30)
+  const [adding, setAdding] = useState(false)
+
+  function sync(next: SeasonalAlert[]) {
+    setAlerts(next)
+    onChange(JSON.stringify(next))
+  }
+
+  function toggle(id: string) {
+    sync(alerts.map((a) => a.id === id ? { ...a, enabled: !a.enabled } : a))
+  }
+
+  function remove(id: string) {
+    sync(alerts.filter((a) => a.id !== id))
+  }
+
+  function addAlert() {
+    if (!newLabel.trim()) return
+    const entry: SeasonalAlert = {
+      id: `custom-${Date.now()}`,
+      label: newLabel.trim(),
+      month: newMonth,
+      day: newDay,
+      daysBefore: newDaysBefore,
+      enabled: true,
+    }
+    sync([...alerts, entry])
+    setNewLabel(""); setNewMonth(1); setNewDay(1); setNewDaysBefore(30); setAdding(false)
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <SectionTitle>🗓️ تنبيهات المواسم والمناسبات</SectionTitle>
+        <p className="text-sm text-slate-500">
+          تذكيرات قبل المناسبات والمواسم التجارية بعدد الأيام المحددة — تظهر في لوحة التحكم عند الاقتراب.
+        </p>
+        <div className="space-y-2">
+          {alerts.map((a) => (
+            <div key={a.id} className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <input
+                type="checkbox"
+                checked={a.enabled}
+                onChange={() => toggle(a.id)}
+                className="h-4 w-4 accent-indigo-600"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm truncate">{a.label}</div>
+                <div className="text-xs text-slate-500">
+                  {a.day} {MONTHS_AR[a.month - 1]} · تنبيه قبل {a.daysBefore} يوم
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => remove(a.id)}
+                className="text-rose-400 hover:text-rose-600 text-xs px-2"
+                title="حذف"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {adding ? (
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 space-y-2 dark:border-indigo-800 dark:bg-indigo-950/20">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input placeholder="اسم المناسبة" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} />
+              <div className="flex gap-2">
+                <select
+                  className="flex-1 h-10 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  value={newMonth}
+                  onChange={(e) => setNewMonth(Number(e.target.value))}
+                >
+                  {MONTHS_AR.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+                </select>
+                <Input
+                  type="number"
+                  min={1}
+                  max={31}
+                  placeholder="يوم"
+                  className="w-20"
+                  value={newDay}
+                  onChange={(e) => setNewDay(Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-600">تنبيه قبل:</label>
+              <Input
+                type="number"
+                min={1}
+                max={180}
+                className="w-24"
+                value={newDaysBefore}
+                onChange={(e) => setNewDaysBefore(Number(e.target.value))}
+              />
+              <span className="text-xs text-slate-500">يوم</span>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={addAlert}>إضافة</Button>
+              <Button size="sm" variant="outline" onClick={() => setAdding(false)}>إلغاء</Button>
+            </div>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Plus className="h-3.5 w-3.5" /> إضافة مناسبة
+          </Button>
+        )}
+
+        <SaveRow onSave={onSave} isPending={isPending} saved={saved} />
+      </CardContent>
+    </Card>
+  )
+}
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="text-base font-semibold">{children}</h2>

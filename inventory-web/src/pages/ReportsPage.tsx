@@ -262,17 +262,70 @@ function TopCustomersTab() {
 function EndOfDayTab() {
   const today = new Date().toISOString().slice(0, 10)
   const [date, setDate] = useState(today)
+  const [showCloseDialog, setShowCloseDialog] = useState(false)
+  const [closedAt, setClosedAt] = useState<string | null>(() => {
+    try { return localStorage.getItem(`registerClose_${new Date().toISOString().slice(0, 10)}`) } catch { return null }
+  })
   const report = useEndOfDayReport(date)
   const d = report.data
 
   const netCash = (d?.receipts.total ?? 0) - (d?.payments.total ?? 0) - (d?.expenses.total ?? 0)
 
+  function handleCloseRegister() {
+    const now = new Date().toLocaleTimeString("ar-IQ", { hour: "2-digit", minute: "2-digit" })
+    try { localStorage.setItem(`registerClose_${today}`, now) } catch {}
+    setClosedAt(now)
+    setShowCloseDialog(false)
+    window.print()
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <label className="text-sm font-medium">اليوم:</label>
-        <Input type="date" className="w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <label className="text-sm font-medium">اليوم:</label>
+          <Input type="date" className="w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        {date === today ? (
+          closedAt ? (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-sm text-emerald-700">
+              ✅ تم إغلاق الكاشير اليوم الساعة {closedAt}
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              className="border-rose-200 text-rose-700 hover:bg-rose-50"
+              onClick={() => setShowCloseDialog(true)}
+            >
+              🔒 إغلاق الكاشير
+            </Button>
+          )
+        ) : null}
       </div>
+
+      {/* Register close confirmation dialog */}
+      {showCloseDialog && d ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl dark:bg-slate-900">
+            <h3 className="mb-1 text-lg font-bold">إغلاق الكاشير 🔒</h3>
+            <p className="mb-4 text-sm text-slate-500">تأكيد إغلاق يوم {date} وطباعة ملخص اليوم.</p>
+            <div className="mb-4 space-y-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-800">
+              <Row label="مبيعات اليوم" val={fmt(d.sales.total)} />
+              <Row label="مبالغ محصلة" val={fmt(d.sales.collected)} />
+              <Row label="سندات قبض" val={fmt(d.receipts.total)} />
+              <Row label="سندات دفع" val={fmt(d.payments.total)} />
+              <Row label="مصاريف" val={fmt(d.expenses.total)} />
+              <div className="border-t border-slate-200 pt-2 dark:border-slate-700">
+                <Row label="💵 صافي الكاش" val={fmt(netCash)} bold />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button className="flex-1" onClick={handleCloseRegister}>تأكيد وطباعة</Button>
+              <Button variant="outline" className="flex-1" onClick={() => setShowCloseDialog(false)}>إلغاء</Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!d ? <div className="text-center text-slate-400 py-8">جاري التحميل...</div> : (
         <>
@@ -496,6 +549,15 @@ function MetricCard({ title, value, color, suffix = " د.ع" }: { title: string;
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function Row({ label, val, bold }: { label: string; val: string; bold?: boolean }) {
+  return (
+    <div className={`flex justify-between text-sm ${bold ? "font-bold text-base" : ""}`}>
+      <span className="text-slate-500">{label}</span>
+      <span>{val}</span>
+    </div>
   )
 }
 

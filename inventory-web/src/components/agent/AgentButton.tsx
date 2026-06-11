@@ -138,6 +138,16 @@ export function AgentButton() {
     setStatus("idle")
   }
 
+  const [textInput, setTextInput] = useState("")
+
+  function handleTextSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const t = textInput.trim()
+    if (!t || status === "thinking") return
+    setTextInput("")
+    void sendMessage(t)
+  }
+
   const statusText =
     status === "listening" ? "تكلم الآن..." :
     status === "thinking" ? "يفكر..." :
@@ -166,9 +176,16 @@ export function AgentButton() {
             <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-900">
               {history.length === 0 ? (
                 <div className="space-y-2 text-sm text-slate-500">
-                  <div className="rounded-md border bg-white p-3 dark:border-slate-800 dark:bg-slate-950">اسألني: وين رصيد أبو محمد؟</div>
-                  <div className="rounded-md border bg-white p-3 dark:border-slate-800 dark:bg-slate-950">اسألني: شنو مبيعات اليوم؟</div>
-                  <div className="rounded-md border bg-white p-3 dark:border-slate-800 dark:bg-slate-950">قول لي: سوي فاتورة لعلي كارتون شاي</div>
+                  {["وين رصيد أبو محمد؟", "شنو مبيعات اليوم؟", "سوي فاتورة لعلي كارتون شاي", "شنو المواد الناقصة؟"].map((hint) => (
+                    <button
+                      key={hint}
+                      type="button"
+                      onClick={() => { void sendMessage(hint) }}
+                      className="w-full rounded-md border bg-white px-3 py-2 text-right text-slate-700 hover:bg-violet-50 hover:text-violet-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-violet-950/30"
+                    >
+                      {hint}
+                    </button>
+                  ))}
                 </div>
               ) : null}
               {history.map((message, index) => (
@@ -176,13 +193,49 @@ export function AgentButton() {
                   <div className={`max-w-[82%] rounded-lg px-3 py-2 text-sm leading-6 ${message.role === "assistant" ? "bg-violet-600 text-white" : "bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100"}`}>{message.content}</div>
                 </div>
               ))}
+              {status === "thinking" && (
+                <div className="flex justify-end">
+                  <div className="flex items-center gap-1 rounded-lg bg-violet-100 px-3 py-2 dark:bg-violet-950/40">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="h-2 w-2 animate-bounce rounded-full bg-violet-500" style={{ animationDelay: `${i * 150}ms` }} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="border-t bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
-              {statusText ? <div className={`mb-3 text-center text-sm font-semibold ${status === "error" || status === "listening" ? "text-rose-600" : status === "speaking" ? "text-emerald-600" : "text-slate-500"}`}>{statusText}</div> : null}
-              <Button className={`mx-auto flex h-16 w-16 rounded-full p-0 ${status === "listening" ? "animate-pulse bg-rose-600 hover:bg-rose-700" : status === "speaking" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-violet-600 hover:bg-violet-700"}`} disabled={status === "thinking"} onClick={handleMic} title="اضغط وتكلم">
-                {status === "listening" ? <MicOff className="h-7 w-7" /> : <Mic className="h-7 w-7" />}
-              </Button>
+            <div className="border-t bg-white dark:border-slate-800 dark:bg-slate-950">
+              {statusText && status !== "thinking" ? (
+                <div className={`px-4 pt-2 text-center text-xs font-semibold ${status === "error" ? "text-rose-600" : status === "listening" ? "text-rose-500" : status === "speaking" ? "text-emerald-600" : "text-slate-500"}`}>
+                  {statusText}
+                </div>
+              ) : null}
+              <form onSubmit={handleTextSubmit} className="flex items-center gap-2 p-3">
+                <input
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  placeholder="اكتب سؤالك هنا..."
+                  disabled={status === "thinking"}
+                  className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-right outline-none focus:border-violet-400 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <button
+                  type="submit"
+                  disabled={!textInput.trim() || status === "thinking"}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40"
+                  title="أرسل"
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 rotate-90"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+                </button>
+                <Button
+                  type="button"
+                  className={`h-9 w-9 shrink-0 rounded-lg p-0 ${status === "listening" ? "animate-pulse bg-rose-600 hover:bg-rose-700" : status === "speaking" ? "bg-emerald-600 hover:bg-emerald-700" : "bg-violet-600 hover:bg-violet-700"}`}
+                  disabled={status === "thinking"}
+                  onClick={handleMic}
+                  title="تكلم"
+                >
+                  {status === "listening" ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </Button>
+              </form>
             </div>
           </div>
         </div>

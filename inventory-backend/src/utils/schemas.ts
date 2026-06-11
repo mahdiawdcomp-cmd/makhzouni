@@ -19,6 +19,11 @@ const userPermissionSchema = z.enum([
   "MANAGE_VOUCHERS",
   "VIEW_REPORTS",
   "MANAGE_SETTINGS",
+  // Granular sell-floor permissions
+  "VIEW_WITHOUT_PRICES",
+  "SELL_WITH_DISCOUNT",
+  "VIEW_PURCHASE_PRICE",
+  "ACCESS_POS",
 ]);
 
 const auditEntitySchema = z.enum([
@@ -560,6 +565,7 @@ export const updateSettingsSchema = z.object({
       whatsappProvider: z.enum(["web", "cloud"]).optional(),
       whatsappCloudToken: z.string().trim().optional(),
       whatsappCloudPhoneNumberId: z.string().trim().optional(),
+      seasonalAlerts: z.string().trim().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",
