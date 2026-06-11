@@ -115,7 +115,7 @@ export function InvoiceCreatePage() {
   const [tabs, setTabs] = useState<DraftTabMeta[]>(() => listTabs(uid))
   const refreshTabs = useCallback(() => setTabs(listTabs(uid)), [uid])
 
-  const { customersQuery } = useCustomers()
+  const { customersQuery, createMutation: createCustomerMutation } = useCustomers()
   const { productsQuery, createMutation: createProductMutation } = useProducts()
   const createMutation = useCreateInvoice()
   const queryClient = useQueryClient()
@@ -127,6 +127,15 @@ export function InvoiceCreatePage() {
   const [customerListOpen, setCustomerListOpen] = useState(false)
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("CREDIT")
+
+  // ---- quick-add modals ----
+  const [quickAddCustomerOpen, setQuickAddCustomerOpen] = useState(false)
+  const [quickAddCustomerName, setQuickAddCustomerName] = useState("")
+  const [quickAddCustomerPhone, setQuickAddCustomerPhone] = useState("")
+  const [quickAddProductOpen, setQuickAddProductOpen] = useState(false)
+  const [quickAddProductName, setQuickAddProductName] = useState("")
+  const [quickAddProductSalePrice, setQuickAddProductSalePrice] = useState("")
+  const [quickAddProductPurchasePrice, setQuickAddProductPurchasePrice] = useState("")
 
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
@@ -472,13 +481,55 @@ export function InvoiceCreatePage() {
 
   function quickCreateProduct() {
     const name = productQuery.trim()
+    if (!name) return
+    setQuickAddProductName(name)
+    setQuickAddProductSalePrice("")
+    setQuickAddProductPurchasePrice("")
+    setQuickAddProductOpen(true)
+  }
+
+  function submitQuickAddProduct() {
+    const name = quickAddProductName.trim()
     if (!name || createProductMutation.isPending) return
     createProductMutation.mutate(
-      { name, salePrice: 0, purchasePrice: 0, pcsPerCarton: 1, minStock: 0 },
+      {
+        name,
+        salePrice: Number(quickAddProductSalePrice) || 0,
+        purchasePrice: Number(quickAddProductPurchasePrice) || 0,
+        pcsPerCarton: 1,
+        minStock: 0,
+      },
       {
         onSuccess: (response) => {
           const product = response.data
-          if (product) addProduct(product)
+          if (product) {
+            setQuickAddProductOpen(false)
+            addProduct(product)
+          }
+        },
+      },
+    )
+  }
+
+  function openQuickAddCustomer() {
+    setQuickAddCustomerName(customerQuery.trim())
+    setQuickAddCustomerPhone("")
+    setCustomerListOpen(false)
+    setQuickAddCustomerOpen(true)
+  }
+
+  function submitQuickAddCustomer() {
+    const name = quickAddCustomerName.trim()
+    if (!name || createCustomerMutation.isPending) return
+    createCustomerMutation.mutate(
+      { name, phone: quickAddCustomerPhone.trim(), openingBalance: 0, isSupplier: isPurchase },
+      {
+        onSuccess: (response) => {
+          const customer = (response as { data?: Customer }).data
+          if (customer) {
+            setQuickAddCustomerOpen(false)
+            pickCustomer(customer)
+          }
         },
       },
     )
@@ -866,7 +917,7 @@ export function InvoiceCreatePage() {
               onBlur={() => window.setTimeout(() => setCustomerListOpen(false), 150)}
               onKeyDown={handleCustomerKey}
             />
-            {customerListOpen && !selectedCustomer && customerQuery && customerSuggestions.length > 0 ? (
+            {customerListOpen && !selectedCustomer && customerQuery ? (
               <div className="absolute z-20 mt-1 w-full rounded-md border bg-white p-1 shadow dark:border-slate-700 dark:bg-slate-950">
                 {customerSuggestions.map((customer, idx) => (
                   <button
@@ -880,6 +931,17 @@ export function InvoiceCreatePage() {
                     {customer.name} — {customer.phone}
                   </button>
                 ))}
+                {customerSuggestions.length === 0 && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-right text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={openQuickAddCustomer}
+                  >
+                    <Plus className="h-4 w-4" />
+                    أضف "{customerQuery.trim()}" كـ{customerLabel} جديد
+                  </button>
+                )}
               </div>
             ) : null}
           </div>
@@ -1160,6 +1222,95 @@ export function InvoiceCreatePage() {
                 ) : null}
               </div>
             ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick-add customer modal */}
+      <Dialog open={quickAddCustomerOpen} onOpenChange={setQuickAddCustomerOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>إضافة {customerLabel} جديد</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium">الاسم *</label>
+              <Input
+                autoFocus
+                value={quickAddCustomerName}
+                onChange={(e) => setQuickAddCustomerName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitQuickAddCustomer() }}
+                placeholder="اسم الزبون"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">رقم الهاتف</label>
+              <Input
+                value={quickAddCustomerPhone}
+                onChange={(e) => setQuickAddCustomerPhone(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") submitQuickAddCustomer() }}
+                placeholder="07xxxxxxxxx"
+                dir="ltr"
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button
+                className="flex-1"
+                onClick={submitQuickAddCustomer}
+                disabled={!quickAddCustomerName.trim() || createCustomerMutation.isPending}
+              >
+                {createCustomerMutation.isPending ? "جار الإضافة..." : "إضافة وتحديد"}
+              </Button>
+              <Button variant="outline" onClick={() => setQuickAddCustomerOpen(false)}>إلغاء</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick-add product modal */}
+      <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>إضافة مادة جديدة</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-sm font-medium">اسم المادة *</label>
+              <Input
+                autoFocus
+                value={quickAddProductName}
+                onChange={(e) => setQuickAddProductName(e.target.value)}
+                placeholder="اسم المادة"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium">سعر البيع</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={quickAddProductSalePrice}
+                  onChange={(e) => setQuickAddProductSalePrice(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">سعر الشراء</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={quickAddProductPurchasePrice}
+                  onChange={(e) => setQuickAddProductPurchasePrice(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button
+                className="flex-1"
+                onClick={submitQuickAddProduct}
+                disabled={!quickAddProductName.trim() || createProductMutation.isPending}
+              >
+                {createProductMutation.isPending ? "جار الإضافة..." : "إضافة وإدراج"}
+              </Button>
+              <Button variant="outline" onClick={() => setQuickAddProductOpen(false)}>إلغاء</Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
