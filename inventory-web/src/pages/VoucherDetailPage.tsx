@@ -168,7 +168,7 @@ export function VoucherDetailPage() {
             <div>
               <h1 className="text-xl font-bold">{meta.label} {voucher.voucherNumber}</h1>
               <p className="text-sm opacity-90">
-                {String(voucher.date).slice(0, 10)} - {voucher.customer?.name ?? voucher.description ?? "-"}
+                {String(voucher.date).slice(0, 10)} - <span className="text-base font-bold">{voucher.customer?.name ?? voucher.description ?? "-"}</span>
               </p>
             </div>
           </div>

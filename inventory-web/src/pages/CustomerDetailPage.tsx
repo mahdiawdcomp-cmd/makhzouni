@@ -37,9 +37,23 @@ function translateLastType(type: string): string {
   if (t === "EXPENSE") return "سند مصاريف"
   if (t === "SALE") return "فاتورة بيع"
   if (t === "PURCHASE") return "فاتورة شراء"
+  if (t === "SALES_RETURN") return "فاتورة مرتجع"
   if (t.includes("INVOICE")) return "فاتورة"
   if (t.includes("VOUCHER")) return "سند"
   return type
+}
+
+function translateRow(row: CustomerTransaction): string {
+  const t = String(row.type ?? "").toUpperCase()
+  if (row.status === "CANCELLED") return "فاتورة ملغاة"
+  if (t === "RECEIPT") return "سند قبض"
+  if (t === "PAYMENT") return "سند دفع"
+  if (t === "EXPENSE") return "مصاريف"
+  if (t === "SALE") return "فاتورة بيع"
+  if (t === "PURCHASE") return "فاتورة شراء"
+  if (t === "SALES_RETURN") return "فاتورة مرتجع"
+  if (t.includes("INVOICE")) return Number(row.debit) > 0 ? "فاتورة بيع" : Number(row.credit) > 0 ? "فاتورة شراء" : "فاتورة"
+  return translateLastType(row.type)
 }
 
 function lastActivityLink(last: { type?: string; id?: string } | undefined | null): string | null {
@@ -319,7 +333,7 @@ function StatementTab({
       fmtDate(row.date),
       fmtDate(row.createdAt),
       row.createdByName ?? "",
-      translateLastType(row.type),
+      translateRow(row),
       row.referenceNumber,
       row.debit ? Number(row.debit).toLocaleString("en-US") : "",
       row.credit ? Number(row.credit).toLocaleString("en-US") : "",
@@ -344,7 +358,7 @@ function StatementTab({
         <TBody>{rows.map((row) => {
           const link = transactionLink(row)
           const tone = transactionTone(row)
-          const label = row.status === "CANCELLED" ? `${row.type} - ملغاة` : row.type
+          const label = translateRow(row)
           return (
             <TR key={`${row.id}-${row.referenceNumber}`} className={`${tone.row} ${link ? "cursor-pointer" : ""}`} style={tone.style}>
               <TD>

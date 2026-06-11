@@ -23,10 +23,13 @@ function rowStyle(row: CustomerTransaction) {
 function typeLabel(row: CustomerTransaction) {
   const type = row.type.toUpperCase()
   if (row.status === "CANCELLED") return "فاتورة ملغاة"
-  if (type.includes("PAYMENT")) return "دفعة فاتورة"
-  if (type.includes("INVOICE")) return "فاتورة"
   if (type === "RECEIPT") return "سند قبض"
   if (type === "PAYMENT") return "سند دفع"
+  if (type === "EXPENSE") return "مصاريف"
+  if (type === "SALE") return "فاتورة بيع"
+  if (type === "PURCHASE") return "فاتورة شراء"
+  if (type === "SALES_RETURN") return "فاتورة مرتجع"
+  if (type.includes("INVOICE")) return Number(row.debit) > 0 ? "فاتورة بيع" : Number(row.credit) > 0 ? "فاتورة شراء" : "فاتورة"
   return row.type
 }
 

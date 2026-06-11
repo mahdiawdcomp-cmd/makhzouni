@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Banknote, Barcode, Receipt, Search, Trash2, UserRound } from "lucide-react"
+import { Banknote, Barcode, Minus, Plus, Search, Trash2, UserRound, X } from "lucide-react"
 import { createInvoice, getCustomers, getProducts } from "../api/endpoints"
-import { Button } from "../components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
-import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import type { Customer, Product } from "../types/api"
 import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
@@ -21,12 +18,6 @@ type PosItem = {
   unitPrice: number
 }
 
-const unitLabels: Record<PosUnit, string> = {
-  PIECE: "قطعة",
-  DOZEN: "درزن",
-  CARTON: "كارتون",
-}
-
 function normalize(value: string | undefined | null) {
   return String(value ?? "").trim().toLowerCase()
 }
@@ -34,7 +25,9 @@ function normalize(value: string | undefined | null) {
 function productMatches(product: Product, query: string) {
   const q = normalize(query)
   if (!q) return true
-  return [product.name, product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].some((value) => normalize(value).includes(q))
+  return [product.name, product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].some(
+    (v) => normalize(v).includes(q),
+  )
 }
 
 function detectUnit(product: Product, code: string): PosUnit {
@@ -50,106 +43,99 @@ function priceFor(product: Product, unit: PosUnit) {
 
 export function POSPage() {
   const queryClient = useQueryClient()
-  const productInputRef = useRef<HTMLInputElement>(null)
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
   const paidInputRef = useRef<HTMLInputElement>(null)
   const clientRequestIdRef = useRef(crypto.randomUUID())
 
   const [customerQuery, setCustomerQuery] = useState("")
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [customerHighlight, setCustomerHighlight] = useState(0)
   const [productQuery, setProductQuery] = useState("")
-  const [productHighlight, setProductHighlight] = useState(0)
   const [items, setItems] = useState<PosItem[]>([])
   const [paid, setPaid] = useState("")
   const [message, setMessage] = useState("")
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false)
 
-  const { data: customers = [] } = useQuery({ queryKey: ["customers", "pos"], queryFn: () => getCustomers({ limit: 100 }) })
-  const { data: products = [] } = useQuery({ queryKey: ["products", "pos"], queryFn: () => getProducts({ limit: 100 }) })
+  const { data: customers = [] } = useQuery({
+    queryKey: ["customers", "pos"],
+    queryFn: () => getCustomers({ limit: 200 }),
+  })
+  const { data: products = [] } = useQuery({
+    queryKey: ["products", "pos"],
+    queryFn: () => getProducts({ limit: 300 }),
+  })
 
   const customerSuggestions = useMemo(() => {
     const q = normalize(customerQuery)
-    if (!q) return customers.slice(0, 8)
-    return customers.filter((customer) => normalize(customer.name).includes(q) || normalize(customer.phone).includes(q)).slice(0, 8)
+    if (!q) return customers.slice(0, 12)
+    return customers
+      .filter((c) => normalize(c.name).includes(q) || normalize(c.phone).includes(q))
+      .slice(0, 12)
   }, [customers, customerQuery])
 
-  const productSuggestions = useMemo(
-    () => products.filter((product) => productMatches(product, productQuery)).slice(0, 30),
+  const filteredProducts = useMemo(
+    () => products.filter((p) => productMatches(p, productQuery)).slice(0, 80),
     [products, productQuery],
   )
 
-  const subtotal = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+  const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
   const paidValue = Number(paid || 0)
   const remaining = Math.max(subtotal - paidValue, 0)
   const change = Math.max(paidValue - subtotal, 0)
 
-  function chooseCustomer(customer: Customer) {
-    setSelectedCustomer(customer)
-    setCustomerQuery(customer.name)
-    setCustomerHighlight(0)
-    setTimeout(() => productInputRef.current?.focus(), 0)
+  function chooseCustomer(c: Customer) {
+    setSelectedCustomer(c)
+    setCustomerQuery(c.name)
+    setShowCustomerPicker(false)
+    setTimeout(() => barcodeInputRef.current?.focus(), 0)
   }
 
   function addProduct(product: Product, preferredCode = productQuery) {
     const unit = detectUnit(product, preferredCode)
-    setItems((prev) => [
-      ...prev,
-      {
-        lineId: crypto.randomUUID(),
-        productId: product.id,
-        name: product.name,
-        unit,
-        quantity: 1,
-        unitPrice: priceFor(product, unit),
-      },
-    ])
+    setItems((prev) => {
+      const existing = prev.find((i) => i.productId === product.id && i.unit === unit)
+      if (existing) {
+        return prev.map((i) => (i.lineId === existing.lineId ? { ...i, quantity: i.quantity + 1 } : i))
+      }
+      return [
+        ...prev,
+        {
+          lineId: crypto.randomUUID(),
+          productId: product.id,
+          name: product.name,
+          unit,
+          quantity: 1,
+          unitPrice: priceFor(product, unit),
+        },
+      ]
+    })
     setProductQuery("")
-    setProductHighlight(0)
     setMessage("")
-    setTimeout(() => productInputRef.current?.focus(), 0)
+    setTimeout(() => barcodeInputRef.current?.focus(), 0)
   }
 
   function addBySearch() {
     const q = normalize(productQuery)
     if (!q) return
-    const exact = products.find((product) =>
-      [product.qrCode, product.cartonQrCode, product.itemNumber].some((value) => value && normalize(value) === q),
+    const exact = products.find((p) =>
+      [p.qrCode, p.cartonQrCode, p.itemNumber].some((v) => v && normalize(v) === q),
     )
     if (exact) addProduct(exact, productQuery)
-    else if (productSuggestions.length > 0) addProduct(productSuggestions[productHighlight] ?? productSuggestions[0])
+    else if (filteredProducts.length > 0) addProduct(filteredProducts[0])
   }
 
-  function handleCustomerKey(event: KeyboardEvent<HTMLInputElement>) {
-    if (!customerSuggestions.length) return
-    if (event.key === "ArrowDown") {
-      event.preventDefault()
-      setCustomerHighlight((index) => Math.min(index + 1, customerSuggestions.length - 1))
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault()
-      setCustomerHighlight((index) => Math.max(index - 1, 0))
-    } else if (event.key === "Enter") {
-      event.preventDefault()
-      chooseCustomer(customerSuggestions[customerHighlight] ?? customerSuggestions[0])
-    }
+  function adjustQty(lineId: string, delta: number) {
+    setItems((prev) =>
+      prev
+        .map((i) => (i.lineId === lineId ? { ...i, quantity: i.quantity + delta } : i))
+        .filter((i) => i.quantity > 0),
+    )
   }
 
-  function handleProductKey(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "ArrowDown") {
-      event.preventDefault()
-      setProductHighlight((index) => Math.min(index + 1, Math.max(productSuggestions.length - 1, 0)))
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault()
-      setProductHighlight((index) => Math.max(index - 1, 0))
-    } else if (event.key === "Enter") {
+  function handleBarcodeKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
       event.preventDefault()
       addBySearch()
-    } else if (event.key === "Escape") {
-      setProductQuery("")
-      setProductHighlight(0)
     }
-  }
-
-  function updateItem(lineId: string, patch: Partial<PosItem>) {
-    setItems((prev) => prev.map((item) => (item.lineId === lineId ? { ...item, ...patch } : item)))
   }
 
   const saveMutation = useMutation({
@@ -170,7 +156,7 @@ export function POSPage() {
         })),
       }),
     onSuccess: (response) => {
-      setMessage(`تم حفظ الفاتورة ${response.data?.invoiceNumber ?? ""}`)
+      setMessage(`✓ فاتورة ${response.data?.invoiceNumber ?? ""} — تم الحفظ`)
       setItems([])
       setPaid("")
       setProductQuery("")
@@ -178,7 +164,7 @@ export function POSPage() {
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       void queryClient.invalidateQueries({ queryKey: ["products"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
-      setTimeout(() => productInputRef.current?.focus(), 0)
+      setTimeout(() => barcodeInputRef.current?.focus(), 0)
     },
     onError: () => {
       clientRequestIdRef.current = crypto.randomUUID()
@@ -200,197 +186,290 @@ export function POSPage() {
     return () => document.removeEventListener("keydown", onKey)
   }, [selectedCustomer, items, saveMutation])
 
+  const canSave = !!selectedCustomer && items.length > 0 && !saveMutation.isPending
+
+  // Quick-pay amounts: exact, nearest 1000, nearest 5000
+  const quickAmounts = [...new Set([
+    subtotal,
+    Math.ceil(subtotal / 1000) * 1000,
+    Math.ceil(subtotal / 5000) * 5000,
+  ])].filter((v) => v > 0)
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Barcode className="h-4 w-4 text-emerald-600" />
-              نقطة البيع السريعة
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 lg:grid-cols-[320px_minmax(0,1fr)]">
-            <div className="relative">
-              <label className="mb-1 block text-xs font-semibold text-slate-500">الزبون</label>
-              <div className="relative">
-                <UserRound className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  className="pr-9"
-                  value={customerQuery}
-                  onChange={(event) => {
-                    setCustomerQuery(event.target.value)
-                    setSelectedCustomer(null)
-                    setCustomerHighlight(0)
-                  }}
-                  onKeyDown={handleCustomerKey}
-                  placeholder="اسم أو هاتف الزبون"
-                />
-              </div>
-              {!selectedCustomer && customerQuery ? (
-                <div className="absolute z-30 mt-1 max-h-52 w-full overflow-auto rounded-md border bg-white shadow-lg">
-                  {customerSuggestions.map((customer, index) => (
-                    <button
-                      key={customer.id}
-                      type="button"
-                      className={cn("flex w-full items-center justify-between px-3 py-2 text-right text-sm", index === customerHighlight ? "bg-emerald-50" : "hover:bg-slate-50")}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => chooseCustomer(customer)}
-                    >
-                      <span className="font-medium">{customer.name}</span>
-                      <span className="text-xs text-slate-500">{customer.phone}</span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="relative">
-              <label className="mb-1 block text-xs font-semibold text-slate-500">باركود أو مادة</label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    ref={productInputRef}
-                    className="pr-9"
-                    value={productQuery}
-                    onChange={(event) => {
-                      setProductQuery(event.target.value)
-                      setProductHighlight(0)
-                    }}
-                    onKeyDown={handleProductKey}
-                    placeholder="امسح الباركود أو اكتب اسم المادة"
-                  />
-                </div>
-                <Button type="button" onClick={addBySearch}>إضافة</Button>
-              </div>
-              {productQuery ? (
-                <div className="absolute z-30 mt-1 grid max-h-64 w-full gap-1 overflow-auto rounded-md border bg-white p-1 shadow-lg md:grid-cols-2">
-                  {productSuggestions.map((product, index) => (
-                    <button
-                      key={product.id}
-                      type="button"
-                      className={cn("rounded-md px-3 py-2 text-right text-sm", index === productHighlight ? "bg-emerald-50" : "hover:bg-slate-50")}
-                      onMouseEnter={() => setProductHighlight(index)}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => addProduct(product)}
-                    >
-                      <div className="font-semibold">{product.name}</div>
-                      <div className="text-xs text-slate-500">
-                        {product.itemNumber} | السعر {fmt(product.salePrice)} | الرصيد {fmt(product.currentStock)}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>مواد الفاتورة</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <THead>
-                <TR>
-                  <TH>المادة</TH>
-                  <TH>الوحدة</TH>
-                  <TH>العدد</TH>
-                  <TH>السعر</TH>
-                  <TH>المجموع</TH>
-                  <TH></TH>
-                </TR>
-              </THead>
-              <TBody>
-                {items.map((item) => (
-                  <TR key={item.lineId} className="border-r-4 border-emerald-300">
-                    <TD className="font-semibold">{item.name}</TD>
-                    <TD>
-                      <select
-                        className="h-9 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                        value={item.unit}
-                        onChange={(event) => {
-                          const unit = event.target.value as PosUnit
-                          const product = products.find((row) => row.id === item.productId)
-                          updateItem(item.lineId, { unit, unitPrice: product ? priceFor(product, unit) : item.unitPrice })
-                        }}
-                      >
-                        <option value="PIECE">{unitLabels.PIECE}</option>
-                        <option value="DOZEN">{unitLabels.DOZEN}</option>
-                        <option value="CARTON">{unitLabels.CARTON}</option>
-                      </select>
-                    </TD>
-                    <TD>
-                      <Input className="w-20" type="number" min={1} value={item.quantity} onFocus={(event) => event.target.select()} onChange={(event) => updateItem(item.lineId, { quantity: Math.max(1, Number(event.target.value || 1)) })} />
-                    </TD>
-                    <TD>
-                      <Input className="w-28" type="number" value={item.unitPrice} onFocus={(event) => event.target.select()} onChange={(event) => updateItem(item.lineId, { unitPrice: Number(event.target.value || 0) })} />
-                    </TD>
-                    <TD className="font-bold">{fmt(item.quantity * item.unitPrice)}</TD>
-                    <TD>
-                      <Button variant="ghost" size="icon" onClick={() => setItems((prev) => prev.filter((row) => row.lineId !== item.lineId))}>
-                        <Trash2 className="h-4 w-4 text-rose-500" />
-                      </Button>
-                    </TD>
-                  </TR>
-                ))}
-                {items.length === 0 ? (
-                  <TR>
-                    <TD colSpan={6} className="py-10 text-center text-slate-400">
-                      امسح باركود أو ابحث عن مادة حتى تبدأ البيع
-                    </TD>
-                  </TR>
-                ) : null}
-              </TBody>
-            </Table>
-          </CardContent>
-        </Card>
+    <div className="flex h-full flex-col gap-2" dir="rtl">
+      {/* Top bar: barcode + customer */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Barcode className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            ref={barcodeInputRef}
+            className="pr-9 text-base"
+            value={productQuery}
+            onChange={(e) => setProductQuery(e.target.value)}
+            onKeyDown={handleBarcodeKey}
+            placeholder="باركود أو اسم المادة — Enter للإضافة"
+            autoFocus
+          />
+        </div>
+        {productQuery && (
+          <button
+            type="button"
+            onClick={addBySearch}
+            className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-700 active:scale-95"
+          >
+            إضافة
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setShowCustomerPicker(true)}
+          className={cn(
+            "flex min-w-36 items-center gap-2 rounded-lg border px-3 py-2 text-sm transition",
+            selectedCustomer
+              ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900",
+          )}
+        >
+          <UserRound className="h-4 w-4 shrink-0" />
+          <span className="truncate font-semibold">{selectedCustomer?.name ?? "اختر الزبون"}</span>
+        </button>
       </div>
 
-      <Card className="h-fit">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Receipt className="h-4 w-4 text-amber-600" />
-            ملخص الكاشير
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-md bg-slate-50 p-3 text-sm">
-            <div className="text-slate-500">الزبون</div>
-            <div className="font-bold">{selectedCustomer?.name ?? "لم يتم الاختيار"}</div>
-          </div>
-          <div className="space-y-2 text-sm">
-            <Summary label="الإجمالي" value={subtotal} />
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-500">المبلغ المدفوع</label>
-              <Input ref={paidInputRef} value={paid} onChange={(event) => setPaid(event.target.value)} type="number" placeholder="0" />
-            </div>
-            <Summary label="الباقي على الزبون" value={remaining} danger={remaining > 0} />
-            <Summary label="راجع للزبون" value={change} good={change > 0} />
-          </div>
-          <Button className="h-11 w-full text-base" disabled={!selectedCustomer || items.length === 0 || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
-            <Banknote className="h-5 w-5" />
-            حفظ البيع
-          </Button>
-          {message ? <div className="rounded-md bg-emerald-50 p-2 text-sm text-emerald-700">{message}</div> : null}
-          {saveMutation.isError ? (
-            <div className="rounded-md bg-rose-50 p-2 text-sm text-rose-700">
-              {apiErrorMessage(saveMutation.error, "تعذر حفظ البيع")}
+      {/* Main: products grid + cart */}
+      <div className="flex min-h-0 flex-1 gap-2">
+        {/* ── Products Grid ── */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          {productQuery ? (
+            <div className="shrink-0 flex items-center gap-2 border-b px-3 py-1.5 text-xs text-slate-500 dark:border-slate-700">
+              <Search className="h-3 w-3" />
+              {filteredProducts.length} نتيجة
+              <button
+                type="button"
+                onClick={() => setProductQuery("")}
+                className="mr-auto text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           ) : null}
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
+          <div className="grid min-h-0 flex-1 auto-rows-max gap-1.5 overflow-y-auto p-1.5 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+            {filteredProducts.map((product) => (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => addProduct(product)}
+                className="flex flex-col items-center justify-between rounded-xl border-2 border-transparent bg-slate-50 p-2 text-center transition active:scale-95 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/30"
+                style={{ minHeight: "84px" }}
+              >
+                <span className="line-clamp-2 w-full text-xs font-bold leading-tight text-slate-800 dark:text-slate-100">
+                  {product.name}
+                </span>
+                <div className="mt-1 flex flex-col items-center gap-0.5">
+                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
+                    {fmt(product.salePrice)}
+                  </span>
+                  {Number(product.currentStock) <= 0 ? (
+                    <span className="text-[9px] text-rose-500 font-semibold">نفد</span>
+                  ) : (
+                    <span className="text-[9px] text-slate-400">{fmt(product.currentStock)} قطعة</span>
+                  )}
+                </div>
+              </button>
+            ))}
+            {filteredProducts.length === 0 && (
+              <div className="col-span-full py-16 text-center text-slate-400">لا توجد مواد مطابقة</div>
+            )}
+          </div>
+        </div>
 
-function Summary({ label, value, danger, good }: { label: string; value: number; danger?: boolean; good?: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-md border bg-white px-3 py-2">
-      <span className="text-slate-500">{label}</span>
-      <span className={danger ? "font-bold text-rose-600" : good ? "font-bold text-emerald-600" : "font-bold"}>{fmt(value)}</span>
+        {/* ── Cart / Receipt ── */}
+        <div className="flex w-64 shrink-0 flex-col overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:w-72 xl:w-80">
+          {/* Cart header */}
+          <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5 dark:border-slate-700">
+            <span className="font-bold">الكاشير</span>
+            {items.length > 0 && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold dark:bg-slate-800">
+                {items.length}
+              </span>
+            )}
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setItems([])}
+                className="mr-auto text-xs text-slate-400 hover:text-rose-600"
+              >
+                مسح الكل
+              </button>
+            )}
+          </div>
+
+          {/* Cart items */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1">
+            {items.length === 0 ? (
+              <div className="py-10 text-center text-sm text-slate-400">اضغط على مادة لإضافتها</div>
+            ) : (
+              <div className="space-y-1">
+                {items.map((item) => (
+                  <div
+                    key={item.lineId}
+                    className="flex items-center gap-1 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-xs font-bold leading-tight">{item.name}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {fmt(item.unitPrice)} ×{" "}
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">
+                          {fmt(item.quantity * item.unitPrice)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => adjustQty(item.lineId, -1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-slate-700 active:bg-rose-100 dark:bg-slate-700 dark:text-slate-200"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
+                      <button
+                        type="button"
+                        onClick={() => adjustQty(item.lineId, 1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 active:bg-emerald-200 dark:bg-emerald-900/50 dark:text-emerald-300"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => adjustQty(item.lineId, -item.quantity)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-slate-300 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Payment section */}
+          <div className="shrink-0 space-y-2 border-t p-3 dark:border-slate-700">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-500">الإجمالي</span>
+              <span className="text-xl font-bold">{fmt(subtotal)}</span>
+            </div>
+
+            <Input
+              ref={paidInputRef}
+              value={paid}
+              onChange={(e) => setPaid(e.target.value)}
+              type="number"
+              placeholder="المبلغ المدفوع (F8)"
+              className="text-center text-base font-bold"
+              inputMode="numeric"
+              onFocus={(e) => e.target.select()}
+            />
+
+            {/* Quick pay buttons */}
+            {subtotal > 0 && (
+              <div className="grid grid-cols-3 gap-1">
+                {quickAmounts.map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => setPaid(String(amount))}
+                    className="rounded-lg bg-slate-100 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-200 active:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    {fmt(amount)}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {remaining > 0 && (
+              <div className="flex items-center justify-between rounded-md bg-amber-50 px-3 py-1.5 text-sm dark:bg-amber-950/30">
+                <span className="text-slate-500">باقي</span>
+                <span className="font-bold text-amber-700 dark:text-amber-400">{fmt(remaining)}</span>
+              </div>
+            )}
+            {change > 0 && (
+              <div className="flex items-center justify-between rounded-md bg-emerald-50 px-3 py-1.5 text-sm dark:bg-emerald-950/30">
+                <span className="text-slate-500">راجع</span>
+                <span className="font-bold text-emerald-700 dark:text-emerald-400">{fmt(change)}</span>
+              </div>
+            )}
+
+            <button
+              type="button"
+              disabled={!canSave}
+              onClick={() => saveMutation.mutate()}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-base font-bold text-white shadow transition active:scale-[.98] disabled:opacity-40 hover:bg-emerald-700"
+            >
+              <Banknote className="h-5 w-5" />
+              {saveMutation.isPending ? "جاري الحفظ..." : "حفظ البيع"}
+            </button>
+
+            {!selectedCustomer && (
+              <p className="text-center text-xs text-amber-600">اختر الزبون أولاً</p>
+            )}
+
+            <p className="text-center text-[10px] text-slate-400">Ctrl+S حفظ | F8 المبلغ | Esc خروج</p>
+
+            {message && (
+              <div className="rounded-md bg-emerald-50 p-2 text-center text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                {message}
+              </div>
+            )}
+            {saveMutation.isError && (
+              <div className="rounded-md bg-rose-50 p-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                {apiErrorMessage(saveMutation.error, "تعذر حفظ البيع")}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Customer picker modal */}
+      {showCustomerPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-bold">اختر الزبون</h3>
+              <button
+                type="button"
+                onClick={() => setShowCustomerPicker(false)}
+                className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-5 w-5 text-slate-500" />
+              </button>
+            </div>
+            <Input
+              autoFocus
+              value={customerQuery}
+              onChange={(e) => {
+                setCustomerQuery(e.target.value)
+                setSelectedCustomer(null)
+              }}
+              placeholder="اسم أو هاتف الزبون"
+              className="mb-2"
+            />
+            <div className="max-h-72 space-y-1 overflow-auto">
+              {customerSuggestions.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-right hover:bg-slate-50 active:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => chooseCustomer(c)}
+                >
+                  <span className="font-bold">{c.name}</span>
+                  <span className="text-xs text-slate-500">{c.phone}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -62,7 +62,7 @@ export function BranchesPage() {
     () => [
       {
         accessorKey: "name",
-        header: "اسم الفرع",
+        header: "اسم المخزن",
         cell: ({ row }) => (
           <div className="flex items-center gap-2 font-medium">
             <Building2 className="h-4 w-4 text-slate-400" />
@@ -158,12 +158,12 @@ export function BranchesPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">إدارة الفروع</h1>
-          <p className="text-slate-500">تعريف الفروع وربط العمليات المالية والمخزنية بكل فرع.</p>
+          <h1 className="text-2xl font-bold">إدارة المخازن</h1>
+          <p className="text-slate-500">تعريف المخازن وربط العمليات المالية والمخزنية بكل مخزن.</p>
         </div>
         <Button onClick={startCreate}>
           <Plus className="h-4 w-4" />
-          فرع جديد
+          مخزن جديد
         </Button>
       </div>
 
@@ -182,8 +182,8 @@ export function BranchesPage() {
             value={activeFilter}
             onChange={(event) => setActiveFilter(event.target.value as "all" | "active" | "inactive")}
           >
-            <option value="all">كل الفروع</option>
-            <option value="active">الفعالة فقط</option>
+            <option value="all">كل المخازن</option>
+            <option value="active">المفعلة فقط</option>
             <option value="inactive">المعطلة فقط</option>
           </select>
           <Button onClick={() => setSearch(searchDraft)}>
@@ -225,7 +225,7 @@ export function BranchesPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            الفروع
+            المخازن
             <Badge className="bg-slate-900">{branchesQuery.data?.length ?? 0}</Badge>
           </CardTitle>
         </CardHeader>
@@ -253,7 +253,7 @@ export function BranchesPage() {
               {table.getRowModel().rows.length === 0 ? (
                 <TR>
                   <TD colSpan={columns.length} className="py-8 text-center text-slate-500">
-                    لا توجد فروع مطابقة.
+                    لا توجد مخازن مطابقة.
                   </TD>
                 </TR>
               ) : null}
@@ -262,19 +262,19 @@ export function BranchesPage() {
         </CardContent>
       </Card>
 
-      <ModalForm open={open} onOpenChange={setOpen} title={editingBranch ? "تعديل فرع" : "فرع جديد"}>
+      <ModalForm open={open} onOpenChange={setOpen} title={editingBranch ? "تعديل مخزن" : "مخزن جديد"}>
         <form className="space-y-3" onSubmit={submit}>
           <Input
             required
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
-            placeholder="اسم الفرع"
+            placeholder="اسم المخزن"
           />
           <Input
             required
             value={form.code}
             onChange={(event) => setForm({ ...form, code: event.target.value })}
-            placeholder="كود الفرع"
+            placeholder="كود المخزن"
           />
           <Input
             value={form.phone ?? ""}
@@ -292,7 +292,7 @@ export function BranchesPage() {
               checked={form.isActive ?? true}
               onChange={(event) => setForm({ ...form, isActive: event.target.checked })}
             />
-            فرع فعال
+            مخزن فعال
           </label>
           <Button className="w-full" type="submit" disabled={saveBranch.isPending}>
             حفظ
