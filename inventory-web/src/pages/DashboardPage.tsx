@@ -17,10 +17,13 @@ import {
 } from "recharts"
 import {
   AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
   Boxes,
   ChevronDown,
   FileText,
   Globe,
+  Lightbulb,
   Phone,
   Receipt,
   ReceiptText,
@@ -34,7 +37,7 @@ import {
   Wallet,
   X,
 } from "lucide-react"
-import { useDashboardReport, useAtRiskCustomers, useDebtReport, useInventoryReport } from "../hooks/useReports"
+import { useDashboardReport, useAtRiskCustomers, useDailySummary, useDebtReport, useInventoryReport } from "../hooks/useReports"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { whatsappUrl } from "../utils/whatsapp"
@@ -191,10 +194,12 @@ const itemVariants = {
 export function DashboardPage() {
   usePageTitle("الرئيسية")
   const dashboard = useDashboardReport()
+  const dailySummary = useDailySummary()
   const inventory = useInventoryReport()
   const debts = useDebtReport({})
   const atRisk = useAtRiskCustomers(8)
   const report = dashboard.data
+  const daily = dailySummary.data
   const inventoryRows = inventory.data?.products ?? []
   const categoryData = Object.values(
     inventoryRows.reduce<Record<string, { category: string; value: number }>>((acc, product) => {
@@ -227,6 +232,74 @@ export function DashboardPage() {
       </div>
 
       <PendingOrdersBanner />
+
+      {/* Smart tip + daily comparison */}
+      {daily && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {/* Today vs yesterday */}
+          <div
+            className="flex items-center gap-3 rounded-xl border p-3.5"
+            style={{ background: "var(--theme-cardBg)", borderColor: "var(--theme-cardBorder)", boxShadow: "var(--z-shadow-sm)" }}
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-950/40">
+              <Wallet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs" style={{ color: "var(--theme-textSecondary)" }}>{daily.date}</div>
+              <div className="text-base font-bold" style={{ color: "var(--theme-textPrimary)" }}>
+                {daily.todaySales.toLocaleString("en-US")}
+              </div>
+            </div>
+            {daily.salesChangePercent !== null && (
+              <div className={`flex items-center gap-0.5 text-xs font-semibold ${daily.salesChangePercent >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                {daily.salesChangePercent >= 0
+                  ? <ArrowUpRight className="h-3.5 w-3.5" />
+                  : <ArrowDownRight className="h-3.5 w-3.5" />}
+                {Math.abs(daily.salesChangePercent)}%
+              </div>
+            )}
+          </div>
+
+          {/* Collections today */}
+          <div
+            className="flex items-center gap-3 rounded-xl border p-3.5"
+            style={{ background: "var(--theme-cardBg)", borderColor: "var(--theme-cardBorder)", boxShadow: "var(--z-shadow-sm)" }}
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 dark:bg-sky-950/40">
+              <Receipt className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: "var(--theme-textSecondary)" }}>تحصيلات اليوم</div>
+              <div className="text-base font-bold" style={{ color: "var(--theme-textPrimary)" }}>
+                {daily.collectionsToday.toLocaleString("en-US")}
+              </div>
+            </div>
+          </div>
+
+          {/* Smart tip */}
+          {daily.smartTip ? (
+            <div
+              className="flex items-start gap-3 rounded-xl border p-3.5"
+              style={{ background: "var(--theme-accentSoft)", borderColor: "rgba(99,102,241,0.25)", boxShadow: "var(--z-shadow-sm)" }}
+            >
+              <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
+              <p className="text-xs leading-relaxed" style={{ color: "var(--theme-textPrimary)" }}>
+                {daily.smartTip}
+              </p>
+            </div>
+          ) : daily.mostOverdueCustomer ? (
+            <div
+              className="flex items-start gap-3 rounded-xl border p-3.5"
+              style={{ background: "rgba(245,158,11,0.07)", borderColor: "rgba(245,158,11,0.3)", boxShadow: "var(--z-shadow-sm)" }}
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <p className="text-xs leading-relaxed" style={{ color: "var(--theme-textPrimary)" }}>
+                {daily.mostOverdueCustomer.name} — لم يدفع منذ {daily.mostOverdueCustomer.daysLate} يوماً
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/* Quick actions */}
       <div>
@@ -342,14 +415,22 @@ export function DashboardPage() {
           >
             <div className="space-y-4 pt-2">
               {/* Metric cards */}
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <MetricCard
                   title="مبيعات اليوم"
                   value={report?.todaySales ?? 0}
                   icon={Wallet}
                   gradient="from-emerald-500 to-teal-600"
                   link={`/invoices?type=SALE&from=${today}&to=${today}`}
+                  trend={daily?.salesChangePercent ?? null}
                   index={0}
+                />
+                <MetricCard
+                  title="تحصيلات اليوم"
+                  value={daily?.collectionsToday ?? 0}
+                  icon={Receipt}
+                  gradient="from-sky-500 to-blue-600"
+                  index={1}
                 />
                 <MetricCard
                   title="فواتير اليوم"
@@ -357,7 +438,7 @@ export function DashboardPage() {
                   icon={FileText}
                   gradient="from-blue-500 to-indigo-600"
                   link={`/invoices?from=${today}&to=${today}`}
-                  index={1}
+                  index={2}
                 />
                 <MetricCard
                   title="إجمالي الديون"
@@ -365,7 +446,7 @@ export function DashboardPage() {
                   icon={AlertTriangle}
                   gradient="from-rose-500 to-red-600"
                   link="/customers"
-                  index={2}
+                  index={3}
                 />
                 <MetricCard
                   title="منتجات ناقصة"
@@ -373,7 +454,7 @@ export function DashboardPage() {
                   icon={Boxes}
                   gradient="from-amber-500 to-orange-500"
                   link="/inventory/low-stock"
-                  index={3}
+                  index={4}
                 />
               </div>
 
@@ -561,6 +642,7 @@ function MetricCard({
   icon: Icon,
   gradient,
   link,
+  trend = null,
   index = 0,
 }: {
   title: string
@@ -568,6 +650,7 @@ function MetricCard({
   icon: ComponentType<{ className?: string }>
   gradient: string
   link?: string
+  trend?: number | null
   index?: number
 }) {
   const content = (
@@ -586,7 +669,13 @@ function MetricCard({
         <div>
           <div className="text-[12px] font-medium text-white/75 mb-1">{title}</div>
           <div className="text-2xl font-bold tracking-tight">{value.toLocaleString("en-US")}</div>
-          {link && <div className="mt-1 text-[11px] text-white/60">اضغط للعرض</div>}
+          {trend !== null && (
+            <div className="mt-1 flex items-center gap-0.5 text-[11px] text-white/80">
+              {trend >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+              {Math.abs(trend)}% مقارنة بالأمس
+            </div>
+          )}
+          {!trend && link && <div className="mt-1 text-[11px] text-white/60">اضغط للعرض</div>}
         </div>
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
           <Icon className="h-5 w-5 text-white" />

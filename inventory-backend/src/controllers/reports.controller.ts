@@ -3,6 +3,7 @@ import {
   getAtRiskCustomers,
   getCustomerDebtsReport,
   getDashboardReport,
+  getDailySummaryData,
   getEndOfDayReport,
   getInventoryValuationReport,
   getProductMovementReport,
@@ -16,11 +17,12 @@ import { getSettings } from "../services/settings.service";
 
 export const dashboardReport = asyncHandler(async (_req, res) => {
   const data = await getDashboardReport();
+  res.json({ success: true, data });
+});
 
-  res.json({
-    success: true,
-    data,
-  });
+export const dailySummaryReport = asyncHandler(async (_req, res) => {
+  const data = await getDailySummaryData();
+  res.json({ success: true, data });
 });
 
 export const salesReport = asyncHandler(async (req, res) => {

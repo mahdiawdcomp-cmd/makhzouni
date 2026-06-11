@@ -23,6 +23,7 @@ import type {
   CustomerPayload,
   CustomerTransactionsResponse,
   DashboardReport,
+  DailySummaryData,
   Invoice,
   InvoiceAuditEntry,
   InventoryValuation,
@@ -456,6 +457,11 @@ export async function createReceipt(payload: VoucherPayload) {
 
 export async function getDashboardReport() {
   const { data } = await api.get<ApiEnvelope<DashboardReport>>("/reports/dashboard")
+  return data.data
+}
+
+export async function getDailySummary() {
+  const { data } = await api.get<ApiEnvelope<DailySummaryData>>("/reports/daily-summary")
   return data.data
 }
 

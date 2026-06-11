@@ -465,6 +465,19 @@ export interface DashboardReport {
   }>
 }
 
+export interface DailySummaryData {
+  date: string
+  todaySales: number
+  yesterdaySales: number
+  salesChangePercent: number | null
+  collectionsToday: number
+  topProduct: { name: string; quantity: number } | null
+  lowStockCount: number
+  lowStockNames: string[]
+  mostOverdueCustomer: { name: string; daysLate: number } | null
+  smartTip: string | null
+}
+
 export interface SalesReport {
   totalSales: number
   invoiceCount: number

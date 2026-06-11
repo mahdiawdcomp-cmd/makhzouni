@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import {
   getAtRiskCustomers,
   getCustomerDebts,
+  getDailySummary,
   getDashboardReport,
   getEndOfDayReport,
   getInventoryValuation,
@@ -13,6 +14,15 @@ export function useDashboardReport() {
   return useQuery({
     queryKey: ["reports", "dashboard"],
     queryFn: getDashboardReport,
+  })
+}
+
+export function useDailySummary() {
+  return useQuery({
+    queryKey: ["reports", "daily-summary"],
+    queryFn: getDailySummary,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
   })
 }
 

@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   atRiskCustomersReport,
   customerDebtsReport,
+  dailySummaryReport,
   dashboardReport,
   debtReminderList,
   endOfDayReport,
@@ -26,6 +27,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/dashboard", dashboardReport);
+router.get("/daily-summary", dailySummaryReport);
 router.get("/sales", validate(salesReportSchema), salesReport);
 router.get("/products/movement", validate(productMovementReportSchema), productMovementReport);
 router.get("/inventory/valuation", inventoryValuationReport);
