@@ -76,7 +76,7 @@ const navItems: Item[] = [
       { to: "/quotations", label: "عروض الأسعار", icon: FileCheck2, dotColor: "#60A5FA" },
     ],
   },
-  { to: "/pos", label: "POS سريع", icon: ScanBarcode },
+  { to: "/pos", label: "كاشير سريع", icon: ScanBarcode },
   {
     id: "vouchers",
     label: "السندات",
@@ -363,7 +363,7 @@ export function Sidebar() {
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
                 <ScanBarcode className="h-4 w-4" />
               </span>
-              POS سريع
+              كاشير سريع
             </button>
           ) : (
             <SideLink key={item.to} to={item.to} label={item.label} Icon={item.icon} />

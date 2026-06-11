@@ -61,7 +61,7 @@ const ALL_QUICK_ACTIONS: QuickAction[] = [
   { id: "expense",          label: "مصاريف",        to: "/vouchers?action=EXPENSE", Icon: Wallet,       gradient: "from-rose-500 to-pink-600",      shadow: "rgba(244,63,94,0.35)" },
   { id: "account",          label: "كشف حساب",      to: "/account",                 Icon: Search,       gradient: "from-violet-500 to-purple-600",  shadow: "rgba(139,92,246,0.35)" },
   { id: "new-invoice",      label: "فاتورة جديدة", to: "/invoices/new",            Icon: FileText,     gradient: "from-teal-500 to-cyan-600",      shadow: "rgba(20,184,166,0.35)", newTab: true },
-  { id: "pos",              label: "POS سريع",      to: "/pos",                     Icon: ScanBarcode,  gradient: "from-indigo-500 to-blue-600",    shadow: "rgba(99,102,241,0.35)" },
+  { id: "pos",              label: "كاشير سريع",    to: "/pos",                     Icon: ScanBarcode,  gradient: "from-indigo-500 to-blue-600",    shadow: "rgba(99,102,241,0.35)" },
   { id: "catalog",          label: "الكاتلوك",      to: "/catalog-management",      Icon: Globe,        gradient: "from-cyan-500 to-sky-600",       shadow: "rgba(6,182,212,0.35)" },
   { id: "products",         label: "المخزن",        to: "/inventory",               Icon: Boxes,        gradient: "from-slate-600 to-slate-700",    shadow: "rgba(71,85,105,0.35)" },
   { id: "customers",        label: "الزبائن",       to: "/customers",               Icon: UserCheck,    gradient: "from-pink-500 to-rose-600",      shadow: "rgba(236,72,153,0.35)" },

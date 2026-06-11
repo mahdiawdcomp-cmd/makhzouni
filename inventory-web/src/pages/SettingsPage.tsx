@@ -433,8 +433,8 @@ export function SettingsPage() {
                   value={settings.whatsappProvider ?? "web"}
                   onChange={(e) => upd("whatsappProvider", e.target.value as "web" | "cloud")}
                 >
-                  <option value="web">QR Code (محلي فقط)</option>
-                  <option value="cloud">Cloud API (موصى به للإنتاج)</option>
+                  <option value="web">رمز QR — محلي فقط</option>
+                  <option value="cloud">Cloud API — موصى به للإنتاج</option>
                 </select>
               </Field>
               <Field label="Phone Number ID">
@@ -990,7 +990,7 @@ function ThemePanel() {
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <ColorPicker
-              label="لون الأساس (Accent)"
+              label="لون الأساس"
               value={customOverrides.accent ?? "#7c3aed"}
               onChange={(v) => setCustomOverrides({ ...customOverrides, accent: v })}
             />
@@ -1018,7 +1018,7 @@ function ThemePanel() {
       <Card>
         <CardContent className="p-5 space-y-4">
           <div>
-            <SectionTitle>الخط (Font)</SectionTitle>
+            <SectionTitle>الخط</SectionTitle>
             <p className="text-xs text-slate-500 mt-0.5">اختر الخط الذي يناسب علامتك التجارية.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

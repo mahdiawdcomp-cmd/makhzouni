@@ -32,7 +32,7 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "VIEW_WITHOUT_PRICES", label: "عرض بدون أسعار",    hint: "يرى المواد لكن بدون أسعار البيع والشراء", group: "sell" },
   { id: "SELL_WITH_DISCOUNT",  label: "السماح بالخصم",     hint: "يمكنه تطبيق خصومات عند إنشاء الفواتير", group: "sell" },
   { id: "VIEW_PURCHASE_PRICE", label: "عرض سعر الشراء",    hint: "يرى سعر الشراء للمواد", group: "sell" },
-  { id: "ACCESS_POS",          label: "نقطة البيع فقط",    hint: "صلاحية استخدام واجهة POS المبسطة فقط", group: "sell" },
+  { id: "ACCESS_POS",          label: "نقطة البيع فقط",    hint: "صلاحية استخدام الكاشير المبسط فقط", group: "sell" },
 ]
 
 const fullPermissions = allPermissions.map((permission) => permission.id)

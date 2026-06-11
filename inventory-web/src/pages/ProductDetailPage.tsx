@@ -288,7 +288,7 @@ export function ProductDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ScanQrCode className="h-5 w-5 text-blue-600" />
-                QR القطعة المفردة
+                رمز القطعة المفردة
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -296,7 +296,7 @@ export function ProductDetailPage() {
                 <img
                   className="mx-auto h-40 w-40 rounded-lg border-2 border-slate-200 object-contain p-1"
                   src={pieceQrUrl}
-                  alt="QR قطعة"
+                  alt="رمز القطعة"
                 />
               ) : (
                 <div className="mx-auto flex h-40 w-40 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-xs text-slate-400">
@@ -329,7 +329,7 @@ export function ProductDetailPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ScanQrCode className="h-5 w-5 text-amber-600" />
-                QR الكرتونة
+                رمز الكرتونة
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -337,11 +337,11 @@ export function ProductDetailPage() {
                 <img
                   className="mx-auto h-40 w-40 rounded-lg border-2 border-amber-200 object-contain p-1"
                   src={cartonQrUrl}
-                  alt="QR كرتون"
+                  alt="رمز الكرتون"
                 />
               ) : (
                 <div className="mx-auto flex h-40 w-40 items-center justify-center rounded-lg border-2 border-dashed border-amber-200 text-xs text-slate-400">
-                  {product.cartonQrCode ? "جار التحميل..." : "لا يوجد QR للكرتون"}
+                  {product.cartonQrCode ? "جار التحميل..." : "لا يوجد رمز للكرتون"}
                 </div>
               )}
               <p className="text-center text-xs font-mono text-slate-500">{product.cartonQrCode ?? "—"}</p>
@@ -469,10 +469,10 @@ export function ProductDetailPage() {
             <Field label="رقم الآيتم">
               <Input value={editForm.itemNumber ?? ""} onChange={(e) => setEditForm({ ...editForm, itemNumber: e.target.value })} />
             </Field>
-            <Field label="QR القطعة">
+            <Field label="رمز القطعة">
               <Input value={editForm.qrCode ?? ""} onChange={(e) => setEditForm({ ...editForm, qrCode: e.target.value })} />
             </Field>
-            <Field label="QR الكرتون">
+            <Field label="رمز الكرتون">
               <Input value={editForm.cartonQrCode ?? ""} onChange={(e) => setEditForm({ ...editForm, cartonQrCode: e.target.value })} />
             </Field>
             <div className="hidden md:block" />

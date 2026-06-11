@@ -44,11 +44,11 @@ export interface FontDef {
 }
 
 export const fonts: FontDef[] = [
-  { id: "inter",    label: "Inter (Latin)",         stack: '"Inter", "Segoe UI", system-ui, sans-serif',                         sample: "Inventory Pro" },
-  { id: "cairo",    label: "Cairo (كايرو)",          stack: '"Cairo", "Segoe UI", system-ui, sans-serif',                         sample: "مخزوني برو" },
-  { id: "tajawal",  label: "Tajawal (تجوال)",        stack: '"Tajawal", "Segoe UI", system-ui, sans-serif',                       sample: "مخزوني برو" },
-  { id: "noto_kufi",label: "Noto Kufi (نوتو كوفي)",  stack: '"Noto Kufi Arabic", "Segoe UI", system-ui, sans-serif',              sample: "مخزوني برو" },
-  { id: "ibm_plex", label: "IBM Plex Arabic (آي بي إم)", stack: '"IBM Plex Sans Arabic", "Segoe UI", system-ui, sans-serif',    sample: "مخزوني برو" },
+  { id: "inter",    label: "Inter",         stack: '"Inter", "Segoe UI", system-ui, sans-serif',              sample: "Inventory Pro" },
+  { id: "cairo",    label: "كايرو",         stack: '"Cairo", "Segoe UI", system-ui, sans-serif',              sample: "مخزوني برو" },
+  { id: "tajawal",  label: "تجوال",         stack: '"Tajawal", "Segoe UI", system-ui, sans-serif',            sample: "مخزوني برو" },
+  { id: "noto_kufi",label: "نوتو كوفي",    stack: '"Noto Kufi Arabic", "Segoe UI", system-ui, sans-serif',   sample: "مخزوني برو" },
+  { id: "ibm_plex", label: "آي بي إم",     stack: '"IBM Plex Sans Arabic", "Segoe UI", system-ui, sans-serif', sample: "مخزوني برو" },
 ]
 
 export const FONT_STORAGE_KEY = "inventory_font"

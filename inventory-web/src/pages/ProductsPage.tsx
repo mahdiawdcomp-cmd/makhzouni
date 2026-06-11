@@ -107,7 +107,7 @@ function exportInventoryCsv(products: Product[]) {
   const headers = [
     "رقم الصنف", "اسم المادة", "الفئة", "الكراتين", "قطع بالكرتونة",
     "القطع المفردة", "إجمالي القطع", "سعر الشراء", "سعر البيع",
-    "الحد الأدنى", "QR قطعة", "QR كرتونة",
+    "الحد الأدنى", "رمز القطعة", "رمز الكرتون",
     "الكمية الفعلية (للجرد)", "ملاحظات"
   ]
   const rows = products.map((p) => {
@@ -396,10 +396,10 @@ export function ProductsPage() {
             <Button variant="outline" className="h-8 px-2" title="تعديل" onClick={() => startEdit(row.original)}>
               <Edit className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="h-8 px-2" title="طباعة QR قطعة (2×2 سم)" onClick={() => void printPiece(row.original.id)}>
+            <Button variant="outline" className="h-8 px-2" title="طباعة رمز القطعة (2×2 سم)" onClick={() => void printPiece(row.original.id)}>
               <ScanQrCode className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="h-8 px-2" title="طباعة QR كرتون (A4، 6 لاصقات)" onClick={() => void printCarton(row.original.id)}>
+            <Button variant="outline" className="h-8 px-2" title="طباعة رمز الكرتون (A4، 6 لاصقات)" onClick={() => void printCarton(row.original.id)}>
               <Printer className="h-4 w-4" />
             </Button>
           </div>
@@ -491,7 +491,7 @@ export function ProductsPage() {
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold">المخزن</h1>
-          <p className="text-slate-500">إدارة المنتجات و QR والمخزون.</p>
+          <p className="text-slate-500">إدارة المنتجات والرموز والمخزون.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" asChild>
@@ -697,8 +697,8 @@ export function ProductsPage() {
                         <div className="flex justify-center gap-1">
                           <Button variant="outline" className="h-7 w-7 p-0" title="عرض" onClick={() => navigate(`/inventory/${p.id}`)}><Eye className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="تعديل" onClick={() => startEdit(p)}><Edit className="h-3.5 w-3.5" /></Button>
-                          <Button variant="outline" className="h-7 w-7 p-0" title="QR قطعة" onClick={() => void printPiece(p.id)}><ScanQrCode className="h-3.5 w-3.5" /></Button>
-                          <Button variant="outline" className="h-7 w-7 p-0" title="QR كرتون" onClick={() => void printCarton(p.id)}><Printer className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0" title="رمز القطعة" onClick={() => void printPiece(p.id)}><ScanQrCode className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0" title="رمز الكرتون" onClick={() => void printCarton(p.id)}><Printer className="h-3.5 w-3.5" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -748,7 +748,7 @@ export function ProductsPage() {
         <form className="space-y-4" onSubmit={submit}>
           <div className="rounded-md bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
             <FileText className="ml-1 inline h-3.5 w-3.5" />
-            اسم المنتج هو الحقل الوحيد المطلوب. بقية الحقول اختيارية — رقم الآيتم و QR يتولّدان تلقائياً إذا تركتهما فارغة.
+            اسم المنتج هو الحقل الوحيد المطلوب. بقية الحقول اختيارية — رقم الآيتم والرمز يتولّدان تلقائياً إذا تركتهما فارغة.
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
@@ -910,10 +910,10 @@ export function ProductsPage() {
             <Field label="رقم الآيتم" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً (مثل AB0001)"}>
               <Input placeholder="تلقائي" value={form.itemNumber ?? ""} onChange={(event) => setForm({ ...form, itemNumber: event.target.value })} />
             </Field>
-            <Field label="QR للقطعة" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً"}>
+            <Field label="رمز القطعة" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً"}>
               <Input placeholder="تلقائي" value={form.qrCode ?? ""} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
             </Field>
-            <Field label="QR للكرتون" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً"}>
+            <Field label="رمز الكرتون" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً"}>
               <Input placeholder="تلقائي" value={form.cartonQrCode ?? ""} onChange={(event) => setForm({ ...form, cartonQrCode: event.target.value })} />
             </Field>
             <div className="hidden md:block" />
