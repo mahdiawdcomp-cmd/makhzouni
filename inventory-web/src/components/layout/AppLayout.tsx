@@ -41,7 +41,7 @@ function LicenseBanner() {
   const isExpired = license.status === "expired"
   const label = isExpired
     ? `انتهت صلاحية الترخيص${license.readOnlyMode ? " — وضع القراءة فقط" : " — فترة السماح"}`
-    : `ينتهي الترخيص خلال ${license.daysLeft} يوم`
+    : license.daysLeft != null ? `ينتهي الترخيص خلال ${license.daysLeft} يوم` : "الترخيص قارب على الانتهاء"
 
   return (
     <div

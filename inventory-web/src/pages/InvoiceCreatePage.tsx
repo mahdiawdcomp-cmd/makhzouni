@@ -185,8 +185,9 @@ export function InvoiceCreatePage() {
   }, [selectedCustomer, isPurchase])
 
   // ── Unsaved warning: active when there are items and no saved invoice ─────
+  const savingRef = useRef(false)
   const isDirty = items.length > 0 && !savedInvoiceId
-  const blocker = useUnsavedWarning(isDirty)
+  const blocker = useUnsavedWarning(isDirty, savingRef)
 
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
@@ -668,6 +669,7 @@ export function InvoiceCreatePage() {
   async function persistInvoice(navigateAfterSave = false) {
     if (savedInvoiceId) return savedInvoiceId
     if (!selectedCustomer || items.length === 0 || hasInvalidTotal) return null
+    savingRef.current = true
     const response = await createMutation.mutateAsync({
       customerId: selectedCustomer.id,
       type: invoiceType,

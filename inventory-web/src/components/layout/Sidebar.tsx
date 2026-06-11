@@ -95,9 +95,11 @@ const navItems: Item[] = [
   { to: "/settings", label: "الإعدادات", icon: Settings },
 ]
 
+const isSaasOwner = import.meta.env.VITE_IS_SAAS_OWNER === "true"
+
 const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
-  { to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound },
+  ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),
 ]
 
 function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
