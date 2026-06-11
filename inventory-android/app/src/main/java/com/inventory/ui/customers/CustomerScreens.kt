@@ -281,7 +281,16 @@ fun CustomerDetailScreen(
                             IconAvatar(icon = Icons.Default.History, bgColor = AppColor.Blue100, iconColor = AppColor.Blue600, size = 40.dp, iconSize = 18.dp)
                             Column(Modifier.weight(1f)) {
                                 Text(last.referenceNumber ?: "-", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
-                                Text("${last.type} · ${last.date?.toDisplayDate() ?: "-"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                val lastTypeLabel = when (last.type) {
+                                    "INVOICE", "SALE_INVOICE" -> "فاتورة بيع"
+                                    "PURCHASE_INVOICE" -> "فاتورة شراء"
+                                    "SALES_RETURN_INVOICE", "SALES_RETURN" -> "مرتجع"
+                                    "RECEIPT" -> "سند قبض"
+                                    "PAYMENT" -> "سند دفع"
+                                    "EXPENSE" -> "مصاريف"
+                                    else -> last.type ?: "-"
+                                }
+                                Text("$lastTypeLabel · ${last.date?.toDisplayDate() ?: "-"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             last.amount?.let { AmountText(it, positiveColor = MaterialTheme.colorScheme.primary) }
                         }
@@ -412,13 +421,15 @@ private fun StatementRowItem(
     onClick: () -> Unit,
 ) {
     val typeLabel = when (row.type) {
-        "INVOICE", "SALE_INVOICE"      -> "فاتورة"
-        "INVOICE_PAYMENT","SALE_PAYMENT" -> "دفعة"
-        "PURCHASE_INVOICE"             -> "شراء"
-        "PURCHASE_PAYMENT"             -> "دفعة شراء"
-        "RECEIPT"                      -> "قبض"
-        "PAYMENT"                      -> "دفع"
-        else                           -> row.type
+        "INVOICE", "SALE_INVOICE"        -> if (row.debit > 0) "فاتورة بيع" else if (row.credit > 0) "فاتورة شراء" else "فاتورة"
+        "INVOICE_PAYMENT", "SALE_PAYMENT" -> "دفعة فاتورة"
+        "PURCHASE_INVOICE"               -> "فاتورة شراء"
+        "PURCHASE_PAYMENT"               -> "دفعة شراء"
+        "SALES_RETURN_INVOICE", "SALES_RETURN" -> "فاتورة مرتجع"
+        "RECEIPT"                        -> "سند قبض"
+        "PAYMENT"                        -> "سند دفع"
+        "EXPENSE"                        -> "مصاريف"
+        else                             -> row.type
     }
     val upperType = row.type.uppercase()
     val isCancelled = row.status.equals("CANCELLED", ignoreCase = true)

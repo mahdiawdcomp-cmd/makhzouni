@@ -70,7 +70,11 @@ function provider(): WhatsAppProvider {
 }
 
 function whatsappEnabled() {
-  return process.env.ENABLE_WHATSAPP === "true";
+  if (process.env.ENABLE_WHATSAPP === "true") return true;
+  // Auto-enable when Cloud API or GreenAPI credentials are configured via Settings
+  const hasCloud = Boolean(_dbCloudToken && _dbCloudPhoneNumberId);
+  const hasGreen = Boolean(_greenApiInstanceId && _greenApiToken);
+  return hasCloud || hasGreen;
 }
 
 // ── Green API ────────────────────────────────────────────────────────────────

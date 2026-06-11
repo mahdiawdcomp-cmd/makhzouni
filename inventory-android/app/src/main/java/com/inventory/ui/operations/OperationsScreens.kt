@@ -116,7 +116,7 @@ fun OperationsHubScreen(
             item {
                 SectionCard(title = "الإدارة والمراقبة") {
                     OperationTile("التحويلات", "تحويل مواد بين المخازن والفروع", Icons.Default.SwapHoriz, AppColor.Purple600, onTransfers)
-                    OperationTile("الفروع", "إضافة وترتيب الفروع والمخازن", Icons.Default.Warehouse, AppColor.Amber600, onBranches)
+                    OperationTile("المخازن", "إضافة وترتيب المخازن وربطها بالعمليات", Icons.Default.Warehouse, AppColor.Amber600, onBranches)
                     OperationTile("الكوبونات", "خصومات وعروض موسمية", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons)
                     OperationTile("سجل التدقيق", "من عدل؟ شنو عدل؟ ومتى؟", Icons.Default.History, AppColor.Gray700, onAudit)
                 }
@@ -329,10 +329,10 @@ fun BranchesScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
     var showAdd by remember { mutableStateOf(false) }
     AdminListScreen(
-        title = "الفروع والمخازن",
+        title = "المخازن",
         onBack = onBack,
         onRefresh = viewModel::refreshAll,
-        fabText = "فرع جديد",
+        fabText = "مخزن جديد",
         onFab = { showAdd = true }
     ) {
         items(state.branches, key = { it.id }) { branch -> BranchCard(branch) }
@@ -414,7 +414,7 @@ fun AuditLogsScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
         ) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    val entities = listOf(null to "الكل", "invoices" to "الفواتير", "vouchers" to "السندات", "products" to "المواد", "customers" to "الزبائن", "users" to "المستخدمين", "branches" to "الفروع", "transfers" to "التحويلات", "coupons" to "الكوبونات", "quotations" to "العروض")
+                    val entities = listOf(null to "الكل", "invoices" to "الفواتير", "vouchers" to "السندات", "products" to "المواد", "customers" to "الزبائن", "users" to "المستخدمين", "branches" to "المخازن", "transfers" to "التحويلات", "coupons" to "الكوبونات", "quotations" to "العروض")
                     entities.forEach { (key, label) ->
                         FilterChip(selected = state.auditEntity == key, onClick = { viewModel.setAuditFilter(key, state.auditAction) }, label = { Text(label) })
                     }
@@ -520,8 +520,8 @@ private fun BranchDialog(onDismiss: () -> Unit, onSave: (String, String, String,
     var code by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
-    SimpleDialog("فرع جديد", onDismiss, { onSave(name, code, phone, address) }) {
-        DialogField("اسم الفرع", name) { name = it }
+    SimpleDialog("مخزن جديد", onDismiss, { onSave(name, code, phone, address) }) {
+        DialogField("اسم المخزن", name) { name = it }
         DialogField("الكود", code) { code = it }
         DialogField("الهاتف", phone) { phone = it }
         DialogField("العنوان", address) { address = it }
@@ -625,7 +625,7 @@ private fun entityLabel(entity: String) = when (entity) {
     "products" -> "المواد"
     "customers" -> "الزبائن"
     "users" -> "المستخدمين"
-    "branches" -> "الفروع"
+    "branches" -> "المخازن"
     "transfers" -> "التحويلات"
     "coupons" -> "الكوبونات"
     "quotations" -> "العروض"

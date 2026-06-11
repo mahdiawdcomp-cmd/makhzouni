@@ -1,9 +1,11 @@
 import { useEffect } from "react"
-
-const APP_NAME = "مخزوني"
+import { useSettings } from "./useSettings"
 
 export function usePageTitle(title: string) {
+  const { data: settings } = useSettings()
+  const storeName = settings?.storeName?.trim() || "مخزوني"
+
   useEffect(() => {
-    document.title = title ? `${title} | ${APP_NAME}` : APP_NAME
-  }, [title])
+    document.title = title ? `${title} | ${storeName}` : storeName
+  }, [title, storeName])
 }
