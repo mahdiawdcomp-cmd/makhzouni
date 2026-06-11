@@ -17,6 +17,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { toast } from "../components/ui/use-toast"
 
 type Tab = "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts"
 
@@ -467,8 +468,8 @@ function DebtsTab() {
                   <TD>
                     <Button size="sm" variant="outline" onClick={() => {
                       void sendWhatsAppMessage({ phone: normalizePhone(r.phone), message: `مرحباً ${r.name}، رصيدك لدينا: ${fmt(r.currentBalance)} د.ع` })
-                        .then(() => window.alert(`✓ تم إرسال التذكير لـ ${r.name}`))
-                        .catch(() => window.alert("✗ تعذر الإرسال"))
+                        .then(() => toast({ title: `✓ تم إرسال التذكير لـ ${r.name}` }))
+                        .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
                     }}>
                       فردي
                     </Button>

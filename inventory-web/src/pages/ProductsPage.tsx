@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
+import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { getBranches, importProductsExcel, getImportTemplateUrl, getCatalogCategories } from "../api/endpoints"
@@ -17,6 +18,7 @@ import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
@@ -309,12 +311,14 @@ export function ProductsPage() {
   const branchName = (branchId?: string | null) =>
     branchId ? branches.find((branch) => branch.id === branchId)?.name ?? "مخزن غير معروف" : "المخزن الرئيسي"
   const [query, setQuery] = useState("")
+  const debouncedQuery = useDebounce(query, 250)
   const [category, setCategory] = useState("all")
   const [lowOnly, setLowOnly] = useState(false)
   const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "stock" | "category">("all")
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
+  const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
   const products = productsQuery.data ?? []
@@ -331,10 +335,10 @@ export function ProductsPage() {
 
   const filtered = products.filter((product) => {
     const matchesSearch =
-      query.trim() === "" ||
-      product.name.toLowerCase().includes(query.toLowerCase()) ||
-      product.itemNumber.toLowerCase().includes(query.toLowerCase()) ||
-      product.qrCode?.toLowerCase().includes(query.toLowerCase())
+      debouncedQuery.trim() === "" ||
+      product.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+      product.itemNumber.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+      product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase())
     const matchesCategory = category === "all" || product.category === category
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
     const missing = getMissing(product)
@@ -722,8 +726,7 @@ export function ProductsPage() {
         open={open}
         onOpenChange={(v) => {
           if (!v && !editing && form.name.trim()) {
-            if (!window.confirm("لم تحفظ المادة بعد. هل تريد الخروج بدون حفظ؟")) return
-            setForm(emptyForm)
+            setCloseProductConfirm(true); return
           }
           setOpen(v)
         }}
@@ -960,6 +963,15 @@ export function ProductsPage() {
           </Button>
         </form>
       </ModalForm>
+
+      <ConfirmDialog
+        open={closeProductConfirm}
+        title="خروج بدون حفظ؟"
+        description="لم تحفظ المادة بعد."
+        confirmLabel="خروج"
+        onConfirm={() => { setCloseProductConfirm(false); setForm(emptyForm); setOpen(false) }}
+        onCancel={() => setCloseProductConfirm(false)}
+      />
     </div>
   )
 }

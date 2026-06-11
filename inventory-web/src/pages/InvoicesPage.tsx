@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
+import { useDebounce } from "../hooks/useDebounce"
 import {
   flexRender,
   getCoreRowModel,
@@ -83,6 +84,7 @@ export function InvoicesPage() {
   const urlTo = searchParams.get("to") ?? ""
 
   const [query, setQuery] = useState("")
+  const debouncedQuery = useDebounce(query, 250)
   const [draftFrom, setDraftFrom] = useState(urlFrom)
   const [draftTo, setDraftTo] = useState(urlTo)
   const [draftStatus, setDraftStatus] = useState("all")
@@ -123,7 +125,7 @@ export function InvoicesPage() {
         appliedFilters.status === "CANCELLED" ||
         (appliedFilters.status === "paid" && paid && invoice.status !== "CANCELLED") ||
         (appliedFilters.status === "unpaid" && !paid && invoice.status !== "CANCELLED")
-      const search = query.trim().toLowerCase()
+      const search = debouncedQuery.trim().toLowerCase()
       const matchesSearch =
         search === "" ||
         invoice.invoiceNumber.toLowerCase().includes(search) ||

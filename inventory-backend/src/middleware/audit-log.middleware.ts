@@ -126,7 +126,7 @@ export function auditLogMiddleware(req: Request, res: Response, next: NextFuncti
   };
 
   res.on("finish", async () => {
-    if (!req.user || res.statusCode >= 400) return;
+    if (!req.user) return;
 
     const { entity, recordId } = auditTarget(req);
     const before = await beforePromise;

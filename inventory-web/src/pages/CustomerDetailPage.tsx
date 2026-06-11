@@ -13,6 +13,7 @@ import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } f
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { toast } from "../components/ui/use-toast"
 import { Label } from "../components/ui/label"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
@@ -149,7 +150,7 @@ export function CustomerDetailPage() {
 
   async function sendStatement() {
     if (!customer) return
-    if (!customer.phone) { window.alert("رقم الهاتف غير متوفر."); return }
+    if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: customer.name,
@@ -161,9 +162,9 @@ export function CustomerDetailPage() {
     })
     try {
       await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: msg })
-      window.alert("✓ تم إرسال الكشف عبر واتساب.")
+      toast({ title: "✓ تم إرسال الكشف عبر واتساب." })
     } catch {
-      window.alert("✗ تعذر الإرسال. تحقق من إعدادات واتساب.")
+      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
     }
   }
 
@@ -176,7 +177,7 @@ export function CustomerDetailPage() {
     try {
       await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: `رابط كشف حسابك:\n${fullUrl}` })
     } catch {
-      window.alert("تم نسخ الرابط. تعذر الإرسال التلقائي.")
+      toast({ title: "تم نسخ الرابط. تعذر الإرسال التلقائي." })
     }
   }
 

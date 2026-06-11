@@ -1,3 +1,5 @@
+import { toast } from "../components/ui/use-toast"
+
 export function fillTemplate(template: string, values: Record<string, string | number | undefined | null>): string {
   return template.replace(/\{\{\s*([\w\d_]+)\s*\}\}/g, (_, key) => {
     const value = values[key]
@@ -35,7 +37,7 @@ export function whatsappUrl(phone: string | undefined | null, message = "") {
 export function openWhatsApp(phone: string | undefined | null, message: string) {
   const url = whatsappUrl(phone, message)
   if (!url) {
-    window.alert("رقم الهاتف غير متوفر للزبون.")
+    toast({ title: "رقم الهاتف غير متوفر للزبون.", variant: "destructive" })
     return
   }
   window.open(url, "_blank", "noopener,noreferrer")

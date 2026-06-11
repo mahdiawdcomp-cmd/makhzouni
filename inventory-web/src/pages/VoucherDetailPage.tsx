@@ -33,7 +33,9 @@ import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
+import { toast } from "../components/ui/use-toast"
 
 function money(value: number | undefined) {
   return fmt(value)
@@ -73,6 +75,7 @@ export function VoucherDetailPage() {
   const nextId = idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1].id : null
   const goto = (target?: string | null) => { if (target && target !== id) navigate(`/vouchers/${target}`) }
 
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editAmountDisplay, setEditAmountDisplay] = useState("")
   const [editNotes, setEditNotes] = useState("")
@@ -123,11 +126,11 @@ export function VoucherDetailPage() {
   async function sendWhatsApp() {
     if (!voucher) return
     if (voucher.type === "EXPENSE") {
-      window.alert("سندات المصاريف داخلية ولا ترسل عبر واتساب.")
+      toast({ title: "سندات المصاريف داخلية ولا ترسل عبر واتساب.", variant: "destructive" })
       return
     }
     const phone = voucher.customer?.phone
-    if (!phone) { window.alert("رقم الهاتف غير متوفر."); return }
+    if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
     const tpl = settings?.voucherTemplate || DEFAULT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: voucher.customer?.name ?? "",
@@ -141,9 +144,9 @@ export function VoucherDetailPage() {
     setWaSending(true)
     try {
       await sendWhatsAppMessage({ phone: normalizePhone(phone), message: msg })
-      window.alert("✓ تم إرسال السند عبر واتساب.")
+      toast({ title: "✓ تم إرسال السند عبر واتساب." })
     } catch {
-      window.alert("✗ تعذر الإرسال. تحقق من إعدادات واتساب.")
+      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
     } finally {
       setWaSending(false)
     }
@@ -222,7 +225,7 @@ export function VoucherDetailPage() {
             </Button>
             <Button
               variant="destructive"
-              onClick={() => { if (window.confirm("حذف هذا السند نهائياً؟")) deleteMutation.mutate() }}
+              onClick={() => setConfirmDelete(true)}
               disabled={deleteMutation.isPending}
             >
               <Trash2 className="h-4 w-4" /> حذف
@@ -303,6 +306,17 @@ export function VoucherDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="حذف هذا السند نهائياً؟"
+        description="لا يمكن التراجع عن هذا الإجراء."
+        confirmLabel="حذف"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => { setConfirmDelete(false); deleteMutation.mutate() }}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   )
 }

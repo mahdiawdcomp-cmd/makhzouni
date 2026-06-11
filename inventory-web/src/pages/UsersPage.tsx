@@ -11,8 +11,10 @@ import type { CreateUserPayload, Role, User, UserPermission } from "../types/api
 import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
+import { toast } from "../components/ui/use-toast"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
 type UserForm = CreateUserPayload & { id?: string; password: string }
@@ -53,6 +55,7 @@ export function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null)
   const [form, setForm] = useState<UserForm>(emptyForm)
   const [error, setError] = useState("")
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<User | null>(null)
 
   function openCreate() {
     setEditing(null)
@@ -144,16 +147,18 @@ export function UsersPage() {
   }
 
   function permanentlyDelete(user: User) {
-    const ok = window.confirm("حذف نهائي للمستخدم؟ إذا عنده فواتير أو سندات راح ينرفض الحذف حفاظاً على الحسابات.")
-    if (!ok) return
+    setConfirmDeleteUser(user)
+  }
 
+  function doDelete(user: User) {
+    setConfirmDeleteUser(null)
     deleteMutation.mutate(user.id, {
       onError: (err) => {
         const message =
           (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message ??
           (err as Error).message ??
           "تعذر حذف المستخدم"
-        window.alert(message)
+        toast({ title: message, variant: "destructive" })
       },
     })
   }
@@ -343,6 +348,17 @@ export function UsersPage() {
           {error ? <div className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">{error}</div> : null}
         </form>
       </ModalForm>
+
+      <ConfirmDialog
+        open={confirmDeleteUser !== null}
+        title="حذف المستخدم نهائياً؟"
+        description="إذا عنده فواتير أو سندات راح ينرفض الحذف حفاظاً على الحسابات."
+        confirmLabel="حذف"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => confirmDeleteUser && doDelete(confirmDeleteUser)}
+        onCancel={() => setConfirmDeleteUser(null)}
+      />
     </div>
   )
 }

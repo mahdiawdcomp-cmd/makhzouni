@@ -7,6 +7,7 @@ import { createVoucher, getCustomers, getVouchers } from "../api/endpoints"
 import type { Voucher } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
@@ -34,6 +35,8 @@ export function VouchersPage() {
   const [typeFilter, setTypeFilter] = useState<FilterType>(
     urlType === "RECEIPT" || urlType === "PAYMENT" || urlType === "EXPENSE" ? urlType : "ALL",
   )
+
+  const [closeVoucherConfirm, setCloseVoucherConfirm] = useState(false)
 
   // Voucher creation dialog state
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -246,8 +249,7 @@ export function VouchersPage() {
         open={dialogOpen}
         onOpenChange={(open) => {
           if (!open && amount.replace(/,/g, "").trim() !== "") {
-            if (!window.confirm("لم تحفظ السند بعد. هل تريد الخروج بدون حفظ؟")) return
-            setAmount(""); setNotes(""); setDescription(""); setCustomerId(""); setCustomerQuery("")
+            setCloseVoucherConfirm(true); return
           }
           setDialogOpen(open)
         }}
@@ -394,6 +396,19 @@ export function VouchersPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={closeVoucherConfirm}
+        title="خروج بدون حفظ؟"
+        description="لم تحفظ السند بعد."
+        confirmLabel="خروج"
+        onConfirm={() => {
+          setCloseVoucherConfirm(false)
+          setAmount(""); setNotes(""); setDescription(""); setCustomerId(""); setCustomerQuery("")
+          setDialogOpen(false)
+        }}
+        onCancel={() => setCloseVoucherConfirm(false)}
+      />
     </div>
   )
 }

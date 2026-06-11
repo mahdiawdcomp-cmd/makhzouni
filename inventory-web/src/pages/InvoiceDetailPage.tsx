@@ -28,8 +28,9 @@ import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import type { Product } from "../types/api"
 import { Button } from "../components/ui/button"
-
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
+import { toast } from "../components/ui/use-toast"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
@@ -105,7 +106,7 @@ export function InvoiceDetailPage() {
   async function sendWaMessage() {
     if (!invoice) return
     const phone = invoice.customer?.phone
-    if (!phone) { window.alert("رقم الهاتف غير متوفر."); return }
+    if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
     setWaSending(true)
     try {
       // Try to send PDF with text caption; fall back to text-only if PDF fails
@@ -115,9 +116,9 @@ export function InvoiceDetailPage() {
         await sendWhatsAppMessage({ phone: normalizePhone(phone), message: waMessage })
       }
       setWaPreview(false)
-      window.alert("✓ تم إرسال الفاتورة عبر واتساب.")
+      toast({ title: "✓ تم إرسال الفاتورة عبر واتساب." })
     } catch {
-      window.alert("✗ تعذر الإرسال. تحقق من إعدادات واتساب.")
+      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
     } finally {
       setWaSending(false)
     }
@@ -146,6 +147,9 @@ export function InvoiceDetailPage() {
     if (!digits) return ""
     return Number(digits).toLocaleString("en-US")
   }
+
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [confirmReactivate, setConfirmReactivate] = useState(false)
 
   // Full edit dialog
   const [editOpen, setEditOpen] = useState(false)
@@ -239,7 +243,7 @@ export function InvoiceDetailPage() {
           {invoice.status === "ACTIVE" ? (
             <>
               <Button variant="outline" size="sm" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>
-              <Button variant="destructive" size="sm" onClick={() => { if (window.confirm("هل تريد إلغاء هذه الفاتورة؟")) cancelMutation.mutate() }} disabled={cancelMutation.isPending}>
+              <Button variant="destructive" size="sm" onClick={() => setConfirmCancel(true)} disabled={cancelMutation.isPending}>
                 <Ban className="h-3.5 w-3.5" /> إلغاء
               </Button>
             </>
@@ -249,7 +253,7 @@ export function InvoiceDetailPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { if (window.confirm("هل تريد إرجاع الفاتورة نشطة؟ سيتم إرجاع تأثيرها على الحساب والمخزون.")) reactivateMutation.mutate() }}
+                onClick={() => setConfirmReactivate(true)}
                 disabled={reactivateMutation.isPending}
               >
                 <RefreshCw className="h-3.5 w-3.5" /> إرجاع نشطة
@@ -517,6 +521,26 @@ export function InvoiceDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmCancel}
+        title="إلغاء هذه الفاتورة؟"
+        description="سيتم إلغاء تأثيرها على الحساب والمخزون."
+        confirmLabel="إلغاء الفاتورة"
+        destructive
+        loading={cancelMutation.isPending}
+        onConfirm={() => { setConfirmCancel(false); cancelMutation.mutate() }}
+        onCancel={() => setConfirmCancel(false)}
+      />
+      <ConfirmDialog
+        open={confirmReactivate}
+        title="إرجاع الفاتورة نشطة؟"
+        description="سيتم إرجاع تأثيرها على الحساب والمخزون."
+        confirmLabel="إرجاع نشطة"
+        loading={reactivateMutation.isPending}
+        onConfirm={() => { setConfirmReactivate(false); reactivateMutation.mutate() }}
+        onCancel={() => setConfirmReactivate(false)}
+      />
     </div>
   )
 }

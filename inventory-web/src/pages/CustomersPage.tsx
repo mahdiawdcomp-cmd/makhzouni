@@ -13,6 +13,7 @@ import { useCustomers } from "../hooks/useCustomers"
 import type { Customer, CustomerPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
@@ -41,6 +42,7 @@ export function CustomersPage() {
   const [filter, setFilter] = useState("all")
   const [sortBy, setSortBy] = useState<CustomerSort>("createdDesc")
   const [open, setOpen] = useState(false)
+  const [closeConfirm, setCloseConfirm] = useState(false)
   const [form, setForm] = useState<CustomerPayload>(emptyCustomer)
   const customers = customersQuery.data ?? []
   const now = Date.now()
@@ -179,8 +181,7 @@ export function CustomersPage() {
         open={open}
         onOpenChange={(v) => {
           if (!v && (form.name.trim() || form.phone.trim())) {
-            if (!window.confirm("لم تحفظ الزبون بعد. هل تريد الخروج بدون حفظ؟")) return
-            setForm(emptyCustomer)
+            setCloseConfirm(true); return
           }
           setOpen(v)
         }}
@@ -223,6 +224,15 @@ export function CustomersPage() {
           <Button className="w-full" type="submit">حفظ</Button>
         </form>
       </ModalForm>
+
+      <ConfirmDialog
+        open={closeConfirm}
+        title="خروج بدون حفظ؟"
+        description="لم تحفظ الزبون بعد."
+        confirmLabel="خروج"
+        onConfirm={() => { setCloseConfirm(false); setForm(emptyCustomer); setOpen(false) }}
+        onCancel={() => setCloseConfirm(false)}
+      />
     </div>
   )
 }

@@ -66,15 +66,23 @@ async function generateVoucherNumber(tx: Db, type: VoucherType, date: Date) {
     type === VoucherType.RECEIPT ? `REC-${year}-` :
     type === VoucherType.PAYMENT ? `PAY-${year}-` :
     `EXP-${year}-`;
-  const lastVoucher = await tx.paymentVoucher.findFirst({
-    where: { voucherNumber: { startsWith: prefix } },
-    orderBy: { voucherNumber: "desc" },
-  });
-  const lastNumber = lastVoucher
-    ? Number(lastVoucher.voucherNumber.replace(prefix, ""))
-    : 0;
+  const counterKey = `voucher-${prefix}`;
 
-  return `${prefix}${String(lastNumber + 1).padStart(4, "0")}`;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const counter = await tx.counter.upsert({
+      where: { key: counterKey },
+      update: { value: { increment: 1 } },
+      create: { key: counterKey, value: 1 },
+    });
+    const candidate = `${prefix}${String(counter.value).padStart(4, "0")}`;
+    const exists = await tx.paymentVoucher.findFirst({
+      where: { voucherNumber: candidate },
+      select: { id: true },
+    });
+    if (!exists) return candidate;
+  }
+
+  throw new AppError("Could not generate a unique voucher number", 409, "VOUCHER_NUMBER_CONFLICT");
 }
 
 async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: string) {

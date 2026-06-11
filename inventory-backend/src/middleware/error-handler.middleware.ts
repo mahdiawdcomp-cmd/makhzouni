@@ -49,7 +49,6 @@ export function errorHandler(
           ? `Duplicate value already exists: ${target}`
           : "Duplicate value violates a unique constraint",
         code: error.code,
-        meta: error.meta,
       });
     }
 
