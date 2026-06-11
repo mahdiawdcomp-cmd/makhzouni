@@ -19,6 +19,7 @@ type ProductInput = {
   pcsPerCarton?: number;
   purchasePrice?: number;
   salePrice?: number;
+  retailPrice?: number;
   costPrice?: number;
   expiryDate?: string | null;
   minStock?: number;
@@ -219,6 +220,7 @@ export async function createProduct(
         pcsPerCarton: input.pcsPerCarton ?? 1,
         purchasePrice: input.purchasePrice ?? 0,
         salePrice: input.salePrice ?? 0,
+        retailPrice: input.retailPrice ?? 0,
         costPrice: input.costPrice ?? 0,
         expiryDate: input.expiryDate ? new Date(input.expiryDate) : null,
         minStock: input.minStock ?? 0,
@@ -264,6 +266,7 @@ export async function updateProduct(
   if (input.pcsPerCarton !== undefined) data.pcsPerCarton = input.pcsPerCarton;
   if (input.purchasePrice !== undefined) data.purchasePrice = input.purchasePrice;
   if (input.salePrice !== undefined) data.salePrice = input.salePrice;
+  if (input.retailPrice !== undefined) data.retailPrice = input.retailPrice;
   if (input.costPrice !== undefined) data.costPrice = input.costPrice;
   if (input.expiryDate !== undefined) data.expiryDate = input.expiryDate ? new Date(input.expiryDate) : null;
   if (input.minStock !== undefined) data.minStock = input.minStock;

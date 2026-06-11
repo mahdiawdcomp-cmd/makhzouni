@@ -33,10 +33,12 @@ import { CatalogManagementPage } from "./pages/CatalogManagementPage"
 import { StocktakePage } from "./pages/StocktakePage"
 import { PublicStocktakePage } from "./pages/PublicStocktakePage"
 import { SuperAdminPage } from "./pages/SuperAdminPage"
+import { DisplayPage } from "./pages/DisplayPage"
 
 const router = createBrowserRouter([
   // ── Public routes ──
   { path: "/login", element: <LoginPage /> },
+  { path: "/display", element: <DisplayPage /> },
   { path: "/catalog", element: <PublicCatalogPage /> },
   { path: "/client/:token", element: <ClientPortalPage /> },
   { path: "/client/:token/invoice/:invoiceId", element: <PublicInvoicePage /> },

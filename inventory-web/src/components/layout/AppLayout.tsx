@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Outlet, useLocation, Link } from "react-router-dom"
+import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, Menu, X, Zap } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
@@ -67,6 +67,7 @@ function LicenseBanner() {
 }
 
 export function AppLayout() {
+  const isPosOnly = useAuthStore((s) => s.isPosOnly())
   const [darkMode, setDarkMode] = useState(
     () => localStorage.getItem("inventory_theme") === "dark",
   )
@@ -75,6 +76,8 @@ export function AppLayout() {
   useGlobalShortcuts()
   const mainRef = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
+
+  if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
 
   useEffect(() => {
     mainRef.current?.scrollTo(0, 0)

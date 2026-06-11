@@ -408,6 +408,18 @@ export function Sidebar() {
 
       {/* Bottom gradient fade */}
       <div className="h-4 shrink-0 bg-gradient-to-t from-black/20 to-transparent pointer-events-none" />
+
+      {/* Display screen shortcut */}
+      <div className="shrink-0 border-t border-white/6 px-2.5 py-2">
+        <button
+          type="button"
+          onClick={() => window.open("/display", "_blank", "noopener,noreferrer")}
+          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-[var(--theme-sidebarText)] transition-all hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+        >
+          <span className="text-sm">📺</span>
+          شاشة العرض
+        </button>
+      </div>
     </aside>
   )
 }

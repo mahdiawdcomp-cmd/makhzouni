@@ -52,7 +52,7 @@ const emptyEditForm: ProductPayload = {
   itemNumber: "", name: "", qrCode: "", cartonQrCode: "", imageUrl: null, category: "",
   categoryTags: [], typeTags: [],
   openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1,
-  purchasePrice: 0, salePrice: 0, costPrice: 0, minStock: 5,
+  purchasePrice: 0, salePrice: 0, retailPrice: 0, costPrice: 0, minStock: 5,
 }
 
 async function compressProductImage(file: File): Promise<string> {
@@ -129,6 +129,7 @@ export function ProductDetailPage() {
       pcsPerCarton: product.pcsPerCarton,
       purchasePrice: product.purchasePrice,
       salePrice: product.salePrice,
+      retailPrice: product.retailPrice ?? 0,
       costPrice: product.costPrice ?? 0,
       minStock: product.minStock,
     })
@@ -213,7 +214,8 @@ export function ProductDetailPage() {
                   <InfoRow label="الفئة" value={product.category ?? "—"} />
                   <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />
                   <InfoRow label="سعر الكلفة" value={`${fmt(product.costPrice ?? 0)} د.ع`} />
-                  <InfoRow label="سعر البيع" value={`${fmt(product.salePrice)} د.ع`} />
+                  <InfoRow label="سعر البيع (جملة)" value={`${fmt(product.salePrice)} د.ع`} />
+                  <InfoRow label="سعر المفرد" value={`${fmt(product.retailPrice ?? 0)} د.ع`} />
                 </div>
                 <div>
                   <InfoRow label="الكراتين المتوفرة" value={product.cartonsAvailable} />
@@ -492,8 +494,11 @@ export function ProductDetailPage() {
             <Field label="سعر الكلفة">
               <Input type="number" value={editForm.costPrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, costPrice: Number(e.target.value) })} />
             </Field>
-            <Field label="سعر البيع">
+            <Field label="سعر البيع (جملة)">
               <Input type="number" value={editForm.salePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, salePrice: Number(e.target.value) })} />
+            </Field>
+            <Field label="سعر المفرد (تجزئة)">
+              <Input type="number" value={editForm.retailPrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, retailPrice: Number(e.target.value) })} />
             </Field>
           </div>
           <Button className="w-full" type="submit" disabled={updateMutation.isPending}>

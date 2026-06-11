@@ -322,6 +322,7 @@ export const createProductSchema = z.object({
     pcsPerCarton: z.coerce.number().int().min(1).default(1),
     purchasePrice: z.coerce.number().nonnegative().default(0),
     salePrice: z.coerce.number().nonnegative().default(0),
+    retailPrice: z.coerce.number().nonnegative().default(0),
     costPrice: z.coerce.number().nonnegative().default(0),
     expiryDate: z.string().nullable().optional(),
     minStock: z.coerce.number().int().min(0).default(0),

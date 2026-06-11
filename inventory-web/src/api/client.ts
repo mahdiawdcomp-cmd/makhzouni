@@ -29,6 +29,12 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// No-auth instance for public endpoints (display screen, catalog, etc.)
+export const publicApi = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { "Content-Type": "application/json" },
+})
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {

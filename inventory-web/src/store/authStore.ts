@@ -10,6 +10,7 @@ interface AuthState {
   isAuthenticated: () => boolean
   isAdmin: () => boolean
   hasPermission: (permission: UserPermission) => boolean
+  isPosOnly: () => boolean
 }
 
 function readUser() {
@@ -43,5 +44,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasPermission: (permission) => {
     const user = get().user
     return Boolean(user && (user.role === "ADMIN" || user.permissions?.includes(permission)))
+  },
+  isPosOnly: () => {
+    const user = get().user
+    if (!user || user.role === "ADMIN") return false
+    const perms = user.permissions ?? []
+    // POS-only: staff with zero permissions or whose only permission is ACCESS_POS
+    return perms.length === 0 || perms.every((p) => p === "ACCESS_POS")
   },
 }))

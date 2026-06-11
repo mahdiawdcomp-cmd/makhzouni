@@ -134,6 +134,7 @@ model Product {
   pcsPerCarton      Int             @default(1) @map("pcs_per_carton")
   purchasePrice     Decimal         @default(0) @map("purchase_price") @db.Decimal(12, 2)
   salePrice         Decimal         @default(0) @map("sale_price") @db.Decimal(12, 2)
+  retailPrice       Decimal         @default(0) @map("retail_price") @db.Decimal(12, 2)
   costPrice         Decimal         @default(0) @map("cost_price") @db.Decimal(12, 2)
   expiryDate        DateTime?       @map("expiry_date")
   minStock          Int             @default(0) @map("min_stock")

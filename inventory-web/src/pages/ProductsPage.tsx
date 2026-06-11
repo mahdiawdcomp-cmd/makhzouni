@@ -52,6 +52,7 @@ const emptyForm: ProductFormState = {
   pcsPerCarton: 1,
   purchasePrice: 0,
   salePrice: 0,
+  retailPrice: 0,
   minStock: 5,
   branchId: "",
   storageLocation: "",
@@ -933,8 +934,11 @@ export function ProductsPage() {
             <Field label="سعر الشراء (للقطعة)">
               <Input type="number" value={form.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, purchasePrice: Number(event.target.value) })} />
             </Field>
-            <Field label="سعر البيع (للقطعة)">
+            <Field label="سعر البيع (جملة — للقطعة)">
               <Input type="number" value={form.salePrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, salePrice: Number(event.target.value) })} />
+            </Field>
+            <Field label="سعر المفرد (تجزئة — اختياري)">
+              <Input type="number" value={form.retailPrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, retailPrice: Number(event.target.value) })} />
             </Field>
           </div>
 

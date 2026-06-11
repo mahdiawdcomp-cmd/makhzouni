@@ -144,6 +144,7 @@ export function InvoiceCreatePage() {
   const [productHighlight, setProductHighlight] = useState(0)
   const [showPurchase, setShowPurchase] = useState(false)
   const [showStock, setShowStock] = useState(false)
+  const [useRetailPrice, setUseRetailPrice] = useState(false)
 
   // ---- totals state ----
   const [discount, setDiscount] = useState(0)
@@ -246,7 +247,9 @@ export function InvoiceCreatePage() {
   const hasInvalidTotal = total < 0
 
   function unitPriceFor(product: Product, unit: Unit) {
-    const base = isPurchase ? product.purchasePrice : product.salePrice
+    const base = isPurchase
+      ? product.purchasePrice
+      : (useRetailPrice && product.retailPrice > 0 ? product.retailPrice : product.salePrice)
     if (unit === "CARTON") return base * product.pcsPerCarton
     if (unit === "DOZEN") return base * 12
     return base
@@ -1003,6 +1006,17 @@ export function InvoiceCreatePage() {
           <div className="flex items-center justify-between gap-3">
             <CardTitle>الأصناف</CardTitle>
             <div className="flex gap-2">
+              {!isPurchase && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={useRetailPrice ? "border-orange-400 bg-orange-50 text-orange-700 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-400" : ""}
+                  onClick={() => setUseRetailPrice((v) => !v)}
+                  title="تبديل بين سعر الجملة وسعر المفرد"
+                >
+                  {useRetailPrice ? "مفرد" : "جملة"}
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => setShowPurchase((v) => !v)}>سعر الشراء</Button>
               <Button variant="outline" size="sm" onClick={() => setShowStock((v) => !v)}>الكمية</Button>
               <Button size="sm" onClick={() => { setProductModal(true); window.setTimeout(() => productSearchRef.current?.focus(), 50) }}>

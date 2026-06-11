@@ -96,6 +96,7 @@ export interface Product {
   pcsPerCarton: number
   purchasePrice: number
   salePrice: number
+  retailPrice: number
   costPrice?: number
   expiryDate?: string | null
   minStock: number
@@ -217,6 +218,7 @@ export interface ProductPayload {
   pcsPerCarton?: number
   purchasePrice?: number
   salePrice?: number
+  retailPrice?: number
   costPrice?: number
   expiryDate?: string | null
   minStock?: number

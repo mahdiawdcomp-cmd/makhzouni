@@ -1,4 +1,4 @@
-import { api } from "./client"
+import { api, publicApi } from "./client"
 import type {
   ApiEnvelope,
   AppSettings,
@@ -893,3 +893,28 @@ export async function renewLicense(clientId: string, payload: {
 export async function deletePayment(id: string) {
   await api.delete(`/payments/${id}`)
 }
+
+// ── Public display screen ─────────────────────────────────────────────────────
+export interface DisplayProduct {
+  id: string
+  name: string
+  salePrice: number
+  retailPrice: number
+  category: string | null
+  imageUrl: string | null
+  itemNumber: string
+  currentStock: number
+}
+
+export interface DisplayData {
+  storeName: string
+  storeLogo: string
+  currency: string
+  products: DisplayProduct[]
+}
+
+export async function getDisplayProducts() {
+  const { data } = await publicApi.get<{ success: boolean; data: DisplayData }>("/public/display-products")
+  return data.data
+}
+
