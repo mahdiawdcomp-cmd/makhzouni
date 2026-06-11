@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   createLicensedClient, deleteLicensedClient, deletePayment,
   getLicensedClients, getLicenseStatus, getPayments, getRevenueSummary,
-  recordPayment, renewLicense, revokeLicensedClient, updateLicensedClient,
-  type ClientPayment, type LicensedClient, type RevenueSummary,
+  renewLicense, revokeLicensedClient, updateLicensedClient,
+  type LicensedClient, type RevenueSummary,
 } from "../api/endpoints"
 import {
   AlertTriangle, ArrowRight, BarChart3, CheckCircle, ChevronDown, ChevronUp,
