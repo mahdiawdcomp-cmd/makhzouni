@@ -282,6 +282,7 @@ export function InvoicesPage() {
           )}
 
           {!invoicesQuery.isLoading && (
+          <>
           <Table>
             <THead>
               {table.getHeaderGroups().map((group) => (
@@ -325,6 +326,7 @@ export function InvoicesPage() {
               التالي
             </Button>
           </div>
+          </>
           )}
         </CardContent>
       </Card>

@@ -7,6 +7,7 @@ import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.NetworkMonitor
 import com.inventory.data.remote.dto.CreateVoucherRequest
 import com.inventory.data.remote.dto.CustomerDto
+import com.inventory.data.remote.dto.CustomerRatingDto
 import com.inventory.data.remote.dto.CustomerTransactionDto
 import com.inventory.data.remote.dto.LastTransactionDto
 import com.inventory.data.remote.dto.UpsertCustomerRequest
@@ -75,6 +76,15 @@ class CustomerRepository @Inject constructor(
             ApiResult.Success(apiClient.api.getLastCustomerTransaction(customerId).data?.toDomain())
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر تحميل آخر حركة")
+        }
+    }
+
+    suspend fun getCustomerRatings(): ApiResult<List<CustomerRatingDto>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.getCustomerRatings().data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل التقييمات")
         }
     }
 

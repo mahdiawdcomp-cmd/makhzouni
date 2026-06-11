@@ -422,7 +422,7 @@ fun InvoiceCreateScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
-                                    Text(product.salePrice.formatMoney(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                                    if (!state.hidePrice) Text(product.salePrice.formatMoney(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -446,6 +446,7 @@ fun InvoiceCreateScreen(
                                     item = item,
                                     showPurchasePrice = state.showPurchasePrice,
                                     showStock = state.showStock,
+                                    hidePrice = state.hidePrice,
                                     onUnit = { viewModel.updateItem(item.lineId, unit = it) },
                                     onQuantity = { viewModel.updateItem(item.lineId, quantity = it.toIntOrNull() ?: 0) },
                                     onPrice = { viewModel.updateItem(item.lineId, price = it.toDoubleOrNull() ?: item.unitPrice) },
@@ -560,6 +561,7 @@ private fun InvoiceItemRow(
     item: InvoiceDraftItem,
     showPurchasePrice: Boolean,
     showStock: Boolean,
+    hidePrice: Boolean = false,
     onUnit: (String) -> Unit,
     onQuantity: (String) -> Unit,
     onPrice: (String) -> Unit,
@@ -653,26 +655,30 @@ private fun InvoiceItemRow(
                 keyboardActions = KeyboardActions(onNext = { priceFocus.requestFocus() }),
                 shape = RoundedCornerShape(8.dp),
             )
-            // Price
+            if (!hidePrice) {
+                // Price
+                OutlinedTextField(
+                    value = item.unitPrice.toString(), onValueChange = onPrice,
+                    modifier = Modifier.weight(1f).focusRequester(priceFocus),
+                    label = { Text("السعر", fontSize = 11.sp) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { totalFocus.requestFocus() }),
+                    shape = RoundedCornerShape(8.dp),
+                )
+            }
+        }
+        if (!hidePrice) {
             OutlinedTextField(
-                value = item.unitPrice.toString(), onValueChange = onPrice,
-                modifier = Modifier.weight(1f).focusRequester(priceFocus),
-                label = { Text("السعر", fontSize = 11.sp) },
+                value = item.totalPrice.toString(),
+                onValueChange = onTotal,
+                modifier = Modifier.fillMaxWidth().focusRequester(totalFocus),
+                label = { Text("الإجمالي", fontSize = 11.sp) },
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-                keyboardActions = KeyboardActions(onNext = { totalFocus.requestFocus() }),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onDone() }),
                 shape = RoundedCornerShape(8.dp),
             )
         }
-        OutlinedTextField(
-            value = item.totalPrice.toString(),
-            onValueChange = onTotal,
-            modifier = Modifier.fillMaxWidth().focusRequester(totalFocus),
-            label = { Text("الإجمالي", fontSize = 11.sp) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onDone() }),
-            shape = RoundedCornerShape(8.dp),
-        )
     }
 }

@@ -3,7 +3,6 @@ import {
   applyTheme,
   fonts,
   getCustomOverrides,
-  getStoredFontStack,
   getStoredThemeId,
   saveCustomOverrides,
   setStoredFont,

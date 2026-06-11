@@ -611,6 +611,7 @@ export function ProductsPage() {
 
           {/* ── Excel-style inventory table ── */}
           {!productsQuery.isLoading && (
+          <>
           <div className="overflow-x-auto rounded-lg border border-gray-300 shadow-inner">
             <table className="w-full text-right text-sm">
               <thead className="bg-gray-100 border-b-2 border-gray-300 sticky top-0">
@@ -731,6 +732,7 @@ export function ProductsPage() {
             <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
             <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
           </div>
+          </>
           )}
         </CardContent>
       </Card>

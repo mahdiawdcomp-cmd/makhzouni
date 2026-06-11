@@ -127,7 +127,11 @@ fun CustomerListScreen(
                     contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
                 ) {
                     items(state.filteredCustomers, key = { it.id }) { customer ->
-                        CustomerListItem(customer = customer, onClick = { onOpen(customer.id) })
+                        CustomerListItem(
+                            customer = customer,
+                            rating = state.ratings[customer.id],
+                            onClick = { onOpen(customer.id) }
+                        )
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
@@ -137,7 +141,7 @@ fun CustomerListScreen(
 }
 
 @Composable
-private fun CustomerListItem(customer: Customer, onClick: () -> Unit) {
+private fun CustomerListItem(customer: Customer, rating: String? = null, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -152,7 +156,10 @@ private fun CustomerListItem(customer: Customer, onClick: () -> Unit) {
         TextAvatar(customer.name, avatarColor, size = 46.dp)
 
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(customer.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(customer.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (rating != null) RatingBadge(rating)
+            }
             Text(customer.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
             customer.lastTransactionAt?.let {
                 Text("آخر تعامل: ${it.toDisplayDate()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
@@ -163,6 +170,23 @@ private fun CustomerListItem(customer: Customer, onClick: () -> Unit) {
             BalanceChip(customer.currentBalance)
             Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
         }
+    }
+}
+
+@Composable
+private fun RatingBadge(rating: String) {
+    val (bg, fg) = when (rating) {
+        "A" -> Color(0xFF059669) to Color.White
+        "B" -> Color(0xFF0284C7) to Color.White
+        else -> Color(0xFFE11D48) to Color.White
+    }
+    Box(
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(4.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(rating, color = fg, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -221,7 +245,10 @@ fun CustomerDetailScreen(
                         .padding(20.dp),
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(if (isDebt) "رصيد مستحق" else "في صالحه", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(if (isDebt) "رصيد مستحق" else "في صالحه", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
+                            state.rating?.let { RatingBadge(it) }
+                        }
                         Text("${customer.currentBalance.formatMoney()} IQD", color = Color.White, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold)
                         Text(customer.phone, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
                     }

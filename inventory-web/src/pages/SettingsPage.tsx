@@ -928,7 +928,7 @@ function ThemePanel() {
                     "group relative overflow-hidden rounded-xl border-2 text-right transition-all hover:scale-[1.03] hover:shadow-lg",
                     active ? "ring-2" : "border-slate-200 dark:border-slate-700 hover:border-slate-300",
                   )}
-                  style={active ? { borderColor: t.vars.accent, ringColor: t.vars.accent } : {}}
+                  style={active ? { borderColor: t.vars.accent, "--tw-ring-color": t.vars.accent } as React.CSSProperties : {}}
                 >
                   {/* Mini app preview */}
                   <div className="flex h-16 overflow-hidden">

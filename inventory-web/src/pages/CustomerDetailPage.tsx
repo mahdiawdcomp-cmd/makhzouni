@@ -130,7 +130,7 @@ export function CustomerDetailPage() {
   const updateMutation = useUpdateCustomer(id)
   const customer = details.customerQuery.data
   const ratingsQuery = useQuery({ queryKey: ["customer-ratings"], queryFn: getCustomerRatings, staleTime: 5 * 60_000 })
-  const myRating = ratingsQuery.data?.find((r) => r.customerId === id)?.rating ?? null
+  const myRating = ratingsQuery.data?.find((r) => r.id === id)?.rating ?? null
   const transactions = details.transactionsQuery.data ?? []
   const invoices = details.invoicesQuery.data ?? []
   const vouchers = details.vouchersQuery.data ?? []

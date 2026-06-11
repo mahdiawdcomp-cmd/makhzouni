@@ -487,6 +487,19 @@ data class SalesPointDto(
     val netProfit: Double = 0.0
 )
 
+// A/B/C customer rating from /reports/customers/ratings
+data class CustomerRatingDto(
+    val id: String,
+    val name: String,
+    val phone: String,
+    val currentBalance: Double = 0.0,
+    val totalPurchases: Double = 0.0,
+    val invoiceCount: Int = 0,
+    val avgPaymentDays: Double = 0.0,
+    val rating: String,         // "A" | "B" | "C"
+    val ratingLabel: String = ""
+)
+
 data class SalesReportDto(
     val totalSales: Double = 0.0,
     val invoiceCount: Int = 0,

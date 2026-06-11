@@ -7,6 +7,7 @@ import com.inventory.data.remote.dto.CreateInvoiceRequest
 import com.inventory.data.repository.CustomerRepository
 import com.inventory.data.repository.InvoiceRepository
 import com.inventory.data.repository.ProductRepository
+import com.inventory.data.repository.SessionManager
 import com.inventory.data.repository.toCreateItems
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.Invoice
@@ -161,6 +162,7 @@ data class InvoiceCreateUiState(
     val showPurchasePrice: Boolean = false,
     val showStock: Boolean = false,
     val useRetailPrice: Boolean = false,
+    val hidePrice: Boolean = false,
     val discountValue: String = "0",
     val discountMode: String = "amount",
     val tax: String = "0",
@@ -198,7 +200,8 @@ data class InvoiceCreateUiState(
 class InvoiceCreateViewModel @Inject constructor(
     private val invoiceRepository: InvoiceRepository,
     private val customerRepository: CustomerRepository,
-    private val productRepository: ProductRepository
+    private val productRepository: ProductRepository,
+    private val sessionManager: SessionManager
 ) : ViewModel() {
     private val _state = MutableStateFlow(InvoiceCreateUiState())
     val state: StateFlow<InvoiceCreateUiState> = _state.asStateFlow()
@@ -207,6 +210,11 @@ class InvoiceCreateViewModel @Inject constructor(
         viewModelScope.launch { customerRepository.customers.collect { _state.value = _state.value.copy(customers = it) } }
         viewModelScope.launch { productRepository.products.collect { _state.value = _state.value.copy(products = it) } }
         viewModelScope.launch { customerRepository.refreshCustomers(); productRepository.refreshProducts() }
+        viewModelScope.launch {
+            sessionManager.permissions.collect { perms ->
+                _state.value = _state.value.copy(hidePrice = perms.contains("VIEW_WITHOUT_PRICES"))
+            }
+        }
     }
 
     fun setCustomerQuery(value: String) { _state.value = _state.value.copy(customerQuery = value, selectedCustomer = null) }

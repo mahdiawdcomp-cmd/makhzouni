@@ -26,6 +26,7 @@ data class CustomerListUiState(
     val isLoading: Boolean = false,
     val isSupplierFilter: Boolean = false,
     val sortBy: String = "updated",
+    val ratings: Map<String, String> = emptyMap(),  // customerId -> "A"|"B"|"C"
     val error: String? = null
 ) {
     val filteredCustomers: List<Customer> = customers.filter {
@@ -49,21 +50,27 @@ class CustomerListViewModel @Inject constructor(
     private val query = MutableStateFlow("")
     private val isLoading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
-
     private val isSupplierFilter = MutableStateFlow(false)
     private val sortBy = MutableStateFlow("updated")
+    private val ratings = MutableStateFlow<Map<String, String>>(emptyMap())
 
     val state: StateFlow<CustomerListUiState> = combine(
         combine(repository.customers, query, isSupplierFilter, isLoading, error) { customers, queryValue, supplierFilter, loading, errorValue ->
             CustomerListUiState(customers, queryValue, loading, supplierFilter, error = errorValue)
         },
-        sortBy
-    ) { stateValue, sortValue ->
-        stateValue.copy(sortBy = sortValue)
+        combine(sortBy, ratings) { sortValue, ratingsMap -> sortValue to ratingsMap }
+    ) { stateValue, (sortValue, ratingsMap) ->
+        stateValue.copy(sortBy = sortValue, ratings = ratingsMap)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CustomerListUiState())
 
     init {
         refresh()
+        viewModelScope.launch {
+            when (val result = repository.getCustomerRatings()) {
+                is ApiResult.Success -> ratings.value = result.data.associate { it.id to it.rating }
+                else -> Unit
+            }
+        }
         // ── Auto-refresh every 30 seconds ──
         viewModelScope.launch {
             while (true) {
@@ -92,7 +99,8 @@ class CustomerListViewModel @Inject constructor(
 
 data class CustomerDetailUiState(
     val customer: Customer? = null,
-    val lastTransaction: LastTransaction? = null
+    val lastTransaction: LastTransaction? = null,
+    val rating: String? = null   // "A" | "B" | "C"
 )
 
 @HiltViewModel
@@ -102,14 +110,27 @@ class CustomerDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val customerId: String = checkNotNull(savedStateHandle["customerId"])
     private val lastTransaction = MutableStateFlow<LastTransaction?>(null)
-    val state = combine(repository.observeCustomer(customerId), lastTransaction) { customer, transaction ->
-        CustomerDetailUiState(customer, transaction)
+    private val rating = MutableStateFlow<String?>(null)
+
+    val state = combine(
+        combine(repository.observeCustomer(customerId), lastTransaction) { customer, transaction ->
+            CustomerDetailUiState(customer, transaction)
+        },
+        rating
+    ) { uiState, ratingValue ->
+        uiState.copy(rating = ratingValue)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CustomerDetailUiState())
 
     init {
         viewModelScope.launch {
             when (val result = repository.lastTransaction(customerId)) {
                 is ApiResult.Success -> lastTransaction.value = result.data
+                else -> Unit
+            }
+        }
+        viewModelScope.launch {
+            when (val result = repository.getCustomerRatings()) {
+                is ApiResult.Success -> rating.value = result.data.find { it.id == customerId }?.rating
                 else -> Unit
             }
         }

@@ -17,6 +17,7 @@ import com.inventory.data.remote.dto.CustomerDebtDto
 import com.inventory.data.remote.dto.CreateUserRequest
 import com.inventory.data.remote.dto.CustomerBalanceDto
 import com.inventory.data.remote.dto.CustomerDto
+import com.inventory.data.remote.dto.CustomerRatingDto
 import com.inventory.data.remote.dto.CustomerTransactionDto
 import com.inventory.data.remote.dto.CustomerTransactionsEnvelope
 import com.inventory.data.remote.dto.LastTransactionDto
@@ -170,6 +171,9 @@ interface InventoryApi {
 
     @GET("customers/{id}/balance")
     suspend fun getCustomerBalance(@Path("id") id: String): ApiEnvelope<CustomerBalanceDto>
+
+    @GET("reports/customers/ratings")
+    suspend fun getCustomerRatings(): ApiEnvelope<List<CustomerRatingDto>>
 
     @GET("vouchers")
     suspend fun getVouchers(
