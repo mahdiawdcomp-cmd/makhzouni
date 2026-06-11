@@ -328,7 +328,12 @@ fun ProductDetailScreen(
                 SectionCard(title = "الأسعار") {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         PriceBox("سعر الشراء", cur.purchasePrice, AppColor.Amber600, AppColor.Amber50, Modifier.weight(1f))
-                        PriceBox("سعر البيع",  cur.salePrice,    AppColor.Green600,  AppColor.Green50,  Modifier.weight(1f))
+                        PriceBox("سعر الجملة", cur.salePrice,     AppColor.Green600,  AppColor.Green50,  Modifier.weight(1f))
+                    }
+                    if (cur.retailPrice > 0.0 && cur.retailPrice != cur.salePrice) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PriceBox("سعر المفرد", cur.retailPrice, AppColor.Blue600, AppColor.Blue50, Modifier.fillMaxWidth())
+                        }
                     }
                 }
             }
@@ -517,7 +522,8 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                 SectionCard(title = "الأسعار") {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         AppTextField(state.purchasePrice, { viewModel.update("purchasePrice", it) }, "سعر الشراء", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        AppTextField(state.salePrice, { viewModel.update("salePrice", it) }, "سعر البيع", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        AppTextField(state.salePrice, { viewModel.update("salePrice", it) }, "سعر البيع (جملة)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        AppTextField(state.retailPrice, { viewModel.update("retailPrice", it) }, "سعر المفرد (اختياري)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     }
                 }
             }

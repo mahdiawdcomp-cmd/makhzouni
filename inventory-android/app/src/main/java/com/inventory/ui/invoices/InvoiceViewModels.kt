@@ -140,10 +140,13 @@ data class InvoiceDraftItem(
     fun toInvoiceItem() = InvoiceItem(product.id, product.name, unit, quantity, unitPrice, totalPrice)
 }
 
-private fun unitPriceFor(product: Product, unit: String): Double = when (unit) {
-    "CARTON" -> product.salePrice * product.pcsPerCarton
-    "DOZEN" -> product.salePrice * 12
-    else -> product.salePrice
+private fun unitPriceFor(product: Product, unit: String, useRetail: Boolean = false): Double {
+    val base = if (useRetail && product.retailPrice > 0.0) product.retailPrice else product.salePrice
+    return when (unit) {
+        "CARTON" -> base * product.pcsPerCarton
+        "DOZEN" -> base * 12
+        else -> base
+    }
 }
 
 data class InvoiceCreateUiState(
@@ -157,6 +160,7 @@ data class InvoiceCreateUiState(
     val items: List<InvoiceDraftItem> = emptyList(),
     val showPurchasePrice: Boolean = false,
     val showStock: Boolean = false,
+    val useRetailPrice: Boolean = false,
     val discountValue: String = "0",
     val discountMode: String = "amount",
     val tax: String = "0",
@@ -283,15 +287,28 @@ class InvoiceCreateViewModel @Inject constructor(
     }
 
     fun addProduct(product: Product) {
-        _state.value = _state.value.copy(items = _state.value.items + InvoiceDraftItem(product), productQuery = "")
+        val useRetail = _state.value.useRetailPrice
+        _state.value = _state.value.copy(
+            items = _state.value.items + InvoiceDraftItem(product = product, unitPrice = unitPriceFor(product, "PIECE", useRetail)),
+            productQuery = ""
+        )
     }
 
     fun addProductById(productId: String, unit: String = "PIECE") {
         val product = _state.value.products.find { it.id == productId } ?: return
+        val useRetail = _state.value.useRetailPrice
         _state.value = _state.value.copy(
-            items = _state.value.items + InvoiceDraftItem(product = product, unit = unit, unitPrice = unitPriceFor(product, unit)),
+            items = _state.value.items + InvoiceDraftItem(product = product, unit = unit, unitPrice = unitPriceFor(product, unit, useRetail)),
             productQuery = ""
         )
+    }
+
+    fun toggleRetailPrice() {
+        val next = !_state.value.useRetailPrice
+        val updatedItems = _state.value.items.map {
+            it.copy(unitPrice = unitPriceFor(it.product, it.unit, next))
+        }
+        _state.value = _state.value.copy(useRetailPrice = next, items = updatedItems)
     }
 
     fun quickCreateProduct() {
@@ -312,7 +329,7 @@ class InvoiceCreateViewModel @Inject constructor(
             if (it.lineId == lineId) it.copy(
                 unit = nextUnit,
                 quantity = quantity ?: it.quantity,
-                unitPrice = price ?: if (unit != null) unitPriceFor(it.product, nextUnit) else it.unitPrice
+                unitPrice = price ?: if (unit != null) unitPriceFor(it.product, nextUnit, _state.value.useRetailPrice) else it.unitPrice
             ) else it
         })
     }

@@ -358,6 +358,12 @@ fun InvoiceCreateScreen(
                     titleAction = {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             FilterChip(
+                                selected = state.useRetailPrice,
+                                onClick = viewModel::toggleRetailPrice,
+                                label = { Text(if (state.useRetailPrice) "مفرد" else "جملة", fontSize = 11.sp) },
+                                modifier = Modifier.height(32.dp),
+                            )
+                            FilterChip(
                                 selected = state.showPurchasePrice,
                                 onClick = viewModel::togglePurchase,
                                 label = { Text("شراء", fontSize = 11.sp) },

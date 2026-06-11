@@ -130,6 +130,7 @@ data class ProductDto(
     val pcsPerCarton: Int = 1,
     val purchasePrice: Double = 0.0,
     val salePrice: Double = 0.0,
+    val retailPrice: Double = 0.0,
     val minStock: Int = 0,
     val currentStock: Int? = null,
     val createdAt: String? = null,
@@ -149,6 +150,7 @@ data class UpsertProductRequest(
     val pcsPerCarton: Int = 1,
     val purchasePrice: Double = 0.0,
     val salePrice: Double = 0.0,
+    val retailPrice: Double = 0.0,
     val minStock: Int = 0,
     val branchId: String? = null,    // optional — null = main branch
 )

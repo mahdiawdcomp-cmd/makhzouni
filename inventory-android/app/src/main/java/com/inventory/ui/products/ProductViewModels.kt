@@ -152,6 +152,7 @@ data class ProductFormUiState(
     val pcsPerCarton: String = "1",
     val purchasePrice: String = "0",
     val salePrice: String = "0",
+    val retailPrice: String = "0",
     val minStock: String = "0",
     val branchId: String = "",
     val branches: List<BranchItem> = emptyList(),
@@ -218,6 +219,7 @@ class ProductFormViewModel @Inject constructor(
                             pcsPerCarton = product.pcsPerCarton.toString(),
                             purchasePrice = product.purchasePrice.toString(),
                             salePrice = product.salePrice.toString(),
+                            retailPrice = product.retailPrice.toString(),
                             minStock = product.minStock.toString()
                         )
                     }
@@ -239,6 +241,7 @@ class ProductFormViewModel @Inject constructor(
             "pcsPerCarton"     -> _state.value.copy(pcsPerCarton = value.filterNumber())
             "purchasePrice"    -> _state.value.copy(purchasePrice = value.filterDecimal())
             "salePrice"        -> _state.value.copy(salePrice = value.filterDecimal())
+            "retailPrice"      -> _state.value.copy(retailPrice = value.filterDecimal())
             "minStock"         -> _state.value.copy(minStock = value.filterNumber())
             "branchId"         -> _state.value.copy(branchId = value)
             else               -> _state.value
@@ -265,6 +268,7 @@ class ProductFormViewModel @Inject constructor(
                 pcsPerCarton = current.pcsPerCarton.toInt(),
                 purchasePrice = current.purchasePrice.toDouble(),
                 salePrice = current.salePrice.toDouble(),
+                retailPrice = current.retailPrice.toDouble(),
                 minStock = current.minStock.toInt(),
                 branchId = current.branchId.ifBlank { null }
             )

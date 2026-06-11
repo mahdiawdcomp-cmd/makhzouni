@@ -330,10 +330,13 @@ class AdminOperationsViewModel @Inject constructor(
     }
 }
 
-private fun unitPriceFor(product: Product, unit: String): Double = when (unit) {
-    "CARTON" -> product.salePrice * product.pcsPerCarton
-    "DOZEN" -> product.salePrice * 12
-    else -> product.salePrice
+private fun unitPriceFor(product: Product, unit: String, useRetail: Boolean = false): Double {
+    val base = if (useRetail && product.retailPrice > 0.0) product.retailPrice else product.salePrice
+    return when (unit) {
+        "CARTON" -> base * product.pcsPerCarton
+        "DOZEN" -> base * 12
+        else -> base
+    }
 }
 
 private fun String.decimal() = filter { it.isDigit() || it == '.' }.ifBlank { "0" }

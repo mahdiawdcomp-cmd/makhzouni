@@ -49,6 +49,7 @@ data class Product(
     val pcsPerCarton: Int,
     val purchasePrice: Double,
     val salePrice: Double,
+    val retailPrice: Double = 0.0,
     val minStock: Int,
     val updatedAt: String?
 ) {

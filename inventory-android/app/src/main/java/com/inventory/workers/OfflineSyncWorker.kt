@@ -168,6 +168,7 @@ private fun ProductDto.toEntity() = ProductEntity(
     pcsPerCarton = pcsPerCarton,
     purchasePrice = purchasePrice,
     salePrice = salePrice,
+    retailPrice = retailPrice,
     minStock = minStock,
     updatedAt = updatedAt
 )

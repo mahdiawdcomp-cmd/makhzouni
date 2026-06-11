@@ -132,6 +132,7 @@ private fun ProductEntity.toDomain() = Product(
     pcsPerCarton = pcsPerCarton,
     purchasePrice = purchasePrice,
     salePrice = salePrice,
+    retailPrice = retailPrice,
     minStock = minStock,
     updatedAt = updatedAt
 )
@@ -149,6 +150,7 @@ private fun ProductDto.toEntity() = ProductEntity(
     pcsPerCarton = pcsPerCarton,
     purchasePrice = purchasePrice,
     salePrice = salePrice,
+    retailPrice = retailPrice,
     minStock = minStock,
     updatedAt = updatedAt
 )
