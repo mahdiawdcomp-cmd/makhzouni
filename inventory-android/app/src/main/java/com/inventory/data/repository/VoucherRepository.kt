@@ -13,6 +13,29 @@ import javax.inject.Singleton
 class VoucherRepository @Inject constructor(
     private val api: InventoryApi
 ) {
+    suspend fun listVouchers(type: String? = null, page: Int = 1, limit: Int = 50): Result<List<Voucher>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.getVouchers(type = type, page = page, limit = limit)
+                Result.success((response.data ?: emptyList()).map { it.toDomain() })
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun deleteVoucher(id: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.deleteVoucher(id)
+                if (response.success) Result.success(Unit)
+                else Result.failure(Exception(response.message ?: "Failed to delete voucher"))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
     suspend fun createVoucher(request: CreateVoucherRequest): Result<Unit> {
         return withContext(Dispatchers.IO) {
             try {

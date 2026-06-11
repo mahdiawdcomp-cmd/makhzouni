@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, createReceipt, invoiceImageObjectUrl } from "../api/endpoints"
+import { applyCoupon, createReceipt, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -154,6 +154,9 @@ export function InvoiceCreatePage() {
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  const [whatsappPromptId, setWhatsappPromptId] = useState<string | null>(null)
+  const [whatsappSending, setWhatsappSending] = useState(false)
+  const [walkInLoading, setWalkInLoading] = useState(false)
 
   // Reset all form state when the active tab changes (so tabs are truly isolated)
   const prevTidRef = useRef<string | null>(null)
@@ -699,7 +702,8 @@ export function InvoiceCreatePage() {
       }
       setSavedInvoiceId(id)
       clearDraft()
-      if (navigateAfterSave) navigate(`/invoices/${id}`)
+      if (!isPurchase && selectedCustomer?.phone) setWhatsappPromptId(id)
+      if (navigateAfterSave && !(!isPurchase && selectedCustomer?.phone)) navigate(`/invoices/${id}`)
     }
     return id
   }
@@ -955,9 +959,28 @@ export function InvoiceCreatePage() {
               </div>
             ) : null}
           </div>
-          <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            تاريخ الفاتورة يثبت تلقائياً عند الحفظ
-          </div>
+          {!isPurchase && !selectedCustomer && (
+            <button
+              type="button"
+              disabled={walkInLoading}
+              onClick={async () => {
+                setWalkInLoading(true)
+                try {
+                  const c = await getWalkInCustomer()
+                  if (c) { setSelectedCustomer(c); setCustomerQuery(c.name) }
+                } catch { /* ignore */ }
+                setWalkInLoading(false)
+              }}
+              className="h-10 rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+            >
+              {walkInLoading ? "..." : "⚡ الزبون النقدي"}
+            </button>
+          )}
+          {isPurchase || selectedCustomer ? (
+            <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-900 dark:border-slate-700">
+              تاريخ الفاتورة يثبت تلقائياً عند الحفظ
+            </div>
+          ) : null}
           <select
             className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
             value={paymentMode}
@@ -1381,6 +1404,34 @@ export function InvoiceCreatePage() {
         blocker={blocker}
         message="لديك أصناف في الفاتورة لم تُحفظ. إذا غادرت الصفحة ستُفقد هذه البيانات."
       />
+
+      {/* WhatsApp send prompt */}
+      <Dialog open={!!whatsappPromptId} onOpenChange={(open) => { if (!open && !whatsappSending) { navigate(`/invoices/${whatsappPromptId}`); setWhatsappPromptId(null) } }}>
+        <DialogContent className="max-w-sm text-center">
+          <DialogHeader>
+            <DialogTitle className="text-xl">إرسال واتساب؟</DialogTitle>
+          </DialogHeader>
+          <p className="text-slate-500 text-sm mb-4">تريد ترسل الفاتورة للزبون على واتساب؟</p>
+          <div className="flex gap-3 justify-center">
+            <Button
+              disabled={whatsappSending}
+              onClick={async () => {
+                if (!whatsappPromptId) return
+                setWhatsappSending(true)
+                try { await sendWhatsAppInvoice(whatsappPromptId) } catch { /* ignore */ }
+                setWhatsappSending(false)
+                setWhatsappPromptId(null)
+                navigate(`/invoices/${whatsappPromptId}`)
+              }}
+            >
+              {whatsappSending ? "جاري الإرسال..." : "نعم، أرسل"}
+            </Button>
+            <Button variant="outline" disabled={whatsappSending} onClick={() => { navigate(`/invoices/${whatsappPromptId}`); setWhatsappPromptId(null) }}>
+              لا شكراً
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

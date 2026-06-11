@@ -2,8 +2,10 @@ import { Router } from "express";
 import {
   atRiskCustomersReport,
   customerDebtsReport,
+  customerRatingsReport,
   dailySummaryReport,
   dashboardReport,
+  debtAgingReport,
   debtReminderList,
   endOfDayReport,
   inventoryValuationReport,
@@ -35,6 +37,8 @@ router.get("/customers/debts", validate(customerDebtsReportSchema), customerDebt
 router.get("/customers/top", topCustomersReport);
 router.get("/end-of-day", endOfDayReport);
 router.get("/customers/at-risk", atRiskCustomersReport);
+router.get("/customers/ratings", customerRatingsReport);
+router.get("/customers/debt-aging", debtAgingReport);
 router.get("/profit", validate(profitReportSchema), profitReport);
 router.get("/debt-reminder", debtReminderList);
 router.post("/debt-reminder/send", sendDebtReminder);

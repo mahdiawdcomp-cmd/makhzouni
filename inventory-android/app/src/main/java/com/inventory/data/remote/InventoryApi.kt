@@ -171,11 +171,21 @@ interface InventoryApi {
     @GET("customers/{id}/balance")
     suspend fun getCustomerBalance(@Path("id") id: String): ApiEnvelope<CustomerBalanceDto>
 
+    @GET("vouchers")
+    suspend fun getVouchers(
+        @Query("type") type: String? = null,
+        @Query("page") page: Int? = null,
+        @Query("limit") limit: Int? = null,
+    ): PagedEnvelope<VoucherDto>
+
     @POST("vouchers")
     suspend fun createVoucher(@Body body: CreateVoucherRequest): ApiEnvelope<Any>
 
     @GET("vouchers/{id}")
     suspend fun getVoucher(@Path("id") id: String): ApiEnvelope<VoucherDto>
+
+    @DELETE("vouchers/{id}")
+    suspend fun deleteVoucher(@Path("id") id: String): ApiEnvelope<Any>
 
     @PUT("vouchers/{id}")
     suspend fun updateVoucher(

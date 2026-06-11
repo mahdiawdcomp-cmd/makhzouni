@@ -151,3 +151,60 @@ sealed class VoucherEvent {
     object DismissError : VoucherEvent()
     object DismissSuccess : VoucherEvent()
 }
+
+// ── Voucher List ─────────────────────────────────────────────────────────────
+
+data class VoucherListState(
+    val isLoading: Boolean = false,
+    val vouchers: List<com.inventory.domain.model.Voucher> = emptyList(),
+    val error: String? = null,
+    val typeFilter: String? = null,
+    val deleteConfirmId: String? = null,
+    val deleteLoading: Boolean = false,
+)
+
+@HiltViewModel
+class VoucherListViewModel @Inject constructor(
+    private val voucherRepository: VoucherRepository
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(VoucherListState())
+    val state = _state.asStateFlow()
+
+    init { load() }
+
+    fun load(type: String? = _state.value.typeFilter) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, error = null, typeFilter = type)
+            voucherRepository.listVouchers(type = type).onSuccess { list ->
+                _state.value = _state.value.copy(isLoading = false, vouchers = list)
+            }.onFailure {
+                _state.value = _state.value.copy(isLoading = false, error = it.message)
+            }
+        }
+    }
+
+    fun confirmDelete(id: String) {
+        _state.value = _state.value.copy(deleteConfirmId = id)
+    }
+
+    fun cancelDelete() {
+        _state.value = _state.value.copy(deleteConfirmId = null)
+    }
+
+    fun executeDelete() {
+        val id = _state.value.deleteConfirmId ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(deleteLoading = true)
+            voucherRepository.deleteVoucher(id).onSuccess {
+                _state.value = _state.value.copy(
+                    deleteLoading = false,
+                    deleteConfirmId = null,
+                    vouchers = _state.value.vouchers.filter { it.id != id }
+                )
+            }.onFailure {
+                _state.value = _state.value.copy(deleteLoading = false, error = it.message, deleteConfirmId = null)
+            }
+        }
+    }
+}

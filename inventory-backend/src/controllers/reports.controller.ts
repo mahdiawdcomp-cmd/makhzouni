@@ -11,6 +11,8 @@ import {
   getTopCustomersReport,
   getProfitReport,
   getDebtCustomersForReminder,
+  getCustomerRatings,
+  getDebtAging,
 } from "../services/report.service";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
@@ -100,6 +102,16 @@ export const profitReport = asyncHandler(async (req, res) => {
 export const debtReminderList = asyncHandler(async (req, res) => {
   const minDays = Number((req.query as Record<string, string>).minDays ?? 0);
   const data = await getDebtCustomersForReminder(minDays);
+  res.json({ success: true, data });
+});
+
+export const customerRatingsReport = asyncHandler(async (_req, res) => {
+  const data = await getCustomerRatings();
+  res.json({ success: true, data });
+});
+
+export const debtAgingReport = asyncHandler(async (_req, res) => {
+  const data = await getDebtAging();
   res.json({ success: true, data });
 });
 

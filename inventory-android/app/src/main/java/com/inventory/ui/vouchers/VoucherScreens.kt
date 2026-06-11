@@ -1,8 +1,11 @@
 package com.inventory.ui.vouchers
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -254,6 +257,146 @@ fun VoucherCreateScreen(
             }
 
             item { Spacer(Modifier.height(24.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun VoucherListScreen(
+    viewModel: VoucherListViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
+    onBack: () -> Unit,
+    onEdit: (String) -> Unit,
+    onNew: () -> Unit,
+) {
+    val state by viewModel.state.collectAsState()
+
+    // Delete confirmation dialog
+    if (state.deleteConfirmId != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.cancelDelete() },
+            icon = { Icon(Icons.Default.Delete, null, tint = AppColor.Red600) },
+            title = { Text("حذف السند", textAlign = TextAlign.Center) },
+            text = { Text("هل أنت متأكد من حذف هذا السند؟ لا يمكن التراجع.") },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.executeDelete() },
+                    enabled = !state.deleteLoading,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColor.Red600),
+                ) {
+                    if (state.deleteLoading) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text("حذف")
+                }
+            },
+            dismissButton = { TextButton(onClick = { viewModel.cancelDelete() }) { Text("إلغاء") } }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("السندات") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+                actions = {
+                    IconButton(onClick = { viewModel.load() }) {
+                        Icon(Icons.Default.Refresh, "تحديث")
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onNew,
+                icon = { Icon(Icons.Default.Add, null) },
+                text = { Text("سند جديد") },
+                containerColor = AppColor.Green600,
+                contentColor = Color.White,
+            )
+        }
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            // Type filter chips
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(null to "الكل", "RECEIPT" to "قبض", "PAYMENT" to "دفع", "EXPENSE" to "مصاريف").forEach { (type, label) ->
+                    FilterChip(
+                        selected = state.typeFilter == type,
+                        onClick = { viewModel.load(type) },
+                        label = { Text(label) },
+                    )
+                }
+            }
+
+            if (state.isLoading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+            } else if (state.error != null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(state.error ?: "", color = AppColor.Red600)
+                }
+            } else if (state.vouchers.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("لا توجد سندات", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    itemsIndexed(state.vouchers) { _, voucher ->
+                        val (color, typeLabel) = when (voucher.type) {
+                            "RECEIPT" -> AppColor.Green600 to "قبض"
+                            "PAYMENT" -> AppColor.Amber600 to "دفع"
+                            else      -> AppColor.Red600 to "مصاريف"
+                        }
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Type badge
+                                Box(
+                                    modifier = Modifier.size(44.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(typeLabel, color = color, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(voucher.voucherNumber, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                    Text(voucher.customerName ?: voucher.description ?: "—", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(voucher.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        "%,.0f".format(voucher.amount),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = color
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        IconButton(onClick = { onEdit(voucher.id) }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Default.Edit, "تعديل", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        IconButton(onClick = { viewModel.confirmDelete(voucher.id) }, modifier = Modifier.size(32.dp)) {
+                                            Icon(Icons.Default.Delete, "حذف", modifier = Modifier.size(16.dp), tint = AppColor.Red600)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item { Spacer(Modifier.height(80.dp)) }
+                }
+            }
         }
     }
 }

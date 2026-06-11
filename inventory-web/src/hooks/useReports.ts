@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query"
 import {
   getAtRiskCustomers,
   getCustomerDebts,
+  getCustomerRatings,
+  getDebtAging,
   getDailySummary,
   getDashboardReport,
   getEndOfDayReport,
@@ -65,6 +67,22 @@ export function useAtRiskCustomers(limit = 10) {
   return useQuery({
     queryKey: ["reports", "at-risk-customers", limit],
     queryFn: () => getAtRiskCustomers(limit),
-    staleTime: 10 * 60 * 1000, // recompute every 10 min
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
+export function useCustomerRatings() {
+  return useQuery({
+    queryKey: ["reports", "customer-ratings"],
+    queryFn: getCustomerRatings,
+    staleTime: 15 * 60 * 1000,
+  })
+}
+
+export function useDebtAging() {
+  return useQuery({
+    queryKey: ["reports", "debt-aging"],
+    queryFn: getDebtAging,
+    staleTime: 10 * 60 * 1000,
   })
 }

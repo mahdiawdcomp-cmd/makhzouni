@@ -599,7 +599,17 @@ export function ProductsPage() {
               نقص المخزون
             </label>
           </div>
+          {/* Loading skeleton */}
+          {productsQuery.isLoading && (
+            <div className="space-y-2 py-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-9 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" style={{ opacity: 1 - i * 0.1 }} />
+              ))}
+            </div>
+          )}
+
           {/* ── Excel-style inventory table ── */}
+          {!productsQuery.isLoading && (
           <div className="overflow-x-auto rounded-lg border border-gray-300 shadow-inner">
             <table className="w-full text-right text-sm">
               <thead className="bg-gray-100 border-b-2 border-gray-300 sticky top-0">
@@ -715,10 +725,12 @@ export function ProductsPage() {
             </table>
           </div>
           <div className="flex items-center justify-between">
+
             <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
             <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
             <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
           </div>
+          )}
         </CardContent>
       </Card>
 

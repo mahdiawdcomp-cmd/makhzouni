@@ -98,7 +98,8 @@ fun OperationsHubScreen(
     onTransfers: () -> Unit,
     onBranches: () -> Unit,
     onCoupons: () -> Unit,
-    onAudit: () -> Unit
+    onAudit: () -> Unit,
+    onVouchers: () -> Unit = {},
 ) {
     AppScreen(title = "العمليات", onBack = onBack) { padding ->
         LazyColumn(
@@ -111,6 +112,11 @@ fun OperationsHubScreen(
                     OperationTile("POS سريع", "فاتورة كاشير مختصرة وسريعة", Icons.Default.PointOfSale, AppColor.Green600, onPos)
                     OperationTile("مرتجع مبيعات", "إرجاع كامل أو جزئي كفاتورة مرتجع", Icons.Default.AssignmentReturn, AppColor.Red600, onReturns)
                     OperationTile("عروض الأسعار", "إنشاء عرض سعر وتحويله لاحقاً لفاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations)
+                }
+            }
+            item {
+                SectionCard(title = "السندات المالية") {
+                    OperationTile("السندات", "قبض / دفع / مصاريف — عرض وحذف", Icons.Default.ConfirmationNumber, AppColor.Purple600, onVouchers)
                 }
             }
             item {

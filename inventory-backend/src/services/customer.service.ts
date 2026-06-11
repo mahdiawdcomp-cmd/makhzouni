@@ -593,6 +593,26 @@ export async function listCustomersWithDebts() {
   });
 }
 
+const WALK_IN_PHONE = "0000000000";
+
+export async function getOrCreateWalkInCustomer() {
+  const existing = await prisma.customer.findFirst({
+    where: { phone: WALK_IN_PHONE, deletedAt: null },
+  });
+  if (existing) return serializeCustomer(existing);
+
+  const created = await prisma.customer.create({
+    data: {
+      name: "الزبون النقدي",
+      phone: WALK_IN_PHONE,
+      openingBalance: 0,
+      currentBalance: 0,
+      isSupplier: false,
+    },
+  });
+  return serializeCustomer(created);
+}
+
 export async function listInactiveCustomers(days: number) {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - days);

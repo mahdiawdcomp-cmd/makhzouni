@@ -273,6 +273,15 @@ export function InvoicesPage() {
             <Button onClick={() => setAppliedFilters({ from: draftFrom, to: draftTo, status: draftStatus, paymentType: draftPaymentType })}>بحث</Button>
           </div>
 
+          {invoicesQuery.isLoading && (
+            <div className="space-y-2 py-4">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="h-10 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" style={{ opacity: 1 - i * 0.08 }} />
+              ))}
+            </div>
+          )}
+
+          {!invoicesQuery.isLoading && (
           <Table>
             <THead>
               {table.getHeaderGroups().map((group) => (
@@ -316,6 +325,7 @@ export function InvoicesPage() {
               التالي
             </Button>
           </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -12,6 +12,7 @@ import {
   getCustomerByIdAny,
   getCustomerTransactions,
   getLastCustomerTransaction,
+  getOrCreateWalkInCustomer,
   listCustomers,
   listCustomersWithDebts,
   listInactiveCustomers,
@@ -186,4 +187,9 @@ export const getInactiveCustomers = asyncHandler(async (req, res) => {
     success: true,
     data: customers,
   });
+});
+
+export const getWalkInCustomer = asyncHandler(async (_req, res) => {
+  const customer = await getOrCreateWalkInCustomer();
+  res.json({ success: true, data: customer });
 });

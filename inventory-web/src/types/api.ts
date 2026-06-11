@@ -610,6 +610,31 @@ export interface InvoiceAuditEntry {
   changes: InvoiceAuditChange[]
 }
 
+export type CustomerRating = "A" | "B" | "C"
+
+export interface CustomerRatingEntry {
+  id: string
+  name: string
+  phone: string
+  currentBalance: number
+  totalPurchases: number
+  invoiceCount: number
+  avgPaymentDays: number
+  rating: CustomerRating
+  ratingLabel: string
+}
+
+export interface DebtAgingRow {
+  id: string
+  name: string
+  phone: string
+  current: number
+  days30: number
+  days60: number
+  days90: number
+  total: number
+}
+
 export interface Branch {
   id: string
   name: string

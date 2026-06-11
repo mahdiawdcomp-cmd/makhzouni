@@ -11,6 +11,7 @@ import {
   getInactiveCustomers,
   getLastTransaction,
   getTransactions,
+  getWalkInCustomer,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
@@ -34,6 +35,7 @@ router.use(authMiddleware);
 
 router.get("/", validate(listCustomersSchema), getCustomers);
 router.get("/debts", getDebts);
+router.get("/walk-in", getWalkInCustomer);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);

@@ -983,3 +983,119 @@ export async function getDebtCustomersForReminder(minDays: number) {
     })
     .filter((c) => c.debtAgeDays >= minDays);
 }
+
+// ── Customer Ratings (A/B/C) ──────────────────────────────────────────────────
+
+export type CustomerRating = "A" | "B" | "C";
+
+export interface CustomerRatingEntry {
+  id: string;
+  name: string;
+  phone: string;
+  currentBalance: number;
+  totalPurchases: number;
+  invoiceCount: number;
+  avgPaymentDays: number;
+  rating: CustomerRating;
+  ratingLabel: string;
+}
+
+function computeRating(balance: number, totalPurchases: number, avgPaymentDays: number): CustomerRating {
+  // A = high volume AND good payer (balance ≤ 0 or pays within 30 days)
+  // C = high debt relative to purchases OR very slow payer
+  // B = everything else
+  const debtRatio = totalPurchases > 0 ? balance / totalPurchases : (balance > 0 ? 1 : 0);
+  if (debtRatio <= 0.1 && avgPaymentDays <= 30) return "A";
+  if (debtRatio >= 0.6 || avgPaymentDays > 90) return "C";
+  return "B";
+}
+
+export async function getCustomerRatings() {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, isSupplier: false },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      currentBalance: true,
+      createdAt: true,
+      lastTransactionAt: true,
+      invoices: {
+        where: { type: "SALE", status: "ACTIVE" },
+        select: { totalAmount: true, paidAmount: true, date: true, createdAt: true },
+      },
+    },
+  });
+
+  const now = Date.now();
+  return customers.map((c) => {
+    const totalPurchases = c.invoices.reduce((s, i) => s + toNumber(i.totalAmount), 0);
+    const invoiceCount = c.invoices.length;
+    const balance = toNumber(c.currentBalance);
+
+    // Estimate avg payment speed: how many days between invoice date and last transaction
+    let avgPaymentDays = 45;
+    if (c.lastTransactionAt && invoiceCount > 0) {
+      const lastInvoiceDate = c.invoices.reduce(
+        (max, i) => (i.date.getTime() > max ? i.date.getTime() : max),
+        0
+      );
+      const gap = (c.lastTransactionAt.getTime() - lastInvoiceDate) / 86_400_000;
+      avgPaymentDays = Math.max(0, Math.min(180, gap));
+    }
+
+    const rating = computeRating(balance, totalPurchases, avgPaymentDays);
+    const ratingLabel = rating === "A" ? "زبون ممتاز" : rating === "B" ? "زبون جيد" : "يحتاج متابعة";
+
+    return {
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      currentBalance: balance,
+      totalPurchases,
+      invoiceCount,
+      avgPaymentDays: Math.round(avgPaymentDays),
+      rating,
+      ratingLabel,
+    };
+  });
+}
+
+// ── Debt Aging ────────────────────────────────────────────────────────────────
+
+export interface DebtAgingRow {
+  id: string;
+  name: string;
+  phone: string;
+  current: number;   // 0-30 days
+  days30: number;    // 31-60 days
+  days60: number;    // 61-90 days
+  days90: number;    // 90+ days
+  total: number;
+}
+
+export async function getDebtAging() {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, isSupplier: false, currentBalance: { gt: 0 } },
+    select: {
+      id: true, name: true, phone: true, currentBalance: true, lastTransactionAt: true, createdAt: true,
+    },
+    orderBy: { currentBalance: "desc" },
+    take: 50,
+  });
+
+  const now = Date.now();
+  return customers.map((c) => {
+    const balance = toNumber(c.currentBalance);
+    const lastDate = c.lastTransactionAt ?? c.createdAt;
+    const ageDays = Math.floor((now - lastDate.getTime()) / 86_400_000);
+
+    // Bucket the full balance into one aging bucket based on debt age
+    const current = ageDays <= 30 ? balance : 0;
+    const days30 = ageDays > 30 && ageDays <= 60 ? balance : 0;
+    const days60 = ageDays > 60 && ageDays <= 90 ? balance : 0;
+    const days90 = ageDays > 90 ? balance : 0;
+
+    return { id: c.id, name: c.name, phone: c.phone, current, days30, days60, days90, total: balance };
+  });
+}

@@ -37,7 +37,7 @@ import {
   Wallet,
   X,
 } from "lucide-react"
-import { useDashboardReport, useAtRiskCustomers, useDailySummary, useDebtReport, useInventoryReport } from "../hooks/useReports"
+import { useDashboardReport, useAtRiskCustomers, useCustomerRatings, useDailySummary, useDebtAging, useDebtReport, useInventoryReport } from "../hooks/useReports"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { whatsappUrl } from "../utils/whatsapp"
@@ -198,6 +198,8 @@ export function DashboardPage() {
   const inventory = useInventoryReport()
   const debts = useDebtReport({})
   const atRisk = useAtRiskCustomers(8)
+  const debtAging = useDebtAging()
+  const ratings = useCustomerRatings()
   const report = dashboard.data
   const daily = dailySummary.data
   const inventoryRows = inventory.data?.products ?? []
@@ -623,6 +625,104 @@ export function DashboardPage() {
                           <Phone className="h-3 w-3" />
                           تواصل
                         </a>
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Debt Aging */}
+      {(debtAging.data?.length ?? 0) > 0 && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+          <Card style={{ borderColor: "rgba(239,68,68,0.35)" }}>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-[14px]" style={{ color: "#DC2626" }}>
+                <AlertTriangle className="h-5 w-5" />
+                تقادم الديون
+              </CardTitle>
+              <p className="text-xs mt-0.5" style={{ color: "var(--theme-textSecondary)" }}>
+                تصنيف الديون حسب عمرها
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>الزبون</TH>
+                    <TH className="text-center">0-30 يوم</TH>
+                    <TH className="text-center">31-60 يوم</TH>
+                    <TH className="text-center">61-90 يوم</TH>
+                    <TH className="text-center">+90 يوم</TH>
+                    <TH className="text-center">الإجمالي</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {debtAging.data!.slice(0, 10).map((row) => (
+                    <TR key={row.id}>
+                      <TD className="font-medium">{row.name}</TD>
+                      <TD className="text-center text-slate-500">{row.current > 0 ? row.current.toLocaleString("en-US") : "—"}</TD>
+                      <TD className="text-center text-amber-600">{row.days30 > 0 ? row.days30.toLocaleString("en-US") : "—"}</TD>
+                      <TD className="text-center text-orange-600">{row.days60 > 0 ? row.days60.toLocaleString("en-US") : "—"}</TD>
+                      <TD className="text-center text-rose-700 font-semibold">{row.days90 > 0 ? row.days90.toLocaleString("en-US") : "—"}</TD>
+                      <TD className="text-center font-bold">{row.total.toLocaleString("en-US")}</TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Customer Ratings A/B/C */}
+      {(ratings.data?.length ?? 0) > 0 && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-[14px]">
+                <TrendingUp className="h-5 w-5 text-violet-600" />
+                تقييم الزبائن (A/B/C)
+              </CardTitle>
+              <p className="text-xs mt-0.5" style={{ color: "var(--theme-textSecondary)" }}>
+                مبني على حجم المشتريات وسرعة السداد
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>الزبون</TH>
+                    <TH className="text-center">التقييم</TH>
+                    <TH className="text-center">إجمالي المشتريات</TH>
+                    <TH className="text-center">عدد الفواتير</TH>
+                    <TH className="text-center">الرصيد</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {ratings.data!
+                    .filter((r) => r.invoiceCount > 0)
+                    .sort((a, b) => b.totalPurchases - a.totalPurchases)
+                    .slice(0, 12)
+                    .map((r) => (
+                    <TR key={r.id}>
+                      <TD className="font-medium">{r.name}</TD>
+                      <TD className="text-center">
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                          r.rating === "A" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                          : r.rating === "B" ? "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"
+                          : "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+                        }`}>
+                          {r.rating}
+                        </span>
+                      </TD>
+                      <TD className="text-center">{r.totalPurchases.toLocaleString("en-US")}</TD>
+                      <TD className="text-center">{r.invoiceCount}</TD>
+                      <TD className={`text-center ${r.currentBalance > 0 ? "text-rose-600 font-semibold" : "text-emerald-600"}`}>
+                        {r.currentBalance.toLocaleString("en-US")}
                       </TD>
                     </TR>
                   ))}

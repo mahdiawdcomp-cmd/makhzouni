@@ -21,9 +21,11 @@ import type {
   CustomerPortalLink,
   CustomerPortalResponse,
   CustomerPayload,
+  CustomerRatingEntry,
   CustomerTransactionsResponse,
   DashboardReport,
   DailySummaryData,
+  DebtAgingRow,
   Invoice,
   InvoiceAuditEntry,
   InventoryValuation,
@@ -233,6 +235,11 @@ export async function productCartonSheetPdf(productId: string) {
 export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean }) {
   const { data } = await api.get<PagedResponse<Customer>>("/customers", { params })
   return data.data ?? []
+}
+
+export async function getWalkInCustomer() {
+  const { data } = await api.get<ApiEnvelope<Customer>>("/customers/walk-in")
+  return data.data!
 }
 
 export async function getCustomer(id: string) {
@@ -503,6 +510,16 @@ export interface AtRiskCustomer {
 
 export async function getAtRiskCustomers(limit = 10) {
   const { data } = await api.get<ApiEnvelope<AtRiskCustomer[]>>("/reports/customers/at-risk", { params: { limit } })
+  return data.data ?? []
+}
+
+export async function getCustomerRatings() {
+  const { data } = await api.get<ApiEnvelope<CustomerRatingEntry[]>>("/reports/customers/ratings")
+  return data.data ?? []
+}
+
+export async function getDebtAging() {
+  const { data } = await api.get<ApiEnvelope<DebtAgingRow[]>>("/reports/customers/debt-aging")
   return data.data ?? []
 }
 

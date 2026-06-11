@@ -55,6 +55,7 @@ import com.inventory.ui.invoices.InvoiceCreateScreen
 import com.inventory.ui.invoices.InvoiceListScreen
 import com.inventory.ui.invoices.InvoiceDetailScreen
 import com.inventory.ui.vouchers.VoucherCreateScreen
+import com.inventory.ui.vouchers.VoucherListScreen
 import com.inventory.ui.notifications.NotificationScreen
 import com.inventory.ui.operations.AuditLogsScreen
 import com.inventory.ui.operations.BranchesScreen
@@ -346,6 +347,14 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onBack = { navController.popBackStack() }
                     )
                 }
+                composable(Routes.Vouchers) {
+                    VoucherListScreen(
+                        viewModel = hiltViewModel(),
+                        onBack = { navController.popBackStack() },
+                        onEdit = { id -> navController.navigate(Routes.voucherEdit(id)) },
+                        onNew = { navController.navigate(Routes.VoucherCreate) }
+                    )
+                }
                 composable(Routes.VoucherCreate) {
                     VoucherCreateScreen(viewModel = hiltViewModel(), onBack = { navController.popBackStack() })
                 }
@@ -386,7 +395,8 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onTransfers = { navController.navigate(Routes.Transfers) },
                         onBranches = { navController.navigate(Routes.Branches) },
                         onCoupons = { navController.navigate(Routes.Coupons) },
-                        onAudit = { navController.navigate(Routes.AuditLogs) }
+                        onAudit = { navController.navigate(Routes.AuditLogs) },
+                        onVouchers = { navController.navigate(Routes.Vouchers) }
                     )
                 }
                 composable(Routes.Pos) {
