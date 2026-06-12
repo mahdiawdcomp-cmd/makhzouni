@@ -43,7 +43,7 @@ function unitLabel(unit: string) {
 }
 
 const DEFAULT_INVOICE_TEMPLATE =
-  "مرحباً {{customerName}}،\nفاتورتك رقم {{invoiceNumber}} بتاريخ {{date}}\nالمجموع: {{total}} {{currency}}\nالمدفوع: {{paid}} {{currency}}\nالباقي: {{remaining}} {{currency}}\nالحساب النهائي: {{finalBalance}} {{currency}}\nشكراً لتعاملكم مع {{storeName}}."
+  "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير"
 
 interface EditItem {
   productId: string; productName: string
@@ -97,9 +97,10 @@ export function InvoiceDetailPage() {
       total: money(invoice.totalAmount),
       paid: money(invoice.paidAmount),
       remaining: money(invoice.remainingAmount),
+      previousBalance: money(invoice.previousBalance ?? 0),
       finalBalance: money(invoice.finalBalance),
       currency: settings?.currency ?? "د.ع",
-      storeName: settings?.storeName ?? "",
+      storeName: settings?.storeName ?? "مهدي عوض",
     }))
     setWaPreview(true)
   }

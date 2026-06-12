@@ -134,6 +134,10 @@ export function InvoiceCreatePage() {
   const [quickAddCustomerOpen, setQuickAddCustomerOpen] = useState(false)
   const [quickAddCustomerName, setQuickAddCustomerName] = useState("")
   const [quickAddCustomerPhone, setQuickAddCustomerPhone] = useState("")
+  const [quickAddCustomerAddress, setQuickAddCustomerAddress] = useState("")
+  const [quickAddCustomerNotes, setQuickAddCustomerNotes] = useState("")
+  const [quickAddCustomerBalance, setQuickAddCustomerBalance] = useState("0")
+  const [quickAddCustomerCreditLimit, setQuickAddCustomerCreditLimit] = useState("")
   const [quickAddProductOpen, setQuickAddProductOpen] = useState(false)
   const [quickAddProductName, setQuickAddProductName] = useState("")
   const [quickAddProductSalePrice, setQuickAddProductSalePrice] = useState("")
@@ -525,6 +529,10 @@ export function InvoiceCreatePage() {
   function openQuickAddCustomer() {
     setQuickAddCustomerName(customerQuery.trim())
     setQuickAddCustomerPhone("")
+    setQuickAddCustomerAddress("")
+    setQuickAddCustomerNotes("")
+    setQuickAddCustomerBalance("0")
+    setQuickAddCustomerCreditLimit("")
     setCustomerListOpen(false)
     setQuickAddCustomerOpen(true)
   }
@@ -533,7 +541,15 @@ export function InvoiceCreatePage() {
     const name = quickAddCustomerName.trim()
     if (!name || createCustomerMutation.isPending) return
     createCustomerMutation.mutate(
-      { name, phone: quickAddCustomerPhone.trim(), openingBalance: 0, isSupplier: isPurchase },
+      {
+        name,
+        phone: quickAddCustomerPhone.trim(),
+        address: quickAddCustomerAddress.trim() || undefined,
+        notes: quickAddCustomerNotes.trim() || undefined,
+        openingBalance: Number(quickAddCustomerBalance) || 0,
+        creditLimit: quickAddCustomerCreditLimit ? Number(quickAddCustomerCreditLimit) : undefined,
+        isSupplier: isPurchase,
+      },
       {
         onSuccess: (response) => {
           const customer = (response as { data?: Customer }).data
@@ -1288,30 +1304,66 @@ export function InvoiceCreatePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick-add customer modal */}
+      {/* Full customer-add modal */}
       <Dialog open={quickAddCustomerOpen} onOpenChange={setQuickAddCustomerOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>إضافة {customerLabel} جديد</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div>
-              <label className="mb-1 block text-sm font-medium">الاسم *</label>
-              <Input
-                autoFocus
-                value={quickAddCustomerName}
-                onChange={(e) => setQuickAddCustomerName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitQuickAddCustomer() }}
-                placeholder="اسم الزبون"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">رقم الهاتف</label>
-              <Input
-                value={quickAddCustomerPhone}
-                onChange={(e) => setQuickAddCustomerPhone(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submitQuickAddCustomer() }}
-                placeholder="07xxxxxxxxx"
-                dir="ltr"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="mb-1 block text-sm font-medium">الاسم *</label>
+                <Input
+                  autoFocus
+                  value={quickAddCustomerName}
+                  onChange={(e) => setQuickAddCustomerName(e.target.value)}
+                  placeholder="اسم الزبون أو المورد"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">رقم الهاتف</label>
+                <Input
+                  value={quickAddCustomerPhone}
+                  onChange={(e) => setQuickAddCustomerPhone(e.target.value)}
+                  placeholder="07xxxxxxxxx"
+                  dir="ltr"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">الرصيد الافتتاحي</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={quickAddCustomerBalance}
+                  onChange={(e) => setQuickAddCustomerBalance(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">العنوان</label>
+                <Input
+                  value={quickAddCustomerAddress}
+                  onChange={(e) => setQuickAddCustomerAddress(e.target.value)}
+                  placeholder="العنوان (اختياري)"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">سقف الائتمان</label>
+                <Input
+                  type="number"
+                  min="0"
+                  value={quickAddCustomerCreditLimit}
+                  onChange={(e) => setQuickAddCustomerCreditLimit(e.target.value)}
+                  placeholder="بدون سقف"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-sm font-medium">ملاحظات</label>
+                <Input
+                  value={quickAddCustomerNotes}
+                  onChange={(e) => setQuickAddCustomerNotes(e.target.value)}
+                  placeholder="ملاحظات إضافية (اختياري)"
+                />
+              </div>
             </div>
             <div className="flex gap-2 pt-1">
               <Button
@@ -1327,11 +1379,28 @@ export function InvoiceCreatePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Quick-add product modal */}
+      {/* Product-add modal — full inventory page in new tab */}
       <Dialog open={quickAddProductOpen} onOpenChange={setQuickAddProductOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>إضافة مادة جديدة</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              لإضافة مادة بكل تفاصيلها (الباركود، الفئة، الكارتون، المخزون...) افتح صفحة المخزن في تبويب جديد، أضف المادة، ثم ارجع هنا وابحث عنها.
+            </p>
+            <a
+              href="/inventory"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-700 active:scale-95 transition"
+              onClick={() => setQuickAddProductOpen(false)}
+            >
+              فتح صفحة المخزن الكاملة ↗
+            </a>
+            <div className="relative flex items-center gap-2">
+              <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+              <span className="text-xs text-slate-400">أو إضافة سريعة</span>
+              <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            </div>
             <div>
               <label className="mb-1 block text-sm font-medium">اسم المادة *</label>
               <Input
@@ -1363,13 +1432,13 @@ export function InvoiceCreatePage() {
                 />
               </div>
             </div>
-            <div className="flex gap-2 pt-1">
+            <div className="flex gap-2">
               <Button
                 className="flex-1"
                 onClick={submitQuickAddProduct}
                 disabled={!quickAddProductName.trim() || createProductMutation.isPending}
               >
-                {createProductMutation.isPending ? "جار الإضافة..." : "إضافة وإدراج"}
+                {createProductMutation.isPending ? "جار الإضافة..." : "إضافة سريعة وإدراج"}
               </Button>
               <Button variant="outline" onClick={() => setQuickAddProductOpen(false)}>إلغاء</Button>
             </div>
