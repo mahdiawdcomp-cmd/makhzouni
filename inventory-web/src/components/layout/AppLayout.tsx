@@ -3,7 +3,7 @@ import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, Menu, X, Zap } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
-import { getLicenseStatus } from "../../api/endpoints"
+import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { Header } from "./Header"
 import { Sidebar } from "./Sidebar"
@@ -68,6 +68,8 @@ function LicenseBanner() {
 
 export function AppLayout() {
   const isPosOnly = useAuthStore((s) => s.isPosOnly())
+  const refreshUser = useAuthStore((s) => s.refreshUser)
+  const token = useAuthStore((s) => s.token)
   const [darkMode, setDarkMode] = useState(
     () => localStorage.getItem("inventory_theme") === "dark",
   )
@@ -78,6 +80,13 @@ export function AppLayout() {
   const { pathname } = useLocation()
 
   if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
+
+  // Refresh user permissions from DB on every app open
+  useEffect(() => {
+    if (!token) return
+    getMe().then((user) => { if (user) refreshUser(user) }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     mainRef.current?.scrollTo(0, 0)

@@ -63,6 +63,11 @@ export async function logout() {
   return data
 }
 
+export async function getMe() {
+  const { data } = await api.get<ApiEnvelope<User>>("/auth/me")
+  return data.data ?? null
+}
+
 export async function changePassword(payload: { currentPassword: string; newPassword: string }) {
   const { data } = await api.post<ApiEnvelope<never>>("/auth/change-password", payload)
   return data

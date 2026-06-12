@@ -6,6 +6,7 @@ interface AuthState {
   user: User | null
   rememberMe: boolean
   setSession: (token: string, user: User, rememberMe: boolean) => void
+  refreshUser: (user: User) => void
   logout: () => void
   isAuthenticated: () => boolean
   isAdmin: () => boolean
@@ -32,6 +33,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     localStorage.setItem("inventory_user", JSON.stringify(user))
     localStorage.setItem("inventory_remember", String(rememberMe))
     set({ token, user, rememberMe })
+  },
+  refreshUser: (user) => {
+    localStorage.setItem("inventory_user", JSON.stringify(user))
+    set({ user })
   },
   logout: () => {
     localStorage.removeItem("inventory_token")
