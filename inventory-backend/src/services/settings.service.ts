@@ -48,7 +48,7 @@ export const defaultSettings: AppSettings = {
   storeAddress: "",
   currency: "IQD",
   invoiceTemplate:
-    "مرحباً {{customerName}}،\nفاتورتك رقم {{invoiceNumber}} بتاريخ {{date}}\nالمجموع: {{total}} {{currency}}\nالمدفوع: {{paid}} {{currency}}\nالباقي: {{remaining}} {{currency}}\nالحساب النهائي: {{finalBalance}} {{currency}}\nشكراً لتعاملكم مع {{storeName}}.",
+    "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير",
   voucherTemplate:
     "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
   statementTemplate:
@@ -65,12 +65,25 @@ export const defaultSettings: AppSettings = {
   whatsappCloudPhoneNumberId: "",
 };
 
+const OLD_INVOICE_TEMPLATE =
+  "مرحباً {{customerName}}،\nفاتورتك رقم {{invoiceNumber}} بتاريخ {{date}}\nالمجموع: {{total}} {{currency}}\nالمدفوع: {{paid}} {{currency}}\nالباقي: {{remaining}} {{currency}}\nالحساب النهائي: {{finalBalance}} {{currency}}\nشكراً لتعاملكم مع {{storeName}}.";
+
 export async function getSettings(): Promise<AppSettings> {
   const rows = await prisma.setting.findMany();
   const values = { ...defaultSettings } as Record<string, unknown>;
 
   for (const row of rows) {
     values[row.key] = row.value;
+  }
+
+  // One-time migration: replace old invoice template with the new format
+  if (values["invoiceTemplate"] === OLD_INVOICE_TEMPLATE) {
+    values["invoiceTemplate"] = defaultSettings.invoiceTemplate;
+    await prisma.setting.upsert({
+      where: { key: "invoiceTemplate" },
+      update: { value: defaultSettings.invoiceTemplate },
+      create: { key: "invoiceTemplate", value: defaultSettings.invoiceTemplate },
+    });
   }
 
   const settings = values as unknown as AppSettings;

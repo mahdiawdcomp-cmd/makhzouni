@@ -1,4 +1,3 @@
-import { useEffect } from "react"
 import { Outlet, useNavigate } from "react-router-dom"
 import { X } from "lucide-react"
 
@@ -9,13 +8,6 @@ export function PosLayout() {
     navigate("/")
   }
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") exit()
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [])
 
   return (
     <div

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  ArrowRight,
   Banknote,
   Barcode,
   ChevronDown,
@@ -16,6 +17,7 @@ import {
   UserRound,
   X,
 } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 import { createInvoice, getCustomers, getProducts } from "../api/endpoints"
 import { Input } from "../components/ui/input"
 import type { Customer, Product } from "../types/api"
@@ -618,6 +620,7 @@ function CustomizeModal({
 
 // ── Main POS Component ────────────────────────────────────────────
 export function POSPage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const barcodeInputRef = useRef<HTMLInputElement>(null)
   const paidInputRef = useRef<HTMLInputElement>(null)
@@ -810,10 +813,18 @@ export function POSPage() {
         event.preventDefault()
         paidInputRef.current?.focus()
       }
+      if (event.key === "Escape") {
+        event.preventDefault()
+        if (activePanel !== null) {
+          setActivePanel(null)
+        } else {
+          navigate("/")
+        }
+      }
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [selectedCustomer, items, saveMutation])
+  }, [selectedCustomer, items, saveMutation, navigate, activePanel])
 
   const canSave = !!selectedCustomer && items.length > 0 && !saveMutation.isPending
 
@@ -965,11 +976,19 @@ export function POSPage() {
               </button>
             </div>
           ) : activePanel ? (
-            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs text-slate-500 dark:border-slate-700">
+            <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1 text-xs text-slate-500 dark:border-slate-700">
               {(() => {
                 const panel = posConfig.panels.find((p) => p.id === activePanel)
                 return (
                   <>
+                    <button
+                      type="button"
+                      onClick={() => setActivePanel(null)}
+                      className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 shadow-sm hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                    >
+                      <ArrowRight className="h-3 w-3" />
+                      رجوع
+                    </button>
                     <span
                       className="flex h-4 w-4 items-center justify-center rounded-full text-white"
                       style={{ backgroundColor: panel?.color }}
@@ -979,14 +998,7 @@ export function POSPage() {
                     <span className="font-semibold text-slate-700 dark:text-slate-200">
                       {panel?.label}
                     </span>
-                    <span>{displayedProducts.length} مادة</span>
-                    <button
-                      type="button"
-                      onClick={() => setActivePanel(null)}
-                      className="mr-auto text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    <span className="text-slate-400">{displayedProducts.length} مادة</span>
                   </>
                 )
               })()}
