@@ -609,8 +609,22 @@ export function ProductsPage() {
             </div>
           )}
 
+          {/* Error state */}
+          {productsQuery.isError && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-6 text-center dark:border-rose-800 dark:bg-rose-950/30">
+              <p className="font-semibold text-rose-700 dark:text-rose-400">تعذر تحميل المنتجات</p>
+              <p className="mt-1 text-sm text-rose-500">تحقق من الاتصال بالخادم ثم اضغط إعادة المحاولة.</p>
+              <button
+                onClick={() => void productsQuery.refetch()}
+                className="mt-3 rounded-lg bg-rose-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                إعادة المحاولة
+              </button>
+            </div>
+          )}
+
           {/* ── Excel-style inventory table ── */}
-          {!productsQuery.isLoading && (
+          {!productsQuery.isLoading && !productsQuery.isError && (
           <>
           <div className="overflow-x-auto rounded-lg border border-gray-300 shadow-inner">
             <table className="w-full text-right text-sm">

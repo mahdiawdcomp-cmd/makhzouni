@@ -209,6 +209,12 @@ export function VouchersPage() {
               </TR>
             </THead>
             <TBody>
+              {vouchersQuery.isLoading && (
+                <TR><TD colSpan={6} className="py-8 text-center text-sm text-slate-400">جاري التحميل...</TD></TR>
+              )}
+              {vouchersQuery.isError && (
+                <TR><TD colSpan={6} className="py-8 text-center text-sm text-rose-500">تعذر تحميل السندات — تحقق من الاتصال بالخادم.</TD></TR>
+              )}
               {vouchers.map((voucher) => {
                 const meta = typeMeta[voucher.type]
                 const Icon = meta.icon
@@ -236,9 +242,9 @@ export function VouchersPage() {
                   </TR>
                 )
               })}
-              {vouchers.length === 0 ? (
+              {!vouchersQuery.isLoading && !vouchersQuery.isError && vouchers.length === 0 && (
                 <TR><TD colSpan={6} className="py-6 text-center text-sm text-slate-500">لا توجد سندات.</TD></TR>
-              ) : null}
+              )}
             </TBody>
           </Table>
         </CardContent>

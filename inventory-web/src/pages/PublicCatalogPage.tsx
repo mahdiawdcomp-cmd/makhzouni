@@ -8,6 +8,7 @@ import {
   ImageIcon,
   Minus,
   Plus,
+  RefreshCw,
   Search,
   ShoppingBag,
   ShoppingCart,
@@ -312,7 +313,15 @@ function CatalogShop({
   const productsQuery = useQuery({
     queryKey: ["public-catalog-products", accessToken],
     queryFn: () => getPublicCatalogProducts(accessToken),
+    refetchOnMount: "always",
+    staleTime: 0,
   })
+
+  // Set browser tab title
+  useEffect(() => {
+    document.title = "كتالوج المنتجات"
+    return () => { document.title = "مخزوني" }
+  }, [])
 
   const [search, setSearch] = useState("")
   const [activeSugg, setActiveSugg] = useState(0)
@@ -527,6 +536,15 @@ function CatalogShop({
                 )}
               </div>
             </div>
+            {/* Refresh button */}
+            <button
+              onClick={() => void productsQuery.refetch()}
+              disabled={productsQuery.isFetching}
+              title="تحديث المنتجات"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500 transition active:scale-95 hover:bg-gray-200 disabled:opacity-50"
+            >
+              <RefreshCw className={cn("h-4 w-4", productsQuery.isFetching && "animate-spin")} />
+            </button>
             {/* Cart button */}
             <button
               onClick={() => setCartOpen(true)}
