@@ -125,7 +125,7 @@ class OfflineSyncWorker(
             null
         }
 
-        body("products?limit=500")?.let { json ->
+        body("products?limit=5000")?.let { json ->
             val type = object : TypeToken<PagedResponse<ProductDto>>() {}.type
             val response = gson.fromJson<PagedResponse<ProductDto>>(json, type)
             database.productDao().replaceAll(response.data.map { it.toEntity() })

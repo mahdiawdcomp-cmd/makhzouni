@@ -134,6 +134,7 @@ data class Invoice(
 data class InvoiceItem(
     val productId: String,
     val productName: String,
+    val warehouseId: String? = null,
     val unit: String,
     val quantity: Int,
     val unitPrice: Double,

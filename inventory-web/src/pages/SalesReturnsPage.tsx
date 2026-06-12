@@ -23,6 +23,7 @@ export function SalesReturnsPage() {
   const [quantity, setQuantity] = useState(1)
   const [unitPrice, setUnitPrice] = useState(0)
   const [originalInvoiceId, setOriginalInvoiceId] = useState<string | undefined>()
+  const [warehouseId, setWarehouseId] = useState<string | undefined>()
   const [lastPriceNote, setLastPriceNote] = useState("")
 
   const total = Math.max(0, quantity * unitPrice)
@@ -32,6 +33,7 @@ export function SalesReturnsPage() {
       if (result) {
         setUnitPrice(result.unitPrice)
         setOriginalInvoiceId(result.invoiceId)
+        setWarehouseId(result.warehouseId ?? undefined)
         setLastPriceNote(`آخر بيع: ${result.invoiceNumber} بسعر ${money(result.unitPrice)}`)
       } else {
         setLastPriceNote("ماكو بيع سابق لهذه المادة عند هذا الزبون.")
@@ -49,11 +51,11 @@ export function SalesReturnsPage() {
         tax: 0,
         paidAmount: 0,
         paymentType: "CREDIT",
-        items: [{ productId, unit: "PIECE", quantity, unitPrice }],
+        items: [{ productId, warehouseId, unit: "PIECE", quantity, unitPrice }],
       }),
     onSuccess: () => {
       clientRequestIdRef.current = crypto.randomUUID()
-      setProductId(""); setQuantity(1); setUnitPrice(0); setOriginalInvoiceId(undefined); setLastPriceNote("")
+      setProductId(""); setQuantity(1); setUnitPrice(0); setOriginalInvoiceId(undefined); setWarehouseId(undefined); setLastPriceNote("")
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
     },

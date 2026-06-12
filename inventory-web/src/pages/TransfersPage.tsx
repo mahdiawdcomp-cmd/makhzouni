@@ -132,7 +132,13 @@ function CreateTransferDialog({
   const searchRef = useRef<HTMLInputElement>(null)
 
   const { data: branches } = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
-  const { data: allProducts = [] } = useQuery({ queryKey: ["products"], queryFn: () => getProducts({}) })
+  const { data: allProducts = [] } = useQuery({
+    queryKey: ["products", "transfer", fromBranchId],
+    queryFn: () => getProducts({ limit: 10000 }),
+  })
+
+  const sourceStockOf = (product: Product) =>
+    product.warehouseStocks?.find((stock) => stock.warehouseId === fromBranchId)?.quantityPieces ?? 0
 
   const productSuggestions = productSearch.trim().length >= 1
     ? allProducts
@@ -192,8 +198,24 @@ function CreateTransferDialog({
 
   function addItem() {
     if (!selectedProduct) return
+    if (!fromBranchId) {
+      toast({ title: "اختر المخزن المصدر أولاً", variant: "destructive" })
+      return
+    }
     const qtyNum = parseInt(qty, 10)
     if (isNaN(qtyNum) || qtyNum <= 0) return
+    const requestedPieces = unit === "CARTON"
+      ? qtyNum * selectedProduct.pcsPerCarton
+      : unit === "DOZEN" ? qtyNum * 12 : qtyNum
+    const sourceStock = sourceStockOf(selectedProduct)
+    if (requestedPieces > sourceStock) {
+      toast({
+        title: "الكمية أكبر من رصيد المخزن المصدر",
+        description: `المتوفر ${sourceStock} قطعة`,
+        variant: "destructive",
+      })
+      return
+    }
 
     // Prevent duplicate
     if (items.some((i) => i.productId === selectedProduct.id)) {
@@ -207,7 +229,7 @@ function CreateTransferDialog({
       itemNumber: selectedProduct.itemNumber,
       quantity: qtyNum,
       unit,
-      currentStock: selectedProduct.currentStock ?? 0,
+      currentStock: sourceStockOf(selectedProduct),
       pcsPerCarton: selectedProduct.pcsPerCarton,
     }])
     clearProduct()
@@ -345,7 +367,7 @@ function CreateTransferDialog({
               {searchOpen && productSuggestions.length > 0 && (
                 <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-950">
                   {productSuggestions.map((product) => {
-                    const stock = product.currentStock ?? 0
+                    const stock = sourceStockOf(product)
                     const isLow = stock <= product.minStock && stock > 0
                     const isOut = stock <= 0
                     return (

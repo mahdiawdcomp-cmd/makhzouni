@@ -1,11 +1,13 @@
 package com.inventory.data.repository
 
 import android.content.Context
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 import com.google.gson.Gson
 import com.inventory.data.local.PendingSyncOperationDao
 import com.inventory.data.local.PendingSyncOperationEntity
@@ -56,11 +58,32 @@ class SyncRepository @Inject constructor(
                 .build()
             val request = OneTimeWorkRequestBuilder<OfflineSyncWorker>()
                 .setConstraints(constraints)
+                // Exponential backoff: 30s, 60s, 120s … up to WorkManager's cap
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build()
 
+            // KEEP: if a sync is already queued/running, don't start another one.
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "offline-sync-now",
-                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                ExistingWorkPolicy.KEEP,
+                request
+            )
+        }
+
+        /** Called when the network comes back online to flush any pending ops immediately. */
+        fun scheduleOnReconnect(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val request = OneTimeWorkRequestBuilder<OfflineSyncWorker>()
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+
+            // REPLACE: on reconnect always start a fresh sync attempt.
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "offline-sync-reconnect",
+                ExistingWorkPolicy.REPLACE,
                 request
             )
         }

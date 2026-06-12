@@ -51,7 +51,7 @@ export function useUpdateCustomer(id: string | undefined) {
 export function useAllCustomers() {
   return useQuery({
     queryKey: ["customers", "all-including-deleted"],
-    queryFn: () => getCustomers({ includeDeleted: true, limit: 100 }),
+    queryFn: () => getCustomers({ includeDeleted: true, limit: 500 }),
     staleTime: 30_000,
   })
 }

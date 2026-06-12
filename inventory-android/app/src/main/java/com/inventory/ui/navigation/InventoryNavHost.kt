@@ -118,13 +118,14 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     tonalElevation = 0.dp,
                     modifier = Modifier.navigationBarsPadding()
                 ) {
+                    val canViewReports = shellState.isAdmin || shellState.permissions.contains("VIEW_REPORTS")
                     listOf(
                         BottomItem("الرئيسية", Routes.Dashboard, Icons.Default.Home, 0),
                         BottomItem("المخزن", Routes.Products, Icons.Default.Inventory2, 0),
                         BottomItem("الفواتير", Routes.Invoices, Icons.Default.ReceiptLong, 0),
                         BottomItem("الزبائن", Routes.Customers, Icons.Default.Groups, 0),
-                        BottomItem("التقارير", Routes.Reports, Icons.Default.BarChart, reportBadge),
-                    ).forEach { item ->
+                        if (canViewReports) BottomItem("التقارير", Routes.Reports, Icons.Default.BarChart, reportBadge) else null,
+                    ).filterNotNull().forEach { item ->
                         NavigationBarItem(
                             selected = currentRoute == item.route,
                             onClick = {
@@ -396,7 +397,9 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onBranches = { navController.navigate(Routes.Branches) },
                         onCoupons = { navController.navigate(Routes.Coupons) },
                         onAudit = { navController.navigate(Routes.AuditLogs) },
-                        onVouchers = { navController.navigate(Routes.Vouchers) }
+                        onVouchers = { navController.navigate(Routes.Vouchers) },
+                        isAdmin = shellState.isAdmin,
+                        permissions = shellState.permissions
                     )
                 }
                 composable(Routes.Pos) {

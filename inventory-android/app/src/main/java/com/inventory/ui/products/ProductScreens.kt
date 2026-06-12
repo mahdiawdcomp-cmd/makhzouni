@@ -178,7 +178,7 @@ fun ProductListScreen(
                     contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
                 ) {
                     items(state.filteredProducts, key = { it.id }) { product ->
-                        ProductListItem(product = product, onClick = { onOpen(product.id) })
+                        ProductListItem(product = product, hidePrices = state.hidePrices, onClick = { onOpen(product.id) })
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
@@ -188,44 +188,69 @@ fun ProductListScreen(
 }
 
 @Composable
-private fun ProductListItem(product: Product, onClick: () -> Unit) {
-    val iconBg  = if (product.isLowStock) AppColor.Red100   else AppColor.Blue100
-    val iconClr = if (product.isLowStock) AppColor.Red600   else AppColor.Blue600
+private fun ProductListItem(product: Product, hidePrices: Boolean = false, onClick: () -> Unit) {
+    val stockColor = when {
+        product.currentStock <= 0            -> AppColor.Red600
+        product.currentStock <= product.minStock -> AppColor.Amber600
+        else                                  -> AppColor.Green600
+    }
+    val iconBg  = if (product.isLowStock) AppColor.Red100 else AppColor.Blue100
+    val iconClr = if (product.isLowStock) AppColor.Red600 else AppColor.Blue600
+    val maxStock = maxOf(product.currentStock, product.minStock * 3, 1)
+    val stockProgress = (product.currentStock.toFloat() / maxStock).coerceIn(0f, 1f)
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+            .background(MaterialTheme.colorScheme.surface),
     ) {
-        if (!product.imageUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = product.imageUrl,
-                contentDescription = product.name,
-                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
-            )
-        } else {
-            IconAvatar(
-                icon = if (product.isLowStock) Icons.Default.Warning else Icons.Default.Inventory2,
-                bgColor = iconBg, iconColor = iconClr, size = 46.dp, iconSize = 22.dp,
-            )
-        }
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(product.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("رقم: ${product.itemNumber}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("متوفر: ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                val stockColor = if (product.currentStock <= product.minStock) AppColor.Red600 else AppColor.Green600
-                Text("${product.currentStock} قطعة", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = stockColor, fontSize = 11.sp)
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            if (!product.imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = product.imageUrl,
+                    contentDescription = product.name,
+                    modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
+                )
+            } else {
+                IconAvatar(
+                    icon = if (product.isLowStock) Icons.Default.Warning else Icons.Default.Inventory2,
+                    bgColor = iconBg, iconColor = iconClr, size = 46.dp, iconSize = 22.dp,
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(product.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (product.category.isNotBlank()) {
+                    Text(product.category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Text("رقم: ${product.itemNumber}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                }
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!hidePrices) {
+                    Text(product.salePrice.formatMoney(), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("${product.currentStock}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = stockColor)
+                    Text("قطعة", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("${product.salePrice.formatMoney()}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
-            if (product.isLowStock) StatusBadge("منخفض", StatusType.ERROR) else StatusBadge("متوفر", StatusType.SUCCESS)
-        }
+        // Stock level bar
+        LinearProgressIndicator(
+            progress = { stockProgress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(2.dp)
+                .padding(horizontal = 16.dp),
+            color = stockColor,
+            trackColor = MaterialTheme.colorScheme.outlineVariant,
+        )
+        Spacer(Modifier.height(2.dp))
     }
 }
 
@@ -243,6 +268,8 @@ fun ProductDetailScreen(
 ) {
     val product by viewModel.product.collectAsState()
     val apiBase by viewModel.apiBaseUrl.collectAsState()
+    val hidePrices by viewModel.hidePrices.collectAsState()
+    val showPurchasePrice by viewModel.showPurchasePrice.collectAsState()
     val context = LocalContext.current
     val cur = product
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -324,11 +351,14 @@ fun ProductDetailScreen(
             }
 
             // ── Prices ──────────────────────────────────────────────
+            if (!hidePrices) {
             item {
                 SectionCard(title = "الأسعار") {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PriceBox("سعر الشراء", cur.purchasePrice, AppColor.Amber600, AppColor.Amber50, Modifier.weight(1f))
-                        PriceBox("سعر الجملة", cur.salePrice,     AppColor.Green600,  AppColor.Green50,  Modifier.weight(1f))
+                        if (showPurchasePrice) {
+                            PriceBox("سعر الشراء", cur.purchasePrice, AppColor.Amber600, AppColor.Amber50, Modifier.weight(1f))
+                        }
+                        PriceBox("سعر الجملة", cur.salePrice, AppColor.Green600, AppColor.Green50, if (showPurchasePrice) Modifier.weight(1f) else Modifier.fillMaxWidth())
                     }
                     if (cur.retailPrice > 0.0 && cur.retailPrice != cur.salePrice) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -337,6 +367,7 @@ fun ProductDetailScreen(
                     }
                 }
             }
+            } // end if (!hidePrices)
 
             // ── Info ─────────────────────────────────────────────────
             item {

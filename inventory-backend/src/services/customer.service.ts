@@ -1,6 +1,7 @@
 import { InvoiceStatus, InvoiceType, Prisma, VoucherType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { calculateCustomerBalance } from "../utils/financial";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -165,12 +166,13 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
   //   PURCHASE remaining → -ve (we owe supplier)
   //   RECEIPT → -ve (reduces debt)
   //   PAYMENT → +ve (we paid out, increases what they owe or reduces our credit)
-  const currentBalance =
-    toNumber(customer.openingBalance) +
-    toNumber(saleTotals._sum.remainingAmount) -
-    toNumber(creditInvoiceTotals._sum.remainingAmount) -
-    toNumber(receiptTotals._sum.amount) +
-    toNumber(paymentTotals._sum.amount);
+  const currentBalance = calculateCustomerBalance({
+    openingBalance: toNumber(customer.openingBalance),
+    salesRemaining: toNumber(saleTotals._sum.remainingAmount),
+    purchasesRemaining: toNumber(creditInvoiceTotals._sum.remainingAmount),
+    receipts: toNumber(receiptTotals._sum.amount),
+    payments: toNumber(paymentTotals._sum.amount),
+  });
 
   const lastTransactionAt =
     lastInvoice && lastVoucher
@@ -450,11 +452,20 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
         : movement.type === "SALE_PAYMENT" || movement.type === "PURCHASE_PAYMENT"
           ? "INVOICE_PAYMENT"
           : movement.type;
+    const invoiceType =
+      movement.type === "SALE_INVOICE"
+        ? "SALE"
+        : movement.type === "PURCHASE_INVOICE"
+          ? "PURCHASE"
+          : movement.type === "SALES_RETURN_INVOICE"
+            ? "SALES_RETURN"
+            : null;
 
     return [{
       id: movement.recordId,
       date: movement.date,
       type: displayType,
+      invoiceType,
       amount: movement.amount,
       referenceNumber: movement.referenceNumber,
       status: movement.status,

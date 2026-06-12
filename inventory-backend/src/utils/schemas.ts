@@ -249,7 +249,7 @@ export const createCustomerSchema = z.object({
     phone: z.string().trim().min(5),
     address: z.string().trim().optional(),
     notes: z.string().trim().optional(),
-    openingBalance: z.coerce.number().nonnegative().default(0),
+    openingBalance: z.coerce.number().default(0),
     creditLimit: z.coerce.number().nonnegative().nullable().optional(),
     branchId: z.string().uuid().optional(),
     isSupplier: z.coerce.boolean().optional(),
@@ -264,7 +264,7 @@ export const updateCustomerSchema = z.object({
       phone: z.string().trim().min(5).optional(),
       address: z.string().trim().nullable().optional(),
       notes: z.string().trim().nullable().optional(),
-      openingBalance: z.coerce.number().nonnegative().optional(),
+      openingBalance: z.coerce.number().optional(),
       creditLimit: z.coerce.number().nonnegative().nullable().optional(),
       branchId: z.string().uuid().nullable().optional(),
       isSupplier: z.coerce.boolean().optional(),
@@ -349,7 +349,7 @@ export const listInvoicesSchema = z.object({
     from: dateString.optional(),
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
+    limit: z.coerce.number().int().min(1).max(1000).default(20),
   }),
 });
 
@@ -362,6 +362,7 @@ export const lastSoldPriceSchema = z.object({
 
 const invoiceItemSchema = z.object({
   productId: z.string().uuid(),
+  warehouseId: z.string().uuid().optional(),
   unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
   quantity: z.coerce.number().int().min(1),
   unitPrice: z.coerce.number().nonnegative().optional(),
@@ -432,7 +433,7 @@ export const listQuotationsSchema = z.object({
     customerId: z.string().uuid().optional(),
     status: z.enum(["PENDING", "ACCEPTED", "REJECTED", "EXPIRED", "CONVERTED"]).optional(),
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
+    limit: z.coerce.number().int().min(1).max(1000).default(20),
   }),
 });
 

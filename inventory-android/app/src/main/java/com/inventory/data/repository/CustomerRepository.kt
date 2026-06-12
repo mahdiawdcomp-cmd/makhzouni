@@ -132,6 +132,7 @@ private fun CustomerTransactionDto.toDomain(): CustomerTransaction {
         id = id,
         date = date,
         type = type,
+        invoiceType = invoiceType,
         debit = debitValue,
         credit = creditValue,
         amount = amount,

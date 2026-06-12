@@ -33,6 +33,7 @@ import com.inventory.data.remote.dto.QuotationDto
 import com.inventory.data.remote.dto.ReviewApprovalRequest
 import com.inventory.data.remote.dto.SalesReportDto
 import com.inventory.data.remote.dto.TransferDto
+import com.inventory.data.remote.dto.LicenseStatusDto
 import com.inventory.data.remote.dto.UpdateQuotationStatusRequest
 import com.inventory.data.remote.dto.UpdateUserRequest
 import com.inventory.data.remote.dto.UpsertCustomerRequest
@@ -95,7 +96,8 @@ interface InventoryApi {
     @GET("products")
     suspend fun getProducts(
         @Query("search") search: String? = null,
-        @Query("category") category: String? = null
+        @Query("category") category: String? = null,
+        @Query("limit") limit: Int = 5000
     ): PagedEnvelope<ProductDto>
 
     @GET("products/{id}")
@@ -141,7 +143,8 @@ interface InventoryApi {
     @GET("customers")
     suspend fun getCustomers(
         @Query("search") search: String? = null,
-        @Query("isSupplier") isSupplier: Boolean? = null
+        @Query("isSupplier") isSupplier: Boolean? = null,
+        @Query("limit") limit: Int = 500
     ): PagedEnvelope<CustomerDto>
 
     @GET("customers/inactive")

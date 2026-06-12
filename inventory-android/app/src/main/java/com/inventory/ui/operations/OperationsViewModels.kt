@@ -17,6 +17,9 @@ import com.inventory.data.repository.OperationsRepository
 import com.inventory.data.repository.ProductRepository
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.Product
+import com.inventory.domain.finance.FinancialInvoiceType
+import com.inventory.domain.finance.calculateInvoiceFinancials
+import com.inventory.domain.finance.roundMoney
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +33,7 @@ data class DraftLine(
     val quantity: Int = 1,
     val unitPrice: Double = product.salePrice
 ) {
-    val total: Double = quantity * unitPrice
+    val total: Double = (quantity * unitPrice).roundMoney()
 }
 
 data class SalesOperationState(
@@ -53,8 +56,15 @@ data class SalesOperationState(
     val productSuggestions = if (productQuery.isBlank()) emptyList()
     else products.filter { it.name.contains(productQuery, true) || it.itemNumber.contains(productQuery, true) }.take(8)
 
-    val subtotal = lines.sumOf { it.total }
-    val total = (subtotal - (discount.toDoubleOrNull() ?: 0.0)).coerceAtLeast(0.0)
+    val subtotal = lines.sumOf { it.total }.roundMoney()
+    val discountAmount = (discount.toDoubleOrNull() ?: 0.0).coerceAtLeast(0.0).roundMoney()
+    val financials = calculateInvoiceFinancials(
+        type = if (mode == "RETURN") FinancialInvoiceType.SALES_RETURN else FinancialInvoiceType.SALE,
+        subtotal = subtotal,
+        discount = discountAmount,
+        requestedPaid = if (mode == "RETURN" || mode == "QUOTATION") 0.0 else paid.toDoubleOrNull() ?: 0.0,
+    )
+    val total = financials.totalAmount
 }
 
 @HiltViewModel
@@ -132,6 +142,10 @@ class SalesOperationViewModel @Inject constructor(
     fun save() {
         val s = _state.value
         val customer = s.selectedCustomer
+        if (s.total < 0.0) {
+            _state.value = s.copy(message = "الخصم أكبر من مجموع المواد")
+            return
+        }
         val validation = when {
             customer == null -> "اختار الزبون أولاً"
             s.lines.isEmpty() -> "أضف مادة واحدة على الأقل"
@@ -148,6 +162,7 @@ class SalesOperationViewModel @Inject constructor(
             val items = s.lines.map {
                 com.inventory.data.remote.dto.CreateInvoiceItemRequest(
                     productId = it.product.id,
+                    warehouseId = it.product.warehouseStocks.maxByOrNull { stock -> stock.quantityPieces }?.warehouseId,
                     unit = it.unit,
                     quantity = it.quantity,
                     unitPrice = it.unitPrice
@@ -157,7 +172,7 @@ class SalesOperationViewModel @Inject constructor(
                 operationsRepository.createQuotation(
                     CreateQuotationRequest(
                         customerId = customer!!.id,
-                        discount = s.discount.toDoubleOrNull() ?: 0.0,
+                        discount = s.discountAmount,
                         notes = s.notes.takeIf { it.isNotBlank() },
                         items = items
                     )
@@ -167,10 +182,10 @@ class SalesOperationViewModel @Inject constructor(
                     customerId = customer!!.id,
                     date = LocalDate.now().toString(),
                     type = if (s.mode == "RETURN") "SALES_RETURN" else "SALE",
-                    discount = s.discount.toDoubleOrNull() ?: 0.0,
+                    discount = s.discountAmount,
                     tax = 0.0,
-                    paidAmount = s.paid.toDoubleOrNull() ?: 0.0,
-                    paymentType = if ((s.paid.toDoubleOrNull() ?: 0.0) >= s.total) "CASH" else "PARTIAL",
+                    paidAmount = s.financials.paidAmount,
+                    paymentType = s.financials.paymentType,
                     items = items
                 )
                 invoiceRepository.createInvoice(request)
@@ -309,6 +324,25 @@ class AdminOperationsViewModel @Inject constructor(
             val quantity = qty.toIntOrNull()
             if (from.isBlank() || to.isBlank() || productId.isBlank() || quantity == null || quantity <= 0) {
                 _state.value = _state.value.copy(message = "أكمل معلومات التحويل")
+                return@launch
+            }
+            if (from == to) {
+                _state.value = _state.value.copy(message = "اختر مخزنين مختلفين")
+                return@launch
+            }
+            val product = _state.value.products.firstOrNull { it.id == productId }
+            val available = product?.warehouseStocks
+                ?.firstOrNull { it.warehouseId == from }
+                ?.quantityPieces ?: 0
+            val requestedPieces = when (unit) {
+                "CARTON" -> quantity * (product?.pcsPerCarton ?: 1)
+                "DOZEN" -> quantity * 12
+                else -> quantity
+            }
+            if (requestedPieces > available) {
+                _state.value = _state.value.copy(
+                    message = "الكمية أكبر من رصيد المخزن المصدر ($available قطعة)"
+                )
                 return@launch
             }
             val request = CreateTransferRequest(

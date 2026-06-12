@@ -9,6 +9,19 @@ import {
 } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import {
+  amountInPieces,
+  calculateCustomerBalance,
+  calculateInvoiceFinancials,
+  invoiceBalanceSign,
+  roundMoney,
+} from "../utils/financial";
+import {
+  adjustWarehouseStock,
+  ensureLegacyWarehouseStock,
+  resolveWarehouseId,
+  syncProductTotalStock,
+} from "./warehouse-stock.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -27,6 +40,7 @@ export interface ListInvoicesQuery {
 
 export interface InvoiceItemInput {
   productId: string;
+  warehouseId?: string;
   unit: Unit;
   quantity: number;
   unitPrice?: number;
@@ -72,23 +86,17 @@ function serializeInvoice(invoice: any) {
 }
 
 function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number) {
-  if (unit === Unit.CARTON) return quantity * pcsPerCarton;
-  if (unit === Unit.DOZEN) return quantity * 12;
-  return quantity;
+  return amountInPieces(unit, quantity, pcsPerCarton);
 }
 
 function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: number) {
   const price = toNumber(salePrice);
-  if (unit === Unit.CARTON) return price * pcsPerCarton;
-  if (unit === Unit.DOZEN) return price * 12;
-  return price;
+  if (unit === Unit.CARTON) return roundMoney(price * pcsPerCarton);
+  if (unit === Unit.DOZEN) return roundMoney(price * 12);
+  return roundMoney(price);
 }
 
 function isStockInflow(type: InvoiceType) {
-  return type === InvoiceType.PURCHASE || type === InvoiceType.SALES_RETURN;
-}
-
-function isCustomerCreditInvoice(type: InvoiceType) {
   return type === InvoiceType.PURCHASE || type === InvoiceType.SALES_RETURN;
 }
 
@@ -131,8 +139,14 @@ async function couponDiscount(
   const normalizedCode = code?.trim().toUpperCase();
   if (!normalizedCode) return { couponId: null as string | null, discount: 0 };
 
+  // Lock the coupon row so concurrent invoice creation cannot both pass the maxUses check.
+  const [locked] = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "coupons" WHERE "code" = ${normalizedCode} FOR UPDATE
+  `;
+  if (!locked) throw new AppError("Coupon is not active", 400, "COUPON_INACTIVE");
+
   const coupon = await tx.coupon.findUnique({
-    where: { code: normalizedCode },
+    where: { id: locked.id },
     include: { _count: { select: { redemptions: true } } },
   });
 
@@ -157,7 +171,7 @@ async function couponDiscount(
 
   return {
     couponId: coupon.id,
-    discount: Math.min(subtotal, Math.max(0, raw)),
+    discount: roundMoney(Math.min(subtotal, Math.max(0, raw))),
   };
 }
 
@@ -259,12 +273,13 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
   //   PURCHASE invoice remaining → -ve (we owe supplier)
   //   RECEIPT voucher → -ve (we received money from customer, reduces their debt)
   //   PAYMENT voucher → +ve (we paid customer, increases what they owe… or reduces our debt to supplier)
-  const currentBalance =
-    toNumber(customer.openingBalance) +
-    toNumber(saleTotals._sum.remainingAmount) -
-    toNumber(creditInvoiceTotals._sum.remainingAmount) -
-    toNumber(receiptTotals._sum.amount) +
-    toNumber(paymentTotals._sum.amount);
+  const currentBalance = calculateCustomerBalance({
+    openingBalance: toNumber(customer.openingBalance),
+    salesRemaining: toNumber(saleTotals._sum.remainingAmount),
+    purchasesRemaining: toNumber(creditInvoiceTotals._sum.remainingAmount),
+    receipts: toNumber(receiptTotals._sum.amount),
+    payments: toNumber(paymentTotals._sum.amount),
+  });
 
   const lastTransactionAt =
     lastInvoice && lastVoucher
@@ -296,34 +311,34 @@ async function applyStockMovement(
     throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
   }
 
+  await ensureLegacyWarehouseStock(tx, product);
+  const warehouseId = await resolveWarehouseId(
+    tx,
+    item.warehouseId ?? branchId ?? product.branchId
+  );
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
-  const balanceBefore = productStock(product);
   const addsStock = isStockInflow(invoiceType);
   // PURCHASE and SALES_RETURN add stock; SALE subtracts.
   // Negative balanceAfter is allowed — the product will show negative stock as a warning.
-  const balanceAfter = addsStock ? balanceBefore + quantityInPieces : balanceBefore - quantityInPieces;
+  const movement = await adjustWarehouseStock(tx, {
+    productId: product.id,
+    warehouseId,
+    deltaPieces: addsStock ? quantityInPieces : -quantityInPieces,
+    allowNegative: !addsStock,
+  });
+  await syncProductTotalStock(tx, product.id);
 
   // Normalize carton / piece split so the display always reflects reality.
   // If stock is negative we keep cartonsAvailable = 0 and openingBalancePcs carries the deficit.
-  const normalized = normalizeStock(balanceAfter, product.pcsPerCarton);
-
-  await tx.product.update({
-    where: { id: product.id },
-    data: {
-      openingBalancePcs: normalized.openingBalancePcs,
-      cartonsAvailable: normalized.cartonsAvailable,
-    },
-  });
-
   await tx.stockMovement.create({
     data: {
       productId: product.id,
-      branchId,
+      branchId: warehouseId,
       invoiceId,
       type: addsStock ? StockMovementType.IN : StockMovementType.OUT,
       quantity: quantityInPieces,
-      balanceBefore,
-      balanceAfter,
+      balanceBefore: movement.balanceBefore,
+      balanceAfter: movement.balanceAfter,
     },
   });
 
@@ -334,9 +349,10 @@ async function applyStockMovement(
 
   return {
     product,
+    warehouseId,
     quantityInPieces,
     unitPrice,
-    totalPrice: unitPrice * item.quantity,
+    totalPrice: roundMoney(unitPrice * item.quantity),
   };
 }
 
@@ -344,7 +360,8 @@ async function adjustProductStock(
   tx: Db,
   productId: string,
   quantityInPieces: number,
-  direction: "IN" | "OUT"
+  direction: "IN" | "OUT",
+  warehouseId?: string | null
 ) {
   const product = await tx.product.findUnique({
     where: { id: productId },
@@ -352,19 +369,15 @@ async function adjustProductStock(
 
   if (!product) return;
 
-  const balanceBefore = productStock(product);
-  const balanceAfter =
-    direction === "IN" ? balanceBefore + quantityInPieces : balanceBefore - quantityInPieces;
-
-  const normalized = normalizeStock(balanceAfter, product.pcsPerCarton);
-
-  await tx.product.update({
-    where: { id: product.id },
-    data: {
-      openingBalancePcs: normalized.openingBalancePcs,
-      cartonsAvailable: normalized.cartonsAvailable,
-    },
+  await ensureLegacyWarehouseStock(tx, product);
+  const resolvedWarehouseId = await resolveWarehouseId(tx, warehouseId ?? product.branchId);
+  await adjustWarehouseStock(tx, {
+    productId,
+    warehouseId: resolvedWarehouseId,
+    deltaPieces: direction === "IN" ? quantityInPieces : -quantityInPieces,
+    allowNegative: true,
   });
+  await syncProductTotalStock(tx, productId);
 }
 
 async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
@@ -387,7 +400,8 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
       tx,
       item.productId,
       quantityInPieces,
-      isStockInflow(invoice.type) ? "OUT" : "IN"
+      isStockInflow(invoice.type) ? "OUT" : "IN",
+      item.warehouseId
     );
   }
 
@@ -412,6 +426,7 @@ async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {
       invoice.id,
       {
         productId: item.productId,
+        warehouseId: item.warehouseId ?? undefined,
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: toNumber(item.unitPrice),
@@ -430,15 +445,15 @@ async function recalculateInvoiceBalances(tx: Db, invoiceId: string) {
   }
 
   const { previousBalance } = await getCustomerBalance(tx, invoice.customerId);
-  const balanceDelta = isCustomerCreditInvoice(invoice.type)
-    ? -toNumber(invoice.remainingAmount)
-    : toNumber(invoice.remainingAmount);
+  const balanceDelta = roundMoney(
+    invoiceBalanceSign(invoice.type) * toNumber(invoice.remainingAmount)
+  );
 
   const updated = await tx.invoice.update({
     where: { id: invoiceId },
     data: {
       previousBalance,
-      finalBalance: previousBalance + balanceDelta,
+      finalBalance: roundMoney(previousBalance + balanceDelta),
     },
     include: {
       customer: true,
@@ -538,42 +553,53 @@ async function createInvoiceInTransaction(
 
   for (const item of input.items) {
     const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId);
-    subtotal += pricedItem.totalPrice;
+    subtotal = roundMoney(subtotal + pricedItem.totalPrice);
 
     await tx.invoiceItem.create({
       data: {
         invoiceId: invoice.id,
         productId: pricedItem.product.id,
+        warehouseId: pricedItem.warehouseId,
         productName: pricedItem.product.name,
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: pricedItem.unitPrice,
-        costPrice: toNumber(pricedItem.product.costPrice),
+        costPrice:
+          toNumber(pricedItem.product.costPrice) > 0
+            ? toNumber(pricedItem.product.costPrice)
+            : toNumber(pricedItem.product.purchasePrice),
         totalPrice: pricedItem.totalPrice,
       },
     });
   }
 
   const coupon = await couponDiscount(tx, input.couponCode, subtotal);
-  const discount = coupon.couponId ? coupon.discount : manualDiscount;
-  const totalAmount = subtotal - discount + tax;
-  if (totalAmount < 0) {
+  const discount = roundMoney(coupon.couponId ? coupon.discount : manualDiscount);
+  const financials = calculateInvoiceFinancials({
+    type: invoiceType,
+    subtotal,
+    discount,
+    tax,
+    paidAmount: input.paidAmount,
+    previousBalance,
+  });
+  if (financials.totalAmount < 0) {
     throw new AppError(
       "Invoice discount cannot be greater than subtotal plus tax",
       400,
       "INVALID_INVOICE_TOTAL"
     );
   }
+  if (financials.overpayment > 0) {
+    throw new AppError(
+      "Paid amount cannot exceed invoice total; record any extra amount as a separate receipt",
+      400,
+      "PAID_AMOUNT_EXCEEDS_TOTAL"
+    );
+  }
 
-  const paidAmount = input.paidAmount;
-  const remainingAmount = totalAmount - paidAmount; // FIXED: allow negative balance when the customer overpays.
-  const paymentType =
-    input.paymentType ??
-    (remainingAmount <= 0
-      ? PaymentType.CASH
-      : paidAmount > 0
-        ? PaymentType.PARTIAL
-        : PaymentType.CREDIT);
+  const { totalAmount, paidAmount, remainingAmount, finalBalance } = financials;
+  const paymentType = financials.paymentType as PaymentType;
 
   // Credit limit check — only for SALE invoices with outstanding balance
   if (invoiceType === InvoiceType.SALE && remainingAmount > 0) {
@@ -590,20 +616,17 @@ async function createInvoiceInTransaction(
     }
   }
 
-  // finalBalance from our perspective: SALE adds remaining to what the customer owes,
-  // PURCHASE subtracts (because the supplier now owes us less / we owe them more).
-  const balanceDelta = isCustomerCreditInvoice(invoiceType) ? -remainingAmount : remainingAmount;
-
   const updatedInvoice = await tx.invoice.update({
     where: { id: invoice.id },
     data: {
       subtotal,
       discount,
+      tax: financials.tax,
       totalAmount,
       paidAmount,
       remainingAmount,
       previousBalance,
-      finalBalance: previousBalance + balanceDelta,
+      finalBalance,
       paymentType,
       branchId,
       couponId: coupon.couponId,
@@ -731,6 +754,7 @@ export async function getLastSoldPrice(customerId: string, productId: string) {
         invoiceNumber: invoice.invoiceNumber,
         date: invoice.date,
         unit: item.unit,
+        warehouseId: item.warehouseId,
         unitPrice: toNumber(item.unitPrice),
       }
     : null;

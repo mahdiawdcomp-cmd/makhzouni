@@ -29,7 +29,9 @@ data class ProductListUiState(
     val category: String? = null,
     val sortBy: String = "updated",
     val isLoading: Boolean = false,
-    val error: String? = null
+    val error: String? = null,
+    val hidePrices: Boolean = false,
+    val showPurchasePrice: Boolean = false
 ) {
     val categories: List<String> = products.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
     val filteredProducts: List<Product> = products.filter { product ->
@@ -52,7 +54,9 @@ data class ProductListUiState(
 
 @HiltViewModel
 class ProductListViewModel @Inject constructor(
-    private val repository: ProductRepository
+    private val repository: ProductRepository,
+    sessionManager: SessionManager,
+    permissionManager: PermissionManager
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val category = MutableStateFlow<String?>(null)
@@ -64,9 +68,15 @@ class ProductListViewModel @Inject constructor(
         combine(repository.products, query, category, isLoading, error) { products, queryValue, categoryValue, loadingValue, errorValue ->
             ProductListUiState(products, queryValue, categoryValue, isLoading = loadingValue, error = errorValue)
         },
-        sortBy
-    ) { stateValue, sortValue ->
-        stateValue.copy(sortBy = sortValue)
+        combine(sortBy, sessionManager.role, sessionManager.permissions) { sort, role, perms ->
+            Triple(sort, role, perms)
+        }
+    ) { stateValue, (sortValue, role, perms) ->
+        stateValue.copy(
+            sortBy = sortValue,
+            hidePrices = permissionManager.viewWithoutPrices(role, perms),
+            showPurchasePrice = permissionManager.canViewPurchasePrice(role, perms)
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProductListUiState())
 
     init {
@@ -101,7 +111,8 @@ class ProductListViewModel @Inject constructor(
 class ProductDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val repository: ProductRepository,
-    sessionManager: SessionManager
+    sessionManager: SessionManager,
+    permissionManager: PermissionManager
 ) : ViewModel() {
     private val productId: String = checkNotNull(savedStateHandle["productId"])
 
@@ -124,6 +135,16 @@ class ProductDetailViewModel @Inject constructor(
             }
         }
     }
+
+    /** Whether to hide all prices (VIEW_WITHOUT_PRICES permission). */
+    val hidePrices: StateFlow<Boolean> = combine(sessionManager.role, sessionManager.permissions) { role, perms ->
+        permissionManager.viewWithoutPrices(role, perms)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** Whether to show the purchase price column. */
+    val showPurchasePrice: StateFlow<Boolean> = combine(sessionManager.role, sessionManager.permissions) { role, perms ->
+        permissionManager.canViewPurchasePrice(role, perms)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     /** Dynamic API base URL for QR image loading (strips trailing /api/ to get server root) */
     val apiBaseUrl: StateFlow<String> = sessionManager.baseUrl

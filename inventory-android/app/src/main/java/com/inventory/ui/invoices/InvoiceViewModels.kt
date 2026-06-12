@@ -4,15 +4,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.dto.CreateInvoiceRequest
+import com.inventory.data.remote.dto.CreateInvoiceItemRequest
 import com.inventory.data.repository.CustomerRepository
 import com.inventory.data.repository.InvoiceRepository
 import com.inventory.data.repository.ProductRepository
 import com.inventory.data.repository.SessionManager
-import com.inventory.data.repository.toCreateItems
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.Invoice
 import com.inventory.domain.model.InvoiceItem
 import com.inventory.domain.model.Product
+import com.inventory.domain.finance.FinancialInvoiceType
+import com.inventory.domain.finance.calculateInvoiceFinancials
+import com.inventory.domain.finance.roundMoney
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -114,7 +117,7 @@ class InvoiceListViewModel @Inject constructor(
                         customerName = customer.name,
                         customerId = customer.id,
                         date = row.date.take(10),
-                        type = if (row.credit > 0.0) "PURCHASE" else "SALE",
+                        type = row.invoiceType ?: if (row.credit > 0.0) "PURCHASE" else "SALE",
                         totalAmount = row.amount,
                         paidAmount = 0.0,
                         remainingAmount = row.amount,
@@ -134,11 +137,20 @@ data class InvoiceDraftItem(
     val product: Product,
     val lineId: String = UUID.randomUUID().toString(),
     val unit: String = "PIECE",
+    val warehouseId: String? = product.warehouseStocks.maxByOrNull { it.quantityPieces }?.warehouseId,
     val quantity: Int = 0,
     val unitPrice: Double = unitPriceFor(product, unit)
 ) {
     val totalPrice: Double = quantity * unitPrice
-    fun toInvoiceItem() = InvoiceItem(product.id, product.name, unit, quantity, unitPrice, totalPrice)
+    fun toInvoiceItem() = InvoiceItem(
+        productId = product.id,
+        productName = product.name,
+        warehouseId = warehouseId,
+        unit = unit,
+        quantity = quantity,
+        unitPrice = unitPrice,
+        totalPrice = totalPrice,
+    )
 }
 
 private fun unitPriceFor(product: Product, unit: String, useRetail: Boolean = false): Double {
@@ -158,6 +170,7 @@ data class InvoiceCreateUiState(
     val selectedCustomer: Customer? = null,
     val date: String = LocalDate.now().toString(),
     val invoiceNumber: String = "تلقائي",
+    val invoiceType: String = "SALE",
     val items: List<InvoiceDraftItem> = emptyList(),
     val showPurchasePrice: Boolean = false,
     val showStock: Boolean = false,
@@ -165,7 +178,6 @@ data class InvoiceCreateUiState(
     val hidePrice: Boolean = false,
     val discountValue: String = "0",
     val discountMode: String = "amount",
-    val tax: String = "0",
     val paidAmount: String = "0",
     val paymentType: String = "CREDIT",
     val preview: Boolean = false,
@@ -186,14 +198,26 @@ data class InvoiceCreateUiState(
     } else {
         products.filter { it.name.contains(productQuery, true) || it.itemNumber.contains(productQuery, true) }.take(8)
     }
-    val subtotal = items.sumOf { it.totalPrice }
-    val discountAmount = if (discountMode == "percent") subtotal * (discountValue.toDoubleOrNull().orZero() / 100.0) else discountValue.toDoubleOrNull().orZero()
-    val afterDiscount = subtotal - discountAmount
-    val total = afterDiscount + tax.toDoubleOrNull().orZero()
+    val subtotal = items.sumOf { it.totalPrice }.roundMoney()
+    val discountAmount = (if (discountMode == "percent") subtotal * (discountValue.toDoubleOrNull().orZero() / 100.0) else discountValue.toDoubleOrNull().orZero()).roundMoney()
     val previousBalance = selectedCustomer?.currentBalance ?: 0.0
-    val paid = paidAmount.toDoubleOrNull().orZero()
-    val remaining = total - paid
-    val finalBalance = previousBalance + remaining
+    val requestedPaid = when (paymentType) {
+        "CASH" -> (subtotal - discountAmount).coerceAtLeast(0.0)
+        "CREDIT" -> 0.0
+        else -> paidAmount.toDoubleOrNull().orZero()
+    }
+    val financials = calculateInvoiceFinancials(
+        type = FinancialInvoiceType.valueOf(invoiceType),
+        subtotal = subtotal,
+        discount = discountAmount,
+        tax = 0.0,
+        requestedPaid = requestedPaid,
+        previousBalance = previousBalance,
+    )
+    val total = financials.totalAmount
+    val paid = financials.paidAmount
+    val remaining = financials.remainingAmount
+    val finalBalance = financials.finalBalance
 }
 
 @HiltViewModel
@@ -224,7 +248,6 @@ class InvoiceCreateViewModel @Inject constructor(
     fun togglePurchase() { _state.value = _state.value.copy(showPurchasePrice = !_state.value.showPurchasePrice) }
     fun toggleStock() { _state.value = _state.value.copy(showStock = !_state.value.showStock) }
     fun setDiscount(value: String) { _state.value = _state.value.copy(discountValue = value.filterDecimal()) }
-    fun setTax(value: String) { _state.value = _state.value.copy(tax = value.filterDecimal()) }
     fun setPaid(value: String) { _state.value = _state.value.copy(paidAmount = value.filterDecimal()) }
     fun setDiscountMode(value: String) { _state.value = _state.value.copy(discountMode = value) }
     fun setPaymentType(value: String) { _state.value = _state.value.copy(paymentType = value) }
@@ -270,6 +293,7 @@ class InvoiceCreateViewModel @Inject constructor(
                         InvoiceDraftItem(
                             product = product,
                             unit = invoiceItem.unit,
+                            warehouseId = invoiceItem.warehouseId,
                             quantity = invoiceItem.quantity,
                             unitPrice = invoiceItem.unitPrice
                         )
@@ -279,7 +303,10 @@ class InvoiceCreateViewModel @Inject constructor(
                         customerQuery = customer?.name ?: invoice.customerName,
                         date = invoice.date,
                         invoiceNumber = invoice.invoiceNumber,
+                        invoiceType = invoice.type,
                         items = draftItems,
+                        discountValue = invoice.discount.toString(),
+                        discountMode = "amount",
                         paidAmount = invoice.paidAmount.toString(),
                         paymentType = invoice.paymentType,
                         isSaving = false,
@@ -342,6 +369,12 @@ class InvoiceCreateViewModel @Inject constructor(
         })
     }
 
+    fun updateItemWarehouse(lineId: String, warehouseId: String) {
+        _state.value = _state.value.copy(items = _state.value.items.map {
+            if (it.lineId == lineId) it.copy(warehouseId = warehouseId) else it
+        })
+    }
+
     fun updateItemTotal(lineId: String, total: Double) {
         _state.value = _state.value.copy(items = _state.value.items.map {
             if (it.lineId == lineId) {
@@ -377,11 +410,20 @@ class InvoiceCreateViewModel @Inject constructor(
             val request = CreateInvoiceRequest(
                 customerId = customer!!.id,
                 date = current.date,
-                discount = 0.0,
+                type = current.invoiceType,
+                discount = current.discountAmount,
                 tax = 0.0,
                 paidAmount = current.paid,
-                paymentType = current.paymentType,
-                items = current.items.map { it.toInvoiceItem() }.toCreateItems()
+                paymentType = current.financials.paymentType,
+                items = current.items.map {
+                    CreateInvoiceItemRequest(
+                        productId = it.product.id,
+                        warehouseId = it.warehouseId,
+                        unit = it.unit,
+                        quantity = it.quantity,
+                        unitPrice = it.unitPrice,
+                    )
+                }
             )
             val result = current.editingInvoiceId?.let { invoiceRepository.updateInvoice(it, request) }
                 ?: invoiceRepository.createInvoice(request)

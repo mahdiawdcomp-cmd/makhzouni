@@ -1,6 +1,7 @@
 import { InvoiceStatus, InvoiceType, Prisma, VoucherType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { calculateCustomerBalance } from "../utils/financial";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -125,12 +126,13 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
   ]);
 
   // Same sign convention as invoice.service: +ve = customer owes us, -ve = we owe customer/supplier.
-  const currentBalance =
-    toNumber(customer.openingBalance) +
-    toNumber(saleTotals._sum.remainingAmount) -
-    toNumber(creditInvoiceTotals._sum.remainingAmount) -
-    toNumber(receiptTotals._sum.amount) +
-    toNumber(paymentTotals._sum.amount);
+  const currentBalance = calculateCustomerBalance({
+    openingBalance: toNumber(customer.openingBalance),
+    salesRemaining: toNumber(saleTotals._sum.remainingAmount),
+    purchasesRemaining: toNumber(creditInvoiceTotals._sum.remainingAmount),
+    receipts: toNumber(receiptTotals._sum.amount),
+    payments: toNumber(paymentTotals._sum.amount),
+  });
 
   const lastTransactionAt =
     lastInvoice && lastVoucher
@@ -210,7 +212,7 @@ async function createVoucherInTransaction(
   input: CreateVoucherInput,
   createdBy: string
 ) {
-  const date = new Date();
+  const date = input.date ? new Date(input.date) : new Date();
   const voucherNumber = await generateVoucherNumber(tx, input.type, date);
 
   // EXPENSE vouchers have no customer — they reduce the cashier and are tracked separately.
@@ -302,6 +304,7 @@ async function updateVoucherInTransaction(
 
   const data: Prisma.PaymentVoucherUpdateInput = {};
   if (input.amount !== undefined) data.amount = input.amount;
+  if (input.date !== undefined) data.date = new Date(input.date);
   if (input.notes !== undefined) data.notes = input.notes;
   if (input.description !== undefined) data.description = input.description;
   if (existing.type !== VoucherType.EXPENSE && input.customerId !== undefined) {

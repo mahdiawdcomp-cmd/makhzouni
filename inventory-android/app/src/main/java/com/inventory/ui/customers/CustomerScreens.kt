@@ -524,7 +524,7 @@ fun CustomerFormScreen(viewModel: CustomerFormViewModel, onDone: () -> Unit) {
                         AppTextField(state.phone, { viewModel.update("phone", it) }, "رقم الهاتف", required = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
                         AppTextField(state.address, { viewModel.update("address", it) }, "العنوان")
                         AppTextField(state.notes, { viewModel.update("notes", it) }, "ملاحظات", singleLine = false)
-                        AppTextField(state.openingBalance, { viewModel.update("openingBalance", it) }, "الرصيد الافتتاحي", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        AppTextField(state.openingBalance, { viewModel.update("openingBalance", it) }, "الرصيد الافتتاحي (+ لنا / - علينا)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
 
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Switch(checked = state.isSupplier, onCheckedChange = { viewModel.update("isSupplier", it.toString()) })

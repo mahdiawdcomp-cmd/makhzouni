@@ -237,9 +237,14 @@ export async function productCartonSheetPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
-export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean }) {
-  const { data } = await api.get<PagedResponse<Customer>>("/customers", { params })
+export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number }) {
+  const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 500, ...params } })
   return data.data ?? []
+}
+
+export async function getCustomersPaged(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number }) {
+  const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 30, ...params } })
+  return data
 }
 
 export async function getWalkInCustomer() {
@@ -313,12 +318,12 @@ export async function getInvoices(params?: {
   page?: number
   limit?: number
 }) {
-  const { data } = await api.get<PagedResponse<Invoice>>("/invoices", { params: { limit: 100, ...params } })
+  const { data } = await api.get<PagedResponse<Invoice>>("/invoices", { params: { limit: 500, ...params } })
   return data.data ?? []
 }
 
 export async function getLastSoldPrice(customerId: string, productId: string) {
-  const { data } = await api.get<ApiEnvelope<{ invoiceId: string; invoiceNumber: string; date: string; unit: string; unitPrice: number } | null>>(
+  const { data } = await api.get<ApiEnvelope<{ invoiceId: string; invoiceNumber: string; date: string; unit: string; warehouseId?: string | null; unitPrice: number } | null>>(
     "/invoices/last-sold-price",
     { params: { customerId, productId } },
   )
@@ -376,7 +381,7 @@ export async function applyCoupon(code: string, subtotal: number) {
 }
 
 export async function getQuotations(params?: { status?: string; customerId?: string }) {
-  const { data } = await api.get<PagedResponse<Quotation>>("/quotations", { params: { limit: 100, ...params } })
+  const { data } = await api.get<PagedResponse<Quotation>>("/quotations", { params: { limit: 500, ...params } })
   return data.data ?? []
 }
 
@@ -661,7 +666,7 @@ export interface InventoryTransfer {
 }
 
 export async function getTransfers(params?: { branchId?: string; page?: number; limit?: number }) {
-  const { data } = await api.get<PagedResponse<InventoryTransfer>>("/transfers", { params: { limit: 100, ...params } })
+  const { data } = await api.get<PagedResponse<InventoryTransfer>>("/transfers", { params: { limit: 500, ...params } })
   return data.data ?? []
 }
 
@@ -922,4 +927,3 @@ export async function getDisplayProducts() {
   const { data } = await publicApi.get<{ success: boolean; data: DisplayData }>("/public/display-products")
   return data.data
 }
-

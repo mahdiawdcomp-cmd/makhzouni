@@ -16,8 +16,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -89,6 +93,14 @@ import com.inventory.ui.common.StatusType
 import com.inventory.ui.common.formatMoney
 import com.inventory.ui.theme.AppColor
 
+private data class HubItem(
+    val title: String,
+    val sub: String,
+    val icon: ImageVector,
+    val color: Color,
+    val onClick: () -> Unit,
+)
+
 @Composable
 fun OperationsHubScreen(
     onBack: () -> Unit,
@@ -100,53 +112,98 @@ fun OperationsHubScreen(
     onCoupons: () -> Unit,
     onAudit: () -> Unit,
     onVouchers: () -> Unit = {},
+    isAdmin: Boolean = true,
+    permissions: List<String> = emptyList(),
 ) {
+    val canInvoice = isAdmin || permissions.contains("MANAGE_INVOICES")
+    val canVouchers = isAdmin || permissions.contains("MANAGE_VOUCHERS")
+    val canSettings = isAdmin || permissions.contains("MANAGE_SETTINGS")
+
+    val tiles = buildList {
+        if (canInvoice) {
+            add(HubItem("POS سريع",       "فاتورة كاشير",         Icons.Default.PointOfSale,        AppColor.Green600,   onPos))
+            add(HubItem("مرتجع مبيعات",  "إرجاع كامل أو جزئي",  Icons.Default.AssignmentReturn,   AppColor.Red600,     onReturns))
+            add(HubItem("عروض الأسعار",  "إنشاء وتحويل لفاتورة", Icons.Default.RequestQuote,       AppColor.Blue600,    onQuotations))
+        }
+        if (canVouchers) {
+            add(HubItem("السندات",        "قبض / دفع / مصاريف",   Icons.Default.ConfirmationNumber, AppColor.Purple600,  onVouchers))
+        }
+        if (canSettings) {
+            add(HubItem("التحويلات",      "بين المخازن",           Icons.Default.SwapHoriz,          AppColor.Sky500,     onTransfers))
+            add(HubItem("المخازن",        "إدارة الفروع",          Icons.Default.Warehouse,          AppColor.Amber600,   onBranches))
+            add(HubItem("الكوبونات",      "خصومات وعروض",          Icons.Default.LocalOffer,         Color(0xFF0F766E),   onCoupons))
+            add(HubItem("سجل التدقيق",    "من عدل؟ متى؟",          Icons.Default.History,            AppColor.Gray700,    onAudit))
+        }
+    }
+
     AppScreen(title = "العمليات", onBack = onBack) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(MaterialTheme.colorScheme.background),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                SectionCard(title = "البيع والفواتير") {
-                    OperationTile("POS سريع", "فاتورة كاشير مختصرة وسريعة", Icons.Default.PointOfSale, AppColor.Green600, onPos)
-                    OperationTile("مرتجع مبيعات", "إرجاع كامل أو جزئي كفاتورة مرتجع", Icons.Default.AssignmentReturn, AppColor.Red600, onReturns)
-                    OperationTile("عروض الأسعار", "إنشاء عرض سعر وتحويله لاحقاً لفاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations)
-                }
-            }
-            item {
-                SectionCard(title = "السندات المالية") {
-                    OperationTile("السندات", "قبض / دفع / مصاريف — عرض وحذف", Icons.Default.ConfirmationNumber, AppColor.Purple600, onVouchers)
-                }
-            }
-            item {
-                SectionCard(title = "الإدارة والمراقبة") {
-                    OperationTile("التحويلات", "تحويل مواد بين المخازن والفروع", Icons.Default.SwapHoriz, AppColor.Purple600, onTransfers)
-                    OperationTile("المخازن", "إضافة وترتيب المخازن وربطها بالعمليات", Icons.Default.Warehouse, AppColor.Amber600, onBranches)
-                    OperationTile("الكوبونات", "خصومات وعروض موسمية", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons)
-                    OperationTile("سجل التدقيق", "من عدل؟ شنو عدل؟ ومتى؟", Icons.Default.History, AppColor.Gray700, onAudit)
-                }
+            gridItems(tiles) { tile ->
+                HubTile(
+                    title   = tile.title,
+                    subtitle = tile.sub,
+                    icon    = tile.icon,
+                    color   = tile.color,
+                    onClick = tile.onClick,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun OperationTile(title: String, subtitle: String, icon: ImageVector, color: Color, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun HubTile(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f)),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.20f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Box(
-            modifier = Modifier.size(44.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(icon, null, tint = color)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(color.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }
@@ -568,7 +625,14 @@ private fun TransferDialog(branches: List<BranchDto>, products: List<Product>, o
     SimpleDialog("تحويل جديد", onDismiss, { onSave(from, to, product, qty, unit, notes) }) {
         SelectField("من مخزن", branches.map { it.id to it.name }, from) { from = it }
         SelectField("إلى مخزن", branches.map { it.id to it.name }, to) { to = it }
-        SelectField("المادة", products.map { it.id to it.name }, product) { product = it }
+        SelectField(
+            "المادة",
+            products.map { item ->
+                val sourceQty = item.warehouseStocks.firstOrNull { it.warehouseId == from }?.quantityPieces ?: 0
+                item.id to "${item.name} ($sourceQty قطعة)"
+            },
+            product,
+        ) { product = it }
         DialogField("العدد", qty) { qty = it }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "CARTON" to "كارتون").forEach { (key, label) ->

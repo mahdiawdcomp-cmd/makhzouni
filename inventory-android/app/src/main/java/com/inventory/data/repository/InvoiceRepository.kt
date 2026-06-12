@@ -14,6 +14,8 @@ import com.inventory.data.remote.dto.CreateInvoiceRequest
 import com.inventory.data.remote.dto.InvoiceDto
 import com.inventory.data.remote.dto.InvoiceItemDto
 import com.inventory.data.remote.dto.roundMoney
+import com.inventory.domain.finance.FinancialInvoiceType
+import com.inventory.domain.finance.calculateInvoiceFinancials
 import com.inventory.domain.model.Invoice
 import com.inventory.domain.model.InvoiceItem
 import kotlinx.coroutines.flow.Flow
@@ -177,10 +179,15 @@ class InvoiceRepository @Inject constructor(
             )
         }
         val subtotal = itemEntities.sumOf { it.totalPrice }.roundMoney()
-        val total = (subtotal - request.discount + request.tax).roundMoney()
-        val remaining = (total - request.paidAmount).roundMoney()
         val previousBalance = customer?.currentBalance ?: 0.0
-        val finalBalance = previousBalance + if (request.type == "PURCHASE") -remaining else remaining
+        val financials = calculateInvoiceFinancials(
+            type = FinancialInvoiceType.valueOf(request.type),
+            subtotal = subtotal,
+            discount = request.discount,
+            tax = request.tax,
+            requestedPaid = request.paidAmount,
+            previousBalance = previousBalance,
+        )
         val entity = InvoiceEntity(
             id = id,
             invoiceNumber = "محلي-${id.takeLast(6)}",
@@ -190,12 +197,12 @@ class InvoiceRepository @Inject constructor(
             subtotal = subtotal,
             discount = request.discount,
             tax = request.tax,
-            totalAmount = total,
-            paidAmount = request.paidAmount,
-            remainingAmount = remaining,
+            totalAmount = financials.totalAmount,
+            paidAmount = financials.paidAmount,
+            remainingAmount = financials.remainingAmount,
             previousBalance = previousBalance,
-            finalBalance = finalBalance,
-            paymentType = request.paymentType,
+            finalBalance = financials.finalBalance,
+            paymentType = financials.paymentType,
             status = "PENDING_SYNC",
             createdAt = now
         )
@@ -212,6 +219,9 @@ fun InvoiceDto.toDomain() = Invoice(
     customerId = customerId,
     date = date.take(10),
     type = type,
+    subtotal = subtotal,
+    discount = discount,
+    tax = tax,
     totalAmount = totalAmount,
     paidAmount = paidAmount,
     remainingAmount = remainingAmount,
@@ -248,6 +258,9 @@ private fun InvoiceEntity.toDomain(items: List<InvoiceItem>, customerName: Strin
     customerId = customerId,
     date = date.take(10),
     type = type,
+    subtotal = subtotal,
+    discount = discount,
+    tax = tax,
     totalAmount = totalAmount,
     paidAmount = paidAmount,
     remainingAmount = remainingAmount,
@@ -261,6 +274,7 @@ private fun InvoiceEntity.toDomain(items: List<InvoiceItem>, customerName: Strin
 fun InvoiceItemDto.toDomain() = InvoiceItem(
     productId = productId,
     productName = productName ?: productId,
+    warehouseId = warehouseId,
     unit = unit,
     quantity = quantity,
     unitPrice = unitPrice,
@@ -281,6 +295,7 @@ private fun InvoiceItemDto.toEntity(parentInvoiceId: String) = InvoiceItemEntity
 private fun InvoiceItemEntity.toDomain() = InvoiceItem(
     productId = productId,
     productName = productName,
+    warehouseId = null,
     unit = unit,
     quantity = quantity,
     unitPrice = unitPrice,
@@ -288,5 +303,10 @@ private fun InvoiceItemEntity.toDomain() = InvoiceItem(
 )
 
 fun List<InvoiceItem>.toCreateItems() = map {
-    CreateInvoiceItemRequest(it.productId, it.unit, it.quantity, it.unitPrice)
+    CreateInvoiceItemRequest(
+        productId = it.productId,
+        unit = it.unit,
+        quantity = it.quantity,
+        unitPrice = it.unitPrice,
+    )
 }

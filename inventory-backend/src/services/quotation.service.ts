@@ -1,6 +1,7 @@
 import { Prisma, QuotationStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { roundMoney } from "../utils/financial";
 import { createInvoice } from "./invoice.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -25,9 +26,9 @@ function toNumber(value: unknown) {
 
 function unitPriceFor(product: { salePrice: unknown; pcsPerCarton: number }, unit: string) {
   const price = toNumber(product.salePrice);
-  if (unit === "CARTON") return price * product.pcsPerCarton;
-  if (unit === "DOZEN") return price * 12;
-  return price;
+  if (unit === "CARTON") return roundMoney(price * product.pcsPerCarton);
+  if (unit === "DOZEN") return roundMoney(price * 12);
+  return roundMoney(price);
 }
 
 function serialize(q: any) {
@@ -46,13 +47,23 @@ function serialize(q: any) {
 
 async function generateQuotationNumber(db: Db) {
   const year = new Date().getFullYear();
-  const prefix = `QUO-${year}-`;
-  const last = await db.quotation.findFirst({
-    where: { quotationNumber: { startsWith: prefix } },
-    orderBy: { quotationNumber: "desc" },
-  });
-  const lastNumber = last ? Number(last.quotationNumber.replace(prefix, "")) : 0;
-  return `${prefix}${String(lastNumber + 1).padStart(4, "0")}`;
+  const counterKey = `quotation-${year}`;
+
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const counter = await db.counter.upsert({
+      where: { key: counterKey },
+      update: { value: { increment: 1 } },
+      create: { key: counterKey, value: 1 },
+    });
+    const candidate = `QUO-${year}-${String(counter.value).padStart(4, "0")}`;
+    const exists = await db.quotation.findUnique({
+      where: { quotationNumber: candidate },
+      select: { id: true },
+    });
+    if (!exists) return candidate;
+  }
+
+  throw new AppError("Could not generate a unique quotation number", 409, "QUOTATION_NUMBER_CONFLICT");
 }
 
 export async function listQuotations(query: { customerId?: string; status?: QuotationStatus; page?: number; limit?: number }) {
@@ -107,9 +118,9 @@ export async function createQuotation(input: QuotationInput, userId: string) {
     for (const item of input.items) {
       const product = await tx.product.findFirst({ where: { id: item.productId, deletedAt: null } });
       if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
-      const unitPrice = item.unitPrice ?? unitPriceFor(product, item.unit);
-      const totalPrice = unitPrice * item.quantity;
-      subtotal += totalPrice;
+      const unitPrice = roundMoney(item.unitPrice ?? unitPriceFor(product, item.unit));
+      const totalPrice = roundMoney(unitPrice * item.quantity);
+      subtotal = roundMoney(subtotal + totalPrice);
       await tx.quotationItem.create({
         data: {
           quotationId: quotation.id,
@@ -123,7 +134,7 @@ export async function createQuotation(input: QuotationInput, userId: string) {
       });
     }
 
-    const totalAmount = subtotal - input.discount;
+    const totalAmount = roundMoney(subtotal - input.discount);
     if (totalAmount < 0) throw new AppError("Quotation discount cannot exceed subtotal", 400, "INVALID_QUOTATION_TOTAL");
     await tx.quotation.update({
       where: { id: quotation.id },

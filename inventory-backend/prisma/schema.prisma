@@ -107,6 +107,8 @@ model Branch {
   createdBy       String?          @map("created_by") @db.Uuid
   creator         User?            @relation(fields: [createdBy], references: [id])
   products        Product[]
+  productStocks   ProductWarehouseStock[]
+  invoiceItems    InvoiceItem[]            @relation("InvoiceItemWarehouse")
   customers       Customer[]
   invoices        Invoice[]
   paymentVouchers PaymentVoucher[]
@@ -149,6 +151,7 @@ model Product {
   stockMovements    StockMovement[]
   transferItems     TransferItem[]
   stocktakeItems    StocktakeItem[]
+  warehouseStocks  ProductWarehouseStock[]
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   deletedAt         DateTime?       @map("deleted_at")
@@ -161,6 +164,25 @@ model Product {
   @@index([branchId])
   @@index([deletedAt])
   @@map("products")
+}
+
+// A Branch row is kept for API compatibility, but represents a warehouse
+// inside the single shop. Product stock is stored separately per warehouse.
+model ProductWarehouseStock {
+  id              String   @id @default(uuid()) @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId     String   @map("warehouse_id") @db.Uuid
+  warehouse       Branch   @relation(fields: [warehouseId], references: [id])
+  quantityPieces  Int      @default(0) @map("quantity_pieces")
+  storageLocation String?  @map("storage_location")
+  minStock        Int?     @map("min_stock")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([productId, warehouseId])
+  @@index([warehouseId])
+  @@map("product_warehouse_stocks")
 }
 
 // Predefined catalog categories with their sub-types
@@ -296,6 +318,8 @@ model InvoiceItem {
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   productId   String  @map("product_id") @db.Uuid
   product     Product @relation(fields: [productId], references: [id])
+  warehouseId String? @map("warehouse_id") @db.Uuid
+  warehouse   Branch? @relation("InvoiceItemWarehouse", fields: [warehouseId], references: [id])
   productName String  @map("product_name")
   unit        Unit
   quantity    Int
@@ -305,6 +329,7 @@ model InvoiceItem {
 
   @@index([invoiceId])
   @@index([productId])
+  @@index([warehouseId])
   @@map("invoice_items")
 }
 

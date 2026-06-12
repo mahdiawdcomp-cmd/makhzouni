@@ -1,6 +1,11 @@
 import { Prisma, TransferStatus, Unit, StockMovementType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import {
+  adjustWarehouseStock,
+  ensureLegacyWarehouseStock,
+  syncProductTotalStock,
+} from "./warehouse-stock.service";
 
 export interface TransferItemInput {
   productId: string;
@@ -15,9 +20,25 @@ export interface CreateTransferInput {
   items: TransferItemInput[];
 }
 
-function generateTransferNumber() {
-  return `TRF-${Date.now()}`;
+async function nextTransferNumber(tx: Prisma.TransactionClient) {
+  const counter = await tx.counter.upsert({
+    where: { key: "inventory_transfer" },
+    update: { value: { increment: 1 } },
+    create: { key: "inventory_transfer", value: 1 },
+  });
+  return `TRF-${String(counter.value).padStart(6, "0")}`;
 }
+
+const transferInclude = {
+  fromBranch: { select: { id: true, name: true, code: true } },
+  toBranch: { select: { id: true, name: true, code: true } },
+  creator: { select: { id: true, name: true } },
+  items: {
+    include: {
+      product: { select: { id: true, name: true, itemNumber: true, pcsPerCarton: true } },
+    },
+  },
+};
 
 export async function listTransfers(query: {
   branchId?: string;
@@ -26,28 +47,14 @@ export async function listTransfers(query: {
 }) {
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
-
-  const where: Prisma.InventoryTransferWhereInput = {};
-  if (query.branchId) {
-    where.OR = [
-      { fromBranchId: query.branchId },
-      { toBranchId: query.branchId },
-    ];
-  }
+  const where: Prisma.InventoryTransferWhereInput = query.branchId
+    ? { OR: [{ fromBranchId: query.branchId }, { toBranchId: query.branchId }] }
+    : {};
 
   const [rows, total] = await Promise.all([
     prisma.inventoryTransfer.findMany({
       where,
-      include: {
-        fromBranch: { select: { name: true } },
-        toBranch: { select: { name: true } },
-        creator: { select: { name: true } },
-        items: {
-          include: {
-            product: { select: { name: true, itemNumber: true, pcsPerCarton: true } }
-          }
-        }
-      },
+      include: transferInclude,
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
       take: limit,
@@ -55,113 +62,114 @@ export async function listTransfers(query: {
     prisma.inventoryTransfer.count({ where }),
   ]);
 
-  return {
-    data: rows,
-    pagination: {
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit),
-    },
-  };
+  return { data: rows, pagination: { total, page, limit, pages: Math.ceil(total / limit) } };
 }
 
 export async function getTransferById(id: string) {
   const transfer = await prisma.inventoryTransfer.findUnique({
     where: { id },
-    include: {
-      fromBranch: true,
-      toBranch: true,
-      creator: true,
-      items: {
-        include: {
-          product: true
-        }
-      }
-    }
+    include: transferInclude,
   });
-
-  if (!transfer) {
-    throw new AppError("Transfer not found", 404, "TRANSFER_NOT_FOUND");
-  }
-
+  if (!transfer) throw new AppError("Transfer not found", 404, "TRANSFER_NOT_FOUND");
   return transfer;
 }
 
 export async function createTransfer(input: CreateTransferInput, createdBy: string) {
   if (input.fromBranchId === input.toBranchId) {
-    throw new AppError("Cannot transfer to the same branch", 400, "INVALID_TRANSFER");
+    throw new AppError("Source and destination warehouses must be different", 400, "INVALID_TRANSFER");
   }
-
-  if (!input.items || input.items.length === 0) {
+  if (!input.items?.length) {
     throw new AppError("Transfer must have at least one item", 400, "INVALID_TRANSFER");
   }
 
   return prisma.$transaction(async (tx) => {
-    // 1. Create Transfer Record
-    const transfer = await tx.inventoryTransfer.create({
-      data: {
-        transferNumber: generateTransferNumber(),
-        fromBranchId: input.fromBranchId,
-        toBranchId: input.toBranchId,
-        notes: input.notes,
-        createdBy,
-        status: TransferStatus.COMPLETED,
-        items: {
-          create: input.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            unit: item.unit,
-          })),
-        },
-      },
-      include: {
-        items: {
-          include: { product: true }
-        }
-      }
+    const warehouses = await tx.branch.findMany({
+      where: { id: { in: [input.fromBranchId, input.toBranchId] }, isActive: true },
+      select: { id: true },
     });
-
-    // 2. Create StockMovements (Documentary)
-    // We create an OUT for fromBranch and an IN for toBranch
-    for (const item of transfer.items) {
-      const quantityInPieces = item.unit === Unit.CARTON 
-        ? item.quantity * item.product.pcsPerCarton 
-        : item.unit === Unit.DOZEN 
-          ? item.quantity * 12 
-          : item.quantity;
-          
-      const balanceBefore = item.product.openingBalancePcs + item.product.cartonsAvailable * item.product.pcsPerCarton;
-
-      // Note: The system currently tracks global stock on Product. 
-      // A transfer between branches doesn't change global stock! 
-      // It only records documentary movements for reports.
-      
-      // OUT from source branch
-      await tx.stockMovement.create({
-        data: {
-          productId: item.productId,
-          branchId: input.fromBranchId,
-          type: StockMovementType.OUT,
-          quantity: quantityInPieces,
-          balanceBefore,
-          balanceAfter: balanceBefore, // Global stock doesn't change
-        }
-      });
-
-      // IN to destination branch
-      await tx.stockMovement.create({
-        data: {
-          productId: item.productId,
-          branchId: input.toBranchId,
-          type: StockMovementType.IN,
-          quantity: quantityInPieces,
-          balanceBefore,
-          balanceAfter: balanceBefore, // Global stock doesn't change
-        }
-      });
+    if (warehouses.length !== 2) {
+      throw new AppError("Warehouse not found or inactive", 404, "WAREHOUSE_NOT_FOUND");
     }
 
-    return transfer;
+    const grouped = new Map<string, TransferItemInput>();
+    for (const item of input.items) {
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        throw new AppError("Transfer quantity must be positive", 400, "INVALID_TRANSFER_QUANTITY");
+      }
+      const key = `${item.productId}:${item.unit}`;
+      const previous = grouped.get(key);
+      grouped.set(key, previous ? { ...item, quantity: previous.quantity + item.quantity } : item);
+    }
+
+    const normalizedItems = [...grouped.values()];
+    const products = await tx.product.findMany({
+      where: { id: { in: normalizedItems.map((item) => item.productId) }, deletedAt: null },
+    });
+    if (products.length !== new Set(normalizedItems.map((item) => item.productId)).size) {
+      throw new AppError("One or more products were not found", 404, "PRODUCT_NOT_FOUND");
+    }
+    const productMap = new Map(products.map((product) => [product.id, product]));
+
+    const transfer = await tx.inventoryTransfer.create({
+      data: {
+        transferNumber: await nextTransferNumber(tx),
+        fromBranchId: input.fromBranchId,
+        toBranchId: input.toBranchId,
+        notes: input.notes?.trim() || null,
+        createdBy,
+        status: TransferStatus.COMPLETED,
+        items: { create: normalizedItems },
+      },
+    });
+
+    for (const item of normalizedItems) {
+      const product = productMap.get(item.productId)!;
+      await ensureLegacyWarehouseStock(tx, product);
+      const quantityInPieces =
+        item.unit === Unit.CARTON
+          ? item.quantity * product.pcsPerCarton
+          : item.unit === Unit.DOZEN
+            ? item.quantity * 12
+            : item.quantity;
+
+      const source = await adjustWarehouseStock(tx, {
+        productId: product.id,
+        warehouseId: input.fromBranchId,
+        deltaPieces: -quantityInPieces,
+        allowNegative: false,
+      });
+      const destination = await adjustWarehouseStock(tx, {
+        productId: product.id,
+        warehouseId: input.toBranchId,
+        deltaPieces: quantityInPieces,
+      });
+
+      await tx.stockMovement.createMany({
+        data: [
+          {
+            productId: product.id,
+            branchId: input.fromBranchId,
+            type: StockMovementType.OUT,
+            quantity: quantityInPieces,
+            balanceBefore: source.balanceBefore,
+            balanceAfter: source.balanceAfter,
+          },
+          {
+            productId: product.id,
+            branchId: input.toBranchId,
+            type: StockMovementType.IN,
+            quantity: quantityInPieces,
+            balanceBefore: destination.balanceBefore,
+            balanceAfter: destination.balanceAfter,
+          },
+        ],
+      });
+      await syncProductTotalStock(tx, product.id);
+    }
+
+    return tx.inventoryTransfer.findUniqueOrThrow({
+      where: { id: transfer.id },
+      include: transferInclude,
+    });
   });
 }

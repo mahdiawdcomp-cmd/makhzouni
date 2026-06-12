@@ -326,7 +326,7 @@ function ScanMode({
               <div key={item.id} className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
                 <span className="text-sm font-medium">{item.productName}</span>
                 <span className="rounded-full bg-emerald-200 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
-                  {item.actualQty} كرتون
+                  {item.actualQty} قطعة
                 </span>
               </div>
             ))}
@@ -389,7 +389,7 @@ function ManualMode({
               </div>
               {saved && (
                 <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-700 whitespace-nowrap">
-                  ✓ {item.actualQty} كرتون
+                  ✓ {item.actualQty} قطعة
                 </span>
               )}
             </div>
@@ -416,7 +416,11 @@ function ManualMode({
                 type="number"
                 inputMode="numeric"
                 min={0}
-                placeholder={saved ? String(item.actualQty) : "0"}
+                placeholder={saved
+                  ? String(unit === "CARTON"
+                    ? (item.actualQty ?? 0) / Math.max(1, item.pcsPerCarton)
+                    : item.actualQty)
+                  : "0"}
                 value={localQty[item.productId] ?? ""}
                 onChange={(e) => setLocalQty((p) => ({ ...p, [item.productId]: e.target.value }))}
                 onBlur={() => save(item)}

@@ -2,6 +2,12 @@ import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import {
+  ensureLegacyWarehouseStock,
+  resolveWarehouseId,
+  syncProductTotalStock,
+  upsertWarehouseStock,
+} from "./warehouse-stock.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -39,14 +45,29 @@ function serializeProduct<T extends {
   openingBalancePcs: number;
   cartonsAvailable: number;
   pcsPerCarton: number;
+  warehouseStocks?: Array<{ quantityPieces: number }>;
 }>(
   product: T
 ) {
+  const warehouseTotal = product.warehouseStocks?.reduce(
+    (sum, stock) => sum + stock.quantityPieces,
+    0
+  );
   return {
     ...product,
-    currentStock: stockFrom(product),
+    currentStock: warehouseTotal ?? stockFrom(product),
   };
 }
+
+const productWarehouseInclude = {
+  warehouseStocks: {
+    include: {
+      warehouse: { select: { id: true, name: true, code: true, isActive: true } },
+    },
+    orderBy: { warehouse: { name: "asc" as const } },
+  },
+  branch: { select: { id: true, name: true, code: true } },
+};
 
 // ---------- Auto-generation helpers ----------
 
@@ -120,12 +141,15 @@ export async function listProducts(query: {
         }
       : {}),
     ...(query.category ? { category: query.category } : {}),
-    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.branchId
+      ? { warehouseStocks: { some: { warehouseId: query.branchId } } }
+      : {}),
   };
 
   if (query.lowStock) {
     const rows = await prisma.product.findMany({
       where,
+      include: productWarehouseInclude,
       orderBy: { name: "asc" },
     });
     const filtered = rows
@@ -148,6 +172,7 @@ export async function listProducts(query: {
   const [rows, total] = await Promise.all([
     prisma.product.findMany({
       where,
+      include: productWarehouseInclude,
       orderBy: { name: "asc" },
       skip: (page - 1) * limit,
       take: limit,
@@ -171,6 +196,7 @@ export async function listProducts(query: {
 export async function getProductById(id: string, db: Db = prisma) {
   const product = await db.product.findFirst({
     where: { id, deletedAt: null },
+    include: productWarehouseInclude,
   });
 
   if (!product) {
@@ -186,6 +212,7 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma) {
       OR: [{ qrCode }, { cartonQrCode: qrCode }],
       deletedAt: null,
     },
+    include: productWarehouseInclude,
   });
 
   if (!product) {
@@ -205,6 +232,7 @@ export async function createProduct(
     const itemNumber = input.itemNumber?.trim() || (await nextItemNumber(tx));
     const { qrCode, cartonQrCode } = normalizeQrCodes(input);
 
+    const warehouseId = await resolveWarehouseId(tx, input.branchId);
     const product = await tx.product.create({
       data: {
         itemNumber,
@@ -225,12 +253,25 @@ export async function createProduct(
         expiryDate: input.expiryDate ? new Date(input.expiryDate) : null,
         minStock: input.minStock ?? 0,
         storageLocation: input.storageLocation?.trim() || null,
-        branchId: input.branchId,
+        branchId: warehouseId,
         createdBy,
       },
     });
 
-    return product;
+    await upsertWarehouseStock(tx, {
+      productId: product.id,
+      warehouseId,
+      quantityPieces:
+        (input.openingBalancePcs ?? 0) +
+        (input.cartonsAvailable ?? 0) * (input.pcsPerCarton ?? 1),
+      storageLocation: input.storageLocation,
+      minStock: input.minStock ?? 0,
+    });
+
+    return tx.product.findUniqueOrThrow({
+      where: { id: product.id },
+      include: productWarehouseInclude,
+    });
   };
 
   // If a TransactionClient was passed in (e.g. from approval flow), reuse it; otherwise open one.
@@ -244,7 +285,8 @@ export async function updateProduct(
   input: Partial<ProductInput>,
   db: Db = prisma
 ) {
-  const existing = await getProductById(id, db);
+  const runner = async (tx: Db) => {
+  const existing = await getProductById(id, tx);
   const data: Prisma.ProductUpdateInput = {};
   if (input.itemNumber !== undefined) data.itemNumber = input.itemNumber;
   if (input.name !== undefined) data.name = input.name;
@@ -275,11 +317,48 @@ export async function updateProduct(
   if (input.categoryTags !== undefined) data.categoryTags = input.categoryTags;
   if (input.typeTags !== undefined) data.typeTags = input.typeTags;
 
-  const product = await db.product.update({
+  const product = await tx.product.update({
     where: { id },
     data,
   });
 
+  await ensureLegacyWarehouseStock(tx, product);
+  const quantityWasEdited =
+    input.openingBalancePcs !== undefined || input.cartonsAvailable !== undefined;
+  const warehouseMetadataWasEdited =
+    input.storageLocation !== undefined || input.minStock !== undefined;
+
+  if (input.branchId !== undefined || quantityWasEdited || warehouseMetadataWasEdited) {
+    const warehouseId = await resolveWarehouseId(tx, input.branchId ?? product.branchId);
+    const pcsPerCarton = input.pcsPerCarton ?? product.pcsPerCarton;
+    const targetStock = existing.warehouseStocks?.find(
+      (stock: any) => stock.warehouseId === warehouseId
+    );
+    const targetPieces = targetStock?.quantityPieces ?? 0;
+    const targetCartons = targetPieces >= 0 ? Math.floor(targetPieces / pcsPerCarton) : 0;
+    const targetLoosePieces = targetPieces - targetCartons * pcsPerCarton;
+    const quantityPieces = quantityWasEdited
+      ? (input.openingBalancePcs ?? targetLoosePieces) +
+        (input.cartonsAvailable ?? targetCartons) * pcsPerCarton
+      : undefined;
+
+    await upsertWarehouseStock(tx, {
+      productId: id,
+      warehouseId,
+      quantityPieces,
+      storageLocation: input.storageLocation,
+      minStock: input.minStock,
+    });
+    await syncProductTotalStock(tx, id);
+  }
+
+  return tx.product.findUniqueOrThrow({
+    where: { id },
+    include: productWarehouseInclude,
+  });
+  };
+
+  const product = db === prisma ? await prisma.$transaction(runner) : await runner(db);
   return serializeProduct(product);
 }
 

@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { resolveWarehouseId } from "./warehouse-stock.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -16,12 +17,14 @@ export async function createStocktakeSession(
   branchId?: string,
   notes?: string,
 ) {
-  const products = await prisma.product.findMany({
-    where: { deletedAt: null, ...(branchId ? { branchId } : {}) },
-    orderBy: [{ category: "asc" }, { name: "asc" }],
+  const warehouseId = await resolveWarehouseId(prisma, branchId);
+  const stocks = await prisma.productWarehouseStock.findMany({
+    where: { warehouseId, product: { deletedAt: null } },
+    include: { product: true },
+    orderBy: [{ product: { category: "asc" } }, { product: { name: "asc" } }],
   });
 
-  if (products.length === 0)
+  if (stocks.length === 0)
     throw new AppError("لا توجد منتجات لإنشاء جلسة جرد", 400, "NO_PRODUCTS");
 
   return prisma.$transaction(async (tx) => {
@@ -29,18 +32,18 @@ export async function createStocktakeSession(
       data: {
         publicToken: makeToken(),
         createdBy,
-        branchId: branchId ?? null,
+        branchId: warehouseId,
         notes,
         status: "OPEN",
       },
     });
 
     await tx.stocktakeItem.createMany({
-      data: products.map((p) => ({
+      data: stocks.map((stock) => ({
         sessionId: session.id,
-        productId: p.id,
-        productName: p.name,
-        systemQty: p.cartonsAvailable,
+        productId: stock.product.id,
+        productName: stock.product.name,
+        systemQty: stock.quantityPieces,
         actualQty: null,
         variance: null,
       })),
@@ -283,7 +286,9 @@ export async function scanQrCode(token: string, qrCode: string) {
   if (!item)
     throw new AppError("هذا المنتج ليس ضمن قائمة الجرد", 404, "ITEM_NOT_IN_SESSION");
 
-  const newQty = (item.actualQty ?? 0) + 1;
+  const isCartonBarcode = product.cartonQrCode === qrCode.trim();
+  const increment = isCartonBarcode ? Math.max(1, product.pcsPerCarton) : 1;
+  const newQty = (item.actualQty ?? 0) + increment;
 
   await prisma.stocktakeItem.update({
     where: { id: item.id },
@@ -295,6 +300,7 @@ export async function scanQrCode(token: string, qrCode: string) {
     productName: product.name,
     category: product.category,
     newQty,
+    increment,
   };
 }
 
@@ -320,17 +326,14 @@ export async function setItemQty(
   if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
 
   // Convert pieces to cartons (round up to nearest carton)
-  const qtyInCartons =
-    unit === "PIECE"
-      ? Math.floor(qty / Math.max(1, pcsPerCarton))
-      : qty;
+  const qtyInPieces = unit === "CARTON" ? qty * Math.max(1, pcsPerCarton) : qty;
 
   await prisma.stocktakeItem.update({
     where: { id: item.id },
-    data: { actualQty: qtyInCartons },
+    data: { actualQty: qtyInPieces },
   });
 
-  return { productId, actualQty: qtyInCartons, unit, original: qty };
+  return { productId, actualQty: qtyInPieces, unit, original: qty };
 }
 
 // ─── Public (worker): Submit stocktake ───────────────────────────────────────

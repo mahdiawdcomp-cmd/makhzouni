@@ -208,6 +208,7 @@ export interface CatalogOrderPayload {
   notes?: string
   items: Array<{
     productId: string
+    warehouseId?: string
     unit: "PIECE" | "DOZEN" | "CARTON"
     quantity: number
   }>
@@ -403,6 +404,7 @@ export interface CreateInvoicePayload {
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
   items: Array<{
     productId: string
+    warehouseId?: string
     unit: "PIECE" | "DOZEN" | "CARTON"
     quantity: number
     unitPrice?: number

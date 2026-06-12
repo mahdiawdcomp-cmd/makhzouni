@@ -323,6 +323,7 @@ data class InvoiceItemDto(
     val id: String? = null,
     val invoiceId: String? = null,
     val productId: String,
+    val warehouseId: String? = null,
     val productName: String? = null,
     val unit: String,
     val quantity: Int,
@@ -347,6 +348,7 @@ data class CreateInvoiceRequest(
 
 data class CreateInvoiceItemRequest(
     val productId: String,
+    val warehouseId: String? = null,
     val unit: String,
     val quantity: Int,
     val unitPrice: Double

@@ -213,7 +213,7 @@ class CustomerFormViewModel @Inject constructor(
             "phone" -> _state.value.copy(phone = value)
             "address" -> _state.value.copy(address = value)
             "notes" -> _state.value.copy(notes = value)
-            "openingBalance" -> _state.value.copy(openingBalance = value.filterDecimal())
+            "openingBalance" -> _state.value.copy(openingBalance = value.filterSignedDecimal())
             "isSupplier" -> _state.value.copy(isSupplier = value.toBoolean())
             else -> _state.value
         }.copy(error = null)
@@ -386,3 +386,13 @@ class AccountLookupViewModel @Inject constructor(
 }
 
 private fun String.filterDecimal() = filter { it.isDigit() || it == '.' }.ifBlank { "0" }
+private fun String.filterSignedDecimal(): String {
+    val negative = trimStart().startsWith('-')
+    val numeric = filter { it.isDigit() || it == '.' }
+    return when {
+        numeric.isBlank() && negative -> "-"
+        numeric.isBlank() -> "0"
+        negative -> "-$numeric"
+        else -> numeric
+    }
+}

@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { CalendarClock, ChevronLeft, FileText, ReceiptText, Wallet } from "lucide-react"
 import { getCustomerPortal } from "../api/endpoints"
-import { Card, CardContent } from "../components/ui/card"
 import { fmt } from "../utils/fmt"
 import type { CustomerTransaction } from "../types/api"
 

@@ -24,6 +24,7 @@ import type { Customer, Product } from "../types/api"
 import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
+import { calculateInvoiceFinancials } from "../utils/financial"
 
 // ── Quick panel config types ──────────────────────────────────────
 interface CategoryPanel {
@@ -84,6 +85,7 @@ type PosUnit = "PIECE" | "DOZEN" | "CARTON"
 type PosItem = {
   lineId: string
   productId: string
+  warehouseId?: string
   name: string
   unit: PosUnit
   quantity: number
@@ -106,6 +108,13 @@ function priceFor(p: Product, unit: PosUnit) {
   if (unit === "CARTON") return Number(p.salePrice) * Number(p.pcsPerCarton || 1)
   if (unit === "DOZEN") return Number(p.salePrice) * 12
   return Number(p.salePrice)
+}
+function defaultWarehouseFor(p: Product) {
+  const stocks = p.warehouseStocks ?? []
+  if (stocks.length === 0) return undefined
+  return stocks.reduce((best, stock) =>
+    stock.quantityPieces > best.quantityPieces ? stock : best
+  ).warehouseId
 }
 
 // ── Panel form state ──────────────────────────────────────────────
@@ -639,9 +648,13 @@ export function POSPage() {
   const [activePanel, setActivePanel] = useState<string | null>(null)
   const [showCustomize, setShowCustomize] = useState(false)
 
-  // Keep refs in sync for use inside mutation callbacks
-  itemsRef.current = items
-  posConfigRef.current = posConfig
+  // Keep callback snapshots synchronized after React commits the latest state.
+  useEffect(() => {
+    itemsRef.current = items
+  }, [items])
+  useEffect(() => {
+    posConfigRef.current = posConfig
+  }, [posConfig])
 
   function updateConfig(c: PosConfig) {
     setPosConfig(c)
@@ -702,8 +715,9 @@ export function POSPage() {
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
   const paidValue = Number(paid || 0)
-  const remaining = Math.max(subtotal - paidValue, 0)
-  const change = Math.max(paidValue - subtotal, 0)
+  const financials = calculateInvoiceFinancials({ type: "SALE", subtotal, paidAmount: paidValue })
+  const remaining = financials.remainingAmount
+  const change = financials.overpayment
 
   function chooseCustomer(c: Customer) {
     setSelectedCustomer(c)
@@ -726,6 +740,7 @@ export function POSPage() {
         {
           lineId: crypto.randomUUID(),
           productId: product.id,
+          warehouseId: defaultWarehouseFor(product),
           name: product.name,
           unit,
           quantity: 1,
@@ -771,10 +786,11 @@ export function POSPage() {
         clientRequestId: clientRequestIdRef.current,
         discount: 0,
         tax: 0,
-        paidAmount: paidValue,
-        paymentType: remaining <= 0 ? "CASH" : paidValue > 0 ? "PARTIAL" : "CREDIT",
+        paidAmount: financials.paidAmount,
+        paymentType: financials.paymentType,
         items: items.map((item) => ({
           productId: item.productId,
+          warehouseId: item.warehouseId,
           unit: item.unit,
           quantity: item.quantity,
           unitPrice: item.unitPrice,

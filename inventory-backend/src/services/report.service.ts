@@ -1,6 +1,7 @@
 import { InvoiceStatus, InvoiceType, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { amountInPieces, roundMoney } from "../utils/financial";
 
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
 
@@ -79,17 +80,6 @@ function labelFor(date: Date, groupBy: "day" | "week" | "month") {
   return `${year}-${month}-${day}`;
 }
 
-function unitPurchaseCost(
-  unit: Unit,
-  purchasePrice: DecimalLike,
-  pcsPerCarton: number
-) {
-  const price = toNumber(purchasePrice);
-  if (unit === Unit.CARTON) return price * pcsPerCarton;
-  if (unit === Unit.DOZEN) return price * 12;
-  return price;
-}
-
 function currentStock(product: {
   openingBalancePcs: number;
   cartonsAvailable: number;
@@ -136,11 +126,11 @@ function itemCostPrice(item: {
 }
 
 function calculateProfit(items: Awaited<ReturnType<typeof getInvoiceItemsForProfit>>) {
-  return items.reduce((sum, item) => {
+  return roundMoney(items.reduce((sum, item) => {
     const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     const cost = itemCostPrice(item);
     return sum + (revenue - cost);
-  }, 0);
+  }, 0));
 }
 
 export async function getDashboardReport() {
@@ -202,6 +192,7 @@ export async function getDashboardReport() {
       },
       include: {
         invoice: true,
+        product: { select: { pcsPerCarton: true } },
       },
     }),
     prisma.invoiceItem.findMany({
@@ -214,6 +205,7 @@ export async function getDashboardReport() {
       },
       include: {
         invoice: true,
+        product: { select: { pcsPerCarton: true } },
       },
     }),
     prisma.invoice.findMany({
@@ -269,7 +261,7 @@ export async function getDashboardReport() {
       quantitySold: 0,
       totalSales: 0,
     };
-    current.quantitySold += item.quantity;
+    current.quantitySold += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
     current.totalSales += toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
@@ -280,13 +272,13 @@ export async function getDashboardReport() {
       quantitySold: 0,
       totalSales: 0,
     };
-    current.quantitySold -= item.quantity;
+    current.quantitySold -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
     current.totalSales -= toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
 
   return {
-    todaySales: toNumber(todaySales._sum.totalAmount) - toNumber(todayReturns._sum.totalAmount),
+    todaySales: roundMoney(toNumber(todaySales._sum.totalAmount) - toNumber(todayReturns._sum.totalAmount)),
     todayInvoices,
     totalDebts: toNumber(totalDebts._sum.currentBalance),
     lowStockProducts: lowStockCount,
@@ -295,7 +287,7 @@ export async function getDashboardReport() {
       .slice(0, 5),
     lastSevenDaysSales: Array.from(salesMap.entries()).map(([date, totalSales]) => ({
       date,
-      totalSales,
+      totalSales: roundMoney(totalSales),
     })),
   };
 }
@@ -334,9 +326,7 @@ export async function getSalesReport(query: SalesReportQuery) {
   for (const item of items) {
     const key = labelFor(item.invoice.date, query.groupBy);
     const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice); // FIXED
-    const cost =
-      unitPurchaseCost(item.unit, item.product.purchasePrice, item.product.pcsPerCarton) *
-      item.quantity;
+    const cost = itemCostPrice(item);
     const current = chartMap.get(key) ?? { totalSales: 0, netProfit: 0 };
     current.totalSales += revenue;
     current.netProfit += revenue - cost;
@@ -345,9 +335,7 @@ export async function getSalesReport(query: SalesReportQuery) {
   for (const item of returnItems) {
     const key = labelFor(item.invoice.date, query.groupBy);
     const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
-    const cost =
-      unitPurchaseCost(item.unit, item.product.purchasePrice, item.product.pcsPerCarton) *
-      item.quantity;
+    const cost = itemCostPrice(item);
     const current = chartMap.get(key) ?? { totalSales: 0, netProfit: 0 };
     current.totalSales -= revenue;
     current.netProfit -= revenue - cost;
@@ -355,14 +343,15 @@ export async function getSalesReport(query: SalesReportQuery) {
   }
 
   return {
-    totalSales: toNumber(invoiceTotals._sum.totalAmount) - toNumber(returnTotals._sum.totalAmount),
+    totalSales: roundMoney(toNumber(invoiceTotals._sum.totalAmount) - toNumber(returnTotals._sum.totalAmount)),
     invoiceCount: invoiceTotals._count.id,
-    netProfit: calculateProfit(items) - calculateProfit(returnItems),
+    netProfit: roundMoney(calculateProfit(items) - calculateProfit(returnItems)),
     chart: Array.from(chartMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([period, values]) => ({
         period,
-        ...values,
+        totalSales: roundMoney(values.totalSales),
+        netProfit: roundMoney(values.netProfit),
       })),
   };
 }
@@ -393,6 +382,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
           customer: true,
         },
       },
+      product: { select: { pcsPerCarton: true } },
     },
     orderBy: {
       invoice: {
@@ -418,7 +408,10 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
       invoiceId: item.invoice.id,
     })),
     totals: {
-      quantitySold: items.reduce((sum, item) => sum + item.quantity, 0),
+      quantitySold: items.reduce(
+        (sum, item) => sum + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+        0
+      ),
       totalRevenue: items.reduce(
         (sum, item) => sum + toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice),
         0
@@ -549,6 +542,7 @@ export async function getEndOfDayReport(date?: string) {
   ]);
 
   const saleInvoices = invoices.filter((i) => i.type === "SALE");
+  const salesReturns = invoices.filter((i) => i.type === "SALES_RETURN");
   const purchaseInvoices = invoices.filter((i) => i.type === "PURCHASE");
   const receipts = vouchers.filter((v) => v.type === "RECEIPT");
   const payments = vouchers.filter((v) => v.type === "PAYMENT");
@@ -562,8 +556,16 @@ export async function getEndOfDayReport(date?: string) {
     date: start.toISOString().slice(0, 10),
     sales: {
       count: saleInvoices.length,
-      total: saleInvoices.reduce((s, i) => s + toNumber(i.totalAmount), 0),
-      collected: saleInvoices.reduce((s, i) => s + toNumber(i.paidAmount), 0),
+      returnCount: salesReturns.length,
+      returnTotal: roundMoney(salesReturns.reduce((s, i) => s + toNumber(i.totalAmount), 0)),
+      total: roundMoney(
+        saleInvoices.reduce((s, i) => s + toNumber(i.totalAmount), 0) -
+        salesReturns.reduce((s, i) => s + toNumber(i.totalAmount), 0)
+      ),
+      collected: roundMoney(
+        saleInvoices.reduce((s, i) => s + toNumber(i.paidAmount), 0) -
+        salesReturns.reduce((s, i) => s + toNumber(i.paidAmount), 0)
+      ),
       cashCount: cashSales.length,
       cashTotal: cashSales.reduce((s, i) => s + toNumber(i.totalAmount), 0),
       creditCount: creditSales.length,
@@ -660,7 +662,13 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
           date: { gte: todayStart, lte: todayEnd },
         },
       },
-      select: { productId: true, productName: true, quantity: true },
+      select: {
+        productId: true,
+        productName: true,
+        quantity: true,
+        unit: true,
+        product: { select: { pcsPerCarton: true } },
+      },
     }),
     prisma.invoiceItem.findMany({
       where: {
@@ -670,7 +678,13 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
           date: { gte: todayStart, lte: todayEnd },
         },
       },
-      select: { productId: true, productName: true, quantity: true },
+      select: {
+        productId: true,
+        productName: true,
+        quantity: true,
+        unit: true,
+        product: { select: { pcsPerCarton: true } },
+      },
     }),
     prisma.customer.findMany({
       where: { deletedAt: null, currentBalance: { gt: 0 } },
@@ -713,12 +727,12 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
   const topProductMap = new Map<string, { name: string; quantity: number }>();
   for (const item of topItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
-    cur.quantity += item.quantity;
+    cur.quantity += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
     topProductMap.set(item.productId, cur);
   }
   for (const item of topReturnItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
-    cur.quantity -= item.quantity;
+    cur.quantity -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
     topProductMap.set(item.productId, cur);
   }
   const topProduct = topProductMap.size > 0
@@ -892,16 +906,28 @@ export async function getProfitReport(query: ProfitReportQuery) {
   const df = dateFilter(query.from, query.to);
   const gBy = query.groupBy ?? "month";
 
-  const saleItems = await prisma.invoiceItem.findMany({
-    where: {
-      invoice: {
-        status: InvoiceStatus.ACTIVE,
-        type: InvoiceType.SALE,
-        ...(df ? { date: df } : {}),
+  const [saleItems, returnItems] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALE,
+          ...(df ? { date: df } : {}),
+        },
       },
-    },
-    include: { product: true, invoice: { select: { date: true, subtotal: true, totalAmount: true } } },
-  });
+      include: { product: true, invoice: { select: { date: true, subtotal: true, totalAmount: true } } },
+    }),
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALES_RETURN,
+          ...(df ? { date: df } : {}),
+        },
+      },
+      include: { product: true, invoice: { select: { date: true, subtotal: true, totalAmount: true } } },
+    }),
+  ]);
 
   // Group by period
   const periodMap = new Map<string, { revenue: number; cost: number }>();
@@ -913,6 +939,16 @@ export async function getProfitReport(query: ProfitReportQuery) {
     periodMap.set(label, {
       revenue: existing.revenue + revenue,
       cost: existing.cost + cost,
+    });
+  }
+  for (const item of returnItems) {
+    const label = labelFor(item.invoice.date, gBy);
+    const existing = periodMap.get(label) ?? { revenue: 0, cost: 0 };
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice(item);
+    periodMap.set(label, {
+      revenue: existing.revenue - revenue,
+      cost: existing.cost - cost,
     });
   }
 
@@ -936,7 +972,18 @@ export async function getProfitReport(query: ProfitReportQuery) {
       name: item.productName,
       revenue: existing.revenue + revenue,
       cost: existing.cost + cost,
-      qty: existing.qty + item.quantity,
+      qty: existing.qty + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+    });
+  }
+  for (const item of returnItems) {
+    const existing = productMap.get(item.productId) ?? { name: item.productName, revenue: 0, cost: 0, qty: 0 };
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice(item);
+    productMap.set(item.productId, {
+      name: item.productName,
+      revenue: existing.revenue - revenue,
+      cost: existing.cost - cost,
+      qty: existing.qty - amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
     });
   }
 

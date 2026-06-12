@@ -292,20 +292,15 @@ fun VoucherListScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("السندات") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-                actions = {
-                    IconButton(onClick = { viewModel.load() }) {
-                        Icon(Icons.Default.Refresh, "تحديث")
-                    }
-                }
-            )
+    AppScreen(
+        title = "السندات",
+        onBack = onBack,
+        actions = {
+            IconButton(onClick = { viewModel.load() }) {
+                Icon(Icons.Default.Refresh, "تحديث")
+            }
         },
-        floatingActionButton = {
+        fab = {
             ExtendedFloatingActionButton(
                 onClick = onNew,
                 icon = { Icon(Icons.Default.Add, null) },
@@ -313,7 +308,7 @@ fun VoucherListScreen(
                 containerColor = AppColor.Green600,
                 contentColor = Color.White,
             )
-        }
+        },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             // Type filter chips
@@ -331,16 +326,14 @@ fun VoucherListScreen(
             }
 
             if (state.isLoading) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
+                Box(Modifier.padding(16.dp)) { SkeletonLoading(rows = 5) }
             } else if (state.error != null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(state.error ?: "", color = AppColor.Red600)
+                    EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error)
                 }
             } else if (state.vouchers.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("لا توجد سندات", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    EmptyState(Icons.Default.ConfirmationNumber, "لا توجد سندات", "اضغط + لإنشاء سند جديد")
                 }
             } else {
                 LazyColumn(
