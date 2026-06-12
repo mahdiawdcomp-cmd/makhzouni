@@ -138,6 +138,7 @@ export function InvoiceCreatePage() {
   const [quickAddCustomerNotes, setQuickAddCustomerNotes] = useState("")
   const [quickAddCustomerBalance, setQuickAddCustomerBalance] = useState("0")
   const [quickAddCustomerCreditLimit, setQuickAddCustomerCreditLimit] = useState("")
+  const [quickAddCustomerIsSupplier, setQuickAddCustomerIsSupplier] = useState(false)
   const [quickAddProductOpen, setQuickAddProductOpen] = useState(false)
   const [quickAddProductName, setQuickAddProductName] = useState("")
   const [quickAddProductSalePrice, setQuickAddProductSalePrice] = useState("")
@@ -533,6 +534,7 @@ export function InvoiceCreatePage() {
     setQuickAddCustomerNotes("")
     setQuickAddCustomerBalance("0")
     setQuickAddCustomerCreditLimit("")
+    setQuickAddCustomerIsSupplier(isPurchase)
     setCustomerListOpen(false)
     setQuickAddCustomerOpen(true)
   }
@@ -548,7 +550,7 @@ export function InvoiceCreatePage() {
         notes: quickAddCustomerNotes.trim() || undefined,
         openingBalance: Number(quickAddCustomerBalance) || 0,
         creditLimit: quickAddCustomerCreditLimit ? Number(quickAddCustomerCreditLimit) : undefined,
-        isSupplier: isPurchase,
+        isSupplier: quickAddCustomerIsSupplier,
       },
       {
         onSuccess: (response) => {
@@ -963,7 +965,10 @@ export function InvoiceCreatePage() {
                     onClick={() => pickCustomer(customer)}
                     onMouseEnter={() => setCustomerHighlight(idx)}
                   >
-                    {customer.name} — {customer.phone}
+                    <span>{customer.name} — {customer.phone}</span>
+                  {customer.isSupplier && (
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">مورد</span>
+                  )}
                   </button>
                 ))}
                 {customerSuggestions.length === 0 && (
@@ -1363,6 +1368,25 @@ export function InvoiceCreatePage() {
                   onChange={(e) => setQuickAddCustomerNotes(e.target.value)}
                   placeholder="ملاحظات إضافية (اختياري)"
                 />
+              </div>
+              {/* Customer / Supplier toggle */}
+              <div className="col-span-2">
+                <label className="mb-1 block text-sm font-medium">النوع</label>
+                <div className="flex gap-2">
+                  {([
+                    { label: "زبون", value: false },
+                    { label: "مورد", value: true },
+                  ] as const).map(({ label, value }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setQuickAddCustomerIsSupplier(value)}
+                      className={`flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition ${quickAddCustomerIsSupplier === value ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="flex gap-2 pt-1">

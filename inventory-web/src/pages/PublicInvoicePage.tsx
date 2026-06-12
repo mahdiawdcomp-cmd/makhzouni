@@ -2,8 +2,6 @@ import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "react-router-dom"
 import { ArrowRight } from "lucide-react"
 import { getPublicInvoice } from "../api/endpoints"
-import { Card, CardContent } from "../components/ui/card"
-import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
 function money(value: number) {
   return new Intl.NumberFormat("ar-IQ").format(Math.round(value))
@@ -28,6 +26,13 @@ function paymentLabel(type: string) {
   return type
 }
 
+function unitLabel(unit: string) {
+  if (unit === "PIECE") return "قطعة"
+  if (unit === "CARTON") return "كرتون"
+  if (unit === "DOZEN") return "دزينة"
+  return unit
+}
+
 export function PublicInvoicePage() {
   const { token, invoiceId } = useParams()
   const query = useQuery({
@@ -38,21 +43,32 @@ export function PublicInvoicePage() {
   })
 
   if (query.isLoading) {
-    return <div className="min-h-screen bg-slate-100 p-6 text-center text-slate-500">جاري تحميل الفاتورة...</div>
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100" dir="rtl">
+        <div className="text-center text-slate-500">
+          <div className="mb-3 text-4xl">🧾</div>
+          <div>جاري تحميل الفاتورة...</div>
+        </div>
+      </div>
+    )
   }
 
   if (!query.data) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
-        <Card className="max-w-md">
-          <CardContent className="p-6 text-center">
-            <div className="text-lg font-bold">الفاتورة غير موجودة</div>
-            <p className="mt-2 text-sm text-slate-500">تحقق من الرابط أو اطلب من المحاسب رابطاً صحيحاً.</p>
-            <Link to={`/client/${token}`} className="mt-4 inline-flex items-center gap-1 text-sm text-blue-600 underline">
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-4" dir="rtl">
+        <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm">
+          <div className="mb-3 text-4xl">❌</div>
+          <div className="text-lg font-bold">الفاتورة غير موجودة</div>
+          <p className="mt-2 text-sm text-slate-500">تحقق من الرابط أو اطلب من المحاسب رابطاً صحيحاً.</p>
+          {token && (
+            <Link
+              to={`/client/${token}`}
+              className="mt-4 inline-flex items-center gap-1 text-sm text-blue-600 underline"
+            >
               <ArrowRight className="h-3 w-3" /> العودة لكشف الحساب
             </Link>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       </div>
     )
   }
@@ -61,84 +77,116 @@ export function PublicInvoicePage() {
   const isCancelled = inv.status === "CANCELLED"
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4" dir="rtl">
-      <div className="mx-auto max-w-3xl space-y-4">
-        <Link
-          to={`/client/${token}`}
-          className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900"
-        >
-          <ArrowRight className="h-4 w-4" /> العودة لكشف الحساب
-        </Link>
+    <div className="min-h-screen bg-slate-100 pb-8" dir="rtl">
+      {/* Header */}
+      <div
+        className="px-4 pb-5 pt-6 text-white"
+        style={{
+          background: isCancelled
+            ? "linear-gradient(135deg, #be123c, #9f1239)"
+            : "linear-gradient(135deg, #1e293b, #334155)",
+        }}
+      >
+        <div className="mx-auto max-w-lg">
+          {token && (
+            <Link
+              to={`/client/${token}`}
+              className="mb-3 inline-flex items-center gap-1 text-xs text-white/60 hover:text-white/90"
+            >
+              <ArrowRight className="h-3 w-3" /> كشف الحساب
+            </Link>
+          )}
+          <div className="text-xs font-medium uppercase tracking-widest text-white/50">
+            {typeLabel(inv.type)}
+          </div>
+          <h1 className="mt-0.5 text-2xl font-bold">{inv.invoiceNumber}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/70">
+            <span>{formatDate(inv.date)}</span>
+            <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs">
+              {paymentLabel(inv.paymentType)}
+            </span>
+            {isCancelled && (
+              <span className="rounded-full bg-rose-300/40 px-2.5 py-0.5 text-xs font-bold text-rose-100">
+                ملغاة
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
-        <div className="rounded-lg bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-sm text-slate-500">{typeLabel(inv.type)}</div>
-              <h1 className="text-2xl font-bold">{inv.invoiceNumber}</h1>
-              <div className="mt-1 text-sm text-slate-500">{formatDate(inv.date)}</div>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              {isCancelled ? (
-                <span className="rounded-full bg-rose-100 px-3 py-1 text-sm font-bold text-rose-700">ملغاة</span>
-              ) : (
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-700">نشطة</span>
-              )}
-              <span className="text-xs text-slate-400">{paymentLabel(inv.paymentType)}</span>
-            </div>
+      <div className="mx-auto max-w-lg space-y-3 px-3 pt-3">
+        {/* Items list */}
+        <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+          <div className="border-b px-4 py-3">
+            <h2 className="font-semibold text-slate-800">المواد ({inv.items.length})</h2>
+          </div>
+          <div className="divide-y">
+            {inv.items.map((item) => (
+              <div key={item.id} className="flex items-start justify-between gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium leading-snug text-slate-800">{item.productName}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {item.quantity} {unitLabel(item.unit)} × {money(item.unitPrice)} د.ع
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="font-bold text-slate-800">{money(item.totalPrice)}</div>
+                  <div className="text-[10px] text-slate-400">د.ع</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        <Card>
-          <CardContent className="p-0">
-            <Table>
-              <THead>
-                <TR>
-                  <TH>المادة</TH>
-                  <TH>الكود</TH>
-                  <TH>العدد</TH>
-                  <TH>سعر الوحدة</TH>
-                  <TH>الإجمالي</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {inv.items.map((item) => (
-                  <TR key={item.id}>
-                    <TD className="font-medium">{item.productName}</TD>
-                    <TD className="text-xs text-slate-500">{item.itemNumber ?? "-"}</TD>
-                    <TD>{item.quantity} {item.unit === "PIECE" ? "قطعة" : item.unit}</TD>
-                    <TD>{money(item.unitPrice)}</TD>
-                    <TD className="font-bold">{money(item.totalPrice)}</TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <div className="rounded-lg bg-white p-5 shadow-sm">
-          <div className="space-y-2 text-sm">
+        {/* Summary */}
+        <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+          <div className="divide-y">
             {inv.discount > 0 && (
-              <div className="flex justify-between">
+              <div className="flex items-center justify-between px-4 py-3 text-sm">
                 <span className="text-slate-500">الخصم</span>
-                <span>{money(inv.discount)}</span>
+                <span className="text-rose-600">− {money(inv.discount)} د.ع</span>
               </div>
             )}
-            <div className="flex justify-between border-t pt-2 text-base font-bold">
-              <span>الإجمالي</span>
-              <span>{money(inv.totalAmount)}</span>
+            <div className="flex items-center justify-between px-4 py-3">
+              <span className="font-semibold">إجمالي الفاتورة</span>
+              <span className="text-lg font-bold">
+                {money(inv.totalAmount)}{" "}
+                <span className="text-sm font-normal text-slate-500">د.ع</span>
+              </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">المدفوع</span>
-              <span className="text-emerald-600">{money(inv.paidAmount)}</span>
+            <div className="flex items-center justify-between px-4 py-3 text-sm">
+              <span className="text-slate-500">المبلغ المدفوع</span>
+              <span className="font-semibold text-emerald-600">{money(inv.paidAmount)} د.ع</span>
             </div>
-            {inv.remainingAmount > 0 && (
-              <div className="flex justify-between font-semibold text-rose-600">
-                <span>المتبقي</span>
-                <span>{money(inv.remainingAmount)}</span>
+            {inv.remainingAmount > 0 ? (
+              <div className="flex items-center justify-between bg-rose-50 px-4 py-3">
+                <span className="font-semibold text-rose-700">المبلغ المتبقي</span>
+                <span className="text-lg font-bold text-rose-600">
+                  {money(inv.remainingAmount)}{" "}
+                  <span className="text-sm font-normal">د.ع</span>
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between bg-emerald-50 px-4 py-3">
+                <span className="font-semibold text-emerald-700">الحالة</span>
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-bold text-emerald-700">
+                  مسدد بالكامل ✓
+                </span>
               </div>
             )}
           </div>
         </div>
+
+        {token && (
+          <div className="text-center pt-1">
+            <Link
+              to={`/client/${token}`}
+              className="inline-flex items-center gap-1 text-sm text-slate-500 underline"
+            >
+              <ArrowRight className="h-3 w-3" /> العودة لكشف الحساب
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   )
