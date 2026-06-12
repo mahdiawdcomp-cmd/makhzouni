@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Banknote, Barcode, Minus, Plus, Search, Trash2, UserRound, X } from "lucide-react"
+import {
+  Banknote,
+  Barcode,
+  ChevronDown,
+  ChevronUp,
+  Minus,
+  Package,
+  Plus,
+  Search,
+  Settings2,
+  Star,
+  Tag,
+  Trash2,
+  UserRound,
+  X,
+} from "lucide-react"
 import { createInvoice, getCustomers, getProducts } from "../api/endpoints"
 import { Input } from "../components/ui/input"
 import type { Customer, Product } from "../types/api"
@@ -8,6 +23,61 @@ import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 
+// ── Quick panel config types ──────────────────────────────────────
+interface CategoryPanel {
+  id: string
+  type: "category"
+  label: string
+  category: string
+  color: string
+}
+interface BoxPanel {
+  id: string
+  type: "box"
+  label: string
+  productIds: string[]
+  color: string
+}
+interface MostSoldPanel {
+  id: string
+  type: "most-sold"
+  label: string
+  topN: number
+  color: string
+}
+type QuickPanel = CategoryPanel | BoxPanel | MostSoldPanel
+
+interface PosConfig {
+  panels: QuickPanel[]
+  salesCounts: Record<string, number>
+}
+
+const CONFIG_KEY = "pos_config_v1"
+function loadConfig(): PosConfig {
+  try {
+    const raw = localStorage.getItem(CONFIG_KEY)
+    if (!raw) return { panels: [], salesCounts: {} }
+    return { panels: [], salesCounts: {}, ...JSON.parse(raw) }
+  } catch {
+    return { panels: [], salesCounts: {} }
+  }
+}
+function saveConfig(c: PosConfig) {
+  localStorage.setItem(CONFIG_KEY, JSON.stringify(c))
+}
+
+const PANEL_COLORS = [
+  "#0ea5e9",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ef4444",
+  "#ec4899",
+  "#06b6d4",
+  "#84cc16",
+]
+
+// ── Cart types ────────────────────────────────────────────────────
 type PosUnit = "PIECE" | "DOZEN" | "CARTON"
 type PosItem = {
   lineId: string
@@ -18,34 +88,542 @@ type PosItem = {
   unitPrice: number
 }
 
-function normalize(value: string | undefined | null) {
-  return String(value ?? "").trim().toLowerCase()
+function normalize(v: string | undefined | null) {
+  return String(v ?? "").trim().toLowerCase()
 }
-
-function productMatches(product: Product, query: string) {
+function productMatches(p: Product, query: string) {
   const q = normalize(query)
   if (!q) return true
-  return [product.name, product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].some(
-    (v) => normalize(v).includes(q),
+  return [p.name, p.itemNumber, p.qrCode ?? "", p.cartonQrCode ?? ""].some((v) => normalize(v).includes(q))
+}
+function detectUnit(p: Product, code: string): PosUnit {
+  if (code && p.cartonQrCode && normalize(code) === normalize(p.cartonQrCode)) return "CARTON"
+  return "PIECE"
+}
+function priceFor(p: Product, unit: PosUnit) {
+  if (unit === "CARTON") return Number(p.salePrice) * Number(p.pcsPerCarton || 1)
+  if (unit === "DOZEN") return Number(p.salePrice) * 12
+  return Number(p.salePrice)
+}
+
+// ── Panel form state ──────────────────────────────────────────────
+interface PanelFormState {
+  mode: "add" | "edit"
+  type: "category" | "box" | "most-sold"
+  id: string
+  label: string
+  color: string
+  category: string
+  productIds: string[]
+  topN: number
+}
+
+function defaultForm(type: "category" | "box" | "most-sold"): PanelFormState {
+  return {
+    mode: "add",
+    type,
+    id: crypto.randomUUID(),
+    label: "",
+    color: PANEL_COLORS[0],
+    category: "",
+    productIds: [],
+    topN: 10,
+  }
+}
+
+// ── Customize Modal ───────────────────────────────────────────────
+function CustomizeModal({
+  config,
+  products,
+  onClose,
+  onChange,
+}: {
+  config: PosConfig
+  products: Product[]
+  onClose: () => void
+  onChange: (c: PosConfig) => void
+}) {
+  const [form, setForm] = useState<PanelFormState | null>(null)
+  const [boxSearch, setBoxSearch] = useState("")
+
+  const categories = useMemo(() => {
+    const cats = new Set<string>()
+    products.forEach((p) => {
+      if (p.category) cats.add(p.category)
+    })
+    return [...cats].sort()
+  }, [products])
+
+  function movePanel(index: number, dir: -1 | 1) {
+    const panels = [...config.panels]
+    const to = index + dir
+    if (to < 0 || to >= panels.length) return
+    ;[panels[index], panels[to]] = [panels[to], panels[index]]
+    onChange({ ...config, panels })
+  }
+
+  function deletePanel(id: string) {
+    onChange({ ...config, panels: config.panels.filter((p) => p.id !== id) })
+  }
+
+  function editPanel(panel: QuickPanel) {
+    setBoxSearch("")
+    if (panel.type === "category") {
+      setForm({
+        mode: "edit",
+        type: "category",
+        id: panel.id,
+        label: panel.label,
+        color: panel.color,
+        category: panel.category,
+        productIds: [],
+        topN: 10,
+      })
+    } else if (panel.type === "box") {
+      setForm({
+        mode: "edit",
+        type: "box",
+        id: panel.id,
+        label: panel.label,
+        color: panel.color,
+        category: "",
+        productIds: [...panel.productIds],
+        topN: 10,
+      })
+    } else {
+      setForm({
+        mode: "edit",
+        type: "most-sold",
+        id: panel.id,
+        label: panel.label,
+        color: panel.color,
+        category: "",
+        productIds: [],
+        topN: panel.topN,
+      })
+    }
+  }
+
+  function saveForm() {
+    if (!form || !form.label.trim()) return
+    let newPanel: QuickPanel
+    if (form.type === "category") {
+      if (!form.category) return
+      newPanel = {
+        id: form.id,
+        type: "category",
+        label: form.label.trim(),
+        category: form.category,
+        color: form.color,
+      }
+    } else if (form.type === "box") {
+      newPanel = {
+        id: form.id,
+        type: "box",
+        label: form.label.trim(),
+        productIds: form.productIds,
+        color: form.color,
+      }
+    } else {
+      newPanel = {
+        id: form.id,
+        type: "most-sold",
+        label: form.label.trim(),
+        topN: form.topN,
+        color: form.color,
+      }
+    }
+    const panels =
+      form.mode === "edit"
+        ? config.panels.map((p) => (p.id === form.id ? newPanel : p))
+        : [...config.panels, newPanel]
+    onChange({ ...config, panels })
+    setForm(null)
+  }
+
+  function toggleProduct(id: string) {
+    setForm((f) => {
+      if (!f) return f
+      const ids = f.productIds.includes(id)
+        ? f.productIds.filter((i) => i !== id)
+        : [...f.productIds, id]
+      return { ...f, productIds: ids }
+    })
+  }
+
+  const filteredBoxProducts = useMemo(() => {
+    const q = normalize(boxSearch)
+    if (!q) return products.slice(0, 60)
+    return products
+      .filter((p) => normalize(p.name).includes(q) || normalize(p.itemNumber).includes(q))
+      .slice(0, 60)
+  }, [products, boxSearch])
+
+  const panelTypeIcon = {
+    category: <Tag className="h-3.5 w-3.5" />,
+    box: <Package className="h-3.5 w-3.5" />,
+    "most-sold": <Star className="h-3.5 w-3.5" />,
+  }
+
+  const resetCounts = () => {
+    if (!confirm("هل تريد إعادة ضبط إحصائيات المبيعات؟")) return
+    onChange({ ...config, salesCounts: {} })
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2 sm:p-4"
+      dir="rtl"
+    >
+      <div
+        className="flex w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl dark:bg-slate-900"
+        style={{ maxHeight: "92vh" }}
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b px-4 py-3 dark:border-slate-700">
+          {form ? (
+            <button
+              onClick={() => setForm(null)}
+              className="flex items-center gap-1 text-sm font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400"
+            >
+              ← رجوع
+            </button>
+          ) : (
+            <h2 className="text-lg font-bold">تخصيص الكاشير</h2>
+          )}
+          <div className="flex items-center gap-2">
+            {!form && (
+              <button
+                onClick={resetCounts}
+                className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+              >
+                إعادة ضبط الإحصائيات
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-full p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Panel list */}
+        {!form && (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2">
+              {config.panels.length === 0 ? (
+                <div className="py-10 text-center text-sm text-slate-400">
+                  لا توجد لوحات بعد. أضف لوحة من الأزرار أدناه.
+                </div>
+              ) : (
+                config.panels.map((panel, i) => (
+                  <div
+                    key={panel.id}
+                    className="flex items-center gap-2 rounded-xl border bg-slate-50 px-3 py-2.5 dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    <span
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white"
+                      style={{ backgroundColor: panel.color }}
+                    >
+                      {panelTypeIcon[panel.type]}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold text-sm">{panel.label}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {panel.type === "category" && `فئة: ${(panel as CategoryPanel).category}`}
+                        {panel.type === "box" &&
+                          `مجموعة · ${(panel as BoxPanel).productIds.length} مادة`}
+                        {panel.type === "most-sold" &&
+                          `الأكثر مبيعاً · أعلى ${(panel as MostSoldPanel).topN}`}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      <button
+                        onClick={() => movePanel(i, -1)}
+                        disabled={i === 0}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => movePanel(i, 1)}
+                        disabled={i === config.panels.length - 1}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 dark:hover:text-slate-200"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => editPanel(panel)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30"
+                      >
+                        <Settings2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => deletePanel(panel.id)}
+                        className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/30"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            {/* Add buttons */}
+            <div className="shrink-0 grid grid-cols-3 gap-2 border-t p-3 dark:border-slate-700">
+              <button
+                onClick={() => setForm({ ...defaultForm("category"), mode: "add" })}
+                className="flex flex-col items-center gap-1 rounded-xl border-2 border-dashed border-sky-300 py-3 text-xs font-semibold text-sky-600 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-400 dark:hover:bg-sky-950/30"
+              >
+                <Tag className="h-5 w-5" />
+                + فئة
+              </button>
+              <button
+                onClick={() => setForm({ ...defaultForm("box"), mode: "add" })}
+                className="flex flex-col items-center gap-1 rounded-xl border-2 border-dashed border-violet-300 py-3 text-xs font-semibold text-violet-600 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-400 dark:hover:bg-violet-950/30"
+              >
+                <Package className="h-5 w-5" />
+                + مجموعة
+              </button>
+              <button
+                onClick={() => setForm({ ...defaultForm("most-sold"), mode: "add" })}
+                className="flex flex-col items-center gap-1 rounded-xl border-2 border-dashed border-amber-300 py-3 text-xs font-semibold text-amber-600 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+              >
+                <Star className="h-5 w-5" />
+                + الأكثر مبيعاً
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Edit / Add form */}
+        {form && (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Form title */}
+              <div className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+                {form.mode === "add" ? "إضافة" : "تعديل"}{" "}
+                {form.type === "category"
+                  ? "لوحة فئة"
+                  : form.type === "box"
+                    ? "مجموعة مواد"
+                    : "لوحة الأكثر مبيعاً"}
+              </div>
+
+              {/* Label */}
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-600 dark:text-slate-400">
+                  الاسم
+                </label>
+                <Input
+                  autoFocus
+                  value={form.label}
+                  onChange={(e) => setForm((f) => f && { ...f, label: e.target.value })}
+                  placeholder={
+                    form.type === "category"
+                      ? "مثال: مشروبات"
+                      : form.type === "box"
+                        ? "مثال: العروض الخاصة"
+                        : "مثال: الأكثر مبيعاً"
+                  }
+                />
+              </div>
+
+              {/* Color picker */}
+              <div>
+                <label className="mb-1.5 block text-xs font-bold text-slate-600 dark:text-slate-400">
+                  اللون
+                </label>
+                <div className="flex gap-2">
+                  {PANEL_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setForm((f) => f && { ...f, color: c })}
+                      className={cn(
+                        "h-8 w-8 rounded-full transition-all",
+                        form.color === c &&
+                          "ring-2 ring-slate-800 ring-offset-2 scale-110 dark:ring-slate-200",
+                      )}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Category picker */}
+              {form.type === "category" && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600 dark:text-slate-400">
+                    الفئة
+                  </label>
+                  {categories.length === 0 ? (
+                    <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-400 dark:bg-slate-800">
+                      لا توجد فئات في المخزون. أضف فئة للمنتجات من صفحة المنتجات أولاً.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {categories.map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setForm((f) => f && { ...f, category: cat })}
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-sm font-semibold transition",
+                            form.category === cat
+                              ? "border-sky-500 bg-sky-100 text-sky-700 dark:border-sky-500 dark:bg-sky-900/50 dark:text-sky-300"
+                              : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+                          )}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Most-sold top N */}
+              {form.type === "most-sold" && (
+                <div>
+                  <label className="mb-1.5 block text-xs font-bold text-slate-600 dark:text-slate-400">
+                    عدد المواد المعروضة
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {[5, 10, 15, 20, 30, 50].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setForm((f) => f && { ...f, topN: n })}
+                        className={cn(
+                          "rounded-xl border px-4 py-2 text-sm font-bold transition",
+                          form.topN === n
+                            ? "border-amber-500 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
+                            : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800",
+                        )}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    يتتبع النظام مبيعاتك محلياً ويعرض المواد الأكثر طلباً في أعلى القائمة.
+                  </p>
+                </div>
+              )}
+
+              {/* Box product picker */}
+              {form.type === "box" && (
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                      المواد
+                    </label>
+                    <span className="text-xs text-slate-400">{form.productIds.length} مختار</span>
+                  </div>
+                  <Input
+                    value={boxSearch}
+                    onChange={(e) => setBoxSearch(e.target.value)}
+                    placeholder="ابحث عن مادة..."
+                    className="mb-2"
+                  />
+                  <div className="max-h-52 overflow-y-auto rounded-xl border dark:border-slate-700">
+                    {filteredBoxProducts.length === 0 ? (
+                      <div className="py-6 text-center text-sm text-slate-400">لا توجد نتائج</div>
+                    ) : (
+                      filteredBoxProducts.map((product) => {
+                        const selected = form.productIds.includes(product.id)
+                        return (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => toggleProduct(product.id)}
+                            className={cn(
+                              "flex w-full items-center gap-2.5 border-b px-3 py-2 text-right transition last:border-b-0 dark:border-slate-700",
+                              selected
+                                ? "bg-violet-50 dark:bg-violet-950/30"
+                                : "hover:bg-slate-50 dark:hover:bg-slate-800",
+                            )}
+                          >
+                            <div
+                              className={cn(
+                                "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                                selected
+                                  ? "border-violet-500 bg-violet-500"
+                                  : "border-slate-300 dark:border-slate-600",
+                              )}
+                            >
+                              {selected && (
+                                <span className="text-[10px] font-bold text-white">✓</span>
+                              )}
+                            </div>
+                            <span className="flex-1 truncate text-sm">{product.name}</span>
+                            <span className="shrink-0 text-xs text-slate-400">
+                              {fmt(product.salePrice)}
+                            </span>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+
+                  {/* Selected products chips */}
+                  {form.productIds.length > 0 && (
+                    <div className="mt-3">
+                      <div className="mb-1 text-[11px] text-slate-500">
+                        ترتيب المختارين (يمكن إزالة أي مادة بالضغط عليها):
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {form.productIds.map((id) => {
+                          const p = products.find((x) => x.id === id)
+                          return p ? (
+                            <span
+                              key={id}
+                              className="flex cursor-pointer items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-700 transition hover:bg-rose-100 hover:text-rose-700 dark:bg-violet-900/40 dark:text-violet-300"
+                              onClick={() => toggleProduct(id)}
+                            >
+                              {p.name}
+                              <X className="h-3 w-3" />
+                            </span>
+                          ) : null
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Save */}
+            <div className="shrink-0 border-t p-3 dark:border-slate-700">
+              <button
+                onClick={saveForm}
+                disabled={
+                  !form.label.trim() ||
+                  (form.type === "category" && !form.category)
+                }
+                className="w-full rounded-xl bg-emerald-600 py-2.5 font-bold text-white hover:bg-emerald-700 disabled:opacity-40"
+              >
+                {form.mode === "add" ? "إضافة اللوحة" : "حفظ التغييرات"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
-function detectUnit(product: Product, code: string): PosUnit {
-  if (code && product.cartonQrCode && normalize(code) === normalize(product.cartonQrCode)) return "CARTON"
-  return "PIECE"
-}
-
-function priceFor(product: Product, unit: PosUnit) {
-  if (unit === "CARTON") return Number(product.salePrice) * Number(product.pcsPerCarton || 1)
-  if (unit === "DOZEN") return Number(product.salePrice) * 12
-  return Number(product.salePrice)
-}
-
+// ── Main POS Component ────────────────────────────────────────────
 export function POSPage() {
   const queryClient = useQueryClient()
   const barcodeInputRef = useRef<HTMLInputElement>(null)
   const paidInputRef = useRef<HTMLInputElement>(null)
   const clientRequestIdRef = useRef(crypto.randomUUID())
+  const itemsRef = useRef<PosItem[]>([])
+  const posConfigRef = useRef<PosConfig>(loadConfig())
 
   const [customerQuery, setCustomerQuery] = useState("")
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
@@ -54,6 +632,19 @@ export function POSPage() {
   const [paid, setPaid] = useState("")
   const [message, setMessage] = useState("")
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
+  const [posConfig, setPosConfig] = useState<PosConfig>(loadConfig)
+  const [activePanel, setActivePanel] = useState<string | null>(null)
+  const [showCustomize, setShowCustomize] = useState(false)
+
+  // Keep refs in sync for use inside mutation callbacks
+  itemsRef.current = items
+  posConfigRef.current = posConfig
+
+  function updateConfig(c: PosConfig) {
+    setPosConfig(c)
+    posConfigRef.current = c
+    saveConfig(c)
+  }
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers", "pos"],
@@ -72,10 +663,39 @@ export function POSPage() {
       .slice(0, 12)
   }, [customers, customerQuery])
 
-  const filteredProducts = useMemo(
-    () => products.filter((p) => productMatches(p, productQuery)).slice(0, 80),
-    [products, productQuery],
-  )
+  // Products filtered by active panel + search query
+  const displayedProducts = useMemo(() => {
+    let base = products
+
+    if (activePanel) {
+      const panel = posConfig.panels.find((p) => p.id === activePanel)
+      if (panel) {
+        if (panel.type === "category") {
+          base = base.filter(
+            (p) => normalize(p.category ?? "") === normalize(panel.category),
+          )
+        } else if (panel.type === "box") {
+          const idSet = new Set(panel.productIds)
+          const ordered = panel.productIds
+            .map((id) => base.find((p) => p.id === id))
+            .filter((p): p is Product => p !== undefined)
+          base = [...ordered, ...base.filter((p) => !idSet.has(p.id) && false)]
+          // only show exactly the box items, in order
+          base = ordered
+        } else if (panel.type === "most-sold") {
+          const counts = posConfig.salesCounts
+          const sorted = [...base].sort((a, b) => (counts[b.id] ?? 0) - (counts[a.id] ?? 0))
+          base = sorted.slice(0, panel.topN)
+        }
+      }
+    }
+
+    if (productQuery) {
+      base = base.filter((p) => productMatches(p, productQuery))
+    }
+
+    return base.slice(0, 100)
+  }, [products, activePanel, posConfig, productQuery])
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
   const paidValue = Number(paid || 0)
@@ -94,7 +714,9 @@ export function POSPage() {
     setItems((prev) => {
       const existing = prev.find((i) => i.productId === product.id && i.unit === unit)
       if (existing) {
-        return prev.map((i) => (i.lineId === existing.lineId ? { ...i, quantity: i.quantity + 1 } : i))
+        return prev.map((i) =>
+          i.lineId === existing.lineId ? { ...i, quantity: i.quantity + 1 } : i,
+        )
       }
       return [
         ...prev,
@@ -120,7 +742,7 @@ export function POSPage() {
       [p.qrCode, p.cartonQrCode, p.itemNumber].some((v) => v && normalize(v) === q),
     )
     if (exact) addProduct(exact, productQuery)
-    else if (filteredProducts.length > 0) addProduct(filteredProducts[0])
+    else if (displayedProducts.length > 0) addProduct(displayedProducts[0])
   }
 
   function adjustQty(lineId: string, delta: number) {
@@ -156,6 +778,13 @@ export function POSPage() {
         })),
       }),
     onSuccess: (response) => {
+      // Track sales counts
+      const newCounts = { ...posConfigRef.current.salesCounts }
+      itemsRef.current.forEach((item) => {
+        newCounts[item.productId] = (newCounts[item.productId] ?? 0) + item.quantity
+      })
+      updateConfig({ ...posConfigRef.current, salesCounts: newCounts })
+
       setMessage(`✓ فاتورة ${response.data?.invoiceNumber ?? ""} — تم الحفظ`)
       setItems([])
       setPaid("")
@@ -188,16 +817,24 @@ export function POSPage() {
 
   const canSave = !!selectedCustomer && items.length > 0 && !saveMutation.isPending
 
-  // Quick-pay amounts: exact, nearest 1000, nearest 5000
-  const quickAmounts = [...new Set([
-    subtotal,
-    Math.ceil(subtotal / 1000) * 1000,
-    Math.ceil(subtotal / 5000) * 5000,
-  ])].filter((v) => v > 0)
+  const quickAmounts = [
+    ...new Set([
+      subtotal,
+      Math.ceil(subtotal / 1000) * 1000,
+      Math.ceil(subtotal / 5000) * 5000,
+    ]),
+  ].filter((v) => v > 0)
+
+  // Panel type -> icon
+  const panelIcons = {
+    category: <Tag className="h-3 w-3" />,
+    box: <Package className="h-3 w-3" />,
+    "most-sold": <Star className="h-3 w-3" />,
+  }
 
   return (
     <div className="flex h-full flex-col gap-2" dir="rtl">
-      {/* Top bar: barcode + customer */}
+      {/* ── Top bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
           <Barcode className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -233,16 +870,92 @@ export function POSPage() {
           <UserRound className="h-4 w-4 shrink-0" />
           <span className="truncate font-semibold">{selectedCustomer?.name ?? "اختر الزبون"}</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setShowCustomize(true)}
+          title="تخصيص الكاشير"
+          className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        >
+          <Settings2 className="h-5 w-5" />
+        </button>
       </div>
 
-      {/* Main: products grid + cart */}
+      {/* ── Quick panel tabs ── */}
+      <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto pb-0.5">
+        {/* "الكل" always first */}
+        <button
+          type="button"
+          onClick={() => setActivePanel(null)}
+          className={cn(
+            "shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition",
+            activePanel === null
+              ? "bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900"
+              : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+          )}
+        >
+          الكل
+        </button>
+
+        {posConfig.panels.map((panel) => {
+          const isActive = activePanel === panel.id
+          return (
+            <button
+              key={panel.id}
+              type="button"
+              onClick={() => setActivePanel(isActive ? null : panel.id)}
+              style={isActive ? { backgroundColor: panel.color, color: "white" } : {}}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold transition",
+                isActive
+                  ? ""
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700",
+              )}
+            >
+              {panelIcons[panel.type]}
+              {panel.label}
+              {panel.type === "most-sold" && (
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                    isActive ? "bg-white/25" : "bg-amber-100 text-amber-600 dark:bg-amber-900/50 dark:text-amber-400",
+                  )}
+                >
+                  {(panel as MostSoldPanel).topN}
+                </span>
+              )}
+              {panel.type === "box" && (
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0 text-[10px] font-bold",
+                    isActive ? "bg-white/25" : "bg-violet-100 text-violet-600 dark:bg-violet-900/50 dark:text-violet-400",
+                  )}
+                >
+                  {(panel as BoxPanel).productIds.length}
+                </span>
+              )}
+            </button>
+          )
+        })}
+
+        {posConfig.panels.length === 0 && (
+          <button
+            type="button"
+            onClick={() => setShowCustomize(true)}
+            className="shrink-0 rounded-full border border-dashed border-slate-300 px-3 py-1 text-xs text-slate-400 transition hover:border-slate-400 hover:text-slate-600 dark:border-slate-600 dark:text-slate-500 dark:hover:border-slate-500"
+          >
+            + أضف لوحة وصول سريع
+          </button>
+        )}
+      </div>
+
+      {/* ── Main: products grid + cart ── */}
       <div className="flex min-h-0 flex-1 gap-2">
-        {/* ── Products Grid ── */}
+        {/* Products grid */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           {productQuery ? (
-            <div className="shrink-0 flex items-center gap-2 border-b px-3 py-1.5 text-xs text-slate-500 dark:border-slate-700">
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs text-slate-500 dark:border-slate-700">
               <Search className="h-3 w-3" />
-              {filteredProducts.length} نتيجة
+              {displayedProducts.length} نتيجة
               <button
                 type="button"
                 onClick={() => setProductQuery("")}
@@ -251,9 +964,37 @@ export function POSPage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
+          ) : activePanel ? (
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5 text-xs text-slate-500 dark:border-slate-700">
+              {(() => {
+                const panel = posConfig.panels.find((p) => p.id === activePanel)
+                return (
+                  <>
+                    <span
+                      className="flex h-4 w-4 items-center justify-center rounded-full text-white"
+                      style={{ backgroundColor: panel?.color }}
+                    >
+                      {panel ? panelIcons[panel.type] : null}
+                    </span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-200">
+                      {panel?.label}
+                    </span>
+                    <span>{displayedProducts.length} مادة</span>
+                    <button
+                      type="button"
+                      onClick={() => setActivePanel(null)}
+                      className="mr-auto text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )
+              })()}
+            </div>
           ) : null}
+
           <div className="grid min-h-0 flex-1 auto-rows-max gap-1.5 overflow-y-auto p-1.5 grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-            {filteredProducts.map((product) => (
+            {displayedProducts.map((product) => (
               <button
                 key={product.id}
                 type="button"
@@ -269,15 +1010,19 @@ export function POSPage() {
                     {fmt(product.salePrice)}
                   </span>
                   {Number(product.currentStock) <= 0 ? (
-                    <span className="text-[9px] text-rose-500 font-semibold">نفد</span>
+                    <span className="text-[9px] font-semibold text-rose-500">نفد</span>
                   ) : (
-                    <span className="text-[9px] text-slate-400">{fmt(product.currentStock)} قطعة</span>
+                    <span className="text-[9px] text-slate-400">
+                      {fmt(product.currentStock)} قطعة
+                    </span>
                   )}
                 </div>
               </button>
             ))}
-            {filteredProducts.length === 0 && (
-              <div className="col-span-full py-16 text-center text-slate-400">لا توجد مواد مطابقة</div>
+            {displayedProducts.length === 0 && (
+              <div className="col-span-full py-16 text-center text-slate-400">
+                {activePanel ? "لا توجد مواد في هذه اللوحة" : "لا توجد مواد مطابقة"}
+              </div>
             )}
           </div>
         </div>
@@ -371,7 +1116,6 @@ export function POSPage() {
               onFocus={(e) => e.target.select()}
             />
 
-            {/* Quick pay buttons */}
             {subtotal > 0 && (
               <div className="grid grid-cols-3 gap-1">
                 {quickAmounts.map((amount) => (
@@ -430,7 +1174,17 @@ export function POSPage() {
         </div>
       </div>
 
-      {/* Customer picker modal */}
+      {/* ── Customize Modal ── */}
+      {showCustomize && (
+        <CustomizeModal
+          config={posConfig}
+          products={products}
+          onClose={() => setShowCustomize(false)}
+          onChange={updateConfig}
+        />
+      )}
+
+      {/* ── Customer picker modal ── */}
       {showCustomerPicker && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900">
