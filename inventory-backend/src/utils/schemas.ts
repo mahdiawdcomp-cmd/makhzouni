@@ -302,7 +302,7 @@ export const listProductsSchema = z.object({
       .optional()
       .transform((value) => (value === undefined ? undefined : value === "true")),
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(2000).default(20),
+    limit: z.coerce.number().int().min(1).max(10000).default(20),
   }),
 });
 
@@ -461,7 +461,7 @@ export const listVouchersSchema = z.object({
     from: dateString.optional(),
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
+    limit: z.coerce.number().int().min(1).max(5000).default(20),
   }),
 });
 
