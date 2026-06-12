@@ -48,10 +48,6 @@ export function useGlobalShortcuts() {
           e.preventDefault()
           navigate("/account")
           break
-        case "r":
-          e.preventDefault()
-          navigate("/reports")
-          break
         case "h":
           e.preventDefault()
           navigate("/")
