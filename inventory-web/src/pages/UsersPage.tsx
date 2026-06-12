@@ -368,7 +368,7 @@ export function UsersPage() {
       <ConfirmDialog
         open={confirmDeleteUser !== null}
         title="حذف المستخدم نهائياً؟"
-        description="إذا عنده فواتير أو سندات راح ينرفض الحذف حفاظاً على الحسابات."
+        description="المستخدم راح يُحذف من القائمة. اسمه يبقى على الفواتير والسندات القديمة."
         confirmLabel="حذف"
         destructive
         loading={deleteMutation.isPending}
