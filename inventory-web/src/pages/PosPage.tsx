@@ -651,7 +651,7 @@ export function POSPage() {
 
   const { data: customers = [] } = useQuery({
     queryKey: ["customers", "pos"],
-    queryFn: () => getCustomers({ limit: 200 }),
+    queryFn: () => getCustomers({ limit: 2000 }),
   })
   const { data: products = [] } = useQuery({
     queryKey: ["products", "pos"],

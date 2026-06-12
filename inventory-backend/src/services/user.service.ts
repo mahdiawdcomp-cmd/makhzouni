@@ -58,6 +58,7 @@ function normalizePermissions(role: UserRole | undefined, permissions: UserPermi
 
 export async function listUsers() {
   return prisma.user.findMany({
+    where: { deletedAt: null },
     select: userSelect,
     orderBy: { createdAt: "desc" },
   });
@@ -163,22 +164,24 @@ export async function deleteUserPermanently(
     0;
 
   if (hasHistory) {
-    throw new AppError(
-      "This user has accounting history. Deactivate the user instead.",
-      400,
-      "USER_HAS_HISTORY"
-    );
+    // Soft-delete: keeps name on invoices/products but hides user from the list
+    await db.user.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+    return;
   }
 
   try {
     await db.user.delete({ where: { id } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-      throw new AppError(
-        "This user is still linked to system history. Deactivate the user instead.",
-        400,
-        "USER_LINKED_HISTORY"
-      );
+      // Fallback: soft-delete if a FK we didn't count still exists
+      await db.user.update({
+        where: { id },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+      return;
     }
     throw error;
   }
