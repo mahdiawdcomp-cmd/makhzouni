@@ -350,6 +350,76 @@ fun ProductDetailScreen(
                 }
             }
 
+            // ── Warehouse stock breakdown ────────────────────────────
+            if (cur.warehouseStocks.isNotEmpty()) {
+                item {
+                    SectionCard(title = "توزيع المخزون بالمخازن") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            cur.warehouseStocks.forEach { ws ->
+                                val wsLow = ws.quantityPieces <= (ws.minStock ?: cur.minStock) && ws.quantityPieces > 0
+                                val wsOut = ws.quantityPieces <= 0
+                                val barColor = when {
+                                    wsOut -> AppColor.Red600
+                                    wsLow -> AppColor.Amber600
+                                    else  -> AppColor.Green600
+                                }
+                                val pct = if (cur.currentStock > 0) ws.quantityPieces.toFloat() / cur.currentStock else 0f
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(ws.warehouseName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                            Text(ws.warehouseCode, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            if (!ws.storageLocation.isNullOrBlank()) {
+                                                Text("📍 ${ws.storageLocation}", style = MaterialTheme.typography.labelSmall, color = AppColor.Blue600)
+                                            }
+                                        }
+                                        Text(
+                                            "${ws.quantityPieces} ق",
+                                            fontWeight = FontWeight.ExtraBold,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = barColor
+                                        )
+                                    }
+                                    Spacer(Modifier.height(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(pct.coerceIn(0f, 1f))
+                                                .height(6.dp)
+                                                .clip(RoundedCornerShape(3.dp))
+                                                .background(barColor)
+                                        )
+                                    }
+                                    Text(
+                                        "${(pct * 100).toInt()}% من الإجمالي",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── QR Code — قطعة وكرتون ────────────────────────────────
             item {
                 SectionCard(title = "رمز QR") {

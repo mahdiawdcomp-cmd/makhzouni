@@ -21,6 +21,7 @@ import { UnsavedChangesDialog } from "../components/ui/UnsavedChangesDialog"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
+import { calculateInvoiceFinancials } from "../utils/financial"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -31,6 +32,7 @@ interface DraftItem {
   unit: Unit
   quantity: number
   unitPrice: number
+  warehouseId?: string
 }
 
 function stockOf(product: Product) {
@@ -70,9 +72,8 @@ interface PersistedDraft {
   customerId: string | null
   date: string
   paymentMode: PaymentMode
-  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number }>
+  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string }>
   discount: number
-  tax: number
   paidAmount: number
   savedAt: number
 }
@@ -157,7 +158,6 @@ export function InvoiceCreatePage() {
   const [discount, setDiscount] = useState(0)
   const [couponCode, setCouponCode] = useState("")
   const [couponMessage, setCouponMessage] = useState("")
-  const [tax, setTax] = useState(0)
   const [paidAmount, setPaidAmount] = useState(0)
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
@@ -175,7 +175,6 @@ export function InvoiceCreatePage() {
     setCustomerQuery("")
     setItems([])
     setDiscount(0)
-    setTax(0)
     setPaidAmount(0)
     setSavedInvoiceId(null)
     setLastSavedAt(null)
@@ -244,13 +243,25 @@ export function InvoiceCreatePage() {
   }, [productHighlight])
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
-  const total = Math.max(0, subtotal - discount)
   const previousBalance = selectedCustomer?.currentBalance ?? 0
-  const overpayment = !isPurchase && paidAmount > total && total > 0 ? paidAmount - total : 0
-  const effectivePaid = overpayment > 0 ? total : paidAmount
-  const remaining = total - effectivePaid
-  const balanceDelta = isPurchase ? -remaining : remaining
-  const finalBalance = previousBalance + balanceDelta
+  const beforePayment = calculateInvoiceFinancials({
+    type: invoiceType,
+    subtotal,
+    discount,
+    previousBalance,
+  })
+  const financials = calculateInvoiceFinancials({
+    type: invoiceType,
+    subtotal,
+    discount,
+    paidAmount: paymentMode === "CASH" ? beforePayment.totalAmount : paidAmount,
+    previousBalance,
+  })
+  const total = financials.totalAmount
+  const overpayment = isPurchase ? 0 : financials.overpayment
+  const effectivePaid = financials.paidAmount
+  const remaining = financials.remainingAmount
+  const finalBalance = financials.finalBalance
   const hasInvalidTotal = total < 0
 
   function unitPriceFor(product: Product, unit: Unit) {
@@ -316,7 +327,6 @@ export function InvoiceCreatePage() {
       setDate(draft.date)
       setPaymentMode(draft.paymentMode)
       setDiscount(draft.discount ?? 0)
-      setTax(0)
       setPaidAmount(draft.paidAmount)
       const cust = customers.find((c) => c.id === draft.customerId)
       if (cust) {
@@ -326,7 +336,7 @@ export function InvoiceCreatePage() {
       const restoredItems: DraftItem[] = []
       for (const it of draft.items) {
         const p = products.find((x) => x.id === it.productId)
-        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice })
+        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId })
       }
       setItems(restoredItems)
     } catch {
@@ -349,9 +359,9 @@ export function InvoiceCreatePage() {
           unit: i.unit,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
+          warehouseId: i.warehouseId,
         })),
         discount,
-        tax: 0,
         paidAmount,
         savedAt: Date.now(),
       }
@@ -479,6 +489,16 @@ export function InvoiceCreatePage() {
     void queryClient.invalidateQueries({ queryKey: ["products"] })
   }
 
+  function defaultWarehouseId(product: Product): string | undefined {
+    const stocks = product.warehouseStocks ?? []
+    if (stocks.length === 1) return stocks[0].warehouseId
+    // for multiple warehouses pick the one with most stock
+    if (stocks.length > 1) {
+      return stocks.reduce((a, b) => (a.quantityPieces >= b.quantityPieces ? a : b)).warehouseId
+    }
+    return undefined
+  }
+
   function addProduct(product: Product) {
     const nextIndex = items.length
     setItems((current) => [
@@ -488,6 +508,7 @@ export function InvoiceCreatePage() {
         unit: "PIECE",
         quantity: 1,
         unitPrice: unitPriceFor(product, "PIECE"),
+        warehouseId: defaultWarehouseId(product),
       },
     ])
     setProductModal(false)
@@ -580,6 +601,7 @@ export function InvoiceCreatePage() {
         unit: isCarton ? "CARTON" : "PIECE",
         quantity: 1,
         unitPrice: unitPriceFor(hit, isCarton ? "CARTON" : "PIECE"),
+        warehouseId: defaultWarehouseId(hit),
       },
     ])
   }
@@ -707,12 +729,13 @@ export function InvoiceCreatePage() {
       discount,
       tax: 0,
       paidAmount: effectivePaid,
-      paymentType: remaining <= 0 ? "CASH" : effectivePaid > 0 ? "PARTIAL" : "CREDIT",
+      paymentType: financials.paymentType,
       items: items.map((item) => ({
         productId: item.product.id,
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
+        warehouseId: item.warehouseId,
       })),
     })
     const id = response.data?.id ?? null
@@ -745,7 +768,7 @@ export function InvoiceCreatePage() {
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
-  }, [selectedCustomer, items, hasInvalidTotal, paidAmount, discount, tax, couponCode, invoiceType])
+  }, [selectedCustomer, items, hasInvalidTotal, paidAmount, discount, couponCode, invoiceType])
 
   async function applyCouponCode() {
     if (!couponCode.trim() || subtotal <= 0) return
@@ -780,7 +803,6 @@ export function InvoiceCreatePage() {
     setSelectedCustomer(null)
     setCustomerQuery("")
     setDiscount(0)
-    setTax(0)
     setPaidAmount(0)
     setSavedInvoiceId(null)
   }
@@ -1054,6 +1076,7 @@ export function InvoiceCreatePage() {
               <THead>
                 <TR>
                   <TH>المادة</TH>
+                  <TH>المخزن</TH>
                   <TH>الوحدة</TH>
                   <TH>العدد</TH>
                   {!hidePrice && <TH>سعر المفرد</TH>}
@@ -1085,6 +1108,27 @@ export function InvoiceCreatePage() {
                         </div>
                         {showPurchase ? <div className="text-xs text-slate-500">شراء: {fmt(item.product.purchasePrice)}</div> : null}
                         {showStock ? <div className="text-xs text-slate-500">متوفر: {stockOf(item.product)}</div> : null}
+                      </TD>
+                      <TD>
+                        {/* warehouse selector — shown only when product has stocks in multiple warehouses */}
+                        {(item.product.warehouseStocks ?? []).length > 1 ? (
+                          <select
+                            className="h-9 w-32 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                            value={item.warehouseId ?? ""}
+                            onChange={(e) => updateItem(index, { warehouseId: e.target.value || undefined })}
+                          >
+                            <option value="">— اختر —</option>
+                            {(item.product.warehouseStocks ?? []).map((ws) => (
+                              <option key={ws.warehouseId} value={ws.warehouseId}>
+                                {ws.warehouse.name} ({ws.quantityPieces}ق)
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="text-xs text-slate-500">
+                            {(item.product.warehouseStocks ?? [])[0]?.warehouse.name ?? "—"}
+                          </span>
+                        )}
                       </TD>
                       <TD>
                         <select
@@ -1176,10 +1220,6 @@ export function InvoiceCreatePage() {
                 <div>
                   <label className="mb-1 block text-xs text-slate-500">الخصم</label>
                   <Input type="number" value={discount} onFocus={selectAllOnFocus} onChange={(e) => setDiscount(Number(e.target.value))} />
-                </div>
-                <div className="hidden">
-                  <label className="mb-1 block text-xs text-slate-500">الضريبة</label>
-                  <Input type="number" value={tax} onFocus={selectAllOnFocus} onChange={(e) => setTax(Number(e.target.value))} />
                 </div>
               </div>
               <SummaryRow label="الإجمالي" value={total} strong />

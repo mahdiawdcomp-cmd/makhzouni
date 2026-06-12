@@ -81,6 +81,15 @@ export interface PagedResponse<T> {
   }
 }
 
+export interface WarehouseStock {
+  id: string
+  warehouseId: string
+  warehouse: { id: string; name: string; code: string; isActive: boolean }
+  quantityPieces: number
+  storageLocation?: string | null
+  minStock?: number | null
+}
+
 export interface Product {
   id: string
   itemNumber: string
@@ -104,6 +113,7 @@ export interface Product {
   branchId?: string | null
   branch?: Branch | null
   currentStock?: number
+  warehouseStocks?: WarehouseStock[]
   updatedAt?: string
 }
 
@@ -278,6 +288,7 @@ export interface CustomerTransaction {
   date: string
   createdAt?: string
   type: string
+  invoiceType?: "SALE" | "PURCHASE" | "SALES_RETURN" | null
   amount: number
   referenceNumber: string
   debit?: number

@@ -236,6 +236,51 @@ export function ProductDetailPage() {
                   {product.cartonsAvailable} كرتونة × {product.pcsPerCarton} = {product.cartonsAvailable * product.pcsPerCarton} + {product.openingBalancePcs} مفردة
                 </div>
               </div>
+
+              {/* Warehouse breakdown */}
+              {(product.warehouseStocks ?? []).length > 0 && (
+                <div className="mt-3">
+                  <div className="mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wide">توزيع المخزون بالمخازن</div>
+                  <div className="space-y-2">
+                    {(product.warehouseStocks ?? []).map((ws) => {
+                      const pct = totalStock > 0 ? Math.round((ws.quantityPieces / totalStock) * 100) : 0
+                      const wsLow = ws.quantityPieces <= (ws.minStock ?? product.minStock) && ws.quantityPieces > 0
+                      const wsOut = ws.quantityPieces <= 0
+                      return (
+                        <div key={ws.warehouseId} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <span className="font-semibold text-sm">{ws.warehouse.name}</span>
+                              <span className="mr-2 text-xs text-slate-400">{ws.warehouse.code}</span>
+                              {ws.storageLocation && (
+                                <span className="mr-1 text-xs text-blue-600">📍 {ws.storageLocation}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {wsOut
+                                ? <Badge variant="danger">نفذت</Badge>
+                                : wsLow
+                                  ? <Badge variant="warning">منخفض</Badge>
+                                  : <Badge variant="success">متوفر</Badge>
+                              }
+                              <span className={`font-bold text-base ${wsOut ? "text-red-600" : wsLow ? "text-amber-600" : "text-emerald-700"}`}>
+                                {fmt(ws.quantityPieces)} ق
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${wsOut ? "bg-red-400" : wsLow ? "bg-amber-400" : "bg-emerald-500"}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <div className="mt-1 text-right text-[11px] text-slate-400">{pct}% من الإجمالي</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

@@ -11,6 +11,7 @@ import com.inventory.data.remote.dto.ProductMovementDto
 import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.domain.model.Product
 import com.inventory.domain.model.ProductMovement
+import com.inventory.domain.model.WarehouseStock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -108,6 +109,17 @@ class ProductRepository @Inject constructor(
         }
     }
 
+    suspend fun fetchById(id: String): ApiResult<Product> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val dto = apiClient.api.getProduct(id).data
+                ?: return ApiResult.Error("المادة غير موجودة")
+            ApiResult.Success(dto.toDomainFull())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل المادة")
+        }
+    }
+
     suspend fun movement(productId: String, from: String?, to: String?): ApiResult<List<ProductMovement>> {
         if (!networkMonitor.isOnline()) return ApiResult.Offline
         return try {
@@ -134,6 +146,34 @@ private fun ProductEntity.toDomain() = Product(
     salePrice = salePrice,
     retailPrice = retailPrice,
     minStock = minStock,
+    updatedAt = updatedAt
+)
+
+private fun ProductDto.toDomainFull() = Product(
+    id = id,
+    itemNumber = itemNumber,
+    name = name,
+    qrCode = qrCode.orEmpty(),
+    cartonQrCode = cartonQrCode.orEmpty(),
+    imageUrl = imageUrl,
+    category = category.orEmpty(),
+    openingBalancePcs = openingBalancePcs,
+    cartonsAvailable = cartonsAvailable,
+    pcsPerCarton = pcsPerCarton,
+    purchasePrice = purchasePrice,
+    salePrice = salePrice,
+    retailPrice = retailPrice,
+    minStock = minStock,
+    warehouseStocks = warehouseStocks?.map { ws ->
+        WarehouseStock(
+            warehouseId = ws.warehouseId,
+            warehouseName = ws.warehouse.name,
+            warehouseCode = ws.warehouse.code,
+            quantityPieces = ws.quantityPieces,
+            storageLocation = ws.storageLocation,
+            minStock = ws.minStock
+        )
+    } ?: emptyList(),
     updatedAt = updatedAt
 )
 

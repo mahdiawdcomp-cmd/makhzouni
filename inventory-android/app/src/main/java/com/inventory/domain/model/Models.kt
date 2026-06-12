@@ -36,6 +36,15 @@ enum class UserRole {
     STAFF
 }
 
+data class WarehouseStock(
+    val warehouseId: String,
+    val warehouseName: String,
+    val warehouseCode: String,
+    val quantityPieces: Int,
+    val storageLocation: String? = null,
+    val minStock: Int? = null
+)
+
 data class Product(
     val id: String,
     val itemNumber: String,
@@ -51,6 +60,7 @@ data class Product(
     val salePrice: Double,
     val retailPrice: Double = 0.0,
     val minStock: Int,
+    val warehouseStocks: List<WarehouseStock> = emptyList(),
     val updatedAt: String?
 ) {
     val currentStock: Int = openingBalancePcs + cartonsAvailable * pcsPerCarton
@@ -84,6 +94,7 @@ data class CustomerTransaction(
     val id: String,
     val date: String,
     val type: String,
+    val invoiceType: String? = null,
     val debit: Double,
     val credit: Double,
     val amount: Double,
@@ -107,6 +118,9 @@ data class Invoice(
     val customerId: String,
     val date: String,
     val type: String = "SALE",
+    val subtotal: Double = 0.0,
+    val discount: Double = 0.0,
+    val tax: Double = 0.0,
     val totalAmount: Double,
     val paidAmount: Double,
     val remainingAmount: Double,

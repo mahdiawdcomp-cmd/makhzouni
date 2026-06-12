@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -104,8 +105,25 @@ class ProductDetailViewModel @Inject constructor(
 ) : ViewModel() {
     private val productId: String = checkNotNull(savedStateHandle["productId"])
 
-    val product: StateFlow<Product?> = repository.observeProduct(productId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    // Start with cached data; replaced by full API response (includes warehouseStocks)
+    private val _product = MutableStateFlow<Product?>(null)
+    val product: StateFlow<Product?> = _product.asStateFlow()
+
+    init {
+        // Observe cached product immediately so screen isn't blank
+        viewModelScope.launch {
+            repository.observeProduct(productId).collect { cached ->
+                if (_product.value == null && cached != null) _product.value = cached
+            }
+        }
+        // Then fetch full product from API to get warehouseStocks
+        viewModelScope.launch {
+            when (val result = repository.fetchById(productId)) {
+                is ApiResult.Success -> _product.value = result.data
+                else -> { /* keep cached */ }
+            }
+        }
+    }
 
     /** Dynamic API base URL for QR image loading (strips trailing /api/ to get server root) */
     val apiBaseUrl: StateFlow<String> = sessionManager.baseUrl

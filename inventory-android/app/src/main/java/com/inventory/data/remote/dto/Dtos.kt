@@ -117,6 +117,22 @@ data class PagedEnvelope<T>(
     val pagination: PaginationDto? = null
 )
 
+data class WarehouseInfoDto(
+    val id: String,
+    val name: String,
+    val code: String,
+    val isActive: Boolean = true
+)
+
+data class WarehouseStockDto(
+    val id: String? = null,
+    val warehouseId: String,
+    val warehouse: WarehouseInfoDto,
+    val quantityPieces: Int = 0,
+    val storageLocation: String? = null,
+    val minStock: Int? = null
+)
+
 data class ProductDto(
     val id: String,
     val itemNumber: String,
@@ -133,6 +149,7 @@ data class ProductDto(
     val retailPrice: Double = 0.0,
     val minStock: Int = 0,
     val currentStock: Int? = null,
+    val warehouseStocks: List<WarehouseStockDto>? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
 )
@@ -223,6 +240,7 @@ data class CustomerTransactionDto(
     val id: String,
     val date: String,
     val type: String,
+    val invoiceType: String? = null,
     val amount: Double,
     val referenceNumber: String,
     val debit: Double? = null,

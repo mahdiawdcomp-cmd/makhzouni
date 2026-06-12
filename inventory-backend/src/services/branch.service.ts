@@ -25,6 +25,7 @@ export async function listBranches(query: { search?: string; isActive?: boolean 
 
   return prisma.branch.findMany({
     where,
+    include: { _count: { select: { productStocks: true } } },
     orderBy: [{ isActive: "desc" }, { name: "asc" }],
   });
 }
@@ -66,14 +67,6 @@ function toNumber(value: unknown) {
   return Number(value);
 }
 
-function currentStock(product: {
-  openingBalancePcs: number;
-  cartonsAvailable: number;
-  pcsPerCarton: number;
-}) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
-}
-
 export async function listBranchSummaries() {
   const branches = await prisma.branch.findMany({
     orderBy: [{ isActive: "desc" }, { name: "asc" }],
@@ -82,41 +75,45 @@ export async function listBranchSummaries() {
   const summaries = await Promise.all(
     branches.map(async (branch) => {
       const [
-        products,
+        stocks,
+        transfersOut,
+        transfersIn,
         customers,
         sales,
-        salesReturns,
         purchases,
         receipts,
         payments,
         expenses,
-        branchProducts,
-        transfersOut,
-        transfersIn,
       ] = await Promise.all([
-        prisma.product.aggregate({
-          where: { branchId: branch.id, deletedAt: null },
-          _count: { _all: true },
-          _sum: { openingBalancePcs: true, cartonsAvailable: true },
+        prisma.productWarehouseStock.findMany({
+          where: { warehouseId: branch.id, product: { deletedAt: null } },
+          select: {
+            quantityPieces: true,
+            minStock: true,
+            storageLocation: true,
+            product: {
+              select: {
+                minStock: true,
+                purchasePrice: true,
+                costPrice: true,
+                openingBalancePcs: true,
+                cartonsAvailable: true,
+                pcsPerCarton: true,
+              },
+            },
+          },
         }),
-        prisma.customer.aggregate({
-          where: { branchId: branch.id, deletedAt: null },
-          _count: { _all: true },
-          _sum: { currentBalance: true },
-        }),
+        prisma.inventoryTransfer.count({ where: { fromBranchId: branch.id } }),
+        prisma.inventoryTransfer.count({ where: { toBranchId: branch.id } }),
+        prisma.customer.count({ where: { branchId: branch.id, deletedAt: null } }),
         prisma.invoice.aggregate({
-          where: { branchId: branch.id, status: "ACTIVE", type: "SALE" },
-          _count: { _all: true },
+          where: { branchId: branch.id, type: "SALE", status: "ACTIVE" },
+          _count: { id: true },
           _sum: { totalAmount: true, paidAmount: true, remainingAmount: true },
         }),
         prisma.invoice.aggregate({
-          where: { branchId: branch.id, status: "ACTIVE", type: "SALES_RETURN" },
-          _count: { _all: true },
-          _sum: { totalAmount: true, paidAmount: true, remainingAmount: true },
-        }),
-        prisma.invoice.aggregate({
-          where: { branchId: branch.id, status: "ACTIVE", type: "PURCHASE" },
-          _count: { _all: true },
+          where: { branchId: branch.id, type: "PURCHASE", status: "ACTIVE" },
+          _count: { id: true },
           _sum: { totalAmount: true },
         }),
         prisma.paymentVoucher.aggregate({
@@ -131,40 +128,38 @@ export async function listBranchSummaries() {
           where: { branchId: branch.id, type: "EXPENSE" },
           _sum: { amount: true },
         }),
-        prisma.product.findMany({
-          where: { branchId: branch.id, deletedAt: null },
-          select: {
-            openingBalancePcs: true,
-            cartonsAvailable: true,
-            pcsPerCarton: true,
-            minStock: true,
-          },
-        }),
-        prisma.inventoryTransfer.count({ where: { fromBranchId: branch.id } }),
-        prisma.inventoryTransfer.count({ where: { toBranchId: branch.id } }),
       ]);
 
-      const lowStock = branchProducts.filter(
-        (product) => currentStock(product) <= product.minStock
+      const lowStock = stocks.filter(
+        (stock) => stock.quantityPieces <= (stock.minStock ?? stock.product.minStock)
       ).length;
-      const totalPieces = branchProducts.reduce(
-        (sum, product) => sum + currentStock(product),
+      const totalPieces = stocks.reduce((sum, stock) => sum + stock.quantityPieces, 0);
+      const openingPieces = stocks.reduce(
+        (sum, stock) => sum + stock.product.openingBalancePcs,
         0
       );
+      const cartons = stocks.reduce(
+        (sum, stock) => sum + stock.product.cartonsAvailable,
+        0
+      );
+      const inventoryValue = stocks.reduce((sum, stock) => {
+        const unitCost = toNumber(stock.product.costPrice) || toNumber(stock.product.purchasePrice);
+        return sum + stock.quantityPieces * unitCost;
+      }, 0);
 
       return {
         branch,
-        products: products._count._all,
-        customers: customers._count._all,
-        customerBalance: toNumber(customers._sum.currentBalance),
+        products: stocks.length,
+        customers,
+        customerBalance: 0,
         sales: {
-          count: sales._count._all,
-          total: toNumber(sales._sum.totalAmount) - toNumber(salesReturns._sum.totalAmount),
-          paid: toNumber(sales._sum.paidAmount) - toNumber(salesReturns._sum.paidAmount),
-          remaining: toNumber(sales._sum.remainingAmount) - toNumber(salesReturns._sum.remainingAmount),
+          count: sales._count.id,
+          total: toNumber(sales._sum.totalAmount),
+          paid: toNumber(sales._sum.paidAmount),
+          remaining: toNumber(sales._sum.remainingAmount),
         },
         purchases: {
-          count: purchases._count._all,
+          count: purchases._count.id,
           total: toNumber(purchases._sum.totalAmount),
         },
         vouchers: {
@@ -175,8 +170,10 @@ export async function listBranchSummaries() {
         stock: {
           lowStock,
           totalPieces,
-          openingPieces: toNumber(products._sum.openingBalancePcs),
-          cartons: toNumber(products._sum.cartonsAvailable),
+          openingPieces,
+          cartons,
+          inventoryValue,
+          locatedProducts: stocks.filter((stock) => Boolean(stock.storageLocation)).length,
         },
         transfers: {
           out: transfersOut,
