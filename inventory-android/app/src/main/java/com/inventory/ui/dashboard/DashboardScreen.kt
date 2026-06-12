@@ -95,8 +95,8 @@ fun DashboardScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text("Ù…Ø®Ø²ÙˆÙ†ÙŠ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-                        Text("Ù„ÙˆØ­Ø© Ø§Ù„Ø¹Ù…Ù„", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("مخزوني", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                        Text("لوحة العمل", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
@@ -107,9 +107,9 @@ fun DashboardScreen(
                             }
                         }
                     ) {
-                        IconButton(onClick = onNotifications) { Icon(Icons.Default.Notifications, "Ø§Ù„Ø¥Ø´Ø¹Ø§Ø±Ø§Øª") }
+                        IconButton(onClick = onNotifications) { Icon(Icons.Default.Notifications, "الإشعارات") }
                     }
-                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª") }
+                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, "الإعدادات") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
@@ -127,12 +127,12 @@ fun DashboardScreen(
                 } else {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            MetricCard("Ù…Ø¨ÙŠØ¹Ø§Øª Ø§Ù„ÙŠÙˆÙ…", report.todaySales.formatMoney(), Icons.Default.TrendingUp, AppColor.Blue600, Modifier.weight(1f), onDashboardReport)
-                            MetricCard("ÙÙˆØ§ØªÙŠØ± Ø§Ù„ÙŠÙˆÙ…", report.todayInvoices.toString(), Icons.Default.ReceiptLong, AppColor.Green600, Modifier.weight(1f), onInvoices)
+                            MetricCard("مبيعات اليوم", report.todaySales.formatMoney(), Icons.Default.TrendingUp, AppColor.Blue600, Modifier.weight(1f), onDashboardReport)
+                            MetricCard("فواتير اليوم", report.todayInvoices.toString(), Icons.Default.ReceiptLong, AppColor.Green600, Modifier.weight(1f), onInvoices)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            MetricCard("Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¯ÙŠÙˆÙ†", report.totalDebts.formatMoney(), Icons.Default.AccountBalance, AppColor.Amber600, Modifier.weight(1f), onCustomers)
-                            MetricCard("Ù…Ø®Ø²ÙˆÙ† Ù…Ù†Ø®ÙØ¶", report.lowStockProducts.toString(), Icons.Default.Warning, AppColor.Red600, Modifier.weight(1f), onProducts)
+                            MetricCard("إجمالي الديون", report.totalDebts.formatMoney(), Icons.Default.AccountBalance, AppColor.Amber600, Modifier.weight(1f), onCustomers)
+                            MetricCard("مخزون منخفض", report.lowStockProducts.toString(), Icons.Default.Warning, AppColor.Red600, Modifier.weight(1f), onProducts)
                         }
                     }
                 }
@@ -143,23 +143,23 @@ fun DashboardScreen(
             }
 
             item {
-                SectionCard(title = "Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª Ø³Ø±ÙŠØ¹Ø©") {
+                SectionCard(title = "إجراءات سريعة") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            QuickActionBtn("Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª", Icons.Default.AccountTree, Color(0xFF0F766E), Modifier.weight(1f), onOperations)
-                            QuickActionBtn("ÙØ§ØªÙˆØ±Ø© Ø¨ÙŠØ¹", Icons.Default.Receipt, AppColor.Green600, Modifier.weight(1f), onInvoices)
+                            QuickActionBtn("العمليات", Icons.Default.AccountTree, Color(0xFF0F766E), Modifier.weight(1f), onOperations)
+                            QuickActionBtn("فاتورة بيع", Icons.Default.Receipt, AppColor.Green600, Modifier.weight(1f), onInvoices)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            QuickActionBtn("Ø³Ù†Ø¯ Ù‚Ø¨Ø¶/Ø¯ÙØ¹", Icons.Default.Payments, AppColor.Blue600, Modifier.weight(1f), onVouchers)
-                            QuickActionBtn("ÙƒØ´Ù Ø­Ø³Ø§Ø¨", Icons.Default.AccountBalance, AppColor.Purple600, Modifier.weight(1f), onAccountLookup)
+                            QuickActionBtn("سند قبض/دفع", Icons.Default.Payments, AppColor.Blue600, Modifier.weight(1f), onVouchers)
+                            QuickActionBtn("كشف حساب", Icons.Default.AccountBalance, AppColor.Purple600, Modifier.weight(1f), onAccountLookup)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            QuickActionBtn("Ø§Ù„Ù…Ø®Ø²Ù†", Icons.Default.Inventory2, AppColor.Gray700, Modifier.weight(1f), onProducts)
-                            QuickActionBtn("Ø§Ù„ÙƒØªÙ„ÙˆÙƒ", Icons.Default.Storefront, AppColor.Sky500, Modifier.weight(1f), onCatalogManagement)
+                            QuickActionBtn("المخزن", Icons.Default.Inventory2, AppColor.Gray700, Modifier.weight(1f), onProducts)
+                            QuickActionBtn("الكتالوج", Icons.Default.Storefront, AppColor.Sky500, Modifier.weight(1f), onCatalogManagement)
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            QuickActionBtn("ÙØ§ØªÙˆØ±Ø© ØµÙˆØªÙŠØ©", Icons.Default.Mic, Color(0xFF6366F1), Modifier.weight(1f), onVoiceInvoice)
-                            QuickActionBtn("Ø§Ù„Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„Ø°ÙƒÙŠ", Icons.Default.SmartToy, Color(0xFF7C3AED), Modifier.weight(1f), onAgent)
+                            QuickActionBtn("فاتورة صوتية", Icons.Default.Mic, Color(0xFF6366F1), Modifier.weight(1f), onVoiceInvoice)
+                            QuickActionBtn("المساعد الذكي", Icons.Default.SmartToy, Color(0xFF7C3AED), Modifier.weight(1f), onAgent)
                         }
                     }
                 }
@@ -167,13 +167,13 @@ fun DashboardScreen(
 
             if (state.canManageUsers || state.canApprove) {
                 item {
-                    SectionCard(title = "Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù†Ø¸Ø§Ù…") {
+                    SectionCard(title = "إدارة النظام") {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (state.canManageUsers) QuickActionBtn("Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…ÙŠÙ†", Icons.Default.People, AppColor.Blue600, Modifier.weight(1f), onUsers)
-                                if (state.canApprove) QuickActionBtn("Ø§Ù„Ù…ÙˆØ§ÙÙ‚Ø§Øª", Icons.Default.Pending, AppColor.Amber600, Modifier.weight(1f), onApprovals)
+                                if (state.canManageUsers) QuickActionBtn("المستخدمين", Icons.Default.People, AppColor.Blue600, Modifier.weight(1f), onUsers)
+                                if (state.canApprove) QuickActionBtn("الموافقات", Icons.Default.Pending, AppColor.Amber600, Modifier.weight(1f), onApprovals)
                             }
-                            QuickActionBtn("Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±", Icons.Default.ReceiptLong, AppColor.Gray700, Modifier.fillMaxWidth(), onReports)
+                            QuickActionBtn("التقارير", Icons.Default.ReceiptLong, AppColor.Gray700, Modifier.fillMaxWidth(), onReports)
                         }
                     }
                 }
