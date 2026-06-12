@@ -58,7 +58,7 @@ function normalizePermissions(role: UserRole | undefined, permissions: UserPermi
 
 export async function listUsers() {
   return prisma.user.findMany({
-    where: { deletedAt: null },
+    where: { isActive: true },
     select: userSelect,
     orderBy: { createdAt: "desc" },
   });
@@ -164,10 +164,10 @@ export async function deleteUserPermanently(
     0;
 
   if (hasHistory) {
-    // Soft-delete: keeps name on invoices/products but hides user from the list
+    // Soft-delete: set inactive so user is hidden from the list but name stays on records
     await db.user.update({
       where: { id },
-      data: { deletedAt: new Date(), isActive: false },
+      data: { isActive: false },
     });
     return;
   }
@@ -176,10 +176,9 @@ export async function deleteUserPermanently(
     await db.user.delete({ where: { id } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-      // Fallback: soft-delete if a FK we didn't count still exists
       await db.user.update({
         where: { id },
-        data: { deletedAt: new Date(), isActive: false },
+        data: { isActive: false },
       });
       return;
     }
