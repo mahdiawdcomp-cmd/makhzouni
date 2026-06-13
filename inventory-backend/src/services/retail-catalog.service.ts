@@ -1,5 +1,5 @@
 import { DiscountType, Unit } from "@prisma/client";
-import prisma from "../config/database";
+import prisma, { ensureConnected } from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { createInvoice } from "./invoice.service";
@@ -737,8 +737,19 @@ async function getOrCreateRetailCustomer() {
   });
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new AppError(label, 504, "TIMEOUT")), ms)),
+  ]);
+}
+
 export async function markRetailOrderPrepared(orderId: string, userId: string) {
   logger.info(`[RetailPrepare] start order=${orderId}`);
+  // Wake the (Neon serverless) database before starting the multi-statement
+  // invoice transaction — a transaction begun while the DB is waking can hang.
+  await ensureConnected().catch(() => {});
+
   const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
   if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
   if (order.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
@@ -747,48 +758,61 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
   const items = (order.items as unknown as Array<{ productId: string; quantity: number; unitPrice: number }>) ?? [];
 
   // Create the cash sale invoice under the dedicated retail customer.
-  const customer = await getOrCreateRetailCustomer();
-  logger.info(`[RetailPrepare] creating invoice for ${items.length} item(s)`);
-  const invoice = await createInvoice(
-    {
-      customerId: customer.id,
-      type: "SALE",
-      discount: toNumber(order.discount),
-      tax: 0,
-      paidAmount: toNumber(order.total),
-      paymentType: "CASH",
-      items: items.map((i) => ({
-        productId: i.productId,
-        unit: Unit.PIECE,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-      })),
-    },
-    userId,
-  );
-  logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created`);
+  // This is best-effort and bounded: if it is slow/fails, we still mark the
+  // order prepared and notify the customer so the button never hangs.
+  let invoiceId: string | null = null;
+  try {
+    const customer = await getOrCreateRetailCustomer();
+    logger.info(`[RetailPrepare] creating invoice for ${items.length} item(s)`);
+    const invoice = await withTimeout(
+      createInvoice(
+        {
+          customerId: customer.id,
+          type: "SALE",
+          discount: toNumber(order.discount),
+          tax: 0,
+          paidAmount: toNumber(order.total),
+          paymentType: "CASH",
+          items: items.map((i) => ({
+            productId: i.productId,
+            unit: Unit.PIECE,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+          })),
+        },
+        userId,
+      ),
+      25000,
+      "تعذر إنشاء الفاتورة (انتهت المهلة) — تم تجهيز الطلب",
+    );
+    invoiceId = invoice.id;
+    logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created`);
 
-  // Store the real buyer's details in the invoice notes.
-  const noteParts = [
-    `طلب كتلوك المفرد ${order.orderNumber}`,
-    `الزبون: ${order.customerName}`,
-    `الهاتف: ${order.phone}`,
-    order.address ? `العنوان: ${order.address}` : "",
-    order.notes ? `ملاحظات: ${order.notes}` : "",
-  ].filter(Boolean);
-  await prisma.invoice.update({ where: { id: invoice.id }, data: { notes: noteParts.join("\n") } }).catch(() => {});
+    // Store the real buyer's details in the invoice notes.
+    const noteParts = [
+      `طلب كتلوك المفرد ${order.orderNumber}`,
+      `الزبون: ${order.customerName}`,
+      `الهاتف: ${order.phone}`,
+      order.address ? `العنوان: ${order.address}` : "",
+      order.notes ? `ملاحظات: ${order.notes}` : "",
+    ].filter(Boolean);
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { notes: noteParts.join("\n") } }).catch(() => {});
+  } catch (err) {
+    logger.error(`[RetailPrepare] invoice step failed (order still marked prepared): ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   await prisma.retailOrder.update({
     where: { id: orderId },
-    data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId, invoiceId: invoice.id },
+    data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId, invoiceId },
   });
+  logger.info(`[RetailPrepare] order ${order.orderNumber} marked prepared (invoice=${invoiceId ?? "none"})`);
 
   // Notify the customer that the order is on its way.
   setImmediate(() => {
     safeSendWA(order.phone, `طلبك رقم ${order.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
   });
 
-  return { id: order.id, orderNumber: order.orderNumber, invoiceId: invoice.id };
+  return { id: order.id, orderNumber: order.orderNumber, invoiceId };
 }
 
 export async function cancelRetailOrder(orderId: string) {
