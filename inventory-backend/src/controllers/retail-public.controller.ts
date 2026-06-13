@@ -25,7 +25,7 @@ export const getPublicRetailOrdersByPhone = asyncHandler(async (req, res) => {
 
 export const getPublicStoreInfo = asyncHandler(async (_req, res) => {
   const rows = await prisma.setting.findMany({
-    where: { key: { in: ["storeName", "storeLogo", "currency"] } },
+    where: { key: { in: ["storeName", "storeLogo", "currency", "siteDesignerName", "siteDesignerPhone"] } },
   });
   const kv: Record<string, string> = {};
   for (const s of rows) kv[s.key] = String(s.value ?? "");
@@ -35,6 +35,8 @@ export const getPublicStoreInfo = asyncHandler(async (_req, res) => {
       storeName: kv.storeName || "متجرنا",
       storeLogo: kv.storeLogo || "",
       currency: kv.currency || "د.ع",
+      designerName: kv.siteDesignerName || "",
+      designerPhone: kv.siteDesignerPhone || "",
     },
   });
 });

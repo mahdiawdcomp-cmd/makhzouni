@@ -1054,8 +1054,8 @@ export async function cancelRetailOrder(id: string) {
 
 // ── Retail storefront: public (no auth) ────────────────────────────────────────
 export async function getPublicStoreInfo() {
-  const { data } = await publicApi.get<ApiEnvelope<{ storeName: string; storeLogo: string; currency: string }>>("/public/retail/store-info")
-  return data.data ?? { storeName: "متجرنا", storeLogo: "", currency: "د.ع" }
+  const { data } = await publicApi.get<ApiEnvelope<{ storeName: string; storeLogo: string; currency: string; designerName?: string; designerPhone?: string }>>("/public/retail/store-info")
+  return data.data ?? { storeName: "متجرنا", storeLogo: "", currency: "د.ع", designerName: "", designerPhone: "" }
 }
 
 export async function getPublicRetailCatalog() {

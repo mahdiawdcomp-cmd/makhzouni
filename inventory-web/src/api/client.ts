@@ -16,6 +16,9 @@ export const API_BASE_URL =
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
+  // Surface stuck requests as an error instead of spinning forever
+  // (e.g. if the backend is restarting mid-deploy).
+  timeout: 60000,
   headers: {
     "Content-Type": "application/json",
   },

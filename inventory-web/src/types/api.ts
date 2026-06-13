@@ -592,6 +592,9 @@ export interface AppSettings {
   telegramChatId?: string
   // Seasonal event alerts (JSON string: SeasonalAlert[])
   seasonalAlerts?: string
+  // Retail storefront "designed by" credit (shown in shop footer)
+  siteDesignerName?: string
+  siteDesignerPhone?: string
 }
 
 export interface MessageTemplate {

@@ -569,6 +569,8 @@ export const updateSettingsSchema = z.object({
       whatsappCloudToken: z.string().trim().optional(),
       whatsappCloudPhoneNumberId: z.string().trim().optional(),
       seasonalAlerts: z.string().trim().optional(),
+      siteDesignerName: z.string().trim().max(120).optional(),
+      siteDesignerPhone: z.string().trim().max(40).optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

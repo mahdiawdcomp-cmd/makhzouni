@@ -155,6 +155,13 @@ export function RetailShopPage() {
             />
           )}
           {tab === "orders" && <OrdersView orders={orders} currency={currency} goCatalog={() => setTab("catalog")} />}
+
+          {/* Designer credit */}
+          {settings?.designerName ? (
+            <div className="mt-6 pb-2 text-center text-[11px] text-slate-400">
+              تم تصميم هذا الموقع بواسطة {settings.designerName}{settings.designerPhone ? ` — ${settings.designerPhone}` : ""}
+            </div>
+          ) : null}
         </main>
 
         {/* Bottom nav */}

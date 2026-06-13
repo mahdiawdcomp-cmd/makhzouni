@@ -738,6 +738,7 @@ async function getOrCreateRetailCustomer() {
 }
 
 export async function markRetailOrderPrepared(orderId: string, userId: string) {
+  logger.info(`[RetailPrepare] start order=${orderId}`);
   const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
   if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
   if (order.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
@@ -747,6 +748,7 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
 
   // Create the cash sale invoice under the dedicated retail customer.
   const customer = await getOrCreateRetailCustomer();
+  logger.info(`[RetailPrepare] creating invoice for ${items.length} item(s)`);
   const invoice = await createInvoice(
     {
       customerId: customer.id,
@@ -764,6 +766,7 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
     },
     userId,
   );
+  logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created`);
 
   // Store the real buyer's details in the invoice notes.
   const noteParts = [

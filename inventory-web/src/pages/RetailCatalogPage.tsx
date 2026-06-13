@@ -74,7 +74,9 @@ function money(value: number) {
 
 export function RetailCatalogPage() {
   usePageTitle("كتلوك المفرد")
-  const [tab, setTab] = useState<Tab>("products")
+  const initialTab = (new URLSearchParams(window.location.search).get("tab") as Tab) || "products"
+  const validTabs: Tab[] = ["products", "categories", "customers", "coupons", "orders"]
+  const [tab, setTab] = useState<Tab>(validTabs.includes(initialTab) ? initialTab : "products")
   const settings = useSettings().data
   const shopUrl = useMemo(() => {
     const base = settings?.catalogPublicUrl?.replace(/\/catalog.*$/, "") || window.location.origin
@@ -638,6 +640,9 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
   const updateSettings = useUpdateSettings()
   const [name, setName] = useState(settings?.storeName ?? "")
   const [logo, setLogo] = useState(settings?.storeLogo ?? "")
+  const [staffPhones, setStaffPhones] = useState(settings?.orderPreparationWhatsappNumbers ?? "")
+  const [designerName, setDesignerName] = useState(settings?.siteDesignerName ?? "")
+  const [designerPhone, setDesignerPhone] = useState(settings?.siteDesignerPhone ?? "")
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -650,8 +655,14 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
   async function save() {
     setBusy(true)
     try {
-      await updateSettings.mutateAsync({ storeName: name.trim(), storeLogo: logo })
-      toast({ title: "✓ تم حفظ الاسم والشعار" })
+      await updateSettings.mutateAsync({
+        storeName: name.trim(),
+        storeLogo: logo,
+        orderPreparationWhatsappNumbers: staffPhones.trim(),
+        siteDesignerName: designerName.trim(),
+        siteDesignerPhone: designerPhone.trim(),
+      })
+      toast({ title: "✓ تم حفظ الإعدادات" })
       onClose()
     } catch {
       toast({ title: "تعذر الحفظ", variant: "destructive" })
@@ -661,8 +672,8 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>اسم المتجر والشعار</DialogTitle></DialogHeader>
-        <div className="space-y-3">
+        <DialogHeader><DialogTitle>إعدادات المتجر</DialogTitle></DialogHeader>
+        <div className="max-h-[75vh] space-y-3 overflow-y-auto pr-1">
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-500">اسم المتجر</label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم متجرك" />
@@ -678,8 +689,30 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void pickLogo(e.target.files?.[0] ?? null)} />
             </div>
           </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <label className="mb-1 block text-xs font-semibold text-slate-500">أرقام عمال التجهيز (واتساب)</label>
+            <textarea
+              className="w-full rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              rows={2}
+              dir="ltr"
+              value={staffPhones}
+              onChange={(e) => setStaffPhones(e.target.value)}
+              placeholder="07XXXXXXXXX، 07XXXXXXXXX"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">يصلهم إشعار واتساب بكل طلب مفرد جديد للتجهيز (افصل بين الأرقام بفاصلة أو سطر). نفس أرقام تجهيز الجملة.</p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <label className="mb-1 block text-xs font-semibold text-slate-500">دعاية المصمم (تظهر أسفل صفحة الزبون)</label>
+            <div className="grid grid-cols-2 gap-2">
+              <Input value={designerName} onChange={(e) => setDesignerName(e.target.value)} placeholder="اسم المصمم" />
+              <Input value={designerPhone} onChange={(e) => setDesignerPhone(e.target.value)} placeholder="رقم الهاتف" dir="ltr" />
+            </div>
+          </div>
+
           <Button className="w-full" disabled={busy || name.trim().length < 1} onClick={() => void save()}>{busy ? "جاري الحفظ..." : "حفظ"}</Button>
-          <p className="text-center text-[11px] text-slate-400">يظهر بصفحة الزبون والشريط الجانبي وطباعة الفاتورة</p>
+          <p className="text-center text-[11px] text-slate-400">اسم المتجر والشعار يظهران بصفحة الزبون والشريط الجانبي وطباعة الفاتورة</p>
         </div>
       </DialogContent>
     </Dialog>
@@ -710,7 +743,12 @@ function CustomersTab() {
           onChange={(e) => setCategory(e.target.value)}
         >
           <option value="">كل الاهتمامات</option>
-          {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          {categories.map((c) => (
+            <optgroup key={c.id} label={c.name}>
+              <option value={c.name}>{c.name} (الكل)</option>
+              {c.subCategories.map((s) => <option key={`${c.id}-${s}`} value={s}>{c.name} › {s}</option>)}
+            </optgroup>
+          ))}
         </select>
         <label className="flex items-center gap-1.5 text-sm">
           <input type="checkbox" checked={subscribersOnly} onChange={(e) => setSubscribersOnly(e.target.checked)} className="h-4 w-4" />
@@ -976,7 +1014,7 @@ function OrdersTab({ currency }: { currency: string }) {
       void qc.invalidateQueries({ queryKey: ["retail-orders"] })
       void qc.invalidateQueries({ queryKey: ["invoices"] })
     },
-    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر التجهيز", variant: "destructive" }),
+    onError: (e) => { setPrepareId(null); toast({ title: e instanceof Error ? e.message : "تعذر التجهيز", variant: "destructive" }) },
   })
 
   const cancelMutation = useMutation({

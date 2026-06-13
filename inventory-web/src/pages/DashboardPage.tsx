@@ -3,6 +3,7 @@ import { usePageTitle } from "../hooks/usePageTitle"
 import { Link } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { PendingOrdersBanner } from "../components/dashboard/PendingOrdersBanner"
+import { RetailPendingBanner } from "../components/dashboard/RetailPendingBanner"
 import {
   CartesianGrid,
   Cell,
@@ -255,6 +256,7 @@ export function DashboardPage() {
       </div>
 
       <PendingOrdersBanner />
+      <RetailPendingBanner />
 
       {/* Seasonal event alerts */}
       {upcomingEvents.length > 0 && (
