@@ -1,5 +1,5 @@
 import Groq from "groq-sdk";
-import { VoucherType } from "@prisma/client";
+import { PaymentType, Unit, VoucherType } from "@prisma/client";
 import prisma from "../config/database";
 import { createInvoice } from "../services/invoice.service";
 import { createVoucher } from "../services/voucher.service";
@@ -8,265 +8,382 @@ import { AppError } from "../utils/app-error";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+type ChatMessage = { role: "user" | "assistant"; content: string };
 
-interface ParsedCommand {
-  operation?: "INVOICE" | "VOUCHER";
-  customerName?: string;
-  productName?: string;
-  quantity?: number;
-  unit?: "PIECE" | "DOZEN" | "CARTON";
-  unitPrice?: number;
-  paymentType?: "CASH" | "CREDIT" | "PARTIAL";
+export interface VoicePlanItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unit: Unit;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+export interface VoicePlan {
+  operation: "INVOICE" | "VOUCHER";
+  customerId: string;
+  customerName: string;
+  items?: VoicePlanItem[];
+  totalAmount?: number;
+  paymentType?: PaymentType;
+  paidAmount?: number;
   amount?: number;
-  voucherType?: "RECEIPT" | "PAYMENT";
+  voucherType?: VoucherType;
+}
+
+type ParsedIntent = {
+  type: "INVOICE" | "VOUCHER" | "QUESTION" | "OUT_OF_SCOPE";
+  customerName?: string | null;
+  items?: Array<{
+    productName?: string | null;
+    quantity?: number | null;
+    unit?: Unit | null;
+    unitPrice?: number | null;
+  }>;
+  paymentType?: PaymentType | null;
+  paidAmount?: number | null;
+  amount?: number | null;
+  voucherType?: VoucherType | null;
   missing?: string[];
-}
+};
 
-// ── Main handler ──────────────────────────────────────────────────────────────
-
-function normalizeArabicDigits(value: string) {
+export function normalizeIraqiText(value: string) {
   return value
-    .replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)))
-    .replace(/[۰-۹]/g, (digit) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(digit)));
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064b-\u065f\u0670]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/ـ/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
-function extractAmount(command: string) {
-  const normalized = normalizeArabicDigits(command).replace(/,/g, "");
-  const match = normalized.match(/\d+(?:\.\d+)?/);
-  return match ? Number(match[0]) : undefined;
-}
-
-function inferVoucherType(command: string) {
-  return /دفع|ادفع|دفعت|صرف|سددت لمورد|للمورد/.test(command)
-    ? VoucherType.PAYMENT
-    : VoucherType.RECEIPT;
-}
-
-export const processVoiceCommand = asyncHandler(async (req, res) => {
-  const { command } = req.body as { command?: string };
-
-  if (!command || command.trim().length === 0) {
-    throw new AppError("الأمر الصوتي فارغ", 400, "EMPTY_COMMAND");
+function levenshtein(a: string, b: string) {
+  const rows = Array.from({ length: a.length + 1 }, (_, index) => index);
+  for (let j = 1; j <= b.length; j += 1) {
+    let previous = rows[0];
+    rows[0] = j;
+    for (let i = 1; i <= a.length; i += 1) {
+      const current = rows[i];
+      rows[i] = Math.min(
+        rows[i] + 1,
+        rows[i - 1] + 1,
+        previous + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+      previous = current;
+    }
   }
+  return rows[a.length];
+}
 
+export function matchScore(query: string, candidate: string) {
+  const q = normalizeIraqiText(query);
+  const c = normalizeIraqiText(candidate);
+  if (!q || !c) return 0;
+  if (q === c) return 1;
+  if (c.includes(q) || q.includes(c)) return 0.92;
+  const distance = levenshtein(q, c);
+  return Math.max(0, 1 - distance / Math.max(q.length, c.length));
+}
+
+function bestMatches<T extends { name: string }>(query: string, rows: T[]) {
+  return rows
+    .map((row) => ({ row, score: matchScore(query, row.name) }))
+    .filter((entry) => entry.score >= 0.48)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+}
+
+function chooseMatch<T extends { name: string }>(query: string, rows: T[]) {
+  const matches = bestMatches(query, rows);
+  if (!matches.length) return { match: null, suggestions: [] as string[] };
+  const first = matches[0];
+  const second = matches[1];
+  const isCertain = first.score >= 0.78 && (!second || first.score - second.score >= 0.08);
+  return {
+    match: isCertain ? first.row : null,
+    suggestions: matches.map((entry) => entry.row.name),
+  };
+}
+
+function parseJson(content: string | null | undefined): ParsedIntent {
+  try {
+    return JSON.parse(content ?? "{}") as ParsedIntent;
+  } catch {
+    throw new AppError("ما قدرت أفهم الطلب، حاول تصيغه بطريقة ثانية", 422, "PARSE_ERROR");
+  }
+}
+
+const domainSystemPrompt = `أنت مساعد نظام مخزون ومحاسبة عراقي. تفهم اللهجة العراقية العامة، لكن مجال كلامك محصور حصراً بعمل النظام: المواد، المخزون، المخازن، الزبائن، الموردين، الفواتير، السندات، المرتجعات، عروض الأسعار، التقارير، الكتالوج والمستخدمين.
+
+صنف آخر رسالة وأرجع JSON فقط بهذا الشكل:
+{
+  "type": "INVOICE" | "VOUCHER" | "QUESTION" | "OUT_OF_SCOPE",
+  "customerName": "الاسم أو null",
+  "items": [{"productName":"الاسم", "quantity":1, "unit":"PIECE|DOZEN|CARTON", "unitPrice":null}],
+  "paymentType": "CASH|CREDIT|PARTIAL|null",
+  "paidAmount": null,
+  "amount": null,
+  "voucherType": "RECEIPT|PAYMENT|null",
+  "missing": []
+}
+
+قواعد مهمة:
+- افهم الرسالة الحالية مع الرسائل السابقة كطلب واحد مستمر. إذا سألت المستخدم عن معلومة ناقصة وجاوب بكلمة أو جملة قصيرة، أكمل نفس العملية ولا تعتبر جوابه سؤالاً جديداً.
+- افهم الأمر حتى بدون كلمة فاتورة. مثال: "سجل كارتون طياره على عباس نقد" = INVOICE، عباس زبون، طياره مادة، الكمية 1، الوحدة CARTON، والدفع CASH.
+- "على عباس" أو "لعباس" غالباً اسم الزبون. لا تعتبر كلمة نقد أو آجل جزءاً من الاسم.
+- كارتون/كارتونة/كارتونة وحدة CARTON، درزن/دزينة DOZEN، حبة/قطعة PIECE.
+- نقد/كاش/واصل كامل = CASH. آجل/دين/بالحساب = CREDIT. واصل جزء أو دفع جزء = PARTIAL واستخرج paidAmount.
+- سند قبض يعني RECEIPT، وسند دفع يعني PAYMENT.
+- إذا ذكر أكثر من مادة ضعها كلها في items.
+- QUESTION فقط لسؤال يخص النظام أو التجارة الموجودة داخله.
+- أي سياسة، طب، برمجة عامة، طقس، رياضة، أخبار، دردشة عامة أو موضوع خارج النظام = OUT_OF_SCOPE.
+- لا تخترع أسماء أو أرقام. ضع الحقول الناقصة فعلاً في missing.`;
+
+export const parseVoiceCommand = asyncHandler(async (req, res) => {
+  const { command, history = [] } = req.body as {
+    command?: string;
+    history?: ChatMessage[];
+  };
+  if (!command?.trim()) throw new AppError("اكتب أو احچي طلبك أولاً", 400, "EMPTY_COMMAND");
   if (!process.env.GROQ_API_KEY) {
-    throw new AppError("GROQ_API_KEY غير مضبوط", 500, "GROQ_NOT_CONFIGURED");
+    throw new AppError("خدمة المساعد غير مفعلة على السيرفر", 500, "GROQ_NOT_CONFIGURED");
   }
 
-  const rawCommand = command.trim();
-  if (/(عدل|هدل|تعديل).*(فاتورة)/.test(rawCommand)) {
-    return void res.json({
-      clarify: "تعديل الفاتورة يحتاج رقم الفاتورة أو فتح الفاتورة أولاً حتى ما أعدل على فاتورة غلط.",
-    });
-  }
+  const safeHistory = history
+    .filter((message) => message?.content?.trim())
+    .slice(-8)
+    .map((message) => ({ role: message.role, content: message.content.slice(0, 600) }));
 
-  const userId = req.user!.id;
-
-  // ── الخطوة 1: Groq يفهم الأمر ────────────────────────────────────────────
   const completion = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [
-      {
-        role: "system",
-        content: `أنت مساعد لنظام إدارة مخزون عراقي. المستخدم يعطيك أوامر صوتية بالعربي لإنشاء فواتير.
-
-استخرج المعلومات التالية من الأمر وأجب بـ JSON فقط:
-{
-  "customerName": "اسم الزبون أو المورد (نص)",
-  "productName": "اسم المنتج (نص)",
-  "quantity": "الكمية (رقم صحيح)",
-  "unit": "الوحدة: PIECE للقطعة، DOZEN للدرزن، CARTON للكرتون أو الكارتون",
-  "unitPrice": "السعر للوحدة (رقم) — null إذا لم يُذكر",
-  "paymentType": "CASH للنقد أو نقداً، CREDIT للدين أو آجل، PARTIAL لجزئي",
-  "missing": ["قائمة الحقول الناقصة الضرورية فقط: customerName أو productName أو quantity"]
-}
-
-قواعد:
-- الوحدة الافتراضية PIECE إذا لم تُذكر
-- الدفع الافتراضي CASH إذا لم يُذكر
-- missing يحتوي فقط: customerName, productName, quantity — ليس unitPrice
-- إذا كل المعلومات موجودة missing يكون []`,
-      },
+      { role: "system", content: domainSystemPrompt },
+      ...safeHistory,
       { role: "user", content: command.trim() },
     ],
   });
+  const parsed = parseJson(completion.choices[0]?.message?.content);
 
-  let parsed: ParsedCommand;
-  try {
-    parsed = JSON.parse(
-      completion.choices[0]?.message?.content ?? "{}"
-    ) as ParsedCommand;
-  } catch {
-    throw new AppError("فشل في فهم الأمر — حاول مرة ثانية", 422, "PARSE_ERROR");
+  if (parsed.type === "OUT_OF_SCOPE") {
+    return void res.json({
+      type: "answer",
+      text: "هذا الموضوع خارج شغل البرنامج. أگدر أساعدك بالمخزون، الفواتير، الحسابات، الزبائن والتقارير.",
+    });
   }
 
-  // ── الخطوة 2: معلومات ناقصة؟ اطلب توضيح ─────────────────────────────────
-  const commandText = command.trim();
-  const operation =
-    parsed.operation ??
-    (/سند|وصل|قبض|دفع|استلام/.test(commandText) ? "VOUCHER" : "INVOICE");
-
-  if (operation === "VOUCHER") {
-    const amount = parsed.amount ?? extractAmount(commandText);
-    if (!parsed.customerName || !amount || amount <= 0) {
-      const missing = [
-        !parsed.customerName ? "اسم الزبون" : null,
-        !amount || amount <= 0 ? "المبلغ" : null,
-      ].filter(Boolean).join(" و ");
-      return void res.json({ clarify: `وضح للسند: ${missing}` });
-    }
-
-    const customers = await prisma.customer.findMany({
-      where: {
-        deletedAt: null,
-        name: { contains: parsed.customerName, mode: "insensitive" },
-      },
-      take: 5,
-      orderBy: { name: "asc" },
+  if (parsed.type === "QUESTION") {
+    const answer = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.25,
+      messages: [
+        {
+          role: "system",
+          content: "جاوب باختصار وباللهجة العراقية عن استخدام نظام المخزون والمحاسبة فقط. إذا السؤال خارج النظام ارفضه بجملة واحدة. لا تخترع بيانات فعلية غير متاحة إلك.",
+        },
+        ...safeHistory,
+        { role: "user", content: command.trim() },
+      ],
     });
+    return void res.json({
+      type: "answer",
+      text: answer.choices[0]?.message?.content?.trim() || "وضح سؤالك عن البرنامج أكثر.",
+    });
+  }
 
-    if (customers.length === 0) {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+    take: 5000,
+  });
+
+  if (!parsed.customerName) {
+    return void res.json({ type: "clarify", question: "على اسم منو أسجلها؟" });
+  }
+  const customerResult = chooseMatch(parsed.customerName, customers);
+  if (!customerResult.match) {
+    const suffix = customerResult.suggestions.length
+      ? ` تقصد: ${customerResult.suggestions.join("، ")}؟`
+      : "";
+    return void res.json({
+      type: "clarify",
+      question: `ما ثبت عندي الزبون «${parsed.customerName}».${suffix}`,
+    });
+  }
+  const customer = customerResult.match;
+
+  if (parsed.type === "VOUCHER") {
+    if (!parsed.amount || parsed.amount <= 0) {
+      return void res.json({ type: "clarify", question: "شكد مبلغ السند؟" });
+    }
+    const voucherType = parsed.voucherType === "PAYMENT" ? VoucherType.PAYMENT : VoucherType.RECEIPT;
+    const plan: VoicePlan = {
+      operation: "VOUCHER",
+      customerId: customer.id,
+      customerName: customer.name,
+      amount: parsed.amount,
+      voucherType,
+    };
+    return void res.json({
+      type: "confirm",
+      plan,
+      confirmText: `راح أسجل سند ${voucherType === VoucherType.PAYMENT ? "دفع" : "قبض"} على ${customer.name} بمبلغ ${parsed.amount.toLocaleString("en-US")} د.ع.`,
+    });
+  }
+
+  const parsedItems = (parsed.items ?? []).filter((item) => item.productName?.trim());
+  if (!parsedItems.length) {
+    return void res.json({ type: "clarify", question: "شنو المادة اللي تريد تسجلها؟" });
+  }
+
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      salePrice: true,
+      pcsPerCarton: true,
+    },
+    orderBy: { name: "asc" },
+    take: 10000,
+  });
+
+  const items: VoicePlanItem[] = [];
+  for (const parsedItem of parsedItems) {
+    const productResult = chooseMatch(parsedItem.productName!, products);
+    if (!productResult.match) {
+      const suffix = productResult.suggestions.length
+        ? ` تقصد: ${productResult.suggestions.join("، ")}؟`
+        : "";
       return void res.json({
-        clarify: `ما لقيت زبون باسم "${parsed.customerName}"، تأكد من الاسم`,
+        type: "clarify",
+        question: `ما ثبتت مادة «${parsedItem.productName}».${suffix}`,
       });
     }
+    const product = productResult.match;
+    const quantity = Math.max(1, Math.trunc(parsedItem.quantity ?? 1));
+    const unit = parsedItem.unit ?? Unit.PIECE;
+    const basePrice = Number(product.salePrice);
+    const unitPrice = parsedItem.unitPrice && parsedItem.unitPrice >= 0
+      ? parsedItem.unitPrice
+      : unit === Unit.CARTON
+        ? basePrice * product.pcsPerCarton
+        : unit === Unit.DOZEN
+          ? basePrice * 12
+          : basePrice;
+    items.push({
+      productId: product.id,
+      productName: product.name,
+      quantity,
+      unit,
+      unitPrice,
+      totalPrice: unitPrice * quantity,
+    });
+  }
 
-    const customer = customers[0];
-    const type =
-      parsed.voucherType === "PAYMENT"
-        ? VoucherType.PAYMENT
-        : parsed.voucherType === "RECEIPT"
-          ? VoucherType.RECEIPT
-          : inferVoucherType(commandText);
+  const totalAmount = items.reduce((sum, item) => sum + item.totalPrice, 0);
+  const paymentType = parsed.paymentType ?? PaymentType.CASH;
+  const paidAmount = paymentType === PaymentType.CASH
+    ? totalAmount
+    : paymentType === PaymentType.CREDIT
+      ? 0
+      : Math.max(0, Math.min(totalAmount, parsed.paidAmount ?? 0));
+  const unitLabels: Record<Unit, string> = {
+    PIECE: "قطعة",
+    DOZEN: "درزن",
+    CARTON: "كارتون",
+  };
+  const itemSummary = items
+    .map((item) => `${item.quantity} ${unitLabels[item.unit]} ${item.productName}`)
+    .join("، ");
+  const payLabel = paymentType === PaymentType.CASH ? "نقد" : paymentType === PaymentType.CREDIT ? "آجل" : `واصل ${paidAmount.toLocaleString("en-US")}`;
+  const plan: VoicePlan = {
+    operation: "INVOICE",
+    customerId: customer.id,
+    customerName: customer.name,
+    items,
+    totalAmount,
+    paymentType,
+    paidAmount,
+  };
+
+  return void res.json({
+    type: "confirm",
+    plan,
+    confirmText: `فهمت عليك: فاتورة على ${customer.name}، ${itemSummary}، المجموع ${totalAmount.toLocaleString("en-US")} د.ع، ${payLabel}. أثبتها؟`,
+  });
+});
+
+export const executeVoiceCommand = asyncHandler(async (req, res) => {
+  const { plan } = req.body as { plan?: VoicePlan };
+  if (!plan?.operation || !plan.customerId) {
+    throw new AppError("خطة التنفيذ ناقصة", 400, "INVALID_PLAN");
+  }
+  const userId = req.user!.id;
+
+  if (plan.operation === "VOUCHER") {
+    if (!plan.amount || !plan.voucherType) {
+      throw new AppError("معلومات السند ناقصة", 400, "INVALID_VOUCHER_PLAN");
+    }
     const voucher = await createVoucher(
       {
-        customerId: customer.id,
-        amount,
-        type,
-        notes: "أنشئ بالأمر الصوتي",
+        customerId: plan.customerId,
+        amount: plan.amount,
+        type: plan.voucherType,
+        notes: "أُنشئ بواسطة المساعد الذكي",
       },
-      userId,
+      userId
     );
-
     return void res.status(201).json({
       success: true,
-      message: `تم إنشاء ${type === VoucherType.PAYMENT ? "سند دفع" : "سند قبض"} رقم ${voucher.voucherNumber} لـ ${customer.name} بمبلغ ${amount.toLocaleString("en-US")} د.ع`,
+      message: `تم إنشاء السند ${voucher.voucherNumber}`,
       voucher: {
         id: voucher.id,
         voucherNumber: voucher.voucherNumber,
-        customerName: customer.name,
-        amount,
-        type,
+        customerName: plan.customerName,
+        amount: plan.amount,
+        type: plan.voucherType,
       },
     });
   }
 
-  if (parsed.missing && parsed.missing.length > 0) {
-    const labels: Record<string, string> = {
-      customerName: "اسم الزبون",
-      productName: "اسم المنتج",
-      quantity: "الكمية",
-    };
-    const missingAr = parsed.missing
-      .map((m) => labels[m] ?? m)
-      .join(" و ");
-
-    return void res.json({ clarify: `من فضلك وضّح: ${missingAr}` });
+  if (!plan.items?.length || !plan.paymentType) {
+    throw new AppError("معلومات الفاتورة ناقصة", 400, "INVALID_INVOICE_PLAN");
   }
-
-  // ── الخطوة 3: ابحث عن الزبون ─────────────────────────────────────────────
-  const customers = await prisma.customer.findMany({
-    where: {
-      deletedAt: null,
-      name: { contains: parsed.customerName ?? "", mode: "insensitive" },
-    },
-    take: 5,
-    orderBy: { name: "asc" },
-  });
-
-  if (customers.length === 0) {
-    return void res.json({
-      clarify: `ما لقيت زبون باسم "${parsed.customerName}" — تأكد من الاسم`,
-    });
-  }
-
-  const customer = customers[0];
-
-  // ── الخطوة 4: ابحث عن المنتج ─────────────────────────────────────────────
-  const products = await prisma.product.findMany({
-    where: {
-      deletedAt: null,
-      name: { contains: parsed.productName ?? "", mode: "insensitive" },
-    },
-    take: 5,
-    orderBy: { name: "asc" },
-  });
-
-  if (products.length === 0) {
-    return void res.json({
-      clarify: `ما لقيت منتج باسم "${parsed.productName}" — تأكد من الاسم`,
-    });
-  }
-
-  const product = products[0];
-
-  // ── الخطوة 5: احسب المبلغ المدفوع ────────────────────────────────────────
-  const qty = parsed.quantity ?? 1;
-  const unit = parsed.unit ?? "PIECE";
-  const paymentType = parsed.paymentType ?? "CASH";
-
-  // سعر الوحدة: إما مذكور أو من قاعدة البيانات
-  let effectiveUnitPrice = parsed.unitPrice;
-  if (!effectiveUnitPrice) {
-    const basePrice = Number(product.salePrice ?? 0);
-    if (unit === "CARTON") effectiveUnitPrice = basePrice * product.pcsPerCarton;
-    else if (unit === "DOZEN") effectiveUnitPrice = basePrice * 12;
-    else effectiveUnitPrice = basePrice;
-  }
-
-  const totalAmount = effectiveUnitPrice * qty;
-  const paidAmount =
-    paymentType === "CASH" ? totalAmount :
-    paymentType === "PARTIAL" ? totalAmount / 2 :
-    0;
-
-  // ── الخطوة 6: أنشئ الفاتورة ──────────────────────────────────────────────
   const invoice = await createInvoice(
     {
-      customerId: customer.id,
+      customerId: plan.customerId,
       type: "SALE",
       discount: 0,
       tax: 0,
-      paidAmount,
-      paymentType,
-      items: [
-        {
-          productId: product.id,
-          unit,
-          quantity: qty,
-          unitPrice: effectiveUnitPrice,
-        },
-      ],
+      paidAmount: plan.paidAmount ?? 0,
+      paymentType: plan.paymentType,
+      items: plan.items.map((item) => ({
+        productId: item.productId,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
     },
     userId
   );
-
   return void res.status(201).json({
     success: true,
-    message: `✅ تم إنشاء الفاتورة رقم ${invoice.invoiceNumber} لـ ${customer.name}`,
+    message: `تم إنشاء الفاتورة ${invoice.invoiceNumber}`,
     invoice: {
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      customerName: customer.name,
-      productName: product.name,
-      quantity: qty,
-      unit,
-      unitPrice: effectiveUnitPrice,
-      totalAmount,
-      paymentType,
+      customerName: plan.customerName,
+      items: plan.items,
+      totalAmount: plan.totalAmount,
+      paymentType: plan.paymentType,
     },
   });
 });
