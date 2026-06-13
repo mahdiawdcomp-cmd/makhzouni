@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
   Bell,
@@ -63,9 +63,15 @@ function timeAgo(iso: string): string {
 
 export function NotificationsBell() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
   const firstLoadRef = useRef(true)
+
+  function openNotification(path: string) {
+    if (location.pathname === "/invoices/new") window.open(path, "_blank", "noopener,noreferrer")
+    else navigate(path)
+  }
 
   const { data = [] } = useQuery({
     queryKey: ["notifications", "recent"],
@@ -116,10 +122,10 @@ export function NotificationsBell() {
       })
       notification.onclick = () => {
         window.focus()
-        if (newest.link) navigate(newest.link)
+        if (newest.link) openNotification(newest.link)
       }
     }
-  }, [data, navigate])
+  }, [data, location.pathname, navigate])
 
   function markSeen() {
     const now = Date.now()
@@ -179,7 +185,7 @@ export function NotificationsBell() {
                     )}
                     onClick={() => {
                       if (n.link) {
-                        navigate(n.link)
+                        openNotification(n.link)
                         setOpen(false)
                       }
                     }}
