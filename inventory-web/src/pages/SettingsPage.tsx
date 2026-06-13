@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  Archive,
   BadgePercent,
   BellRing,
   Building2,
@@ -29,10 +30,14 @@ import {
 } from "lucide-react"
 import {
   getCustomers,
+  getInvoices,
   getMessageTemplates,
   getProducts,
   getSettings,
+  getVouchers,
   getWhatsAppStatus,
+  permanentDeleteInvoice,
+  reactivateInvoice,
   restartWhatsApp,
   updateMessageTemplate,
   updateSettings,
@@ -121,7 +126,7 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin"
+type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "store",    label: "المتجر",        icon: Building2 },
@@ -131,6 +136,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "security", label: "الأمان",        icon: KeyRound },
   { id: "backup",   label: "النسخ الاحتياطي", icon: Download },
   { id: "admin",    label: "الإدارة",       icon: ShieldCheck },
+  { id: "archive",  label: "الأرشيف",       icon: Archive },
 ]
 
 export function SettingsPage() {
@@ -744,7 +750,145 @@ export function SettingsPage() {
 
         </div>
       )}
+
+      {/* ── ARCHIVE ────────────────────────────────────────── */}
+      {activeTab === "archive" && (
+        <ArchivePanel queryClient={queryClient} />
+      )}
     </div>
+  )
+}
+
+// ── Archive Panel ────────────────────────────────────────────────────────────
+
+function ArchivePanel({ queryClient }: { queryClient: ReturnType<typeof useQueryClient> }) {
+  const [archiveTab, setArchiveTab] = useState<"invoices" | "vouchers">("invoices")
+
+  const cancelledInvoicesQuery = useQuery({
+    queryKey: ["invoices", "cancelled"],
+    queryFn: () => getInvoices({ status: "CANCELLED", limit: 200 }),
+    enabled: archiveTab === "invoices",
+  })
+
+  const cancelledVouchersQuery = useQuery({
+    queryKey: ["vouchers", "cancelled"],
+    queryFn: () => getVouchers({ showCancelled: true, limit: 200 }),
+    enabled: archiveTab === "vouchers",
+  })
+
+  const reactivateMutation = useMutation({
+    mutationFn: (id: string) => reactivateInvoice(id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+  })
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: string) => permanentDeleteInvoice(id),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+  })
+
+  const cancelledInvoices = cancelledInvoicesQuery.data ?? []
+  const cancelledVouchers = cancelledVouchersQuery.data ?? []
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <SectionTitle>الأرشيف — الفواتير والسندات الملغاة</SectionTitle>
+        <p className="text-sm text-slate-500">
+          عرض الفواتير والسندات المعطلة. يمكنك إرجاعها نشطة أو حذفها نهائياً.
+        </p>
+
+        {/* Sub-tabs */}
+        <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-0">
+          {(["invoices", "vouchers"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setArchiveTab(t)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                archiveTab === t
+                  ? "border-indigo-500 text-indigo-600"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {t === "invoices" ? "الفواتير الملغاة" : "السندات الملغاة"}
+            </button>
+          ))}
+        </div>
+
+        {/* Cancelled Invoices */}
+        {archiveTab === "invoices" && (
+          <>
+            {cancelledInvoicesQuery.isLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+            ) : cancelledInvoices.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">لا توجد فواتير ملغاة</div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                {cancelledInvoices.map((inv: any) => (
+                  <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-white dark:bg-slate-950">
+                    <div>
+                      <span className="font-semibold text-sm text-rose-600">{inv.invoiceNumber}</span>
+                      <span className="mx-2 text-slate-400">—</span>
+                      <span className="text-sm">{inv.customer?.name ?? "—"}</span>
+                      <span className="mr-3 text-xs text-slate-400">{String(inv.date).slice(0, 10)}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                        disabled={reactivateMutation.isPending}
+                        onClick={() => reactivateMutation.mutate(inv.id)}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" /> إرجاع نشطة
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-red-600 border-red-300 hover:bg-red-50"
+                        disabled={permanentDeleteMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm(`حذف ${inv.invoiceNumber} نهائياً؟ لا يمكن التراجع.`)) {
+                            permanentDeleteMutation.mutate(inv.id)
+                          }
+                        }}
+                      >
+                        <XCircle className="h-3.5 w-3.5" /> حذف نهائي
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Cancelled Vouchers */}
+        {archiveTab === "vouchers" && (
+          <>
+            {cancelledVouchersQuery.isLoading ? (
+              <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
+            ) : cancelledVouchers.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">لا توجد سندات ملغاة</div>
+            ) : (
+              <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                {cancelledVouchers.map((v: any) => (
+                  <div key={v.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-white dark:bg-slate-950">
+                    <div>
+                      <span className="font-semibold text-sm text-rose-600">{v.voucherNumber}</span>
+                      <span className="mx-2 text-slate-400">—</span>
+                      <span className="text-sm">{v.customer?.name ?? v.description ?? "—"}</span>
+                      <span className="mr-3 text-xs text-slate-400">{String(v.date).slice(0, 10)}</span>
+                    </div>
+                    <span className="text-xs bg-rose-100 text-rose-700 rounded-full px-2 py-0.5">ملغى</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

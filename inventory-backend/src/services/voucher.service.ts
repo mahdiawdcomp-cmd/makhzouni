@@ -14,6 +14,7 @@ export interface ListVouchersQuery {
   to?: string;
   page: number;
   limit: number;
+  showCancelled?: boolean;
 }
 
 export interface CreateVoucherInput {
@@ -108,11 +109,11 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
         _sum: { remainingAmount: true },
       }),
       tx.paymentVoucher.aggregate({
-        where: { customerId, type: VoucherType.RECEIPT },
+        where: { customerId, type: VoucherType.RECEIPT, cancelledAt: null },
         _sum: { amount: true },
       }),
       tx.paymentVoucher.aggregate({
-        where: { customerId, type: VoucherType.PAYMENT },
+        where: { customerId, type: VoucherType.PAYMENT, cancelledAt: null },
         _sum: { amount: true },
       }),
       tx.invoice.findFirst({
@@ -159,6 +160,7 @@ export async function listVouchers(query: ListVouchersQuery) {
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(query.type ? { type: query.type } : {}),
     ...(dateFilter ? { date: dateFilter } : {}),
+    ...(query.showCancelled ? { cancelledAt: { not: null } } : { cancelledAt: null }),
   };
   const skip = (query.page - 1) * query.limit;
 
@@ -354,4 +356,50 @@ async function deleteVoucherInTransaction(tx: Db, id: string) {
 export async function deleteVoucher(id: string, db?: Db) {
   if (db) return deleteVoucherInTransaction(db, id);
   return prisma.$transaction((tx) => deleteVoucherInTransaction(tx, id));
+}
+
+async function cancelVoucherInTransaction(tx: Db, id: string) {
+  const existing = await tx.paymentVoucher.findUnique({ where: { id } });
+  if (!existing) throw new AppError("Voucher not found", 404, "VOUCHER_NOT_FOUND");
+  if (existing.cancelledAt) throw new AppError("السند ملغى مسبقاً", 400, "VOUCHER_ALREADY_CANCELLED");
+
+  const cancelled = await tx.paymentVoucher.update({
+    where: { id },
+    data: { cancelledAt: new Date() },
+    include: { customer: true, creator: { select: { id: true, name: true, username: true, role: true } } },
+  });
+
+  if (existing.customerId) {
+    await recalculateCustomerBalanceInTransaction(tx, existing.customerId);
+  }
+
+  return serializeVoucher(cancelled);
+}
+
+export async function cancelVoucher(id: string, db?: Db) {
+  if (db) return cancelVoucherInTransaction(db, id);
+  return prisma.$transaction((tx) => cancelVoucherInTransaction(tx, id));
+}
+
+async function restoreVoucherInTransaction(tx: Db, id: string) {
+  const existing = await tx.paymentVoucher.findUnique({ where: { id } });
+  if (!existing) throw new AppError("Voucher not found", 404, "VOUCHER_NOT_FOUND");
+  if (!existing.cancelledAt) throw new AppError("السند نشط مسبقاً", 400, "VOUCHER_ALREADY_ACTIVE");
+
+  const restored = await tx.paymentVoucher.update({
+    where: { id },
+    data: { cancelledAt: null },
+    include: { customer: true, creator: { select: { id: true, name: true, username: true, role: true } } },
+  });
+
+  if (existing.customerId) {
+    await recalculateCustomerBalanceInTransaction(tx, existing.customerId);
+  }
+
+  return serializeVoucher(restored);
+}
+
+export async function restoreVoucher(id: string, db?: Db) {
+  if (db) return restoreVoucherInTransaction(db, id);
+  return prisma.$transaction((tx) => restoreVoucherInTransaction(tx, id));
 }

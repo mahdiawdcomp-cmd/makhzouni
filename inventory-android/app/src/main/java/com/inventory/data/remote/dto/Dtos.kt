@@ -18,11 +18,78 @@ data class VoiceInvoiceBasic(
     val paymentType: String,
 )
 
-data class VoiceInvoiceResponse(
-    val success: Boolean? = null,
-    val message: String? = null,
-    val clarify: String? = null,
+// 2-step voice flow
+data class VoicePlanDto(
+    val operation: String,          // "INVOICE" | "VOUCHER"
+    val customerId: String,
+    val customerName: String,
+    val productId: String?    = null,
+    val productName: String?  = null,
+    val quantity: Int?        = null,
+    val unit: String?         = null,
+    val unitPrice: Double?    = null,
+    val totalAmount: Double?  = null,
+    val paymentType: String?  = null,
+    val paidAmount: Double?   = null,
+    val amount: Double?       = null,
+    val voucherType: String?  = null,
+)
+
+data class VoiceParseResponse(
+    val type: String,               // "confirm" | "clarify" | "answer"
+    val plan: VoicePlanDto?   = null,
+    val confirmText: String?  = null,
+    val question: String?     = null,
+    val text: String?         = null,
+)
+
+data class VoiceExecuteRequest(val plan: VoicePlanDto)
+
+data class VoiceVoucherResult(
+    val id: String,
+    val voucherNumber: String,
+    val customerName: String,
+    val amount: Double,
+    val type: String,
+)
+
+data class VoiceExecuteResponse(
+    val success: Boolean?         = null,
+    val message: String?          = null,
     val invoice: VoiceInvoiceBasic? = null,
+    val voucher: VoiceVoucherResult? = null,
+)
+
+// ── OCR Invoice DTOs ──────────────────────────────────────────────────────────
+
+data class OcrInvoiceRequest(val imageBase64: String)
+
+data class OcrProductMatch(
+    val id: String,
+    val name: String,
+    val itemNumber: String,
+    val purchasePrice: Double,
+    val salePrice: Double?   = null,
+    val pcsPerCarton: Int,
+)
+
+data class OcrItemDto(
+    val extractedName: String,
+    val quantity: Int,
+    val unit: String,          // "PIECE" | "DOZEN" | "CARTON"
+    val unitPrice: Double,
+    val product: OcrProductMatch?          = null,
+    val suggestions: List<OcrProductMatch> = emptyList(),
+    val matched: Boolean,
+)
+
+data class OcrInvoiceResponse(
+    val success: Boolean,
+    val message: String,
+    val supplierName: String?     = null,
+    val invoiceDate: String?      = null,
+    val notes: String?            = null,
+    val items: List<OcrItemDto>   = emptyList(),
 )
 
 data class AgentMessageDto(
@@ -600,6 +667,31 @@ data class OrderPreparationDto(
     val customerName: String,
     val customerPhone: String,
     val items: List<OrderPreparationItemDto>,
+    val createdAt: String
+)
+
+// ── Retail catalog orders (كتلوك المفرد) ────────────────────────────────────────
+data class RetailOrderItemDto(
+    val title: String,
+    val productName: String? = null,
+    val quantity: Int,
+    val unitPrice: Double,
+    val totalPrice: Double? = null
+)
+
+data class RetailOrderDto(
+    val id: String,
+    val orderNumber: String,
+    val customerName: String,
+    val phone: String,
+    val address: String? = null,
+    val notes: String? = null,
+    val items: List<RetailOrderItemDto> = emptyList(),
+    val subtotal: Double,
+    val discount: Double,
+    val total: Double,
+    val couponCode: String? = null,
+    val status: String,
     val createdAt: String
 )
 

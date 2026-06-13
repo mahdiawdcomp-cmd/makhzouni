@@ -905,3 +905,27 @@ export async function reactivateInvoice(id: string, db?: Db) {
 
   return prisma.$transaction((tx) => reactivateInvoiceInTransaction(tx, id));
 }
+
+export async function hardDeleteInvoice(id: string) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findUnique({ where: { id } });
+    if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+
+    // Reverse stock and balance if invoice is still active
+    if (invoice.status === InvoiceStatus.ACTIVE) {
+      await reverseInvoiceItemsStock(tx, id);
+      await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.CANCELLED } });
+      await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
+    }
+
+    await tx.orderPreparation.deleteMany({ where: { invoiceId: id } });
+    await tx.couponRedemption.deleteMany({ where: { invoiceId: id } });
+    await tx.stockMovement.deleteMany({ where: { invoiceId: id } });
+    await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+    // Clear originalInvoiceId on any return invoices so they don't block deletion
+    await tx.invoice.updateMany({ where: { originalInvoiceId: id }, data: { originalInvoiceId: null } });
+    await tx.invoice.delete({ where: { id } });
+
+    return { id, invoiceNumber: invoice.invoiceNumber };
+  });
+}

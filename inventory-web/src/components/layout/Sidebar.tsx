@@ -20,6 +20,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  Store,
   Users,
   Wallet,
   Zap,
@@ -27,6 +28,7 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { getApprovals } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
+import { useSettings } from "../../hooks/useSettings"
 import type { UserPermission } from "../../types/api"
 import { cn } from "../../utils/cn"
 
@@ -46,6 +48,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/vouchers")) return "MANAGE_VOUCHERS"
   if (path.startsWith("/customers") || path.startsWith("/account")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/catalog-management")) return "MANAGE_CUSTOMERS"
+  if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
   return null
@@ -91,6 +94,7 @@ const navItems: Item[] = [
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/account", label: "كشف الحساب", icon: Search },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
+  { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/settings", label: "الإعدادات", icon: Settings },
 ]
@@ -306,6 +310,8 @@ export function Sidebar() {
   const permissions = user?.permissions ?? []
   const isAdmin = user?.role === "ADMIN"
   const location = useLocation()
+  const settingsQuery = useSettings()
+  const settings = settingsQuery.data
 
   // Track which group is open — only one at a time
   const defaultOpen = navItems.find(
@@ -340,14 +346,18 @@ export function Sidebar() {
     >
       {/* Logo area */}
       <div className="flex h-16 shrink-0 items-center gap-3 px-4 border-b border-white/6">
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-          style={{ background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)", boxShadow: "0 0 16px rgba(99,102,241,0.4)" }}
-        >
-          <Zap className="h-4 w-4 text-white" />
-        </div>
+        {settings?.storeLogo ? (
+          <img src={settings.storeLogo} className="h-8 w-8 shrink-0 rounded-lg object-contain bg-white/10" alt="logo" />
+        ) : (
+          <div
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+            style={{ background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)", boxShadow: "0 0 16px rgba(99,102,241,0.4)" }}
+          >
+            <Zap className="h-4 w-4 text-white" />
+          </div>
+        )}
         <div>
-          <div className="text-[14px] font-bold text-white tracking-tight">مخزوني</div>
+          <div className="text-[14px] font-bold text-white tracking-tight">{settings?.storeName ?? "مخزوني"}</div>
           <div className="text-[10px] text-white/30 leading-none mt-0.5">Pro</div>
         </div>
       </div>

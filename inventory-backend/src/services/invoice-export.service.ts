@@ -44,6 +44,7 @@ async function buildInvoiceHtml(invoiceId: string): Promise<string> {
   ]);
 
   const storeName    = settings?.storeName    ?? "مخزوني";
+  const storeLogo    = settings?.storeLogo    ?? "";
   const storePhone   = settings?.storePhone   ?? "";
   const storeAddress = settings?.storeAddress ?? "";
   const currency     = settings?.currency     ?? "د.ع";
@@ -210,10 +211,13 @@ async function buildInvoiceHtml(invoiceId: string): Promise<string> {
 
     <!-- Header -->
     <div class="header">
-      <div>
-        <div class="store-name">${esc(storeName)}</div>
-        ${storePhone   ? `<div class="store-meta">📞 ${esc(storePhone)}</div>` : ""}
-        ${storeAddress ? `<div class="store-meta">📍 ${esc(storeAddress)}</div>` : ""}
+      <div style="display:flex;align-items:center;gap:12px;">
+        ${storeLogo ? `<img src="${storeLogo}" style="max-height:56px;max-width:80px;object-fit:contain;border-radius:8px;" alt="logo" />` : ""}
+        <div>
+          <div class="store-name">${esc(storeName)}</div>
+          ${storePhone   ? `<div class="store-meta">📞 ${esc(storePhone)}</div>` : ""}
+          ${storeAddress ? `<div class="store-meta">📍 ${esc(storeAddress)}</div>` : ""}
+        </div>
       </div>
       <div class="invoice-meta">
         <div class="inv-number">${esc(invoice.invoiceNumber)}</div>

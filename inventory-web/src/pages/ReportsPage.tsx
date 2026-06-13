@@ -12,14 +12,14 @@ import {
 } from "../hooks/useReports"
 import { normalizePhone } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
-import { getProfitReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage } from "../api/endpoints"
+import { getProfitReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts"
+type Tab = "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "sales",        label: "المبيعات",       emoji: "📊" },
@@ -28,6 +28,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "end-of-day",   label: "نهاية اليوم",     emoji: "🌙" },
   { id: "inventory",    label: "المخزون",         emoji: "📦" },
   { id: "debts",        label: "الديون",          emoji: "🔔" },
+  { id: "archive",      label: "الأرشيف",         emoji: "🗄️" },
 ]
 
 export function ReportsPage() {
@@ -66,6 +67,7 @@ export function ReportsPage() {
       {tab === "end-of-day"    && <EndOfDayTab />}
       {tab === "inventory"     && <InventoryTab />}
       {tab === "debts"         && <DebtsTab />}
+      {tab === "archive"       && <ArchiveTab />}
     </div>
   )
 }
@@ -599,6 +601,127 @@ function SummaryBox({ title, count, total, collected, color }: {
       {collected !== undefined ? (
         <div className="text-xs text-slate-600 mt-0.5">محصّل: {fmt(collected)} د.ع</div>
       ) : null}
+    </div>
+  )
+}
+
+// ─── Archive Tab ─────────────────────────────────────────────────────────────
+function ArchiveTab() {
+  const [subTab, setSubTab] = useState<"invoices" | "vouchers">("invoices")
+
+  const invoicesQuery = useQuery({
+    queryKey: ["invoices", "cancelled"],
+    queryFn: () => getInvoices({ status: "CANCELLED", limit: 200 }),
+    enabled: subTab === "invoices",
+  })
+
+  const vouchersQuery = useQuery({
+    queryKey: ["vouchers", "cancelled"],
+    queryFn: () => getVouchers({ showCancelled: true, limit: 200 }),
+    enabled: subTab === "vouchers",
+  })
+
+  const cancelledInvoices = (invoicesQuery.data ?? []).filter((inv) => inv.status === "CANCELLED")
+  const cancelledVouchers = (vouchersQuery.data ?? []).filter((v) => v.cancelledAt)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setSubTab("invoices")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${subTab === "invoices" ? "bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-900" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}
+        >
+          الفواتير الملغاة ({invoicesQuery.data ? cancelledInvoices.length : "..."})
+        </button>
+        <button
+          type="button"
+          onClick={() => setSubTab("vouchers")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${subTab === "vouchers" ? "bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-900" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}
+        >
+          السندات المعطلة ({vouchersQuery.data ? cancelledVouchers.length : "..."})
+        </button>
+      </div>
+
+      {subTab === "invoices" && (
+        <Card>
+          <CardHeader><CardTitle>الفواتير الملغاة</CardTitle></CardHeader>
+          <CardContent>
+            {invoicesQuery.isLoading && <div className="py-4 text-center text-sm text-slate-400">جاري التحميل...</div>}
+            {!invoicesQuery.isLoading && (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>رقم الفاتورة</TH>
+                    <TH>الزبون</TH>
+                    <TH>التاريخ</TH>
+                    <TH>المبلغ</TH>
+                    <TH>الحالة</TH>
+                    <TH>عرض</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {cancelledInvoices.length === 0 && (
+                    <TR><TD colSpan={6} className="py-6 text-center text-sm text-slate-500">لا توجد فواتير ملغاة.</TD></TR>
+                  )}
+                  {cancelledInvoices.map((inv) => (
+                    <TR key={inv.id}>
+                      <TD>{inv.invoiceNumber}</TD>
+                      <TD>{inv.customer?.name ?? "-"}</TD>
+                      <TD>{String(inv.date).slice(0, 10)}</TD>
+                      <TD>{Number(inv.totalAmount).toLocaleString("en-US")}</TD>
+                      <TD><span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">ملغاة</span></TD>
+                      <TD>
+                        <Link to={`/invoices/${inv.id}`} className="text-sm text-blue-600 hover:underline">عرض</Link>
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {subTab === "vouchers" && (
+        <Card>
+          <CardHeader><CardTitle>السندات المعطلة</CardTitle></CardHeader>
+          <CardContent>
+            {vouchersQuery.isLoading && <div className="py-4 text-center text-sm text-slate-400">جاري التحميل...</div>}
+            {!vouchersQuery.isLoading && (
+              <Table>
+                <THead>
+                  <TR>
+                    <TH>رقم السند</TH>
+                    <TH>النوع</TH>
+                    <TH>الزبون / الوصف</TH>
+                    <TH>المبلغ</TH>
+                    <TH>تاريخ التعطيل</TH>
+                    <TH>عرض</TH>
+                  </TR>
+                </THead>
+                <TBody>
+                  {cancelledVouchers.length === 0 && (
+                    <TR><TD colSpan={6} className="py-6 text-center text-sm text-slate-500">لا توجد سندات معطلة.</TD></TR>
+                  )}
+                  {cancelledVouchers.map((v) => (
+                    <TR key={v.id}>
+                      <TD>{v.voucherNumber}</TD>
+                      <TD>{v.type === "RECEIPT" ? "قبض" : v.type === "PAYMENT" ? "دفع" : "مصاريف"}</TD>
+                      <TD>{v.customer?.name ?? v.description ?? "—"}</TD>
+                      <TD>{Number(v.amount).toLocaleString("en-US")}</TD>
+                      <TD>{v.cancelledAt ? String(v.cancelledAt).slice(0, 10) : "—"}</TD>
+                      <TD>
+                        <Link to={`/vouchers/${v.id}`} className="text-sm text-blue-600 hover:underline">عرض</Link>
+                      </TD>
+                    </TR>
+                  ))}
+                </TBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

@@ -10,6 +10,7 @@ import {
   createInvoice,
   getInvoiceById,
   getLastSoldPrice,
+  hardDeleteInvoice,
   listInvoices,
   reactivateInvoice,
   updateInvoice,
@@ -30,19 +31,21 @@ function requireUser(user: Express.User | undefined) {
 }
 
 async function queueInvoiceApproval(
-  requestType: "CREATE_INVOICE" | "UPDATE_INVOICE" | "CANCEL_INVOICE",
+  requestType: "CREATE_INVOICE" | "UPDATE_INVOICE" | "CANCEL_INVOICE" | "HARD_DELETE_INVOICE",
   requestData: Record<string, unknown>,
-  requestedBy: string
+  requestedBy: string,
+  requesterName?: string
 ) {
   const approval = await createPendingApproval(
     approvalRequestTypes[requestType],
     requestData,
-    requestedBy
+    requestedBy,
+    requesterName
   );
 
   return {
     success: true,
-    message: "طلبك قيد المراجعة",
+    message: "طلبك قيد المراجعة — سيتم إشعار المدير للموافقة",
     approvalId: approval.id,
   };
 }
@@ -134,7 +137,7 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
     res.status(202).json(
-      await queueInvoiceApproval("CANCEL_INVOICE", { params: { id } }, user.id)
+      await queueInvoiceApproval("CANCEL_INVOICE", { params: { id } }, user.id, user.name)
     );
     return;
   }
@@ -145,6 +148,26 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
     success: true,
     message: "Invoice cancelled successfully",
     data: invoice,
+  });
+});
+
+export const permanentDeleteInvoice = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+  const id = String(req.params.id);
+
+  if (user.role === UserRole.STAFF) {
+    res.status(202).json(
+      await queueInvoiceApproval("HARD_DELETE_INVOICE", { params: { id } }, user.id, user.name)
+    );
+    return;
+  }
+
+  const result = await hardDeleteInvoice(id);
+
+  res.json({
+    success: true,
+    message: `تم حذف الفاتورة ${result.invoiceNumber} نهائياً`,
+    data: result,
   });
 });
 

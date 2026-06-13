@@ -452,6 +452,7 @@ export interface Voucher {
   date: string
   notes?: string | null
   description?: string | null
+  cancelledAt?: string | null
   createdAt?: string
   updatedAt?: string
 }
@@ -706,6 +707,123 @@ export interface CatalogCustomer {
   token: string | null
   lastViewedAt: string | null
   createdAt: string | null
+}
+
+// ── Retail catalog (كتلوك المفرد) ──────────────────────────────────────────────
+export interface RetailItem {
+  id: string
+  productId: string
+  productName: string
+  itemNumber: string
+  title?: string | null
+  description?: string | null
+  price: number
+  images: string[]
+  sortOrder: number
+  featured: boolean
+  isActive: boolean
+  currentStock: number
+  createdAt?: string
+}
+
+export interface RetailItemPayload {
+  productId: string
+  title?: string
+  description?: string
+  price: number
+  images?: string[]
+  sortOrder?: number
+  featured?: boolean
+  isActive?: boolean
+}
+
+export interface RetailCoupon {
+  id: string
+  code: string
+  name: string
+  discountType: "PERCENT" | "AMOUNT"
+  discountValue: number
+  startsAt?: string | null
+  endsAt?: string | null
+  maxUses?: number | null
+  usedCount: number
+  isActive: boolean
+  createdAt?: string
+}
+
+export interface RetailCouponPayload {
+  code: string
+  name: string
+  discountType: "PERCENT" | "AMOUNT"
+  discountValue: number
+  startsAt?: string
+  endsAt?: string
+  maxUses?: number
+  isActive?: boolean
+}
+
+export interface RetailOrderItem {
+  retailItemId: string
+  productId: string
+  productName: string
+  title: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+}
+
+export interface RetailOrder {
+  id: string
+  orderNumber: string
+  customerName: string
+  phone: string
+  address?: string | null
+  notes?: string | null
+  items: RetailOrderItem[]
+  subtotal: number
+  discount: number
+  total: number
+  couponCode?: string | null
+  status: "PENDING" | "PREPARED" | "CANCELLED"
+  invoiceId?: string | null
+  preparedAt?: string | null
+  createdAt: string
+}
+
+// Public storefront shapes
+export interface PublicRetailItem {
+  id: string
+  title: string
+  description?: string | null
+  price: number
+  images: string[]
+  featured: boolean
+  currentStock: number
+}
+
+export interface PublicRetailCoupon {
+  code: string
+  name: string
+  discountType: "PERCENT" | "AMOUNT"
+  discountValue: number
+  endsAt?: string | null
+}
+
+export interface RetailOrderResult {
+  id: string
+  orderNumber: string
+  subtotal: number
+  discount: number
+  total: number
+}
+
+export interface PublicRetailOrderStatus {
+  id: string
+  orderNumber: string
+  status: "PENDING" | "PREPARED" | "CANCELLED"
+  total: number
+  createdAt: string
+  preparedAt?: string | null
 }
 
 export interface BranchSummary {

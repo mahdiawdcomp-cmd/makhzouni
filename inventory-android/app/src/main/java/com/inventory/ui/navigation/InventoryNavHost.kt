@@ -61,6 +61,7 @@ import com.inventory.ui.operations.AuditLogsScreen
 import com.inventory.ui.operations.BranchesScreen
 import com.inventory.ui.operations.CouponsScreen
 import com.inventory.ui.operations.OperationsHubScreen
+import com.inventory.ui.operations.RetailOrdersScreen
 import com.inventory.ui.operations.QuotationsScreen
 import com.inventory.ui.operations.SalesOperationScreen
 import com.inventory.ui.operations.TransfersScreen
@@ -75,6 +76,7 @@ import com.inventory.ui.settings.SettingsScreen
 import com.inventory.ui.users.UserManagementScreen
 import com.inventory.ui.catalog.CatalogManagementScreen
 import com.inventory.ui.voice.VoiceInvoiceScreen
+import com.inventory.ui.voice.OcrInvoiceScreen
 
 @Composable
 fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) {
@@ -381,6 +383,13 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         viewModel = hiltViewModel(),
                     )
                 }
+                composable(Routes.OcrInvoice) {
+                    OcrInvoiceScreen(
+                        onItemsReady = { _, _ -> navController.popBackStack() },
+                        onBack = { navController.popBackStack() },
+                        viewModel = hiltViewModel(),
+                    )
+                }
                 composable(Routes.CatalogManagement) {
                     CatalogManagementScreen(
                         viewModel = hiltViewModel(),
@@ -398,6 +407,8 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onCoupons = { navController.navigate(Routes.Coupons) },
                         onAudit = { navController.navigate(Routes.AuditLogs) },
                         onVouchers = { navController.navigate(Routes.Vouchers) },
+                        onOcrInvoice = { navController.navigate(Routes.OcrInvoice) },
+                        onRetailOrders = { navController.navigate(Routes.RetailOrders) },
                         isAdmin = shellState.isAdmin,
                         permissions = shellState.permissions
                     )
@@ -448,6 +459,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                 composable(Routes.Branches) { BranchesScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.Coupons) { CouponsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.AuditLogs) { AuditLogsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.RetailOrders) { RetailOrdersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.DashboardReport) { DashboardReportScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Reports) { ReportsScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Settings) { SettingsScreen(viewModel = hiltViewModel()) }

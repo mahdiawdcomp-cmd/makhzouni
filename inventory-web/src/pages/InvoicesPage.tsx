@@ -9,12 +9,15 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Eye, Plus, Receipt, RotateCcw, ShoppingCart } from "lucide-react"
+import { Ban, Eye, Pencil, Plus, Receipt, RotateCcw, ShoppingCart } from "lucide-react"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { cancelInvoice } from "../api/endpoints"
 import { useInvoices } from "../hooks/useInvoices"
 import type { Invoice, InvoiceType } from "../types/api"
 import { Badge } from "../components/ui/badge"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
@@ -77,7 +80,18 @@ function invoiceTypeBadge(type?: InvoiceType) {
 export function InvoicesPage() {
   usePageTitle("الفواتير")
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [cancelId, setCancelId] = useState<string | null>(null)
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => cancelInvoice(id),
+    onSuccess: () => {
+      setCancelId(null)
+      void qc.invalidateQueries({ queryKey: ["invoices"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+    },
+  })
   const urlType = searchParams.get("type")
   const typeFilter: TypeFilter = urlType === "SALE" || urlType === "PURCHASE" || urlType === "SALES_RETURN" ? urlType : "ALL"
   const urlFrom = searchParams.get("from") ?? ""
@@ -165,13 +179,35 @@ export function InvoicesPage() {
         id: "actions",
         header: "إجراءات",
         cell: ({ row }) => (
-          <Button
-            variant="outline"
-            title="عرض الفاتورة (تبويب جديد)"
-            onClick={() => window.open(`/invoices/${row.original.id}`, "_blank", "noopener,noreferrer")}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              title="عرض الفاتورة (تبويب جديد)"
+              onClick={() => window.open(`/invoices/${row.original.id}`, "_blank", "noopener,noreferrer")}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              title="تعديل الفاتورة"
+              onClick={() => navigate(`/invoices/${row.original.id}`)}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            {row.original.status !== "CANCELLED" && (
+              <Button
+                variant="outline"
+                size="sm"
+                title="تعطيل الفاتورة"
+                className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                onClick={() => setCancelId(row.original.id)}
+              >
+                <Ban className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         ),
       },
     ],
@@ -330,6 +366,17 @@ export function InvoicesPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!cancelId}
+        title="تعطيل الفاتورة؟"
+        description="سيتم إلغاء تأثير الفاتورة على المخزن والحساب. يمكن استعادتها لاحقاً من صفحة التفاصيل."
+        confirmLabel="تعطيل"
+        destructive
+        loading={cancelMutation.isPending}
+        onConfirm={() => { if (cancelId) cancelMutation.mutate(cancelId) }}
+        onCancel={() => setCancelId(null)}
+      />
     </div>
   )
 }

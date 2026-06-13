@@ -7,6 +7,7 @@ import com.inventory.data.remote.dto.CatalogCustomerDto
 import com.inventory.data.remote.dto.GrantCatalogAccessRequest
 import com.inventory.data.remote.dto.OrderPreparationDto
 import com.inventory.data.remote.dto.PatchCatalogAccessRequest
+import com.inventory.data.remote.dto.RetailOrderDto
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,6 +41,20 @@ class CatalogRepository @Inject constructor(
 
     suspend fun markPrepared(id: String): ApiResult<Unit> = call {
         apiClient.api.markOrderPrepared(id)
+        Unit
+    }
+
+    suspend fun getRetailOrders(status: String? = null): ApiResult<List<RetailOrderDto>> = call {
+        apiClient.api.getRetailOrders(status).data.orEmpty()
+    }
+
+    suspend fun prepareRetailOrder(id: String): ApiResult<Unit> = call {
+        apiClient.api.prepareRetailOrder(id)
+        Unit
+    }
+
+    suspend fun cancelRetailOrder(id: String): ApiResult<Unit> = call {
+        apiClient.api.cancelRetailOrder(id)
         Unit
     }
 

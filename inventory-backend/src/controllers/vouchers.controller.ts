@@ -6,10 +6,12 @@ import {
   createPendingApproval,
 } from "../services/approval.service";
 import {
+  cancelVoucher,
   createVoucher,
   deleteVoucher,
   getVoucherById,
   listVouchers,
+  restoreVoucher,
   updateVoucher,
 } from "../services/voucher.service";
 import {
@@ -104,20 +106,52 @@ export const exportVoucherImage = asyncHandler(async (req, res) => {
   res.send(png);
 });
 
-export const removeVoucher = asyncHandler(async (req, res) => {
+export const cancelVoucherCtrl = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_VOUCHERS")) {
     const approval = await createPendingApproval(
+      approvalRequestTypes.CANCEL_VOUCHER,
+      { params: { id } },
+      user.id,
+      user.name
+    );
+    res.status(202).json({ success: true, message: "طلبك قيد المراجعة — سيتم إشعار المدير للموافقة", approvalId: approval.id });
+    return;
+  }
+
+  const voucher = await cancelVoucher(id);
+  res.json({ success: true, message: "تم تعطيل السند وتحديث الحساب", data: voucher });
+});
+
+export const restoreVoucherCtrl = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+  const id = String(req.params.id);
+
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_VOUCHERS")) {
+    throw new AppError("صلاحية المدير مطلوبة لاستعادة السند", 403, "PERMISSION_REQUIRED");
+  }
+
+  const voucher = await restoreVoucher(id);
+  res.json({ success: true, message: "تم استعادة السند وتحديث الحساب", data: voucher });
+});
+
+export const removeVoucher = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+  const id = String(req.params.id);
+
+  if (user.role === UserRole.STAFF) {
+    const approval = await createPendingApproval(
       approvalRequestTypes.DELETE_VOUCHER,
       { params: { id } },
-      user.id
+      user.id,
+      user.name
     );
-    res.status(202).json({ success: true, message: "طلبك قيد المراجعة", approvalId: approval.id });
+    res.status(202).json({ success: true, message: "طلبك قيد المراجعة — سيتم إشعار المدير للموافقة", approvalId: approval.id });
     return;
   }
 
   const voucher = await deleteVoucher(id);
-  res.json({ success: true, message: "Voucher deleted", data: voucher });
+  res.json({ success: true, message: "تم حذف السند نهائياً", data: voucher });
 });

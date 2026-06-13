@@ -4,19 +4,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   ArrowRight,
+  Ban,
   FileDown,
   ImageDown,
   MessageCircle,
   Pencil,
   Receipt,
   ReceiptText,
+  RefreshCw,
   Trash2,
   Wallet,
 } from "lucide-react"
 import {
+  cancelVoucher as cancelVoucherApi,
   deleteVoucher as deleteVoucherApi,
   getVoucher,
   getVouchers,
+  restoreVoucher as restoreVoucherApi,
   sendWhatsAppMessage,
   updateVoucher,
   voucherImageObjectUrl,
@@ -70,7 +74,27 @@ export function VoucherDetailPage() {
   )
 
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [confirmRestore, setConfirmRestore] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelVoucherApi(id!),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["vouchers"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+      void qc.invalidateQueries({ queryKey: ["customer"] })
+    },
+  })
+
+  const restoreMutation = useMutation({
+    mutationFn: () => restoreVoucherApi(id!),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["vouchers"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+      void qc.invalidateQueries({ queryKey: ["customer"] })
+    },
+  })
   const [editAmountDisplay, setEditAmountDisplay] = useState("")
   const [editNotes, setEditNotes] = useState("")
   const [editDescription, setEditDescription] = useState("")
@@ -203,12 +227,34 @@ export function VoucherDetailPage() {
             <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={openEdit}>
               <Pencil className="h-4 w-4" /> تعديل
             </Button>
+            {voucher.cancelledAt ? (
+              <>
+                <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">معطل</span>
+                <Button
+                  variant="outline"
+                  className="bg-white/95 hover:bg-white"
+                  onClick={() => setConfirmRestore(true)}
+                  disabled={restoreMutation.isPending}
+                >
+                  <RefreshCw className="h-4 w-4" /> استعادة
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="outline"
+                className="bg-white/95 hover:bg-white border-amber-300 text-amber-700"
+                onClick={() => setConfirmCancel(true)}
+                disabled={cancelMutation.isPending}
+              >
+                <Ban className="h-4 w-4" /> تعطيل
+              </Button>
+            )}
             <Button
               variant="destructive"
               onClick={() => setConfirmDelete(true)}
               disabled={deleteMutation.isPending}
             >
-              <Trash2 className="h-4 w-4" /> حذف
+              <Trash2 className="h-4 w-4" /> حذف نهائي
             </Button>
           </div>
         </div>
@@ -288,10 +334,29 @@ export function VoucherDetailPage() {
       </Dialog>
 
       <ConfirmDialog
+        open={confirmCancel}
+        title="تعطيل هذا السند؟"
+        description="سيتم إلغاء تأثيره على حساب الزبون. يمكن استعادته لاحقاً."
+        confirmLabel="تعطيل"
+        destructive
+        loading={cancelMutation.isPending}
+        onConfirm={() => { setConfirmCancel(false); cancelMutation.mutate() }}
+        onCancel={() => setConfirmCancel(false)}
+      />
+      <ConfirmDialog
+        open={confirmRestore}
+        title="استعادة هذا السند؟"
+        description="سيعود تأثيره على حساب الزبون."
+        confirmLabel="استعادة"
+        loading={restoreMutation.isPending}
+        onConfirm={() => { setConfirmRestore(false); restoreMutation.mutate() }}
+        onCancel={() => setConfirmRestore(false)}
+      />
+      <ConfirmDialog
         open={confirmDelete}
         title="حذف هذا السند نهائياً؟"
-        description="لا يمكن التراجع عن هذا الإجراء."
-        confirmLabel="حذف"
+        description="سيُحذف من قاعدة البيانات ولا يمكن التراجع عن هذا الإجراء."
+        confirmLabel="حذف نهائي"
         destructive
         loading={deleteMutation.isPending}
         onConfirm={() => { setConfirmDelete(false); deleteMutation.mutate() }}

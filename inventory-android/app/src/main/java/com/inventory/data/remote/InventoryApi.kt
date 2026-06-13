@@ -44,6 +44,7 @@ import com.inventory.data.remote.dto.CatalogCustomerDto
 import com.inventory.data.remote.dto.GrantCatalogAccessRequest
 import com.inventory.data.remote.dto.OrderPreparationDto
 import com.inventory.data.remote.dto.PatchCatalogAccessRequest
+import com.inventory.data.remote.dto.RetailOrderDto
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -301,11 +302,22 @@ interface InventoryApi {
         @Query("maxDays") maxDays: Int = 999
     ): ApiEnvelope<List<CustomerDebtDto>>
 
-    // ── Voice Invoice ─────────────────────────────────────────────────────────
-    @POST("voice/invoice")
-    suspend fun processVoiceInvoice(
+    // ── Voice Invoice (2-step) ────────────────────────────────────────────────
+    @POST("voice/parse")
+    suspend fun parseVoiceCommand(
         @Body body: com.inventory.data.remote.dto.VoiceCommandRequest
-    ): retrofit2.Response<com.inventory.data.remote.dto.VoiceInvoiceResponse>
+    ): retrofit2.Response<com.inventory.data.remote.dto.VoiceParseResponse>
+
+    @POST("voice/execute")
+    suspend fun executeVoiceCommand(
+        @Body body: com.inventory.data.remote.dto.VoiceExecuteRequest
+    ): retrofit2.Response<com.inventory.data.remote.dto.VoiceExecuteResponse>
+
+    // ── OCR Invoice ───────────────────────────────────────────────────────────
+    @POST("ocr/invoice")
+    suspend fun scanInvoiceImage(
+        @Body body: com.inventory.data.remote.dto.OcrInvoiceRequest
+    ): retrofit2.Response<com.inventory.data.remote.dto.OcrInvoiceResponse>
 
     // ── Catalog Management ────────────────────────────────────────────────────
     @GET("catalog-management")
@@ -332,6 +344,16 @@ interface InventoryApi {
 
     @POST("order-preparations/{id}/mark-prepared")
     suspend fun markOrderPrepared(@Path("id") id: String): ApiEnvelope<Any>
+
+    // ── Retail catalog orders (كتلوك المفرد) ──────────────────────────────────
+    @GET("retail-catalog/orders")
+    suspend fun getRetailOrders(@Query("status") status: String? = null): ApiEnvelope<List<RetailOrderDto>>
+
+    @POST("retail-catalog/orders/{id}/prepare")
+    suspend fun prepareRetailOrder(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("retail-catalog/orders/{id}/cancel")
+    suspend fun cancelRetailOrder(@Path("id") id: String): ApiEnvelope<Any>
 
     // ── Backup ────────────────────────────────────────────────────────────────
     @POST("settings/backup/telegram")

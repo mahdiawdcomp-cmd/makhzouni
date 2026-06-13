@@ -16,7 +16,7 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getInvoiceAuditTrail, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -146,6 +146,15 @@ export function InvoiceDetailPage() {
 
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [confirmReactivate, setConfirmReactivate] = useState(false)
+  const [confirmPermanentDelete, setConfirmPermanentDelete] = useState(false)
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: () => permanentDeleteInvoice(id!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+      navigate("/invoices")
+    },
+  })
 
   // Full edit dialog
   const [editOpen, setEditOpen] = useState(false)
@@ -234,12 +243,12 @@ export function InvoiceDetailPage() {
             <>
               <Button variant="outline" size="sm" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>
               <Button variant="destructive" size="sm" onClick={() => setConfirmCancel(true)} disabled={cancelMutation.isPending}>
-                <Ban className="h-3.5 w-3.5" /> إلغاء
+                <Ban className="h-3.5 w-3.5" /> تعطيل
               </Button>
             </>
           ) : (
             <>
-              <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">ملغاة</span>
+              <span className="rounded-full bg-rose-100 px-3 py-1 text-xs font-semibold text-rose-700">معطلة</span>
               <Button
                 variant="outline"
                 size="sm"
@@ -250,6 +259,15 @@ export function InvoiceDetailPage() {
               </Button>
             </>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-red-300 text-red-600 hover:bg-red-50"
+            onClick={() => setConfirmPermanentDelete(true)}
+            disabled={permanentDeleteMutation.isPending}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> حذف نهائي
+          </Button>
         </div>
       </div>
 
@@ -530,6 +548,16 @@ export function InvoiceDetailPage() {
         loading={reactivateMutation.isPending}
         onConfirm={() => { setConfirmReactivate(false); reactivateMutation.mutate() }}
         onCancel={() => setConfirmReactivate(false)}
+      />
+      <ConfirmDialog
+        open={confirmPermanentDelete}
+        title="حذف الفاتورة نهائياً؟"
+        description="سيتم حذف الفاتورة بشكل دائم من قاعدة البيانات مع إرجاع أثرها على المخزون والحساب. لا يمكن التراجع عن هذا الإجراء."
+        confirmLabel="حذف نهائي"
+        destructive
+        loading={permanentDeleteMutation.isPending}
+        onConfirm={() => { setConfirmPermanentDelete(false); permanentDeleteMutation.mutate() }}
+        onCancel={() => setConfirmPermanentDelete(false)}
       />
     </div>
   )

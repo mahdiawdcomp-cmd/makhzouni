@@ -13,7 +13,9 @@ import {
   updateInvoice,
 } from "./invoice.service";
 import { createUser, deactivateUser, updateUser } from "./user.service";
-import { createVoucher, deleteVoucher, updateVoucher } from "./voucher.service";
+import { cancelVoucher, createVoucher, deleteVoucher, restoreVoucher, updateVoucher } from "./voucher.service";
+import { hardDeleteInvoice } from "./invoice.service";
+import { sendWhatsAppText } from "./whatsapp.service";
 import {
   createProduct,
   deleteProduct,
@@ -75,26 +77,66 @@ export const approvalRequestTypes = {
   CREATE_INVOICE: "CREATE_INVOICE",
   UPDATE_INVOICE: "UPDATE_INVOICE",
   CANCEL_INVOICE: "CANCEL_INVOICE",
+  HARD_DELETE_INVOICE: "HARD_DELETE_INVOICE",
   CREATE_VOUCHER: "CREATE_VOUCHER",
   UPDATE_VOUCHER: "UPDATE_VOUCHER",
+  CANCEL_VOUCHER: "CANCEL_VOUCHER",
+  RESTORE_VOUCHER: "RESTORE_VOUCHER",
   DELETE_VOUCHER: "DELETE_VOUCHER",
 } as const;
 
 export type ApprovalRequestType =
   (typeof approvalRequestTypes)[keyof typeof approvalRequestTypes];
 
+const deleteApprovalTypes = new Set([
+  "CANCEL_INVOICE",
+  "HARD_DELETE_INVOICE",
+  "CANCEL_VOUCHER",
+  "DELETE_VOUCHER",
+]);
+
+const approvalTypeLabels: Record<string, string> = {
+  CANCEL_INVOICE: "تعطيل فاتورة",
+  HARD_DELETE_INVOICE: "حذف فاتورة نهائياً",
+  CANCEL_VOUCHER: "تعطيل سند",
+  DELETE_VOUCHER: "حذف سند نهائياً",
+  CREATE_INVOICE: "إنشاء فاتورة",
+  UPDATE_INVOICE: "تعديل فاتورة",
+  CREATE_VOUCHER: "إنشاء سند",
+  UPDATE_VOUCHER: "تعديل سند",
+  DELETE_PRODUCT: "حذف منتج",
+  DELETE_CUSTOMER: "حذف زبون",
+};
+
 export async function createPendingApproval(
   requestType: ApprovalRequestType,
   requestData: Record<string, unknown>,
-  requestedBy: string
+  requestedBy: string,
+  requesterName?: string
 ) {
-  return prisma.pendingApproval.create({
+  const approval = await prisma.pendingApproval.create({
     data: {
       requestType,
       requestData: requestData as Prisma.InputJsonValue,
       requestedBy,
     },
   });
+
+  // Send WhatsApp notification to store owner for destructive operations
+  if (deleteApprovalTypes.has(requestType)) {
+    const actionLabel = approvalTypeLabels[requestType] ?? requestType;
+    const staffName = requesterName ?? "موظف";
+    const message = `⚠️ تنبيه: الموظف "${staffName}" طلب عملية "${actionLabel}" وتنتظر موافقتك في قائمة الطلبات المعلقة.`;
+    getSettings()
+      .then((settings) => {
+        if (settings?.storePhone) {
+          sendWhatsAppText(settings.storePhone, message).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }
+
+  return approval;
 }
 
 export async function listPendingApprovals() {
@@ -390,6 +432,12 @@ async function executeApprovedRequest(
           : "",
         tx
       );
+    case approvalRequestTypes.HARD_DELETE_INVOICE:
+      return hardDeleteInvoice(
+        data.params && typeof data.params === "object"
+          ? String((data.params as Record<string, unknown>).id)
+          : ""
+      );
     case approvalRequestTypes.CREATE_VOUCHER:
       return createVoucher(
         data.body as Parameters<typeof createVoucher>[0],
@@ -402,6 +450,20 @@ async function executeApprovedRequest(
           ? String((data.params as Record<string, unknown>).id)
           : "",
         data.body as Parameters<typeof updateVoucher>[1],
+        tx
+      );
+    case approvalRequestTypes.CANCEL_VOUCHER:
+      return cancelVoucher(
+        data.params && typeof data.params === "object"
+          ? String((data.params as Record<string, unknown>).id)
+          : "",
+        tx
+      );
+    case approvalRequestTypes.RESTORE_VOUCHER:
+      return restoreVoucher(
+        data.params && typeof data.params === "object"
+          ? String((data.params as Record<string, unknown>).id)
+          : "",
         tx
       );
     case approvalRequestTypes.DELETE_VOUCHER:

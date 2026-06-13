@@ -9,6 +9,7 @@ import {
   getInvoiceDetails,
   getInvoices,
   getLastSoldPriceForProduct,
+  permanentDeleteInvoice,
   restoreInvoice,
 } from "../controllers/invoices.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -33,6 +34,7 @@ router.get("/:id/image", validate(idParamSchema), exportInvoiceImage);
 router.get("/:id/audit-trail", validate(idParamSchema), getInvoiceAudit);
 router.get("/:id", validate(idParamSchema), getInvoiceDetails);
 router.post("/:id/reactivate", validate(idParamSchema), restoreInvoice);
+router.delete("/:id/permanent", validate(idParamSchema), permanentDeleteInvoice);
 router.put("/:id", validate(updateInvoiceSchema), editInvoice);
 router.delete("/:id", validate(idParamSchema), deleteInvoice);
 

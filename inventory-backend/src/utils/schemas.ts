@@ -463,6 +463,7 @@ export const listVouchersSchema = z.object({
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(5000).default(20),
+    showCancelled: z.coerce.boolean().optional(),
   }),
 });
 
@@ -586,4 +587,87 @@ export const updateMessageTemplateSchema = z.object({
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one template field is required",
     }),
+});
+
+// ── Retail catalog (كتلوك المفرد) ──────────────────────────────────────────────
+
+export const createRetailItemSchema = z.object({
+  body: z.object({
+    productId: z.string().uuid(),
+    title: z.string().trim().max(160).optional(),
+    description: z.string().trim().max(1000).optional(),
+    price: z.coerce.number().nonnegative(),
+    images: z.array(z.string()).max(8).optional(),
+    sortOrder: z.coerce.number().int().optional(),
+    featured: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const updateRetailItemSchema = z.object({
+  params: uuidParam,
+  body: z
+    .object({
+      title: z.string().trim().max(160).nullable().optional(),
+      description: z.string().trim().max(1000).nullable().optional(),
+      price: z.coerce.number().nonnegative().optional(),
+      images: z.array(z.string()).max(8).optional(),
+      sortOrder: z.coerce.number().int().optional(),
+      featured: z.boolean().optional(),
+      isActive: z.boolean().optional(),
+    })
+    .refine((body) => Object.keys(body).length > 0, {
+      message: "At least one field is required",
+    }),
+});
+
+export const createRetailCouponSchema = z.object({
+  body: z.object({
+    code: z.string().trim().min(2).max(60),
+    name: z.string().trim().min(1).max(120),
+    discountType: z.enum(["PERCENT", "AMOUNT"]),
+    discountValue: z.coerce.number().positive(),
+    startsAt: dateString.optional(),
+    endsAt: dateString.optional(),
+    maxUses: z.coerce.number().int().positive().optional(),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+export const updateRetailCouponSchema = z.object({
+  params: uuidParam,
+  body: createRetailCouponSchema.shape.body.partial().refine((body) => Object.keys(body).length > 0, {
+    message: "At least one coupon field is required",
+  }),
+});
+
+export const listRetailOrdersSchema = z.object({
+  query: z.object({
+    status: z.enum(["PENDING", "PREPARED", "CANCELLED"]).optional(),
+  }),
+});
+
+export const submitRetailOrderSchema = z.object({
+  body: z.object({
+    customerName: z.string().trim().min(2).max(120),
+    phone: z.string().trim().min(5).max(40),
+    address: z.string().trim().max(300).optional(),
+    notes: z.string().trim().max(500).optional(),
+    couponCode: z.string().trim().max(60).optional(),
+    items: z
+      .array(
+        z.object({
+          retailItemId: z.string().uuid(),
+          quantity: z.coerce.number().int().positive(),
+        }),
+      )
+      .min(1),
+  }),
+});
+
+export const previewRetailCouponSchema = z.object({
+  body: z.object({
+    code: z.string().trim().min(2).max(60),
+    subtotal: z.coerce.number().nonnegative(),
+  }),
 });

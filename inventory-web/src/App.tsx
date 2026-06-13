@@ -31,6 +31,8 @@ import { VoucherDetailPage } from "./pages/VoucherDetailPage"
 import { VouchersPage } from "./pages/VouchersPage"
 import { TransfersPage } from "./pages/TransfersPage"
 import { CatalogManagementPage } from "./pages/CatalogManagementPage"
+import { RetailCatalogPage } from "./pages/RetailCatalogPage"
+import { RetailShopPage } from "./pages/RetailShopPage"
 import { StocktakePage } from "./pages/StocktakePage"
 import { PublicStocktakePage } from "./pages/PublicStocktakePage"
 import { SuperAdminPage } from "./pages/SuperAdminPage"
@@ -41,6 +43,7 @@ const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/display", element: <DisplayPage /> },
   { path: "/catalog", element: <PublicCatalogPage /> },
+  { path: "/shop", element: <RetailShopPage /> },
   { path: "/client/:token", element: <ClientPortalPage /> },
   { path: "/client/:token/invoice/:invoiceId", element: <PublicInvoicePage /> },
   { path: "/stocktake/:token", element: <PublicStocktakePage /> },
@@ -70,6 +73,7 @@ const router = createBrowserRouter([
           { path: "customers/:id", element: <CustomerDetailPage /> },
           { path: "account", element: <AccountLookupPage /> },
           { path: "catalog-management", element: <CatalogManagementPage /> },
+          { path: "retail-catalog", element: <RetailCatalogPage /> },
           { path: "reports", element: <ReportsPage /> },
           { path: "settings", element: <SettingsPage /> },
           {

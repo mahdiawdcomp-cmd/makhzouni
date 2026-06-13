@@ -1,0 +1,598 @@
+import { DiscountType, Unit } from "@prisma/client";
+import prisma from "../config/database";
+import { AppError } from "../utils/app-error";
+import { logger } from "../utils/logger";
+import { createInvoice } from "./invoice.service";
+import { getSettings } from "./settings.service";
+import { sendWhatsAppText } from "./whatsapp.service";
+
+// Fixed identity for the auto-generated wholesale customer that owns all
+// retail-catalog sales. The real buyer's details go in the invoice notes.
+const RETAIL_CUSTOMER_NAME = "زبون كتلوك المفرد";
+const RETAIL_CUSTOMER_PHONE = "000000000000";
+
+type ProductStock = {
+  openingBalancePcs: number;
+  cartonsAvailable: number;
+  pcsPerCarton: number;
+};
+
+type RetailOrderItemInput = {
+  retailItemId: string;
+  quantity: number;
+};
+
+type SubmitRetailOrderInput = {
+  customerName: string;
+  phone: string;
+  address?: string;
+  notes?: string;
+  couponCode?: string;
+  items: RetailOrderItemInput[];
+};
+
+function toNumber(value: unknown) {
+  if (value === null || value === undefined) return 0;
+  return Number(value);
+}
+
+function stockOf(product: ProductStock) {
+  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
+}
+
+function normalizePhone(input: string) {
+  let digits = String(input ?? "").replace(/[^\d]/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.startsWith("964")) return digits;
+  if (digits.startsWith("0")) return `964${digits.slice(1)}`;
+  if (digits.startsWith("7")) return `964${digits}`;
+  return digits;
+}
+
+function money(value: number) {
+  return Number(value ?? 0).toLocaleString("en-US");
+}
+
+function preparationPhones(settings: Awaited<ReturnType<typeof getSettings>> | null) {
+  const raw = settings?.orderPreparationWhatsappNumbers ?? "";
+  return raw
+    .split(/[\n,،;]+/)
+    .map((phone) => phone.trim())
+    .filter(Boolean);
+}
+
+function adminPhone(settings: Awaited<ReturnType<typeof getSettings>> | null) {
+  return settings?.catalogAdminWhatsappNumber?.trim() || settings?.backupWhatsappNumber?.trim() || "";
+}
+
+async function safeSendWA(phone: string, message: string) {
+  if (!phone) return;
+  try {
+    await sendWhatsAppText(normalizePhone(phone), message);
+    logger.info(`[RetailWA] Sent to ${phone}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[RetailWA] Send failed to ${phone}: ${msg}`);
+  }
+}
+
+// ── Admin: catalog items ──────────────────────────────────────────────────────
+
+function serializeItem(item: any) {
+  const product = item.product;
+  const stock = product ? stockOf(product) : 0;
+  return {
+    id: item.id,
+    productId: item.productId,
+    productName: product?.name ?? "",
+    itemNumber: product?.itemNumber ?? "",
+    title: item.title ?? null,
+    description: item.description ?? null,
+    price: toNumber(item.price),
+    images: Array.isArray(item.images) ? item.images : [],
+    sortOrder: item.sortOrder,
+    featured: item.featured,
+    isActive: item.isActive,
+    currentStock: stock,
+    createdAt: item.createdAt,
+  };
+}
+
+export async function listRetailItems() {
+  const items = await prisma.retailCatalogItem.findMany({
+    include: {
+      product: {
+        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+      },
+    },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+  });
+  return items.map(serializeItem);
+}
+
+export async function createRetailItem(input: {
+  productId: string;
+  title?: string;
+  description?: string;
+  price: number;
+  images?: string[];
+  sortOrder?: number;
+  featured?: boolean;
+  isActive?: boolean;
+}) {
+  const product = await prisma.product.findFirst({ where: { id: input.productId, deletedAt: null } });
+  if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+
+  const item = await prisma.retailCatalogItem.create({
+    data: {
+      productId: input.productId,
+      title: input.title?.trim() || null,
+      description: input.description?.trim() || null,
+      price: input.price,
+      images: (input.images ?? []) as unknown as object,
+      sortOrder: input.sortOrder ?? 0,
+      featured: input.featured ?? false,
+      isActive: input.isActive ?? true,
+    },
+    include: {
+      product: {
+        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+      },
+    },
+  });
+  return serializeItem(item);
+}
+
+export async function updateRetailItem(
+  id: string,
+  patch: {
+    title?: string;
+    description?: string;
+    price?: number;
+    images?: string[];
+    sortOrder?: number;
+    featured?: boolean;
+    isActive?: boolean;
+  },
+) {
+  const data: Record<string, unknown> = {};
+  if (patch.title !== undefined) data.title = patch.title?.trim() || null;
+  if (patch.description !== undefined) data.description = patch.description?.trim() || null;
+  if (patch.price !== undefined) data.price = patch.price;
+  if (patch.images !== undefined) data.images = patch.images as unknown as object;
+  if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
+  if (patch.featured !== undefined) data.featured = patch.featured;
+  if (patch.isActive !== undefined) data.isActive = patch.isActive;
+
+  const item = await prisma.retailCatalogItem.update({
+    where: { id },
+    data,
+    include: {
+      product: {
+        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+      },
+    },
+  });
+  return serializeItem(item);
+}
+
+export async function deleteRetailItem(id: string) {
+  await prisma.retailCatalogItem.delete({ where: { id } });
+  return { id };
+}
+
+// ── Admin: coupons ────────────────────────────────────────────────────────────
+
+function serializeCoupon(coupon: any) {
+  return {
+    ...coupon,
+    discountValue: toNumber(coupon.discountValue),
+  };
+}
+
+export async function listRetailCoupons() {
+  const coupons = await prisma.retailCoupon.findMany({ orderBy: { createdAt: "desc" } });
+  return coupons.map(serializeCoupon);
+}
+
+export async function createRetailCoupon(input: {
+  code: string;
+  name: string;
+  discountType: DiscountType;
+  discountValue: number;
+  startsAt?: string;
+  endsAt?: string;
+  maxUses?: number;
+  isActive?: boolean;
+}) {
+  const coupon = await prisma.retailCoupon.create({
+    data: {
+      code: input.code.trim().toUpperCase(),
+      name: input.name,
+      discountType: input.discountType,
+      discountValue: input.discountValue,
+      startsAt: input.startsAt ? new Date(input.startsAt) : null,
+      endsAt: input.endsAt ? new Date(input.endsAt) : null,
+      maxUses: input.maxUses ?? null,
+      isActive: input.isActive ?? true,
+    },
+  });
+  return serializeCoupon(coupon);
+}
+
+export async function updateRetailCoupon(
+  id: string,
+  patch: {
+    code?: string;
+    name?: string;
+    discountType?: DiscountType;
+    discountValue?: number;
+    startsAt?: string | null;
+    endsAt?: string | null;
+    maxUses?: number | null;
+    isActive?: boolean;
+  },
+) {
+  const data: Record<string, unknown> = {};
+  if (patch.code !== undefined) data.code = patch.code.trim().toUpperCase();
+  if (patch.name !== undefined) data.name = patch.name;
+  if (patch.discountType !== undefined) data.discountType = patch.discountType;
+  if (patch.discountValue !== undefined) data.discountValue = patch.discountValue;
+  if (patch.startsAt !== undefined) data.startsAt = patch.startsAt ? new Date(patch.startsAt) : null;
+  if (patch.endsAt !== undefined) data.endsAt = patch.endsAt ? new Date(patch.endsAt) : null;
+  if (patch.maxUses !== undefined) data.maxUses = patch.maxUses;
+  if (patch.isActive !== undefined) data.isActive = patch.isActive;
+
+  const coupon = await prisma.retailCoupon.update({ where: { id }, data });
+  return serializeCoupon(coupon);
+}
+
+export async function deleteRetailCoupon(id: string) {
+  await prisma.retailCoupon.delete({ where: { id } });
+  return { id };
+}
+
+// ── Public: storefront ────────────────────────────────────────────────────────
+
+export async function listPublicRetailItems() {
+  const items = await prisma.retailCatalogItem.findMany({
+    where: { isActive: true },
+    include: {
+      product: {
+        select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+      },
+    },
+    orderBy: [{ featured: "desc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
+  });
+
+  return items
+    .map((item) => {
+      const stock = item.product ? stockOf(item.product) : 0;
+      return {
+        id: item.id,
+        title: item.title || item.product?.name || "",
+        description: item.description ?? null,
+        price: toNumber(item.price),
+        images: Array.isArray(item.images) ? (item.images as string[]) : [],
+        featured: item.featured,
+        currentStock: stock,
+      };
+    })
+    .filter((item) => item.currentStock > 0);
+}
+
+function couponIsValidNow(coupon: { isActive: boolean; startsAt: Date | null; endsAt: Date | null; maxUses: number | null; usedCount: number }) {
+  const now = new Date();
+  if (!coupon.isActive) return false;
+  if (coupon.startsAt && coupon.startsAt > now) return false;
+  if (coupon.endsAt && coupon.endsAt < now) return false;
+  if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) return false;
+  return true;
+}
+
+export async function getActiveRetailCoupon() {
+  const coupons = await prisma.retailCoupon.findMany({
+    where: { isActive: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const valid = coupons.find(couponIsValidNow);
+  if (!valid) return null;
+  return {
+    code: valid.code,
+    name: valid.name,
+    discountType: valid.discountType,
+    discountValue: toNumber(valid.discountValue),
+    endsAt: valid.endsAt,
+  };
+}
+
+async function resolveCoupon(code: string | undefined, subtotal: number) {
+  if (!code) return { discount: 0, coupon: null as null | { id: string; code: string } };
+  const coupon = await prisma.retailCoupon.findUnique({ where: { code: code.trim().toUpperCase() } });
+  if (!coupon || !couponIsValidNow(coupon)) {
+    throw new AppError("الكوبون غير صالح أو منتهي", 400, "RETAIL_COUPON_INVALID");
+  }
+  const raw =
+    coupon.discountType === "PERCENT"
+      ? subtotal * (toNumber(coupon.discountValue) / 100)
+      : toNumber(coupon.discountValue);
+  const discount = Math.min(subtotal, Math.max(0, raw));
+  return { discount, coupon: { id: coupon.id, code: coupon.code } };
+}
+
+export async function previewRetailCoupon(code: string, subtotal: number) {
+  const { discount, coupon } = await resolveCoupon(code, subtotal);
+  return { discount, code: coupon?.code ?? code.trim().toUpperCase() };
+}
+
+async function generateRetailOrderNumber() {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const counter = await prisma.counter.upsert({
+      where: { key: "retail-order" },
+      update: { value: { increment: 1 } },
+      create: { key: "retail-order", value: 1 },
+    });
+    const candidate = `MF-${String(counter.value).padStart(4, "0")}`;
+    const exists = await prisma.retailOrder.findUnique({ where: { orderNumber: candidate }, select: { id: true } });
+    if (!exists) return candidate;
+  }
+  throw new AppError("تعذر توليد رقم الطلب", 409, "RETAIL_ORDER_NUMBER_CONFLICT");
+}
+
+export async function submitRetailOrder(input: SubmitRetailOrderInput) {
+  if (!input.items.length) throw new AppError("السلة فارغة", 400, "RETAIL_EMPTY_CART");
+
+  const retailItemIds = [...new Set(input.items.map((i) => i.retailItemId))];
+  const retailItems = await prisma.retailCatalogItem.findMany({
+    where: { id: { in: retailItemIds }, isActive: true },
+    include: {
+      product: {
+        select: { id: true, name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+      },
+    },
+  });
+  const byId = new Map(retailItems.map((i) => [i.id, i]));
+
+  // Accumulate requested pieces per product (multiple retail items can map to one product)
+  const requestedByProduct = new Map<string, number>();
+  const orderItems: Array<{
+    retailItemId: string;
+    productId: string;
+    productName: string;
+    title: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+  }> = [];
+
+  for (const line of input.items) {
+    const item = byId.get(line.retailItemId);
+    if (!item || !item.product) throw new AppError("المادة غير متوفرة", 404, "RETAIL_ITEM_NOT_FOUND");
+    if (line.quantity <= 0) throw new AppError("الكمية غير صحيحة", 400, "RETAIL_BAD_QUANTITY");
+
+    const unitPrice = toNumber(item.price);
+    const title = item.title || item.product.name;
+    requestedByProduct.set(item.product.id, (requestedByProduct.get(item.product.id) ?? 0) + line.quantity);
+    orderItems.push({
+      retailItemId: item.id,
+      productId: item.product.id,
+      productName: item.product.name,
+      title,
+      quantity: line.quantity,
+      unitPrice,
+      totalPrice: unitPrice * line.quantity,
+    });
+  }
+
+  // Validate live stock (pieces)
+  for (const item of retailItems) {
+    if (!item.product) continue;
+    const requested = requestedByProduct.get(item.product.id) ?? 0;
+    if (requested > stockOf(item.product)) {
+      throw new AppError(`الكمية المطلوبة من "${item.title || item.product.name}" أكبر من المتوفر`, 400, "RETAIL_STOCK_NOT_ENOUGH");
+    }
+  }
+
+  const subtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
+  const { discount, coupon } = await resolveCoupon(input.couponCode, subtotal);
+  const total = Math.max(0, subtotal - discount);
+
+  const orderNumber = await generateRetailOrderNumber();
+  const order = await prisma.retailOrder.create({
+    data: {
+      orderNumber,
+      customerName: input.customerName.trim(),
+      phone: normalizePhone(input.phone),
+      address: input.address?.trim() || null,
+      notes: input.notes?.trim() || null,
+      items: orderItems as unknown as object,
+      subtotal,
+      discount,
+      total,
+      couponCode: coupon?.code ?? null,
+    },
+  });
+
+  if (coupon) {
+    await prisma.retailCoupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } }).catch(() => {});
+  }
+
+  // Fire-and-forget notifications
+  setImmediate(() => {
+    notifyRetailOrderSubmitted(order.orderNumber, input.customerName.trim(), normalizePhone(input.phone), input.address, input.notes, orderItems, total)
+      .catch((err) => logger.error(`[RetailOrder] notify failed: ${err}`));
+  });
+
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    subtotal,
+    discount,
+    total,
+  };
+}
+
+async function notifyRetailOrderSubmitted(
+  orderNumber: string,
+  customerName: string,
+  customerPhone: string,
+  address: string | undefined,
+  notes: string | undefined,
+  items: Array<{ title: string; quantity: number; unitPrice: number }>,
+  total: number,
+) {
+  const settings = await getSettings().catch(() => null);
+  const currency = settings?.currency ?? "د.ع";
+
+  // Customer confirmation
+  await safeSendWA(
+    customerPhone,
+    `مرحباً ${customerName} 🌹\nتم تثبيت طلبك رقم ${orderNumber} بنجاح.\nسوف يتم التجهيز بكل حب وإرساله إليك بأسرع وقت. شكراً لك ❤️`,
+  );
+
+  // Staff (preparation) numbers + admin
+  const lines = items.map((i) => `- ${i.title}: ${i.quantity} قطعة × ${money(i.unitPrice)}`).join("\n");
+  const staffMsg = [
+    `🛍️ طلب جديد من كتلوك المفرد رقم ${orderNumber}`,
+    "",
+    `الزبون: ${customerName}`,
+    `الهاتف: ${customerPhone}`,
+    address ? `العنوان: ${address}` : "",
+    notes ? `ملاحظات: ${notes}` : "",
+    "",
+    "المواد المطلوبة:",
+    lines,
+    "",
+    `الإجمالي: ${money(total)} ${currency}`,
+    "",
+    "يرجى تجهيز الطلب ثم الضغط على (تم التجهيز) في صفحة كتلوك المفرد.",
+  ].filter(Boolean).join("\n");
+
+  const phones = preparationPhones(settings);
+  const admin = adminPhone(settings);
+  const targets = new Set<string>([...phones, admin].filter(Boolean));
+  await Promise.all([...targets].map((phone) => safeSendWA(phone, staffMsg)));
+
+  await prisma.notification.create({
+    data: {
+      type: "RETAIL_ORDER_PENDING",
+      message: `طلب مفرد جديد ${orderNumber} من ${customerName} - ${items.length} صنف`,
+    },
+  }).catch(() => {});
+}
+
+// ── Admin: orders ─────────────────────────────────────────────────────────────
+
+function serializeOrder(order: any) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    customerName: order.customerName,
+    phone: order.phone,
+    address: order.address ?? null,
+    notes: order.notes ?? null,
+    items: order.items ?? [],
+    subtotal: toNumber(order.subtotal),
+    discount: toNumber(order.discount),
+    total: toNumber(order.total),
+    couponCode: order.couponCode ?? null,
+    status: order.status,
+    invoiceId: order.invoiceId ?? null,
+    preparedAt: order.preparedAt ?? null,
+    createdAt: order.createdAt,
+  };
+}
+
+export async function listRetailOrders(status?: string) {
+  const orders = await prisma.retailOrder.findMany({
+    where: status ? { status } : undefined,
+    orderBy: { createdAt: "desc" },
+    take: 300,
+  });
+  return orders.map(serializeOrder);
+}
+
+export async function getRetailOrderPublic(id: string) {
+  const order = await prisma.retailOrder.findUnique({ where: { id } });
+  if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    total: toNumber(order.total),
+    createdAt: order.createdAt,
+    preparedAt: order.preparedAt ?? null,
+  };
+}
+
+async function getOrCreateRetailCustomer() {
+  const existing = await prisma.customer.findFirst({ where: { name: RETAIL_CUSTOMER_NAME } });
+  if (existing) return existing;
+  return prisma.customer.create({
+    data: {
+      name: RETAIL_CUSTOMER_NAME,
+      phone: RETAIL_CUSTOMER_PHONE,
+      openingBalance: 0,
+      currentBalance: 0,
+    },
+  });
+}
+
+export async function markRetailOrderPrepared(orderId: string, userId: string) {
+  const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
+  if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
+  if (order.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
+  if (order.status === "CANCELLED") throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
+
+  const items = (order.items as unknown as Array<{ productId: string; quantity: number; unitPrice: number }>) ?? [];
+
+  // Create the cash sale invoice under the dedicated retail customer.
+  const customer = await getOrCreateRetailCustomer();
+  const invoice = await createInvoice(
+    {
+      customerId: customer.id,
+      type: "SALE",
+      discount: toNumber(order.discount),
+      tax: 0,
+      paidAmount: toNumber(order.total),
+      paymentType: "CASH",
+      items: items.map((i) => ({
+        productId: i.productId,
+        unit: Unit.PIECE,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
+    },
+    userId,
+  );
+
+  // Store the real buyer's details in the invoice notes.
+  const noteParts = [
+    `طلب كتلوك المفرد ${order.orderNumber}`,
+    `الزبون: ${order.customerName}`,
+    `الهاتف: ${order.phone}`,
+    order.address ? `العنوان: ${order.address}` : "",
+    order.notes ? `ملاحظات: ${order.notes}` : "",
+  ].filter(Boolean);
+  await prisma.invoice.update({ where: { id: invoice.id }, data: { notes: noteParts.join("\n") } }).catch(() => {});
+
+  await prisma.retailOrder.update({
+    where: { id: orderId },
+    data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId, invoiceId: invoice.id },
+  });
+
+  // Notify the customer that the order is on its way.
+  setImmediate(() => {
+    safeSendWA(order.phone, `طلبك رقم ${order.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
+  });
+
+  return { id: order.id, orderNumber: order.orderNumber, invoiceId: invoice.id };
+}
+
+export async function cancelRetailOrder(orderId: string) {
+  const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
+  if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
+  if (order.status === "PREPARED") throw new AppError("لا يمكن إلغاء طلب مجهز", 400, "RETAIL_ALREADY_PREPARED");
+  await prisma.retailOrder.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+  return { id: order.id };
+}

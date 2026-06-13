@@ -8,6 +8,14 @@ import {
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import { getClientPortal, getClientPortalInvoice } from "../controllers/customer-portal.controller";
+import {
+  getPublicActiveCoupon,
+  getPublicRetailCatalog,
+  getPublicRetailOrder,
+  getPublicStoreInfo,
+  postPublicRetailOrder,
+  previewPublicCoupon,
+} from "../controllers/retail-public.controller";
 import { validate } from "../middleware/validate";
 import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
 import prisma from "../config/database";
@@ -21,6 +29,9 @@ import {
   sendOtpSchema,
   verifyOtpSchema,
   checkVerifiedSchema,
+  submitRetailOrderSchema,
+  previewRetailCouponSchema,
+  idParamSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -36,6 +47,14 @@ router.get("/catalog/access/status", catalogLimiter, validate(catalogAccessStatu
 router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogSession);
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
+
+// Retail storefront (كتلوك المفرد) — fully public, no login
+router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);
+router.get("/retail/catalog", catalogLimiter, getPublicRetailCatalog);
+router.get("/retail/active-coupon", catalogLimiter, getPublicActiveCoupon);
+router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCouponSchema), previewPublicCoupon);
+router.post("/retail/orders", catalogLimiter, validate(submitRetailOrderSchema), postPublicRetailOrder);
+router.get("/retail/orders/:id", catalogLimiter, validate(idParamSchema), getPublicRetailOrder);
 
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);

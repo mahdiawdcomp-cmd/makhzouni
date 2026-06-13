@@ -51,6 +51,15 @@ import type {
   StocktakeSessionSummary,
   StocktakeSessionDetail,
   PublicInvoiceDetail,
+  RetailItem,
+  RetailItemPayload,
+  RetailCoupon,
+  RetailCouponPayload,
+  RetailOrder,
+  PublicRetailItem,
+  PublicRetailCoupon,
+  RetailOrderResult,
+  PublicRetailOrderStatus,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -360,6 +369,11 @@ export async function reactivateInvoice(id: string) {
   return data
 }
 
+export async function permanentDeleteInvoice(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/permanent`)
+  return data
+}
+
 export async function getInvoiceAuditTrail(id: string) {
   const { data } = await api.get<ApiEnvelope<InvoiceAuditEntry[]>>(`/invoices/${id}/audit-trail`)
   return data.data ?? []
@@ -438,7 +452,7 @@ export async function invoiceImageObjectUrl(id: string) {
   return URL.createObjectURL(data as Blob)
 }
 
-export async function getVouchers(params?: { customerId?: string; type?: "RECEIPT" | "PAYMENT" | "EXPENSE"; limit?: number }) {
+export async function getVouchers(params?: { customerId?: string; type?: "RECEIPT" | "PAYMENT" | "EXPENSE"; limit?: number; showCancelled?: boolean }) {
   const { data } = await api.get<PagedResponse<Voucher>>("/vouchers", { params: { limit: 1000, ...params } })
   return data.data ?? []
 }
@@ -455,6 +469,16 @@ export async function createVoucher(payload: VoucherPayload) {
 
 export async function updateVoucher(id: string, payload: Partial<VoucherPayload>) {
   const { data } = await api.put<ApiEnvelope<Voucher>>(`/vouchers/${id}`, payload)
+  return data
+}
+
+export async function cancelVoucher(id: string) {
+  const { data } = await api.post<ApiEnvelope<Voucher>>(`/vouchers/${id}/cancel`)
+  return data
+}
+
+export async function restoreVoucher(id: string) {
+  const { data } = await api.post<ApiEnvelope<Voucher>>(`/vouchers/${id}/restore`)
   return data
 }
 
@@ -931,4 +955,98 @@ export interface DisplayData {
 export async function getDisplayProducts() {
   const { data } = await publicApi.get<{ success: boolean; data: DisplayData }>("/public/display-products")
   return data.data
+}
+
+// ── Retail catalog: admin ──────────────────────────────────────────────────────
+export async function getRetailItems() {
+  const { data } = await api.get<ApiEnvelope<RetailItem[]>>("/retail-catalog/items")
+  return data.data ?? []
+}
+
+export async function createRetailItem(payload: RetailItemPayload) {
+  const { data } = await api.post<ApiEnvelope<RetailItem>>("/retail-catalog/items", payload)
+  return data.data!
+}
+
+export async function updateRetailItem(id: string, payload: Partial<RetailItemPayload>) {
+  const { data } = await api.put<ApiEnvelope<RetailItem>>(`/retail-catalog/items/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteRetailItem(id: string) {
+  await api.delete(`/retail-catalog/items/${id}`)
+}
+
+export async function getRetailCoupons() {
+  const { data } = await api.get<ApiEnvelope<RetailCoupon[]>>("/retail-catalog/coupons")
+  return data.data ?? []
+}
+
+export async function createRetailCoupon(payload: RetailCouponPayload) {
+  const { data } = await api.post<ApiEnvelope<RetailCoupon>>("/retail-catalog/coupons", payload)
+  return data.data!
+}
+
+export async function updateRetailCoupon(id: string, payload: Partial<RetailCouponPayload>) {
+  const { data } = await api.put<ApiEnvelope<RetailCoupon>>(`/retail-catalog/coupons/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteRetailCoupon(id: string) {
+  await api.delete(`/retail-catalog/coupons/${id}`)
+}
+
+export async function getRetailOrders(status?: "PENDING" | "PREPARED" | "CANCELLED") {
+  const { data } = await api.get<ApiEnvelope<RetailOrder[]>>("/retail-catalog/orders", {
+    params: status ? { status } : undefined,
+  })
+  return data.data ?? []
+}
+
+export async function prepareRetailOrder(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; orderNumber: string; invoiceId: string }>>(`/retail-catalog/orders/${id}/prepare`)
+  return data
+}
+
+export async function cancelRetailOrder(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ id: string }>>(`/retail-catalog/orders/${id}/cancel`)
+  return data
+}
+
+// ── Retail storefront: public (no auth) ────────────────────────────────────────
+export async function getPublicStoreInfo() {
+  const { data } = await publicApi.get<ApiEnvelope<{ storeName: string; storeLogo: string; currency: string }>>("/public/retail/store-info")
+  return data.data ?? { storeName: "متجرنا", storeLogo: "", currency: "د.ع" }
+}
+
+export async function getPublicRetailCatalog() {
+  const { data } = await publicApi.get<ApiEnvelope<PublicRetailItem[]>>("/public/retail/catalog")
+  return data.data ?? []
+}
+
+export async function getPublicActiveCoupon() {
+  const { data } = await publicApi.get<ApiEnvelope<PublicRetailCoupon | null>>("/public/retail/active-coupon")
+  return data.data ?? null
+}
+
+export async function previewPublicRetailCoupon(code: string, subtotal: number) {
+  const { data } = await publicApi.post<ApiEnvelope<{ discount: number; code: string }>>("/public/retail/coupon/preview", { code, subtotal })
+  return data.data!
+}
+
+export async function submitPublicRetailOrder(payload: {
+  customerName: string
+  phone: string
+  address?: string
+  notes?: string
+  couponCode?: string
+  items: Array<{ retailItemId: string; quantity: number }>
+}) {
+  const { data } = await publicApi.post<ApiEnvelope<RetailOrderResult>>("/public/retail/orders", payload)
+  return data.data!
+}
+
+export async function getPublicRetailOrderStatus(id: string) {
+  const { data } = await publicApi.get<ApiEnvelope<PublicRetailOrderStatus>>(`/public/retail/orders/${id}`)
+  return data.data!
 }

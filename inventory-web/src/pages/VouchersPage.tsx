@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Eye, Plus, Receipt, ReceiptText, RefreshCw, Wallet } from "lucide-react"
-import { createVoucher, getCustomers, getVouchers } from "../api/endpoints"
+import { Ban, Eye, Pencil, Plus, Receipt, ReceiptText, RefreshCw, Wallet } from "lucide-react"
+import { cancelVoucher, createVoucher, getCustomers, getVouchers } from "../api/endpoints"
 import type { Voucher } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -28,7 +28,18 @@ const filterChipIdle =
 export function VouchersPage() {
   usePageTitle("السندات")
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const [cancelVoucherId, setCancelVoucherId] = useState<string | null>(null)
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => cancelVoucher(id),
+    onSuccess: () => {
+      setCancelVoucherId(null)
+      void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
+      void queryClient.invalidateQueries({ queryKey: ["customers"] })
+    },
+  })
   const urlType = searchParams.get("type") as FilterType | null
   const urlAction = searchParams.get("action") as Type | null
 
@@ -205,7 +216,7 @@ export function VouchersPage() {
                 <TH>المبلغ</TH>
                 <TH>الزبون / الوصف</TH>
                 <TH>التاريخ</TH>
-                <TH>عرض</TH>
+                <TH>إجراءات</TH>
               </TR>
             </THead>
             <TBody>
@@ -231,13 +242,35 @@ export function VouchersPage() {
                     <TD>{voucher.customer?.name ?? voucher.description ?? "—"}</TD>
                     <TD>{String(voucher.date).slice(0, 10)}</TD>
                     <TD>
-                      <Button
-                        variant="outline"
-                        title="عرض السند (تبويب جديد)"
-                        onClick={() => window.open(`/vouchers/${voucher.id}`, "_blank", "noopener,noreferrer")}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="عرض السند (تبويب جديد)"
+                          onClick={() => window.open(`/vouchers/${voucher.id}`, "_blank", "noopener,noreferrer")}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="تعديل السند"
+                          onClick={() => navigate(`/vouchers/${voucher.id}`)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {!voucher.cancelledAt && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            title="تعطيل السند"
+                            className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                            onClick={() => setCancelVoucherId(voucher.id)}
+                          >
+                            <Ban className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TD>
                   </TR>
                 )
@@ -414,6 +447,17 @@ export function VouchersPage() {
           setDialogOpen(false)
         }}
         onCancel={() => setCloseVoucherConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={!!cancelVoucherId}
+        title="تعطيل هذا السند؟"
+        description="سيتم إلغاء تأثيره على حساب الزبون. يمكن استعادته لاحقاً من صفحة التفاصيل."
+        confirmLabel="تعطيل"
+        destructive
+        loading={cancelMutation.isPending}
+        onConfirm={() => { if (cancelVoucherId) cancelMutation.mutate(cancelVoucherId) }}
+        onCancel={() => setCancelVoucherId(null)}
       />
     </div>
   )

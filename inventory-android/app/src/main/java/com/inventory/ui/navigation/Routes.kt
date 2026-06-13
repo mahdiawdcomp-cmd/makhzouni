@@ -31,6 +31,7 @@ object Routes {
     const val Notifications = "notifications"
     const val AccountLookup = "account-lookup"
     const val VoiceInvoice  = "voice-invoice"
+    const val OcrInvoice    = "ocr-invoice"
     const val Agent = "agent"
     const val CatalogManagement = "catalog-management"
     const val Operations = "operations"
@@ -42,6 +43,7 @@ object Routes {
     const val Branches = "operations/branches"
     const val Coupons = "operations/coupons"
     const val AuditLogs = "operations/audit-logs"
+    const val RetailOrders = "operations/retail-orders"
 
     fun productDetail(productId: String) = "products/$productId"
     fun productEdit(productId: String) = "products/$productId/edit"
