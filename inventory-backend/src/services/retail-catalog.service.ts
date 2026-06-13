@@ -737,58 +737,38 @@ async function getOrCreateRetailCustomer() {
   });
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new AppError(label, 504, "TIMEOUT")), ms)),
-  ]);
-}
-
-export async function markRetailOrderPrepared(orderId: string, userId: string) {
-  logger.info(`[RetailPrepare] start order=${orderId}`);
-  // Wake the (Neon serverless) database before starting the multi-statement
-  // invoice transaction — a transaction begun while the DB is waking can hang.
-  await ensureConnected().catch(() => {});
-
-  const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
-  if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
-  if (order.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
-  if (order.status === "CANCELLED") throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
-
-  const items = (order.items as unknown as Array<{ productId: string; quantity: number; unitPrice: number }>) ?? [];
-
-  // Create the cash sale invoice under the dedicated retail customer.
-  // This is best-effort and bounded: if it is slow/fails, we still mark the
-  // order prepared and notify the customer so the button never hangs.
-  let invoiceId: string | null = null;
+// Create the cash-sale invoice for a prepared retail order in the BACKGROUND,
+// decoupled from the HTTP response so it never blocks the button. Retries handle
+// Neon serverless cold-starts. Guarded against duplicates via order.invoiceId.
+async function createRetailInvoiceInBackground(orderId: string, userId: string, attempt = 0): Promise<void> {
   try {
-    const customer = await getOrCreateRetailCustomer();
-    logger.info(`[RetailPrepare] creating invoice for ${items.length} item(s)`);
-    const invoice = await withTimeout(
-      createInvoice(
-        {
-          customerId: customer.id,
-          type: "SALE",
-          discount: toNumber(order.discount),
-          tax: 0,
-          paidAmount: toNumber(order.total),
-          paymentType: "CASH",
-          items: items.map((i) => ({
-            productId: i.productId,
-            unit: Unit.PIECE,
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-          })),
-        },
-        userId,
-      ),
-      25000,
-      "تعذر إنشاء الفاتورة (انتهت المهلة) — تم تجهيز الطلب",
-    );
-    invoiceId = invoice.id;
-    logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created`);
+    await ensureConnected().catch(() => {});
+    const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
+    if (!order) return;
+    if (order.invoiceId) return; // already invoiced
 
-    // Store the real buyer's details in the invoice notes.
+    const items = (order.items as unknown as Array<{ productId: string; quantity: number; unitPrice: number }>) ?? [];
+    const customer = await getOrCreateRetailCustomer();
+    logger.info(`[RetailPrepare] (bg attempt ${attempt + 1}) creating invoice for order ${order.orderNumber}`);
+
+    const invoice = await createInvoice(
+      {
+        customerId: customer.id,
+        type: "SALE",
+        discount: toNumber(order.discount),
+        tax: 0,
+        paidAmount: toNumber(order.total),
+        paymentType: "CASH",
+        items: items.map((i) => ({
+          productId: i.productId,
+          unit: Unit.PIECE,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+        })),
+      },
+      userId,
+    );
+
     const noteParts = [
       `طلب كتلوك المفرد ${order.orderNumber}`,
       `الزبون: ${order.customerName}`,
@@ -797,22 +777,44 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
       order.notes ? `ملاحظات: ${order.notes}` : "",
     ].filter(Boolean);
     await prisma.invoice.update({ where: { id: invoice.id }, data: { notes: noteParts.join("\n") } }).catch(() => {});
+    await prisma.retailOrder.update({ where: { id: orderId }, data: { invoiceId: invoice.id } });
+    logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created for order ${order.orderNumber}`);
   } catch (err) {
-    logger.error(`[RetailPrepare] invoice step failed (order still marked prepared): ${err instanceof Error ? err.message : String(err)}`);
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`[RetailPrepare] bg invoice attempt ${attempt + 1} failed: ${msg}`);
+    if (attempt < 4) {
+      setTimeout(() => void createRetailInvoiceInBackground(orderId, userId, attempt + 1), 3000 * (attempt + 1));
+    } else {
+      logger.error(`[RetailPrepare] giving up on invoice for order ${orderId} after ${attempt + 1} attempts`);
+    }
   }
+}
 
+export async function markRetailOrderPrepared(orderId: string, userId: string) {
+  logger.info(`[RetailPrepare] start order=${orderId}`);
+  await ensureConnected().catch(() => {});
+
+  const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
+  if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
+  if (order.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
+  if (order.status === "CANCELLED") throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
+
+  // Mark prepared immediately so the button always completes fast.
   await prisma.retailOrder.update({
     where: { id: orderId },
-    data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId, invoiceId },
+    data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId },
   });
-  logger.info(`[RetailPrepare] order ${order.orderNumber} marked prepared (invoice=${invoiceId ?? "none"})`);
+  logger.info(`[RetailPrepare] order ${order.orderNumber} marked prepared`);
+
+  // Invoice creation + stock deduction happen in the background (with retries).
+  void createRetailInvoiceInBackground(orderId, userId);
 
   // Notify the customer that the order is on its way.
   setImmediate(() => {
     safeSendWA(order.phone, `طلبك رقم ${order.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
   });
 
-  return { id: order.id, orderNumber: order.orderNumber, invoiceId };
+  return { id: order.id, orderNumber: order.orderNumber };
 }
 
 export async function cancelRetailOrder(orderId: string) {
