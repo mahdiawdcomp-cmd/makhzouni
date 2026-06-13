@@ -53,10 +53,13 @@ import type {
   PublicInvoiceDetail,
   RetailItem,
   RetailItemPayload,
+  RetailCategory,
+  RetailCategoryPayload,
   RetailCoupon,
   RetailCouponPayload,
   RetailOrder,
   PublicRetailItem,
+  PublicRetailCategory,
   PublicRetailCoupon,
   RetailOrderResult,
   PublicRetailOrderStatus,
@@ -977,6 +980,25 @@ export async function deleteRetailItem(id: string) {
   await api.delete(`/retail-catalog/items/${id}`)
 }
 
+export async function getRetailCategories() {
+  const { data } = await api.get<ApiEnvelope<RetailCategory[]>>("/retail-catalog/categories")
+  return data.data ?? []
+}
+
+export async function createRetailCategory(payload: RetailCategoryPayload) {
+  const { data } = await api.post<ApiEnvelope<RetailCategory>>("/retail-catalog/categories", payload)
+  return data.data!
+}
+
+export async function updateRetailCategory(id: string, payload: Partial<RetailCategoryPayload>) {
+  const { data } = await api.put<ApiEnvelope<RetailCategory>>(`/retail-catalog/categories/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteRetailCategory(id: string) {
+  await api.delete(`/retail-catalog/categories/${id}`)
+}
+
 export async function getRetailCoupons() {
   const { data } = await api.get<ApiEnvelope<RetailCoupon[]>>("/retail-catalog/coupons")
   return data.data ?? []
@@ -1021,6 +1043,11 @@ export async function getPublicStoreInfo() {
 
 export async function getPublicRetailCatalog() {
   const { data } = await publicApi.get<ApiEnvelope<PublicRetailItem[]>>("/public/retail/catalog")
+  return data.data ?? []
+}
+
+export async function getPublicRetailCategories() {
+  const { data } = await publicApi.get<ApiEnvelope<PublicRetailCategory[]>>("/public/retail/categories")
   return data.data ?? []
 }
 

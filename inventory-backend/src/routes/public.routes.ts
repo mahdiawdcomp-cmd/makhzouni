@@ -11,6 +11,7 @@ import { getClientPortal, getClientPortalInvoice } from "../controllers/customer
 import {
   getPublicActiveCoupon,
   getPublicRetailCatalog,
+  getPublicRetailCategories,
   getPublicRetailOrder,
   getPublicStoreInfo,
   postPublicRetailOrder,
@@ -50,6 +51,7 @@ router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema
 
 // Retail storefront (كتلوك المفرد) — fully public, no login
 router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);
+router.get("/retail/categories", catalogLimiter, getPublicRetailCategories);
 router.get("/retail/catalog", catalogLimiter, getPublicRetailCatalog);
 router.get("/retail/active-coupon", catalogLimiter, getPublicActiveCoupon);
 router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCouponSchema), previewPublicCoupon);

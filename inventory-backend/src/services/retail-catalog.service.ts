@@ -89,9 +89,16 @@ function serializeItem(item: any) {
     title: item.title ?? null,
     description: item.description ?? null,
     price: toNumber(item.price),
+    oldPrice: item.oldPrice != null ? toNumber(item.oldPrice) : null,
+    category: item.category ?? null,
+    subCategory: item.subCategory ?? null,
     images: Array.isArray(item.images) ? item.images : [],
     sortOrder: item.sortOrder,
     featured: item.featured,
+    isBestSeller: item.isBestSeller,
+    isNew: item.isNew,
+    isOffer: item.isOffer,
+    lowStockBadge: item.lowStockBadge,
     isActive: item.isActive,
     currentStock: stock,
     createdAt: item.createdAt,
@@ -110,16 +117,30 @@ export async function listRetailItems() {
   return items.map(serializeItem);
 }
 
-export async function createRetailItem(input: {
-  productId: string;
+type RetailItemFields = {
   title?: string;
   description?: string;
-  price: number;
+  price?: number;
+  oldPrice?: number | null;
+  category?: string | null;
+  subCategory?: string | null;
   images?: string[];
   sortOrder?: number;
   featured?: boolean;
+  isBestSeller?: boolean;
+  isNew?: boolean;
+  isOffer?: boolean;
+  lowStockBadge?: boolean;
   isActive?: boolean;
-}) {
+};
+
+const itemInclude = {
+  product: {
+    select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+  },
+} as const;
+
+export async function createRetailItem(input: RetailItemFields & { productId: string; price: number }) {
   const product = await prisma.product.findFirst({ where: { id: input.productId, deletedAt: null } });
   if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
 
@@ -129,51 +150,75 @@ export async function createRetailItem(input: {
       title: input.title?.trim() || null,
       description: input.description?.trim() || null,
       price: input.price,
+      oldPrice: input.oldPrice ?? null,
+      category: input.category?.trim() || null,
+      subCategory: input.subCategory?.trim() || null,
       images: (input.images ?? []) as unknown as object,
       sortOrder: input.sortOrder ?? 0,
       featured: input.featured ?? false,
+      isBestSeller: input.isBestSeller ?? false,
+      isNew: input.isNew ?? false,
+      isOffer: input.isOffer ?? false,
+      lowStockBadge: input.lowStockBadge ?? false,
       isActive: input.isActive ?? true,
     },
-    include: {
-      product: {
-        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
-      },
-    },
+    include: itemInclude,
   });
   return serializeItem(item);
 }
 
-export async function updateRetailItem(
-  id: string,
-  patch: {
-    title?: string;
-    description?: string;
-    price?: number;
-    images?: string[];
-    sortOrder?: number;
-    featured?: boolean;
-    isActive?: boolean;
-  },
-) {
+export async function updateRetailItem(id: string, patch: RetailItemFields) {
   const data: Record<string, unknown> = {};
   if (patch.title !== undefined) data.title = patch.title?.trim() || null;
   if (patch.description !== undefined) data.description = patch.description?.trim() || null;
   if (patch.price !== undefined) data.price = patch.price;
+  if (patch.oldPrice !== undefined) data.oldPrice = patch.oldPrice;
+  if (patch.category !== undefined) data.category = patch.category?.trim() || null;
+  if (patch.subCategory !== undefined) data.subCategory = patch.subCategory?.trim() || null;
   if (patch.images !== undefined) data.images = patch.images as unknown as object;
   if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
   if (patch.featured !== undefined) data.featured = patch.featured;
+  if (patch.isBestSeller !== undefined) data.isBestSeller = patch.isBestSeller;
+  if (patch.isNew !== undefined) data.isNew = patch.isNew;
+  if (patch.isOffer !== undefined) data.isOffer = patch.isOffer;
+  if (patch.lowStockBadge !== undefined) data.lowStockBadge = patch.lowStockBadge;
   if (patch.isActive !== undefined) data.isActive = patch.isActive;
 
   const item = await prisma.retailCatalogItem.update({
     where: { id },
     data,
-    include: {
-      product: {
-        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
-      },
-    },
+    include: itemInclude,
   });
   return serializeItem(item);
+}
+
+// ── Admin: categories ─────────────────────────────────────────────────────────
+
+export async function listRetailCategories() {
+  return prisma.retailCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+}
+
+export async function createRetailCategory(input: { name: string; subCategories?: string[]; sortOrder?: number }) {
+  return prisma.retailCategory.create({
+    data: {
+      name: input.name.trim(),
+      subCategories: (input.subCategories ?? []).map((s) => s.trim()).filter(Boolean),
+      sortOrder: input.sortOrder ?? 0,
+    },
+  });
+}
+
+export async function updateRetailCategory(id: string, patch: { name?: string; subCategories?: string[]; sortOrder?: number }) {
+  const data: Record<string, unknown> = {};
+  if (patch.name !== undefined) data.name = patch.name.trim();
+  if (patch.subCategories !== undefined) data.subCategories = patch.subCategories.map((s) => s.trim()).filter(Boolean);
+  if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
+  return prisma.retailCategory.update({ where: { id }, data });
+}
+
+export async function deleteRetailCategory(id: string) {
+  await prisma.retailCategory.delete({ where: { id } });
+  return { id };
 }
 
 export async function deleteRetailItem(id: string) {
@@ -273,12 +318,24 @@ export async function listPublicRetailItems() {
         title: item.title || item.product?.name || "",
         description: item.description ?? null,
         price: toNumber(item.price),
+        oldPrice: item.oldPrice != null ? toNumber(item.oldPrice) : null,
+        category: item.category ?? null,
+        subCategory: item.subCategory ?? null,
         images: Array.isArray(item.images) ? (item.images as string[]) : [],
         featured: item.featured,
+        isBestSeller: item.isBestSeller,
+        isNew: item.isNew,
+        isOffer: item.isOffer,
+        lowStockBadge: item.lowStockBadge,
         currentStock: stock,
       };
     })
     .filter((item) => item.currentStock > 0);
+}
+
+export async function listPublicRetailCategories() {
+  const categories = await prisma.retailCategory.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+  return categories.map((c) => ({ name: c.name, subCategories: c.subCategories }));
 }
 
 function couponIsValidNow(coupon: { isActive: boolean; startsAt: Date | null; endsAt: Date | null; maxUses: number | null; usedCount: number }) {

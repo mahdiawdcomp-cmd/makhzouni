@@ -591,16 +591,27 @@ export const updateMessageTemplateSchema = z.object({
 
 // ── Retail catalog (كتلوك المفرد) ──────────────────────────────────────────────
 
+const retailItemFields = {
+  title: z.string().trim().max(160).optional(),
+  description: z.string().trim().max(1000).optional(),
+  oldPrice: z.coerce.number().nonnegative().nullable().optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  subCategory: z.string().trim().max(120).nullable().optional(),
+  images: z.array(z.string()).max(8).optional(),
+  sortOrder: z.coerce.number().int().optional(),
+  featured: z.boolean().optional(),
+  isBestSeller: z.boolean().optional(),
+  isNew: z.boolean().optional(),
+  isOffer: z.boolean().optional(),
+  lowStockBadge: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+};
+
 export const createRetailItemSchema = z.object({
   body: z.object({
     productId: z.string().uuid(),
-    title: z.string().trim().max(160).optional(),
-    description: z.string().trim().max(1000).optional(),
     price: z.coerce.number().nonnegative(),
-    images: z.array(z.string()).max(8).optional(),
-    sortOrder: z.coerce.number().int().optional(),
-    featured: z.boolean().optional(),
-    isActive: z.boolean().optional(),
+    ...retailItemFields,
   }),
 });
 
@@ -608,13 +619,29 @@ export const updateRetailItemSchema = z.object({
   params: uuidParam,
   body: z
     .object({
-      title: z.string().trim().max(160).nullable().optional(),
-      description: z.string().trim().max(1000).nullable().optional(),
       price: z.coerce.number().nonnegative().optional(),
-      images: z.array(z.string()).max(8).optional(),
+      ...retailItemFields,
+    })
+    .refine((body) => Object.keys(body).length > 0, {
+      message: "At least one field is required",
+    }),
+});
+
+export const createRetailCategorySchema = z.object({
+  body: z.object({
+    name: z.string().trim().min(1).max(120),
+    subCategories: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    sortOrder: z.coerce.number().int().optional(),
+  }),
+});
+
+export const updateRetailCategorySchema = z.object({
+  params: uuidParam,
+  body: z
+    .object({
+      name: z.string().trim().min(1).max(120).optional(),
+      subCategories: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
       sortOrder: z.coerce.number().int().optional(),
-      featured: z.boolean().optional(),
-      isActive: z.boolean().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one field is required",

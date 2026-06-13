@@ -718,9 +718,16 @@ export interface RetailItem {
   title?: string | null
   description?: string | null
   price: number
+  oldPrice?: number | null
+  category?: string | null
+  subCategory?: string | null
   images: string[]
   sortOrder: number
   featured: boolean
+  isBestSeller: boolean
+  isNew: boolean
+  isOffer: boolean
+  lowStockBadge: boolean
   isActive: boolean
   currentStock: number
   createdAt?: string
@@ -731,10 +738,30 @@ export interface RetailItemPayload {
   title?: string
   description?: string
   price: number
+  oldPrice?: number | null
+  category?: string | null
+  subCategory?: string | null
   images?: string[]
   sortOrder?: number
   featured?: boolean
+  isBestSeller?: boolean
+  isNew?: boolean
+  isOffer?: boolean
+  lowStockBadge?: boolean
   isActive?: boolean
+}
+
+export interface RetailCategory {
+  id: string
+  name: string
+  subCategories: string[]
+  sortOrder: number
+}
+
+export interface RetailCategoryPayload {
+  name: string
+  subCategories?: string[]
+  sortOrder?: number
 }
 
 export interface RetailCoupon {
@@ -796,9 +823,21 @@ export interface PublicRetailItem {
   title: string
   description?: string | null
   price: number
+  oldPrice?: number | null
+  category?: string | null
+  subCategory?: string | null
   images: string[]
   featured: boolean
+  isBestSeller: boolean
+  isNew: boolean
+  isOffer: boolean
+  lowStockBadge: boolean
   currentStock: number
+}
+
+export interface PublicRetailCategory {
+  name: string
+  subCategories: string[]
 }
 
 export interface PublicRetailCoupon {

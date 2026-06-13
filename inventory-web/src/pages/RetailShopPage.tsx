@@ -1,30 +1,37 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   ArrowRight,
   CheckCircle2,
   ClipboardList,
   Gift,
+  Grid2x2,
+  Grid3x3,
   Minus,
   Package,
   Plus,
+  Search,
+  Share2,
   ShoppingBag,
   ShoppingCart,
+  Sparkles,
   Store,
   Tag,
   Trash2,
+  TrendingUp,
   Truck,
   X,
 } from "lucide-react"
 import {
   getPublicActiveCoupon,
   getPublicRetailCatalog,
+  getPublicRetailCategories,
   getPublicRetailOrderStatus,
   getPublicStoreInfo,
   previewPublicRetailCoupon,
   submitPublicRetailOrder,
 } from "../api/endpoints"
-import type { PublicRetailItem } from "../types/api"
+import type { PublicRetailItem, PublicRetailCategory } from "../types/api"
 
 type Tab = "catalog" | "cart" | "orders"
 type CartLine = { item: PublicRetailItem; quantity: number }
@@ -50,6 +57,13 @@ export function RetailShopPage() {
 
   const catalogQuery = useQuery({ queryKey: ["public-retail-catalog"], queryFn: getPublicRetailCatalog })
   const couponQuery = useQuery({ queryKey: ["public-retail-coupon"], queryFn: getPublicActiveCoupon })
+  const categoriesQuery = useQuery({ queryKey: ["public-retail-categories"], queryFn: getPublicRetailCategories })
+
+  function shareItem(item: PublicRetailItem) {
+    const text = `${item.title}\nالسعر: ${money(item.price)} ${currency}\n${window.location.origin}/shop`
+    const url = `https://wa.me/?text=${encodeURIComponent(text)}`
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
 
   const [tab, setTab] = useState<Tab>("catalog")
   const [cart, setCart] = useState<CartLine[]>([])
@@ -118,9 +132,11 @@ export function RetailShopPage() {
             <CatalogView
               loading={catalogQuery.isLoading}
               items={catalogQuery.data ?? []}
+              categories={categoriesQuery.data ?? []}
               currency={currency}
               onAdd={(it) => addToCart(it)}
               onOpen={setDetail}
+              onShare={shareItem}
             />
           )}
           {tab === "cart" && (
@@ -168,6 +184,7 @@ export function RetailShopPage() {
           item={detail}
           currency={currency}
           onClose={() => setDetail(null)}
+          onShare={() => shareItem(detail)}
           onAdd={(qty) => { addToCart(detail, qty); setDetail(null); setTab("cart") }}
         />
       )}
@@ -200,13 +217,52 @@ export function RetailShopPage() {
 }
 
 // ── Catalog ───────────────────────────────────────────────────────────────────
-function CatalogView({ loading, items, currency, onAdd, onOpen }: {
+type Collection = "all" | "best" | "offers" | "new"
+
+function discountPct(item: PublicRetailItem): number | null {
+  if (item.oldPrice && item.oldPrice > item.price) return Math.round((1 - item.price / item.oldPrice) * 100)
+  return null
+}
+
+function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onShare }: {
   loading: boolean
   items: PublicRetailItem[]
+  categories: PublicRetailCategory[]
   currency: string
   onAdd: (item: PublicRetailItem) => void
   onOpen: (item: PublicRetailItem) => void
+  onShare: (item: PublicRetailItem) => void
 }) {
+  const [collection, setCollection] = useState<Collection>("all")
+  const [category, setCategory] = useState<string | null>(null)
+  const [subCategory, setSubCategory] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [cols, setCols] = useState<2 | 3>(2)
+
+  const featured = useMemo(() => items.filter((i) => i.featured).slice(0, 10), [items])
+  const subOptions = categories.find((c) => c.name === category)?.subCategories ?? []
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return items.filter((item) => {
+      if (collection === "best" && !item.isBestSeller) return false
+      if (collection === "offers" && !item.isOffer) return false
+      if (collection === "new" && !item.isNew) return false
+      if (category && item.category !== category) return false
+      if (subCategory && item.subCategory !== subCategory) return false
+      if (q && !(item.title.toLowerCase().includes(q) || (item.description ?? "").toLowerCase().includes(q))) return false
+      return true
+    })
+  }, [items, collection, category, subCategory, search])
+
+  const collections: { id: Collection; label: string; icon?: typeof TrendingUp }[] = [
+    { id: "all", label: "الكل" },
+    { id: "best", label: "الأكثر مبيعاً", icon: TrendingUp },
+    { id: "offers", label: "العروض", icon: Tag },
+    { id: "new", label: "الجديد", icon: Sparkles },
+  ]
+
   if (loading) return <div className="py-16 text-center text-slate-400">جاري التحميل...</div>
   if (items.length === 0) return (
     <div className="py-16 text-center text-slate-400">
@@ -214,43 +270,138 @@ function CatalogView({ loading, items, currency, onAdd, onOpen }: {
       <p className="mt-2">لا توجد مواد متاحة حالياً.</p>
     </div>
   )
+
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {items.map((item) => (
-        <div key={item.id} className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <button type="button" onClick={() => onOpen(item)} className="relative block aspect-square w-full bg-slate-100">
-            {item.images[0] ? (
-              <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-10 w-10" /></div>
-            )}
-            {item.featured ? <span className="absolute right-2 top-2 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">مميز</span> : null}
-          </button>
-          <div className="p-2.5">
-            <div className="line-clamp-2 min-h-[2.4rem] text-sm font-bold leading-tight">{item.title}</div>
-            <div className="mt-1 text-base font-extrabold text-indigo-600">{money(item.price)} <span className="text-[10px] font-normal text-slate-400">{currency}</span></div>
-            <button
-              type="button"
-              onClick={() => onAdd(item)}
-              className="mt-2 flex w-full items-center justify-center gap-1 rounded-xl bg-indigo-600 py-2 text-xs font-bold text-white active:scale-95"
-            >
-              <Plus className="h-4 w-4" /> أضف للسلة
-            </button>
-          </div>
+    <div className="space-y-3">
+      {/* Hero carousel */}
+      {featured.length > 0 && collection === "all" && !category && !search && (
+        <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
+          {featured.map((item) => {
+            const pct = discountPct(item)
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onOpen(item)}
+                className="relative h-40 w-[78%] shrink-0 snap-center overflow-hidden rounded-2xl bg-slate-200"
+              >
+                {item.images[0] ? <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-10 w-10" /></div>}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-right">
+                  <div className="text-sm font-bold text-white">{item.title}</div>
+                  <div className="text-base font-extrabold text-white">{money(item.price)} {currency}</div>
+                </div>
+                {pct ? <span className="absolute right-2 top-2 rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-white">-{pct}%</span> : null}
+              </button>
+            )
+          })}
         </div>
-      ))}
+      )}
+
+      {/* Search + grid toggle */}
+      <div className="flex items-center gap-2">
+        {searchOpen ? (
+          <div className="flex flex-1 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="ابحث عن مادة..."
+              className="flex-1 bg-transparent py-2 text-sm outline-none"
+            />
+            <button type="button" onClick={() => { setSearch(""); setSearchOpen(false) }}><X className="h-4 w-4 text-slate-400" /></button>
+          </div>
+        ) : (
+          <>
+            <button type="button" onClick={() => setSearchOpen(true)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500"><Search className="h-4 w-4" /></button>
+            <div className="flex flex-1 gap-1.5 overflow-x-auto">
+              {collections.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setCollection(c.id)}
+                  className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${collection === c.id ? "bg-indigo-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                >
+                  {c.icon ? <c.icon className="h-3.5 w-3.5" /> : null}{c.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <button type="button" onClick={() => setCols((c) => (c === 2 ? 3 : 2))} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500" title="طريقة العرض">
+          {cols === 2 ? <Grid3x3 className="h-4 w-4" /> : <Grid2x2 className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {/* Category chips */}
+      {categories.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          <button type="button" onClick={() => { setCategory(null); setSubCategory(null) }} className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${!category ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>كل الأقسام</button>
+          {categories.map((c) => (
+            <button key={c.name} type="button" onClick={() => { setCategory(c.name); setSubCategory(null) }} className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${category === c.name ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c.name}</button>
+          ))}
+        </div>
+      )}
+      {/* Sub-category chips */}
+      {subOptions.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${!subCategory ? "bg-indigo-100 text-indigo-700" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
+          {subOptions.map((s) => (
+            <button key={s} type="button" onClick={() => setSubCategory(s)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${subCategory === s ? "bg-indigo-100 text-indigo-700" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>{s}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Grid */}
+      {filtered.length === 0 ? (
+        <div className="py-12 text-center text-sm text-slate-400">لا توجد مواد مطابقة.</div>
+      ) : (
+        <div className={`grid gap-2 ${cols === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+          {filtered.map((item) => {
+            const pct = discountPct(item)
+            return (
+              <div key={item.id} className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+                <button type="button" onClick={() => onOpen(item)} className="relative block aspect-square w-full bg-slate-100">
+                  {item.images[0] ? <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-8 w-8" /></div>}
+                  {pct ? <span className="absolute right-1.5 top-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">-{pct}%</span> : null}
+                  {item.lowStockBadge ? <span className="absolute left-1.5 top-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">كمية قليلة</span> : null}
+                  {!item.lowStockBadge && item.isNew ? <span className="absolute left-1.5 top-1.5 rounded-full bg-blue-500 px-1.5 py-0.5 text-[9px] font-bold text-white">جديد</span> : null}
+                </button>
+                <div className="p-1.5">
+                  <div className={`line-clamp-1 font-bold leading-tight ${cols === 2 ? "text-sm" : "text-xs"}`}>{item.title}</div>
+                  <div className="flex items-baseline gap-1">
+                    <span className={`font-extrabold text-indigo-600 ${cols === 2 ? "text-sm" : "text-xs"}`}>{money(item.price)}</span>
+                    {pct ? <span className="text-[10px] text-slate-400 line-through">{money(item.oldPrice!)}</span> : <span className="text-[9px] text-slate-400">{currency}</span>}
+                  </div>
+                  {cols === 2 && item.description ? <div className="line-clamp-1 text-[10px] text-slate-400">{item.description}</div> : null}
+                  <div className="mt-1 flex items-center gap-1">
+                    <button type="button" onClick={() => onAdd(item)} className="flex flex-1 items-center justify-center gap-0.5 rounded-lg bg-indigo-600 py-1.5 text-[11px] font-bold text-white active:scale-95">
+                      <Plus className="h-3.5 w-3.5" /> أضف
+                    </button>
+                    <button type="button" onClick={() => onShare(item)} className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600" title="مشاركة واتساب">
+                      <Share2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
-function ItemDetailModal({ item, currency, onClose, onAdd }: {
+function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
   item: PublicRetailItem
   currency: string
   onClose: () => void
   onAdd: (qty: number) => void
+  onShare: () => void
 }) {
   const [active, setActive] = useState(0)
   const [qty, setQty] = useState(1)
+  const pct = item.oldPrice && item.oldPrice > item.price ? Math.round((1 - item.price / item.oldPrice) * 100) : null
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-[480px] overflow-y-auto rounded-t-3xl bg-white sm:rounded-3xl" onClick={(e) => e.stopPropagation()} dir="rtl">
@@ -272,8 +423,14 @@ function ItemDetailModal({ item, currency, onClose, onAdd }: {
           </div>
         )}
         <div className="space-y-3 p-4">
-          <div className="text-xl font-extrabold">{item.title}</div>
-          <div className="text-2xl font-extrabold text-indigo-600">{money(item.price)} <span className="text-sm font-normal text-slate-400">{currency}</span></div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="text-xl font-extrabold">{item.title}</div>
+            <button type="button" onClick={onShare} className="shrink-0 rounded-lg bg-emerald-50 p-2 text-emerald-600" title="مشاركة واتساب"><Share2 className="h-5 w-5" /></button>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold text-indigo-600">{money(item.price)} <span className="text-sm font-normal text-slate-400">{currency}</span></span>
+            {pct ? <><span className="text-base text-slate-400 line-through">{money(item.oldPrice!)}</span><span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">-{pct}%</span></> : null}
+          </div>
           {item.description ? <p className="text-sm leading-relaxed text-slate-600">{item.description}</p> : null}
           <div className="text-xs text-emerald-600">متوفر: {item.currentStock} قطعة</div>
 

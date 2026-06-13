@@ -3,10 +3,15 @@ import prisma from "../config/database";
 import {
   getActiveRetailCoupon,
   getRetailOrderPublic,
+  listPublicRetailCategories,
   listPublicRetailItems,
   previewRetailCoupon,
   submitRetailOrder,
 } from "../services/retail-catalog.service";
+
+export const getPublicRetailCategories = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listPublicRetailCategories() });
+});
 
 export const getPublicStoreInfo = asyncHandler(async (_req, res) => {
   const rows = await prisma.setting.findMany({

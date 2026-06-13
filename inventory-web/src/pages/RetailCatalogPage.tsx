@@ -6,30 +6,37 @@ import {
   CheckCircle2,
   Clock,
   Copy,
+  FolderTree,
   ImagePlus,
   Pencil,
   Plus,
+  Sparkles,
   Star,
   Store,
   Tag,
+  TrendingUp,
   Trash2,
   X,
 } from "lucide-react"
 import {
   cancelRetailOrder,
+  createRetailCategory,
   createRetailCoupon,
   createRetailItem,
+  deleteRetailCategory,
   deleteRetailCoupon,
   deleteRetailItem,
   getProducts,
+  getRetailCategories,
   getRetailCoupons,
   getRetailItems,
   getRetailOrders,
   prepareRetailOrder,
+  updateRetailCategory,
   updateRetailCoupon,
   updateRetailItem,
 } from "../api/endpoints"
-import type { Product, RetailCoupon, RetailItem, RetailOrder } from "../types/api"
+import type { Product, RetailCategory, RetailCoupon, RetailItem, RetailOrder } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
@@ -40,7 +47,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
 
-type Tab = "products" | "coupons" | "orders"
+type Tab = "products" | "categories" | "coupons" | "orders"
 
 async function compressImage(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file)
@@ -73,6 +80,7 @@ export function RetailCatalogPage() {
 
   const TABS: { id: Tab; label: string; icon: typeof Store; badge?: number }[] = [
     { id: "products", label: "المنتجات", icon: Boxes },
+    { id: "categories", label: "التصنيفات", icon: FolderTree },
     { id: "coupons", label: "الكوبونات", icon: Tag },
     { id: "orders", label: "الطلبات", icon: Clock, badge: pendingCount },
   ]
@@ -121,6 +129,7 @@ export function RetailCatalogPage() {
       </div>
 
       {tab === "products" && <ProductsTab />}
+      {tab === "categories" && <CategoriesTab />}
       {tab === "coupons" && <CouponsTab />}
       {tab === "orders" && <OrdersTab currency={settings?.currency ?? "د.ع"} />}
     </div>
@@ -182,7 +191,21 @@ function ProductsTab() {
               <CardContent className="space-y-2 p-3">
                 <div className="font-bold leading-tight">{item.title ?? item.productName}</div>
                 <div className="text-xs text-slate-500">{item.productName} • {item.itemNumber}</div>
-                <div className="text-lg font-extrabold text-indigo-600">{money(item.price)} <span className="text-xs font-normal text-slate-500">د.ع</span></div>
+                <div className="flex items-baseline gap-2">
+                  <div className="text-lg font-extrabold text-indigo-600">{money(item.price)} <span className="text-xs font-normal text-slate-500">د.ع</span></div>
+                  {item.oldPrice && item.oldPrice > item.price ? (
+                    <div className="text-xs text-slate-400 line-through">{money(item.oldPrice)}</div>
+                  ) : null}
+                </div>
+                {(item.isBestSeller || item.isOffer || item.isNew || item.lowStockBadge) && (
+                  <div className="flex flex-wrap gap-1">
+                    {item.isBestSeller && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">الأكثر مبيعاً</span>}
+                    {item.isOffer && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">عرض</span>}
+                    {item.isNew && <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">جديد</span>}
+                    {item.lowStockBadge && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">كمية قليلة</span>}
+                  </div>
+                )}
+                {item.category ? <div className="text-[11px] text-slate-400">{item.category}{item.subCategory ? ` › ${item.subCategory}` : ""}</div> : null}
                 <div className="flex items-center gap-1 pt-1">
                   <Button variant="outline" size="sm" onClick={() => { setEditing(item); setDialogOpen(true) }}><Pencil className="h-4 w-4" /></Button>
                   <Button variant="outline" size="sm" onClick={() => toggleActive.mutate({ id: item.id, isActive: !item.isActive })}>
@@ -224,6 +247,8 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   const isEdit = !!item
   const productsQuery = useQuery({ queryKey: ["products", "retail-picker"], queryFn: () => getProducts({ limit: 1000 }) })
   const products = (productsQuery.data ?? []) as Product[]
+  const categoriesQuery = useQuery({ queryKey: ["retail-categories"], queryFn: getRetailCategories })
+  const categories = categoriesQuery.data ?? []
 
   const [productId, setProductId] = useState(item?.productId ?? "")
   const [productSearch, setProductSearch] = useState("")
@@ -231,8 +256,16 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   const [title, setTitle] = useState(item?.title ?? "")
   const [description, setDescription] = useState(item?.description ?? "")
   const [price, setPrice] = useState(item ? String(item.price) : "")
+  const [oldPrice, setOldPrice] = useState(item?.oldPrice ? String(item.oldPrice) : "")
+  const [category, setCategory] = useState(item?.category ?? "")
+  const [subCategory, setSubCategory] = useState(item?.subCategory ?? "")
   const [images, setImages] = useState<string[]>(item?.images ?? [])
   const [featured, setFeatured] = useState(item?.featured ?? false)
+  const [isBestSeller, setIsBestSeller] = useState(item?.isBestSeller ?? false)
+  const [isNew, setIsNew] = useState(item?.isNew ?? false)
+  const [isOffer, setIsOffer] = useState(item?.isOffer ?? false)
+  const [lowStockBadge, setLowStockBadge] = useState(item?.lowStockBadge ?? false)
+  const [sortOrder, setSortOrder] = useState(item ? String(item.sortOrder) : "0")
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
@@ -240,6 +273,7 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   const filteredProducts = productSearch.trim()
     ? products.filter((p) => p.name.includes(productSearch) || p.itemNumber.includes(productSearch)).slice(0, 8)
     : products.slice(0, 8)
+  const subOptions = categories.find((c) => c.name === category)?.subCategories ?? []
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -247,8 +281,16 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
         title: title.trim() || undefined,
         description: description.trim() || undefined,
         price: Number(price),
+        oldPrice: oldPrice ? Number(oldPrice) : null,
+        category: category || null,
+        subCategory: subCategory || null,
         images,
         featured,
+        isBestSeller,
+        isNew,
+        isOffer,
+        lowStockBadge,
+        sortOrder: Number(sortOrder) || 0,
       }
       return isEdit ? updateRetailItem(item!.id, payload) : createRetailItem({ productId, ...payload })
     },
@@ -273,18 +315,19 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   }
 
   const canSave = !!productId && Number(price) > 0 && !saveMutation.isPending
+  const hasDiscount = oldPrice && Number(oldPrice) > Number(price || 0)
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>{isEdit ? "تعديل مادة الكتلوك" : "إضافة مادة للكتلوك"}</DialogTitle></DialogHeader>
-        <div className="max-h-[70vh] space-y-3 overflow-y-auto pr-1">
-          {/* Product picker */}
+        <div className="max-h-[75vh] space-y-3 overflow-y-auto pr-1">
+          {/* 1. Link to wholesale product */}
           {!isEdit ? (
             <div className="relative">
-              <label className="mb-1 block text-xs font-semibold text-slate-500">المنتج (للمخزون فقط)</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-500">١. مادة الجملة المرتبطة (للمخزون فقط)</label>
               <Input
-                placeholder="ابحث عن المنتج بالاسم أو الرقم..."
+                placeholder="اكتب اسم المادة بموقع الجملة للربط..."
                 value={selectedProduct ? `${selectedProduct.name} (${selectedProduct.itemNumber})` : productSearch}
                 onChange={(e) => { setProductId(""); setProductSearch(e.target.value); setPickerOpen(true) }}
                 onFocus={() => setPickerOpen(true)}
@@ -307,22 +350,19 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
             </div>
           ) : (
             <div className="rounded-md bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900">
-              المنتج: <span className="font-semibold">{item!.productName}</span> ({item!.itemNumber}) • متوفر {item!.currentStock}
+              مادة الجملة: <span className="font-semibold">{item!.productName}</span> ({item!.itemNumber}) • متوفر {item!.currentStock}
             </div>
           )}
 
+          {/* 2. Retail display name */}
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-500">اسم العرض (اختياري)</label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={selectedProduct?.name ?? "اسم المادة كما يظهر للزبون"} />
+            <label className="mb-1 block text-xs font-semibold text-slate-500">٢. اسم المادة بموقع المفرد</label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={selectedProduct?.name ?? "الاسم كما يظهر للزبون"} />
           </div>
 
+          {/* 3. Description */}
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-500">السعر للقطعة (د.ع)</label>
-            <Input inputMode="numeric" dir="ltr" value={price} onFocus={(e) => e.target.select()} onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-500">الوصف (اختياري)</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">٣. الوصف</label>
             <textarea
               className="w-full rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-950"
               rows={2}
@@ -332,9 +372,56 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
             />
           </div>
 
+          {/* 4. Prices */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-500">٤. السعر الحالي (د.ع)</label>
+              <Input inputMode="numeric" dir="ltr" value={price} onFocus={(e) => e.target.select()} onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="0" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-500">السعر القديم (اختياري)</label>
+              <Input inputMode="numeric" dir="ltr" value={oldPrice} onFocus={(e) => e.target.select()} onChange={(e) => setOldPrice(e.target.value.replace(/[^0-9]/g, ""))} placeholder="—" />
+            </div>
+          </div>
+          {hasDiscount ? (
+            <div className="text-xs font-semibold text-emerald-600">سيظهر للزبون خصم {Math.round((1 - Number(price) / Number(oldPrice)) * 100)}% (السعر القديم مشطوب)</div>
+          ) : null}
+
+          {/* 5. Category + sub */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيف الرئيسي</label>
+              <select
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                value={category}
+                onChange={(e) => { setCategory(e.target.value); setSubCategory("") }}
+              >
+                <option value="">— بدون —</option>
+                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيف الثانوي</label>
+              <select
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950"
+                value={subCategory}
+                onChange={(e) => setSubCategory(e.target.value)}
+                disabled={subOptions.length === 0}
+              >
+                <option value="">— بدون —</option>
+                {subOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+          {categories.length === 0 ? (
+            <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+              لا توجد تصنيفات بعد — أضف تصنيفات من تبويب "التصنيفات".
+            </div>
+          ) : null}
+
           {/* Images */}
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-500">الصور ({images.length}/8)</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">٥. الصور ({images.length}/8)</label>
             <div className="flex flex-wrap gap-2">
               {images.map((img, i) => (
                 <div key={i} className="relative h-20 w-20 overflow-hidden rounded-lg ring-1 ring-slate-200">
@@ -354,10 +441,22 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void onPickFiles(e.target.files)} />
           </div>
 
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="h-4 w-4" />
-            <Star className="h-4 w-4 text-amber-500" /> مادة مميزة (تظهر بالمقدمة)
-          </label>
+          {/* Collections / badges */}
+          <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <div className="text-xs font-semibold text-slate-500">الظهور والمجموعات</div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} className="h-4 w-4" /><Sparkles className="h-4 w-4 text-violet-500" /> بالبنل المتحرك</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={isBestSeller} onChange={(e) => setIsBestSeller(e.target.checked)} className="h-4 w-4" /><TrendingUp className="h-4 w-4 text-emerald-500" /> الأكثر مبيعاً</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={isOffer} onChange={(e) => setIsOffer(e.target.checked)} className="h-4 w-4" /><Tag className="h-4 w-4 text-orange-500" /> ضمن العروض</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={isNew} onChange={(e) => setIsNew(e.target.checked)} className="h-4 w-4" /><Star className="h-4 w-4 text-blue-500" /> جديد</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={lowStockBadge} onChange={(e) => setLowStockBadge(e.target.checked)} className="h-4 w-4" /><span className="text-rose-500">⚠</span> شارة "كمية قليلة"</label>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <label className="text-xs font-semibold text-slate-500">ترتيب الظهور</label>
+              <Input className="h-8 w-24" inputMode="numeric" dir="ltr" value={sortOrder} onChange={(e) => setSortOrder(e.target.value.replace(/[^0-9]/g, ""))} />
+              <span className="text-[11px] text-slate-400">الأصغر يظهر أولاً</span>
+            </div>
+          </div>
 
           <Button className="w-full" disabled={!canSave} onClick={() => saveMutation.mutate()}>
             {saveMutation.isPending ? "جاري الحفظ..." : isEdit ? "حفظ التعديلات" : "إضافة للكتلوك"}
@@ -367,6 +466,123 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
               {saveMutation.error instanceof Error ? saveMutation.error.message : "تعذر الحفظ"}
             </div>
           ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Categories tab ────────────────────────────────────────────────────────────
+function CategoriesTab() {
+  const qc = useQueryClient()
+  const categoriesQuery = useQuery({ queryKey: ["retail-categories"], queryFn: getRetailCategories })
+  const [editing, setEditing] = useState<RetailCategory | null>(null)
+  const [open, setOpen] = useState(false)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteRetailCategory(id),
+    onSuccess: () => { setDeleteId(null); void qc.invalidateQueries({ queryKey: ["retail-categories"] }) },
+  })
+
+  const categories = categoriesQuery.data ?? []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500">تصنيفات خاصة بالمفرد (مستقلة عن الجملة) — رئيسية وتحتها ثانوية.</p>
+        <Button onClick={() => { setEditing(null); setOpen(true) }}><Plus className="h-4 w-4" /> تصنيف جديد</Button>
+      </div>
+      {categoriesQuery.isLoading ? (
+        <div className="py-10 text-center text-sm text-slate-400">جاري التحميل...</div>
+      ) : categories.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-slate-500">لا توجد تصنيفات. أضف أول تصنيف ليظهر للزبون كفلتر.</CardContent></Card>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {categories.map((cat) => (
+            <Card key={cat.id}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="font-bold">{cat.name}</div>
+                  <div className="flex gap-1">
+                    <Button variant="outline" size="sm" onClick={() => { setEditing(cat); setOpen(true) }}><Pencil className="h-4 w-4" /></Button>
+                    <Button variant="outline" size="sm" className="border-rose-300 text-rose-600 hover:bg-rose-50" onClick={() => setDeleteId(cat.id)}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                </div>
+                {cat.subCategories.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {cat.subCategories.map((s) => <span key={s} className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">{s}</span>)}
+                  </div>
+                ) : <div className="mt-2 text-xs text-slate-400">بدون تصنيفات ثانوية</div>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {open && <CategoryDialog category={editing} onClose={() => setOpen(false)} onSaved={() => { setOpen(false); void qc.invalidateQueries({ queryKey: ["retail-categories"] }) }} />}
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="حذف التصنيف؟"
+        description="المواد المرتبطة بهذا التصنيف ستبقى لكن بدون تصنيف."
+        confirmLabel="حذف"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId) }}
+        onCancel={() => setDeleteId(null)}
+      />
+    </div>
+  )
+}
+
+function CategoryDialog({ category, onClose, onSaved }: { category: RetailCategory | null; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!category
+  const [name, setName] = useState(category?.name ?? "")
+  const [subs, setSubs] = useState<string[]>(category?.subCategories ?? [])
+  const [subDraft, setSubDraft] = useState("")
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = { name: name.trim(), subCategories: subs }
+      return isEdit ? updateRetailCategory(category!.id, payload) : createRetailCategory(payload)
+    },
+    onSuccess: onSaved,
+  })
+
+  function addSub() {
+    const v = subDraft.trim()
+    if (v && !subs.includes(v)) setSubs((cur) => [...cur, v])
+    setSubDraft("")
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>{isEdit ? "تعديل التصنيف" : "تصنيف جديد"}</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم التصنيف الرئيسي (مثل: ألعاب)" />
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيفات الثانوية</label>
+            <div className="flex gap-2">
+              <Input value={subDraft} onChange={(e) => setSubDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSub() } }} placeholder="اكتب واضغط إضافة" />
+              <Button type="button" variant="outline" onClick={addSub}>إضافة</Button>
+            </div>
+            {subs.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {subs.map((s) => (
+                  <span key={s} className="flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200">
+                    {s}
+                    <button type="button" onClick={() => setSubs((cur) => cur.filter((x) => x !== s))}><X className="h-3 w-3" /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <Button className="w-full" disabled={name.trim().length < 1 || save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? "جاري الحفظ..." : "حفظ"}
+          </Button>
+          {save.isError ? <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">{save.error instanceof Error ? save.error.message : "تعذر الحفظ"}</div> : null}
         </div>
       </DialogContent>
     </Dialog>

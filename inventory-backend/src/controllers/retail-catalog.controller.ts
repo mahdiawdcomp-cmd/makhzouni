@@ -2,14 +2,18 @@ import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
   cancelRetailOrder,
+  createRetailCategory,
   createRetailCoupon,
   createRetailItem,
+  deleteRetailCategory,
   deleteRetailCoupon,
   deleteRetailItem,
+  listRetailCategories,
   listRetailCoupons,
   listRetailItems,
   listRetailOrders,
   markRetailOrderPrepared,
+  updateRetailCategory,
   updateRetailCoupon,
   updateRetailItem,
 } from "../services/retail-catalog.service";
@@ -46,6 +50,23 @@ export const patchRetailCoupon = asyncHandler(async (req, res) => {
 
 export const removeRetailCoupon = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await deleteRetailCoupon(String(req.params.id)) });
+});
+
+// ── Categories ──
+export const getRetailCategories = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listRetailCategories() });
+});
+
+export const postRetailCategory = asyncHandler(async (req, res) => {
+  res.status(201).json({ success: true, data: await createRetailCategory(req.body) });
+});
+
+export const patchRetailCategory = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await updateRetailCategory(String(req.params.id), req.body) });
+});
+
+export const removeRetailCategory = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await deleteRetailCategory(String(req.params.id)) });
 });
 
 // ── Orders ──
