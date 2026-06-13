@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { motion, AnimatePresence } from "framer-motion"
 import {
   ArrowRight,
   CheckCircle2,
   ClipboardList,
   Gift,
-  Grid2x2,
-  Grid3x3,
+  LayoutGrid,
   Minus,
   Package,
+  Phone,
   Plus,
   Search,
   Share2,
@@ -20,6 +21,7 @@ import {
   Trash2,
   TrendingUp,
   Truck,
+  Users,
   X,
 } from "lucide-react"
 import {
@@ -27,6 +29,7 @@ import {
   getPublicRetailCatalog,
   getPublicRetailCategories,
   getPublicRetailOrderStatus,
+  getPublicRetailOrdersByPhone,
   getPublicStoreInfo,
   previewPublicRetailCoupon,
   submitPublicRetailOrder,
@@ -145,6 +148,7 @@ export function RetailShopPage() {
               currency={currency}
               storeName={storeName}
               subtotal={subtotal}
+              categories={categoriesQuery.data ?? []}
               setQty={setQty}
               onPlaced={onOrderPlaced}
               goCatalog={() => setTab("catalog")}
@@ -169,25 +173,36 @@ export function RetailShopPage() {
               >
                 <Icon className="h-5 w-5" />
                 {label}
+                {tab === id && <motion.span layoutId="navdot" className="absolute -bottom-0 h-0.5 w-8 rounded-full bg-indigo-600" />}
                 {id === "cart" && cartCount > 0 && (
                   <span className="absolute right-[28%] top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">{cartCount}</span>
                 )}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => window.open("/catalog", "_blank", "noopener,noreferrer")}
+              className="relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium text-emerald-600"
+            >
+              <Users className="h-5 w-5" />
+              للجملة
+            </button>
           </div>
         </nav>
       </div>
 
       {/* Item detail modal */}
-      {detail && (
-        <ItemDetailModal
-          item={detail}
-          currency={currency}
-          onClose={() => setDetail(null)}
-          onShare={() => shareItem(detail)}
-          onAdd={(qty) => { addToCart(detail, qty); setDetail(null); setTab("cart") }}
-        />
-      )}
+      <AnimatePresence>
+        {detail && (
+          <ItemDetailModal
+            item={detail}
+            currency={currency}
+            onClose={() => setDetail(null)}
+            onShare={() => shareItem(detail)}
+            onAdd={(qty) => { addToCart(detail, qty); setDetail(null); setTab("cart") }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Welcome coupon popup */}
       {showCoupon && couponQuery.data && (
@@ -238,10 +253,20 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   const [subCategory, setSubCategory] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [searchOpen, setSearchOpen] = useState(false)
-  const [cols, setCols] = useState<2 | 3>(2)
+  const COL_CYCLE = [3, 2, 4, 5]
+  const [cols, setCols] = useState(3)
+  function cycleCols() {
+    setCols((c) => COL_CYCLE[(COL_CYCLE.indexOf(c) + 1) % COL_CYCLE.length] ?? 3)
+  }
 
   const featured = useMemo(() => items.filter((i) => i.featured).slice(0, 10), [items])
-  const subOptions = categories.find((c) => c.name === category)?.subCategories ?? []
+  // Only show sub-categories that actually have items under the selected main category.
+  const subOptions = useMemo(() => {
+    if (!category) return [] as string[]
+    const defined = categories.find((c) => c.name === category)?.subCategories ?? []
+    const used = new Set(items.filter((i) => i.categories.includes(category)).flatMap((i) => i.subCategories))
+    return defined.filter((s) => used.has(s))
+  }, [categories, items, category])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -249,8 +274,8 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       if (collection === "best" && !item.isBestSeller) return false
       if (collection === "offers" && !item.isOffer) return false
       if (collection === "new" && !item.isNew) return false
-      if (category && item.category !== category) return false
-      if (subCategory && item.subCategory !== subCategory) return false
+      if (category && !item.categories.includes(category)) return false
+      if (subCategory && !item.subCategories.includes(subCategory)) return false
       if (q && !(item.title.toLowerCase().includes(q) || (item.description ?? "").toLowerCase().includes(q))) return false
       return true
     })
@@ -328,8 +353,8 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
             </div>
           </>
         )}
-        <button type="button" onClick={() => setCols((c) => (c === 2 ? 3 : 2))} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500" title="طريقة العرض">
-          {cols === 2 ? <Grid3x3 className="h-4 w-4" /> : <Grid2x2 className="h-4 w-4" />}
+        <button type="button" onClick={cycleCols} className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-500" title="عدد المنتجات بالسطر">
+          <LayoutGrid className="h-4 w-4" /> {cols}
         </button>
       </div>
 
@@ -356,11 +381,17 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       {filtered.length === 0 ? (
         <div className="py-12 text-center text-sm text-slate-400">لا توجد مواد مطابقة.</div>
       ) : (
-        <div className={`grid gap-2 ${cols === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-          {filtered.map((item) => {
+        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+          {filtered.map((item, idx) => {
             const pct = discountPct(item)
             return (
-              <div key={item.id} className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm">
+              <motion.div
+                key={item.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: Math.min(idx * 0.015, 0.3) }}
+                className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              >
                 <button type="button" onClick={() => onOpen(item)} className="relative block aspect-square w-full bg-slate-100">
                   {item.images[0] ? <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-8 w-8" /></div>}
                   {pct ? <span className="absolute right-1.5 top-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">-{pct}%</span> : null}
@@ -368,22 +399,24 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                   {!item.lowStockBadge && item.isNew ? <span className="absolute left-1.5 top-1.5 rounded-full bg-blue-500 px-1.5 py-0.5 text-[9px] font-bold text-white">جديد</span> : null}
                 </button>
                 <div className="p-1.5">
-                  <div className={`line-clamp-1 font-bold leading-tight ${cols === 2 ? "text-sm" : "text-xs"}`}>{item.title}</div>
+                  <div className={`line-clamp-1 font-bold leading-tight ${cols <= 2 ? "text-sm" : "text-xs"}`}>{item.title}</div>
                   <div className="flex items-baseline gap-1">
-                    <span className={`font-extrabold text-indigo-600 ${cols === 2 ? "text-sm" : "text-xs"}`}>{money(item.price)}</span>
+                    <span className={`font-extrabold text-indigo-600 ${cols <= 2 ? "text-sm" : "text-xs"}`}>{money(item.price)}</span>
                     {pct ? <span className="text-[10px] text-slate-400 line-through">{money(item.oldPrice!)}</span> : <span className="text-[9px] text-slate-400">{currency}</span>}
                   </div>
-                  {cols === 2 && item.description ? <div className="line-clamp-1 text-[10px] text-slate-400">{item.description}</div> : null}
+                  {cols <= 2 && item.description ? <div className="line-clamp-1 text-[10px] text-slate-400">{item.description}</div> : null}
                   <div className="mt-1 flex items-center gap-1">
                     <button type="button" onClick={() => onAdd(item)} className="flex flex-1 items-center justify-center gap-0.5 rounded-lg bg-indigo-600 py-1.5 text-[11px] font-bold text-white active:scale-95">
-                      <Plus className="h-3.5 w-3.5" /> أضف
+                      <Plus className="h-3.5 w-3.5" /> {cols >= 4 ? "" : "أضف"}
                     </button>
-                    <button type="button" onClick={() => onShare(item)} className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600" title="مشاركة واتساب">
-                      <Share2 className="h-3.5 w-3.5" />
-                    </button>
+                    {cols <= 3 && (
+                      <button type="button" onClick={() => onShare(item)} className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600" title="مشاركة واتساب">
+                        <Share2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             )
           })}
         </div>
@@ -402,9 +435,38 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
   const [active, setActive] = useState(0)
   const [qty, setQty] = useState(1)
   const pct = item.oldPrice && item.oldPrice > item.price ? Math.round((1 - item.price / item.oldPrice) * 100) : null
+
+  // Hardware/browser back button closes the modal instead of leaving the page,
+  // returning the user to the exact spot they were browsing.
+  useEffect(() => {
+    window.history.pushState({ retailDetail: true }, "")
+    const onPop = () => onClose()
+    window.addEventListener("popstate", onPop)
+    return () => {
+      window.removeEventListener("popstate", onPop)
+      // If the modal closed without a back event, consume the pushed entry.
+      if (window.history.state?.retailDetail) window.history.back()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-[480px] overflow-y-auto rounded-t-3xl bg-white sm:rounded-3xl" onClick={(e) => e.stopPropagation()} dir="rtl">
+    <motion.div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        className="max-h-[90vh] w-full max-w-[480px] overflow-y-auto rounded-t-3xl bg-white sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+        dir="rtl"
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 30, stiffness: 300 }}
+      >
         <div className="relative aspect-square bg-slate-100">
           {item.images[active] ? (
             <img src={item.images[active]} alt={item.title} className="h-full w-full object-cover" />
@@ -444,15 +506,16 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
             <ShoppingCart className="h-5 w-5" /> أضف للسلة — {money(item.price * qty)} {currency}
           </button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
 
 // ── Cart + Checkout ─────────────────────────────────────────────────────────
-function CartView({ cart, currency, storeName, subtotal, setQty, onPlaced, goCatalog }: {
+function CartView({ cart, currency, storeName, subtotal, categories, setQty, onPlaced, goCatalog }: {
   cart: CartLine[]
   currency: string
+  categories: PublicRetailCategory[]
   storeName: string
   subtotal: number
   setQty: (id: string, qty: number) => void
@@ -472,6 +535,19 @@ function CartView({ cart, currency, storeName, subtotal, setQty, onPlaced, goCat
   const [placing, setPlacing] = useState(false)
   const [placeError, setPlaceError] = useState("")
   const [success, setSuccess] = useState<{ orderNumber: string } | null>(null)
+
+  // Loyalty / survey
+  const [isSubscriber, setIsSubscriber] = useState(false)
+  const [showSurvey, setShowSurvey] = useState(false)
+  const [interests, setInterests] = useState<string[]>([])
+  const [wishNote, setWishNote] = useState("")
+  const allInterestOptions = useMemo(
+    () => [...new Set(categories.flatMap((c) => [c.name, ...c.subCategories]))],
+    [categories],
+  )
+  function toggleInterest(v: string) {
+    setInterests((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]))
+  }
 
   const discount = appliedCoupon?.discount ?? 0
   const total = Math.max(0, subtotal - discount)
@@ -501,6 +577,9 @@ function CartView({ cart, currency, storeName, subtotal, setQty, onPlaced, goCat
         address: address.trim() || undefined,
         notes: notes.trim() || undefined,
         couponCode: appliedCoupon?.code,
+        isSubscriber,
+        interests: isSubscriber ? interests : undefined,
+        wishNote: isSubscriber && wishNote.trim() ? wishNote.trim() : undefined,
         items: cart.map((l) => ({ retailItemId: l.item.id, quantity: l.quantity })),
       })
       setSuccess({ orderNumber: res.orderNumber })
@@ -605,6 +684,51 @@ function CartView({ cart, currency, storeName, subtotal, setQty, onPlaced, goCat
               <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="رقم الهاتف" dir="ltr" inputMode="tel" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
               <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="العنوان (المنطقة، أقرب نقطة دالة)" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات (اختياري)" rows={2} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+
+              {/* Loyalty opt-in */}
+              <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-indigo-50 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isSubscriber}
+                  onChange={(e) => { setIsSubscriber(e.target.checked); if (e.target.checked) setShowSurvey(false) }}
+                  className="mt-0.5 h-4 w-4"
+                />
+                <span>
+                  <span className="font-bold text-indigo-700">أحب أكون من الزبائن الدائمين 💜</span>
+                  <span className="block text-[11px] text-indigo-600/80">لتوصلك إشعارات بالجديد وخصومات قوية</span>
+                </span>
+              </label>
+
+              {isSubscriber && !showSurvey && allInterestOptions.length > 0 && (
+                <button type="button" onClick={() => setShowSurvey(true)} className="w-full rounded-xl border border-dashed border-indigo-300 py-2 text-xs font-semibold text-indigo-600">
+                  اكو استبيان صغير اختياري — تحب تكمله؟ (يساعدنا نرسلك الي يهمك)
+                </button>
+              )}
+
+              {isSubscriber && showSurvey && (
+                <div className="space-y-2 rounded-xl border border-indigo-100 p-3">
+                  <div className="text-xs font-semibold text-slate-600">شنو يهمك؟ (اختر التصنيفات)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {allInterestOptions.map((opt) => (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => toggleInterest(opt)}
+                        className={`rounded-full px-2.5 py-1 text-[11px] transition ${interests.includes(opt) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600"}`}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={wishNote}
+                    onChange={(e) => setWishNote(e.target.value)}
+                    placeholder="شي تدوّر عليه وما لگيته؟ (اختياري)"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              )}
+
               {placeError ? <div className="rounded-lg bg-rose-50 p-2 text-xs text-rose-600">{placeError}</div> : null}
               <button
                 type="button"
@@ -624,21 +748,79 @@ function CartView({ cart, currency, storeName, subtotal, setQty, onPlaced, goCat
 }
 
 // ── Orders tracking ───────────────────────────────────────────────────────────
+function statusBlock(status: string) {
+  if (status === "PREPARED") return (
+    <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-emerald-700">
+      <Truck className="h-5 w-5" /><span className="text-sm font-bold">تم التجهيز — طلبك في الطريق إليك 🚗</span>
+    </div>
+  )
+  if (status === "CANCELLED") return (
+    <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-3 text-rose-700">
+      <X className="h-5 w-5" /><span className="text-sm font-bold">تم إلغاء الطلب</span>
+    </div>
+  )
+  return (
+    <div className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-amber-700">
+      <Package className="h-5 w-5 animate-pulse" /><span className="text-sm font-bold">قيد التجهيز — سنرسله إليك قريباً</span>
+    </div>
+  )
+}
+
 function OrdersView({ orders, currency, goCatalog }: { orders: SavedOrder[]; currency: string; goCatalog: () => void }) {
-  if (orders.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center px-6 py-20 text-center text-slate-400">
-        <ClipboardList className="h-14 w-14 opacity-40" />
-        <p className="mt-3">لا توجد طلبات بعد</p>
-        <button type="button" onClick={goCatalog} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white">ابدأ التسوّق</button>
-      </div>
-    )
-  }
+  const [phoneInput, setPhoneInput] = useState("")
+  const [lookupPhone, setLookupPhone] = useState("")
+
+  const byPhoneQuery = useQuery({
+    queryKey: ["public-retail-my-orders", lookupPhone],
+    queryFn: () => getPublicRetailOrdersByPhone(lookupPhone),
+    enabled: lookupPhone.replace(/\D/g, "").length >= 6,
+    refetchInterval: 30_000,
+  })
+  const phoneOrders = byPhoneQuery.data ?? []
+
   return (
     <div className="space-y-3">
-      {orders.map((order) => (
-        <OrderStatusCard key={order.id} order={order} currency={currency} />
+      {/* Phone lookup */}
+      <div className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+        <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-600"><Phone className="h-4 w-4 text-indigo-500" /> اعرض طلباتك السابقة</div>
+        <div className="flex gap-2">
+          <input
+            value={phoneInput}
+            onChange={(e) => setPhoneInput(e.target.value)}
+            placeholder="اكتب رقم هاتفك"
+            dir="ltr"
+            inputMode="tel"
+            className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+          />
+          <button type="button" onClick={() => setLookupPhone(phoneInput.trim())} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white">عرض</button>
+        </div>
+      </div>
+
+      {lookupPhone && byPhoneQuery.isLoading && <div className="py-6 text-center text-sm text-slate-400">جاري البحث...</div>}
+      {lookupPhone && !byPhoneQuery.isLoading && phoneOrders.length === 0 && (
+        <div className="py-6 text-center text-sm text-slate-400">لا توجد طلبات لهذا الرقم.</div>
+      )}
+
+      {phoneOrders.map((order) => (
+        <motion.div key={order.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-mono font-bold text-indigo-600">{order.orderNumber}</span>
+            <span className="text-sm font-extrabold">{money(order.total)} {currency}</span>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-400">{new Date(order.createdAt).toLocaleString("en-GB")}</div>
+          <div className="mt-3">{statusBlock(order.status)}</div>
+        </motion.div>
       ))}
+
+      {/* Locally-saved orders from this device (only if no phone lookup active) */}
+      {!lookupPhone && orders.length === 0 && (
+        <div className="flex flex-col items-center justify-center px-6 py-12 text-center text-slate-400">
+          <ClipboardList className="h-14 w-14 opacity-40" />
+          <p className="mt-3">لا توجد طلبات على هذا الجهاز — اكتب رقمك أعلاه لعرض طلباتك</p>
+          <button type="button" onClick={goCatalog} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white">ابدأ التسوّق</button>
+        </div>
+      )}
+      {!lookupPhone && orders.map((order) => <OrderStatusCard key={order.id} order={order} currency={currency} />)}
     </div>
   )
 }
@@ -658,23 +840,7 @@ function OrderStatusCard({ order, currency }: { order: SavedOrder; currency: str
         <span className="text-sm font-extrabold">{money(order.total)} {currency}</span>
       </div>
       <div className="mt-1 text-[11px] text-slate-400">{new Date(order.createdAt).toLocaleString("en-GB")}</div>
-      <div className="mt-3">
-        {status === "PREPARED" ? (
-          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-emerald-700">
-            <Truck className="h-5 w-5" />
-            <span className="text-sm font-bold">تم التجهيز — طلبك في الطريق إليك 🚗</span>
-          </div>
-        ) : status === "CANCELLED" ? (
-          <div className="flex items-center gap-2 rounded-xl bg-rose-50 p-3 text-rose-700">
-            <X className="h-5 w-5" /><span className="text-sm font-bold">تم إلغاء الطلب</span>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 rounded-xl bg-amber-50 p-3 text-amber-700">
-            <Package className="h-5 w-5 animate-pulse" />
-            <span className="text-sm font-bold">قيد التجهيز — سنرسله إليك قريباً</span>
-          </div>
-        )}
-      </div>
+      <div className="mt-3">{statusBlock(status)}</div>
     </div>
   )
 }

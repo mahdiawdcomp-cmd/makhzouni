@@ -124,6 +124,44 @@ async function sendGreenApiDocument(phone: string, pdf: Buffer, filename: string
   }
 }
 
+async function sendGreenApiImage(phone: string, image: Buffer, mime: string, caption: string) {
+  const { baseUrl, token } = greenApiConfig();
+  const chatId = normalizeGreenPhone(phone);
+  const ext = mime.includes("png") ? "png" : "jpg";
+  const form = new FormData();
+  const bytes = image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength) as ArrayBuffer;
+  form.append("chatId", chatId);
+  form.append("caption", caption);
+  form.append("fileName", `image.${ext}`);
+  form.append("file", new Blob([bytes], { type: mime }), `image.${ext}`);
+  const res = await fetch(`${baseUrl}/sendFileByUpload/${token}`, { method: "POST", body: form });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new AppError(`Green API image send failed: ${text}`, 502, "GREENAPI_IMAGE_FAILED");
+  }
+}
+
+async function uploadCloudImage(image: Buffer, mime: string) {
+  const { token, baseUrl } = cloudConfig();
+  const bytes = image.buffer.slice(image.byteOffset, image.byteOffset + image.byteLength) as ArrayBuffer;
+  const ext = mime.includes("png") ? "png" : "jpg";
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", mime);
+  form.append("file", new Blob([bytes], { type: mime }), `image.${ext}`);
+  const response = await fetch(`${baseUrl}/media`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!response.ok) {
+    throw new AppError(`WhatsApp Cloud image upload failed: ${await parseGraphError(response)}`, 502, "WHATSAPP_CLOUD_IMAGE_FAILED");
+  }
+  const data = await response.json() as { id?: string };
+  if (!data.id) throw new AppError("WhatsApp Cloud image id missing", 502, "WHATSAPP_CLOUD_IMAGE_ID_MISSING");
+  return data.id;
+}
+
 // ── Meta Cloud API ───────────────────────────────────────────────────────────
 
 function cloudConfig() {
@@ -542,6 +580,50 @@ export async function sendWhatsAppPdf(
       triggerRestart("frame detached");
     } else if (state !== "READY" && process.env.ENABLE_WHATSAPP === "true") {
       scheduleReconnect("send PDF while not ready");
+    }
+    throw err;
+  }
+}
+
+export async function sendWhatsAppImage(
+  phone: string,
+  message: string,
+  image: Buffer,
+  mime = "image/jpeg",
+): Promise<{ to: string }> {
+  if (!whatsappEnabled()) {
+    throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
+  }
+
+  const prov = provider();
+
+  if (prov === "greenapi") {
+    await sendGreenApiImage(phone, image, mime, message);
+    return { to: phone };
+  }
+
+  if (prov === "cloud") {
+    const to = normalizeCloudPhone(phone);
+    const mediaId = await uploadCloudImage(image, mime);
+    await sendCloudMessage({
+      to,
+      type: "image",
+      image: { id: mediaId, caption: message },
+    });
+    return { to };
+  }
+
+  const to = normalizePhone(phone);
+  try {
+    const readyClient = requireReadyClient();
+    const media = new MessageMedia(mime, image.toString("base64"), "image.jpg");
+    await readyClient.sendMessage(to, media, { caption: message });
+    return { to };
+  } catch (err) {
+    if (isFrameDetachedError(err)) {
+      triggerRestart("frame detached");
+    } else if (state !== "READY" && process.env.ENABLE_WHATSAPP === "true") {
+      scheduleReconnect("send image while not ready");
     }
     throw err;
   }

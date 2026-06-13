@@ -627,6 +627,15 @@ export const updateRetailItemSchema = z.object({
     }),
 });
 
+export const retailBroadcastSchema = z.object({
+  body: z.object({
+    message: z.string().trim().min(1).max(2000),
+    images: z.array(z.string()).max(3).optional(),
+    category: z.string().trim().max(120).optional(),
+    subscribersOnly: z.boolean().optional(),
+  }),
+});
+
 export const createRetailCategorySchema = z.object({
   body: z.object({
     name: z.string().trim().min(1).max(120),
@@ -681,6 +690,9 @@ export const submitRetailOrderSchema = z.object({
     address: z.string().trim().max(300).optional(),
     notes: z.string().trim().max(500).optional(),
     couponCode: z.string().trim().max(60).optional(),
+    isSubscriber: z.boolean().optional(),
+    interests: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    wishNote: z.string().trim().max(500).optional(),
     items: z
       .array(
         z.object({

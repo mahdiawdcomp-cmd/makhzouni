@@ -1,6 +1,8 @@
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { logger } from "../utils/logger";
 import {
+  broadcastToRetailCustomers,
   cancelRetailOrder,
   createRetailCategory,
   createRetailCoupon,
@@ -10,6 +12,7 @@ import {
   deleteRetailItem,
   listRetailCategories,
   listRetailCoupons,
+  listRetailCustomers,
   listRetailItems,
   listRetailOrders,
   markRetailOrderPrepared,
@@ -67,6 +70,27 @@ export const patchRetailCategory = asyncHandler(async (req, res) => {
 
 export const removeRetailCategory = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await deleteRetailCategory(String(req.params.id)) });
+});
+
+// ── Customers + broadcast ──
+export const getRetailCustomers = asyncHandler(async (req, res) => {
+  const category = req.query.category ? String(req.query.category) : undefined;
+  const subscribersOnly = req.query.subscribersOnly === "true";
+  res.json({ success: true, data: await listRetailCustomers({ category, subscribersOnly }) });
+});
+
+export const postRetailBroadcast = asyncHandler(async (req, res) => {
+  const { message, images, category, subscribersOnly } = req.body as {
+    message: string; images?: string[]; category?: string; subscribersOnly?: boolean;
+  };
+  const recipients = await listRetailCustomers({ category, subscribersOnly });
+  // Respond immediately; send in the background (sending is throttled and slow).
+  res.json({ success: true, message: `جارٍ الإرسال إلى ${recipients.length} زبون`, data: { total: recipients.length } });
+  setImmediate(() => {
+    broadcastToRetailCustomers({ message, images, category, subscribersOnly })
+      .then((r) => logger.info(`[RetailBroadcast] done: ${r.sent}/${r.total} sent, ${r.failed} failed`))
+      .catch((err) => logger.error(`[RetailBroadcast] error: ${err}`));
+  });
 });
 
 // ── Orders ──

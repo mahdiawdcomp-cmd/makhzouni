@@ -8,17 +8,22 @@ import {
   Copy,
   FolderTree,
   ImagePlus,
+  Megaphone,
   Pencil,
   Plus,
+  Search,
+  Send,
   Sparkles,
   Star,
   Store,
   Tag,
   TrendingUp,
   Trash2,
+  Users,
   X,
 } from "lucide-react"
 import {
+  broadcastToRetailCustomers,
   cancelRetailOrder,
   createRetailCategory,
   createRetailCoupon,
@@ -29,6 +34,7 @@ import {
   getProducts,
   getRetailCategories,
   getRetailCoupons,
+  getRetailCustomers,
   getRetailItems,
   getRetailOrders,
   prepareRetailOrder,
@@ -37,7 +43,7 @@ import {
   updateRetailItem,
 } from "../api/endpoints"
 import type { Product, RetailCategory, RetailCoupon, RetailItem, RetailOrder } from "../types/api"
-import { useSettings } from "../hooks/useSettings"
+import { useSettings, useUpdateSettings } from "../hooks/useSettings"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -47,7 +53,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
 
-type Tab = "products" | "categories" | "coupons" | "orders"
+type Tab = "products" | "categories" | "customers" | "coupons" | "orders"
 
 async function compressImage(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file)
@@ -78,9 +84,12 @@ export function RetailCatalogPage() {
   const pendingOrders = useQuery({ queryKey: ["retail-orders", "PENDING"], queryFn: () => getRetailOrders("PENDING") })
   const pendingCount = pendingOrders.data?.length ?? 0
 
+  const [brandingOpen, setBrandingOpen] = useState(false)
+
   const TABS: { id: Tab; label: string; icon: typeof Store; badge?: number }[] = [
     { id: "products", label: "المنتجات", icon: Boxes },
     { id: "categories", label: "التصنيفات", icon: FolderTree },
+    { id: "customers", label: "الزبائن", icon: Users },
     { id: "coupons", label: "الكوبونات", icon: Tag },
     { id: "orders", label: "الطلبات", icon: Clock, badge: pendingCount },
   ]
@@ -88,13 +97,19 @@ export function RetailCatalogPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold"><Store className="h-6 w-6 text-indigo-500" /> كتلوك المفرد</h1>
-          <p className="text-slate-500">متجر المفرد العام — اختر المواد، الكوبونات، وتابع الطلبات.</p>
+        <div className="flex items-center gap-3">
+          {settings?.storeLogo ? (
+            <img src={settings.storeLogo} alt="logo" className="h-11 w-11 rounded-xl object-contain ring-1 ring-slate-200" />
+          ) : null}
+          <div>
+            <h1 className="flex items-center gap-2 text-2xl font-bold"><Store className="h-6 w-6 text-indigo-500" /> {settings?.storeName || "كتلوك المفرد"}</h1>
+            <p className="text-slate-500">متجر المفرد العام — المواد، التصنيفات، الزبائن، والطلبات.</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setBrandingOpen(true)}>الاسم والشعار</Button>
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
-            <span className="truncate max-w-[220px] text-slate-600 dark:text-slate-300" dir="ltr">{shopUrl}</span>
+            <span className="truncate max-w-[180px] text-slate-600 dark:text-slate-300" dir="ltr">{shopUrl}</span>
             <button
               type="button"
               title="نسخ رابط المتجر"
@@ -107,6 +122,8 @@ export function RetailCatalogPage() {
           <Button variant="outline" onClick={() => window.open(shopUrl, "_blank", "noopener,noreferrer")}>معاينة</Button>
         </div>
       </div>
+
+      {brandingOpen && <BrandingDialog onClose={() => setBrandingOpen(false)} />}
 
       <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 dark:border-slate-700 dark:bg-slate-900">
         {TABS.map((t) => (
@@ -130,6 +147,7 @@ export function RetailCatalogPage() {
 
       {tab === "products" && <ProductsTab />}
       {tab === "categories" && <CategoriesTab />}
+      {tab === "customers" && <CustomersTab />}
       {tab === "coupons" && <CouponsTab />}
       {tab === "orders" && <OrdersTab currency={settings?.currency ?? "د.ع"} />}
     </div>
@@ -154,69 +172,76 @@ function ProductsTab() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["retail-items"] }),
   })
 
-  const items = itemsQuery.data ?? []
+  const [search, setSearch] = useState("")
+  const [perRow, setPerRow] = useState(8)
+  const allItems = itemsQuery.data ?? []
+  const items = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return allItems
+    return allItems.filter((i) =>
+      (i.title ?? "").toLowerCase().includes(q) ||
+      i.productName.toLowerCase().includes(q) ||
+      i.itemNumber.toLowerCase().includes(q) ||
+      i.categories.some((c) => c.toLowerCase().includes(q)),
+    )
+  }, [allItems, search])
+
+  const gridStyle = { gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[180px]">
+          <Search className="absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input className="pr-8" placeholder="بحث عن منتج بالاسم أو الرقم أو التصنيف..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500">بالسطر:</span>
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            value={perRow}
+            onChange={(e) => setPerRow(Number(e.target.value))}
+          >
+            {[4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
         <Button onClick={() => { setEditing(null); setDialogOpen(true) }}>
-          <Plus className="h-4 w-4" /> إضافة مادة للكتلوك
+          <Plus className="h-4 w-4" /> إضافة مادة
         </Button>
       </div>
 
       {itemsQuery.isLoading ? (
         <div className="py-10 text-center text-sm text-slate-400">جاري التحميل...</div>
       ) : items.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-slate-500">لا توجد مواد بعد. اضغط "إضافة مادة" لعرض أول منتج للزبائن.</CardContent></Card>
+        <Card><CardContent className="py-12 text-center text-slate-500">{search ? "لا توجد نتائج مطابقة." : "لا توجد مواد بعد. اضغط \"إضافة مادة\" لعرض أول منتج للزبائن."}</CardContent></Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2" style={gridStyle}>
           {items.map((item) => (
-            <Card key={item.id} className={cn("overflow-hidden", !item.isActive && "opacity-60")}>
-              <div className="relative aspect-square bg-slate-100 dark:bg-slate-800">
+            <div key={item.id} className={cn("overflow-hidden rounded-lg border border-slate-100 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900", !item.isActive && "opacity-50")}>
+              <button type="button" onClick={() => { setEditing(item); setDialogOpen(true) }} className="relative block aspect-square w-full bg-slate-100 dark:bg-slate-800">
                 {item.images[0] ? (
                   <img src={item.images[0]} alt={item.title ?? item.productName} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-slate-300"><ImagePlus className="h-10 w-10" /></div>
+                  <div className="flex h-full items-center justify-center text-slate-300"><ImagePlus className="h-6 w-6" /></div>
                 )}
-                {item.featured ? (
-                  <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-bold text-white"><Star className="h-3 w-3" /> مميز</span>
-                ) : null}
-                <span className={cn(
-                  "absolute left-2 top-2 rounded-full px-2 py-0.5 text-[11px] font-bold",
-                  item.currentStock > 0 ? "bg-emerald-500 text-white" : "bg-rose-500 text-white",
-                )}>
-                  {item.currentStock > 0 ? `متوفر: ${item.currentStock}` : "نفذ"}
+                {item.featured ? <span className="absolute right-1 top-1 rounded bg-amber-500 px-1 text-[8px] font-bold text-white">مميز</span> : null}
+                <span className={cn("absolute left-1 top-1 rounded px-1 text-[8px] font-bold text-white", item.currentStock > 0 ? "bg-emerald-500" : "bg-rose-500")}>
+                  {item.currentStock > 0 ? item.currentStock : "نفذ"}
                 </span>
+              </button>
+              <div className="p-1.5">
+                <div className="line-clamp-1 text-xs font-bold leading-tight">{item.title ?? item.productName}</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xs font-extrabold text-indigo-600">{money(item.price)}</span>
+                  {item.oldPrice && item.oldPrice > item.price ? <span className="text-[9px] text-slate-400 line-through">{money(item.oldPrice)}</span> : null}
+                </div>
+                <div className="mt-1 flex items-center gap-0.5">
+                  <button type="button" title="تعديل" onClick={() => { setEditing(item); setDialogOpen(true) }} className="flex-1 rounded bg-slate-100 py-1 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"><Pencil className="mx-auto h-3 w-3" /></button>
+                  <button type="button" title={item.isActive ? "إخفاء" : "إظهار"} onClick={() => toggleActive.mutate({ id: item.id, isActive: !item.isActive })} className="flex-1 rounded bg-slate-100 py-1 text-[9px] font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300">{item.isActive ? "إخفاء" : "إظهار"}</button>
+                  <button type="button" title="حذف" onClick={() => setDeleteId(item.id)} className="flex-1 rounded bg-rose-50 py-1 text-rose-600 hover:bg-rose-100"><Trash2 className="mx-auto h-3 w-3" /></button>
+                </div>
               </div>
-              <CardContent className="space-y-2 p-3">
-                <div className="font-bold leading-tight">{item.title ?? item.productName}</div>
-                <div className="text-xs text-slate-500">{item.productName} • {item.itemNumber}</div>
-                <div className="flex items-baseline gap-2">
-                  <div className="text-lg font-extrabold text-indigo-600">{money(item.price)} <span className="text-xs font-normal text-slate-500">د.ع</span></div>
-                  {item.oldPrice && item.oldPrice > item.price ? (
-                    <div className="text-xs text-slate-400 line-through">{money(item.oldPrice)}</div>
-                  ) : null}
-                </div>
-                {(item.isBestSeller || item.isOffer || item.isNew || item.lowStockBadge) && (
-                  <div className="flex flex-wrap gap-1">
-                    {item.isBestSeller && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">الأكثر مبيعاً</span>}
-                    {item.isOffer && <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700">عرض</span>}
-                    {item.isNew && <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">جديد</span>}
-                    {item.lowStockBadge && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">كمية قليلة</span>}
-                  </div>
-                )}
-                {item.category ? <div className="text-[11px] text-slate-400">{item.category}{item.subCategory ? ` › ${item.subCategory}` : ""}</div> : null}
-                <div className="flex items-center gap-1 pt-1">
-                  <Button variant="outline" size="sm" onClick={() => { setEditing(item); setDialogOpen(true) }}><Pencil className="h-4 w-4" /></Button>
-                  <Button variant="outline" size="sm" onClick={() => toggleActive.mutate({ id: item.id, isActive: !item.isActive })}>
-                    {item.isActive ? "إخفاء" : "إظهار"}
-                  </Button>
-                  <Button variant="outline" size="sm" className="border-rose-300 text-rose-600 hover:bg-rose-50" onClick={() => setDeleteId(item.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            </div>
           ))}
         </div>
       )}
@@ -257,8 +282,8 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   const [description, setDescription] = useState(item?.description ?? "")
   const [price, setPrice] = useState(item ? String(item.price) : "")
   const [oldPrice, setOldPrice] = useState(item?.oldPrice ? String(item.oldPrice) : "")
-  const [category, setCategory] = useState(item?.category ?? "")
-  const [subCategory, setSubCategory] = useState(item?.subCategory ?? "")
+  const [cats, setCats] = useState<string[]>(item?.categories ?? [])
+  const [subs, setSubs] = useState<string[]>(item?.subCategories ?? [])
   const [images, setImages] = useState<string[]>(item?.images ?? [])
   const [featured, setFeatured] = useState(item?.featured ?? false)
   const [isBestSeller, setIsBestSeller] = useState(item?.isBestSeller ?? false)
@@ -273,7 +298,15 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   const filteredProducts = productSearch.trim()
     ? products.filter((p) => p.name.includes(productSearch) || p.itemNumber.includes(productSearch)).slice(0, 8)
     : products.slice(0, 8)
-  const subOptions = categories.find((c) => c.name === category)?.subCategories ?? []
+  // Sub-options are the union of sub-categories of all selected main categories.
+  const subOptions = [...new Set(categories.filter((c) => cats.includes(c.name)).flatMap((c) => c.subCategories))]
+
+  function toggleCat(name: string) {
+    setCats((cur) => (cur.includes(name) ? cur.filter((c) => c !== name) : [...cur, name]))
+  }
+  function toggleSub(name: string) {
+    setSubs((cur) => (cur.includes(name) ? cur.filter((s) => s !== name) : [...cur, name]))
+  }
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -282,8 +315,8 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
         description: description.trim() || undefined,
         price: Number(price),
         oldPrice: oldPrice ? Number(oldPrice) : null,
-        category: category || null,
-        subCategory: subCategory || null,
+        categories: cats,
+        subCategories: subs.filter((s) => subOptions.includes(s)),
         images,
         featured,
         isBestSeller,
@@ -387,37 +420,47 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
             <div className="text-xs font-semibold text-emerald-600">سيظهر للزبون خصم {Math.round((1 - Number(price) / Number(oldPrice)) * 100)}% (السعر القديم مشطوب)</div>
           ) : null}
 
-          {/* 5. Category + sub */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيف الرئيسي</label>
-              <select
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                value={category}
-                onChange={(e) => { setCategory(e.target.value); setSubCategory("") }}
-              >
-                <option value="">— بدون —</option>
-                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيف الثانوي</label>
-              <select
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950"
-                value={subCategory}
-                onChange={(e) => setSubCategory(e.target.value)}
-                disabled={subOptions.length === 0}
-              >
-                <option value="">— بدون —</option>
-                {subOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          </div>
+          {/* 5. Categories (multi) + sub (multi) */}
           {categories.length === 0 ? (
             <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-              لا توجد تصنيفات بعد — أضف تصنيفات من تبويب "التصنيفات".
+              لا توجد تصنيفات بعد — أضف تصنيفات من تبويب "التصنيفات" (تكدر تختار أكثر من تصنيف للمادة).
             </div>
-          ) : null}
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيفات الرئيسية (تكدر تختار أكثر من واحد)</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {categories.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => toggleCat(c.name)}
+                      className={cn("rounded-full px-3 py-1 text-xs font-medium transition", cats.includes(c.name) ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300")}
+                    >
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {subOptions.length > 0 && (
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-slate-500">التصنيفات الثانوية</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {subOptions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => toggleSub(s)}
+                        className={cn("rounded-full px-2.5 py-0.5 text-[11px] transition", subs.includes(s) ? "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-300" : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400")}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Images */}
           <div>
@@ -585,6 +628,223 @@ function CategoryDialog({ category, onClose, onSaved }: { category: RetailCatego
           {save.isError ? <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">{save.error instanceof Error ? save.error.message : "تعذر الحفظ"}</div> : null}
         </div>
       </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Store branding dialog (name + logo) ───────────────────────────────────────
+function BrandingDialog({ onClose }: { onClose: () => void }) {
+  const settings = useSettings().data
+  const updateSettings = useUpdateSettings()
+  const [name, setName] = useState(settings?.storeName ?? "")
+  const [logo, setLogo] = useState(settings?.storeLogo ?? "")
+  const [busy, setBusy] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+
+  async function pickLogo(file: File | null) {
+    if (!file) return
+    setBusy(true)
+    try { setLogo(await compressImage(file)) } catch { toast({ title: "تعذر معالجة الصورة", variant: "destructive" }) } finally { setBusy(false) }
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      await updateSettings.mutateAsync({ storeName: name.trim(), storeLogo: logo })
+      toast({ title: "✓ تم حفظ الاسم والشعار" })
+      onClose()
+    } catch {
+      toast({ title: "تعذر الحفظ", variant: "destructive" })
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>اسم المتجر والشعار</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">اسم المتجر</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="اسم متجرك" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">الشعار</label>
+            <div className="flex items-center gap-3">
+              {logo ? <img src={logo} alt="logo" className="h-16 w-16 rounded-xl object-contain ring-1 ring-slate-200" /> : <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-slate-100 text-slate-300"><ImagePlus className="h-6 w-6" /></div>}
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>{busy ? "..." : "رفع شعار"}</Button>
+                {logo ? <Button type="button" variant="outline" className="text-rose-600" onClick={() => setLogo("")}>إزالة</Button> : null}
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => void pickLogo(e.target.files?.[0] ?? null)} />
+            </div>
+          </div>
+          <Button className="w-full" disabled={busy || name.trim().length < 1} onClick={() => void save()}>{busy ? "جاري الحفظ..." : "حفظ"}</Button>
+          <p className="text-center text-[11px] text-slate-400">يظهر بصفحة الزبون والشريط الجانبي وطباعة الفاتورة</p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Customers + broadcast tab ─────────────────────────────────────────────────
+function CustomersTab() {
+  const categoriesQuery = useQuery({ queryKey: ["retail-categories"], queryFn: getRetailCategories })
+  const categories = categoriesQuery.data ?? []
+  const [category, setCategory] = useState<string>("")
+  const [subscribersOnly, setSubscribersOnly] = useState(false)
+
+  const customersQuery = useQuery({
+    queryKey: ["retail-customers", category, subscribersOnly],
+    queryFn: () => getRetailCustomers({ category: category || undefined, subscribersOnly }),
+  })
+  const customers = customersQuery.data ?? []
+
+  const [composeOpen, setComposeOpen] = useState(false)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          <option value="">كل الاهتمامات</option>
+          {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+        </select>
+        <label className="flex items-center gap-1.5 text-sm">
+          <input type="checkbox" checked={subscribersOnly} onChange={(e) => setSubscribersOnly(e.target.checked)} className="h-4 w-4" />
+          الزبائن الدائمين فقط
+        </label>
+        <div className="flex-1" />
+        <span className="text-sm text-slate-500">{customers.length} زبون</span>
+        <Button onClick={() => setComposeOpen(true)} disabled={customers.length === 0}>
+          <Megaphone className="h-4 w-4" /> إرسال للجميع
+        </Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <THead>
+              <TR><TH>الاسم</TH><TH>الهاتف</TH><TH>الاهتمامات</TH><TH>طلبات</TH><TH>دائم؟</TH></TR>
+            </THead>
+            <TBody>
+              {customersQuery.isLoading && <TR><TD colSpan={5} className="py-8 text-center text-sm text-slate-400">جاري التحميل...</TD></TR>}
+              {!customersQuery.isLoading && customers.length === 0 && <TR><TD colSpan={5} className="py-8 text-center text-slate-500">لا يوجد زبائن مطابقين بعد.</TD></TR>}
+              {customers.map((c) => (
+                <TR key={c.id}>
+                  <TD className="font-semibold">{c.name}</TD>
+                  <TD dir="ltr">{c.phone}</TD>
+                  <TD>
+                    <div className="flex flex-wrap gap-1">
+                      {c.interests.slice(0, 4).map((i) => <span key={i} className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{i}</span>)}
+                      {c.interests.length > 4 ? <span className="text-[10px] text-slate-400">+{c.interests.length - 4}</span> : null}
+                      {c.wishNote ? <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700" title="يبحث عن">🔎 {c.wishNote}</span> : null}
+                    </div>
+                  </TD>
+                  <TD>{c.ordersCount}</TD>
+                  <TD>{c.isSubscriber ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">دائم</span> : <span className="text-xs text-slate-400">—</span>}</TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {composeOpen && (
+        <BroadcastDialog
+          recipientCount={customers.length}
+          category={category || undefined}
+          subscribersOnly={subscribersOnly}
+          onClose={() => setComposeOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function BroadcastDialog({ recipientCount, category, subscribersOnly, onClose }: {
+  recipientCount: number
+  category?: string
+  subscribersOnly: boolean
+  onClose: () => void
+}) {
+  const [message, setMessage] = useState("")
+  const [images, setImages] = useState<string[]>([])
+  const [uploading, setUploading] = useState(false)
+  const [confirm, setConfirm] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
+
+  const sendMutation = useMutation({
+    mutationFn: () => broadcastToRetailCustomers({ message: message.trim(), images, category, subscribersOnly }),
+    onSuccess: (res) => {
+      toast({ title: res.message ?? `جارٍ الإرسال إلى ${recipientCount} زبون` })
+      onClose()
+    },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإرسال", variant: "destructive" }),
+  })
+
+  async function pickFiles(files: FileList | null) {
+    if (!files?.length) return
+    setUploading(true)
+    try {
+      const next: string[] = []
+      for (const file of Array.from(files).slice(0, 3 - images.length)) next.push(await compressImage(file))
+      setImages((cur) => [...cur, ...next].slice(0, 3))
+    } catch { toast({ title: "تعذر معالجة الصورة", variant: "destructive" }) } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ""
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>رسالة جماعية للزبائن</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200">
+            سترسل إلى <b>{recipientCount}</b> زبون{category ? ` مهتمين بـ "${category}"` : ""}{subscribersOnly ? " (الدائمين فقط)" : ""}. رابط المتجر يُضاف تلقائياً.
+          </div>
+          <textarea
+            className="w-full rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            rows={4}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="نص الرسالة... (مثال: وصلت بضاعة جديدة! تفضلوا شوفوها 🎁)"
+          />
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">صور (لحد ٣)</label>
+            <div className="flex flex-wrap gap-2">
+              {images.map((img, i) => (
+                <div key={i} className="relative h-20 w-20 overflow-hidden rounded-lg ring-1 ring-slate-200">
+                  <img src={img} alt="" className="h-full w-full object-cover" />
+                  <button type="button" onClick={() => setImages((cur) => cur.filter((_, idx) => idx !== i))} className="absolute right-0 top-0 rounded-bl-lg bg-rose-600 p-0.5 text-white"><X className="h-3 w-3" /></button>
+                </div>
+              ))}
+              {images.length < 3 && (
+                <button type="button" onClick={() => fileRef.current?.click()} className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-slate-300 text-slate-400 hover:border-indigo-400 dark:border-slate-600">
+                  <ImagePlus className="h-5 w-5" /><span className="text-[10px]">{uploading ? "..." : "إضافة"}</span>
+                </button>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void pickFiles(e.target.files)} />
+          </div>
+          <Button className="w-full" disabled={message.trim().length < 1 || sendMutation.isPending} onClick={() => setConfirm(true)}>
+            <Send className="h-4 w-4" /> إرسال الآن
+          </Button>
+          <p className="text-center text-[11px] text-slate-400">ملاحظة: على WhatsApp Cloud API قد لا تصل الرسائل الدعائية للزبائن خارج نافذة ٢٤ ساعة.</p>
+        </div>
+      </DialogContent>
+      <ConfirmDialog
+        open={confirm}
+        title={`إرسال إلى ${recipientCount} زبون؟`}
+        description="سيتم الإرسال بالتتابع مع تمهّل بسيط بين كل رسالة."
+        confirmLabel="إرسال"
+        loading={sendMutation.isPending}
+        onConfirm={() => { setConfirm(false); sendMutation.mutate() }}
+        onCancel={() => setConfirm(false)}
+      />
     </Dialog>
   )
 }

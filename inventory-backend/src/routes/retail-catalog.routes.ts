@@ -3,11 +3,13 @@ import {
   cancelRetailOrderCtrl,
   getRetailCategories,
   getRetailCoupons,
+  getRetailCustomers,
   getRetailItems,
   getRetailOrders,
   patchRetailCategory,
   patchRetailCoupon,
   patchRetailItem,
+  postRetailBroadcast,
   postRetailCategory,
   postRetailCoupon,
   postRetailItem,
@@ -25,6 +27,7 @@ import {
   createRetailItemSchema,
   idParamSchema,
   listRetailOrdersSchema,
+  retailBroadcastSchema,
   updateRetailCategorySchema,
   updateRetailCouponSchema,
   updateRetailItemSchema,
@@ -45,6 +48,10 @@ router.get("/categories", requirePermission("MANAGE_PRODUCTS"), getRetailCategor
 router.post("/categories", requirePermission("MANAGE_PRODUCTS"), validate(createRetailCategorySchema), postRetailCategory);
 router.put("/categories/:id", requirePermission("MANAGE_PRODUCTS"), validate(updateRetailCategorySchema), patchRetailCategory);
 router.delete("/categories/:id", requirePermission("MANAGE_PRODUCTS"), validate(idParamSchema), removeRetailCategory);
+
+// Customers + broadcast
+router.get("/customers", requirePermission("MANAGE_PRODUCTS"), getRetailCustomers);
+router.post("/broadcast", requirePermission("MANAGE_SETTINGS"), validate(retailBroadcastSchema), postRetailBroadcast);
 
 // Coupons
 router.get("/coupons", requirePermission("MANAGE_SETTINGS"), getRetailCoupons);

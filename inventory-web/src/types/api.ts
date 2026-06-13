@@ -719,8 +719,8 @@ export interface RetailItem {
   description?: string | null
   price: number
   oldPrice?: number | null
-  category?: string | null
-  subCategory?: string | null
+  categories: string[]
+  subCategories: string[]
   images: string[]
   sortOrder: number
   featured: boolean
@@ -739,8 +739,8 @@ export interface RetailItemPayload {
   description?: string
   price: number
   oldPrice?: number | null
-  category?: string | null
-  subCategory?: string | null
+  categories?: string[]
+  subCategories?: string[]
   images?: string[]
   sortOrder?: number
   featured?: boolean
@@ -824,8 +824,8 @@ export interface PublicRetailItem {
   description?: string | null
   price: number
   oldPrice?: number | null
-  category?: string | null
-  subCategory?: string | null
+  categories: string[]
+  subCategories: string[]
   images: string[]
   featured: boolean
   isBestSeller: boolean
@@ -838,6 +838,27 @@ export interface PublicRetailItem {
 export interface PublicRetailCategory {
   name: string
   subCategories: string[]
+}
+
+export interface RetailCustomerEntry {
+  id: string
+  phone: string
+  name: string
+  isSubscriber: boolean
+  interests: string[]
+  wishNote?: string | null
+  ordersCount: number
+  lastOrderAt?: string | null
+}
+
+export interface RetailMyOrder {
+  id: string
+  orderNumber: string
+  status: "PENDING" | "PREPARED" | "CANCELLED"
+  total: number
+  createdAt: string
+  preparedAt?: string | null
+  items: Array<{ title: string; quantity: number; unitPrice: number }>
 }
 
 export interface PublicRetailCoupon {

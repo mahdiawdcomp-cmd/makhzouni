@@ -4,7 +4,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { createInvoice } from "./invoice.service";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppText } from "./whatsapp.service";
+import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 
 // Fixed identity for the auto-generated wholesale customer that owns all
 // retail-catalog sales. The real buyer's details go in the invoice notes.
@@ -29,6 +29,9 @@ type SubmitRetailOrderInput = {
   notes?: string;
   couponCode?: string;
   items: RetailOrderItemInput[];
+  isSubscriber?: boolean;
+  interests?: string[];
+  wishNote?: string;
 };
 
 function toNumber(value: unknown) {
@@ -90,8 +93,8 @@ function serializeItem(item: any) {
     description: item.description ?? null,
     price: toNumber(item.price),
     oldPrice: item.oldPrice != null ? toNumber(item.oldPrice) : null,
-    category: item.category ?? null,
-    subCategory: item.subCategory ?? null,
+    categories: item.categories ?? [],
+    subCategories: item.subCategories ?? [],
     images: Array.isArray(item.images) ? item.images : [],
     sortOrder: item.sortOrder,
     featured: item.featured,
@@ -122,8 +125,8 @@ type RetailItemFields = {
   description?: string;
   price?: number;
   oldPrice?: number | null;
-  category?: string | null;
-  subCategory?: string | null;
+  categories?: string[];
+  subCategories?: string[];
   images?: string[];
   sortOrder?: number;
   featured?: boolean;
@@ -151,8 +154,8 @@ export async function createRetailItem(input: RetailItemFields & { productId: st
       description: input.description?.trim() || null,
       price: input.price,
       oldPrice: input.oldPrice ?? null,
-      category: input.category?.trim() || null,
-      subCategory: input.subCategory?.trim() || null,
+      categories: (input.categories ?? []).map((s) => s.trim()).filter(Boolean),
+      subCategories: (input.subCategories ?? []).map((s) => s.trim()).filter(Boolean),
       images: (input.images ?? []) as unknown as object,
       sortOrder: input.sortOrder ?? 0,
       featured: input.featured ?? false,
@@ -173,8 +176,8 @@ export async function updateRetailItem(id: string, patch: RetailItemFields) {
   if (patch.description !== undefined) data.description = patch.description?.trim() || null;
   if (patch.price !== undefined) data.price = patch.price;
   if (patch.oldPrice !== undefined) data.oldPrice = patch.oldPrice;
-  if (patch.category !== undefined) data.category = patch.category?.trim() || null;
-  if (patch.subCategory !== undefined) data.subCategory = patch.subCategory?.trim() || null;
+  if (patch.categories !== undefined) data.categories = patch.categories.map((s) => s.trim()).filter(Boolean);
+  if (patch.subCategories !== undefined) data.subCategories = patch.subCategories.map((s) => s.trim()).filter(Boolean);
   if (patch.images !== undefined) data.images = patch.images as unknown as object;
   if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
   if (patch.featured !== undefined) data.featured = patch.featured;
@@ -319,8 +322,8 @@ export async function listPublicRetailItems() {
         description: item.description ?? null,
         price: toNumber(item.price),
         oldPrice: item.oldPrice != null ? toNumber(item.oldPrice) : null,
-        category: item.category ?? null,
-        subCategory: item.subCategory ?? null,
+        categories: item.categories ?? [],
+        subCategories: item.subCategories ?? [],
         images: Array.isArray(item.images) ? (item.images as string[]) : [],
         featured: item.featured,
         isBestSeller: item.isBestSeller,
@@ -474,6 +477,18 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     await prisma.retailCoupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } }).catch(() => {});
   }
 
+  // Build/refresh the customer record (interests = main categories of ordered
+  // items + any the customer explicitly picked).
+  const autoInterests = [...new Set(retailItems.flatMap((i) => i.categories ?? []))];
+  const explicitInterests = (input.interests ?? []).map((s) => s.trim()).filter(Boolean);
+  await upsertRetailCustomer({
+    phone: normalizePhone(input.phone),
+    name: input.customerName.trim(),
+    interests: [...new Set([...autoInterests, ...explicitInterests])],
+    isSubscriber: input.isSubscriber ?? false,
+    wishNote: input.wishNote?.trim() || undefined,
+  }).catch((err) => logger.error(`[RetailCustomer] upsert failed: ${err}`));
+
   // Fire-and-forget notifications
   setImmediate(() => {
     notifyRetailOrderSubmitted(order.orderNumber, input.customerName.trim(), normalizePhone(input.phone), input.address, input.notes, orderItems, total)
@@ -580,6 +595,133 @@ export async function getRetailOrderPublic(id: string) {
     createdAt: order.createdAt,
     preparedAt: order.preparedAt ?? null,
   };
+}
+
+// Public: a customer looks up their own orders by phone (no login).
+export async function getRetailOrdersByPhone(phone: string) {
+  const normalized = normalizePhone(phone);
+  const orders = await prisma.retailOrder.findMany({
+    where: { phone: normalized },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  return orders.map((order) => ({
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    total: toNumber(order.total),
+    createdAt: order.createdAt,
+    preparedAt: order.preparedAt ?? null,
+    items: order.items ?? [],
+  }));
+}
+
+// ── Customers (subscriber database) ───────────────────────────────────────────
+
+async function upsertRetailCustomer(input: {
+  phone: string;
+  name: string;
+  interests: string[];
+  isSubscriber: boolean;
+  wishNote?: string;
+}) {
+  const existing = await prisma.retailCustomer.findUnique({ where: { phone: input.phone } });
+  if (existing) {
+    const merged = [...new Set([...existing.interests, ...input.interests])];
+    await prisma.retailCustomer.update({
+      where: { phone: input.phone },
+      data: {
+        name: input.name || existing.name,
+        interests: merged,
+        isSubscriber: existing.isSubscriber || input.isSubscriber,
+        wishNote: input.wishNote ?? existing.wishNote,
+        ordersCount: { increment: 1 },
+        lastOrderAt: new Date(),
+      },
+    });
+  } else {
+    await prisma.retailCustomer.create({
+      data: {
+        phone: input.phone,
+        name: input.name,
+        interests: input.interests,
+        isSubscriber: input.isSubscriber,
+        wishNote: input.wishNote ?? null,
+        ordersCount: 1,
+        lastOrderAt: new Date(),
+      },
+    });
+  }
+}
+
+export async function listRetailCustomers(filter?: { category?: string; subscribersOnly?: boolean }) {
+  const where: Record<string, unknown> = {};
+  if (filter?.subscribersOnly) where.isSubscriber = true;
+  if (filter?.category) where.interests = { has: filter.category };
+  const customers = await prisma.retailCustomer.findMany({
+    where,
+    orderBy: [{ isSubscriber: "desc" }, { lastOrderAt: "desc" }],
+    take: 1000,
+  });
+  return customers.map((c) => ({
+    id: c.id,
+    phone: c.phone,
+    name: c.name,
+    isSubscriber: c.isSubscriber,
+    interests: c.interests,
+    wishNote: c.wishNote ?? null,
+    ordersCount: c.ordersCount,
+    lastOrderAt: c.lastOrderAt,
+  }));
+}
+
+function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | null {
+  const match = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
+}
+
+export async function broadcastToRetailCustomers(input: {
+  message: string;
+  images?: string[];
+  category?: string;
+  subscribersOnly?: boolean;
+}) {
+  const customers = await listRetailCustomers({ category: input.category, subscribersOnly: input.subscribersOnly });
+  if (customers.length === 0) return { sent: 0, failed: 0, total: 0 };
+
+  const settings = await getSettings().catch(() => null);
+  const shopUrl = (settings?.catalogPublicUrl?.replace(/\/catalog.*$/, "") || "").replace(/\/$/, "");
+  const link = shopUrl ? `${shopUrl}/shop` : "";
+  const caption = link ? `${input.message}\n\n🛍️ تسوّق الآن: ${link}` : input.message;
+
+  const images = (input.images ?? [])
+    .map(dataUrlToBuffer)
+    .filter((x): x is { buffer: Buffer; mime: string } => x !== null)
+    .slice(0, 3);
+
+  let sent = 0;
+  let failed = 0;
+  // Sequential with a small delay to reduce ban risk.
+  for (const customer of customers) {
+    try {
+      if (images.length > 0) {
+        for (let idx = 0; idx < images.length; idx++) {
+          // Only the first image carries the caption.
+          await sendWhatsAppImage(customer.phone, idx === 0 ? caption : "", images[idx].buffer, images[idx].mime);
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      } else {
+        await sendWhatsAppText(customer.phone, caption);
+      }
+      sent++;
+    } catch (err) {
+      failed++;
+      logger.warn(`[RetailBroadcast] failed to ${customer.phone}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  return { sent, failed, total: customers.length };
 }
 
 async function getOrCreateRetailCustomer() {

@@ -13,6 +13,7 @@ import {
   getPublicRetailCatalog,
   getPublicRetailCategories,
   getPublicRetailOrder,
+  getPublicRetailOrdersByPhone,
   getPublicStoreInfo,
   postPublicRetailOrder,
   previewPublicCoupon,
@@ -56,6 +57,7 @@ router.get("/retail/catalog", catalogLimiter, getPublicRetailCatalog);
 router.get("/retail/active-coupon", catalogLimiter, getPublicActiveCoupon);
 router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCouponSchema), previewPublicCoupon);
 router.post("/retail/orders", catalogLimiter, validate(submitRetailOrderSchema), postPublicRetailOrder);
+router.get("/retail/my-orders", catalogLimiter, getPublicRetailOrdersByPhone);
 router.get("/retail/orders/:id", catalogLimiter, validate(idParamSchema), getPublicRetailOrder);
 
 // Client portal

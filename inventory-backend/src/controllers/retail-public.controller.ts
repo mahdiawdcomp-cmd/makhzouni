@@ -3,6 +3,7 @@ import prisma from "../config/database";
 import {
   getActiveRetailCoupon,
   getRetailOrderPublic,
+  getRetailOrdersByPhone,
   listPublicRetailCategories,
   listPublicRetailItems,
   previewRetailCoupon,
@@ -11,6 +12,15 @@ import {
 
 export const getPublicRetailCategories = asyncHandler(async (_req, res) => {
   res.json({ success: true, data: await listPublicRetailCategories() });
+});
+
+export const getPublicRetailOrdersByPhone = asyncHandler(async (req, res) => {
+  const phone = String(req.query.phone ?? "");
+  if (phone.replace(/\D/g, "").length < 6) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+  res.json({ success: true, data: await getRetailOrdersByPhone(phone) });
 });
 
 export const getPublicStoreInfo = asyncHandler(async (_req, res) => {

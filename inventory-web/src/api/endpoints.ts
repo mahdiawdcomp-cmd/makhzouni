@@ -58,6 +58,8 @@ import type {
   RetailCoupon,
   RetailCouponPayload,
   RetailOrder,
+  RetailCustomerEntry,
+  RetailMyOrder,
   PublicRetailItem,
   PublicRetailCategory,
   PublicRetailCoupon,
@@ -1018,6 +1020,21 @@ export async function deleteRetailCoupon(id: string) {
   await api.delete(`/retail-catalog/coupons/${id}`)
 }
 
+export async function getRetailCustomers(params?: { category?: string; subscribersOnly?: boolean }) {
+  const { data } = await api.get<ApiEnvelope<RetailCustomerEntry[]>>("/retail-catalog/customers", {
+    params: {
+      ...(params?.category ? { category: params.category } : {}),
+      ...(params?.subscribersOnly ? { subscribersOnly: true } : {}),
+    },
+  })
+  return data.data ?? []
+}
+
+export async function broadcastToRetailCustomers(payload: { message: string; images?: string[]; category?: string; subscribersOnly?: boolean }) {
+  const { data } = await api.post<ApiEnvelope<{ total: number }>>("/retail-catalog/broadcast", payload)
+  return data
+}
+
 export async function getRetailOrders(status?: "PENDING" | "PREPARED" | "CANCELLED") {
   const { data } = await api.get<ApiEnvelope<RetailOrder[]>>("/retail-catalog/orders", {
     params: status ? { status } : undefined,
@@ -1067,6 +1084,9 @@ export async function submitPublicRetailOrder(payload: {
   address?: string
   notes?: string
   couponCode?: string
+  isSubscriber?: boolean
+  interests?: string[]
+  wishNote?: string
   items: Array<{ retailItemId: string; quantity: number }>
 }) {
   const { data } = await publicApi.post<ApiEnvelope<RetailOrderResult>>("/public/retail/orders", payload)
@@ -1076,4 +1096,9 @@ export async function submitPublicRetailOrder(payload: {
 export async function getPublicRetailOrderStatus(id: string) {
   const { data } = await publicApi.get<ApiEnvelope<PublicRetailOrderStatus>>(`/public/retail/orders/${id}`)
   return data.data!
+}
+
+export async function getPublicRetailOrdersByPhone(phone: string) {
+  const { data } = await publicApi.get<ApiEnvelope<RetailMyOrder[]>>("/public/retail/my-orders", { params: { phone } })
+  return data.data ?? []
 }
