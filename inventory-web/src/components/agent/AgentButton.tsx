@@ -80,7 +80,8 @@ export function AgentButton() {
       setStatus("speaking")
       speak(reply, muted, () => setStatus("idle"))
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "تعذر الاتصال بالمساعد")
+      const responseMessage = (sendError as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setError(responseMessage || (sendError instanceof Error ? sendError.message : "تعذر الاتصال بالمساعد"))
       setStatus("error")
     }
   }

@@ -152,6 +152,59 @@ function currentStock(product: {
   return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
 }
 
+function normalizeArabic(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[\u064b-\u065f\u0670]/g, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ـ/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+async function answerKnownInventoryQuestion(text: string) {
+  const normalized = normalizeArabic(text);
+  const asksLowStock =
+    /(مواد|ماده|اصناف|بضاعه|منتجات)/.test(normalized) &&
+    /(ناقص|ناقصه|قليل|منخفض|خلص|خلصان|نفد)/.test(normalized);
+
+  if (asksLowStock) {
+    const products = await runTool("get_low_stock", {}, "") as Array<{
+      name: string;
+      currentStock: number;
+      minStock: number;
+    }>;
+    if (!products.length) {
+      return "ماكو مواد ناقصة حالياً، كل المواد أعلى من حد التنبيه المحدد إلها.";
+    }
+    const details = products
+      .map((product) => `${product.name}: المتوفر ${product.currentStock} والحد الأدنى ${product.minStock}`)
+      .join("، ");
+    return `عندك ${products.length} مواد ناقصة: ${details}.`;
+  }
+
+  if (/(مبيعات اليوم|بيع اليوم|بعت اليوم|مبيعاتنا اليوم)/.test(normalized)) {
+    const result = await runTool("get_today_sales", {}, "") as {
+      totalSales: number;
+      invoiceCount: number;
+      collected: number;
+    };
+    return `مبيعات اليوم ${result.totalSales.toLocaleString("en-US")} دينار من ${result.invoiceCount} فاتورة، والواصل ${result.collected.toLocaleString("en-US")} دينار.`;
+  }
+
+  if (/(مجموع الديون|كل الديون|ديون الزباين|ديون الزبائن)/.test(normalized)) {
+    const result = await runTool("get_total_debts", {}, "") as {
+      totalDebts: number;
+      customerCount: number;
+    };
+    return `مجموع ديون الزبائن ${result.totalDebts.toLocaleString("en-US")} دينار على ${result.customerCount} زبون.`;
+  }
+
+  return null;
+}
+
 function todayRange() {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -349,10 +402,21 @@ export const agentChat = asyncHandler(async (req, res) => {
   const { message, history } = req.body as { message?: unknown; history?: unknown };
   const text = typeof message === "string" ? message.trim() : "";
   if (!text) throw new AppError("رسالة المساعد فارغة", 400, "AGENT_EMPTY_MESSAGE");
-  if (!process.env.GROQ_API_KEY) throw new AppError("GROQ_API_KEY غير مضبوط", 500, "GROQ_NOT_CONFIGURED");
   if (!req.user?.id) throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
 
   const cleanHistory = normalizeHistory(history);
+  const directReply = await answerKnownInventoryQuestion(text);
+  if (directReply) {
+    const nextHistory: ChatMessage[] = [
+      ...cleanHistory,
+      { role: "user", content: text },
+      { role: "assistant", content: directReply },
+    ].slice(-6) as ChatMessage[];
+    return void res.json({ success: true, reply: directReply, history: nextHistory });
+  }
+  if (!process.env.GROQ_API_KEY) {
+    throw new AppError("خدمة المحادثة غير مفعلة حالياً، لكن أسئلة المخزون المباشرة تعمل.", 503, "GROQ_NOT_CONFIGURED");
+  }
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...cleanHistory,
