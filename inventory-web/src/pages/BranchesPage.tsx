@@ -5,7 +5,8 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Building2, Edit, Plus, Search } from "lucide-react"
+import { Building2, Edit, Eye, Plus, Search } from "lucide-react"
+import { useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { createBranch, getBranches, getBranchSummaries, updateBranch } from "../api/endpoints"
 import type { Branch, BranchPayload } from "../types/api"
@@ -25,6 +26,7 @@ const emptyForm: BranchPayload = {
 }
 
 export function BranchesPage() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchDraft, setSearchDraft] = useState("")
   const [search, setSearch] = useState("")
@@ -97,6 +99,9 @@ export function BranchesPage() {
         header: "الإجراءات",
         cell: ({ row }) => (
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => navigate(`/branches/${row.original.id}`)}>
+              <Eye className="h-4 w-4" /> فتح
+            </Button>
             <Button variant="outline" onClick={() => startEdit(row.original)}>
               <Edit className="h-4 w-4" />
               تعديل
@@ -195,7 +200,7 @@ export function BranchesPage() {
 
       <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
         {(summariesQuery.data ?? []).map((summary) => (
-          <Card key={summary.branch.id} className="border-t-4 border-t-sky-500">
+          <Card key={summary.branch.id} className="cursor-pointer border-t-4 border-t-sky-500 transition hover:border-t-sky-600 hover:shadow-md" onClick={() => navigate(`/branches/${summary.branch.id}`)}>
             <CardContent className="space-y-3 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>

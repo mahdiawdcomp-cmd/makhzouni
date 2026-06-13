@@ -4,10 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   FileDown,
   ImageDown,
   MessageCircle,
@@ -31,6 +27,7 @@ import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
+import { RecordNavigator } from "../components/RecordNavigator"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -65,15 +62,12 @@ export function VoucherDetailPage() {
   const settings = settingsQuery.data
 
   const sorted = useMemo(
-    () => [...(listQuery.data ?? [])].sort((a, b) => a.voucherNumber.localeCompare(b.voucherNumber)),
+    () => [...(listQuery.data ?? [])].sort((a, b) => {
+      const difference = new Date(a.createdAt ?? a.date).getTime() - new Date(b.createdAt ?? b.date).getTime()
+      return difference || a.id.localeCompare(b.id)
+    }),
     [listQuery.data],
   )
-  const idx = sorted.findIndex((row) => row.id === id)
-  const firstId = sorted[0]?.id
-  const lastId = sorted[sorted.length - 1]?.id
-  const prevId = idx > 0 ? sorted[idx - 1].id : null
-  const nextId = idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1].id : null
-  const goto = (target?: string | null) => { if (target && target !== id) navigate(`/vouchers/${target}`) }
 
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -177,21 +171,7 @@ export function VoucherDetailPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1 rounded-md bg-white/20 p-1 backdrop-blur">
-              <Button variant="ghost" className="h-8 px-2 text-white hover:bg-white/20" onClick={() => goto(firstId)} disabled={!firstId || id === firstId} title="الأول">
-                <ChevronsRight className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" className="h-8 px-2 text-white hover:bg-white/20" onClick={() => goto(prevId)} disabled={!prevId} title="السابق">
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <span className="px-2 text-xs">{idx >= 0 ? `${idx + 1} / ${sorted.length}` : "-"}</span>
-              <Button variant="ghost" className="h-8 px-2 text-white hover:bg-white/20" onClick={() => goto(nextId)} disabled={!nextId} title="التالي">
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" className="h-8 px-2 text-white hover:bg-white/20" onClick={() => goto(lastId)} disabled={!lastId || id === lastId} title="الأخير">
-                <ChevronsLeft className="h-4 w-4" />
-              </Button>
-            </div>
+            <RecordNavigator currentId={id} orderedIds={sorted.map((row) => row.id)} onNavigate={(target) => navigate(`/vouchers/${target}`)} noun="سند" tone="dark" />
 
             {voucher.type !== "EXPENSE" ? (
               <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={() => void sendWhatsApp()} disabled={waSending}>

@@ -8,6 +8,7 @@ export function useInvoices(params?: {
   status?: "ACTIVE" | "CANCELLED"
   type?: InvoiceType
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
+  limit?: number
 }) {
   return useQuery({
     queryKey: ["invoices", params],

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { ArrowRight, Download, Edit, Printer, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { RecordNavigator } from "../components/RecordNavigator"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -72,9 +73,18 @@ export function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { productQuery, movementQuery } = useProductDetails(id)
-  const { updateMutation } = useProducts()
+  const { productsQuery, updateMutation } = useProducts()
   const product = productQuery.data
   const movements = movementQuery.data ?? []
+  const orderedProductIds = useMemo(
+    () => [...(productsQuery.data ?? [])]
+      .sort((a, b) => {
+        const timeDifference = new Date(a.createdAt ?? a.updatedAt ?? 0).getTime() - new Date(b.createdAt ?? b.updatedAt ?? 0).getTime()
+        return timeDifference || a.id.localeCompare(b.id)
+      })
+      .map((row) => row.id),
+    [productsQuery.data],
+  )
 
   const catalogCatsQuery = useQuery({ queryKey: ["catalog-categories"], queryFn: getCatalogCategories })
   const catalogCats: CatalogCategory[] = catalogCatsQuery.data ?? []
@@ -162,7 +172,7 @@ export function ProductDetailPage() {
   return (
     <div className="space-y-4 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Button variant="ghost" className="px-0 mb-1" onClick={() => navigate(-1)}>
             <ArrowRight className="h-4 w-4 ml-1" /> رجوع
@@ -174,7 +184,8 @@ export function ProductDetailPage() {
             {stockBadge}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <RecordNavigator currentId={id} orderedIds={orderedProductIds} onNavigate={(target) => navigate(`/inventory/${target}`)} noun="مادة" />
           <Button variant="outline" onClick={() => void openPdf(productPieceLabelPdf(product.id))}>
             <Printer className="h-4 w-4" /> طباعة الملصق
           </Button>

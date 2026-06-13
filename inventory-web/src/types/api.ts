@@ -114,6 +114,7 @@ export interface Product {
   branch?: Branch | null
   currentStock?: number
   warehouseStocks?: WarehouseStock[]
+  createdAt?: string
   updatedAt?: string
 }
 
@@ -451,6 +452,8 @@ export interface Voucher {
   date: string
   notes?: string | null
   description?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 export interface VoucherPayload {

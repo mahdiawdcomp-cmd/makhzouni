@@ -6,10 +6,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Ban,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   FileDown,
   MessageCircle,
   Pencil,
@@ -33,6 +29,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { toast } from "../components/ui/use-toast"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { RecordNavigator } from "../components/RecordNavigator"
 
 function money(v: number | undefined) { return fmt(v) }
 
@@ -71,17 +68,15 @@ export function InvoiceDetailPage() {
   const allProducts = productsQuery.data ?? []
 
   // Navigation within same type
-  const listQuery = useInvoices()
+  const listQuery = useInvoices({ limit: 1000 })
   const list = listQuery.data ?? []
   const sorted = useMemo(() => {
-    const type = invoice?.type ?? "SALE"
-    return [...list].filter((r) => (r.type ?? "SALE") === type).sort((a, b) => a.invoiceNumber.localeCompare(b.invoiceNumber))
-  }, [list, invoice?.type])
-  const idx = sorted.findIndex((r) => r.id === id)
-  const firstId = sorted[0]?.id; const lastId = sorted[sorted.length - 1]?.id
-  const prevId = idx > 0 ? sorted[idx - 1].id : null
-  const nextId = idx >= 0 && idx < sorted.length - 1 ? sorted[idx + 1].id : null
-  const goto = (t: string | null | undefined) => { if (t && t !== id) navigate(`/invoices/${t}`) }
+    return [...list]
+      .sort((a, b) => {
+        const difference = new Date(a.createdAt ?? a.date).getTime() - new Date(b.createdAt ?? b.date).getTime()
+        return difference || a.id.localeCompare(b.id)
+      })
+  }, [list])
 
   // WhatsApp preview
   const [waPreview, setWaPreview] = useState(false)
@@ -230,13 +225,7 @@ export function InvoiceDetailPage() {
           <ArrowRight className="h-4 w-4" /> رجوع
         </Button>
         {/* Navigation */}
-        <div className="flex items-center gap-1 rounded-md border border-slate-200 p-0.5 dark:border-slate-700">
-          <Button variant="ghost" className="h-7 w-7 p-0" onClick={() => goto(firstId)} disabled={!firstId || id === firstId} title="الأولى"><ChevronsRight className="h-3.5 w-3.5" /></Button>
-          <Button variant="ghost" className="h-7 w-7 p-0" onClick={() => goto(prevId)} disabled={!prevId} title="السابقة"><ChevronRight className="h-3.5 w-3.5" /></Button>
-          <span className="px-2 text-xs text-slate-500">{idx >= 0 ? `${idx + 1}/${sorted.length}` : "-"}</span>
-          <Button variant="ghost" className="h-7 w-7 p-0" onClick={() => goto(nextId)} disabled={!nextId} title="التالية"><ChevronLeft className="h-3.5 w-3.5" /></Button>
-          <Button variant="ghost" className="h-7 w-7 p-0" onClick={() => goto(lastId)} disabled={!lastId || id === lastId} title="الأخيرة"><ChevronsLeft className="h-3.5 w-3.5" /></Button>
-        </div>
+        <RecordNavigator currentId={id} orderedIds={sorted.map((row) => row.id)} onNavigate={(target) => navigate(`/invoices/${target}`)} noun="فاتورة" />
         <div className="mr-auto flex flex-wrap gap-1.5">
           <Button variant="outline" size="sm" onClick={openWaPreview}><MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> واتساب</Button>
           <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="h-3.5 w-3.5" /> طباعة</Button>

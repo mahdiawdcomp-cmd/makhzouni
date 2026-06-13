@@ -161,6 +161,11 @@ export async function getBranches(params?: { search?: string; isActive?: boolean
   return data.data ?? []
 }
 
+export async function getBranch(id: string) {
+  const { data } = await api.get<ApiEnvelope<Branch>>(`/branches/${id}`)
+  return data.data
+}
+
 export async function getBranchSummaries() {
   const { data } = await api.get<ApiEnvelope<BranchSummary[]>>("/branches/summaries")
   return data.data ?? []

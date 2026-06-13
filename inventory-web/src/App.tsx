@@ -5,6 +5,7 @@ import { PosLayout } from "./components/layout/PosLayout"
 import { ApprovalsPage } from "./pages/ApprovalsPage"
 import { AuditLogsPage } from "./pages/AuditLogsPage"
 import { BranchesPage } from "./pages/BranchesPage"
+import { WarehouseDetailPage } from "./pages/WarehouseDetailPage"
 import { CustomerDetailPage } from "./pages/CustomerDetailPage"
 import { ClientPortalPage } from "./pages/ClientPortalPage"
 import { PublicInvoicePage } from "./pages/PublicInvoicePage"
@@ -78,6 +79,7 @@ const router = createBrowserRouter([
               { path: "approvals", element: <ApprovalsPage /> },
               { path: "audit-logs", element: <AuditLogsPage /> },
               { path: "branches", element: <BranchesPage /> },
+              { path: "branches/:id", element: <WarehouseDetailPage /> },
               { path: "coupons", element: <CouponsPage /> },
               { path: "super-admin", element: <SuperAdminPage /> },
             ],
