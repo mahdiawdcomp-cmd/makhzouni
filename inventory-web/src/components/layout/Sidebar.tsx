@@ -155,6 +155,10 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
   const inGroup = location.pathname.startsWith(item.basePath)
   const open = isOpen
   const Icon = item.icon
+  const openDestination = (path: string) => {
+    if (location.pathname === "/invoices/new") window.open(path, "_blank", "noopener,noreferrer")
+    else navigate(path)
+  }
 
   return (
     <div>
@@ -163,7 +167,7 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
           type="button"
           onClick={() => {
             onToggle(item.id)
-            navigate(item.id === "invoices" ? "/invoices?type=SALE" : item.basePath)
+            openDestination(item.id === "invoices" ? "/invoices?type=SALE" : item.basePath)
           }}
           className={cn(
             "flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-all duration-150",
@@ -217,7 +221,7 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
                 >
                   <button
                     type="button"
-                    onClick={() => navigate("/invoices/new?type=SALE")}
+                    onClick={() => openDestination("/invoices/new?type=SALE")}
                     className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-500/25 bg-emerald-500/8 px-2 py-1.5 text-[11px] font-semibold text-emerald-400 transition hover:border-emerald-400/50 hover:bg-emerald-500/15 hover:text-emerald-300 active:scale-95"
                   >
                     <Plus className="h-3 w-3" />
@@ -225,7 +229,7 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate("/invoices/new?type=PURCHASE")}
+                    onClick={() => openDestination("/invoices/new?type=PURCHASE")}
                     className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-amber-500/25 bg-amber-500/8 px-2 py-1.5 text-[11px] font-semibold text-amber-400 transition hover:border-amber-400/50 hover:bg-amber-500/15 hover:text-amber-300 active:scale-95"
                   >
                     <Plus className="h-3 w-3" />
@@ -244,7 +248,7 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
                 >
                   <button
                     type="button"
-                    onClick={() => navigate("/vouchers?action=RECEIPT")}
+                    onClick={() => openDestination("/vouchers?action=RECEIPT")}
                     className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-teal-500/25 bg-teal-500/8 px-2 py-1.5 text-[11px] font-semibold text-teal-400 transition hover:border-teal-400/50 hover:bg-teal-500/15 hover:text-teal-300 active:scale-95"
                   >
                     <Plus className="h-3 w-3" />
@@ -252,7 +256,7 @@ function SideGroup({ item, isOpen, onToggle }: { item: Group; isOpen: boolean; o
                   </button>
                   <button
                     type="button"
-                    onClick={() => navigate("/vouchers?action=PAYMENT")}
+                    onClick={() => openDestination("/vouchers?action=PAYMENT")}
                     className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-orange-500/25 bg-orange-500/8 px-2 py-1.5 text-[11px] font-semibold text-orange-400 transition hover:border-orange-400/50 hover:bg-orange-500/15 hover:text-orange-300 active:scale-95"
                   >
                     <Plus className="h-3 w-3" />

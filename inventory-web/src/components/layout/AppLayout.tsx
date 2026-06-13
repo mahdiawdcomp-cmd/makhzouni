@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, Menu, X, Zap } from "lucide-react"
@@ -78,6 +78,19 @@ export function AppLayout() {
   useGlobalShortcuts()
   const mainRef = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
+  const invoiceDraftOpen = pathname === "/invoices/new"
+
+  function keepInvoiceOpen(event: MouseEvent<HTMLDivElement>) {
+    if (!invoiceDraftOpen || event.defaultPrevented || event.button !== 0) return
+    const anchor = (event.target as HTMLElement).closest("a[href]") as HTMLAnchorElement | null
+    if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return
+    const destination = new URL(anchor.href, window.location.origin)
+    if (destination.origin !== window.location.origin) return
+    if (destination.pathname === pathname && destination.search === window.location.search) return
+    event.preventDefault()
+    event.stopPropagation()
+    window.open(`${destination.pathname}${destination.search}${destination.hash}`, "_blank", "noopener,noreferrer")
+  }
 
   if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
 
@@ -99,6 +112,7 @@ export function AppLayout() {
 
   return (
     <div
+      onClickCapture={keepInvoiceOpen}
       className="flex h-screen overflow-hidden"
       style={{ backgroundColor: "var(--theme-pageBg)", color: "var(--theme-textPrimary)" }}
     >

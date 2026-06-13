@@ -21,6 +21,11 @@ export function useUnsavedWarning(isDirty: boolean, savingRef?: MutableRefObject
     return () => window.removeEventListener("beforeunload", handler)
   }, [isDirty])
 
-  const blocker = useBlocker(() => isDirty && !(savingRef?.current ?? false))
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    const switchingInvoiceDraft =
+      currentLocation.pathname === "/invoices/new" &&
+      nextLocation.pathname === "/invoices/new"
+    return isDirty && !switchingInvoiceDraft && !(savingRef?.current ?? false)
+  })
   return blocker
 }

@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 
 /**
  * Global keyboard shortcuts registered once at the app level.
@@ -17,6 +17,7 @@ import { useNavigate } from "react-router-dom"
  */
 export function useGlobalShortcuts() {
   const navigate = useNavigate()
+  const location = useLocation()
 
   useEffect(() => {
     function handler(e: KeyboardEvent) {
@@ -28,38 +29,43 @@ export function useGlobalShortcuts() {
 
       if (!e.ctrlKey && !e.metaKey) return
 
+      const open = (path: string) => {
+        if (location.pathname === "/invoices/new") window.open(path, "_blank", "noopener,noreferrer")
+        else navigate(path)
+      }
+
       switch (e.key.toLowerCase()) {
         case "n":
           e.preventDefault()
-          navigate("/invoices/new")
+          open("/invoices/new")
           break
         case "p":
           // Ctrl+P normally = print — only intercept if Shift is held (Ctrl+Shift+P)
           if (e.shiftKey) {
             e.preventDefault()
-            navigate("/pos")
+            open("/pos")
           }
           break
         case "m":
           e.preventDefault()
-          navigate("/inventory")
+          open("/inventory")
           break
         case "k":
           e.preventDefault()
-          navigate("/account")
+          open("/account")
           break
         case "h":
           e.preventDefault()
-          navigate("/")
+          open("/")
           break
         case ",":
           e.preventDefault()
-          navigate("/settings")
+          open("/settings")
           break
       }
     }
 
     document.addEventListener("keydown", handler)
     return () => document.removeEventListener("keydown", handler)
-  }, [navigate])
+  }, [location.pathname, navigate])
 }

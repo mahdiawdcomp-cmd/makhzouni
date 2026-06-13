@@ -117,6 +117,10 @@ export function InvoiceCreatePage() {
   // Tabs list (read fresh on each render; updated via localStorage)
   const [tabs, setTabs] = useState<DraftTabMeta[]>(() => listTabs(uid))
   const refreshTabs = useCallback(() => setTabs(listTabs(uid)), [uid])
+  const [closeTabId, setCloseTabId] = useState<string | null>(null)
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null)
+  const [closeSaving, setCloseSaving] = useState(false)
+  const [closeError, setCloseError] = useState("")
 
   const { customersQuery, createMutation: createCustomerMutation } = useCustomers()
   const { productsQuery, createMutation: createProductMutation } = useProducts()
@@ -196,7 +200,7 @@ export function InvoiceCreatePage() {
 
   // ── Unsaved warning: active when there are items and no saved invoice ─────
   const savingRef = useRef(false)
-  const isDirty = items.length > 0 && !savedInvoiceId
+  const isDirty = (!!selectedCustomer || items.length > 0 || discount > 0 || paidAmount > 0 || !!couponCode.trim()) && !savedInvoiceId
   const blocker = useUnsavedWarning(isDirty, savingRef)
 
   // ---- OCR state ----
@@ -345,6 +349,15 @@ export function InvoiceCreatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, products, draftKey])
 
+  useEffect(() => {
+    if (!pendingCloseTabId || pendingCloseTabId !== activeTid) return
+    const timeout = window.setTimeout(() => {
+      setCloseTabId(pendingCloseTabId)
+      setPendingCloseTabId(null)
+    }, 100)
+    return () => window.clearTimeout(timeout)
+  }, [activeTid, pendingCloseTabId])
+
   // ----- AUTOSAVE every 3 seconds -----
   useEffect(() => {
     if (savedInvoiceId) return
@@ -399,18 +412,38 @@ export function InvoiceCreatePage() {
     navigate(`/invoices/new?type=${type}&tid=${tid}`)
   }
 
-  function closeTab(tid: string) {
+  function destinationAfterClose(tid: string) {
+    const remaining = listTabs(uid).filter((tab) => tab.id !== tid)
+    if (remaining.length === 0) return "/invoices"
+    const next = remaining[remaining.length - 1]
+    return `/invoices/new?type=${next.type}&tid=${next.id}`
+  }
+
+  function requestCloseTab(tid: string) {
+    setCloseError("")
+    if (tid !== activeTid) {
+      const target = tabs.find((tab) => tab.id === tid)
+      if (target) {
+        setPendingCloseTabId(tid)
+        switchTab(target)
+      }
+      return
+    }
+    setCloseTabId(tid)
+  }
+
+  function discardAndCloseTab() {
+    if (!closeTabId) return
+    const tid = closeTabId
+    const destination = destinationAfterClose(tid)
+    savingRef.current = true
     removeTab(uid, tid)
     refreshTabs()
-    if (tid === activeTid) {
-      // Navigate to another open tab or to invoices list
-      const remaining = listTabs(uid).filter((t) => t.id !== tid)
-      if (remaining.length > 0) {
-        navigate(`/invoices/new?type=${remaining[remaining.length - 1].type}&tid=${remaining[remaining.length - 1].id}`)
-      } else {
-        navigate("/invoices")
-      }
-    }
+    setCloseTabId(null)
+    setItems([])
+    setSelectedCustomer(null)
+    navigate(destination)
+    window.setTimeout(() => { savingRef.current = false }, 0)
   }
 
   function switchTab(t: DraftTabMeta) {
@@ -716,11 +749,12 @@ export function InvoiceCreatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanBuffer, productModal, preview, products])
 
-  async function persistInvoice(navigateAfterSave = false) {
+  async function persistInvoice(navigateAfterSave = false, showWhatsAppPrompt = true) {
     if (savedInvoiceId) return savedInvoiceId
     if (!selectedCustomer || items.length === 0 || hasInvalidTotal) return null
     savingRef.current = true
-    const response = await createMutation.mutateAsync({
+    try {
+      const response = await createMutation.mutateAsync({
       customerId: selectedCustomer.id,
       type: invoiceType,
       date,
@@ -738,8 +772,8 @@ export function InvoiceCreatePage() {
         warehouseId: item.warehouseId,
       })),
     })
-    const id = response.data?.id ?? null
-    if (id) {
+      const id = response.data?.id ?? null
+      if (id) {
       // If customer paid more than the invoice total, create a receipt voucher for the difference
       if (overpayment > 0 && selectedCustomer) {
         try {
@@ -748,10 +782,44 @@ export function InvoiceCreatePage() {
       }
       setSavedInvoiceId(id)
       clearDraft()
-      if (!isPurchase && selectedCustomer?.phone) setWhatsappPromptId(id)
+      if (showWhatsAppPrompt && !isPurchase && selectedCustomer?.phone) setWhatsappPromptId(id)
       if (navigateAfterSave && !(!isPurchase && selectedCustomer?.phone)) navigate(`/invoices/${id}`)
+      }
+      return id
+    } catch (error) {
+      savingRef.current = false
+      throw error
     }
-    return id
+  }
+
+  async function saveAndCloseTab() {
+    if (!closeTabId || closeTabId !== activeTid || closeSaving) return
+    if (!selectedCustomer) {
+      setCloseError(`اختر ${isPurchase ? "المورّد" : "الزبون"} قبل الحفظ.`)
+      return
+    }
+    if (items.length === 0) {
+      setCloseError("أضف مادة واحدة على الأقل قبل الحفظ.")
+      return
+    }
+    if (hasInvalidTotal) {
+      setCloseError("راجع الكميات والأسعار قبل الحفظ.")
+      return
+    }
+    setCloseSaving(true)
+    setCloseError("")
+    const tid = closeTabId
+    const destination = destinationAfterClose(tid)
+    try {
+      const id = await persistInvoice(false, false)
+      if (!id) throw new Error("تعذر حفظ الفاتورة. راجع البيانات وحاول مرة ثانية.")
+      setCloseTabId(null)
+      navigate(destination)
+    } catch (error) {
+      setCloseError(error instanceof Error ? error.message : "تعذر حفظ الفاتورة.")
+    } finally {
+      setCloseSaving(false)
+    }
   }
 
   function save() {
@@ -859,7 +927,7 @@ export function InvoiceCreatePage() {
                 <button
                   type="button"
                   className="rounded p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
-                  onClick={(e) => { e.stopPropagation(); closeTab(t.id) }}
+                  onClick={(e) => { e.stopPropagation(); requestCloseTab(t.id) }}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -1554,8 +1622,41 @@ export function InvoiceCreatePage() {
       {/* ── Unsaved changes blocker dialog ───────────────────────────────── */}
       <UnsavedChangesDialog
         blocker={blocker}
+        onSave={async () => {
+          if (!selectedCustomer || items.length === 0 || hasInvalidTotal) {
+            throw new Error("أكمل اسم الزبون والمواد والأسعار حتى يمكن حفظ الفاتورة.")
+          }
+          const id = await persistInvoice(false, false)
+          if (!id) throw new Error("تعذر حفظ الفاتورة.")
+        }}
         message="لديك أصناف في الفاتورة لم تُحفظ. إذا غادرت الصفحة ستُفقد هذه البيانات."
       />
+
+      <Dialog open={!!closeTabId} onOpenChange={(open) => { if (!open && !closeSaving) { setCloseTabId(null); setCloseError("") } }}>
+        <DialogContent className="max-w-sm" dir="rtl">
+          <DialogHeader>
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <DialogTitle className="text-lg">إغلاق الفاتورة؟</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-6 text-slate-500 dark:text-slate-400">
+            الحفظ والخروج يثبت الفاتورة في النظام، أما الخروج دون حفظ فيحذف هذه المسودة.
+          </p>
+          {closeError ? <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{closeError}</p> : null}
+          <div className="mt-4 flex flex-col gap-2">
+            <Button className="w-full bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => void saveAndCloseTab()} disabled={closeSaving || closeTabId !== activeTid}>
+              {closeSaving ? "جاري الحفظ..." : "حفظ وخروج"}
+            </Button>
+            <Button variant="outline" className="w-full border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:text-rose-400" onClick={discardAndCloseTab} disabled={closeSaving}>
+              خروج دون حفظ
+            </Button>
+            <Button variant="outline" className="w-full" onClick={() => { setCloseTabId(null); setCloseError("") }} disabled={closeSaving}>
+              البقاء
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* WhatsApp send prompt */}
       <Dialog open={!!whatsappPromptId} onOpenChange={(open) => { if (!open && !whatsappSending) { navigate(`/invoices/${whatsappPromptId}`); setWhatsappPromptId(null) } }}>
