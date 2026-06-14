@@ -419,22 +419,44 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         </button>
       </div>
 
-      {/* Category chips */}
-      {categories.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-          <button type="button" onClick={() => { setCategory(null); setSubCategory(null) }} className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${!category ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>كل الأقسام</button>
+      {/* Category selector */}
+      {categories.length > 0 && !category && (
+        <div className="grid grid-cols-3 gap-2">
           {categories.map((c) => (
-            <button key={c.name} type="button" onClick={() => { setCategory(c.name); setSubCategory(null) }} className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${category === c.name ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c.name}</button>
+            <button
+              key={c.name}
+              type="button"
+              onClick={() => { setCategory(c.name); setSubCategory(null) }}
+              className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-100 bg-white py-3 px-2 text-xs font-semibold text-slate-700 shadow-sm active:scale-95 transition"
+            >
+              <span className="text-lg">🏷️</span>
+              <span className="text-center leading-tight">{c.name}</span>
+            </button>
           ))}
         </div>
       )}
-      {/* Sub-category chips */}
-      {subOptions.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-          <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${!subCategory ? "bg-indigo-100 text-indigo-700" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
-          {subOptions.map((s) => (
-            <button key={s} type="button" onClick={() => setSubCategory(s)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${subCategory === s ? "bg-indigo-100 text-indigo-700" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>{s}</button>
-          ))}
+
+      {/* Active category header + sub-cats */}
+      {category && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setCategory(null); setSubCategory(null) }}
+              className="flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-bold text-white"
+            >
+              <ArrowRight className="h-3.5 w-3.5" /> {category}
+            </button>
+            <span className="text-xs text-slate-400">({filtered.length} منتج)</span>
+          </div>
+          {subOptions.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+              <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${!subCategory ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
+              {subOptions.map((s) => (
+                <button key={s} type="button" onClick={() => setSubCategory(s)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${subCategory === s ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>{s}</button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
