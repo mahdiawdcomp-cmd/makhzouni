@@ -877,7 +877,33 @@ export interface RetailOrderResult {
   orderNumber: string
   subtotal: number
   discount: number
+  referralDiscount: number
   total: number
+}
+
+export interface AiChatProduct {
+  id: string
+  title: string
+  price: number
+  oldPrice: number | null
+  images: string[]
+  currentStock: number
+}
+
+export interface AiChatResponse {
+  message: string
+  products: AiChatProduct[]
+}
+
+export interface ReferralInfo {
+  code: string
+  referrerName: string
+  discountPercent: number
+}
+
+export interface CustomerReferral {
+  referralCode: string
+  discountPercent: number
 }
 
 export interface PublicRetailOrderStatus {

@@ -632,16 +632,18 @@ model RetailCategory {
 }
 
 model RetailCustomer {
-  id           String   @id @default(uuid()) @db.Uuid
-  phone        String   @unique
+  id           String    @id @default(uuid()) @db.Uuid
+  phone        String    @unique
   name         String
-  isSubscriber Boolean  @default(false) @map("is_subscriber")
-  interests    String[] @default([])
-  wishNote     String?  @map("wish_note")
-  ordersCount  Int      @default(0) @map("orders_count")
+  isSubscriber Boolean   @default(false) @map("is_subscriber")
+  interests    String[]  @default([])
+  wishNote     String?   @map("wish_note")
+  ordersCount  Int       @default(0) @map("orders_count")
   lastOrderAt  DateTime? @map("last_order_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  referralCode String?   @unique @map("referral_code")
+  referredBy   String?   @map("referred_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@index([isSubscriber])
   @@map("retail_customers")
@@ -666,23 +668,25 @@ model RetailCoupon {
 }
 
 model RetailOrder {
-  id           String    @id @default(uuid()) @db.Uuid
-  orderNumber  String    @unique @map("order_number")
-  customerName String    @map("customer_name")
-  phone        String
-  address      String?
-  notes        String?
-  items        Json
-  subtotal     Decimal   @db.Decimal(12, 2)
-  discount     Decimal   @default(0) @db.Decimal(12, 2)
-  total        Decimal   @db.Decimal(12, 2)
-  couponCode   String?   @map("coupon_code")
-  status       String    @default("PENDING")
-  invoiceId    String?   @map("invoice_id") @db.Uuid
-  preparedAt   DateTime? @map("prepared_at")
-  preparedById String?   @map("prepared_by_id") @db.Uuid
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  orderNumber      String    @unique @map("order_number")
+  customerName     String    @map("customer_name")
+  phone            String
+  address          String?
+  notes            String?
+  items            Json
+  subtotal         Decimal   @db.Decimal(12, 2)
+  discount         Decimal   @default(0) @db.Decimal(12, 2)
+  referralDiscount Decimal   @default(0) @map("referral_discount") @db.Decimal(12, 2)
+  total            Decimal   @db.Decimal(12, 2)
+  couponCode       String?   @map("coupon_code")
+  referralCode     String?   @map("referral_code")
+  status           String    @default("PENDING")
+  invoiceId        String?   @map("invoice_id") @db.Uuid
+  preparedAt       DateTime? @map("prepared_at")
+  preparedById     String?   @map("prepared_by_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
   @@index([phone])

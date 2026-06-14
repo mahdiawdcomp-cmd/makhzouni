@@ -10,11 +10,14 @@ import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controlle
 import { getClientPortal, getClientPortalInvoice } from "../controllers/customer-portal.controller";
 import {
   getPublicActiveCoupon,
+  getPublicCustomerReferral,
+  getPublicReferralInfo,
   getPublicRetailCatalog,
   getPublicRetailCategories,
   getPublicRetailOrder,
   getPublicRetailOrdersByPhone,
   getPublicStoreInfo,
+  postPublicRetailAiChat,
   postPublicRetailOrder,
   previewPublicCoupon,
 } from "../controllers/retail-public.controller";
@@ -59,6 +62,9 @@ router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCoup
 router.post("/retail/orders", catalogLimiter, validate(submitRetailOrderSchema), postPublicRetailOrder);
 router.get("/retail/my-orders", catalogLimiter, getPublicRetailOrdersByPhone);
 router.get("/retail/orders/:id", catalogLimiter, validate(idParamSchema), getPublicRetailOrder);
+router.get("/retail/referral/:code", catalogLimiter, getPublicReferralInfo);
+router.get("/retail/my-referral", catalogLimiter, getPublicCustomerReferral);
+router.post("/retail/ai-chat", catalogLimiter, postPublicRetailAiChat);
 
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);

@@ -1,4 +1,5 @@
 import { DiscountType, Unit } from "@prisma/client";
+import { randomBytes } from "crypto";
 import prisma, { ensureConnected } from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
@@ -28,6 +29,7 @@ type SubmitRetailOrderInput = {
   address?: string;
   notes?: string;
   couponCode?: string;
+  referralCode?: string;
   items: RetailOrderItemInput[];
   isSubscriber?: boolean;
   interests?: string[];
@@ -385,6 +387,56 @@ export async function previewRetailCoupon(code: string, subtotal: number) {
   return { discount, code: coupon?.code ?? code.trim().toUpperCase() };
 }
 
+// ── Referral helpers ──────────────────────────────────────────────────────────
+
+const REFERRAL_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function generateReferralCode(): string {
+  const bytes = randomBytes(6);
+  return Array.from(bytes).map((b) => REFERRAL_CHARS[b % REFERRAL_CHARS.length]).join("");
+}
+
+export async function getReferralInfo(code: string) {
+  const clean = code.trim().toUpperCase();
+  const customer = await prisma.retailCustomer.findUnique({
+    where: { referralCode: clean },
+    select: { id: true, name: true, referralCode: true },
+  });
+  if (!customer || !customer.referralCode) throw new AppError("كود الإحالة غير صالح", 400, "REFERRAL_INVALID");
+  const pct = await getReferralDiscountPercent();
+  return { code: customer.referralCode, referrerName: customer.name, discountPercent: pct };
+}
+
+async function getReferralDiscountPercent(): Promise<number> {
+  const row = await prisma.setting.findUnique({ where: { key: "retailReferralDiscountPercent" } });
+  return Math.min(100, Math.max(0, Number(row?.value ?? 10)));
+}
+
+export async function getRetailReferralSettings() {
+  const pct = await getReferralDiscountPercent();
+  return { discountPercent: pct };
+}
+
+export async function setRetailReferralSettings(discountPercent: number) {
+  const pct = Math.min(100, Math.max(0, Number(discountPercent)));
+  await prisma.setting.upsert({
+    where: { key: "retailReferralDiscountPercent" },
+    update: { value: pct },
+    create: { key: "retailReferralDiscountPercent", value: pct },
+  });
+  return { discountPercent: pct };
+}
+
+async function resolveReferral(code: string | undefined, subtotal: number): Promise<{ discount: number; referralCode: string | null }> {
+  if (!code) return { discount: 0, referralCode: null };
+  const clean = code.trim().toUpperCase();
+  const customer = await prisma.retailCustomer.findUnique({ where: { referralCode: clean }, select: { id: true } });
+  if (!customer) return { discount: 0, referralCode: null };
+  const pct = await getReferralDiscountPercent();
+  const discount = Math.round((subtotal * pct) / 100);
+  return { discount, referralCode: clean };
+}
+
 async function generateRetailOrderNumber() {
   for (let attempt = 0; attempt < 50; attempt++) {
     const counter = await prisma.counter.upsert({
@@ -454,8 +506,10 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
   }
 
   const subtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
-  const { discount, coupon } = await resolveCoupon(input.couponCode, subtotal);
-  const total = Math.max(0, subtotal - discount);
+  const { discount: couponDiscount, coupon } = await resolveCoupon(input.couponCode, subtotal);
+  const { discount: referralDiscount, referralCode: usedReferralCode } = await resolveReferral(input.referralCode, subtotal);
+  const discount = couponDiscount; // coupon discount goes to "discount" column
+  const total = Math.max(0, subtotal - couponDiscount - referralDiscount);
 
   const orderNumber = await generateRetailOrderNumber();
   const order = await prisma.retailOrder.create({
@@ -468,8 +522,10 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
       items: orderItems as unknown as object,
       subtotal,
       discount,
+      referralDiscount,
       total,
       couponCode: coupon?.code ?? null,
+      referralCode: usedReferralCode,
     },
   });
 
@@ -487,6 +543,7 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     interests: [...new Set([...autoInterests, ...explicitInterests])],
     isSubscriber: input.isSubscriber ?? false,
     wishNote: input.wishNote?.trim() || undefined,
+    referredBy: usedReferralCode ?? undefined,
   }).catch((err) => logger.error(`[RetailCustomer] upsert failed: ${err}`));
 
   // Fire-and-forget notifications
@@ -500,6 +557,7 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     orderNumber: order.orderNumber,
     subtotal,
     discount,
+    referralDiscount,
     total,
   };
 }
@@ -624,6 +682,7 @@ async function upsertRetailCustomer(input: {
   interests: string[];
   isSubscriber: boolean;
   wishNote?: string;
+  referredBy?: string;
 }) {
   const existing = await prisma.retailCustomer.findUnique({ where: { phone: input.phone } });
   if (existing) {
@@ -640,6 +699,13 @@ async function upsertRetailCustomer(input: {
       },
     });
   } else {
+    // Generate a unique referral code for new customers (retry on collision)
+    let referralCode: string | null = null;
+    for (let i = 0; i < 10; i++) {
+      const candidate = generateReferralCode();
+      const conflict = await prisma.retailCustomer.findUnique({ where: { referralCode: candidate } });
+      if (!conflict) { referralCode = candidate; break; }
+    }
     await prisma.retailCustomer.create({
       data: {
         phone: input.phone,
@@ -649,9 +715,22 @@ async function upsertRetailCustomer(input: {
         wishNote: input.wishNote ?? null,
         ordersCount: 1,
         lastOrderAt: new Date(),
+        referralCode,
+        referredBy: input.referredBy ?? null,
       },
     });
   }
+}
+
+export async function getRetailCustomerReferral(phone: string) {
+  const normalized = normalizePhone(phone);
+  const customer = await prisma.retailCustomer.findUnique({
+    where: { phone: normalized },
+    select: { referralCode: true, ordersCount: true },
+  });
+  if (!customer?.referralCode) return null;
+  const pct = await getReferralDiscountPercent();
+  return { referralCode: customer.referralCode, discountPercent: pct };
 }
 
 export async function listRetailCustomers(filter?: { category?: string; subscribersOnly?: boolean }) {

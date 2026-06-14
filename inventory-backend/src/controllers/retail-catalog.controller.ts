@@ -10,12 +10,14 @@ import {
   deleteRetailCategory,
   deleteRetailCoupon,
   deleteRetailItem,
+  getRetailReferralSettings,
   listRetailCategories,
   listRetailCoupons,
   listRetailCustomers,
   listRetailItems,
   listRetailOrders,
   markRetailOrderPrepared,
+  setRetailReferralSettings,
   updateRetailCategory,
   updateRetailCoupon,
   updateRetailItem,
@@ -107,4 +109,15 @@ export const prepareRetailOrder = asyncHandler(async (req, res) => {
 
 export const cancelRetailOrderCtrl = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await cancelRetailOrder(String(req.params.id)) });
+});
+
+
+// ── Referral settings ──
+export const getRetailReferralSettingsCtrl = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await getRetailReferralSettings() });
+});
+
+export const putRetailReferralSettingsCtrl = asyncHandler(async (req, res) => {
+  const pct = Number(req.body.discountPercent ?? 10);
+  res.json({ success: true, data: await setRetailReferralSettings(pct) });
 });

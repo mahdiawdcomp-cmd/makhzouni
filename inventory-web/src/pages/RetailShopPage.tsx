@@ -1,17 +1,21 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   ArrowRight,
+  Bot,
   CheckCircle2,
   ClipboardList,
+  Copy,
   Gift,
   LayoutGrid,
+  Link2,
   Minus,
   Package,
   Phone,
   Plus,
   Search,
+  Send,
   Share2,
   ShoppingBag,
   ShoppingCart,
@@ -26,15 +30,18 @@ import {
 } from "lucide-react"
 import {
   getPublicActiveCoupon,
+  getPublicCustomerReferral,
+  getPublicReferralInfo,
   getPublicRetailCatalog,
   getPublicRetailCategories,
   getPublicRetailOrderStatus,
   getPublicRetailOrdersByPhone,
   getPublicStoreInfo,
   previewPublicRetailCoupon,
+  retailAiChat,
   submitPublicRetailOrder,
 } from "../api/endpoints"
-import type { PublicRetailItem, PublicRetailCategory } from "../types/api"
+import type { AiChatProduct, PublicRetailItem, PublicRetailCategory } from "../types/api"
 
 type Tab = "catalog" | "cart" | "orders"
 type CartLine = { item: PublicRetailItem; quantity: number }
@@ -42,6 +49,7 @@ type SavedOrder = { id: string; orderNumber: string; total: number; createdAt: s
 
 const ORDERS_KEY = "retail_shop_orders"
 const COUPON_SEEN_KEY = "retail_shop_coupon_seen"
+const REFERRAL_KEY = "retail_ref_code"
 
 const money = (v: number) => new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)))
 
@@ -73,6 +81,23 @@ export function RetailShopPage() {
   const [detail, setDetail] = useState<PublicRetailItem | null>(null)
   const [showCoupon, setShowCoupon] = useState(false)
   const [orders, setOrders] = useState<SavedOrder[]>(loadOrders)
+  const [chatOpen, setChatOpen] = useState(false)
+
+  // Referral — detect ?ref= from URL, validate, persist
+  const [activeReferralCode, setActiveReferralCode] = useState<string | null>(null)
+  const [referralDiscountPct, setReferralDiscountPct] = useState<number>(0)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlRef = params.get("ref")?.trim().toUpperCase() || null
+    const storedRef = localStorage.getItem(REFERRAL_KEY)
+    const code = urlRef ?? storedRef
+    if (!code) return
+    if (urlRef) localStorage.setItem(REFERRAL_KEY, urlRef)
+    getPublicReferralInfo(code)
+      .then((info) => { setActiveReferralCode(info.code); setReferralDiscountPct(info.discountPercent) })
+      .catch(() => { /* invalid code — ignore silently */ })
+  }, [])
 
   // Welcome coupon popup (once per session)
   useEffect(() => {
@@ -104,11 +129,16 @@ export function RetailShopPage() {
     )
   }
 
-  function onOrderPlaced(order: SavedOrder) {
-    const next = [order, ...orders]
+  function onOrderPlaced(order: SavedOrder & { customerPhone: string }) {
+    const { customerPhone: _p, ...saved } = order
+    const next = [saved, ...orders]
     setOrders(next)
     localStorage.setItem(ORDERS_KEY, JSON.stringify(next))
     setCart([])
+    // After first order, fetch their referral code and show it
+    if (_p) {
+      getPublicCustomerReferral(_p).catch(() => {})
+    }
   }
 
   return (
@@ -152,6 +182,8 @@ export function RetailShopPage() {
               setQty={setQty}
               onPlaced={onOrderPlaced}
               goCatalog={() => setTab("catalog")}
+              referralCode={activeReferralCode}
+              referralDiscountPct={referralDiscountPct}
             />
           )}
           {tab === "orders" && <OrdersView orders={orders} currency={currency} goCatalog={() => setTab("catalog")} />}
@@ -207,6 +239,28 @@ export function RetailShopPage() {
             onClose={() => setDetail(null)}
             onShare={() => shareItem(detail)}
             onAdd={(qty) => { addToCart(detail, qty); setDetail(null); setTab("cart") }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* AI Chat floating button */}
+      <button
+        type="button"
+        onClick={() => setChatOpen(true)}
+        className="fixed bottom-20 left-4 z-30 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 shadow-lg shadow-indigo-300 active:scale-95"
+        style={{ left: "calc(50% - 228px)" }}
+        aria-label="مساعد التسوق"
+      >
+        <Bot className="h-6 w-6 text-white" />
+      </button>
+
+      {/* AI Chat Panel */}
+      <AnimatePresence>
+        {chatOpen && (
+          <AiChatPanel
+            currency={currency}
+            onClose={() => setChatOpen(false)}
+            onAddToCart={(item) => { addToCart(item); setTab("cart") }}
           />
         )}
       </AnimatePresence>
@@ -519,15 +573,17 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
 }
 
 // ── Cart + Checkout ─────────────────────────────────────────────────────────
-function CartView({ cart, currency, storeName, subtotal, categories, setQty, onPlaced, goCatalog }: {
+function CartView({ cart, currency, storeName, subtotal, categories, setQty, onPlaced, goCatalog, referralCode, referralDiscountPct }: {
   cart: CartLine[]
   currency: string
   categories: PublicRetailCategory[]
   storeName: string
   subtotal: number
   setQty: (id: string, qty: number) => void
-  onPlaced: (order: SavedOrder) => void
+  onPlaced: (order: SavedOrder & { customerPhone: string }) => void
   goCatalog: () => void
+  referralCode: string | null
+  referralDiscountPct: number
 }) {
   const [couponCode, setCouponCode] = useState("")
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discount: number } | null>(null)
@@ -556,8 +612,9 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
     setInterests((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]))
   }
 
-  const discount = appliedCoupon?.discount ?? 0
-  const total = Math.max(0, subtotal - discount)
+  const couponDiscount = appliedCoupon?.discount ?? 0
+  const referralDiscount = referralCode ? Math.round((subtotal * referralDiscountPct) / 100) : 0
+  const total = Math.max(0, subtotal - couponDiscount - referralDiscount)
 
   async function applyCoupon() {
     if (!couponCode.trim()) return
@@ -584,13 +641,14 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
         address: address.trim() || undefined,
         notes: notes.trim() || undefined,
         couponCode: appliedCoupon?.code,
+        referralCode: referralCode ?? undefined,
         isSubscriber,
         interests: isSubscriber ? interests : undefined,
         wishNote: isSubscriber && wishNote.trim() ? wishNote.trim() : undefined,
         items: cart.map((l) => ({ retailItemId: l.item.id, quantity: l.quantity })),
       })
       setSuccess({ orderNumber: res.orderNumber })
-      onPlaced({ id: res.id, orderNumber: res.orderNumber, total: res.total, createdAt: new Date().toISOString() })
+      onPlaced({ id: res.id, orderNumber: res.orderNumber, total: res.total, createdAt: new Date().toISOString(), customerPhone: phone.trim() })
     } catch (e) {
       setPlaceError(e instanceof Error ? e.message : "تعذر إرسال الطلب")
     } finally {
@@ -599,17 +657,7 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
   }
 
   if (success) {
-    return (
-      <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100"><CheckCircle2 className="h-12 w-12 text-emerald-600" /></div>
-        <h2 className="mt-4 text-xl font-extrabold">تم تثبيت طلبك! 🎉</h2>
-        <p className="mt-1 text-sm text-slate-500">رقم الطلب <span className="font-mono font-bold text-indigo-600">{success.orderNumber}</span></p>
-        <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-600">
-          سوف يتم التجهيز بكل حب وإرساله إليك بأسرع وقت ❤️<br />ستصلك رسالة عند تجهيز الطلب.
-        </p>
-        <button type="button" onClick={goCatalog} className="mt-6 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white">متابعة التسوّق</button>
-      </div>
-    )
+    return <SuccessScreen orderNumber={success.orderNumber} goCatalog={goCatalog} />
   }
 
   if (cart.length === 0) {
@@ -667,10 +715,19 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
         {couponError ? <div className="mt-2 text-xs text-rose-600">{couponError}</div> : null}
       </div>
 
+      {/* Referral banner */}
+      {referralCode && referralDiscountPct > 0 && (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
+          <Link2 className="h-4 w-4 shrink-0" />
+          خصم الإحالة {referralDiscountPct}% مطبّق على طلبك! 🎉
+        </div>
+      )}
+
       {/* Totals */}
       <div className="rounded-2xl border border-slate-100 bg-white p-3 text-sm shadow-sm">
         <div className="flex justify-between py-1"><span className="text-slate-500">المجموع</span><span className="font-semibold">{money(subtotal)} {currency}</span></div>
-        {discount > 0 && <div className="flex justify-between py-1 text-emerald-600"><span>الخصم</span><span>- {money(discount)} {currency}</span></div>}
+        {couponDiscount > 0 && <div className="flex justify-between py-1 text-emerald-600"><span>خصم الكوبون</span><span>- {money(couponDiscount)} {currency}</span></div>}
+        {referralDiscount > 0 && <div className="flex justify-between py-1 text-emerald-600"><span>خصم الإحالة {referralDiscountPct}%</span><span>- {money(referralDiscount)} {currency}</span></div>}
         <div className="mt-1 flex justify-between border-t border-slate-100 pt-2 text-lg font-extrabold"><span>الإجمالي</span><span className="text-indigo-600">{money(total)} {currency}</span></div>
       </div>
 
@@ -849,5 +906,246 @@ function OrderStatusCard({ order, currency }: { order: SavedOrder; currency: str
       <div className="mt-1 text-[11px] text-slate-400">{new Date(order.createdAt).toLocaleString("en-GB")}</div>
       <div className="mt-3">{statusBlock(status)}</div>
     </div>
+  )
+}
+
+// ── Success Screen (with referral link) ───────────────────────────────────────
+function SuccessScreen({ orderNumber, goCatalog }: { orderNumber: string; goCatalog: () => void }) {
+  const [phone, setPhone] = useState("")
+  const [referralInfo, setReferralInfo] = useState<{ referralCode: string; discountPercent: number } | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [fetching, setFetching] = useState(false)
+
+  async function fetchReferral() {
+    if (phone.replace(/\D/g, "").length < 7) return
+    setFetching(true)
+    try {
+      const info = await getPublicCustomerReferral(phone.trim())
+      if (info) setReferralInfo(info)
+    } catch { /* ignore */ } finally { setFetching(false) }
+  }
+
+  const referralLink = referralInfo
+    ? `${window.location.origin}/shop?ref=${referralInfo.referralCode}`
+    : null
+
+  function copyLink() {
+    if (!referralLink) return
+    navigator.clipboard.writeText(referralLink).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="flex flex-col items-center px-6 py-12 text-center">
+      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100">
+        <CheckCircle2 className="h-12 w-12 text-emerald-600" />
+      </div>
+      <h2 className="mt-4 text-xl font-extrabold">تم تثبيت طلبك! 🎉</h2>
+      <p className="mt-1 text-sm text-slate-500">رقم الطلب <span className="font-mono font-bold text-indigo-600">{orderNumber}</span></p>
+      <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-600">
+        سوف يتم التجهيز بكل حب وإرساله إليك بأسرع وقت ❤️
+      </p>
+
+      {!referralInfo && (
+        <div className="mt-6 w-full rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-right">
+          <div className="mb-1 flex items-center gap-2 text-sm font-bold text-indigo-700">
+            <Link2 className="h-4 w-4" /> احصل على رابط إحالتك الخاص
+          </div>
+          <p className="mb-3 text-xs text-indigo-600">شارك رابطك مع أصدقائك — كل طلب يجيك منه يحصلون كلاهم خصم تلقائي!</p>
+          <div className="flex gap-2">
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="رقم هاتفك"
+              dir="ltr"
+              inputMode="tel"
+              className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+            />
+            <button type="button" onClick={() => void fetchReferral()} disabled={fetching} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+              {fetching ? "..." : "أظهر"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {referralInfo && referralLink && (
+        <div className="mt-6 w-full rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-right">
+          <div className="mb-1 flex items-center gap-2 text-sm font-bold text-emerald-700">
+            <Link2 className="h-4 w-4" /> رابط إحالتك الخاص 🎁
+          </div>
+          <p className="mb-3 text-xs text-emerald-600">
+            كل شخص يطلب من رابطك يحصل على خصم <span className="font-bold">{referralInfo.discountPercent}%</span> — وأنت أيضاً!
+          </p>
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 py-2">
+            <span className="flex-1 overflow-hidden text-ellipsis text-[11px] text-slate-600" dir="ltr">{referralLink}</span>
+            <button type="button" onClick={copyLink} className="shrink-0 rounded-lg bg-emerald-600 p-1.5 text-white">
+              {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => window.open(
+              `https://wa.me/?text=${encodeURIComponent(`🛍️ تسوّق وحصّل خصم ${referralInfo.discountPercent}% من هذا الرابط الخاص! ${referralLink}`)}`,
+              "_blank", "noopener,noreferrer"
+            )}
+            className="mt-2 w-full rounded-xl bg-[#25D366] py-2 text-sm font-bold text-white"
+          >
+            شارك على واتساب
+          </button>
+        </div>
+      )}
+
+      <button type="button" onClick={goCatalog} className="mt-6 rounded-xl bg-indigo-600 px-6 py-3 font-bold text-white">
+        متابعة التسوّق
+      </button>
+    </div>
+  )
+}
+
+// ── AI Chat Panel ─────────────────────────────────────────────────────────────
+type AiMessage = { role: "user" | "assistant"; content: string; products?: AiChatProduct[] }
+
+function AiChatPanel({ currency, onClose, onAddToCart }: {
+  currency: string
+  onClose: () => void
+  onAddToCart: (item: PublicRetailItem) => void
+}) {
+  const [messages, setMessages] = useState<AiMessage[]>([
+    { role: "assistant", content: "أهلاً! أنا مساعدك للتسوق 🛍️ قولي شنو تدوّر — هدية، عمر، ميزانية — وأساعدك تلگي الشي المناسب 😊" }
+  ])
+  const [input, setInput] = useState("")
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messages])
+
+  async function send() {
+    const text = input.trim()
+    if (!text || loading) return
+    setInput("")
+    setMessages((prev) => [...prev, { role: "user" as const, content: text }])
+    setLoading(true)
+    try {
+      const history = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }))
+      const res = await retailAiChat(text, history)
+      setMessages((prev) => [...prev, { role: "assistant" as const, content: res.message, products: res.products }])
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant" as const, content: "آسف، صار خطأ. حاول مرة ثانية 🙏" }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function toRetailItem(p: AiChatProduct): PublicRetailItem {
+    return {
+      id: p.id, title: p.title, description: null, price: p.price, oldPrice: p.oldPrice,
+      categories: [], subCategories: [], images: p.images,
+      featured: false, isBestSeller: false, isNew: false, isOffer: false,
+      lowStockBadge: false, currentStock: p.currentStock,
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: "100%" }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: "100%" }}
+      transition={{ type: "spring", damping: 28, stiffness: 300 }}
+      className="fixed inset-0 z-40 flex flex-col bg-white"
+      dir="rtl"
+    >
+      <div className="flex items-center gap-3 bg-gradient-to-l from-violet-600 to-indigo-600 px-4 py-3 text-white">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
+          <Bot className="h-5 w-5" />
+        </div>
+        <div className="flex-1">
+          <div className="font-bold">مساعد التسوق الذكي</div>
+          <div className="text-[11px] text-white/70">يفهم عربي — قوله شنو تدوّر 😊</div>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-full bg-white/20 p-1.5">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto space-y-4 p-4">
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === "user" ? "justify-start" : "justify-end"}`}>
+            <div className="max-w-[85%]">
+              <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                msg.role === "user"
+                  ? "rounded-tr-sm bg-indigo-600 text-white"
+                  : "rounded-tl-sm bg-slate-100 text-slate-800"
+              }`}>
+                {msg.content}
+              </div>
+              {msg.products && msg.products.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {msg.products.map((p) => (
+                    <div key={p.id} className="flex gap-3 rounded-xl border border-slate-100 bg-white p-2.5 shadow-sm">
+                      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-slate-100">
+                        {p.images[0]
+                          ? <img src={p.images[0]} alt={p.title} className="h-full w-full object-cover" />
+                          : <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-6 w-6" /></div>
+                        }
+                      </div>
+                      <div className="flex flex-1 flex-col justify-between">
+                        <div className="text-xs font-bold leading-tight text-slate-700">{p.title}</div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-indigo-600 text-sm">{money(p.price)} <span className="text-[10px] font-normal text-slate-400">{currency}</span></span>
+                          <button
+                            type="button"
+                            onClick={() => { onAddToCart(toRetailItem(p)); onClose() }}
+                            disabled={p.currentStock === 0}
+                            className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-40 active:scale-95"
+                          >
+                            <ShoppingCart className="h-3 w-3" /> أضف
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-end">
+            <div className="rounded-2xl rounded-tl-sm bg-slate-100 px-5 py-3">
+              <span className="flex gap-1 text-slate-400">
+                <span className="animate-bounce">●</span>
+                <span className="animate-bounce" style={{ animationDelay: "0.15s" }}>●</span>
+                <span className="animate-bounce" style={{ animationDelay: "0.3s" }}>●</span>
+              </span>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="border-t border-slate-100 bg-white p-3">
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send() } }}
+            placeholder="مثال: أبي هدية للبنت عمرها 5 بـ ١٥ ألف"
+            className="flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400"
+          />
+          <button
+            type="button"
+            onClick={() => void send()}
+            disabled={!input.trim() || loading}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white disabled:opacity-40 active:scale-95"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </motion.div>
   )
 }

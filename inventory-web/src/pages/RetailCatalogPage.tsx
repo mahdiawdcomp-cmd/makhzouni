@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
@@ -37,7 +37,9 @@ import {
   getRetailCustomers,
   getRetailItems,
   getRetailOrders,
+  getRetailReferralSettings,
   prepareRetailOrder,
+  setRetailReferralSettings,
   updateRetailCategory,
   updateRetailCoupon,
   updateRetailItem,
@@ -638,13 +640,20 @@ function CategoryDialog({ category, onClose, onSaved }: { category: RetailCatego
 function BrandingDialog({ onClose }: { onClose: () => void }) {
   const settings = useSettings().data
   const updateSettings = useUpdateSettings()
+  const referralQuery = useQuery({ queryKey: ["retail-referral-settings"], queryFn: getRetailReferralSettings })
   const [name, setName] = useState(settings?.storeName ?? "")
   const [logo, setLogo] = useState(settings?.storeLogo ?? "")
   const [staffPhones, setStaffPhones] = useState(settings?.orderPreparationWhatsappNumbers ?? "")
   const [designerName, setDesignerName] = useState(settings?.siteDesignerName ?? "")
   const [designerPhone, setDesignerPhone] = useState(settings?.siteDesignerPhone ?? "")
+  const [referralPct, setReferralPct] = useState(10)
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
+
+  // Sync referral % when query loads
+  useEffect(() => {
+    if (referralQuery.data) setReferralPct(referralQuery.data.discountPercent)
+  }, [referralQuery.data])
 
   async function pickLogo(file: File | null) {
     if (!file) return
@@ -655,13 +664,16 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
   async function save() {
     setBusy(true)
     try {
-      await updateSettings.mutateAsync({
-        storeName: name.trim(),
-        storeLogo: logo,
-        orderPreparationWhatsappNumbers: staffPhones.trim(),
-        siteDesignerName: designerName.trim(),
-        siteDesignerPhone: designerPhone.trim(),
-      })
+      await Promise.all([
+        updateSettings.mutateAsync({
+          storeName: name.trim(),
+          storeLogo: logo,
+          orderPreparationWhatsappNumbers: staffPhones.trim(),
+          siteDesignerName: designerName.trim(),
+          siteDesignerPhone: designerPhone.trim(),
+        }),
+        setRetailReferralSettings(referralPct),
+      ])
       toast({ title: "✓ تم حفظ الإعدادات" })
       onClose()
     } catch {
@@ -709,6 +721,23 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
               <Input value={designerName} onChange={(e) => setDesignerName(e.target.value)} placeholder="اسم المصمم" />
               <Input value={designerPhone} onChange={(e) => setDesignerPhone(e.target.value)} placeholder="رقم الهاتف" dir="ltr" />
             </div>
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <label className="mb-1 block text-xs font-semibold text-slate-500">نسبة خصم الإحالة (%) — كل زبون يشارك رابطه يحصل هو ومن أحاله على هذا الخصم</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={50}
+                step={1}
+                value={referralPct}
+                onChange={(e) => setReferralPct(Number(e.target.value))}
+                className="flex-1"
+              />
+              <span className="w-14 rounded-lg border border-slate-200 bg-slate-50 py-1 text-center text-sm font-bold">{referralPct}%</span>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">0% = تعطيل نظام الإحالة. النسبة تطبق على الإجمالي قبل أي خصم كوبون.</p>
           </div>
 
           <Button className="w-full" disabled={busy || name.trim().length < 1} onClick={() => void save()}>{busy ? "جاري الحفظ..." : "حفظ"}</Button>

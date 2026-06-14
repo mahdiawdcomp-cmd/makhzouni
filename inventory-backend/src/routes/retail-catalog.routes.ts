@@ -6,6 +6,7 @@ import {
   getRetailCustomers,
   getRetailItems,
   getRetailOrders,
+  getRetailReferralSettingsCtrl,
   patchRetailCategory,
   patchRetailCoupon,
   patchRetailItem,
@@ -14,6 +15,7 @@ import {
   postRetailCoupon,
   postRetailItem,
   prepareRetailOrder,
+  putRetailReferralSettingsCtrl,
   removeRetailCategory,
   removeRetailCoupon,
   removeRetailItem,
@@ -63,5 +65,9 @@ router.delete("/coupons/:id", requirePermission("MANAGE_SETTINGS"), validate(idP
 router.get("/orders", requirePermission("MANAGE_INVOICES"), validate(listRetailOrdersSchema), getRetailOrders);
 router.post("/orders/:id/prepare", requirePermission("MANAGE_INVOICES"), validate(idParamSchema), prepareRetailOrder);
 router.post("/orders/:id/cancel", requirePermission("MANAGE_INVOICES"), validate(idParamSchema), cancelRetailOrderCtrl);
+
+// Referral settings (admin)
+router.get("/referral-settings", requirePermission("MANAGE_SETTINGS"), getRetailReferralSettingsCtrl);
+router.put("/referral-settings", requirePermission("MANAGE_SETTINGS"), putRetailReferralSettingsCtrl);
 
 export default router;

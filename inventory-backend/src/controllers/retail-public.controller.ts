@@ -2,13 +2,16 @@ import { asyncHandler } from "../utils/async-handler";
 import prisma from "../config/database";
 import {
   getActiveRetailCoupon,
+  getRetailCustomerReferral,
   getRetailOrderPublic,
   getRetailOrdersByPhone,
+  getReferralInfo,
   listPublicRetailCategories,
   listPublicRetailItems,
   previewRetailCoupon,
   submitRetailOrder,
 } from "../services/retail-catalog.service";
+import { retailAiChat } from "../services/retail-ai.service";
 
 export const getPublicRetailCategories = asyncHandler(async (_req, res) => {
   res.json({ success: true, data: await listPublicRetailCategories() });
@@ -61,4 +64,53 @@ export const postPublicRetailOrder = asyncHandler(async (req, res) => {
 
 export const getPublicRetailOrder = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await getRetailOrderPublic(String(req.params.id)) });
+});
+
+export const getPublicReferralInfo = asyncHandler(async (req, res) => {
+  const code = String(req.params.code ?? "").trim().toUpperCase();
+  if (!code) { res.status(400).json({ success: false, error: "كود الإحالة مطلوب" }); return; }
+  res.json({ success: true, data: await getReferralInfo(code) });
+});
+
+export const getPublicCustomerReferral = asyncHandler(async (req, res) => {
+  const phone = String(req.query.phone ?? "");
+  res.json({ success: true, data: await getRetailCustomerReferral(phone) });
+});
+
+export const postPublicRetailAiChat = asyncHandler(async (req, res) => {
+  const { message, history = [] } = req.body as { message?: string; history?: Array<{ role: "user" | "assistant"; content: string }> };
+  if (!message?.trim()) { res.status(400).json({ success: false, error: "الرسالة مطلوبة" }); return; }
+
+  // Get store name for personalised prompt
+  const storeRow = await prisma.setting.findUnique({ where: { key: "storeName" } });
+  const storeName = String(storeRow?.value ?? "متجرنا");
+
+  const result = await retailAiChat(message.trim(), history, storeName);
+
+  // Resolve full item data for returned productIds
+  const items = result.productIds.length
+    ? await prisma.retailCatalogItem.findMany({
+        where: { id: { in: result.productIds }, isActive: true },
+        include: { product: { select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true } } },
+      })
+    : [];
+
+  const products = result.productIds
+    .map((id) => items.find((i) => i.id === id))
+    .filter(Boolean)
+    .map((item) => {
+      const stock = item!.product
+        ? item!.product.openingBalancePcs + item!.product.cartonsAvailable * item!.product.pcsPerCarton
+        : 0;
+      return {
+        id: item!.id,
+        title: item!.title || item!.product?.name || "",
+        price: Number(item!.price),
+        oldPrice: item!.oldPrice != null ? Number(item!.oldPrice) : null,
+        images: Array.isArray(item!.images) ? (item!.images as string[]) : [],
+        currentStock: stock,
+      };
+    });
+
+  res.json({ success: true, data: { message: result.message, products } });
 });

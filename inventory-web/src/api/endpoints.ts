@@ -65,6 +65,9 @@ import type {
   PublicRetailCoupon,
   RetailOrderResult,
   PublicRetailOrderStatus,
+  AiChatResponse,
+  ReferralInfo,
+  CustomerReferral,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -1052,6 +1055,16 @@ export async function cancelRetailOrder(id: string) {
   return data
 }
 
+export async function getRetailReferralSettings() {
+  const { data } = await api.get<ApiEnvelope<{ discountPercent: number }>>("/retail-catalog/referral-settings")
+  return data.data ?? { discountPercent: 10 }
+}
+
+export async function setRetailReferralSettings(discountPercent: number) {
+  const { data } = await api.put<ApiEnvelope<{ discountPercent: number }>>("/retail-catalog/referral-settings", { discountPercent })
+  return data.data!
+}
+
 // ── Retail storefront: public (no auth) ────────────────────────────────────────
 export async function getPublicStoreInfo() {
   const { data } = await publicApi.get<ApiEnvelope<{ storeName: string; storeLogo: string; currency: string; designerName?: string; designerPhone?: string }>>("/public/retail/store-info")
@@ -1084,6 +1097,7 @@ export async function submitPublicRetailOrder(payload: {
   address?: string
   notes?: string
   couponCode?: string
+  referralCode?: string
   isSubscriber?: boolean
   interests?: string[]
   wishNote?: string
@@ -1101,4 +1115,19 @@ export async function getPublicRetailOrderStatus(id: string) {
 export async function getPublicRetailOrdersByPhone(phone: string) {
   const { data } = await publicApi.get<ApiEnvelope<RetailMyOrder[]>>("/public/retail/my-orders", { params: { phone } })
   return data.data ?? []
+}
+
+export async function retailAiChat(message: string, history: Array<{ role: "user" | "assistant"; content: string }>) {
+  const { data } = await publicApi.post<ApiEnvelope<AiChatResponse>>("/public/retail/ai-chat", { message, history })
+  return data.data!
+}
+
+export async function getPublicReferralInfo(code: string) {
+  const { data } = await publicApi.get<ApiEnvelope<ReferralInfo>>(`/public/retail/referral/${encodeURIComponent(code)}`)
+  return data.data!
+}
+
+export async function getPublicCustomerReferral(phone: string) {
+  const { data } = await publicApi.get<ApiEnvelope<CustomerReferral | null>>("/public/retail/my-referral", { params: { phone } })
+  return data.data ?? null
 }
