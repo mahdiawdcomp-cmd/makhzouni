@@ -419,37 +419,42 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         </button>
       </div>
 
-      {/* Category selector */}
-      {categories.length > 0 && !category && (
-        <div className="grid grid-cols-3 gap-2">
-          {categories.map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              onClick={() => { setCategory(c.name); setSubCategory(null) }}
-              className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-100 bg-white py-3 px-2 text-xs font-semibold text-slate-700 shadow-sm active:scale-95 transition"
-            >
-              <span className="text-lg">🏷️</span>
-              <span className="text-center leading-tight">{c.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Active category header + sub-cats */}
-      {category && (
+      {/* Category chips — show all when none selected; show only active chip when selected */}
+      {categories.length > 0 && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => { setCategory(null); setSubCategory(null) }}
-              className="flex items-center gap-1.5 rounded-full bg-slate-900 px-3 py-1.5 text-xs font-bold text-white"
-            >
-              <ArrowRight className="h-3.5 w-3.5" /> {category}
-            </button>
-            <span className="text-xs text-slate-400">({filtered.length} منتج)</span>
+          <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+            {!category && (
+              <button
+                type="button"
+                onClick={() => { setCategory(null); setSubCategory(null) }}
+                className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"
+              >
+                كل الأقسام
+              </button>
+            )}
+            {categories.map((c) =>
+              category && category !== c.name ? null : (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() => {
+                    if (category === c.name) { setCategory(null); setSubCategory(null) }
+                    else { setCategory(c.name); setSubCategory(null) }
+                  }}
+                  className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    category === c.name
+                      ? "bg-slate-900 text-white"
+                      : "bg-white text-slate-600 ring-1 ring-slate-200"
+                  }`}
+                >
+                  {c.name}
+                  {category === c.name && <X className="h-3 w-3 opacity-70" />}
+                </button>
+              )
+            )}
           </div>
-          {subOptions.length > 0 && (
+          {/* Sub-category chips when a category is selected */}
+          {category && subOptions.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto pb-0.5">
               <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${!subCategory ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
               {subOptions.map((s) => (
@@ -679,7 +684,7 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
   }
 
   if (success) {
-    return <SuccessScreen orderNumber={success.orderNumber} goCatalog={goCatalog} />
+    return <SuccessScreen orderNumber={success.orderNumber} customerPhone={phone} goCatalog={goCatalog} />
   }
 
   if (cart.length === 0) {
@@ -932,19 +937,38 @@ function OrderStatusCard({ order, currency }: { order: SavedOrder; currency: str
 }
 
 // ── Success Screen (with referral link) ───────────────────────────────────────
-function SuccessScreen({ orderNumber, goCatalog }: { orderNumber: string; goCatalog: () => void }) {
-  const [phone, setPhone] = useState("")
+function SuccessScreen({ orderNumber, customerPhone, goCatalog }: { orderNumber: string; customerPhone: string; goCatalog: () => void }) {
+  const [phone, setPhone] = useState(customerPhone)
   const [referralInfo, setReferralInfo] = useState<{ referralCode: string; discountPercent: number } | null>(null)
   const [copied, setCopied] = useState(false)
   const [fetching, setFetching] = useState(false)
+  const [fetchError, setFetchError] = useState("")
 
-  async function fetchReferral() {
-    if (phone.replace(/\D/g, "").length < 7) return
+  // Auto-fetch when phone is known (delay gives backend time to finish upsert)
+  useEffect(() => {
+    if (!customerPhone || customerPhone.replace(/\D/g, "").length < 7) return
+    const t = setTimeout(() => { void fetchReferral(customerPhone) }, 1800)
+    return () => clearTimeout(t)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerPhone])
+
+  async function fetchReferral(phoneToFetch = phone) {
+    const digits = phoneToFetch.replace(/\D/g, "")
+    if (digits.length < 7) { setFetchError("أدخل رقم هاتف صحيح"); return }
     setFetching(true)
+    setFetchError("")
     try {
-      const info = await getPublicCustomerReferral(phone.trim())
-      if (info) setReferralInfo(info)
-    } catch { /* ignore */ } finally { setFetching(false) }
+      const info = await getPublicCustomerReferral(phoneToFetch.trim())
+      if (info) {
+        setReferralInfo(info)
+      } else {
+        setFetchError("لم يُعثر على حساب بهذا الرقم. تأكد من الرقم وحاول مجدداً.")
+      }
+    } catch {
+      setFetchError("تعذّر جلب رابط الإحالة. تحقق من اتصالك وحاول مجدداً.")
+    } finally {
+      setFetching(false)
+    }
   }
 
   const referralLink = referralInfo
@@ -985,10 +1009,11 @@ function SuccessScreen({ orderNumber, goCatalog }: { orderNumber: string; goCata
               inputMode="tel"
               className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
             />
-            <button type="button" onClick={() => void fetchReferral()} disabled={fetching} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
-              {fetching ? "..." : "أظهر"}
+            <button type="button" onClick={() => void fetchReferral()} disabled={fetching} className="shrink-0 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60">
+              {fetching ? <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : "أظهر"}
             </button>
           </div>
+          {fetchError && <p className="mt-2 text-xs text-rose-600">{fetchError}</p>}
         </div>
       )}
 

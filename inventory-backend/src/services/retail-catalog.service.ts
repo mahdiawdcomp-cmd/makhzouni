@@ -687,6 +687,15 @@ async function upsertRetailCustomer(input: {
   const existing = await prisma.retailCustomer.findUnique({ where: { phone: input.phone } });
   if (existing) {
     const merged = [...new Set([...existing.interests, ...input.interests])];
+    // Generate a referral code for existing customers who don't have one yet
+    let newReferralCode: string | undefined;
+    if (!existing.referralCode) {
+      for (let i = 0; i < 10; i++) {
+        const candidate = generateReferralCode();
+        const conflict = await prisma.retailCustomer.findUnique({ where: { referralCode: candidate } });
+        if (!conflict) { newReferralCode = candidate; break; }
+      }
+    }
     await prisma.retailCustomer.update({
       where: { phone: input.phone },
       data: {
@@ -696,6 +705,7 @@ async function upsertRetailCustomer(input: {
         wishNote: input.wishNote ?? existing.wishNote,
         ordersCount: { increment: 1 },
         lastOrderAt: new Date(),
+        ...(newReferralCode ? { referralCode: newReferralCode } : {}),
       },
     });
   } else {
@@ -724,11 +734,25 @@ async function upsertRetailCustomer(input: {
 
 export async function getRetailCustomerReferral(phone: string) {
   const normalized = normalizePhone(phone);
-  const customer = await prisma.retailCustomer.findUnique({
+  let customer = await prisma.retailCustomer.findUnique({
     where: { phone: normalized },
     select: { referralCode: true, ordersCount: true },
   });
-  if (!customer?.referralCode) return null;
+  if (!customer) return null;
+  // Generate a code on-the-fly for existing customers who don't have one
+  if (!customer.referralCode) {
+    let code: string | null = null;
+    for (let i = 0; i < 10; i++) {
+      const candidate = generateReferralCode();
+      const conflict = await prisma.retailCustomer.findUnique({ where: { referralCode: candidate } });
+      if (!conflict) { code = candidate; break; }
+    }
+    if (code) {
+      await prisma.retailCustomer.update({ where: { phone: normalized }, data: { referralCode: code } });
+      customer = { referralCode: code, ordersCount: customer.ordersCount };
+    }
+  }
+  if (!customer.referralCode) return null;
   const pct = await getReferralDiscountPercent();
   return { referralCode: customer.referralCode, discountPercent: pct };
 }
