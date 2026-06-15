@@ -122,15 +122,28 @@ export async function createPendingApproval(
     },
   });
 
-  // Send WhatsApp notification to store owner for destructive operations
+  // Send WhatsApp notification to the manager for destructive operations.
   if (deleteApprovalTypes.has(requestType)) {
     const actionLabel = approvalTypeLabels[requestType] ?? requestType;
     const staffName = requesterName ?? "موظف";
-    const message = `⚠️ تنبيه: الموظف "${staffName}" طلب عملية "${actionLabel}" وتنتظر موافقتك في قائمة الطلبات المعلقة.`;
+    const params = (requestData?.params ?? {}) as Record<string, unknown>;
+    const recordRef = params.id ? `\nالسجل: ${String(params.id)}` : "";
+    const reason = typeof (requestData as Record<string, unknown>)?.reason === "string"
+      ? `\nالسبب: ${(requestData as Record<string, unknown>).reason}`
+      : "";
+    const when = new Date().toLocaleString("en-GB");
+    const message =
+      `⚠️ طلب موافقة جديد\n` +
+      `الموظف: ${staffName}\n` +
+      `العملية: ${actionLabel}${recordRef}${reason}\n` +
+      `الوقت: ${when}\n\n` +
+      `راجع وأقرّ العملية من صفحة (الطلبات المعلّقة) في التطبيق.`;
     getSettings()
       .then((settings) => {
-        if (settings?.storePhone) {
-          sendWhatsAppText(settings.storePhone, message).catch(() => {});
+        // Dedicated approvals number, falling back to the store phone.
+        const target = settings?.adminApprovalWhatsappNumber?.trim() || settings?.storePhone?.trim();
+        if (target) {
+          sendWhatsAppText(target, message).catch(() => {});
         }
       })
       .catch(() => {});

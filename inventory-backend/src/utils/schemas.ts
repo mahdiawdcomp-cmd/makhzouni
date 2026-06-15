@@ -562,6 +562,7 @@ export const updateSettingsSchema = z.object({
       catalogPublicUrl: z.string().trim().optional(),
       catalogAdminWhatsappNumber: z.string().trim().optional(),
       orderPreparationWhatsappNumbers: z.string().trim().optional(),
+      adminApprovalWhatsappNumber: z.string().trim().optional(),
       autoSendDailySummary: z.boolean().optional(),
       dailySummaryWhatsappNumber: z.string().trim().optional(),
       dailySummaryHour: z.coerce.number().int().min(0).max(23).optional(),

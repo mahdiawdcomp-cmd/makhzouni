@@ -24,6 +24,9 @@ export interface AppSettings {
   catalogPublicUrl?: string;
   catalogAdminWhatsappNumber?: string;
   orderPreparationWhatsappNumbers?: string;
+  // Dedicated number that receives staff approval requests (delete/cancel).
+  // Falls back to storePhone when empty.
+  adminApprovalWhatsappNumber?: string;
   // Daily summary
   autoSendDailySummary: boolean;
   dailySummaryWhatsappNumber?: string;
@@ -57,6 +60,7 @@ export const defaultSettings: AppSettings = {
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
+  adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,
   dailySummaryWhatsappNumber: "",
   dailySummaryHour: 21,

@@ -580,6 +580,7 @@ export interface AppSettings {
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
   orderPreparationWhatsappNumbers?: string
+  adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean
   dailySummaryWhatsappNumber?: string
   dailySummaryHour?: number

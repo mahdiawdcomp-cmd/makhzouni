@@ -408,12 +408,26 @@ export function SettingsPage() {
                   اكتب كل رقم بسطر، أو افصل الأرقام بفارزة. إذا تركت رقمك الخاص فارغ يستخدم رقم النسخ الاحتياطي كبديل.
                 </p>
               </div>
+              <div className="md:col-span-2">
+                <Field label="رقم موافقات المدير (واتساب)">
+                  <Input
+                    value={settings.adminApprovalWhatsappNumber ?? ""}
+                    onChange={(e) => upd("adminApprovalWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  يصله إشعار واتساب بكل طلب حذف/تعطيل من الموظفين (اسم الموظف، العملية، السجل، الوقت). إذا تركته فارغ يُرسل لرقم المتجر.
+                </p>
+              </div>
             </div>
             <SaveRow
               onSave={() => saveSettings.mutate({
                 catalogAdminWhatsappNumber: settings.catalogAdminWhatsappNumber,
                 catalogPublicUrl: settings.catalogPublicUrl,
                 orderPreparationWhatsappNumbers: settings.orderPreparationWhatsappNumbers,
+                adminApprovalWhatsappNumber: settings.adminApprovalWhatsappNumber,
               })}
               isPending={saveSettings.isPending}
               saved={saved}
