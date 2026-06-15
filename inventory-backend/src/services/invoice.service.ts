@@ -147,7 +147,15 @@ async function couponDiscount(
 
   const coupon = await tx.coupon.findUnique({
     where: { id: locked.id },
-    include: { _count: { select: { redemptions: true } } },
+    include: {
+      // Only count redemptions still tied to a live invoice. Cancelled or
+      // archived invoices free up their coupon use instead of consuming it.
+      _count: {
+        select: {
+          redemptions: { where: { invoice: { status: InvoiceStatus.ACTIVE, archivedAt: null } } },
+        },
+      },
+    },
   });
 
   const now = new Date();
@@ -251,11 +259,11 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
       _sum: { remainingAmount: true },
     }),
     tx.paymentVoucher.aggregate({
-      where: { customerId, type: VoucherType.RECEIPT, archivedAt: null },
+      where: { customerId, type: VoucherType.RECEIPT, archivedAt: null, cancelledAt: null },
       _sum: { amount: true },
     }),
     tx.paymentVoucher.aggregate({
-      where: { customerId, type: VoucherType.PAYMENT, archivedAt: null },
+      where: { customerId, type: VoucherType.PAYMENT, archivedAt: null, cancelledAt: null },
       _sum: { amount: true },
     }),
     tx.invoice.findFirst({

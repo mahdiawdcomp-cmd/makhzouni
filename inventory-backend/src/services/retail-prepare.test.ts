@@ -18,12 +18,14 @@ type Order = {
   discount: number;
   total: number;
   status: string;
+  couponCode: string | null;
   invoiceId: string | null;
   preparedAt: Date | null;
   preparedById: string | null;
 };
 
 let order: Order;
+let coupon: { code: string; usedCount: number } | null;
 let createInvoiceCalls = 0;
 let createInvoiceImpl: () => Promise<{ id: string; invoiceNumber: string }>;
 
@@ -39,6 +41,7 @@ function freshOrder(overrides: Partial<Order> = {}): Order {
     discount: 0,
     total: 2000,
     status: "PENDING",
+    couponCode: null,
     invoiceId: null,
     preparedAt: null,
     preparedById: null,
@@ -74,6 +77,18 @@ const fakePrisma = {
   invoice: {
     update: async () => ({}),
   },
+  retailCoupon: {
+    updateMany: async ({ where, data }: any) => {
+      if (!coupon || where.code !== coupon.code) return { count: 0 };
+      // Honor the usedCount: { gt: 0 } guard.
+      if (where.usedCount?.gt !== undefined && !(coupon.usedCount > where.usedCount.gt)) {
+        return { count: 0 };
+      }
+      if (data.usedCount?.decrement) coupon.usedCount -= data.usedCount.decrement;
+      return { count: 1 };
+    },
+  },
+  $transaction: async (cb: any) => cb(fakePrisma),
 };
 
 mock.module("../config/database", {
@@ -100,14 +115,16 @@ mock.module("./settings.service", {
 // Import AFTER mocks are registered (in a hook — tsconfig emits CJS, so no
 // top-level await).
 let markRetailOrderPrepared: (orderId: string, userId: string) => Promise<{ id: string; orderNumber: string }>;
+let cancelRetailOrder: (orderId: string) => Promise<{ id: string }>;
 
 describe("markRetailOrderPrepared — invoice safety", () => {
   before(async () => {
-    ({ markRetailOrderPrepared } = await import("./retail-catalog.service"));
+    ({ markRetailOrderPrepared, cancelRetailOrder } = await import("./retail-catalog.service"));
   });
 
   beforeEach(() => {
     order = freshOrder();
+    coupon = null;
     createInvoiceCalls = 0;
     createInvoiceImpl = async () => ({ id: "inv-1", invoiceNumber: "INV-1" });
   });
@@ -181,5 +198,44 @@ describe("markRetailOrderPrepared — invoice safety", () => {
     assert.equal(order.status, "PREPARED");
     assert.equal(createInvoiceCalls, 0, "must not create a second invoice");
     assert.equal(order.invoiceId, "inv-prev");
+  });
+});
+
+describe("cancelRetailOrder — coupon release (#6)", () => {
+  before(async () => {
+    ({ cancelRetailOrder } = await import("./retail-catalog.service"));
+  });
+
+  beforeEach(() => {
+    order = freshOrder();
+    coupon = null;
+  });
+
+  it("cancelling an order with a coupon releases one use", async () => {
+    order.couponCode = "SAVE10";
+    coupon = { code: "SAVE10", usedCount: 3 };
+    await cancelRetailOrder(order.id);
+    assert.equal(order.status, "CANCELLED");
+    assert.equal(coupon.usedCount, 2, "coupon use must be released on cancel");
+  });
+
+  it("cancelling without a coupon leaves counters untouched", async () => {
+    order.couponCode = null;
+    coupon = { code: "SAVE10", usedCount: 3 };
+    await cancelRetailOrder(order.id);
+    assert.equal(order.status, "CANCELLED");
+    assert.equal(coupon.usedCount, 3);
+  });
+
+  it("never decrements a coupon below zero", async () => {
+    order.couponCode = "SAVE10";
+    coupon = { code: "SAVE10", usedCount: 0 };
+    await cancelRetailOrder(order.id);
+    assert.equal(coupon.usedCount, 0);
+  });
+
+  it("cancelling an already-PREPARED order is rejected", async () => {
+    order.status = "PREPARED";
+    await assert.rejects(() => cancelRetailOrder(order.id), /مجهز/);
   });
 });

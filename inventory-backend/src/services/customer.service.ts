@@ -418,6 +418,11 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     })),
   ].sort((a, b) => a.date.getTime() - b.date.getTime() || a.sortKey - b.sortKey);
 
+  // Cancelled vouchers are shown in the ledger for audit but, like cancelled
+  // invoices, must NOT affect the running balance (keeps it consistent with the
+  // canonical customer balance).
+  const cancelledVoucherIds = new Set(vouchers.filter((v) => v.cancelledAt).map((v) => v.id));
+
   let runningBalance = toNumber(customer.openingBalance);
 
   const transactions = movements.flatMap((movement) => {
@@ -425,13 +430,15 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     //   Debit  (+): SALE invoice, PURCHASE payment (paid to supplier = reduces our debt), customer PAYMENT voucher
     //   Credit (−): PURCHASE invoice (we owe supplier), SALE payment upfront, RECEIPT voucher
     const isCancelledInvoice = movement.status === InvoiceStatus.CANCELLED;
+    const isCancelledVoucher = cancelledVoucherIds.has(movement.recordId);
+    const isCancelled = isCancelledInvoice || isCancelledVoucher;
     const isCredit =
       movement.type === "RECEIPT" ||
       movement.type === "SALE_PAYMENT" ||
       movement.type === "PURCHASE_INVOICE" ||
       movement.type === "SALES_RETURN_INVOICE";
 
-    if (!isCancelledInvoice) {
+    if (!isCancelled) {
       if (isCredit) {
         runningBalance -= movement.amount;
       } else {

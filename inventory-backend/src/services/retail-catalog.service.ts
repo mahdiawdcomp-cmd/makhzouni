@@ -964,6 +964,18 @@ export async function cancelRetailOrder(orderId: string) {
   if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
   if (order.status === "PREPARED") throw new AppError("لا يمكن إلغاء طلب مجهز", 400, "RETAIL_ALREADY_PREPARED");
   if (order.status === "PROCESSING") throw new AppError("الطلب قيد المعالجة، لا يمكن إلغاؤه الآن", 409, "RETAIL_ORDER_PROCESSING");
-  await prisma.retailOrder.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+  if (order.status === "CANCELLED") return { id: order.id }; // idempotent
+
+  await prisma.$transaction(async (tx) => {
+    await tx.retailOrder.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+    // Release the coupon use reserved at submit time so a cancelled order does
+    // not permanently consume a coupon (floor the counter at 0).
+    if (order.couponCode) {
+      await tx.retailCoupon.updateMany({
+        where: { code: order.couponCode, usedCount: { gt: 0 } },
+        data: { usedCount: { decrement: 1 } },
+      });
+    }
+  });
   return { id: order.id };
 }

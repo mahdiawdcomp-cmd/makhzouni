@@ -536,7 +536,7 @@ export async function getEndOfDayReport(date?: string) {
       include: { customer: { select: { name: true } } },
     }),
     prisma.paymentVoucher.findMany({
-      where: { date: { gte: start, lte: end }, archivedAt: null },
+      where: { date: { gte: start, lte: end }, archivedAt: null, cancelledAt: null },
       include: { customer: { select: { name: true } } },
     }),
   ]);
@@ -650,7 +650,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
       _sum: { totalAmount: true },
     }),
     prisma.paymentVoucher.aggregate({
-      where: { type: "RECEIPT", date: { gte: todayStart, lte: todayEnd } },
+      where: { type: "RECEIPT", date: { gte: todayStart, lte: todayEnd }, archivedAt: null, cancelledAt: null },
       _sum: { amount: true },
     }),
     prisma.product.findMany({ where: { deletedAt: null } }),
