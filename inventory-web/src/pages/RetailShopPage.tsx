@@ -324,10 +324,8 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   // Only show sub-categories that actually have items under the selected main category.
   const subOptions = useMemo(() => {
     if (!category) return [] as string[]
-    const defined = categories.find((c) => c.name === category)?.subCategories ?? []
-    const used = new Set(items.filter((i) => i.categories.includes(category)).flatMap((i) => i.subCategories))
-    return defined.filter((s) => used.has(s))
-  }, [categories, items, category])
+    return categories.find((c) => c.name === category)?.subCategories ?? []
+  }, [categories, category])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -457,14 +455,11 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         <div className="py-12 text-center text-sm text-slate-400">لا توجد مواد مطابقة.</div>
       ) : (
         <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-          {filtered.map((item, idx) => {
+          {filtered.map((item) => {
             const pct = discountPct(item)
             return (
-              <motion.div
+              <div
                 key={item.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: Math.min(idx * 0.015, 0.3) }}
                 className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <button type="button" onClick={() => onOpen(item)} className="relative block aspect-square w-full bg-slate-100">
@@ -491,7 +486,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                     )}
                   </div>
                 </div>
-              </motion.div>
+              </div>
             )
           })}
         </div>
