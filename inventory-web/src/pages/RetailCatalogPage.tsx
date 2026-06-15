@@ -1077,6 +1077,8 @@ function OrdersTab({ currency }: { currency: string }) {
                     <div className="flex items-center gap-2">
                       <span className="font-mono font-bold text-indigo-600">{order.orderNumber}</span>
                       {order.status === "PENDING" && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">قيد التجهيز</span>}
+                      {order.status === "PROCESSING" && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">جارٍ المعالجة…</span>}
+                      {order.status === "FAILED" && <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">فشل التجهيز — أعد المحاولة</span>}
                       {order.status === "PREPARED" && <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3 w-3" /> مجهز</span>}
                       {order.status === "CANCELLED" && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">ملغي</span>}
                     </div>
@@ -1101,10 +1103,10 @@ function OrdersTab({ currency }: { currency: string }) {
                   ))}
                 </div>
 
-                {order.status === "PENDING" && (
+                {(order.status === "PENDING" || order.status === "FAILED") && (
                   <div className="mt-3 flex gap-2">
                     <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setPrepareId(order)}>
-                      <CheckCircle2 className="h-4 w-4" /> تم التجهيز
+                      <CheckCircle2 className="h-4 w-4" /> {order.status === "FAILED" ? "إعادة المحاولة" : "تم التجهيز"}
                     </Button>
                     <Button variant="outline" className="border-rose-300 text-rose-600 hover:bg-rose-50" onClick={() => setCancelId(order.id)}>إلغاء</Button>
                   </div>

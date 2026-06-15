@@ -814,7 +814,7 @@ export interface RetailOrder {
   discount: number
   total: number
   couponCode?: string | null
-  status: "PENDING" | "PREPARED" | "CANCELLED"
+  status: "PENDING" | "PROCESSING" | "PREPARED" | "CANCELLED" | "FAILED"
   invoiceId?: string | null
   preparedAt?: string | null
   createdAt: string
@@ -857,7 +857,7 @@ export interface RetailCustomerEntry {
 export interface RetailMyOrder {
   id: string
   orderNumber: string
-  status: "PENDING" | "PREPARED" | "CANCELLED"
+  status: "PENDING" | "PROCESSING" | "PREPARED" | "CANCELLED" | "FAILED"
   total: number
   createdAt: string
   preparedAt?: string | null
@@ -909,7 +909,7 @@ export interface CustomerReferral {
 export interface PublicRetailOrderStatus {
   id: string
   orderNumber: string
-  status: "PENDING" | "PREPARED" | "CANCELLED"
+  status: "PENDING" | "PROCESSING" | "PREPARED" | "CANCELLED" | "FAILED"
   total: number
   createdAt: string
   preparedAt?: string | null

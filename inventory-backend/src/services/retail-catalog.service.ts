@@ -634,8 +634,16 @@ function serializeOrder(order: any) {
 }
 
 export async function listRetailOrders(status?: string) {
+  // The "PENDING" tab also surfaces orders that are mid-processing or failed,
+  // so staff can see and retry them instead of having them vanish.
+  const where =
+    status === "PENDING"
+      ? { status: { in: ["PENDING", "PROCESSING", "FAILED"] } }
+      : status
+        ? { status }
+        : undefined;
   const orders = await prisma.retailOrder.findMany({
-    where: status ? { status } : undefined,
+    where,
     orderBy: { createdAt: "desc" },
     take: 300,
   });
@@ -843,87 +851,122 @@ async function getOrCreateRetailCustomer() {
 // Create the cash-sale invoice for a prepared retail order in the BACKGROUND,
 // decoupled from the HTTP response so it never blocks the button. Retries handle
 // Neon serverless cold-starts. Guarded against duplicates via order.invoiceId.
-async function createRetailInvoiceInBackground(orderId: string, userId: string, attempt = 0): Promise<void> {
-  try {
-    await ensureConnected().catch(() => {});
-    const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
-    if (!order) return;
-    if (order.invoiceId) return; // already invoiced
+type RetailOrderRow = NonNullable<Awaited<ReturnType<typeof prisma.retailOrder.findUnique>>>;
 
-    const items = (order.items as unknown as Array<{ productId: string; quantity: number; unitPrice: number }>) ?? [];
-    const customer = await getOrCreateRetailCustomer();
-    logger.info(`[RetailPrepare] (bg attempt ${attempt + 1}) creating invoice for order ${order.orderNumber}`);
+// Creates the SALE invoice (which deducts stock atomically inside its own
+// transaction) and links it to the order. Persists invoiceId IMMEDIATELY after
+// the invoice exists so a retry can never create a second invoice. Throws on
+// failure so the caller can roll the order back to PENDING.
+async function createRetailInvoice(order: RetailOrderRow, userId: string): Promise<void> {
+  if (order.invoiceId) return; // already invoiced — idempotent
 
-    const invoice = await createInvoice(
-      {
-        customerId: customer.id,
-        type: "SALE",
-        discount: toNumber(order.discount),
-        tax: 0,
-        paidAmount: toNumber(order.total),
-        paymentType: "CASH",
-        items: items.map((i) => ({
-          productId: i.productId,
-          unit: Unit.PIECE,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-        })),
-      },
-      userId,
-    );
+  const items = (order.items as unknown as Array<{ productId: string; quantity: number; unitPrice: number }>) ?? [];
+  const customer = await getOrCreateRetailCustomer();
+  logger.info(`[RetailPrepare] creating invoice for order ${order.orderNumber}`);
 
-    const noteParts = [
-      `طلب كتلوك المفرد ${order.orderNumber}`,
-      `الزبون: ${order.customerName}`,
-      `الهاتف: ${order.phone}`,
-      order.address ? `العنوان: ${order.address}` : "",
-      order.notes ? `ملاحظات: ${order.notes}` : "",
-    ].filter(Boolean);
-    await prisma.invoice.update({ where: { id: invoice.id }, data: { notes: noteParts.join("\n") } }).catch(() => {});
-    await prisma.retailOrder.update({ where: { id: orderId }, data: { invoiceId: invoice.id } });
-    logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created for order ${order.orderNumber}`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error(`[RetailPrepare] bg invoice attempt ${attempt + 1} failed: ${msg}`);
-    if (attempt < 4) {
-      setTimeout(() => void createRetailInvoiceInBackground(orderId, userId, attempt + 1), 3000 * (attempt + 1));
-    } else {
-      logger.error(`[RetailPrepare] giving up on invoice for order ${orderId} after ${attempt + 1} attempts`);
-    }
-  }
+  const invoice = await createInvoice(
+    {
+      customerId: customer.id,
+      type: "SALE",
+      discount: toNumber(order.discount),
+      tax: 0,
+      paidAmount: toNumber(order.total),
+      paymentType: "CASH",
+      items: items.map((i) => ({
+        productId: i.productId,
+        unit: Unit.PIECE,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
+    },
+    userId,
+  );
+
+  // Link the invoice to the order first — protects against a second invoice on retry.
+  await prisma.retailOrder.update({ where: { id: order.id }, data: { invoiceId: invoice.id } });
+
+  const noteParts = [
+    `طلب كتلوك المفرد ${order.orderNumber}`,
+    `الزبون: ${order.customerName}`,
+    `الهاتف: ${order.phone}`,
+    order.address ? `العنوان: ${order.address}` : "",
+    order.notes ? `ملاحظات: ${order.notes}` : "",
+  ].filter(Boolean);
+  await prisma.invoice.update({ where: { id: invoice.id }, data: { notes: noteParts.join("\n") } }).catch(() => {});
+  logger.info(`[RetailPrepare] invoice ${invoice.invoiceNumber} created for order ${order.orderNumber}`);
 }
 
 export async function markRetailOrderPrepared(orderId: string, userId: string) {
   logger.info(`[RetailPrepare] start order=${orderId}`);
   await ensureConnected().catch(() => {});
 
-  const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
-  if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
-  if (order.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
-  if (order.status === "CANCELLED") throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
-
-  // Mark prepared immediately so the button always completes fast.
-  await prisma.retailOrder.update({
-    where: { id: orderId },
-    data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId },
-  });
-  logger.info(`[RetailPrepare] order ${order.orderNumber} marked prepared`);
-
-  // Invoice creation + stock deduction happen in the background (with retries).
-  void createRetailInvoiceInBackground(orderId, userId);
-
-  // Notify the customer that the order is on its way.
-  setImmediate(() => {
-    safeSendWA(order.phone, `طلبك رقم ${order.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
+  // ── Atomic claim: only one caller can move PENDING → PROCESSING. This is the
+  // idempotency guard — repeated clicks / parallel requests cannot both proceed,
+  // so we never create two invoices or deduct stock twice.
+  const claim = await prisma.retailOrder.updateMany({
+    where: { id: orderId, status: { in: ["PENDING", "FAILED"] } },
+    data: { status: "PROCESSING" },
   });
 
-  return { id: order.id, orderNumber: order.orderNumber };
+  if (claim.count !== 1) {
+    const existing = await prisma.retailOrder.findUnique({ where: { id: orderId } });
+    if (!existing) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
+    if (existing.status === "PROCESSING") throw new AppError("الطلب قيد المعالجة حالياً، انتظر لحظة", 409, "RETAIL_ORDER_PROCESSING");
+    if (existing.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
+    if (existing.status === "CANCELLED") throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
+    throw new AppError("تعذّر تجهيز الطلب بهذه الحالة", 400, "RETAIL_ORDER_BAD_STATE");
+  }
+
+  try {
+    const order = await prisma.retailOrder.findUniqueOrThrow({ where: { id: orderId } });
+
+    // Create the invoice + deduct stock synchronously. Throws on insufficient
+    // stock (prevents overselling) or any failure.
+    await createRetailInvoice(order, userId);
+
+    const finalized = await prisma.retailOrder.update({
+      where: { id: orderId },
+      data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId },
+    });
+    logger.info(`[RetailPrepare] order ${order.orderNumber} prepared + invoiced`);
+
+    // Notify the customer only after the invoice + stock deduction succeeded.
+    setImmediate(() => {
+      safeSendWA(order.phone, `طلبك رقم ${order.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
+    });
+
+    return { id: finalized.id, orderNumber: finalized.orderNumber };
+  } catch (err) {
+    // If the invoice was actually created (failure happened after), finalize as
+    // PREPARED so we don't lose the linkage. Otherwise roll back to FAILED so the
+    // order can be retried without leaving it stuck in PROCESSING.
+    const after = await prisma.retailOrder.findUnique({ where: { id: orderId } }).catch(() => null);
+    if (after?.invoiceId) {
+      await prisma.retailOrder.update({
+        where: { id: orderId },
+        data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId },
+      }).catch(() => {});
+      setImmediate(() => {
+        safeSendWA(after.phone, `طلبك رقم ${after.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
+      });
+      return { id: after.id, orderNumber: after.orderNumber };
+    }
+    await prisma.retailOrder.updateMany({
+      where: { id: orderId, status: "PROCESSING" },
+      data: { status: "FAILED" },
+    }).catch(() => {});
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error(`[RetailPrepare] failed order=${orderId}: ${msg}`);
+    if (err instanceof AppError) throw err;
+    throw new AppError("تعذّر إنشاء الفاتورة وخصم المخزون. أُعيد الطلب لحالة الانتظار، حاول مرة أخرى.", 500, "RETAIL_INVOICE_FAILED");
+  }
 }
 
 export async function cancelRetailOrder(orderId: string) {
   const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
   if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
   if (order.status === "PREPARED") throw new AppError("لا يمكن إلغاء طلب مجهز", 400, "RETAIL_ALREADY_PREPARED");
+  if (order.status === "PROCESSING") throw new AppError("الطلب قيد المعالجة، لا يمكن إلغاؤه الآن", 409, "RETAIL_ORDER_PROCESSING");
   await prisma.retailOrder.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
   return { id: order.id };
 }
