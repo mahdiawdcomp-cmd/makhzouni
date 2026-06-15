@@ -156,6 +156,7 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
 export async function listVouchers(query: ListVouchersQuery) {
   const dateFilter = getDateFilter(query.from, query.to);
   const where: Prisma.PaymentVoucherWhereInput = {
+    archivedAt: null, // hide accounting-safe-deleted vouchers from lists
     ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(query.type ? { type: query.type } : {}),
@@ -338,13 +339,25 @@ export async function updateVoucher(id: string, input: UpdateVoucherInput, db?: 
   return prisma.$transaction((tx) => updateVoucherInTransaction(tx, id, input));
 }
 
-async function deleteVoucherInTransaction(tx: Db, id: string) {
+// Accounting-safe "delete": the voucher row is RETAINED for audit, marked
+// archived (and cancelled) so it is excluded from lists, reports, and balance
+// calculations — never physically removed.
+async function deleteVoucherInTransaction(tx: Db, id: string, deletedBy?: string, reason?: string) {
   const existing = await tx.paymentVoucher.findUnique({ where: { id } });
   if (!existing) {
     throw new AppError("Voucher not found", 404, "VOUCHER_NOT_FOUND");
   }
+  if (existing.archivedAt) return serializeVoucher(existing); // idempotent
 
-  await tx.paymentVoucher.delete({ where: { id } });
+  await tx.paymentVoucher.update({
+    where: { id },
+    data: {
+      archivedAt: new Date(),
+      deletedBy: deletedBy ?? null,
+      deleteReason: reason ?? null,
+      cancelledAt: existing.cancelledAt ?? new Date(),
+    },
+  });
 
   if (existing.customerId) {
     await recalculateCustomerBalanceInTransaction(tx, existing.customerId);
@@ -353,9 +366,9 @@ async function deleteVoucherInTransaction(tx: Db, id: string) {
   return serializeVoucher(existing);
 }
 
-export async function deleteVoucher(id: string, db?: Db) {
-  if (db) return deleteVoucherInTransaction(db, id);
-  return prisma.$transaction((tx) => deleteVoucherInTransaction(tx, id));
+export async function deleteVoucher(id: string, db?: Db, deletedBy?: string, reason?: string) {
+  if (db) return deleteVoucherInTransaction(db, id, deletedBy, reason);
+  return prisma.$transaction((tx) => deleteVoucherInTransaction(tx, id, deletedBy, reason));
 }
 
 async function cancelVoucherInTransaction(tx: Db, id: string) {
@@ -384,6 +397,7 @@ export async function cancelVoucher(id: string, db?: Db) {
 async function restoreVoucherInTransaction(tx: Db, id: string) {
   const existing = await tx.paymentVoucher.findUnique({ where: { id } });
   if (!existing) throw new AppError("Voucher not found", 404, "VOUCHER_NOT_FOUND");
+  if (existing.archivedAt) throw new AppError("لا يمكن استرجاع سند محذوف", 400, "VOUCHER_ARCHIVED");
   if (!existing.cancelledAt) throw new AppError("السند نشط مسبقاً", 400, "VOUCHER_ALREADY_ACTIVE");
 
   const restored = await tx.paymentVoucher.update({

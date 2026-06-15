@@ -251,19 +251,19 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
       _sum: { remainingAmount: true },
     }),
     tx.paymentVoucher.aggregate({
-      where: { customerId, type: VoucherType.RECEIPT },
+      where: { customerId, type: VoucherType.RECEIPT, archivedAt: null },
       _sum: { amount: true },
     }),
     tx.paymentVoucher.aggregate({
-      where: { customerId, type: VoucherType.PAYMENT },
+      where: { customerId, type: VoucherType.PAYMENT, archivedAt: null },
       _sum: { amount: true },
     }),
     tx.invoice.findFirst({
-      where: { customerId, status: InvoiceStatus.ACTIVE },
+      where: { customerId, status: InvoiceStatus.ACTIVE, archivedAt: null },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
     tx.paymentVoucher.findFirst({
-      where: { customerId },
+      where: { customerId, archivedAt: null },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
   ]);
@@ -661,6 +661,7 @@ async function createInvoiceInTransaction(
 export async function listInvoices(query: ListInvoicesQuery) {
   const dateFilter = getDateFilter(query.from, query.to);
   const where: Prisma.InvoiceWhereInput = {
+    archivedAt: null, // hide accounting-safe-deleted invoices from lists
     ...(query.customerId ? { customerId: query.customerId } : {}),
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(query.status ? { status: query.status } : {}),
@@ -887,6 +888,10 @@ async function reactivateInvoiceInTransaction(tx: Db, id: string) {
       throw new AppError("Invoice is already active", 400, "INVOICE_ACTIVE");
     }
 
+    if (invoice.archivedAt) {
+      throw new AppError("لا يمكن استرجاع فاتورة محذوفة", 400, "INVOICE_ARCHIVED");
+    }
+
     await lockCustomer(tx, invoice.customerId);
     await applyInvoiceItemsStock(tx, id);
 
@@ -906,25 +911,33 @@ export async function reactivateInvoice(id: string, db?: Db) {
   return prisma.$transaction((tx) => reactivateInvoiceInTransaction(tx, id));
 }
 
-export async function hardDeleteInvoice(id: string) {
+// Accounting-safe "delete": the invoice row and all its related records
+// (items, stock movements, coupon redemptions) are RETAINED for audit. The
+// invoice is reversed (stock + balance) and marked archived so it disappears
+// from lists/reports but can never silently vanish from the books.
+export async function hardDeleteInvoice(id: string, deletedBy?: string, reason?: string) {
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUnique({ where: { id } });
     if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    if (invoice.archivedAt) return { id, invoiceNumber: invoice.invoiceNumber }; // idempotent
 
-    // Reverse stock and balance if invoice is still active
-    if (invoice.status === InvoiceStatus.ACTIVE) {
+    const wasActive = invoice.status === InvoiceStatus.ACTIVE;
+
+    // Reverse stock + flip to CANCELLED so the archived invoice has no
+    // accounting effect (all accounting queries already exclude non-ACTIVE).
+    if (wasActive) {
       await reverseInvoiceItemsStock(tx, id);
       await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.CANCELLED } });
-      await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
     }
 
-    await tx.orderPreparation.deleteMany({ where: { invoiceId: id } });
-    await tx.couponRedemption.deleteMany({ where: { invoiceId: id } });
-    await tx.stockMovement.deleteMany({ where: { invoiceId: id } });
-    await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
-    // Clear originalInvoiceId on any return invoices so they don't block deletion
-    await tx.invoice.updateMany({ where: { originalInvoiceId: id }, data: { originalInvoiceId: null } });
-    await tx.invoice.delete({ where: { id } });
+    await tx.invoice.update({
+      where: { id },
+      data: { archivedAt: new Date(), deletedBy: deletedBy ?? null, deleteReason: reason ?? null },
+    });
+
+    if (wasActive) {
+      await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
+    }
 
     return { id, invoiceNumber: invoice.invoiceNumber };
   });

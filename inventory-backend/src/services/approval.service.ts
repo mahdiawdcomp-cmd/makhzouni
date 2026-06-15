@@ -436,7 +436,9 @@ async function executeApprovedRequest(
       return hardDeleteInvoice(
         data.params && typeof data.params === "object"
           ? String((data.params as Record<string, unknown>).id)
-          : ""
+          : "",
+        reviewerId,
+        typeof data.reason === "string" ? data.reason : undefined
       );
     case approvalRequestTypes.CREATE_VOUCHER:
       return createVoucher(
@@ -471,7 +473,9 @@ async function executeApprovedRequest(
         data.params && typeof data.params === "object"
           ? String((data.params as Record<string, unknown>).id)
           : "",
-        tx
+        tx,
+        reviewerId,
+        typeof data.reason === "string" ? data.reason : undefined
       );
     default:
       throw new AppError("Unsupported approval request type", 400, "UNSUPPORTED_APPROVAL");

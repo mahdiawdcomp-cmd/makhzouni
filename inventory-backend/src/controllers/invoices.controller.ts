@@ -162,11 +162,11 @@ export const permanentDeleteInvoice = asyncHandler(async (req, res) => {
     return;
   }
 
-  const result = await hardDeleteInvoice(id);
+  const result = await hardDeleteInvoice(id, user.id);
 
   res.json({
     success: true,
-    message: `تم حذف الفاتورة ${result.invoiceNumber} نهائياً`,
+    message: `تم حذف الفاتورة ${result.invoiceNumber} (محفوظة للتدقيق)`,
     data: result,
   });
 });

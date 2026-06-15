@@ -305,6 +305,7 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     prisma.invoice.findMany({
       where: {
         customerId: id,
+        archivedAt: null,
         ...(upperDateFilter ? { date: upperDateFilter } : {}),
       },
       include: {
@@ -317,6 +318,7 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     prisma.paymentVoucher.findMany({
       where: {
         customerId: id,
+        archivedAt: null,
         ...(upperDateFilter ? { date: upperDateFilter } : {}),
       },
       include: {

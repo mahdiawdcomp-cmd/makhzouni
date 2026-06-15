@@ -302,6 +302,11 @@ model Invoice {
   preparation      OrderPreparation?
   notes            String?          @db.Text
   createdAt        DateTime         @default(now()) @map("created_at")
+  // Accounting-safe deletion: rows are never physically removed. Archived
+  // invoices are hidden from lists/reports but retained for audit.
+  archivedAt       DateTime?        @map("archived_at")
+  deletedBy        String?          @map("deleted_by") @db.Uuid
+  deleteReason     String?          @map("delete_reason")
 
   @@index([customerId])
   @@index([date])
@@ -311,6 +316,7 @@ model Invoice {
   @@index([branchId])
   @@index([couponId])
   @@index([originalInvoiceId])
+  @@index([archivedAt])
   @@map("invoices")
 }
 
@@ -352,12 +358,18 @@ model PaymentVoucher {
   creator       User        @relation("PaymentVoucherCreatedBy", fields: [createdBy], references: [id])
   createdAt     DateTime    @default(now()) @map("created_at")
   cancelledAt   DateTime?   @map("cancelled_at")
+  // Accounting-safe deletion: archived vouchers are retained for audit but
+  // excluded from lists, reports, and balance calculations.
+  archivedAt    DateTime?   @map("archived_at")
+  deletedBy     String?     @map("deleted_by") @db.Uuid
+  deleteReason  String?     @map("delete_reason")
 
   @@index([customerId])
   @@index([date])
   @@index([createdAt])
   @@index([createdBy])
   @@index([branchId])
+  @@index([archivedAt])
   @@map("payment_vouchers")
 }
 

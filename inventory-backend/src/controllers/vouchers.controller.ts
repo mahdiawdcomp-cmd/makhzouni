@@ -152,6 +152,6 @@ export const removeVoucher = asyncHandler(async (req, res) => {
     return;
   }
 
-  const voucher = await deleteVoucher(id);
-  res.json({ success: true, message: "تم حذف السند نهائياً", data: voucher });
+  const voucher = await deleteVoucher(id, undefined, user.id);
+  res.json({ success: true, message: "تم حذف السند (محفوظ للتدقيق)", data: voucher });
 });

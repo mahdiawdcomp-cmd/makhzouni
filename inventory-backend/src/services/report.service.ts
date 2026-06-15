@@ -536,7 +536,7 @@ export async function getEndOfDayReport(date?: string) {
       include: { customer: { select: { name: true } } },
     }),
     prisma.paymentVoucher.findMany({
-      where: { date: { gte: start, lte: end } },
+      where: { date: { gte: start, lte: end }, archivedAt: null },
       include: { customer: { select: { name: true } } },
     }),
   ]);
