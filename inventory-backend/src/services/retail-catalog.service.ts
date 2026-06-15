@@ -848,9 +848,6 @@ async function getOrCreateRetailCustomer() {
   });
 }
 
-// Create the cash-sale invoice for a prepared retail order in the BACKGROUND,
-// decoupled from the HTTP response so it never blocks the button. Retries handle
-// Neon serverless cold-starts. Guarded against duplicates via order.invoiceId.
 type RetailOrderRow = NonNullable<Awaited<ReturnType<typeof prisma.retailOrder.findUnique>>>;
 
 // Creates the SALE invoice (which deducts stock atomically inside its own
