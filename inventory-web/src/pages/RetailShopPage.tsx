@@ -419,41 +419,28 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         </button>
       </div>
 
-      {/* Category chips — show all when none selected; show only active chip when selected */}
+      {/* Category chips */}
       {categories.length > 0 && (
         <div className="space-y-2">
           <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            {!category && (
+            <button
+              type="button"
+              onClick={() => { setCategory(null); setSubCategory(null) }}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${!category ? "bg-indigo-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+            >
+              كل الأقسام
+            </button>
+            {categories.map((c) => (
               <button
+                key={c.name}
                 type="button"
-                onClick={() => { setCategory(null); setSubCategory(null) }}
-                className="shrink-0 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white"
+                onClick={() => { setCategory(c.name); setSubCategory(null) }}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${category === c.name ? "bg-indigo-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
               >
-                كل الأقسام
+                {c.name}
               </button>
-            )}
-            {categories.map((c) =>
-              category && category !== c.name ? null : (
-                <button
-                  key={c.name}
-                  type="button"
-                  onClick={() => {
-                    if (category === c.name) { setCategory(null); setSubCategory(null) }
-                    else { setCategory(c.name); setSubCategory(null) }
-                  }}
-                  className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    category === c.name
-                      ? "bg-slate-900 text-white"
-                      : "bg-white text-slate-600 ring-1 ring-slate-200"
-                  }`}
-                >
-                  {c.name}
-                  {category === c.name && <X className="h-3 w-3 opacity-70" />}
-                </button>
-              )
-            )}
+            ))}
           </div>
-          {/* Sub-category chips when a category is selected */}
           {category && subOptions.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto pb-0.5">
               <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${!subCategory ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
