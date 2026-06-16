@@ -157,15 +157,17 @@ export function RetailShopPage() {
   }
 
   return (
-    <div dir="rtl" className="min-h-screen bg-gradient-to-b from-indigo-50 via-slate-50 to-white">
-      <div className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-white/60 shadow-xl">
+    <div dir="rtl" className="min-h-screen bg-[radial-gradient(circle_at_top_right,#fde68a_0,#fb7185_28%,#8b5cf6_58%,#0f172a_100%)]">
+      <div className="mx-auto flex min-h-screen max-w-[480px] flex-col bg-gradient-to-b from-white/95 via-orange-50/95 to-white shadow-2xl shadow-slate-950/25">
         {/* Header */}
-        <header className="sticky top-0 z-20 bg-gradient-to-l from-indigo-600 to-violet-600 px-4 py-4 text-white shadow-lg">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-20 overflow-hidden bg-gradient-to-br from-rose-500 via-orange-500 to-violet-700 px-4 pb-5 pt-4 text-white shadow-xl shadow-orange-900/20">
+          <div className="absolute -right-10 -top-12 h-36 w-36 rounded-full bg-white/15 blur-sm" />
+          <div className="absolute -bottom-16 left-8 h-32 w-32 rounded-full bg-yellow-300/25 blur-md" />
+          <div className="relative flex items-center gap-3">
             {settings?.storeLogo ? (
-              <img src={settings.storeLogo} alt="logo" className="h-10 w-10 shrink-0 rounded-xl bg-white/20 object-contain" />
+              <img src={settings.storeLogo} alt="logo" className="h-12 w-12 shrink-0 rounded-2xl bg-white/25 object-contain p-1 ring-1 ring-white/35" />
             ) : (
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20"><Store className="h-5 w-5" /></div>
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/20 ring-1 ring-white/30"><Store className="h-6 w-6" /></div>
             )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-lg font-extrabold leading-tight">{storeName}</div>
@@ -175,7 +177,7 @@ export function RetailShopPage() {
         </header>
 
         {/* Body */}
-        <main className="flex-1 px-3 pb-24 pt-3">
+        <main className="-mt-3 flex-1 rounded-t-[28px] bg-gradient-to-b from-white via-orange-50/80 to-white px-3 pb-28 pt-4">
           {tab === "catalog" && (
             <CatalogView
               loading={catalogQuery.isLoading}
@@ -212,8 +214,8 @@ export function RetailShopPage() {
         </main>
 
         {/* Bottom nav */}
-        <nav className="fixed bottom-0 left-1/2 z-20 w-full max-w-[480px] -translate-x-1/2 border-t border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex">
+        <nav className="fixed bottom-3 left-1/2 z-20 w-[calc(100%-24px)] max-w-[456px] -translate-x-1/2 overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-2xl shadow-slate-900/20 backdrop-blur">
+          <div className="flex p-1">
             {([
               ["catalog", "الكتلوك", ShoppingBag],
               ["cart", "السلة", ShoppingCart],
@@ -223,11 +225,11 @@ export function RetailShopPage() {
                 key={id}
                 type="button"
                 onClick={() => setTab(id)}
-                className={`relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition ${tab === id ? "text-indigo-600" : "text-slate-400"}`}
+                className={`relative flex flex-1 flex-col items-center gap-0.5 rounded-2xl py-2.5 text-[11px] font-bold transition ${tab === id ? "bg-gradient-to-br from-rose-500 to-orange-500 text-white shadow-lg shadow-orange-200" : "text-slate-400"}`}
               >
                 <Icon className="h-5 w-5" />
                 {label}
-                {tab === id && <motion.span layoutId="navdot" className="absolute -bottom-0 h-0.5 w-8 rounded-full bg-indigo-600" />}
+                {tab === id && <motion.span layoutId="navdot" className="absolute bottom-1 h-0.5 w-7 rounded-full bg-white/70" />}
                 {id === "cart" && cartCount > 0 && (
                   <span className="absolute right-[28%] top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">{cartCount}</span>
                 )}
@@ -236,7 +238,7 @@ export function RetailShopPage() {
             <button
               type="button"
               onClick={() => window.open("/catalog", "_blank", "noopener,noreferrer")}
-              className="relative flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium text-emerald-600"
+              className="relative flex flex-1 flex-col items-center gap-0.5 rounded-2xl py-2.5 text-[11px] font-bold text-emerald-600"
             >
               <Users className="h-5 w-5" />
               للجملة
@@ -493,10 +495,23 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   )
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-3xl bg-gradient-to-br from-slate-950 via-violet-900 to-rose-500 p-4 text-white shadow-2xl shadow-rose-200">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-bold text-yellow-200">تسوقها هسه</div>
+            <div className="mt-1 text-2xl font-black leading-tight">مختارات اليوم</div>
+            <div className="mt-1 text-xs font-medium text-white/75">{items.length} مادة جاهزة للطلب</div>
+          </div>
+          <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 ring-1 ring-white/20 backdrop-blur">
+            <ShoppingBag className="h-8 w-8 text-yellow-200" />
+          </div>
+        </div>
+      </div>
+
       {/* Hero carousel stays fixed; filters below only change the product grid. */}
       {featured.length > 0 && (
-        <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
+        <div className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-1">
           {featured.map((item) => {
             const pct = discountPct(item)
             return (
@@ -504,14 +519,14 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                 key={item.id}
                 type="button"
                 onClick={() => onOpen(item)}
-                className="relative h-40 w-[78%] shrink-0 snap-center overflow-hidden rounded-2xl bg-slate-200"
+                className="relative h-44 w-[82%] shrink-0 snap-center overflow-hidden rounded-3xl bg-slate-200 shadow-xl shadow-orange-100"
               >
                 {item.images[0] ? <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-10 w-10" /></div>}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-right">
-                  <div className="text-sm font-bold text-white">{item.title}</div>
-                  <div className="text-base font-extrabold text-white">{money(item.price)} {currency}</div>
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent p-4 text-right">
+                  <div className="text-base font-black text-white drop-shadow">{item.title}</div>
+                  <div className="mt-1 inline-flex rounded-full bg-white/90 px-3 py-1 text-sm font-black text-rose-600">{money(item.price)} {currency}</div>
                 </div>
-                {pct ? <span className="absolute right-2 top-2 rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-white">-{pct}%</span> : null}
+                {pct ? <span className="absolute right-3 top-3 rounded-full bg-yellow-300 px-2.5 py-1 text-[11px] font-black text-slate-950 shadow">-{pct}%</span> : null}
               </button>
             )
           })}
@@ -519,9 +534,9 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       )}
 
       {/* Search bar (always visible) — searches the whole store */}
-      <div className="flex items-center gap-2">
-        <div className={`flex flex-1 items-center gap-2 rounded-2xl border bg-white px-3 transition ${searching ? "border-indigo-300 ring-2 ring-indigo-100" : "border-slate-200"}`}>
-          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+      <div className="sticky top-[86px] z-10 flex items-center gap-2 rounded-3xl bg-white/75 p-1.5 shadow-lg shadow-orange-100/70 backdrop-blur">
+        <div className={`flex flex-1 items-center gap-2 rounded-2xl border bg-white px-3 shadow-inner transition ${searching ? "border-rose-300 ring-2 ring-rose-100" : "border-orange-100"}`}>
+          <Search className="h-4 w-4 shrink-0 text-rose-400" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -536,9 +551,9 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       </div>
 
       {/* Sort bar */}
-      <div className="rounded-2xl border border-slate-100 bg-white p-2 shadow-sm">
-        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
-          <ArrowDownUp className="h-4 w-4 shrink-0 text-slate-400" />
+      <div className="rounded-3xl border border-orange-100 bg-white/90 p-2.5 shadow-lg shadow-orange-100/70">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black text-slate-600">
+          <ArrowDownUp className="h-4 w-4 shrink-0 text-orange-500" />
           <span>فرز المنتجات</span>
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-0.5">
@@ -554,7 +569,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
               key={id}
               type="button"
               onClick={() => setSort(id)}
-              className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition ${sort === id ? "bg-emerald-600 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold transition ${sort === id ? "bg-gradient-to-l from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-100" : "bg-orange-50 text-slate-600 ring-1 ring-orange-100"}`}
             >
               {label}
             </button>
@@ -571,7 +586,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                 key={c.id}
                 type="button"
                 onClick={() => setCollection(c.id)}
-                className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${collection === c.id ? "bg-indigo-600 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-2 text-xs font-bold transition ${collection === c.id ? "bg-gradient-to-l from-violet-600 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-100" : "bg-white text-slate-600 ring-1 ring-orange-100"}`}
               >
                 {c.icon ? <c.icon className="h-3.5 w-3.5" /> : null}{c.label}
               </button>
@@ -585,7 +600,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                 <button
                   type="button"
                   onClick={() => { setCollection("all"); setCategory(null); setSubCategory(null) }}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${!category ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                  className={`shrink-0 rounded-full px-3 py-2 text-xs font-bold transition ${!category ? "bg-slate-950 text-white shadow-lg shadow-slate-200" : "bg-white text-slate-600 ring-1 ring-orange-100"}`}
                 >
                   كل الأقسام
                 </button>
@@ -599,7 +614,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                       setCategory(next)
                       setSubCategory(null)
                     }}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${category === c.name ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold transition ${category === c.name ? "bg-slate-950 text-white shadow-lg shadow-slate-200" : "bg-white text-slate-600 ring-1 ring-orange-100"}`}
                   >
                     {c.name}
                     <span className={`rounded-full px-1.5 text-[10px] ${category === c.name ? "bg-white/20" : "bg-slate-100 text-slate-400"}`}>{catCounts.get(c.name) ?? 0}</span>
@@ -609,7 +624,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
 
               {/* Sub-categories of the active category — only non-empty, with counts */}
               {category && subOptions.length > 0 && (
-                <div className="flex gap-1.5 overflow-x-auto rounded-xl bg-indigo-50/60 p-1.5">
+                <div className="flex gap-1.5 overflow-x-auto rounded-2xl bg-gradient-to-l from-violet-50 to-orange-50 p-1.5 shadow-inner">
                   <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition ${!subCategory ? "bg-indigo-600 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
                   {subOptions.map((s) => (
                     <button key={s.name} type="button" onClick={() => setSubCategory(subCategory === s.name ? null : s.name)} className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold transition ${subCategory === s.name ? "bg-indigo-600 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>
@@ -645,30 +660,30 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
           )}
         </div>
       ) : (
-        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {sorted.map((item) => {
             const pct = discountPct(item)
             return (
               <div
                 key={item.id}
-                className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                className="group overflow-hidden rounded-2xl border border-white bg-white shadow-lg shadow-orange-100/70 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-rose-100"
               >
-                <button type="button" onClick={() => onOpen(item)} className="relative block aspect-square w-full bg-slate-100">
-                  {item.images[0] ? <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><Package className="h-8 w-8" /></div>}
+                <button type="button" onClick={() => onOpen(item)} className="relative block aspect-square w-full overflow-hidden bg-gradient-to-br from-orange-50 to-violet-50">
+                  {item.images[0] ? <img src={item.images[0]} alt={item.title} className="h-full w-full object-cover transition duration-300 group-hover:scale-105" /> : <div className="flex h-full items-center justify-center text-rose-200"><Package className="h-8 w-8" /></div>}
                   {pct ? <span className="absolute right-1.5 top-1.5 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">-{pct}%</span> : null}
                   {item.lowStockBadge ? <span className="absolute left-1.5 top-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">كمية قليلة</span> : null}
                   {!item.lowStockBadge && item.isNew ? <span className="absolute left-1.5 top-1.5 rounded-full bg-blue-500 px-1.5 py-0.5 text-[9px] font-bold text-white">جديد</span> : null}
                 </button>
-                <div className="p-1.5">
+                <div className="p-2">
                   <div className={`line-clamp-1 font-bold leading-tight ${cols <= 2 ? "text-sm" : "text-xs"}`}>{item.title}</div>
                   <div className="flex items-baseline gap-1">
-                    <span className={`font-extrabold text-indigo-600 ${cols <= 2 ? "text-sm" : "text-xs"}`}>{money(item.price)}</span>
+                    <span className={`font-black text-rose-600 ${cols <= 2 ? "text-sm" : "text-xs"}`}>{money(item.price)}</span>
                     <span className="text-[9px] text-slate-400">{currency}</span>
                     {pct ? <span className="text-[10px] text-slate-400 line-through">{money(item.oldPrice!)}</span> : null}
                   </div>
                   {cols <= 2 && item.description ? <div className="line-clamp-1 text-[10px] text-slate-400">{item.description}</div> : null}
                   <div className="mt-1 flex items-center gap-1">
-                    <button type="button" onClick={() => onAdd(item)} className="flex flex-1 items-center justify-center gap-0.5 rounded-lg bg-indigo-600 py-1.5 text-[11px] font-bold text-white active:scale-95">
+                    <button type="button" onClick={() => onAdd(item)} className="flex flex-1 items-center justify-center gap-0.5 rounded-xl bg-gradient-to-l from-rose-500 to-orange-500 py-1.5 text-[11px] font-black text-white shadow-lg shadow-orange-100 active:scale-95">
                       <Plus className="h-3.5 w-3.5" /> {cols >= 4 ? "" : "أضف"}
                     </button>
                     {cols <= 3 && (
