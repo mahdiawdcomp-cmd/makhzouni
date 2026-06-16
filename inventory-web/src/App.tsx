@@ -20,6 +20,7 @@ const ClientPortalPage = lazyPage(() => import("./pages/ClientPortalPage"), "Cli
 const PublicInvoicePage = lazyPage(() => import("./pages/PublicInvoicePage"), "PublicInvoicePage")
 const CouponsPage = lazyPage(() => import("./pages/CouponsPage"), "CouponsPage")
 const CustomersPage = lazyPage(() => import("./pages/CustomersPage"), "CustomersPage")
+const ImportCustomersPage = lazyPage(() => import("./pages/ImportCustomersPage"), "ImportCustomersPage")
 const AccountLookupPage = lazyPage(() => import("./pages/AccountLookupPage"), "AccountLookupPage")
 const DashboardPage = lazyPage(() => import("./pages/DashboardPage"), "DashboardPage")
 const InvoiceDetailPage = lazyPage(() => import("./pages/InvoiceDetailPage"), "InvoiceDetailPage")
@@ -90,6 +91,7 @@ const router = createBrowserRouter([
           { path: "vouchers", element: s(<VouchersPage />) },
           { path: "vouchers/:id", element: s(<VoucherDetailPage />) },
           { path: "customers", element: s(<CustomersPage />) },
+          { path: "customers/import", element: s(<ImportCustomersPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: s(<CatalogManagementPage />) },
