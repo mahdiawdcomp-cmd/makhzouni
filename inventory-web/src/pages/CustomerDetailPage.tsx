@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { Document, Page, PDFDownloadLink, Text, View } from "@react-pdf/renderer"
 import { ArrowRight, Copy, Link2, MessageCircle, Pencil } from "lucide-react"
+import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { createCustomerPortalLink, getCustomerRatings } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
@@ -361,9 +361,7 @@ function StatementTab({
         <Input className="w-44" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         <Input className="w-44" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         <Button variant="outline" asChild><a href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download={`${customer.name}-statement.csv`}>تصدير Excel</a></Button>
-        <PDFDownloadLink document={<StatementPdf customer={customer} rows={rows} />} fileName={`${customer.name}-statement.pdf`}>
-          <Button variant="outline">PDF</Button>
-        </PDFDownloadLink>
+        <CustomerStatementPdfButton customer={customer} rows={rows} />
       </div>
       <Table>
         <THead><TR><TH>التاريخ</TH><TH>النوع</TH><TH>على الزبون</TH><TH>بيه الزبون</TH><TH>الرصيد</TH><TH>فتح</TH></TR></THead>
@@ -582,20 +580,5 @@ function EditCustomerModal({
         </div>
       </form>
     </ModalForm>
-  )
-}
-
-function StatementPdf({ customer, rows }: { customer: Customer; rows: CustomerTransaction[] }) {
-  return (
-    <Document>
-      <Page size="A4">
-        <View style={{ padding: 24 }}>
-          <Text>كشف حساب: {customer.name}</Text>
-          {rows.map((row) => (
-            <Text key={row.id}>{String(row.date).slice(0, 10)} - {row.type} - {row.runningBalance}</Text>
-          ))}
-        </View>
-      </Page>
-    </Document>
   )
 }
