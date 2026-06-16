@@ -328,7 +328,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   const [category, setCategory] = useState<string | null>(null)
   const [subCategory, setSubCategory] = useState<string | null>(null)
   const [search, setSearch] = useState("")
-  const [sort, setSort] = useState<"default" | "price-asc" | "price-desc" | "newest" | "discount">("default")
+  const [sort, setSort] = useState<"default" | "price-asc" | "price-desc" | "discount" | "newest" | "name-asc">("default")
   const COL_CYCLE = [3, 2, 4, 5]
   const [cols, setCols] = useState(3)
   function cycleCols() {
@@ -400,8 +400,9 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
     const arr = [...filtered]
     if (sort === "price-asc") arr.sort((a, b) => a.price - b.price)
     else if (sort === "price-desc") arr.sort((a, b) => b.price - a.price)
-    else if (sort === "newest") arr.sort((a, b) => Number(b.isNew) - Number(a.isNew))
     else if (sort === "discount") arr.sort((a, b) => (discountPct(b) ?? 0) - (discountPct(a) ?? 0))
+    else if (sort === "newest") arr.sort((a, b) => Number(b.isNew) - Number(a.isNew) || a.title.localeCompare(b.title, "ar"))
+    else if (sort === "name-asc") arr.sort((a, b) => a.title.localeCompare(b.title, "ar"))
     return arr
   }, [filtered, sort])
 
@@ -422,8 +423,8 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
 
   return (
     <div className="space-y-3">
-      {/* Hero carousel — stays visible while browsing categories; only hidden during search */}
-      {featured.length > 0 && !searching && (
+      {/* Hero carousel stays fixed; filters below only change the product grid. */}
+      {featured.length > 0 && (
         <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
           {featured.map((item) => {
             const pct = discountPct(item)
@@ -464,15 +465,19 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       </div>
 
       {/* Sort bar */}
-      <div className="flex items-center gap-2">
-        <ArrowDownUp className="h-4 w-4 shrink-0 text-slate-400" />
-        <div className="flex flex-1 gap-1.5 overflow-x-auto pb-0.5">
+      <div className="rounded-2xl border border-slate-100 bg-white p-2 shadow-sm">
+        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+          <ArrowDownUp className="h-4 w-4 shrink-0 text-slate-400" />
+          <span>فرز المنتجات</span>
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
           {([
             ["default", "ترتيب المتجر"],
-            ["price-asc", "الأرخص أولاً"],
-            ["price-desc", "الأغلى أولاً"],
+            ["price-asc", "السعر: الأقل"],
+            ["price-desc", "السعر: الأعلى"],
             ["discount", "أعلى خصم"],
-            ["newest", "الأحدث"],
+            ["newest", "الجديد"],
+            ["name-asc", "الاسم"],
           ] as const).map(([id, label]) => (
             <button
               key={id}
