@@ -600,6 +600,8 @@ const retailItemFields = {
   oldPrice: z.coerce.number().nonnegative().nullable().optional(),
   category: z.string().trim().max(120).nullable().optional(),
   subCategory: z.string().trim().max(120).nullable().optional(),
+  categories: z.array(z.string().trim().min(1).max(120)).max(30).optional(),
+  subCategories: z.array(z.string().trim().min(1).max(120)).max(80).optional(),
   images: z.array(z.string()).max(8).optional(),
   sortOrder: z.coerce.number().int().optional(),
   featured: z.boolean().optional(),

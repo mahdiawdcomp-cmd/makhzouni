@@ -148,6 +148,8 @@ type RetailItemFields = {
   description?: string;
   price?: number;
   oldPrice?: number | null;
+  category?: string | null;
+  subCategory?: string | null;
   categories?: string[];
   subCategories?: string[];
   images?: string[];
@@ -159,6 +161,18 @@ type RetailItemFields = {
   lowStockBadge?: boolean;
   isActive?: boolean;
 };
+
+function normalizeLabels(values: Array<string | null | undefined>) {
+  return values.map((s) => String(s ?? "").trim()).filter(Boolean);
+}
+
+function retailCategories(input: RetailItemFields) {
+  return normalizeLabels(input.categories ?? (input.category ? [input.category] : []));
+}
+
+function retailSubCategories(input: RetailItemFields) {
+  return normalizeLabels(input.subCategories ?? (input.subCategory ? [input.subCategory] : []));
+}
 
 const itemInclude = {
   product: {
@@ -177,8 +191,8 @@ export async function createRetailItem(input: RetailItemFields & { productId: st
       description: input.description?.trim() || null,
       price: input.price,
       oldPrice: input.oldPrice ?? null,
-      categories: (input.categories ?? []).map((s) => s.trim()).filter(Boolean),
-      subCategories: (input.subCategories ?? []).map((s) => s.trim()).filter(Boolean),
+      categories: retailCategories(input),
+      subCategories: retailSubCategories(input),
       images: (input.images ?? []) as unknown as object,
       sortOrder: input.sortOrder ?? 0,
       featured: input.featured ?? false,
@@ -199,8 +213,8 @@ export async function updateRetailItem(id: string, patch: RetailItemFields) {
   if (patch.description !== undefined) data.description = patch.description?.trim() || null;
   if (patch.price !== undefined) data.price = patch.price;
   if (patch.oldPrice !== undefined) data.oldPrice = patch.oldPrice;
-  if (patch.categories !== undefined) data.categories = patch.categories.map((s) => s.trim()).filter(Boolean);
-  if (patch.subCategories !== undefined) data.subCategories = patch.subCategories.map((s) => s.trim()).filter(Boolean);
+  if (patch.categories !== undefined || patch.category !== undefined) data.categories = retailCategories(patch);
+  if (patch.subCategories !== undefined || patch.subCategory !== undefined) data.subCategories = retailSubCategories(patch);
   if (patch.images !== undefined) data.images = patch.images as unknown as object;
   if (patch.sortOrder !== undefined) data.sortOrder = patch.sortOrder;
   if (patch.featured !== undefined) data.featured = patch.featured;
