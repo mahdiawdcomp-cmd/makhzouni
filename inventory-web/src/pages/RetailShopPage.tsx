@@ -340,15 +340,56 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   }
 
   const featured = useMemo(() => items.filter((i) => i.featured).slice(0, 10), [items])
+  const visibleCategories = useMemo(() => {
+    const map = new Map<string, { name: string; subCategories: Set<string> }>()
+
+    function ensure(name: string) {
+      const trimmed = name.trim()
+      if (!trimmed) return null
+      const key = trimmed.toLowerCase()
+      const found = map.get(key)
+      if (found) return found
+      const next = { name: trimmed, subCategories: new Set<string>() }
+      map.set(key, next)
+      return next
+    }
+
+    for (const c of categories) {
+      const entry = ensure(c.name)
+      if (!entry) continue
+      for (const sub of c.subCategories) {
+        const trimmed = sub.trim()
+        if (trimmed) entry.subCategories.add(trimmed)
+      }
+    }
+
+    for (const item of items) {
+      const itemCategories = item.categories.map((c) => c.trim()).filter(Boolean)
+      const itemSubs = item.subCategories.map((s) => s.trim()).filter(Boolean)
+      for (const cat of itemCategories) {
+        const entry = ensure(cat)
+        if (!entry) continue
+        for (const sub of itemSubs) entry.subCategories.add(sub)
+      }
+      if (itemCategories.length === 0 && itemSubs.length > 0) {
+        for (const sub of itemSubs) {
+          const owner = [...map.values()].find((cat) => [...cat.subCategories].some((s) => sameLabel(s, sub)))
+          if (owner) owner.subCategories.add(sub)
+        }
+      }
+    }
+
+    return [...map.values()].map((c) => ({ name: c.name, subCategories: [...c.subCategories] }))
+  }, [categories, items])
 
   // An item belongs to a main category if it's tagged with that category OR with
   // any sub-category that lives under it — so items the admin only tagged at the
   // sub-category level still appear (this was the root cause of "missing" items).
   const catSubs = useMemo(() => {
     const m = new Map<string, Set<string>>()
-    for (const c of categories) m.set(c.name, new Set(c.subCategories.map((s) => s.trim()).filter(Boolean)))
+    for (const c of visibleCategories) m.set(c.name, new Set(c.subCategories.map((s) => s.trim()).filter(Boolean)))
     return m
-  }, [categories])
+  }, [visibleCategories])
 
   const belongsTo = useCallback((item: PublicRetailItem, cat: string) => {
     if (item.categories.some((c) => sameLabel(c, cat))) return true
@@ -359,14 +400,14 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   // Item count per main category (hide empty categories from the bar).
   const catCounts = useMemo(() => {
     const m = new Map<string, number>()
-    for (const c of categories) m.set(c.name, items.filter((it) => belongsTo(it, c.name)).length)
+    for (const c of visibleCategories) m.set(c.name, items.filter((it) => belongsTo(it, c.name)).length)
     return m
-  }, [categories, items, belongsTo])
+  }, [visibleCategories, items, belongsTo])
 
   // Sub-categories under the active category that actually have items, with counts.
   const subOptions = useMemo(() => {
     if (!category) return [] as { name: string; count: number }[]
-    const defined = categories.find((c) => c.name === category)?.subCategories ?? []
+    const defined = visibleCategories.find((c) => sameLabel(c.name, category))?.subCategories ?? []
     const counts = new Map<string, number>()
     const labels = new Map<string, string>()
     for (const s of defined) {
@@ -385,7 +426,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       }
     }
     return [...labels.values()].map((s) => ({ name: s, count: counts.get(s) ?? 0 }))
-  }, [categories, items, category, belongsTo])
+  }, [visibleCategories, items, category, belongsTo])
 
   const searching = search.trim().length > 0
 
@@ -534,7 +575,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                 >
                   كل الأقسام
                 </button>
-                {categories.map((c) => (
+                {visibleCategories.map((c) => (
                   <button
                     key={c.name}
                     type="button"
