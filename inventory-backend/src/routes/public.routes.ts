@@ -16,6 +16,7 @@ import {
   getPublicRetailCategories,
   getPublicRetailOrder,
   getPublicRetailOrdersByPhone,
+  getPublicRetailOrdersByToken,
   getPublicStoreInfo,
   postPublicRetailAiChat,
   postPublicRetailOrder,
@@ -61,6 +62,7 @@ router.get("/retail/active-coupon", catalogLimiter, getPublicActiveCoupon);
 router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCouponSchema), previewPublicCoupon);
 router.post("/retail/orders", catalogLimiter, validate(submitRetailOrderSchema), postPublicRetailOrder);
 router.get("/retail/my-orders", catalogLimiter, getPublicRetailOrdersByPhone);
+router.get("/retail/my-orders/:token", catalogLimiter, getPublicRetailOrdersByToken);
 router.get("/retail/orders/:id", catalogLimiter, validate(idParamSchema), getPublicRetailOrder);
 router.get("/retail/referral/:code", catalogLimiter, getPublicReferralInfo);
 router.get("/retail/my-referral", catalogLimiter, getPublicCustomerReferral);

@@ -36,6 +36,7 @@ import {
   getPublicRetailCategories,
   getPublicRetailOrderStatus,
   getPublicRetailOrdersByPhone,
+  getPublicRetailOrdersByToken,
   getPublicStoreInfo,
   previewPublicRetailCoupon,
   retailAiChat,
@@ -50,6 +51,7 @@ type SavedOrder = { id: string; orderNumber: string; total: number; createdAt: s
 const ORDERS_KEY = "retail_shop_orders"
 const COUPON_SEEN_KEY = "retail_shop_coupon_seen"
 const REFERRAL_KEY = "retail_ref_code"
+const ORDERS_TOKEN_KEY = "retail_orders_token"
 
 const money = (v: number) => new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)))
 
@@ -99,6 +101,16 @@ export function RetailShopPage() {
       .catch(() => { /* invalid code — ignore silently */ })
   }, [])
 
+  // Private "my orders" link — ?orders=TOKEN persists the token and opens the tab
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlToken = params.get("orders")?.trim()
+    if (urlToken) {
+      localStorage.setItem(ORDERS_TOKEN_KEY, urlToken)
+      setTab("orders")
+    }
+  }, [])
+
   // Welcome coupon popup (once per session)
   useEffect(() => {
     if (couponQuery.data && !sessionStorage.getItem(COUPON_SEEN_KEY)) {
@@ -129,11 +141,13 @@ export function RetailShopPage() {
     )
   }
 
-  function onOrderPlaced(order: SavedOrder & { customerPhone: string }) {
-    const { customerPhone: _p, ...saved } = order
+  function onOrderPlaced(order: SavedOrder & { customerPhone: string; ordersToken?: string | null }) {
+    const { customerPhone: _p, ordersToken: _t, ...saved } = order
     const next = [saved, ...orders]
     setOrders(next)
     localStorage.setItem(ORDERS_KEY, JSON.stringify(next))
+    // Persist the private orders token so "طلباتي" works without re-typing the phone.
+    if (_t) localStorage.setItem(ORDERS_TOKEN_KEY, _t)
     setCart([])
     // After first order, fetch their referral code and show it
     if (_p) {
@@ -589,7 +603,7 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
   storeName: string
   subtotal: number
   setQty: (id: string, qty: number) => void
-  onPlaced: (order: SavedOrder & { customerPhone: string }) => void
+  onPlaced: (order: SavedOrder & { customerPhone: string; ordersToken?: string | null }) => void
   goCatalog: () => void
   referralCode: string | null
   referralDiscountPct: number
@@ -657,7 +671,7 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
         items: cart.map((l) => ({ retailItemId: l.item.id, quantity: l.quantity })),
       })
       setSuccess({ orderNumber: res.orderNumber })
-      onPlaced({ id: res.id, orderNumber: res.orderNumber, total: res.total, createdAt: new Date().toISOString(), customerPhone: phone.trim() })
+      onPlaced({ id: res.id, orderNumber: res.orderNumber, total: res.total, createdAt: new Date().toISOString(), customerPhone: phone.trim(), ordersToken: res.ordersToken })
     } catch (e) {
       setPlaceError(e instanceof Error ? e.message : "تعذر إرسال الطلب")
     } finally {
@@ -842,6 +856,17 @@ function statusBlock(status: string) {
 function OrdersView({ orders, currency, goCatalog }: { orders: SavedOrder[]; currency: string; goCatalog: () => void }) {
   const [phoneInput, setPhoneInput] = useState("")
   const [lookupPhone, setLookupPhone] = useState("")
+  const [copied, setCopied] = useState(false)
+  const token = useMemo(() => localStorage.getItem(ORDERS_TOKEN_KEY) ?? "", [])
+
+  // Private link: load this customer's orders by their secret token (no phone needed).
+  const byTokenQuery = useQuery({
+    queryKey: ["public-retail-my-orders-token", token],
+    queryFn: () => getPublicRetailOrdersByToken(token),
+    enabled: token.length > 0,
+    refetchInterval: 30_000,
+  })
+  const tokenOrders = byTokenQuery.data?.orders ?? []
 
   const byPhoneQuery = useQuery({
     queryKey: ["public-retail-my-orders", lookupPhone],
@@ -851,11 +876,47 @@ function OrdersView({ orders, currency, goCatalog }: { orders: SavedOrder[]; cur
   })
   const phoneOrders = byPhoneQuery.data ?? []
 
+  const ordersLink = token ? `${window.location.origin}/shop?orders=${token}` : null
+  function copyLink() {
+    if (!ordersLink) return
+    navigator.clipboard.writeText(ordersLink).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
     <div className="space-y-3">
-      {/* Phone lookup */}
+      {/* Private orders link (secret token) */}
+      {ordersLink && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-right shadow-sm">
+          <div className="mb-1 flex items-center gap-1.5 text-sm font-bold text-emerald-700"><Link2 className="h-4 w-4" /> رابط طلباتي الخاص</div>
+          <p className="mb-2 text-[11px] text-emerald-600">احفظ هذا الرابط لمتابعة طلباتك من أي جهاز بدون كتابة رقمك.</p>
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-white px-3 py-2">
+            <span className="flex-1 overflow-hidden text-ellipsis text-[11px] text-slate-600" dir="ltr">{ordersLink}</span>
+            <button type="button" onClick={copyLink} className="shrink-0 rounded-lg bg-emerald-600 p-1.5 text-white">
+              {copied ? <CheckCircle2 className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Orders loaded via the private token */}
+      {token && byTokenQuery.isLoading && <div className="py-6 text-center text-sm text-slate-400">جاري التحميل...</div>}
+      {tokenOrders.map((order) => (
+        <motion.div key={order.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-mono font-bold text-indigo-600">{order.orderNumber}</span>
+            <span className="text-sm font-extrabold">{money(order.total)} {currency}</span>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-400">{new Date(order.createdAt).toLocaleString("en-GB")}</div>
+          <div className="mt-3">{statusBlock(order.status)}</div>
+        </motion.div>
+      ))}
+
+      {/* Phone lookup (fallback for customers without the saved link) */}
       <div className="rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
-        <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-600"><Phone className="h-4 w-4 text-indigo-500" /> اعرض طلباتك السابقة</div>
+        <div className="mb-2 flex items-center gap-1.5 text-sm font-bold text-slate-600"><Phone className="h-4 w-4 text-indigo-500" /> أو اعرض طلباتك برقم الهاتف</div>
         <div className="flex gap-2">
           <input
             value={phoneInput}
@@ -885,15 +946,15 @@ function OrdersView({ orders, currency, goCatalog }: { orders: SavedOrder[]; cur
         </motion.div>
       ))}
 
-      {/* Locally-saved orders from this device (only if no phone lookup active) */}
-      {!lookupPhone && orders.length === 0 && (
+      {/* Locally-saved orders from this device (only when neither lookup is active) */}
+      {!lookupPhone && !token && orders.length === 0 && (
         <div className="flex flex-col items-center justify-center px-6 py-12 text-center text-slate-400">
           <ClipboardList className="h-14 w-14 opacity-40" />
           <p className="mt-3">لا توجد طلبات على هذا الجهاز — اكتب رقمك أعلاه لعرض طلباتك</p>
           <button type="button" onClick={goCatalog} className="mt-4 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white">ابدأ التسوّق</button>
         </div>
       )}
-      {!lookupPhone && orders.map((order) => <OrderStatusCard key={order.id} order={order} currency={currency} />)}
+      {!lookupPhone && !token && orders.map((order) => <OrderStatusCard key={order.id} order={order} currency={currency} />)}
     </div>
   )
 }

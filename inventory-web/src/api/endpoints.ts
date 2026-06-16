@@ -1117,6 +1117,13 @@ export async function getPublicRetailOrdersByPhone(phone: string) {
   return data.data ?? []
 }
 
+export async function getPublicRetailOrdersByToken(token: string) {
+  const { data } = await publicApi.get<ApiEnvelope<{ name: string; orders: RetailMyOrder[] }>>(
+    `/public/retail/my-orders/${encodeURIComponent(token)}`,
+  )
+  return data.data ?? { name: "", orders: [] }
+}
+
 export async function retailAiChat(message: string, history: Array<{ role: "user" | "assistant"; content: string }>) {
   const { data } = await publicApi.post<ApiEnvelope<AiChatResponse>>("/public/retail/ai-chat", { message, history })
   return data.data!

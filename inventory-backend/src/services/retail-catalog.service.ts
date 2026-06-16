@@ -421,6 +421,16 @@ function generateReferralCode(): string {
   return Array.from(bytes).map((b) => REFERRAL_CHARS[b % REFERRAL_CHARS.length]).join("");
 }
 
+// Long unguessable token for the private "my orders" link (#5).
+async function uniqueOrdersToken(): Promise<string> {
+  for (let i = 0; i < 10; i++) {
+    const candidate = randomBytes(24).toString("base64url");
+    const conflict = await prisma.retailCustomer.findUnique({ where: { ordersToken: candidate } });
+    if (!conflict) return candidate;
+  }
+  return randomBytes(24).toString("base64url");
+}
+
 export async function getReferralInfo(code: string) {
   const clean = code.trim().toUpperCase();
   const customer = await prisma.retailCustomer.findUnique({
@@ -564,14 +574,17 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
   // items + any the customer explicitly picked).
   const autoInterests = [...new Set(retailItems.flatMap((i) => i.categories ?? []))];
   const explicitInterests = (input.interests ?? []).map((s) => s.trim()).filter(Boolean);
-  await upsertRetailCustomer({
+  const upsertResult = await upsertRetailCustomer({
     phone: normalizePhone(input.phone),
     name: input.customerName.trim(),
     interests: [...new Set([...autoInterests, ...explicitInterests])],
     isSubscriber: input.isSubscriber ?? false,
     wishNote: input.wishNote?.trim() || undefined,
     referredBy: usedReferralCode ?? undefined,
-  }).catch((err) => logger.error(`[RetailCustomer] upsert failed: ${err}`));
+  }).catch((err) => {
+    logger.error(`[RetailCustomer] upsert failed: ${err}`);
+    return null;
+  });
 
   // Fire-and-forget notifications
   setImmediate(() => {
@@ -586,6 +599,9 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     discount,
     referralDiscount,
     total,
+    // Private token so the customer can revisit their orders without exposing
+    // them to anyone who knows the phone number (#5).
+    ordersToken: upsertResult?.ordersToken ?? null,
   };
 }
 
@@ -690,6 +706,21 @@ export async function getRetailOrderPublic(id: string) {
   };
 }
 
+function serializeOwnOrder(order: {
+  id: string; orderNumber: string; status: string; total: unknown;
+  createdAt: Date; preparedAt: Date | null; items: unknown;
+}) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    status: order.status,
+    total: toNumber(order.total),
+    createdAt: order.createdAt,
+    preparedAt: order.preparedAt ?? null,
+    items: order.items ?? [],
+  };
+}
+
 // Public: a customer looks up their own orders by phone (no login).
 export async function getRetailOrdersByPhone(phone: string) {
   const normalized = normalizePhone(phone);
@@ -698,15 +729,22 @@ export async function getRetailOrdersByPhone(phone: string) {
     orderBy: { createdAt: "desc" },
     take: 50,
   });
-  return orders.map((order) => ({
-    id: order.id,
-    orderNumber: order.orderNumber,
-    status: order.status,
-    total: toNumber(order.total),
-    createdAt: order.createdAt,
-    preparedAt: order.preparedAt ?? null,
-    items: order.items ?? [],
-  }));
+  return orders.map(serializeOwnOrder);
+}
+
+// Public: a customer views their own orders via their private secret token (#5).
+// Unguessable, so it doesn't expose orders to anyone who knows the phone number.
+export async function getRetailOrdersByToken(token: string) {
+  const trimmed = token?.trim();
+  if (!trimmed) return null;
+  const customer = await prisma.retailCustomer.findUnique({ where: { ordersToken: trimmed } });
+  if (!customer) return null;
+  const orders = await prisma.retailOrder.findMany({
+    where: { phone: customer.phone },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  return { name: customer.name, orders: orders.map(serializeOwnOrder) };
 }
 
 // ── Customers (subscriber database) ───────────────────────────────────────────
@@ -731,6 +769,7 @@ async function upsertRetailCustomer(input: {
         if (!conflict) { newReferralCode = candidate; break; }
       }
     }
+    const ordersToken = existing.ordersToken ?? (await uniqueOrdersToken());
     await prisma.retailCustomer.update({
       where: { phone: input.phone },
       data: {
@@ -741,8 +780,10 @@ async function upsertRetailCustomer(input: {
         ordersCount: { increment: 1 },
         lastOrderAt: new Date(),
         ...(newReferralCode ? { referralCode: newReferralCode } : {}),
+        ...(existing.ordersToken ? {} : { ordersToken }),
       },
     });
+    return { ordersToken };
   } else {
     // Generate a unique referral code for new customers (retry on collision)
     let referralCode: string | null = null;
@@ -751,6 +792,7 @@ async function upsertRetailCustomer(input: {
       const conflict = await prisma.retailCustomer.findUnique({ where: { referralCode: candidate } });
       if (!conflict) { referralCode = candidate; break; }
     }
+    const ordersToken = await uniqueOrdersToken();
     await prisma.retailCustomer.create({
       data: {
         phone: input.phone,
@@ -762,8 +804,10 @@ async function upsertRetailCustomer(input: {
         lastOrderAt: new Date(),
         referralCode,
         referredBy: input.referredBy ?? null,
+        ordersToken,
       },
     });
+    return { ordersToken };
   }
 }
 

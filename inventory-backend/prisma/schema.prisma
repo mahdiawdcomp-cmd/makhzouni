@@ -654,6 +654,9 @@ model RetailCustomer {
   lastOrderAt  DateTime? @map("last_order_at")
   referralCode String?   @unique @map("referral_code")
   referredBy   String?   @map("referred_by")
+  // Secret token so a customer can view their own orders via a private link
+  // instead of exposing orders to anyone who knows the phone number (#5).
+  ordersToken  String?   @unique @map("orders_token")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 

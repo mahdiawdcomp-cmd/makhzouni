@@ -5,6 +5,7 @@ import {
   getRetailCustomerReferral,
   getRetailOrderPublic,
   getRetailOrdersByPhone,
+  getRetailOrdersByToken,
   getReferralInfo,
   listPublicRetailCategories,
   listPublicRetailItems,
@@ -24,6 +25,16 @@ export const getPublicRetailOrdersByPhone = asyncHandler(async (req, res) => {
     return;
   }
   res.json({ success: true, data: await getRetailOrdersByPhone(phone) });
+});
+
+export const getPublicRetailOrdersByToken = asyncHandler(async (req, res) => {
+  const token = String(req.params.token ?? "");
+  const result = await getRetailOrdersByToken(token);
+  if (!result) {
+    res.status(404).json({ success: false, message: "رابط غير صالح" });
+    return;
+  }
+  res.json({ success: true, data: result });
 });
 
 export const getPublicStoreInfo = asyncHandler(async (_req, res) => {

@@ -880,6 +880,7 @@ export interface RetailOrderResult {
   discount: number
   referralDiscount: number
   total: number
+  ordersToken?: string | null
 }
 
 export interface AiChatProduct {
