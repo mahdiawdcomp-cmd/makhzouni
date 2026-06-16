@@ -315,6 +315,10 @@ function discountPct(item: PublicRetailItem): number | null {
   return null
 }
 
+function sameLabel(a: string, b: string) {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
 function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onShare }: {
   loading: boolean
   items: PublicRetailItem[]
@@ -342,14 +346,14 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   // sub-category level still appear (this was the root cause of "missing" items).
   const catSubs = useMemo(() => {
     const m = new Map<string, Set<string>>()
-    for (const c of categories) m.set(c.name, new Set(c.subCategories))
+    for (const c of categories) m.set(c.name, new Set(c.subCategories.map((s) => s.trim()).filter(Boolean)))
     return m
   }, [categories])
 
   const belongsTo = useCallback((item: PublicRetailItem, cat: string) => {
-    if (item.categories.includes(cat)) return true
+    if (item.categories.some((c) => sameLabel(c, cat))) return true
     const subs = catSubs.get(cat)
-    return subs ? item.subCategories.some((s) => subs.has(s)) : false
+    return subs ? item.subCategories.some((s) => subs.has(s.trim())) : false
   }, [catSubs])
 
   // Item count per main category (hide empty categories from the bar).
@@ -364,11 +368,23 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
     if (!category) return [] as { name: string; count: number }[]
     const defined = categories.find((c) => c.name === category)?.subCategories ?? []
     const counts = new Map<string, number>()
+    const labels = new Map<string, string>()
+    for (const s of defined) {
+      const trimmed = s.trim()
+      if (trimmed) labels.set(trimmed.toLowerCase(), trimmed)
+    }
     for (const it of items) {
       if (!belongsTo(it, category)) continue
-      for (const s of it.subCategories) if (defined.includes(s)) counts.set(s, (counts.get(s) ?? 0) + 1)
+      for (const s of it.subCategories) {
+        const trimmed = s.trim()
+        if (!trimmed) continue
+        const key = trimmed.toLowerCase()
+        const label = labels.get(key) ?? trimmed
+        labels.set(key, label)
+        counts.set(label, (counts.get(label) ?? 0) + 1)
+      }
     }
-    return defined.filter((s) => counts.has(s)).map((s) => ({ name: s, count: counts.get(s)! }))
+    return [...labels.values()].map((s) => ({ name: s, count: counts.get(s) ?? 0 }))
   }, [categories, items, category, belongsTo])
 
   const searching = search.trim().length > 0
@@ -389,7 +405,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       if (collection === "offers" && !item.isOffer) return false
       if (collection === "new" && !item.isNew) return false
       if (category && !belongsTo(item, category)) return false
-      if (subCategory && !item.subCategories.includes(subCategory)) return false
+      if (subCategory && !item.subCategories.some((s) => sameLabel(s, subCategory))) return false
       return true
     })
   }, [items, collection, category, subCategory, search, belongsTo])
@@ -513,20 +529,25 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
               <div className="flex gap-1.5 overflow-x-auto pb-0.5">
                 <button
                   type="button"
-                  onClick={() => { setCategory(null); setSubCategory(null) }}
+                  onClick={() => { setCollection("all"); setCategory(null); setSubCategory(null) }}
                   className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${!category ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
                 >
                   كل الأقسام
                 </button>
-                {categories.filter((c) => (catCounts.get(c.name) ?? 0) > 0).map((c) => (
+                {categories.map((c) => (
                   <button
                     key={c.name}
                     type="button"
-                    onClick={() => { setCategory(category === c.name ? null : c.name); setSubCategory(null) }}
+                    onClick={() => {
+                      const next = category === c.name ? null : c.name
+                      setCollection("all")
+                      setCategory(next)
+                      setSubCategory(null)
+                    }}
                     className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${category === c.name ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
                   >
                     {c.name}
-                    <span className={`rounded-full px-1.5 text-[10px] ${category === c.name ? "bg-white/20" : "bg-slate-100 text-slate-400"}`}>{catCounts.get(c.name)}</span>
+                    <span className={`rounded-full px-1.5 text-[10px] ${category === c.name ? "bg-white/20" : "bg-slate-100 text-slate-400"}`}>{catCounts.get(c.name) ?? 0}</span>
                   </button>
                 ))}
               </div>
