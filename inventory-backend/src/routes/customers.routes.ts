@@ -7,13 +7,16 @@ import {
   getCustomerDetails,
   getCustomerDetailsAny,
   getCustomers,
+  getCustomerTags,
   getDebts,
   getInactiveCustomers,
   getLastTransaction,
   getTransactions,
   getWalkInCustomer,
+  postCustomerBroadcast,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { requirePermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   createPortalLink,
@@ -22,6 +25,7 @@ import {
 import {
   createCustomerSchema,
   createPortalLinkSchema,
+  customerBroadcastSchema,
   customerTransactionsSchema,
   idParamSchema,
   inactiveCustomersSchema,
@@ -36,6 +40,8 @@ router.use(authMiddleware);
 router.get("/", validate(listCustomersSchema), getCustomers);
 router.get("/debts", getDebts);
 router.get("/walk-in", getWalkInCustomer);
+router.get("/tags", getCustomerTags);
+router.post("/broadcast", requirePermission("MANAGE_CUSTOMERS"), validate(customerBroadcastSchema), postCustomerBroadcast);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);

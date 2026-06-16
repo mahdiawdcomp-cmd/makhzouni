@@ -2,6 +2,9 @@ import { InvoiceStatus, InvoiceType, Prisma, VoucherType } from "@prisma/client"
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { calculateCustomerBalance } from "../utils/financial";
+import { logger } from "../utils/logger";
+import { getSettings } from "./settings.service";
+import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -11,6 +14,7 @@ export interface ListCustomersQuery {
   hasDebt?: boolean;
   branchId?: string;
   isSupplier?: boolean;
+  tags?: string[];
   /** When true, includes soft-deleted customers (used by account lookup) */
   includeDeleted?: boolean;
   page: number;
@@ -22,6 +26,7 @@ export interface CreateCustomerInput {
   phone: string;
   address?: string;
   notes?: string;
+  tags?: string[];
   openingBalance: number;
   creditLimit?: number | null;
   branchId?: string;
@@ -33,6 +38,7 @@ export interface UpdateCustomerInput {
   phone?: string;
   address?: string | null;
   notes?: string | null;
+  tags?: string[];
   openingBalance?: number;
   creditLimit?: number | null;
   branchId?: string | null;
@@ -198,6 +204,7 @@ export async function listCustomers(query: ListCustomersQuery) {
     ...(query.includeDeleted ? {} : { deletedAt: null }),
     ...(query.branchId ? { branchId: query.branchId } : {}),
     ...(query.isSupplier !== undefined ? { isSupplier: query.isSupplier } : {}),
+    ...(query.tags && query.tags.length > 0 ? { tags: { hasSome: query.tags } } : {}),
   };
 
   if (query.search) {
@@ -247,6 +254,7 @@ export async function createCustomer(input: CreateCustomerInput, db: Db = prisma
       phone: input.phone,
       address: input.address,
       notes: input.notes,
+      tags: input.tags ?? [],
       openingBalance: input.openingBalance,
       currentBalance: input.openingBalance,
       creditLimit: input.creditLimit ?? null,
@@ -271,6 +279,7 @@ export async function updateCustomer(
   if (input.phone !== undefined) data.phone = input.phone;
   if (input.address !== undefined) data.address = input.address;
   if (input.notes !== undefined) data.notes = input.notes;
+  if (input.tags !== undefined) data.tags = input.tags;
   if (input.openingBalance !== undefined) data.openingBalance = input.openingBalance;
   if (input.creditLimit !== undefined) data.creditLimit = input.creditLimit;
   if (input.branchId !== undefined) data.branchId = input.branchId;
@@ -658,4 +667,78 @@ export async function listInactiveCustomers(days: number) {
       inactiveDays,
     };
   });
+}
+
+export async function listCustomerTags() {
+  const rows = await prisma.customer.findMany({
+    where: { deletedAt: null, tags: { isEmpty: false } },
+    select: { tags: true },
+  });
+
+  const tags = new Set<string>();
+  for (const row of rows) for (const tag of row.tags) tags.add(tag);
+
+  return [...tags].sort((a, b) => a.localeCompare(b));
+}
+
+function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | null {
+  const match = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
+}
+
+export async function broadcastToCustomers(input: {
+  tags: string[];
+  productIds: string[];
+  message: string;
+}) {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, tags: { hasSome: input.tags } },
+  });
+  if (customers.length === 0) return { sent: 0, failed: 0, total: 0, skippedProducts: 0 };
+
+  const productsRaw = await prisma.product.findMany({
+    where: { id: { in: input.productIds }, deletedAt: null },
+  });
+  const productsById = new Map(productsRaw.map((p) => [p.id, p]));
+  const orderedProducts = input.productIds
+    .map((id) => productsById.get(id))
+    .filter((p): p is NonNullable<typeof p> => p !== undefined);
+
+  const productImages = orderedProducts
+    .map((p) => ({ product: p, image: p.imageUrl ? dataUrlToBuffer(p.imageUrl) : null }))
+    .filter((x): x is { product: typeof orderedProducts[number]; image: { buffer: Buffer; mime: string } } => x.image !== null);
+  const skippedProducts = orderedProducts.length - productImages.length;
+
+  const settings = await getSettings().catch(() => null);
+  const catalogLink = settings?.catalogPublicUrl?.trim() || "";
+
+  let sent = 0;
+  let failed = 0;
+  for (const customer of customers) {
+    try {
+      if (productImages.length > 0) {
+        for (let idx = 0; idx < productImages.length; idx++) {
+          const { product, image } = productImages[idx];
+          const priceLine = product.retailPrice ? `\n${Number(product.retailPrice)} د.ع` : "";
+          let caption = `📦 ${product.name}${priceLine}`;
+          if (idx === 0) {
+            caption = catalogLink ? `${input.message}\n\n${caption}\n\n🗂️ الكاتلوج: ${catalogLink}` : `${input.message}\n\n${caption}`;
+          }
+          await sendWhatsAppImage(customer.phone, caption, image.buffer, image.mime);
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      } else {
+        const caption = catalogLink ? `${input.message}\n\n🗂️ الكاتلوج: ${catalogLink}` : input.message;
+        await sendWhatsAppText(customer.phone, caption);
+      }
+      sent++;
+    } catch (err) {
+      failed++;
+      logger.warn(`[CustomerBroadcast] failed to ${customer.phone}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+
+  return { sent, failed, total: customers.length, skippedProducts };
 }

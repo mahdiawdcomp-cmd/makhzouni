@@ -265,6 +265,7 @@ export interface Customer {
   phone: string
   address?: string | null
   notes?: string | null
+  tags?: string[]
   openingBalance: number
   currentBalance: number
   creditLimit?: number | null
@@ -280,9 +281,20 @@ export interface CustomerPayload {
   phone: string
   address?: string
   notes?: string
+  tags?: string[]
   openingBalance: number
   creditLimit?: number | null
   isSupplier?: boolean
+}
+
+export interface CustomerBroadcastPayload {
+  tags: string[]
+  productIds: string[]
+  message: string
+}
+
+export interface CustomerBroadcastResult {
+  total: number
 }
 
 export interface CustomerTransaction {

@@ -17,6 +17,8 @@ import type {
   CreateInvoicePayload,
   CreateUserPayload,
   Customer,
+  CustomerBroadcastPayload,
+  CustomerBroadcastResult,
   CustomerDebt,
   CustomerPortalLink,
   CustomerPortalResponse,
@@ -259,12 +261,22 @@ export async function productCartonSheetPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
-export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number }) {
+export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[] }) {
   const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 500, ...params } })
   return data.data ?? []
 }
 
-export async function getCustomersPaged(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number }) {
+export async function getCustomerTags() {
+  const { data } = await api.get<ApiEnvelope<string[]>>("/customers/tags")
+  return data.data ?? []
+}
+
+export async function broadcastToCustomers(payload: CustomerBroadcastPayload) {
+  const { data } = await api.post<ApiEnvelope<CustomerBroadcastResult> & { message?: string }>("/customers/broadcast", payload)
+  return data
+}
+
+export async function getCustomersPaged(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[] }) {
   const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 30, ...params } })
   return data
 }

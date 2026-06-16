@@ -10,7 +10,7 @@ import rawRows from "../data/real-customers-import.json"
 
 type RawRow = { code: number; name: string; phone: string; notes: string }
 type Status = "pending" | "saved" | "skipped"
-type RowState = { id: number; code: number; name: string; phone: string; address: string; notes: string; status: Status }
+type RowState = { id: number; code: number; name: string; phone: string; address: string; notes: string; tags: string; status: Status }
 
 const STORAGE_KEY = "customer_import_progress_v1"
 
@@ -22,11 +22,15 @@ function loadInitial(): RowState[] {
     phone: r.phone,
     address: "",
     notes: r.notes,
+    tags: "",
     status: "pending",
   }))
   try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as RowState[] | null
-    if (saved && Array.isArray(saved) && saved.length === base.length) return saved
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<RowState>[] | null
+    if (saved && Array.isArray(saved) && saved.length === base.length) {
+      // Merge over base so older saved progress (before a field like `tags` existed) stays valid.
+      return base.map((row, i) => ({ ...row, ...saved[i] }))
+    }
   } catch {
     // ignore corrupt storage
   }
@@ -97,6 +101,7 @@ export function ImportCustomersPage() {
         phone: current.phone.trim(),
         address: current.address.trim() || undefined,
         notes: current.notes.trim() || undefined,
+        tags: current.tags.split(",").map((t) => t.trim()).filter(Boolean),
         openingBalance: 0,
       })
       setRows((prev) => prev.map((r) => (r.id === current.id ? { ...r, status: "saved" } : r)))
@@ -202,6 +207,10 @@ export function ImportCustomersPage() {
                   <div>
                     <label className="text-xs text-slate-500 mb-1 block">ملاحظات</label>
                     <Input value={current.notes} onChange={(e) => updateCurrent({ notes: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500 mb-1 block">تاكات (افصل بفاصلة، مثال: VIP, الكرادة)</label>
+                    <Input value={current.tags} onChange={(e) => updateCurrent({ tags: e.target.value })} placeholder="مثال: VIP, الكرادة" />
                   </div>
                 </div>
 

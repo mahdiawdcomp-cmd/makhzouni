@@ -248,7 +248,7 @@ describe("cancelRetailOrder — coupon release (#6)", () => {
   });
 });
 
-describe("listPublicRetailItems — stock reservation (#4)", () => {
+describe("listPublicRetailItems — storefront stock display", () => {
   before(async () => {
     ({ listPublicRetailItems } = await import("./retail-catalog.service"));
   });
@@ -280,15 +280,15 @@ describe("listPublicRetailItems — stock reservation (#4)", () => {
     assert.equal(items[0].currentStock, 10);
   });
 
-  it("subtracts quantities reserved by open orders", async () => {
+  it("does not subtract quantities reserved by open orders (storefront shows physical stock)", async () => {
     openOrders = [{ items: [{ productId: "prod-1", quantity: 3 }] }, { items: [{ productId: "prod-1", quantity: 2 }] }];
     const items = await listPublicRetailItems();
-    assert.equal(items[0].currentStock, 5, "10 physical - 5 reserved = 5 available");
+    assert.equal(items[0].currentStock, 10, "pending orders must not hide/shrink stock shown to other shoppers");
   });
 
-  it("hides items fully reserved (available 0)", async () => {
+  it("still shows an item with open orders reserving all of its stock", async () => {
     openOrders = [{ items: [{ productId: "prod-1", quantity: 10 }] }];
     const items = await listPublicRetailItems();
-    assert.equal(items.length, 0, "fully-reserved item must not be sellable");
+    assert.equal(items.length, 1, "final availability is enforced at cart submission, not on the listing");
   });
 });

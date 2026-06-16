@@ -23,6 +23,7 @@ const emptyCustomer: CustomerPayload = {
   phone: "",
   address: "",
   notes: "",
+  tags: [],
   openingBalance: 0,
   isSupplier: false,
 }
@@ -192,6 +193,11 @@ export function CustomersPage() {
           <Input required placeholder="الهاتف" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           <Input placeholder="العنوان" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
           <Input placeholder="ملاحظات" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
+          <Input
+            placeholder="تاكات (افصل بفاصلة، مثال: VIP, الكرادة)"
+            value={(form.tags ?? []).join(", ")}
+            onChange={(event) => setForm({ ...form, tags: event.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
+          />
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/20">
             <label className="mb-1 block text-xs font-semibold text-amber-800 dark:text-amber-300">
               الرصيد الافتتاحي (مطلوب إذا كان للزبون حساب سابق)

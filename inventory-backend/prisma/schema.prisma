@@ -214,6 +214,7 @@ model Customer {
   address           String?
   notes             String?
   isSupplier        Boolean          @default(false) @map("is_supplier")
+  tags              String[]         @default([])
   openingBalance    Decimal          @default(0) @map("opening_balance") @db.Decimal(12, 2)
   currentBalance    Decimal          @default(0) @map("current_balance") @db.Decimal(12, 2)
   creditLimit       Decimal?         @map("credit_limit") @db.Decimal(12, 2)

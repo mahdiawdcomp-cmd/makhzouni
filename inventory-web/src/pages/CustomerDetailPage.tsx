@@ -210,6 +210,15 @@ export function CustomerDetailPage() {
             )}
           </div>
           <p className="text-slate-500">{customer.phone}</p>
+          {customer.tags && customer.tags.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {customer.tags.map((tag) => (
+                <span key={tag} className="rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setEditOpen(true)}>
@@ -455,6 +464,7 @@ function EditCustomerModal({
     phone: customer.phone,
     address: customer.address ?? "",
     notes: customer.notes ?? "",
+    tags: (customer.tags ?? []).join(", "),
     isSupplier: customer.isSupplier ?? false,
     creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
   })
@@ -468,6 +478,7 @@ function EditCustomerModal({
         phone: customer.phone,
         address: customer.address ?? "",
         notes: customer.notes ?? "",
+        tags: (customer.tags ?? []).join(", "),
         isSupplier: customer.isSupplier ?? false,
         creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
       })
@@ -486,6 +497,7 @@ function EditCustomerModal({
       phone: form.phone.trim(),
       address: form.address.trim() || undefined,
       notes: form.notes.trim() || undefined,
+      tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
       isSupplier: form.isSupplier,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
     })
@@ -531,6 +543,15 @@ function EditCustomerModal({
             value={form.notes}
             onChange={(e) => set("notes", e.target.value)}
             placeholder="ملاحظات (اختيارية)"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label>تاكات (افصل بفاصلة، مثال: VIP, الكرادة)</Label>
+          <Input
+            value={form.tags}
+            onChange={(e) => set("tags", e.target.value)}
+            placeholder="مثال: VIP, الكرادة"
           />
         </div>
 

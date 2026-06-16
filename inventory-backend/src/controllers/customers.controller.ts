@@ -6,6 +6,7 @@ import {
   createPendingApproval,
 } from "../services/approval.service";
 import {
+  broadcastToCustomers,
   createCustomer,
   getCustomerBalance,
   getCustomerById,
@@ -15,11 +16,13 @@ import {
   getOrCreateWalkInCustomer,
   listCustomers,
   listCustomersWithDebts,
+  listCustomerTags,
   listInactiveCustomers,
   softDeleteCustomer,
   updateCustomer,
 } from "../services/customer.service";
 import { hasPermission } from "../middleware/permission.middleware";
+import { logger } from "../utils/logger";
 
 function requireUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
@@ -192,4 +195,24 @@ export const getInactiveCustomers = asyncHandler(async (req, res) => {
 export const getWalkInCustomer = asyncHandler(async (_req, res) => {
   const customer = await getOrCreateWalkInCustomer();
   res.json({ success: true, data: customer });
+});
+
+export const getCustomerTags = asyncHandler(async (_req, res) => {
+  const tags = await listCustomerTags();
+  res.json({ success: true, data: tags });
+});
+
+export const postCustomerBroadcast = asyncHandler(async (req, res) => {
+  const { tags, productIds, message } = req.body as {
+    tags: string[]; productIds: string[]; message: string;
+  };
+  const recipients = await listCustomers({ tags, page: 1, limit: 1 });
+  const total = recipients.pagination.total;
+  // Respond immediately; the actual send is throttled and slow.
+  res.json({ success: true, message: `جارٍ الإرسال إلى ${total} زبون`, data: { total } });
+  setImmediate(() => {
+    broadcastToCustomers({ tags, productIds, message })
+      .then((r) => logger.info(`[CustomerBroadcast] done: ${r.sent}/${r.total} sent, ${r.failed} failed, ${r.skippedProducts} products skipped (no image)`))
+      .catch((err) => logger.error(`[CustomerBroadcast] error: ${err}`));
+  });
 });

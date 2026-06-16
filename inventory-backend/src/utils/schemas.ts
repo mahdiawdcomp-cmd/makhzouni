@@ -234,6 +234,10 @@ export const listCustomersSchema = z.object({
       .enum(["true", "false"])
       .optional()
       .transform((value) => (value === undefined ? undefined : value === "true")),
+    tags: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : (Array.isArray(value) ? value : [value]))),
     includeDeleted: z
       .enum(["true", "false"])
       .optional()
@@ -249,6 +253,7 @@ export const createCustomerSchema = z.object({
     phone: z.string().trim().min(5),
     address: z.string().trim().optional(),
     notes: z.string().trim().optional(),
+    tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     openingBalance: z.coerce.number().default(0),
     creditLimit: z.coerce.number().nonnegative().nullable().optional(),
     branchId: z.string().uuid().optional(),
@@ -264,6 +269,7 @@ export const updateCustomerSchema = z.object({
       phone: z.string().trim().min(5).optional(),
       address: z.string().trim().nullable().optional(),
       notes: z.string().trim().nullable().optional(),
+      tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
       openingBalance: z.coerce.number().optional(),
       creditLimit: z.coerce.number().nonnegative().nullable().optional(),
       branchId: z.string().uuid().nullable().optional(),
@@ -272,6 +278,14 @@ export const updateCustomerSchema = z.object({
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one field is required",
     }),
+});
+
+export const customerBroadcastSchema = z.object({
+  body: z.object({
+    tags: z.array(z.string().trim().min(1)).min(1).max(20),
+    productIds: z.array(z.string().uuid()).min(1).max(10),
+    message: z.string().trim().min(1).max(2000),
+  }),
 });
 
 export const customerTransactionsSchema = z.object({
