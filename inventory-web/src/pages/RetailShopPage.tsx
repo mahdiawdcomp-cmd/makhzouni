@@ -319,6 +319,10 @@ function sameLabel(a: string, b: string) {
   return a.trim().toLowerCase() === b.trim().toLowerCase()
 }
 
+function labelKey(value: string) {
+  return value.trim().toLowerCase()
+}
+
 function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onShare }: {
   loading: boolean
   items: PublicRetailItem[]
@@ -342,11 +346,12 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   const featured = useMemo(() => items.filter((i) => i.featured).slice(0, 10), [items])
   const visibleCategories = useMemo(() => {
     const map = new Map<string, { name: string; subCategories: Set<string> }>()
+    const definedSubsByCategory = new Map<string, Set<string>>()
 
     function ensure(name: string) {
       const trimmed = name.trim()
       if (!trimmed) return null
-      const key = trimmed.toLowerCase()
+      const key = labelKey(trimmed)
       const found = map.get(key)
       if (found) return found
       const next = { name: trimmed, subCategories: new Set<string>() }
@@ -357,10 +362,14 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
     for (const c of categories) {
       const entry = ensure(c.name)
       if (!entry) continue
+      const defined = new Set<string>()
       for (const sub of c.subCategories) {
         const trimmed = sub.trim()
-        if (trimmed) entry.subCategories.add(trimmed)
+        if (!trimmed) continue
+        entry.subCategories.add(trimmed)
+        defined.add(labelKey(trimmed))
       }
+      definedSubsByCategory.set(labelKey(c.name), defined)
     }
 
     for (const item of items) {
@@ -369,7 +378,10 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       for (const cat of itemCategories) {
         const entry = ensure(cat)
         if (!entry) continue
-        for (const sub of itemSubs) entry.subCategories.add(sub)
+        const defined = definedSubsByCategory.get(labelKey(cat))
+        for (const sub of itemSubs) {
+          if (!defined || defined.size === 0 || defined.has(labelKey(sub))) entry.subCategories.add(sub)
+        }
       }
       if (itemCategories.length === 0 && itemSubs.length > 0) {
         for (const sub of itemSubs) {
@@ -419,8 +431,9 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       for (const s of it.subCategories) {
         const trimmed = s.trim()
         if (!trimmed) continue
-        const key = trimmed.toLowerCase()
-        const label = labels.get(key) ?? trimmed
+        const key = labelKey(trimmed)
+        const label = labels.get(key)
+        if (!label) continue
         labels.set(key, label)
         counts.set(label, (counts.get(label) ?? 0) + 1)
       }
@@ -446,10 +459,11 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       if (collection === "offers" && !item.isOffer) return false
       if (collection === "new" && !item.isNew) return false
       if (category && !belongsTo(item, category)) return false
+      if (subCategory && !subOptions.some((s) => sameLabel(s.name, subCategory))) return false
       if (subCategory && !item.subCategories.some((s) => sameLabel(s, subCategory))) return false
       return true
     })
-  }, [items, collection, category, subCategory, search, belongsTo])
+  }, [items, collection, category, subCategory, search, belongsTo, subOptions])
 
   // Sort the filtered list. "default" keeps the catalog's own order.
   const sorted = useMemo(() => {
