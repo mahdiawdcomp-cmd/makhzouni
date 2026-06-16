@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
+  ArrowDownUp,
   ArrowRight,
   Bot,
   CheckCircle2,
@@ -327,6 +328,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   const [category, setCategory] = useState<string | null>(null)
   const [subCategory, setSubCategory] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [sort, setSort] = useState<"default" | "price-asc" | "price-desc" | "newest" | "discount">("default")
   const COL_CYCLE = [3, 2, 4, 5]
   const [cols, setCols] = useState(3)
   function cycleCols() {
@@ -392,6 +394,17 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
     })
   }, [items, collection, category, subCategory, search, belongsTo])
 
+  // Sort the filtered list. "default" keeps the catalog's own order.
+  const sorted = useMemo(() => {
+    if (sort === "default") return filtered
+    const arr = [...filtered]
+    if (sort === "price-asc") arr.sort((a, b) => a.price - b.price)
+    else if (sort === "price-desc") arr.sort((a, b) => b.price - a.price)
+    else if (sort === "newest") arr.sort((a, b) => Number(b.isNew) - Number(a.isNew))
+    else if (sort === "discount") arr.sort((a, b) => (discountPct(b) ?? 0) - (discountPct(a) ?? 0))
+    return arr
+  }, [filtered, sort])
+
   const collections: { id: Collection; label: string; icon?: typeof TrendingUp }[] = [
     { id: "all", label: "الكل" },
     { id: "best", label: "الأكثر مبيعاً", icon: TrendingUp },
@@ -409,8 +422,8 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
 
   return (
     <div className="space-y-3">
-      {/* Hero carousel */}
-      {featured.length > 0 && collection === "all" && !category && !search && (
+      {/* Hero carousel — stays visible while browsing categories; only hidden during search */}
+      {featured.length > 0 && !searching && (
         <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1">
           {featured.map((item) => {
             const pct = discountPct(item)
@@ -448,6 +461,29 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         <button type="button" onClick={cycleCols} className="flex items-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-500" title="عدد المنتجات بالسطر" aria-label="تغيير عدد الأعمدة">
           <LayoutGrid className="h-4 w-4" /> {cols}
         </button>
+      </div>
+
+      {/* Sort bar */}
+      <div className="flex items-center gap-2">
+        <ArrowDownUp className="h-4 w-4 shrink-0 text-slate-400" />
+        <div className="flex flex-1 gap-1.5 overflow-x-auto pb-0.5">
+          {([
+            ["default", "ترتيب المتجر"],
+            ["price-asc", "الأرخص أولاً"],
+            ["price-desc", "الأغلى أولاً"],
+            ["discount", "أعلى خصم"],
+            ["newest", "الأحدث"],
+          ] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSort(id)}
+              className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition ${sort === id ? "bg-emerald-600 text-white shadow-sm" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Collections + categories hidden while searching (search is global) */}
@@ -529,7 +565,7 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         </div>
       ) : (
         <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-          {filtered.map((item) => {
+          {sorted.map((item) => {
             const pct = discountPct(item)
             return (
               <div
