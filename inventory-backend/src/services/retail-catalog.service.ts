@@ -336,13 +336,12 @@ export async function listPublicRetailItems() {
     orderBy: [{ featured: "desc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
   });
 
-  const reserved = await getReservedByProduct();
-
   return items
     .map((item) => {
-      // Available = physical stock minus what open orders already reserve.
+      // The storefront should not make products disappear just because a
+      // pending order is reserving stock. Final availability is still checked
+      // when the customer submits the cart.
       const physical = item.product ? stockOf(item.product) : 0;
-      const stock = Math.max(0, physical - (reserved.get(item.productId) ?? 0));
       return {
         id: item.id,
         title: item.title || item.product?.name || "",
@@ -357,7 +356,7 @@ export async function listPublicRetailItems() {
         isNew: item.isNew,
         isOffer: item.isOffer,
         lowStockBadge: item.lowStockBadge,
-        currentStock: stock,
+        currentStock: physical,
       };
     })
     .filter((item) => item.currentStock > 0);
