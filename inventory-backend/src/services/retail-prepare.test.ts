@@ -28,6 +28,9 @@ let order: Order;
 let coupon: { code: string; usedCount: number } | null;
 let createInvoiceCalls = 0;
 let createInvoiceImpl: () => Promise<{ id: string; invoiceNumber: string }>;
+// For the reservation tests: configurable catalog rows + open orders.
+let catalogItems: any[] = [];
+let openOrders: Array<{ items: any[] }> = [];
 
 function freshOrder(overrides: Partial<Order> = {}): Order {
   return {
@@ -69,6 +72,10 @@ const fakePrisma = {
       Object.assign(order, data);
       return { ...order };
     },
+    findMany: async () => openOrders.map((o) => ({ items: o.items })),
+  },
+  retailCatalogItem: {
+    findMany: async () => catalogItems,
   },
   customer: {
     findFirst: async () => ({ id: "cust-retail" }),
@@ -116,6 +123,7 @@ mock.module("./settings.service", {
 // top-level await).
 let markRetailOrderPrepared: (orderId: string, userId: string) => Promise<{ id: string; orderNumber: string }>;
 let cancelRetailOrder: (orderId: string) => Promise<{ id: string }>;
+let listPublicRetailItems: () => Promise<Array<{ id: string; currentStock: number }>>;
 
 describe("markRetailOrderPrepared — invoice safety", () => {
   before(async () => {
@@ -237,5 +245,50 @@ describe("cancelRetailOrder — coupon release (#6)", () => {
   it("cancelling an already-PREPARED order is rejected", async () => {
     order.status = "PREPARED";
     await assert.rejects(() => cancelRetailOrder(order.id), /مجهز/);
+  });
+});
+
+describe("listPublicRetailItems — stock reservation (#4)", () => {
+  before(async () => {
+    ({ listPublicRetailItems } = await import("./retail-catalog.service"));
+  });
+
+  beforeEach(() => {
+    catalogItems = [
+      {
+        id: "ci-1",
+        productId: "prod-1",
+        title: "لعبة",
+        price: 1000,
+        oldPrice: null,
+        categories: [],
+        subCategories: [],
+        images: [],
+        featured: false,
+        isBestSeller: false,
+        isNew: false,
+        isOffer: false,
+        lowStockBadge: false,
+        product: { name: "لعبة", openingBalancePcs: 10, cartonsAvailable: 0, pcsPerCarton: 1 },
+      },
+    ];
+    openOrders = [];
+  });
+
+  it("shows full stock when no open orders", async () => {
+    const items = await listPublicRetailItems();
+    assert.equal(items[0].currentStock, 10);
+  });
+
+  it("subtracts quantities reserved by open orders", async () => {
+    openOrders = [{ items: [{ productId: "prod-1", quantity: 3 }] }, { items: [{ productId: "prod-1", quantity: 2 }] }];
+    const items = await listPublicRetailItems();
+    assert.equal(items[0].currentStock, 5, "10 physical - 5 reserved = 5 available");
+  });
+
+  it("hides items fully reserved (available 0)", async () => {
+    openOrders = [{ items: [{ productId: "prod-1", quantity: 10 }] }];
+    const items = await listPublicRetailItems();
+    assert.equal(items.length, 0, "fully-reserved item must not be sellable");
   });
 });

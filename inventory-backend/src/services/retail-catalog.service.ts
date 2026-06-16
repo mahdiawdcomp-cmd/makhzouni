@@ -45,6 +45,27 @@ function stockOf(product: ProductStock) {
   return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
 }
 
+// #4 Stock reservation (no extra table): every open retail order (PENDING or
+// PROCESSING) reserves its quantities, so the same pieces can't be promised to
+// two customers. Cancelling an order auto-releases its hold (it stops being
+// counted), and preparing it deducts real stock via the invoice. Returns a map
+// of productId -> reserved pieces.
+async function getReservedByProduct(): Promise<Map<string, number>> {
+  const openOrders = await prisma.retailOrder.findMany({
+    where: { status: { in: ["PENDING", "PROCESSING"] } },
+    select: { items: true },
+  });
+  const reserved = new Map<string, number>();
+  for (const o of openOrders) {
+    const items = (o.items as unknown as Array<{ productId: string; quantity: number }>) ?? [];
+    for (const it of items) {
+      if (!it?.productId) continue;
+      reserved.set(it.productId, (reserved.get(it.productId) ?? 0) + Number(it.quantity ?? 0));
+    }
+  }
+  return reserved;
+}
+
 function normalizePhone(input: string) {
   let digits = String(input ?? "").replace(/[^\d]/g, "");
   if (digits.startsWith("00")) digits = digits.slice(2);
@@ -315,9 +336,13 @@ export async function listPublicRetailItems() {
     orderBy: [{ featured: "desc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
   });
 
+  const reserved = await getReservedByProduct();
+
   return items
     .map((item) => {
-      const stock = item.product ? stockOf(item.product) : 0;
+      // Available = physical stock minus what open orders already reserve.
+      const physical = item.product ? stockOf(item.product) : 0;
+      const stock = Math.max(0, physical - (reserved.get(item.productId) ?? 0));
       return {
         id: item.id,
         title: item.title || item.product?.name || "",
@@ -496,11 +521,13 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     });
   }
 
-  // Validate live stock (pieces)
+  // Validate available stock (physical minus what other open orders reserve).
+  const reservedByOthers = await getReservedByProduct();
   for (const item of retailItems) {
     if (!item.product) continue;
     const requested = requestedByProduct.get(item.product.id) ?? 0;
-    if (requested > stockOf(item.product)) {
+    const available = Math.max(0, stockOf(item.product) - (reservedByOthers.get(item.product.id) ?? 0));
+    if (requested > available) {
       throw new AppError(`الكمية المطلوبة من "${item.title || item.product.name}" أكبر من المتوفر`, 400, "RETAIL_STOCK_NOT_ENOUGH");
     }
   }
