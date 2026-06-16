@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { motion, AnimatePresence } from "framer-motion"
 import {
@@ -327,7 +327,6 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   const [category, setCategory] = useState<string | null>(null)
   const [subCategory, setSubCategory] = useState<string | null>(null)
   const [search, setSearch] = useState("")
-  const [searchOpen, setSearchOpen] = useState(false)
   const COL_CYCLE = [3, 2, 4, 5]
   const [cols, setCols] = useState(3)
   function cycleCols() {
@@ -335,24 +334,63 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
   }
 
   const featured = useMemo(() => items.filter((i) => i.featured).slice(0, 10), [items])
-  // Only show sub-categories that actually have items under the selected main category.
+
+  // An item belongs to a main category if it's tagged with that category OR with
+  // any sub-category that lives under it — so items the admin only tagged at the
+  // sub-category level still appear (this was the root cause of "missing" items).
+  const catSubs = useMemo(() => {
+    const m = new Map<string, Set<string>>()
+    for (const c of categories) m.set(c.name, new Set(c.subCategories))
+    return m
+  }, [categories])
+
+  const belongsTo = useCallback((item: PublicRetailItem, cat: string) => {
+    if (item.categories.includes(cat)) return true
+    const subs = catSubs.get(cat)
+    return subs ? item.subCategories.some((s) => subs.has(s)) : false
+  }, [catSubs])
+
+  // Item count per main category (hide empty categories from the bar).
+  const catCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const c of categories) m.set(c.name, items.filter((it) => belongsTo(it, c.name)).length)
+    return m
+  }, [categories, items, belongsTo])
+
+  // Sub-categories under the active category that actually have items, with counts.
   const subOptions = useMemo(() => {
-    if (!category) return [] as string[]
-    return categories.find((c) => c.name === category)?.subCategories ?? []
-  }, [categories, category])
+    if (!category) return [] as { name: string; count: number }[]
+    const defined = categories.find((c) => c.name === category)?.subCategories ?? []
+    const counts = new Map<string, number>()
+    for (const it of items) {
+      if (!belongsTo(it, category)) continue
+      for (const s of it.subCategories) if (defined.includes(s)) counts.set(s, (counts.get(s) ?? 0) + 1)
+    }
+    return defined.filter((s) => counts.has(s)).map((s) => ({ name: s, count: counts.get(s)! }))
+  }, [categories, items, category, belongsTo])
+
+  const searching = search.trim().length > 0
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return items.filter((item) => {
+      // While searching, look across the WHOLE store (ignore collection/category).
+      if (q) {
+        return (
+          item.title.toLowerCase().includes(q) ||
+          (item.description ?? "").toLowerCase().includes(q) ||
+          item.categories.some((c) => c.toLowerCase().includes(q)) ||
+          item.subCategories.some((s) => s.toLowerCase().includes(q))
+        )
+      }
       if (collection === "best" && !item.isBestSeller) return false
       if (collection === "offers" && !item.isOffer) return false
       if (collection === "new" && !item.isNew) return false
-      if (category && !item.categories.includes(category)) return false
+      if (category && !belongsTo(item, category)) return false
       if (subCategory && !item.subCategories.includes(subCategory)) return false
-      if (q && !(item.title.toLowerCase().includes(q) || (item.description ?? "").toLowerCase().includes(q))) return false
       return true
     })
-  }, [items, collection, category, subCategory, search])
+  }, [items, collection, category, subCategory, search, belongsTo])
 
   const collections: { id: Collection; label: string; icon?: typeof TrendingUp }[] = [
     { id: "all", label: "الكل" },
@@ -395,73 +433,83 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
         </div>
       )}
 
-      {/* Search + grid toggle */}
+      {/* Search bar (always visible) — searches the whole store */}
       <div className="flex items-center gap-2">
-        {searchOpen ? (
-          <div className="flex flex-1 items-center gap-1 rounded-xl border border-slate-200 bg-white px-2">
-            <Search className="h-4 w-4 text-slate-400" />
-            <input
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="ابحث عن مادة..."
-              className="flex-1 bg-transparent py-2 text-sm outline-none"
-            />
-            <button type="button" onClick={() => { setSearch(""); setSearchOpen(false) }}><X className="h-4 w-4 text-slate-400" /></button>
-          </div>
-        ) : (
-          <>
-            <button type="button" onClick={() => setSearchOpen(true)} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500"><Search className="h-4 w-4" /></button>
-            <div className="flex flex-1 gap-1.5 overflow-x-auto">
-              {collections.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setCollection(c.id)}
-                  className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${collection === c.id ? "bg-indigo-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
-                >
-                  {c.icon ? <c.icon className="h-3.5 w-3.5" /> : null}{c.label}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        <button type="button" onClick={cycleCols} className="flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs font-bold text-slate-500" title="عدد المنتجات بالسطر">
+        <div className={`flex flex-1 items-center gap-2 rounded-2xl border bg-white px-3 transition ${searching ? "border-indigo-300 ring-2 ring-indigo-100" : "border-slate-200"}`}>
+          <Search className="h-4 w-4 shrink-0 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ابحث في كل المتجر…"
+            className="flex-1 bg-transparent py-2.5 text-sm outline-none"
+          />
+          {searching && <button type="button" onClick={() => setSearch("")} aria-label="مسح البحث"><X className="h-4 w-4 text-slate-400" /></button>}
+        </div>
+        <button type="button" onClick={cycleCols} className="flex items-center gap-1 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-500" title="عدد المنتجات بالسطر" aria-label="تغيير عدد الأعمدة">
           <LayoutGrid className="h-4 w-4" /> {cols}
         </button>
       </div>
 
-      {/* Category chips */}
-      {categories.length > 0 && (
-        <div className="space-y-2">
+      {/* Collections + categories hidden while searching (search is global) */}
+      {!searching && (
+        <>
           <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-            <button
-              type="button"
-              onClick={() => { setCategory(null); setSubCategory(null) }}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${!category ? "bg-indigo-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
-            >
-              كل الأقسام
-            </button>
-            {categories.map((c) => (
+            {collections.map((c) => (
               <button
-                key={c.name}
+                key={c.id}
                 type="button"
-                onClick={() => { setCategory(c.name); setSubCategory(null) }}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${category === c.name ? "bg-indigo-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                onClick={() => setCollection(c.id)}
+                className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${collection === c.id ? "bg-indigo-600 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
               >
-                {c.name}
+                {c.icon ? <c.icon className="h-3.5 w-3.5" /> : null}{c.label}
               </button>
             ))}
           </div>
-          {category && subOptions.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5">
-              <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${!subCategory ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
-              {subOptions.map((s) => (
-                <button key={s} type="button" onClick={() => setSubCategory(s)} className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] ${subCategory === s ? "bg-indigo-100 text-indigo-700 font-semibold" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>{s}</button>
-              ))}
+
+          {categories.length > 0 && (
+            <div className="space-y-2">
+              {/* Main categories — show only non-empty, with counts */}
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                <button
+                  type="button"
+                  onClick={() => { setCategory(null); setSubCategory(null) }}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition ${!category ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                >
+                  كل الأقسام
+                </button>
+                {categories.filter((c) => (catCounts.get(c.name) ?? 0) > 0).map((c) => (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => { setCategory(category === c.name ? null : c.name); setSubCategory(null) }}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition ${category === c.name ? "bg-slate-900 text-white shadow-sm" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+                  >
+                    {c.name}
+                    <span className={`rounded-full px-1.5 text-[10px] ${category === c.name ? "bg-white/20" : "bg-slate-100 text-slate-400"}`}>{catCounts.get(c.name)}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Sub-categories of the active category — only non-empty, with counts */}
+              {category && subOptions.length > 0 && (
+                <div className="flex gap-1.5 overflow-x-auto rounded-xl bg-indigo-50/60 p-1.5">
+                  <button type="button" onClick={() => setSubCategory(null)} className={`shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition ${!subCategory ? "bg-indigo-600 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>الكل</button>
+                  {subOptions.map((s) => (
+                    <button key={s.name} type="button" onClick={() => setSubCategory(subCategory === s.name ? null : s.name)} className={`flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold transition ${subCategory === s.name ? "bg-indigo-600 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>
+                      {s.name}
+                      <span className={`rounded-full px-1 text-[9px] ${subCategory === s.name ? "bg-white/20" : "bg-slate-100 text-slate-400"}`}>{s.count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
+      )}
+
+      {/* Result count while searching */}
+      {searching && (
+        <div className="text-xs text-slate-500">نتائج البحث في كل المتجر: <span className="font-bold text-slate-700">{filtered.length}</span></div>
       )}
 
       {/* Grid */}
