@@ -162,13 +162,13 @@ export function RetailShopPage() {
         <header className="sticky top-0 z-20 bg-gradient-to-l from-indigo-600 to-violet-600 px-4 py-4 text-white shadow-lg">
           <div className="flex items-center gap-3">
             {settings?.storeLogo ? (
-              <img src={settings.storeLogo} alt="logo" className="h-10 w-10 rounded-xl bg-white/20 object-contain" />
+              <img src={settings.storeLogo} alt="logo" className="h-10 w-10 shrink-0 rounded-xl bg-white/20 object-contain" />
             ) : (
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20"><Store className="h-5 w-5" /></div>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/20"><Store className="h-5 w-5" /></div>
             )}
-            <div>
-              <div className="text-lg font-extrabold leading-tight">{storeName}</div>
-              <div className="text-[11px] text-white/80">متجر المفرد — اطلب ووصلك لباب البيت</div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-lg font-extrabold leading-tight">{storeName}</div>
+              <div className="truncate text-[11px] text-white/80">متجر المفرد — اطلب ووصلك لباب البيت</div>
             </div>
           </div>
         </header>
@@ -514,7 +514,19 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
 
       {/* Grid */}
       {filtered.length === 0 ? (
-        <div className="py-12 text-center text-sm text-slate-400">لا توجد مواد مطابقة.</div>
+        <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-slate-400">
+          <Package className="h-10 w-10 opacity-30" />
+          <p>لا توجد مواد مطابقة.</p>
+          {(category || subCategory || collection !== "all" || searching) && (
+            <button
+              type="button"
+              onClick={() => { setCategory(null); setSubCategory(null); setCollection("all"); setSearch("") }}
+              className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white"
+            >
+              عرض كل المواد
+            </button>
+          )}
+        </div>
       ) : (
         <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
           {filtered.map((item) => {
@@ -534,7 +546,8 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
                   <div className={`line-clamp-1 font-bold leading-tight ${cols <= 2 ? "text-sm" : "text-xs"}`}>{item.title}</div>
                   <div className="flex items-baseline gap-1">
                     <span className={`font-extrabold text-indigo-600 ${cols <= 2 ? "text-sm" : "text-xs"}`}>{money(item.price)}</span>
-                    {pct ? <span className="text-[10px] text-slate-400 line-through">{money(item.oldPrice!)}</span> : <span className="text-[9px] text-slate-400">{currency}</span>}
+                    <span className="text-[9px] text-slate-400">{currency}</span>
+                    {pct ? <span className="text-[10px] text-slate-400 line-through">{money(item.oldPrice!)}</span> : null}
                   </div>
                   {cols <= 2 && item.description ? <div className="line-clamp-1 text-[10px] text-slate-400">{item.description}</div> : null}
                   <div className="mt-1 flex items-center gap-1">
