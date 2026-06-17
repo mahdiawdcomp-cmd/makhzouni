@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs');fs.mkdirSync('dist/src/assets',{recursive:true});fs.cpSync('src/assets','dist/src/assets',{recursive:true})\"",
     "test": "node --experimental-test-module-mocks --import tsx --test \"src/**/*.test.ts\"",
     "start": "node dist/src/server.js",
     "prisma:generate": "prisma generate",

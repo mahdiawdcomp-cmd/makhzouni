@@ -321,25 +321,29 @@ async function applyStockMovement(
   }
 
   await ensureLegacyWarehouseStock(tx, product);
-  // Sales always come out of المحل (the default/oldest warehouse) and may NOT go
-  // negative — the seller must transfer stock to المحل first. Other movements
-  // (purchase / return) use the chosen warehouse and keep prior behavior.
+  // Sales default to المحل warehouse. If the invoice line explicitly names a
+  // different warehouse (direct-pull from a depot), honour it — this lets the
+  // seller pull stock from wherever it physically is without a formal transfer.
   const isSale = invoiceType === InvoiceType.SALE;
   const warehouseId = isSale
-    ? await resolveShopWarehouseId(tx)
+    ? (item.warehouseId
+        ? await resolveWarehouseId(tx, item.warehouseId)
+        : await resolveShopWarehouseId(tx))
     : await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);
-  // For sales, pre-check المحل stock to give a clear, actionable Arabic message.
+  // Pre-check stock so the user gets a clear Arabic message instead of a generic DB error.
   if (isSale) {
-    const shopStock = await tx.productWarehouseStock.findUnique({
+    const whStock = await tx.productWarehouseStock.findUnique({
       where: { productId_warehouseId: { productId: product.id, warehouseId } },
       select: { quantityPieces: true },
     });
-    const available = shopStock?.quantityPieces ?? 0;
+    const available = Number(whStock?.quantityPieces ?? 0);
     if (quantityInPieces > available) {
+      const wh = await tx.branch.findUnique({ where: { id: warehouseId }, select: { name: true } });
+      const whName = wh?.name ?? "المخزن";
       throw new AppError(
-        `المحل يحتوي فقط على ${available} قطعة من "${product.name}" — تحتاج تحويل من المخزن إلى المحل قبل البيع.`,
+        `${whName} يحتوي فقط على ${available} قطعة من "${product.name}".`,
         409,
         "INSUFFICIENT_SHOP_STOCK"
       );

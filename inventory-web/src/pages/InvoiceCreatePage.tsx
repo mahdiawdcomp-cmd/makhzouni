@@ -33,6 +33,7 @@ interface DraftItem {
   quantity: number
   unitPrice: number
   warehouseId?: string
+  warehouseName?: string  // display name when pulling from a non-default warehouse
 }
 
 function stockOf(product: Product) {
@@ -538,7 +539,7 @@ export function InvoiceCreatePage() {
     return undefined
   }
 
-  function doAddProduct(product: Product) {
+  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string) {
     const nextIndex = items.length
     setItems((current) => [
       ...current,
@@ -547,7 +548,8 @@ export function InvoiceCreatePage() {
         unit: "PIECE",
         quantity: 1,
         unitPrice: unitPriceFor(product, "PIECE"),
-        warehouseId: defaultWarehouseId(product),
+        warehouseId: overrideWarehouseId ?? defaultWarehouseId(product),
+        warehouseName: overrideWarehouseName,
       },
     ])
     setProductModal(false)
@@ -1183,6 +1185,11 @@ export function InvoiceCreatePage() {
                         <div className="flex items-center gap-2 min-w-[140px]">
                           <ProductThumb product={item.product} />
                           <span className="font-medium">{item.product.name}</span>
+                          {item.warehouseName && (
+                            <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                              📦 {item.warehouseName}
+                            </span>
+                          )}
                           {hasNegativeStock ? (
                             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                               رصيد سالب
@@ -1714,41 +1721,37 @@ export function InvoiceCreatePage() {
           </DialogHeader>
           <div className="space-y-3 text-sm">
             <p className="text-slate-700 dark:text-slate-300">
-              المادة <strong>{shopStockAlert?.name}</strong> غير متوفرة بالمحل.
+              <strong>{shopStockAlert?.name}</strong> — المحل فاضي.
             </p>
-            {(shopStockAlert?.warehouseStocks ?? []).filter((ws) => ws.quantityPieces > 0).length > 0 && (
-              <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900 space-y-1">
-                <p className="text-xs font-semibold text-slate-500 mb-1">متوفرة في:</p>
-                {(shopStockAlert?.warehouseStocks ?? [])
-                  .filter((ws) => ws.quantityPieces > 0)
-                  .map((ws) => (
-                    <div key={ws.warehouseId} className="flex justify-between text-xs">
-                      <span>{ws.warehouse.name}</span>
-                      <span className="font-bold">{ws.quantityPieces} قطعة</span>
-                    </div>
-                  ))}
-              </div>
-            )}
-            <p className="text-xs text-slate-500">تحتاج تحويل من المخزن إلى المحل أولاً.</p>
-            <div className="flex flex-col gap-2 pt-1">
-              <Button
-                className="w-full"
-                onClick={() => {
-                  const id = shopStockAlert?.id
-                  setShopStockAlert(null)
-                  window.open(`/transfers?productId=${id}`, "_blank")
-                }}
-              >
-                افتح صفحة التحويلات
-              </Button>
-              <Button variant="outline" className="w-full" onClick={() => {
-                const p = shopStockAlert!
-                setShopStockAlert(null)
-                doAddProduct(p)
-              }}>
-                إضافة على أي حال
-              </Button>
+            <p className="text-xs text-slate-500">اسحب مباشرة من أحد المخازن — يُكتب تحت المادة بالفاتورة وين جابها الموظف:</p>
+            <div className="flex flex-col gap-2">
+              {(shopStockAlert?.warehouseStocks ?? [])
+                .filter((ws) => ws.quantityPieces > 0)
+                .map((ws) => (
+                  <Button
+                    key={ws.warehouseId}
+                    className="w-full justify-between"
+                    onClick={() => {
+                      const p = shopStockAlert!
+                      setShopStockAlert(null)
+                      doAddProduct(p, ws.warehouseId, ws.warehouse.name)
+                    }}
+                  >
+                    <span>📦 سحب من {ws.warehouse.name}</span>
+                    <span className="opacity-70 text-xs">{ws.quantityPieces} قطعة</span>
+                  </Button>
+                ))}
+              {(shopStockAlert?.warehouseStocks ?? []).filter((ws) => ws.quantityPieces > 0).length === 0 && (
+                <p className="text-rose-600 text-xs">لا يوجد مخزون في أي مخزن.</p>
+              )}
             </div>
+            <Button variant="outline" className="w-full text-xs" onClick={() => {
+              const p = shopStockAlert!
+              setShopStockAlert(null)
+              doAddProduct(p)
+            }}>
+              إضافة بدون تحديد مخزن
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
