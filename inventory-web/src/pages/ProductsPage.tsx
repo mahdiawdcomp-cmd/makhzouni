@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Upload } from "lucide-react"
+import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Upload } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -308,7 +308,7 @@ export function ProductsPage() {
   usePageTitle("المخزن")
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { productsQuery, createMutation, updateMutation } = useProducts()
+  const { productsQuery, createMutation, updateMutation, deleteMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
   const catalogCatsQuery = useQuery({ queryKey: ["catalog-categories"], queryFn: getCatalogCategories })
@@ -328,6 +328,7 @@ export function ProductsPage() {
   // on initial product entry only.
   const [dist, setDist] = useState<Record<string, number>>({})
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
   const products = productsQuery.data ?? []
@@ -409,6 +410,9 @@ export function ProductsPage() {
             </Button>
             <Button variant="outline" className="h-8 px-2" title="طباعة رمز الكرتون (A4، 6 لاصقات)" onClick={() => void printCarton(row.original.id)}>
               <Printer className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" title="حذف" onClick={() => setDeleteConfirm(row.original)}>
+              <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         ),
@@ -751,6 +755,7 @@ export function ProductsPage() {
                           <Button variant="outline" className="h-7 w-7 p-0" title="تعديل" onClick={() => startEdit(p)}><Edit className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز القطعة" onClick={() => void printPiece(p.id)}><ScanQrCode className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز الكرتون" onClick={() => void printCarton(p.id)}><Printer className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50" title="حذف" onClick={() => setDeleteConfirm(p)}><Trash2 className="h-3.5 w-3.5" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -1067,6 +1072,28 @@ export function ProductsPage() {
             )
           })()}
 
+          {/* Edit mode: show current per-warehouse stock (read-only) with link to transfers */}
+          {editing && (editing.warehouseStocks ?? []).length > 0 && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-2 dark:border-sky-800 dark:bg-sky-950/20">
+              <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">توزيع المخزون الحالي</p>
+              <div className="grid gap-1">
+                {(editing.warehouseStocks ?? []).map((ws) => (
+                  <div key={ws.warehouseId} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-600 dark:text-slate-300">{ws.warehouse.name}</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">{ws.quantityPieces} قطعة</span>
+                  </div>
+                ))}
+              </div>
+              <Link
+                to={`/transfers?productId=${editing.id}`}
+                className="inline-block text-xs text-sky-600 hover:underline dark:text-sky-400"
+                onClick={() => setOpen(false)}
+              >
+                ↩ طلب تحويل بين المخازن
+              </Link>
+            </div>
+          )}
+
           <Button className="w-full" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
             {editing ? "تحديث" : "حفظ"}
           </Button>
@@ -1080,6 +1107,18 @@ export function ProductsPage() {
         confirmLabel="خروج"
         onConfirm={() => { setCloseProductConfirm(false); setForm(emptyForm); setOpen(false) }}
         onCancel={() => setCloseProductConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={!!deleteConfirm}
+        title={`حذف "${deleteConfirm?.name ?? ""}"؟`}
+        description="ستُحذف المادة من قائمة المواد لكنها تبقى مسجّلة في الفواتير القديمة."
+        confirmLabel="حذف"
+        onConfirm={() => {
+          if (!deleteConfirm) return
+          deleteMutation.mutate(deleteConfirm.id, { onSuccess: () => setDeleteConfirm(null) })
+        }}
+        onCancel={() => setDeleteConfirm(null)}
       />
     </div>
   )

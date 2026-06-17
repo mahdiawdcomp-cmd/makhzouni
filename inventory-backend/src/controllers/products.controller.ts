@@ -1,6 +1,9 @@
 import { UserRole } from "@prisma/client";
 import QRCode from "qrcode";
 import PDFDocument from "pdfkit";
+import path from "path";
+
+const ARABIC_FONT = path.join(__dirname, "../assets/Cairo.ttf");
 import {
   approvalRequestTypes,
   createPendingApproval,
@@ -167,6 +170,7 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const qrSize = 1.7 * cm;
 
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
+  doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
@@ -175,18 +179,20 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   doc.pipe(res);
   // QR centred horizontally
   doc.image(pngBuffer, (widthPt - qrSize) / 2, 0.05 * cm, { width: qrSize, height: qrSize });
-  // Small caption: product name (truncated), item number, and pcs-per-carton.
-  let captionY = qrSize + 0.12 * cm;
-  doc.fontSize(5).fillColor("#111").text(product.name, 1, captionY, {
+  // Caption: product name (Arabic) then item number + pcs-per-carton
+  let captionY = qrSize + 0.1 * cm;
+  doc.font("Arabic").fontSize(5).fillColor("#111").text(product.name, 1, captionY, {
     width: widthPt - 2,
     align: "center",
-    height: 0.5 * cm,
+    height: 0.55 * cm,
     ellipsis: true,
+    features: ["rtla"],
   });
-  captionY += 0.5 * cm;
-  doc.fontSize(4.5).fillColor("#475569").text(`${product.itemNumber} · ${product.pcsPerCarton} ق/كرتون`, 0, captionY, {
+  captionY += 0.55 * cm;
+  doc.font("Arabic").fontSize(4.5).fillColor("#475569").text(`${product.itemNumber} · ${product.pcsPerCarton} ق/كرتون`, 0, captionY, {
     width: widthPt,
     align: "center",
+    features: ["rtla"],
   });
   doc.end();
 });
@@ -208,6 +214,7 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   const cellH = (pageHeight - margin * 2 - gap * (rows - 1)) / rows;
 
   const doc = new PDFDocument({ size: "A4", margin: 0 });
+  doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
@@ -218,24 +225,20 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
     for (let c = 0; c < cols; c++) {
       const x = margin + c * (cellW + gap);
       const y = margin + r * (cellH + gap);
-      // Card border
       doc.lineWidth(0.5).strokeColor("#cbd5e1").rect(x, y, cellW, cellH).stroke();
-      // QR (square, fill most of the cell height)
       const qrSize = Math.min(cellW, cellH) - 60;
       const qrX = x + (cellW - qrSize) / 2;
       const qrY = y + 16;
       doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-      // Captions
       doc
-        .fontSize(11)
-        .fillColor("#0f172a")
-        .text(product.name, x + 8, qrY + qrSize + 6, { width: cellW - 16, align: "center" });
+        .font("Arabic").fontSize(11).fillColor("#0f172a")
+        .text(product.name, x + 8, qrY + qrSize + 6, { width: cellW - 16, align: "center", features: ["rtla"] });
       doc
-        .fontSize(9)
-        .fillColor("#475569")
+        .font("Arabic").fontSize(9).fillColor("#475569")
         .text(`${product.itemNumber} · كرتون · ${product.pcsPerCarton} قطعة`, x + 8, qrY + qrSize + 22, {
           width: cellW - 16,
           align: "center",
+          features: ["rtla"],
         });
     }
   }

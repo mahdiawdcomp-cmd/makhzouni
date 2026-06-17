@@ -148,6 +148,8 @@ export function InvoiceCreatePage() {
   const [quickAddProductName, setQuickAddProductName] = useState("")
   const [quickAddProductSalePrice, setQuickAddProductSalePrice] = useState("")
   const [quickAddProductPurchasePrice, setQuickAddProductPurchasePrice] = useState("")
+  // Alert shown when a sale product has 0 stock in المحل
+  const [shopStockAlert, setShopStockAlert] = useState<Product | null>(null)
 
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
@@ -536,7 +538,7 @@ export function InvoiceCreatePage() {
     return undefined
   }
 
-  function addProduct(product: Product) {
+  function doAddProduct(product: Product) {
     const nextIndex = items.length
     setItems((current) => [
       ...current,
@@ -551,6 +553,20 @@ export function InvoiceCreatePage() {
     setProductModal(false)
     setProductQuery("")
     window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
+  }
+
+  function addProduct(product: Product) {
+    // For sales: if المحل has 0 stock but other warehouses have stock → warn first
+    if (!isPurchase) {
+      const shopStock = product.shopStock ?? 0
+      const totalStock = product.currentStock ?? (product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton)
+      const othersHaveStock = (product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
+      if (shopStock === 0 && (totalStock > 0 || othersHaveStock)) {
+        setShopStockAlert(product)
+        return
+      }
+    }
+    doAddProduct(product)
   }
 
   function quickCreateProduct() {
@@ -1686,6 +1702,53 @@ export function InvoiceCreatePage() {
             <Button variant="outline" disabled={whatsappSending} onClick={() => { navigate(`/invoices/${whatsappPromptId}`); setWhatsappPromptId(null) }}>
               لا شكراً
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Shop-stock-zero alert: المحل has 0, other warehouses have stock */}
+      <Dialog open={!!shopStockAlert} onOpenChange={(open) => { if (!open) setShopStockAlert(null) }}>
+        <DialogContent className="max-w-sm" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-amber-600">⚠️ مخزون المحل صفر</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-slate-700 dark:text-slate-300">
+              المادة <strong>{shopStockAlert?.name}</strong> غير متوفرة بالمحل.
+            </p>
+            {(shopStockAlert?.warehouseStocks ?? []).filter((ws) => ws.quantityPieces > 0).length > 0 && (
+              <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900 space-y-1">
+                <p className="text-xs font-semibold text-slate-500 mb-1">متوفرة في:</p>
+                {(shopStockAlert?.warehouseStocks ?? [])
+                  .filter((ws) => ws.quantityPieces > 0)
+                  .map((ws) => (
+                    <div key={ws.warehouseId} className="flex justify-between text-xs">
+                      <span>{ws.warehouse.name}</span>
+                      <span className="font-bold">{ws.quantityPieces} قطعة</span>
+                    </div>
+                  ))}
+              </div>
+            )}
+            <p className="text-xs text-slate-500">تحتاج تحويل من المخزن إلى المحل أولاً.</p>
+            <div className="flex flex-col gap-2 pt-1">
+              <Button
+                className="w-full"
+                onClick={() => {
+                  const id = shopStockAlert?.id
+                  setShopStockAlert(null)
+                  window.open(`/transfers?productId=${id}`, "_blank")
+                }}
+              >
+                افتح صفحة التحويلات
+              </Button>
+              <Button variant="outline" className="w-full" onClick={() => {
+                const p = shopStockAlert!
+                setShopStockAlert(null)
+                doAddProduct(p)
+              }}>
+                إضافة على أي حال
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

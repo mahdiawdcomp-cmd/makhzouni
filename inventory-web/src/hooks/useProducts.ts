@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   createProduct,
+  deleteProduct,
   getProduct,
   getProductMovement,
   getProducts,
@@ -27,7 +28,12 @@ export function useProducts() {
     onSuccess: invalidate,
   })
 
-  return { productsQuery, createMutation, updateMutation }
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteProduct(id),
+    onSuccess: invalidate,
+  })
+
+  return { productsQuery, createMutation, updateMutation, deleteMutation }
 }
 
 export function useProductDetails(id: string | undefined) {

@@ -228,6 +228,11 @@ export async function updateProduct(id: string, payload: ProductPayload) {
   return data
 }
 
+export async function deleteProduct(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/products/${id}`)
+  return data
+}
+
 export async function getProductMovement(productId: string) {
   const { data } = await api.get<ApiEnvelope<ProductMovementResponse>>("/reports/products/movement", {
     params: { productId },
