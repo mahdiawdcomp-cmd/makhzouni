@@ -14,6 +14,7 @@ import {
   getCustomerTransactions,
   getLastCustomerTransaction,
   getOrCreateWalkInCustomer,
+  broadcastCatalogLink,
   createCustomerTag,
   deleteCustomerTag,
   listCustomers,
@@ -229,6 +230,19 @@ export const postSendCatalogLink = asyncHandler(async (req, res) => {
   const { promoCode } = req.body as { promoCode?: string };
   const result = await sendCatalogLinkToCustomer(id, promoCode);
   res.json({ success: true, message: `تم إرسال رابط الكتلوج إلى ${result.phone}`, data: result });
+});
+
+export const postCatalogLinkBroadcast = asyncHandler(async (req, res) => {
+  const { tags, promoCode } = req.body as { tags: string[]; promoCode?: string };
+  const recipients = await listCustomers({ tags, page: 1, limit: 1 });
+  const total = recipients.pagination.total;
+  // Respond immediately; the actual send is throttled and slow.
+  res.json({ success: true, message: `جارٍ إرسال رابط الكتلوج إلى ${total} زبون`, data: { total } });
+  setImmediate(() => {
+    broadcastCatalogLink({ tags, promoCode })
+      .then((r) => logger.info(`[CatalogLinkBroadcast] done: ${r.sent}/${r.total} sent, ${r.failed} failed`))
+      .catch((err) => logger.error(`[CatalogLinkBroadcast] error: ${err}`));
+  });
 });
 
 export const postCustomerBroadcast = asyncHandler(async (req, res) => {

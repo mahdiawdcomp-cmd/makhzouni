@@ -158,6 +158,7 @@ export type CatalogCustomerRow = {
   token: string | null;
   lastViewedAt: Date | null;
   createdAt: Date | null;
+  catalogLinkSentAt: Date | null;
 };
 
 export async function listCustomersWithCatalogStatus(): Promise<CatalogCustomerRow[]> {
@@ -170,9 +171,11 @@ export async function listCustomersWithCatalogStatus(): Promise<CatalogCustomerR
     show_stock: boolean | null;
     last_viewed_at: Date | null;
     link_created_at: Date | null;
+    catalog_link_sent_at: Date | null;
   }>>`
     SELECT
       c.id, c.name, c.phone,
+      c.catalog_link_sent_at,
       cal.token,
       cal.allow_prices,
       cal.show_stock,
@@ -195,6 +198,7 @@ export async function listCustomersWithCatalogStatus(): Promise<CatalogCustomerR
     token: row.token,
     lastViewedAt: row.last_viewed_at,
     createdAt: row.link_created_at,
+    catalogLinkSentAt: row.catalog_link_sent_at,
   }));
 }
 

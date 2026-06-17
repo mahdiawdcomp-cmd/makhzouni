@@ -296,6 +296,11 @@ export async function sendCatalogLinkToCustomer(customerId: string, promoCode?: 
   return data
 }
 
+export async function broadcastCatalogLink(payload: { tags: string[]; promoCode?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ total: number }> & { message?: string }>("/customers/broadcast-catalog-link", payload)
+  return data
+}
+
 export async function getCustomersPaged(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[] }) {
   const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 30, ...params } })
   return data

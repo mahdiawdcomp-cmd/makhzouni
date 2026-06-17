@@ -314,6 +314,13 @@ export const sendCatalogLinkSchema = z.object({
   }),
 });
 
+export const catalogLinkBroadcastSchema = z.object({
+  body: z.object({
+    tags: z.array(z.string().trim().min(1)).min(1).max(20),
+    promoCode: z.string().trim().max(60).optional(),
+  }),
+});
+
 export const customerTransactionsSchema = z.object({
   params: uuidParam,
   query: z.object({

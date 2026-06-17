@@ -743,6 +743,17 @@ function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | nu
   return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
 }
 
+function buildCatalogLinkMessage(store: string, link: string, promoCode?: string) {
+  let message =
+    `مرحبا حبيبي كيف حالك 🌹\n\n` +
+    `هذا رابط كتلوك ${store} فيه كل البضاعة معروضة، ادخل عليه واكتب رقم تلفونك وتصفح وتسوق براحتك بدون تعب 🛍️\n\n` +
+    `واحنا نجهزلك ونرسلك البضاعة لباب المحل 🚚` +
+    (link ? `\n\n${link}` : "");
+  const promo = promoCode?.trim();
+  if (promo) message += `\n\n🎁 كود الخصم الخاص بك: ${promo}`;
+  return message;
+}
+
 // Sends the public wholesale-catalog link to one customer over WhatsApp, with
 // a friendly intro and an optional per-customer promo code appended.
 export async function sendCatalogLinkToCustomer(id: string, promoCode?: string) {
@@ -751,16 +762,39 @@ export async function sendCatalogLinkToCustomer(id: string, promoCode?: string) 
   const link = (settings?.catalogPublicUrl || "").trim();
   const store = (settings?.storeName || "متجرنا").trim();
 
-  let message =
-    `مرحبا حبيبي كيف حالك 🌹\n\n` +
-    `هذا رابط كتلوك ${store} فيه كل البضاعة معروضة، ادخل عليه واكتب رقم تلفونك وتصفح وتسوق براحتك بدون تعب 🛍️\n\n` +
-    `واحنا نجهزلك ونرسلك البضاعة لباب المحل 🚚` +
-    (link ? `\n\n${link}` : "");
-  const promo = promoCode?.trim();
-  if (promo) message += `\n\n🎁 كود الخصم الخاص بك: ${promo}`;
-
-  await sendWhatsAppText(customer.phone, message);
+  await sendWhatsAppText(customer.phone, buildCatalogLinkMessage(store, link, promoCode));
+  await prisma.customer.update({ where: { id: customer.id }, data: { catalogLinkSentAt: new Date() } }).catch(() => {});
   return { phone: customer.phone };
+}
+
+// Bulk-sends the catalog link to every customer carrying any of the given tags.
+// Throttled + fire-and-forget friendly; records catalogLinkSentAt per customer.
+export async function broadcastCatalogLink(input: { tags: string[]; promoCode?: string }) {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, tags: { hasSome: input.tags } },
+    select: { id: true, phone: true },
+  });
+  if (customers.length === 0) return { sent: 0, failed: 0, total: 0 };
+
+  const settings = await getSettings().catch(() => null);
+  const link = (settings?.catalogPublicUrl || "").trim();
+  const store = (settings?.storeName || "متجرنا").trim();
+  const message = buildCatalogLinkMessage(store, link, input.promoCode);
+
+  let sent = 0;
+  let failed = 0;
+  for (const customer of customers) {
+    try {
+      await sendWhatsAppText(customer.phone, message);
+      await prisma.customer.update({ where: { id: customer.id }, data: { catalogLinkSentAt: new Date() } }).catch(() => {});
+      sent++;
+    } catch (err) {
+      failed++;
+      logger.warn(`[CatalogLinkBroadcast] failed to ${customer.phone}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  return { sent, failed, total: customers.length };
 }
 
 export async function broadcastToCustomers(input: {

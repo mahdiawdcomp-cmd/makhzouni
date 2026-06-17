@@ -15,6 +15,7 @@ import {
   getTransactions,
   getWalkInCustomer,
   patchCustomerTag,
+  postCatalogLinkBroadcast,
   postCustomerBroadcast,
   postCustomerTag,
   postSendCatalogLink,
@@ -29,6 +30,7 @@ import {
 import {
   createCustomerSchema,
   createPortalLinkSchema,
+  catalogLinkBroadcastSchema,
   customerBroadcastSchema,
   sendCatalogLinkSchema,
   customerTagCreateSchema,
@@ -53,6 +55,7 @@ router.post("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerTag
 router.patch("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerTagRenameSchema), patchCustomerTag);
 router.delete("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerTagDeleteSchema), deleteCustomerTagController);
 router.post("/broadcast", requirePermission("MANAGE_CUSTOMERS"), validate(customerBroadcastSchema), postCustomerBroadcast);
+router.post("/broadcast-catalog-link", requirePermission("MANAGE_CUSTOMERS"), validate(catalogLinkBroadcastSchema), postCatalogLinkBroadcast);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);

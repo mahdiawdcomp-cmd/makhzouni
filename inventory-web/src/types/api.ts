@@ -733,6 +733,7 @@ export interface CatalogCustomer {
   token: string | null
   lastViewedAt: string | null
   createdAt: string | null
+  catalogLinkSentAt: string | null
 }
 
 // ── Retail catalog (كتلوك المفرد) ──────────────────────────────────────────────

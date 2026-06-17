@@ -159,11 +159,12 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const payload = product.qrCode || product.itemNumber;
   const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 0, width: 400 });
 
-  // 1 cm = 28.3464567 PDF points. Use a 2×2.4 cm card: 2×2 cm QR + a thin text caption underneath.
+  // 1 cm = 28.3464567 PDF points. Card: 2 cm QR + small caption lines underneath
+  // (item name + item number + pieces-per-carton). Slightly taller to fit them.
   const cm = 28.3464567;
   const widthPt = 2 * cm;
-  const heightPt = 2.4 * cm;
-  const qrSize = 1.8 * cm;
+  const heightPt = 3.1 * cm;
+  const qrSize = 1.7 * cm;
 
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   res.setHeader("Content-Type", "application/pdf");
@@ -174,8 +175,16 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   doc.pipe(res);
   // QR centred horizontally
   doc.image(pngBuffer, (widthPt - qrSize) / 2, 0.05 * cm, { width: qrSize, height: qrSize });
-  // tiny caption
-  doc.fontSize(5).fillColor("#111").text(product.itemNumber, 0, qrSize + 0.1 * cm, {
+  // Small caption: product name (truncated), item number, and pcs-per-carton.
+  let captionY = qrSize + 0.12 * cm;
+  doc.fontSize(5).fillColor("#111").text(product.name, 1, captionY, {
+    width: widthPt - 2,
+    align: "center",
+    height: 0.5 * cm,
+    ellipsis: true,
+  });
+  captionY += 0.5 * cm;
+  doc.fontSize(4.5).fillColor("#475569").text(`${product.itemNumber} · ${product.pcsPerCarton} ق/كرتون`, 0, captionY, {
     width: widthPt,
     align: "center",
   });
@@ -224,7 +233,7 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
       doc
         .fontSize(9)
         .fillColor("#475569")
-        .text(`${product.itemNumber} · CTN · ${product.pcsPerCarton} pcs`, x + 8, qrY + qrSize + 22, {
+        .text(`${product.itemNumber} · كرتون · ${product.pcsPerCarton} قطعة`, x + 8, qrY + qrSize + 22, {
           width: cellW - 16,
           align: "center",
         });

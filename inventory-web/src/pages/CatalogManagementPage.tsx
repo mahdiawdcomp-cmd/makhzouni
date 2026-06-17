@@ -19,7 +19,10 @@ import dayjs from "dayjs"
 import relativeTime from "dayjs/plugin/relativeTime"
 import "dayjs/locale/ar"
 import {
+  broadcastCatalogLink,
   getCatalogCustomers,
+  getCustomerTags,
+  getCustomersPaged,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccess,
@@ -261,6 +264,11 @@ function CustomerRow({ customer }: { customer: CatalogCustomer }) {
               {sendLinkMut.isPending ? "..." : "إرسال"}
             </button>
           </div>
+          {customer.catalogLinkSentAt && (
+            <p className={cn("mt-1 text-[10px]", isSentNotOpened(customer) ? "text-amber-600" : "text-emerald-600")}>
+              {isSentNotOpened(customer) ? "أُرسل · لم يُفتح بعد" : "أُرسل · وفتحه ✓"}
+            </p>
+          )}
         </td>
 
         {/* إجراءات */}
@@ -302,9 +310,98 @@ function CustomerRow({ customer }: { customer: CatalogCustomer }) {
   )
 }
 
+// Bulk-send the catalog link to everyone carrying a chosen tag (fire-and-forget).
+function BulkCatalogSend() {
+  const tagsQuery = useQuery({ queryKey: ["customer-tags"], queryFn: getCustomerTags })
+  const tags = tagsQuery.data ?? []
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [promo, setPromo] = useState("")
+  const qc = useQueryClient()
+
+  const recipientsQuery = useQuery({
+    queryKey: ["customers-by-tags-count", selectedTags],
+    queryFn: () => getCustomersPaged({ tags: selectedTags, limit: 1 }),
+    enabled: selectedTags.length > 0,
+  })
+  const recipientCount = recipientsQuery.data?.pagination?.total ?? 0
+
+  const sendMut = useMutation({
+    mutationFn: () => broadcastCatalogLink({ tags: selectedTags, promoCode: promo.trim() || undefined }),
+    onSuccess: (res) => {
+      toast({ title: res.message ?? `جارٍ الإرسال إلى ${recipientCount} زبون` })
+      setSelectedTags([]); setPromo("")
+      void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
+    },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإرسال", variant: "destructive" }),
+  })
+
+  function toggleTag(tag: string) {
+    setSelectedTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]))
+  }
+
+  return (
+    <Card className="border-emerald-200 bg-emerald-50/40">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <MessageCircle className="h-5 w-5 text-emerald-600" /> إرسال جماعي لرابط الكتلوج (حسب التاك)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {tags.length === 0 ? (
+          <p className="text-sm text-slate-500">لا يوجد تاكات بعد. أضف تاكات للزبائن من صفحة الزبائن أولاً.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTag(tag)}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-sm font-medium transition",
+                  selectedTags.includes(tag) ? "bg-emerald-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50",
+                )}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+        {selectedTags.length > 0 && (
+          <p className="text-sm text-emerald-700">
+            {recipientsQuery.isLoading ? "جاري الحساب..." : <>سيُرسل رابط الكتلوج إلى <b>{recipientCount}</b> زبون.</>}
+          </p>
+        )}
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            value={promo}
+            onChange={(e) => setPromo(e.target.value)}
+            placeholder="بروموكود للجميع (اختياري)"
+            className="sm:max-w-xs"
+          />
+          <Button
+            disabled={selectedTags.length === 0 || recipientCount === 0 || sendMut.isPending}
+            onClick={() => sendMut.mutate()}
+          >
+            <MessageCircle className="h-4 w-4" /> {sendMut.isPending ? "جارٍ الإرسال..." : "إرسال للجميع"}
+          </Button>
+        </div>
+        <p className="text-[11px] text-slate-400">يُرسل تلقائياً بالخلفية مع تمهّل بسيط بين كل رسالة. على WhatsApp Cloud API قد لا تصل خارج نافذة ٢٤ ساعة.</p>
+      </CardContent>
+    </Card>
+  )
+}
+
+// "Sent but not opened": the catalog link was sent and the customer hasn't
+// opened the catalog since (no view, or last view predates the send).
+function isSentNotOpened(c: CatalogCustomer) {
+  if (!c.catalogLinkSentAt) return false
+  if (!c.lastViewedAt) return true
+  return new Date(c.lastViewedAt).getTime() < new Date(c.catalogLinkSentAt).getTime()
+}
+
 export function CatalogManagementPage() {
   const [search, setSearch] = useState("")
-  const [filter, setFilter] = useState<"all" | "active" | "inactive">("all")
+  const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
 
   const { data: customers = [], isLoading } = useQuery({
     queryKey: ["catalog-customers"],
@@ -318,7 +415,8 @@ export function CatalogManagementPage() {
       const matchFilter =
         filter === "all" ||
         (filter === "active" && c.hasAccess) ||
-        (filter === "inactive" && !c.hasAccess)
+        (filter === "inactive" && !c.hasAccess) ||
+        (filter === "sentNotOpened" && isSentNotOpened(c))
       return matchSearch && matchFilter
     })
   }, [customers, search, filter])
@@ -327,6 +425,7 @@ export function CatalogManagementPage() {
     total: customers.length,
     active: customers.filter((c) => c.hasAccess).length,
     inactive: customers.filter((c) => !c.hasAccess).length,
+    sentNotOpened: customers.filter(isSentNotOpened).length,
   }), [customers])
 
   return (
@@ -373,6 +472,9 @@ export function CatalogManagementPage() {
         </CardContent>
       </Card>
 
+      {/* Bulk catalog-link send by tag */}
+      <BulkCatalogSend />
+
       {/* Search + Filter */}
       <Card>
         <CardHeader className="pb-3">
@@ -392,8 +494,8 @@ export function CatalogManagementPage() {
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <div className="flex gap-1.5">
-              {(["all", "active", "inactive"] as const).map((f) => (
+            <div className="flex flex-wrap gap-1.5">
+              {(["all", "active", "inactive", "sentNotOpened"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -402,7 +504,7 @@ export function CatalogManagementPage() {
                     filter === f ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
                   )}
                 >
-                  {f === "all" ? `الكل (${stats.total})` : f === "active" ? `نشط (${stats.active})` : `بدون صلاحية (${stats.inactive})`}
+                  {f === "all" ? `الكل (${stats.total})` : f === "active" ? `نشط (${stats.active})` : f === "inactive" ? `بدون صلاحية (${stats.inactive})` : `أرسلت ولم تُفتح (${stats.sentNotOpened})`}
                 </button>
               ))}
             </div>
