@@ -1067,34 +1067,6 @@ export function ProductsPage() {
             )
           })()}
 
-          {/* Branch + Floor — optional */}
-          <div className="rounded-md border border-dashed border-slate-300 p-3 dark:border-slate-700">
-            <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-400">📦 موقع المخزن (اختياري)</p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="الفرع / المخزن" hint="اتركه فارغاً للمخزن الرئيسي تلقائياً">
-                <select
-                  className="h-10 w-full rounded border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
-                  value={form.branchId ?? ""}
-                  onChange={(e) => setForm({ ...form, branchId: e.target.value })}
-                >
-                  <option value="">🏢 المخزن الرئيسي (افتراضي)</option>
-                  {branches.filter((b) => b.isActive).map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name} ({branch.code})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="الطابق / القسم" hint="مثال: الطابق الأول، القسم A">
-                <Input
-                  placeholder="اختياري"
-                  value={form.storageLocation ?? ""}
-                  onChange={(e) => setForm({ ...form, storageLocation: e.target.value })}
-                />
-              </Field>
-            </div>
-          </div>
-
           <Button className="w-full" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
             {editing ? "تحديث" : "حفظ"}
           </Button>
