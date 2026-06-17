@@ -59,6 +59,15 @@ interface CustomerDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(customers: List<CustomerEntity>)
+
+    @Query("DELETE FROM customers")
+    suspend fun clearCustomers()
+
+    @Transaction
+    suspend fun replaceAll(customers: List<CustomerEntity>) {
+        clearCustomers()
+        upsertAll(customers)
+    }
 }
 
 @Dao

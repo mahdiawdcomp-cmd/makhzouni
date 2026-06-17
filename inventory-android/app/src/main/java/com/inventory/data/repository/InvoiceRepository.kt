@@ -52,7 +52,7 @@ class InvoiceRepository @Inject constructor(
 
         return try {
             val remote = apiClient.api.getInvoices(from, to).data
-            cacheInvoices(remote)
+            cacheInvoices(remote, replace = from.isNullOrBlank() && to.isNullOrBlank())
             ApiResult.Success(remote.map { it.toDomain() })
         } catch (error: Exception) {
             val local = localInvoices(from, to)
@@ -133,11 +133,18 @@ class InvoiceRepository @Inject constructor(
         ApiResult.Error(error.message ?: "تعذر إلغاء الفاتورة")
     }
 
-    private suspend fun cacheInvoices(invoices: List<InvoiceDto>) {
-        invoiceDao.upsertAll(invoices.map { it.toEntity() })
-        invoices.forEach { invoice ->
-            invoiceItemDao.deleteForInvoice(invoice.id)
-            invoiceItemDao.upsertAll(invoice.items.map { it.toEntity(invoice.id) })
+    private suspend fun cacheInvoices(invoices: List<InvoiceDto>, replace: Boolean = false) {
+        if (replace) {
+            invoiceDao.replaceAll(invoices.map { it.toEntity() })
+            invoiceItemDao.replaceAll(invoices.flatMap { invoice ->
+                invoice.items.map { it.toEntity(invoice.id) }
+            })
+        } else {
+            invoiceDao.upsertAll(invoices.map { it.toEntity() })
+            invoices.forEach { invoice ->
+                invoiceItemDao.deleteForInvoice(invoice.id)
+                invoiceItemDao.upsertAll(invoice.items.map { it.toEntity(invoice.id) })
+            }
         }
     }
 

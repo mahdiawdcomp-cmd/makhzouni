@@ -8,7 +8,6 @@ import android.util.Base64
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiClient
-import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.dto.OcrInvoiceRequest
 import com.inventory.data.remote.dto.OcrItemDto
 import com.inventory.data.remote.dto.OcrProductMatch
@@ -46,7 +45,7 @@ sealed interface OcrUiState {
         val invoiceDate: String?,
         val message: String,
     ) : OcrUiState
-    data class Creating : OcrUiState
+    data object Creating : OcrUiState
     data class Done(val message: String, val readyItems: List<OcrReadyItem>) : OcrUiState
     data class Error(val message: String) : OcrUiState
 }
@@ -148,18 +147,15 @@ class OcrInvoiceViewModel @Inject constructor(
                     openingBalancePcs = qty,
                     minStock         = 0,
                 )
-                when (val result = productRepository.saveProduct(null, request)) {
-                    is ApiResult.Success -> {
-                        readyItems.add(OcrReadyItem(result.data.id, result.data.name, qty, decision.item.unit, price))
-                    }
-                    is ApiResult.Error -> {
-                        _uiState.value = OcrUiState.Error("تعذر إنشاء \"${decision.editedName}\": ${result.message}")
-                        return@launch
-                    }
-                    else -> {
-                        _uiState.value = OcrUiState.Error("تعذر إنشاء \"${decision.editedName}\"")
-                        return@launch
-                    }
+                val response = productRepository.saveProduct(null, request)
+                val created = response?.data
+                if (response?.success == true && created != null) {
+                    readyItems.add(OcrReadyItem(created.id, created.name, qty, decision.item.unit, price))
+                } else {
+                    _uiState.value = OcrUiState.Error(
+                        response?.message ?: "تعذر إنشاء \"${decision.editedName}\""
+                    )
+                    return@launch
                 }
             }
 

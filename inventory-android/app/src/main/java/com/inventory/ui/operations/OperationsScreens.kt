@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.AssignmentReturn
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Storefront

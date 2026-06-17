@@ -37,7 +37,11 @@ class CustomerRepository @Inject constructor(
         return try {
             val response = apiClient.api.getCustomers(search.takeUnless { it.isNullOrBlank() }, isSupplier)
             val entities = response.data.map { it.toEntity() }
-            customerDao.upsertAll(entities)
+            if (search.isNullOrBlank() && isSupplier == null) {
+                customerDao.replaceAll(entities)
+            } else {
+                customerDao.upsertAll(entities)
+            }
             ApiResult.Success(entities.map { it.toDomain() })
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر تحميل الزبائن")

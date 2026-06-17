@@ -109,11 +109,11 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
         _sum: { remainingAmount: true },
       }),
       tx.paymentVoucher.aggregate({
-        where: { customerId, type: VoucherType.RECEIPT, cancelledAt: null },
+        where: { customerId, type: VoucherType.RECEIPT, archivedAt: null, cancelledAt: null },
         _sum: { amount: true },
       }),
       tx.paymentVoucher.aggregate({
-        where: { customerId, type: VoucherType.PAYMENT, cancelledAt: null },
+        where: { customerId, type: VoucherType.PAYMENT, archivedAt: null, cancelledAt: null },
         _sum: { amount: true },
       }),
       tx.invoice.findFirst({
