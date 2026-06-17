@@ -21,6 +21,15 @@ export async function resolveShopWarehouseId(db: WarehouseDb): Promise<string> {
     });
     if (wh) return wh.id;
   }
+  // Fallback: prefer any branch whose name contains "محل" over the oldest branch,
+  // so that a misconfigured (or not-yet-configured) shopWarehouseId doesn't silently
+  // resolve to a depot warehouse that happens to be the oldest.
+  const shopByName = await db.branch.findFirst({
+    where: { isActive: true, name: { contains: "محل" } },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (shopByName) return shopByName.id;
   return resolveWarehouseId(db, null);
 }
 
