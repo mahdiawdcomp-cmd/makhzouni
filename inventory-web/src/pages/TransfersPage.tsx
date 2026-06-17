@@ -126,6 +126,7 @@ function CreateTransferDialog({
   // Product search state
   const [productSearch, setProductSearch] = useState("")
   const [searchOpen, setSearchOpen]       = useState(false)
+  const [activeIndex, setActiveIndex]     = useState(0)
   const [qty, setQty]                     = useState("1")
   const [unit, setUnit]                   = useState<"PIECE" | "DOZEN" | "CARTON">("PIECE")
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -211,35 +212,35 @@ function CreateTransferDialog({
       ? qtyNum * selectedProduct.pcsPerCarton
       : unit === "DOZEN" ? qtyNum * 12 : qtyNum
     const sourceStock = sourceStockOf(selectedProduct)
+    // Over-stock is ALLOWED — only warn. The request still goes to approval and
+    // the manager decides; approving may push the source negative (shows in جرد).
     if (requestedPieces > sourceStock) {
       toast({
-        title: "الكمية أكبر من رصيد المخزن المصدر",
-        description: `المتوفر ${sourceStock} قطعة`,
-        variant: "destructive",
+        title: "تنبيه: الكمية أكبر من رصيد المخزن المصدر",
+        description: `المتوفر ${sourceStock} قطعة — سيُرسل الطلب وتظهر الكمية الزائدة للمسؤول عند الموافقة.`,
       })
-      return
     }
 
-    // Prevent duplicate
-    if (items.some((i) => i.productId === selectedProduct.id)) {
-      toast({ title: "المادة موجودة مسبقاً في القائمة", variant: "destructive" })
-      return
+    // Allow the same product with a DIFFERENT unit; merge only if same product+unit.
+    const existingIdx = items.findIndex((i) => i.productId === selectedProduct.id && i.unit === unit)
+    if (existingIdx >= 0) {
+      setItems(items.map((it, idx) => (idx === existingIdx ? { ...it, quantity: it.quantity + qtyNum } : it)))
+    } else {
+      setItems([...items, {
+        productId: selectedProduct.id,
+        productName: selectedProduct.name,
+        itemNumber: selectedProduct.itemNumber,
+        quantity: qtyNum,
+        unit,
+        currentStock: sourceStock,
+        pcsPerCarton: selectedProduct.pcsPerCarton,
+      }])
     }
-
-    setItems([...items, {
-      productId: selectedProduct.id,
-      productName: selectedProduct.name,
-      itemNumber: selectedProduct.itemNumber,
-      quantity: qtyNum,
-      unit,
-      currentStock: sourceStockOf(selectedProduct),
-      pcsPerCarton: selectedProduct.pcsPerCarton,
-    }])
     clearProduct()
   }
 
-  function removeItem(productId: string) {
-    setItems(items.filter((i) => i.productId !== productId))
+  function removeItem(productId: string, itemUnit: string) {
+    setItems(items.filter((i) => !(i.productId === productId && i.unit === itemUnit)))
   }
 
   function handleSave() {
@@ -344,14 +345,27 @@ function CreateTransferDialog({
                     setProductSearch(e.target.value)
                     setSelectedProduct(null)
                     setSearchOpen(true)
+                    setActiveIndex(0)
                   }}
                   onFocus={() => { if (productSearch) setSearchOpen(true) }}
                   onBlur={() => setTimeout(() => setSearchOpen(false), 150)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && productSuggestions.length > 0) {
-                      pickProduct(productSuggestions[0])
+                    if (!searchOpen || productSuggestions.length === 0) {
+                      if (e.key === "Escape") setSearchOpen(false)
+                      return
                     }
-                    if (e.key === "Escape") setSearchOpen(false)
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault()
+                      setActiveIndex((i) => Math.min(i + 1, productSuggestions.length - 1))
+                    } else if (e.key === "ArrowUp") {
+                      e.preventDefault()
+                      setActiveIndex((i) => Math.max(i - 1, 0))
+                    } else if (e.key === "Enter") {
+                      e.preventDefault()
+                      pickProduct(productSuggestions[Math.min(activeIndex, productSuggestions.length - 1)] ?? productSuggestions[0])
+                    } else if (e.key === "Escape") {
+                      setSearchOpen(false)
+                    }
                   }}
                 />
                 {productSearch && (
@@ -369,15 +383,17 @@ function CreateTransferDialog({
               {/* Suggestions dropdown */}
               {searchOpen && productSuggestions.length > 0 && (
                 <div className="absolute z-30 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-950">
-                  {productSuggestions.map((product) => {
+                  {productSuggestions.map((product, idx) => {
                     const stock = sourceStockOf(product)
                     const isLow = stock <= product.minStock && stock > 0
                     const isOut = stock <= 0
+                    const isActive = idx === activeIndex
                     return (
                       <button
                         key={product.id}
                         type="button"
-                        className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-right text-sm hover:bg-blue-50 dark:border-slate-800 dark:hover:bg-blue-950/20"
+                        className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-right text-sm dark:border-slate-800 ${isActive ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-blue-50 dark:hover:bg-blue-950/20"}`}
+                        onMouseEnter={() => setActiveIndex(idx)}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => pickProduct(product)}
                       >
@@ -444,11 +460,16 @@ function CreateTransferDialog({
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
                 {items.map((item) => {
                   const unitLabel = item.unit === "CARTON" ? "كرتونة" : item.unit === "DOZEN" ? "درزن" : "قطعة"
+                  const reqPieces = item.unit === "CARTON" ? item.quantity * item.pcsPerCarton : item.unit === "DOZEN" ? item.quantity * 12 : item.quantity
+                  const exceeds = reqPieces > item.currentStock
                   return (
-                    <div key={item.productId} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div key={`${item.productId}:${item.unit}`} className="flex items-center justify-between gap-3 px-4 py-3">
                       <div>
                         <div className="font-semibold text-sm">{item.productName}</div>
                         <div className="text-xs text-slate-500">{item.itemNumber} · متوفر: {fmt(item.currentStock)}</div>
+                        {exceeds && (
+                          <div className="text-xs font-semibold text-amber-600">⚠️ الكمية أكبر من الرصيد ({fmt(reqPieces)} ق مطلوبة)</div>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-bold dark:bg-slate-800">
@@ -456,7 +477,7 @@ function CreateTransferDialog({
                         </span>
                         <button
                           type="button"
-                          onClick={() => removeItem(item.productId)}
+                          onClick={() => removeItem(item.productId, item.unit)}
                           className="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20"
                         >
                           <X className="h-4 w-4" />

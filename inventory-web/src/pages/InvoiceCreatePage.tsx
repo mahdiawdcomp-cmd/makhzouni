@@ -311,11 +311,12 @@ export function InvoiceCreatePage() {
       const pid = item.product.id
       if (warned.has(pid)) continue
       warned.add(pid)
-      const available = stockOf(item.product)
+      // Sales come from المحل only — warn against المحل stock, not the total.
+      const available = item.product.shopStock ?? stockOf(item.product)
       const totalPcs = consumed[pid] ?? 0
       const after = available - totalPcs
       if (after < 0)
-        warnings.push(`${item.product.name} (متوفر: ${fmt(available)}, سيصبح: ${fmt(after)})`)
+        warnings.push(`${item.product.name} (المحل بي ${fmt(available)} فقط، تحتاج تحويل من المخزن — سيصبح ${fmt(after)})`)
     }
     return warnings
   }, [items, isPurchase])
@@ -523,9 +524,12 @@ export function InvoiceCreatePage() {
   }
 
   function defaultWarehouseId(product: Product): string | undefined {
+    // Sales always come out of المحل (enforced server-side) — never auto-pick the
+    // largest warehouse for a sale line.
+    if (!isPurchase) return undefined
     const stocks = product.warehouseStocks ?? []
     if (stocks.length === 1) return stocks[0].warehouseId
-    // for multiple warehouses pick the one with most stock
+    // For purchases (adding stock) default to the warehouse that already has most.
     if (stocks.length > 1) {
       return stocks.reduce((a, b) => (a.quantityPieces >= b.quantityPieces ? a : b)).warehouseId
     }

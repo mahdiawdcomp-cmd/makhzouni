@@ -8,6 +8,7 @@ import {
   syncProductTotalStock,
   upsertWarehouseStock,
 } from "./warehouse-stock.service";
+import { validateDistribution } from "../utils/warehouse-math";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -51,17 +52,24 @@ function serializeProduct<T extends {
   openingBalancePcs: number;
   cartonsAvailable: number;
   pcsPerCarton: number;
-  warehouseStocks?: Array<{ quantityPieces: number }>;
+  warehouseStocks?: Array<{ quantityPieces: number; warehouseId?: string }>;
 }>(
-  product: T
+  product: T,
+  shopWarehouseId?: string | null
 ) {
   const warehouseTotal = product.warehouseStocks?.reduce(
     (sum, stock) => sum + stock.quantityPieces,
     0
   );
+  // shopStock = pieces in المحل (the default sale warehouse). Sales come out of
+  // here only, so the UI must show this rather than the all-warehouse total.
+  const shopStock = shopWarehouseId
+    ? product.warehouseStocks?.find((s) => s.warehouseId === shopWarehouseId)?.quantityPieces ?? 0
+    : undefined;
   return {
     ...product,
     currentStock: warehouseTotal ?? stockFrom(product),
+    ...(shopStock === undefined ? {} : { shopStock }),
   };
 }
 
@@ -152,6 +160,8 @@ export async function listProducts(query: {
       : {}),
   };
 
+  const shopWarehouseId = await resolveWarehouseId(prisma, null).catch(() => null);
+
   if (query.lowStock) {
     const rows = await prisma.product.findMany({
       where,
@@ -159,7 +169,7 @@ export async function listProducts(query: {
       orderBy: { name: "asc" },
     });
     const filtered = rows
-      .map(serializeProduct)
+      .map((p) => serializeProduct(p, shopWarehouseId))
       .filter((product) => product.currentStock <= product.minStock);
     const total = filtered.length;
     const data = filtered.slice((page - 1) * limit, page * limit);
@@ -186,7 +196,7 @@ export async function listProducts(query: {
     prisma.product.count({ where }),
   ]);
 
-  const data = rows.map(serializeProduct);
+  const data = rows.map((p) => serializeProduct(p, shopWarehouseId));
 
   return {
     data,
@@ -209,7 +219,8 @@ export async function getProductById(id: string, db: Db = prisma) {
     throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
   }
 
-  return serializeProduct(product);
+  const shopWarehouseId = await resolveWarehouseId(db, null).catch(() => null);
+  return serializeProduct(product, shopWarehouseId);
 }
 
 export async function getProductByQrCode(qrCode: string, db: Db = prisma) {
@@ -271,17 +282,10 @@ export async function createProduct(
       (input.openingBalancePcs ?? 0) +
       (input.cartonsAvailable ?? 0) * (input.pcsPerCarton ?? 1);
 
-    const distribution = (input.warehouseDistribution ?? []).filter((d) => d.pieces > 0);
-    if (distribution.length > 0) {
-      // Distribute the opening stock across the chosen warehouses.
-      const sum = distribution.reduce((s, d) => s + d.pieces, 0);
-      if (sum !== totalPieces) {
-        throw new AppError(
-          `مجموع التوزيع (${sum}) لا يساوي الكمية الكلية (${totalPieces}). صحّح التوزيع قبل الحفظ.`,
-          400,
-          "DISTRIBUTION_MISMATCH"
-        );
-      }
+    const rawDistribution = (input.warehouseDistribution ?? []).filter((d) => d.pieces > 0);
+    if (rawDistribution.length > 0) {
+      // Distribute the opening stock across the chosen warehouses (sum must match).
+      const distribution = validateDistribution(rawDistribution, totalPieces);
       const validWarehouses = await tx.branch.findMany({
         where: { id: { in: distribution.map((d) => d.warehouseId) }, isActive: true },
         select: { id: true },

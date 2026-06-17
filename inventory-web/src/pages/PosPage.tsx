@@ -1037,13 +1037,12 @@ export function POSPage() {
                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300">
                     {fmt(product.salePrice)}
                   </span>
-                  {Number(product.currentStock) <= 0 ? (
-                    <span className="text-[9px] font-semibold text-rose-500">نفد</span>
-                  ) : (
-                    <span className="text-[9px] text-slate-400">
-                      {fmt(product.currentStock)} قطعة
-                    </span>
-                  )}
+                  {(() => {
+                    // Sales come from المحل only — show المحل stock, not the all-warehouse total.
+                    const shop = Number(product.shopStock ?? product.currentStock ?? 0)
+                    if (shop <= 0) return <span className="text-[9px] font-semibold text-rose-500">نفد من المحل</span>
+                    return <span className="text-[9px] text-slate-400">المحل: {fmt(shop)} قطعة</span>
+                  })()}
                 </div>
               </button>
             ))}

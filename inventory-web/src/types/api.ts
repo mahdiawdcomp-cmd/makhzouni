@@ -121,6 +121,7 @@ export interface Product {
   branchId?: string | null
   branch?: Branch | null
   currentStock?: number
+  shopStock?: number
   warehouseStocks?: WarehouseStock[]
   createdAt?: string
   updatedAt?: string

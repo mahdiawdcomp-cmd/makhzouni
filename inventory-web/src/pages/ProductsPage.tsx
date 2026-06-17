@@ -489,16 +489,24 @@ export function ProductsPage() {
       storageLocation: form.storageLocation?.trim() || null,
       branchId: form.branchId?.trim() || undefined,
     }
-    // On initial entry, attach the warehouse distribution (if any pieces split).
+    // On initial entry with stock > 0, distribution across warehouses is
+    // MANDATORY and its sum must equal the total quantity.
+    const activeWarehouses = branches.filter((b) => b.isActive)
     const distEntries = Object.entries(dist)
       .map(([warehouseId, pieces]) => ({ warehouseId, pieces: Number(pieces) || 0 }))
       .filter((d) => d.pieces > 0)
-    if (!editing && distEntries.length > 0) {
+    if (!editing && totalQuantity > 0 && activeWarehouses.length > 1) {
       const sum = distEntries.reduce((s, d) => s + d.pieces, 0)
+      if (distEntries.length === 0) {
+        alert(`وزّع الكمية (${totalQuantity} قطعة) على المخازن قبل الحفظ: المحل / مخزن العباسية / مخزن شارع العباس.`)
+        return
+      }
       if (sum !== totalQuantity) {
         alert(`مجموع التوزيع (${sum}) لا يساوي الكمية الكلية (${totalQuantity}). صحّح التوزيع قبل الحفظ.`)
         return
       }
+      payload.warehouseDistribution = distEntries
+    } else if (!editing && distEntries.length > 0) {
       payload.warehouseDistribution = distEntries
     }
     const mutation = editing
@@ -1033,9 +1041,9 @@ export function ProductsPage() {
             const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
             const ok = distSum === totalQuantity
             return (
-              <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-2 dark:border-sky-900 dark:bg-sky-950/20">
+              <div className={`rounded-xl border p-3 space-y-2 ${ok ? "border-emerald-300 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-rose-300 bg-rose-50/50 dark:border-rose-800 dark:bg-rose-950/20"}`}>
                 <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
-                  توزيع الكمية على المخازن (اختياري — اتركه فارغاً ليذهب كله للمحل)
+                  توزيع الكمية على المخازن <span className="text-rose-500">*</span> — إجباري: حدّد وين راحت كل قطعة (المجموع لازم يساوي الكمية الكلية)
                 </p>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {branches.filter((b) => b.isActive).map((b) => (
@@ -1052,11 +1060,9 @@ export function ProductsPage() {
                     </label>
                   ))}
                 </div>
-                {distSum > 0 && (
-                  <p className={`text-xs font-semibold ${ok ? "text-emerald-600" : "text-rose-600"}`}>
-                    مجموع التوزيع: {distSum} / {totalQuantity} {ok ? "✓" : "✗ يجب أن يساوي الكمية الكلية"}
-                  </p>
-                )}
+                <p className={`text-xs font-semibold ${ok ? "text-emerald-600" : "text-rose-600"}`}>
+                  مجموع التوزيع: {distSum} / {totalQuantity} {ok ? "✓ مطابق" : "✗ يجب أن يساوي الكمية الكلية قبل الحفظ"}
+                </p>
               </div>
             )
           })()}
