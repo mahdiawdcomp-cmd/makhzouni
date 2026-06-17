@@ -329,6 +329,21 @@ async function applyStockMovement(
     : await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);
+  // For sales, pre-check المحل stock to give a clear, actionable Arabic message.
+  if (isSale) {
+    const shopStock = await tx.productWarehouseStock.findUnique({
+      where: { productId_warehouseId: { productId: product.id, warehouseId } },
+      select: { quantityPieces: true },
+    });
+    const available = shopStock?.quantityPieces ?? 0;
+    if (quantityInPieces > available) {
+      throw new AppError(
+        `المحل يحتوي فقط على ${available} قطعة من "${product.name}" — تحتاج تحويل من المخزن إلى المحل قبل البيع.`,
+        409,
+        "INSUFFICIENT_SHOP_STOCK"
+      );
+    }
+  }
   const movement = await adjustWarehouseStock(tx, {
     productId: product.id,
     warehouseId,
