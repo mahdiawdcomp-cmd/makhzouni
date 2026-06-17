@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addCustomer,
   deleteCustomer,
+  deleteCustomerTagController,
   editCustomer,
   getBalance,
   getCustomerDetails,
@@ -13,7 +14,9 @@ import {
   getLastTransaction,
   getTransactions,
   getWalkInCustomer,
+  patchCustomerTag,
   postCustomerBroadcast,
+  postCustomerTag,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
@@ -26,6 +29,9 @@ import {
   createCustomerSchema,
   createPortalLinkSchema,
   customerBroadcastSchema,
+  customerTagCreateSchema,
+  customerTagDeleteSchema,
+  customerTagRenameSchema,
   customerTransactionsSchema,
   idParamSchema,
   inactiveCustomersSchema,
@@ -41,6 +47,9 @@ router.get("/", validate(listCustomersSchema), getCustomers);
 router.get("/debts", getDebts);
 router.get("/walk-in", getWalkInCustomer);
 router.get("/tags", getCustomerTags);
+router.post("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerTagCreateSchema), postCustomerTag);
+router.patch("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerTagRenameSchema), patchCustomerTag);
+router.delete("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerTagDeleteSchema), deleteCustomerTagController);
 router.post("/broadcast", requirePermission("MANAGE_CUSTOMERS"), validate(customerBroadcastSchema), postCustomerBroadcast);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);

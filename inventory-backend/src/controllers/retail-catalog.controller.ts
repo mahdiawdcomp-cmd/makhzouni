@@ -77,19 +77,26 @@ export const removeRetailCategory = asyncHandler(async (req, res) => {
 // ── Customers + broadcast ──
 export const getRetailCustomers = asyncHandler(async (req, res) => {
   const category = req.query.category ? String(req.query.category) : undefined;
+  // categories[] (any-of) — used when targeting all of an item's categories.
+  const rawCategories = req.query.categories;
+  const categories = Array.isArray(rawCategories)
+    ? rawCategories.map(String)
+    : rawCategories
+      ? [String(rawCategories)]
+      : undefined;
   const subscribersOnly = req.query.subscribersOnly === "true";
-  res.json({ success: true, data: await listRetailCustomers({ category, subscribersOnly }) });
+  res.json({ success: true, data: await listRetailCustomers({ category, categories, subscribersOnly }) });
 });
 
 export const postRetailBroadcast = asyncHandler(async (req, res) => {
-  const { message, images, category, subscribersOnly } = req.body as {
-    message: string; images?: string[]; category?: string; subscribersOnly?: boolean;
+  const { message, images, category, categories, subscribersOnly } = req.body as {
+    message: string; images?: string[]; category?: string; categories?: string[]; subscribersOnly?: boolean;
   };
-  const recipients = await listRetailCustomers({ category, subscribersOnly });
+  const recipients = await listRetailCustomers({ category, categories, subscribersOnly });
   // Respond immediately; send in the background (sending is throttled and slow).
   res.json({ success: true, message: `جارٍ الإرسال إلى ${recipients.length} زبون`, data: { total: recipients.length } });
   setImmediate(() => {
-    broadcastToRetailCustomers({ message, images, category, subscribersOnly })
+    broadcastToRetailCustomers({ message, images, category, categories, subscribersOnly })
       .then((r) => logger.info(`[RetailBroadcast] done: ${r.sent}/${r.total} sent, ${r.failed} failed`))
       .catch((err) => logger.error(`[RetailBroadcast] error: ${err}`));
   });

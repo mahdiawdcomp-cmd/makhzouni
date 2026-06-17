@@ -271,6 +271,21 @@ export async function getCustomerTags() {
   return data.data ?? []
 }
 
+export async function createCustomerTag(name: string) {
+  const { data } = await api.post<ApiEnvelope<string[]>>("/customers/tags", { name })
+  return data.data ?? []
+}
+
+export async function renameCustomerTag(oldName: string, newName: string) {
+  const { data } = await api.patch<ApiEnvelope<string[]>>("/customers/tags", { oldName, newName })
+  return data.data ?? []
+}
+
+export async function deleteCustomerTag(name: string) {
+  const { data } = await api.delete<ApiEnvelope<string[]>>("/customers/tags", { data: { name } })
+  return data.data ?? []
+}
+
 export async function broadcastToCustomers(payload: CustomerBroadcastPayload) {
   const { data } = await api.post<ApiEnvelope<CustomerBroadcastResult> & { message?: string }>("/customers/broadcast", payload)
   return data
@@ -1035,17 +1050,18 @@ export async function deleteRetailCoupon(id: string) {
   await api.delete(`/retail-catalog/coupons/${id}`)
 }
 
-export async function getRetailCustomers(params?: { category?: string; subscribersOnly?: boolean }) {
+export async function getRetailCustomers(params?: { category?: string; categories?: string[]; subscribersOnly?: boolean }) {
   const { data } = await api.get<ApiEnvelope<RetailCustomerEntry[]>>("/retail-catalog/customers", {
     params: {
       ...(params?.category ? { category: params.category } : {}),
+      ...(params?.categories && params.categories.length > 0 ? { categories: params.categories } : {}),
       ...(params?.subscribersOnly ? { subscribersOnly: true } : {}),
     },
   })
   return data.data ?? []
 }
 
-export async function broadcastToRetailCustomers(payload: { message: string; images?: string[]; category?: string; subscribersOnly?: boolean }) {
+export async function broadcastToRetailCustomers(payload: { message: string; images?: string[]; category?: string; categories?: string[]; subscribersOnly?: boolean }) {
   const { data } = await api.post<ApiEnvelope<{ total: number }>>("/retail-catalog/broadcast", payload)
   return data
 }

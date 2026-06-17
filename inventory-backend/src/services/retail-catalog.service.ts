@@ -849,10 +849,16 @@ export async function getRetailCustomerReferral(phone: string) {
   return { referralCode: customer.referralCode, discountPercent: pct };
 }
 
-export async function listRetailCustomers(filter?: { category?: string; subscribersOnly?: boolean }) {
+export async function listRetailCustomers(filter?: { category?: string; categories?: string[]; subscribersOnly?: boolean }) {
   const where: Record<string, unknown> = {};
   if (filter?.subscribersOnly) where.isSubscriber = true;
-  if (filter?.category) where.interests = { has: filter.category };
+  // categories[] (any-of match) takes precedence — used when targeting an item's
+  // categories; falls back to a single category for the manual filter.
+  if (filter?.categories && filter.categories.length > 0) {
+    where.interests = { hasSome: filter.categories };
+  } else if (filter?.category) {
+    where.interests = { has: filter.category };
+  }
   const customers = await prisma.retailCustomer.findMany({
     where,
     orderBy: [{ isSubscriber: "desc" }, { lastOrderAt: "desc" }],
@@ -880,9 +886,10 @@ export async function broadcastToRetailCustomers(input: {
   message: string;
   images?: string[];
   category?: string;
+  categories?: string[];
   subscribersOnly?: boolean;
 }) {
-  const customers = await listRetailCustomers({ category: input.category, subscribersOnly: input.subscribersOnly });
+  const customers = await listRetailCustomers({ category: input.category, categories: input.categories, subscribersOnly: input.subscribersOnly });
   if (customers.length === 0) return { sent: 0, failed: 0, total: 0 };
 
   const settings = await getSettings().catch(() => null);

@@ -16,6 +16,7 @@ import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
 import { Label } from "../components/ui/label"
 import { ModalForm } from "../components/ui/modal-form"
+import { TagPicker } from "../components/ui/tag-picker"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 
 const DEFAULT_STATEMENT_TEMPLATE =
@@ -464,7 +465,7 @@ function EditCustomerModal({
     phone: customer.phone,
     address: customer.address ?? "",
     notes: customer.notes ?? "",
-    tags: (customer.tags ?? []).join(", "),
+    tags: customer.tags ?? [],
     isSupplier: customer.isSupplier ?? false,
     creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
   })
@@ -478,14 +479,14 @@ function EditCustomerModal({
         phone: customer.phone,
         address: customer.address ?? "",
         notes: customer.notes ?? "",
-        tags: (customer.tags ?? []).join(", "),
+        tags: customer.tags ?? [],
         isSupplier: customer.isSupplier ?? false,
         creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
       })
     }
   }, [open, customer])
 
-  function set(key: keyof typeof form, value: string | boolean) {
+  function set(key: keyof typeof form, value: string | boolean | string[]) {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -497,7 +498,7 @@ function EditCustomerModal({
       phone: form.phone.trim(),
       address: form.address.trim() || undefined,
       notes: form.notes.trim() || undefined,
-      tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+      tags: form.tags,
       isSupplier: form.isSupplier,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
     })
@@ -547,12 +548,8 @@ function EditCustomerModal({
         </div>
 
         <div className="space-y-1">
-          <Label>تاكات (افصل بفاصلة، مثال: VIP, الكرادة)</Label>
-          <Input
-            value={form.tags}
-            onChange={(e) => set("tags", e.target.value)}
-            placeholder="مثال: VIP, الكرادة"
-          />
+          <Label>التاكات (اختر بالضغط أو أضف جديد)</Label>
+          <TagPicker value={form.tags} onChange={(tags) => set("tags", tags)} />
         </div>
 
         <div className="space-y-1">

@@ -236,6 +236,17 @@ model Customer {
   @@map("customers")
 }
 
+// Canonical list of customer tags, so a tag can be created and managed
+// independently of whether any customer currently carries it. The actual
+// assignment still lives in Customer.tags (a string array).
+model CustomerTag {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("customer_tags")
+}
+
 model CustomerPortalLink {
   id           String    @id @default(uuid()) @db.Uuid
   token        String    @unique

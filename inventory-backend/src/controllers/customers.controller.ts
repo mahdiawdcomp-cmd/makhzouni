@@ -14,9 +14,12 @@ import {
   getCustomerTransactions,
   getLastCustomerTransaction,
   getOrCreateWalkInCustomer,
+  createCustomerTag,
+  deleteCustomerTag,
   listCustomers,
   listCustomersWithDebts,
   listCustomerTags,
+  renameCustomerTag,
   listInactiveCustomers,
   softDeleteCustomer,
   updateCustomer,
@@ -199,6 +202,24 @@ export const getWalkInCustomer = asyncHandler(async (_req, res) => {
 
 export const getCustomerTags = asyncHandler(async (_req, res) => {
   const tags = await listCustomerTags();
+  res.json({ success: true, data: tags });
+});
+
+export const postCustomerTag = asyncHandler(async (req, res) => {
+  const { name } = req.body as { name: string };
+  const tags = await createCustomerTag(name);
+  res.json({ success: true, data: tags });
+});
+
+export const patchCustomerTag = asyncHandler(async (req, res) => {
+  const { oldName, newName } = req.body as { oldName: string; newName: string };
+  const tags = await renameCustomerTag(oldName, newName);
+  res.json({ success: true, data: tags });
+});
+
+export const deleteCustomerTagController = asyncHandler(async (req, res) => {
+  const { name } = req.body as { name: string };
+  const tags = await deleteCustomerTag(name);
   res.json({ success: true, data: tags });
 });
 

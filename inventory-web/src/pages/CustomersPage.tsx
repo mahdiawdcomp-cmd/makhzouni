@@ -14,6 +14,7 @@ import type { Customer, CustomerPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
+import { TagPicker } from "../components/ui/tag-picker"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
@@ -193,11 +194,10 @@ export function CustomersPage() {
           <Input required placeholder="الهاتف" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} />
           <Input placeholder="العنوان" value={form.address} onChange={(event) => setForm({ ...form, address: event.target.value })} />
           <Input placeholder="ملاحظات" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
-          <Input
-            placeholder="تاكات (افصل بفاصلة، مثال: VIP, الكرادة)"
-            value={(form.tags ?? []).join(", ")}
-            onChange={(event) => setForm({ ...form, tags: event.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
-          />
+          <div className="space-y-1">
+            <span className="text-xs font-medium text-slate-500">التاكات</span>
+            <TagPicker value={form.tags ?? []} onChange={(tags) => setForm({ ...form, tags })} />
+          </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/20">
             <label className="mb-1 block text-xs font-semibold text-amber-800 dark:text-amber-300">
               الرصيد الافتتاحي (مطلوب إذا كان للزبون حساب سابق)

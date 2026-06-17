@@ -670,15 +670,70 @@ export async function listInactiveCustomers(days: number) {
 }
 
 export async function listCustomerTags() {
-  const rows = await prisma.customer.findMany({
-    where: { deletedAt: null, tags: { isEmpty: false } },
-    select: { tags: true },
-  });
+  // Union the canonical tag table with any tag still attached to a customer
+  // (covers tags created before the table existed, or assigned out-of-band).
+  const [tagRows, customerRows] = await Promise.all([
+    prisma.customerTag.findMany({ select: { name: true } }),
+    prisma.customer.findMany({
+      where: { deletedAt: null, tags: { isEmpty: false } },
+      select: { tags: true },
+    }),
+  ]);
 
   const tags = new Set<string>();
-  for (const row of rows) for (const tag of row.tags) tags.add(tag);
+  for (const row of tagRows) tags.add(row.name);
+  for (const row of customerRows) for (const tag of row.tags) tags.add(tag);
 
   return [...tags].sort((a, b) => a.localeCompare(b));
+}
+
+export async function createCustomerTag(name: string) {
+  const clean = name.trim();
+  if (!clean) throw new AppError("اسم التاك مطلوب", 400);
+  await prisma.customerTag.upsert({
+    where: { name: clean },
+    update: {},
+    create: { name: clean },
+  });
+  return listCustomerTags();
+}
+
+export async function renameCustomerTag(oldName: string, newName: string) {
+  const from = oldName.trim();
+  const to = newName.trim();
+  if (!from || !to) throw new AppError("اسم التاك مطلوب", 400);
+  if (from === to) return listCustomerTags();
+
+  // Rename in the canonical table (merge into existing if `to` already exists).
+  const existingTarget = await prisma.customerTag.findUnique({ where: { name: to } });
+  if (existingTarget) {
+    await prisma.customerTag.delete({ where: { name: from } }).catch(() => {});
+  } else {
+    await prisma.customerTag.updateMany({ where: { name: from }, data: { name: to } });
+  }
+
+  // Replace the tag inside every customer's tags array, de-duplicating.
+  await prisma.$executeRaw`
+    UPDATE "customers"
+    SET "tags" = (
+      SELECT array_agg(DISTINCT t)
+      FROM unnest(array_replace("tags", ${from}, ${to})) AS t
+    )
+    WHERE ${from} = ANY("tags")
+  `;
+  return listCustomerTags();
+}
+
+export async function deleteCustomerTag(name: string) {
+  const clean = name.trim();
+  if (!clean) throw new AppError("اسم التاك مطلوب", 400);
+  await prisma.customerTag.deleteMany({ where: { name: clean } });
+  await prisma.$executeRaw`
+    UPDATE "customers"
+    SET "tags" = array_remove("tags", ${clean})
+    WHERE ${clean} = ANY("tags")
+  `;
+  return listCustomerTags();
 }
 
 function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | null {

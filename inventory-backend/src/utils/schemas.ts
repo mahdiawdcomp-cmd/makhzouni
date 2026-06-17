@@ -288,6 +288,25 @@ export const customerBroadcastSchema = z.object({
   }),
 });
 
+export const customerTagCreateSchema = z.object({
+  body: z.object({
+    name: z.string().trim().min(1).max(40),
+  }),
+});
+
+export const customerTagRenameSchema = z.object({
+  body: z.object({
+    oldName: z.string().trim().min(1).max(40),
+    newName: z.string().trim().min(1).max(40),
+  }),
+});
+
+export const customerTagDeleteSchema = z.object({
+  body: z.object({
+    name: z.string().trim().min(1).max(40),
+  }),
+});
+
 export const customerTransactionsSchema = z.object({
   params: uuidParam,
   query: z.object({
@@ -651,6 +670,7 @@ export const retailBroadcastSchema = z.object({
     message: z.string().trim().min(1).max(2000),
     images: z.array(z.string()).max(3).optional(),
     category: z.string().trim().max(120).optional(),
+    categories: z.array(z.string().trim().min(1).max(120)).max(20).optional(),
     subscribersOnly: z.boolean().optional(),
   }),
 });

@@ -752,23 +752,95 @@ function BrandingDialog({ onClose }: { onClose: () => void }) {
 function CustomersTab() {
   const categoriesQuery = useQuery({ queryKey: ["retail-categories"], queryFn: getRetailCategories })
   const categories = categoriesQuery.data ?? []
+  const itemsQuery = useQuery({ queryKey: ["retail-items"], queryFn: getRetailItems })
+  const items = itemsQuery.data ?? []
+
   const [category, setCategory] = useState<string>("")
   const [subscribersOnly, setSubscribersOnly] = useState(false)
+  // Item-suggest mode: pick a catalog item → target customers interested in its
+  // categories, and pre-fill the broadcast with that item's image + a message.
+  const [selectedItem, setSelectedItem] = useState<RetailItem | null>(null)
+  const [itemSearch, setItemSearch] = useState("")
+
+  // Effective filter: an item's categories+subs (any-of) override the manual one.
+  const itemCategories = selectedItem
+    ? [...new Set([...selectedItem.categories, ...selectedItem.subCategories])]
+    : undefined
 
   const customersQuery = useQuery({
-    queryKey: ["retail-customers", category, subscribersOnly],
-    queryFn: () => getRetailCustomers({ category: category || undefined, subscribersOnly }),
+    queryKey: ["retail-customers", category, subscribersOnly, itemCategories?.join(",") ?? ""],
+    queryFn: () => getRetailCustomers({
+      category: itemCategories ? undefined : (category || undefined),
+      categories: itemCategories,
+      subscribersOnly,
+    }),
   })
   const customers = customersQuery.data ?? []
+
+  const filteredItems = useMemo(() => {
+    const q = itemSearch.trim().toLowerCase()
+    if (!q) return items.slice(0, 30)
+    return items.filter((it) =>
+      (it.title ?? it.productName).toLowerCase().includes(q) ||
+      it.itemNumber.toLowerCase().includes(q)
+    ).slice(0, 30)
+  }, [items, itemSearch])
 
   const [composeOpen, setComposeOpen] = useState(false)
 
   return (
     <div className="space-y-3">
+      {/* ── Item-suggest panel ── */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <Sparkles className="h-4 w-4 text-amber-500" /> اقتراح حسب المادة — اختر مادة ليقترح النظام الزبائن المهتمين
+          </div>
+          {selectedItem ? (
+            <div className="flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-950/30">
+              {selectedItem.images[0]
+                ? <img src={selectedItem.images[0]} alt="" className="h-14 w-14 rounded object-cover ring-1 ring-slate-200" />
+                : <span className="flex h-14 w-14 items-center justify-center rounded bg-slate-100 text-slate-400 dark:bg-slate-800"><Boxes className="h-5 w-5" /></span>}
+              <div className="flex-1">
+                <div className="text-sm font-semibold">{selectedItem.title ?? selectedItem.productName}</div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {itemCategories?.map((c) => <span key={c} className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-indigo-700 ring-1 ring-indigo-200 dark:bg-slate-900">{c}</span>)}
+                </div>
+                <div className="mt-1 text-xs text-indigo-700 dark:text-indigo-300">{customers.length} زبون مهتم بنفس الفئة</div>
+              </div>
+              <button type="button" onClick={() => { setSelectedItem(null); setItemSearch("") }} className="text-slate-400 hover:text-rose-600"><X className="h-4 w-4" /></button>
+            </div>
+          ) : (
+            <>
+              <div className="relative">
+                <Search className="absolute right-2.5 top-2.5 h-4 w-4 text-slate-400" />
+                <Input className="pr-8" placeholder="ابحث عن مادة بالاسم أو الرقم..." value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} />
+              </div>
+              {itemSearch.trim() && (
+                <div className="max-h-56 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-100 dark:border-slate-800">
+                  {filteredItems.length === 0 && <p className="p-3 text-sm text-slate-500">لا يوجد مواد مطابقة.</p>}
+                  {filteredItems.map((it) => (
+                    <button key={it.id} type="button" onClick={() => { setSelectedItem(it); setCategory("") }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-right text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                      {it.images[0]
+                        ? <img src={it.images[0]} alt="" className="h-9 w-9 rounded object-cover ring-1 ring-slate-200" />
+                        : <span className="flex h-9 w-9 items-center justify-center rounded bg-slate-100 text-slate-400 dark:bg-slate-800"><Boxes className="h-4 w-4" /></span>}
+                      <span className="flex-1 truncate">{it.title ?? it.productName}</span>
+                      <span className="text-[10px] text-slate-400">{[...it.categories, ...it.subCategories].slice(0, 2).join("، ")}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex flex-wrap items-center gap-2">
         <select
-          className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+          className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950 disabled:opacity-50"
           value={category}
+          disabled={!!selectedItem}
           onChange={(e) => setCategory(e.target.value)}
         >
           <option value="">كل الاهتمامات</option>
@@ -786,7 +858,7 @@ function CustomersTab() {
         <div className="flex-1" />
         <span className="text-sm text-slate-500">{customers.length} زبون</span>
         <Button onClick={() => setComposeOpen(true)} disabled={customers.length === 0}>
-          <Megaphone className="h-4 w-4" /> إرسال للجميع
+          <Megaphone className="h-4 w-4" /> {selectedItem ? "إرسال هذه المادة" : "إرسال للجميع"}
         </Button>
       </div>
 
@@ -822,8 +894,11 @@ function CustomersTab() {
       {composeOpen && (
         <BroadcastDialog
           recipientCount={customers.length}
-          category={category || undefined}
+          category={itemCategories ? undefined : (category || undefined)}
+          categories={itemCategories}
           subscribersOnly={subscribersOnly}
+          presetImages={selectedItem?.images.slice(0, 1) ?? []}
+          presetMessage={selectedItem ? `وصلت/متوفرة: ${selectedItem.title ?? selectedItem.productName}` : ""}
           onClose={() => setComposeOpen(false)}
         />
       )}
@@ -831,20 +906,23 @@ function CustomersTab() {
   )
 }
 
-function BroadcastDialog({ recipientCount, category, subscribersOnly, onClose }: {
+function BroadcastDialog({ recipientCount, category, categories, subscribersOnly, presetImages, presetMessage, onClose }: {
   recipientCount: number
   category?: string
+  categories?: string[]
   subscribersOnly: boolean
+  presetImages?: string[]
+  presetMessage?: string
   onClose: () => void
 }) {
-  const [message, setMessage] = useState("")
-  const [images, setImages] = useState<string[]>([])
+  const [message, setMessage] = useState(presetMessage ?? "")
+  const [images, setImages] = useState<string[]>(presetImages ?? [])
   const [uploading, setUploading] = useState(false)
   const [confirm, setConfirm] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   const sendMutation = useMutation({
-    mutationFn: () => broadcastToRetailCustomers({ message: message.trim(), images, category, subscribersOnly }),
+    mutationFn: () => broadcastToRetailCustomers({ message: message.trim(), images, category, categories, subscribersOnly }),
     onSuccess: (res) => {
       toast({ title: res.message ?? `جارٍ الإرسال إلى ${recipientCount} زبون` })
       onClose()
@@ -871,7 +949,7 @@ function BroadcastDialog({ recipientCount, category, subscribersOnly, onClose }:
         <DialogHeader><DialogTitle>رسالة جماعية للزبائن</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-200">
-            سترسل إلى <b>{recipientCount}</b> زبون{category ? ` مهتمين بـ "${category}"` : ""}{subscribersOnly ? " (الدائمين فقط)" : ""}. رابط المتجر يُضاف تلقائياً.
+            سترسل إلى <b>{recipientCount}</b> زبون{category ? ` مهتمين بـ "${category}"` : categories && categories.length > 0 ? ` مهتمين بـ "${categories.join("، ")}"` : ""}{subscribersOnly ? " (الدائمين فقط)" : ""}. رابط المتجر يُضاف تلقائياً.
           </div>
           <textarea
             className="w-full rounded-md border border-slate-200 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-950"

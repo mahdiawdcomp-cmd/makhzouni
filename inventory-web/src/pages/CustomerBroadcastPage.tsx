@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
-import { useMutation, useQuery } from "@tanstack/react-query"
-import { Megaphone, Package, Search, Send, Tag, X } from "lucide-react"
-import { broadcastToCustomers, getCustomerTags, getCustomersPaged, getProducts } from "../api/endpoints"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Check, Megaphone, Package, Pencil, Plus, Search, Send, Settings2, Tag, Trash2, X } from "lucide-react"
+import { broadcastToCustomers, createCustomerTag, deleteCustomerTag, getCustomerTags, getCustomersPaged, getProducts, renameCustomerTag } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -11,6 +11,99 @@ import { toast } from "../components/ui/use-toast"
 import type { Product } from "../types/api"
 
 const MAX_PRODUCTS = 10
+
+function TagManager() {
+  const qc = useQueryClient()
+  const tagsQuery = useQuery({ queryKey: ["customer-tags"], queryFn: getCustomerTags })
+  const tags = tagsQuery.data ?? []
+  const [newTag, setNewTag] = useState("")
+  const [editingTag, setEditingTag] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState("")
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+
+  const refresh = () => qc.invalidateQueries({ queryKey: ["customer-tags"] })
+
+  const addMut = useMutation({
+    mutationFn: (name: string) => createCustomerTag(name),
+    onSuccess: () => { setNewTag(""); void refresh() },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإضافة", variant: "destructive" }),
+  })
+  const renameMut = useMutation({
+    mutationFn: ({ oldName, newName }: { oldName: string; newName: string }) => renameCustomerTag(oldName, newName),
+    onSuccess: () => { setEditingTag(null); void refresh() },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر التعديل", variant: "destructive" }),
+  })
+  const deleteMut = useMutation({
+    mutationFn: (name: string) => deleteCustomerTag(name),
+    onSuccess: () => { setDeleteTarget(null); toast({ title: "تم حذف التاك" }); void refresh() },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحذف", variant: "destructive" }),
+  })
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+          <Settings2 className="h-4 w-4" /> إدارة التاكات
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (newTag.trim()) addMut.mutate(newTag.trim()) } }}
+            placeholder="اسم تاك جديد..."
+            className="h-9"
+          />
+          <Button type="button" disabled={!newTag.trim() || addMut.isPending} onClick={() => addMut.mutate(newTag.trim())}>
+            <Plus className="h-4 w-4" /> إضافة
+          </Button>
+        </div>
+        <div className="divide-y divide-slate-100 dark:divide-slate-800 rounded-lg border border-slate-100 dark:border-slate-800">
+          {tags.length === 0 && <p className="p-3 text-sm text-slate-400">لا يوجد تاكات بعد.</p>}
+          {tags.map((tag) => (
+            <div key={tag} className="flex items-center gap-2 px-3 py-2">
+              {editingTag === tag ? (
+                <>
+                  <Input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="h-8 flex-1"
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (editValue.trim()) renameMut.mutate({ oldName: tag, newName: editValue.trim() }) } }} />
+                  <button type="button" className="text-emerald-600" disabled={!editValue.trim() || renameMut.isPending}
+                    onClick={() => renameMut.mutate({ oldName: tag, newName: editValue.trim() })}>
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button type="button" className="text-slate-400" onClick={() => setEditingTag(null)}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex flex-1 items-center gap-1.5 text-sm text-slate-700 dark:text-slate-200">
+                    <Tag className="h-3.5 w-3.5 text-slate-400" /> {tag}
+                  </span>
+                  <button type="button" className="text-slate-400 hover:text-indigo-600"
+                    onClick={() => { setEditingTag(tag); setEditValue(tag) }} title="تعديل">
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                  <button type="button" className="text-slate-400 hover:text-rose-600"
+                    onClick={() => setDeleteTarget(tag)} title="حذف">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-[11px] text-slate-400">تعديل اسم التاك أو حذفه ينعكس على كل الزبائن المرتبطين به.</p>
+      </CardContent>
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`حذف التاك "${deleteTarget ?? ""}"؟`}
+        description="سيُزال هذا التاك من كل الزبائن المرتبطين به. لا يحذف الزبائن أنفسهم."
+        confirmLabel="حذف"
+        onConfirm={() => deleteTarget && deleteMut.mutate(deleteTarget)}
+        onCancel={() => setDeleteTarget(null)}
+      />
+    </Card>
+  )
+}
 
 export function CustomerBroadcastPage() {
   usePageTitle("إرسال - زبائن الجملة")
@@ -35,6 +128,7 @@ export function CustomerBroadcastPage() {
 
   const [message, setMessage] = useState("")
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [showManager, setShowManager] = useState(false)
 
   const sendMutation = useMutation({
     mutationFn: () => broadcastToCustomers({ tags: selectedTags, productIds: selectedProducts.map((p) => p.id), message: message.trim() }),
@@ -69,12 +163,19 @@ export function CustomerBroadcastPage() {
 
   return (
     <div className="space-y-4" dir="rtl">
-      <div>
-        <h1 className="text-xl font-bold text-[var(--theme-textPrimary)] flex items-center gap-2">
-          <Megaphone className="h-5 w-5" /> إرسال - زبائن الجملة
-        </h1>
-        <p className="text-sm text-slate-500">اختر التاكات المستهدفة، اختر منتجات من المخزون، واكتب رسالتك — رابط الكاتلوك يضاف تلقائياً.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-[var(--theme-textPrimary)] flex items-center gap-2">
+            <Megaphone className="h-5 w-5" /> إرسال - زبائن الجملة
+          </h1>
+          <p className="text-sm text-slate-500">اختر التاكات المستهدفة، اختر منتجات من المخزون، واكتب رسالتك — رابط الكاتلوك يضاف تلقائياً.</p>
+        </div>
+        <Button variant="outline" type="button" onClick={() => setShowManager((v) => !v)}>
+          <Settings2 className="h-4 w-4" /> {showManager ? "إخفاء إدارة التاكات" : "إدارة التاكات"}
+        </Button>
       </div>
+
+      {showManager && <TagManager />}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
