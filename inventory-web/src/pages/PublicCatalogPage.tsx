@@ -411,6 +411,11 @@ function CatalogShop({
   }, [products, search, category, typeFilter])
 
   const suggestions = visible.slice(0, 6)
+  // Merchandising rows shown on the default view (no search, "all" category),
+  // mirroring the retail shop's "new" + "offers" sections.
+  const newArrivals = useMemo(() => products.filter((p) => p.isNewArrival && p.currentStock > 0).slice(0, 12), [products])
+  const offers = useMemo(() => products.filter((p) => p.isOffer && p.currentStock > 0).slice(0, 12), [products])
+  const showSections = category === "all" && typeFilter === "all" && !search.trim()
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
 
@@ -458,6 +463,22 @@ function CatalogShop({
       if (existing) return rest.map((l) => l.id === newId ? { ...l, quantity: Math.min(l.quantity + target.quantity, max) } : l)
       return [...rest, { ...target, id: newId, unit, quantity: Math.min(target.quantity, max) }]
     })
+  }
+
+  function renderCard(product: PublicCatalogProduct) {
+    const cartLine = cart.find((l) => l.product.id === product.id)
+    const qtyInCart = cartLine?.quantity ?? 0
+    return (
+      <ProductCard
+        key={product.id}
+        product={product}
+        allowPrices={allowPrices}
+        showStock={showStock}
+        qtyInCart={qtyInCart}
+        onAdd={(unit) => add(product, unit)}
+        onRemoveOne={() => cartLine && changeQty(cartLine.id, -1)}
+      />
+    )
   }
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
@@ -643,22 +664,39 @@ function CatalogShop({
           </div>
         )}
 
+        {/* ── Merchandising rows (default view only) ── */}
+        {!productsQuery.isLoading && showSections && (offers.length > 0 || newArrivals.length > 0) && (
+          <div className="mb-5 space-y-5">
+            {offers.length > 0 && (
+              <section>
+                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold text-rose-600">🏷️ العروض</h2>
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                  {offers.map((p) => (
+                    <div key={p.id} className="w-40 shrink-0 sm:w-44">{renderCard(p)}</div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {newArrivals.length > 0 && (
+              <section>
+                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold text-emerald-600">✨ وصل حديثاً</h2>
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                  {newArrivals.map((p) => (
+                    <div key={p.id} className="w-40 shrink-0 sm:w-44">{renderCard(p)}</div>
+                  ))}
+                </div>
+              </section>
+            )}
+            <div className="flex items-center gap-2 pt-1">
+              <div className="h-px flex-1 bg-gray-200" />
+              <span className="text-xs font-semibold text-gray-400">كل المنتجات</span>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {visible.map((product) => {
-            const cartLine = cart.find((l) => l.product.id === product.id)
-            const qtyInCart = cartLine?.quantity ?? 0
-            return (
-              <ProductCard
-                key={product.id}
-                product={product}
-                allowPrices={allowPrices}
-                showStock={showStock}
-                qtyInCart={qtyInCart}
-                onAdd={(unit) => add(product, unit)}
-                onRemoveOne={() => cartLine && changeQty(cartLine.id, -1)}
-              />
-            )
-          })}
+          {visible.map((product) => renderCard(product))}
         </div>
       </main>
 
@@ -728,6 +766,15 @@ function ProductCard({
             {product.category}
           </span>
         )}
+        {/* New / Offer badges (mirror the retail catalog) */}
+        <div className="absolute right-2 bottom-2 flex flex-col items-end gap-1">
+          {product.isNewArrival && (
+            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">✨ جديد</span>
+          )}
+          {product.isOffer && (
+            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">🏷️ عرض</span>
+          )}
+        </div>
         {qtyInCart > 0 && (
           <span className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white shadow">
             {qtyInCart}
@@ -751,7 +798,12 @@ function ProductCard({
         <div className="mt-2 flex items-end justify-between gap-1">
           <div>
             {allowPrices ? (
-              <p className="text-sm font-extrabold text-emerald-700">{money(linePrice(product, unit))} <span className="text-[10px] font-medium text-gray-500">د.ع</span></p>
+              <div>
+                {product.isOffer && product.oldPrice != null && product.oldPrice > 0 && (
+                  <p className="text-[10px] font-medium text-gray-400 line-through">{money(product.oldPrice * pcs(product, unit))} د.ع</p>
+                )}
+                <p className="text-sm font-extrabold text-emerald-700">{money(linePrice(product, unit))} <span className="text-[10px] font-medium text-gray-500">د.ع</span></p>
+              </div>
             ) : (
               <p className="text-xs font-semibold text-gray-400">السعر مخفي</p>
             )}
