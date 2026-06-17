@@ -33,6 +33,22 @@ type ApprovalData = {
     unitPrice: number
     totalPrice: number
   }>
+  // Transfer-request snapshot
+  requesterName?: string
+  snapshot?: {
+    fromName?: string
+    toName?: string
+    anyExceeds?: boolean
+    items?: Array<{
+      productName: string
+      itemNumber?: string
+      unit: string
+      quantity: number
+      requestedPieces: number
+      availablePieces: number
+      exceedsStock: boolean
+    }>
+  }
   body?: unknown
 }
 
@@ -64,6 +80,7 @@ function requestTypeLabel(type: string) {
     CREATE_VOUCHER: "إضافة سند",
     UPDATE_VOUCHER: "تعديل سند",
     DELETE_VOUCHER: "حذف سند",
+    CREATE_TRANSFER: "تحويل بين المخازن",
   }
   return labels[type] ?? type
 }
@@ -401,6 +418,48 @@ function ApprovalDetails({
             </Table>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (approval?.requestType === "CREATE_TRANSFER") {
+    const snap = data.snapshot
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-3 rounded-lg bg-slate-50 p-4 text-sm md:grid-cols-2">
+          <Info label="الموظف" value={data.requesterName || "-"} />
+          <Info label="من مخزن" value={snap?.fromName || "-"} />
+          <Info label="إلى مخزن" value={snap?.toName || "-"} />
+        </div>
+        {snap?.anyExceeds && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+            ⚠️ الكمية المطلوبة أكبر من المتوفر في المصدر. الموافقة ستجعل مخزون المصدر سالباً وقد يظهر الفرق بالجرد.
+          </div>
+        )}
+        <div className="rounded-lg border">
+          <div className="border-b bg-white px-4 py-3 font-semibold">مواد التحويل</div>
+          <div className="max-h-[45vh] overflow-auto">
+            <Table>
+              <THead>
+                <TR><TH>المادة</TH><TH>الكمية</TH><TH>المتوفر بالمصدر</TH></TR>
+              </THead>
+              <TBody>
+                {(snap?.items ?? []).map((item, i) => (
+                  <TR key={i} className={item.exceedsStock ? "bg-amber-50" : ""}>
+                    <TD className="font-semibold">{item.productName}</TD>
+                    <TD>{money(item.quantity)} {unitLabel(item.unit)} ({money(item.requestedPieces)} قطعة)</TD>
+                    <TD className={item.exceedsStock ? "font-bold text-amber-700" : ""}>
+                      {money(item.availablePieces)} قطعة {item.exceedsStock ? "⚠️" : ""}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </div>
+        </div>
+        <Button className="w-full" disabled={approving} onClick={onApprove}>
+          <Check className="h-4 w-4" /> وافق ونفّذ التحويل
+        </Button>
       </div>
     )
   }

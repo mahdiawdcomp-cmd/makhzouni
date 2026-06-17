@@ -1,6 +1,10 @@
 import { Prisma, TransferStatus, Unit, StockMovementType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { logger } from "../utils/logger";
+import { approvalRequestTypes, createPendingApproval } from "./approval.service";
+import { getSettings } from "./settings.service";
+import { sendWhatsAppText } from "./whatsapp.service";
 import {
   adjustWarehouseStock,
   ensureLegacyWarehouseStock,
@@ -74,6 +78,148 @@ export async function getTransferById(id: string) {
   return transfer;
 }
 
+function pieces(item: TransferItemInput, pcsPerCarton: number) {
+  return item.unit === Unit.CARTON
+    ? item.quantity * pcsPerCarton
+    : item.unit === Unit.DOZEN
+      ? item.quantity * 12
+      : item.quantity;
+}
+
+// Snapshot the source-warehouse availability for each item so the approval can
+// show "available now" and warn when the request exceeds it.
+export async function buildTransferSnapshot(input: CreateTransferInput) {
+  const [fromWh, toWh, products] = await Promise.all([
+    prisma.branch.findFirst({ where: { id: input.fromBranchId }, select: { id: true, name: true } }),
+    prisma.branch.findFirst({ where: { id: input.toBranchId }, select: { id: true, name: true } }),
+    prisma.product.findMany({
+      where: { id: { in: input.items.map((i) => i.productId) }, deletedAt: null },
+      select: { id: true, name: true, itemNumber: true, pcsPerCarton: true },
+    }),
+  ]);
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const stocks = await prisma.productWarehouseStock.findMany({
+    where: { warehouseId: input.fromBranchId, productId: { in: input.items.map((i) => i.productId) } },
+    select: { productId: true, quantityPieces: true },
+  });
+  const stockMap = new Map(stocks.map((s) => [s.productId, s.quantityPieces]));
+
+  const items = input.items.map((it) => {
+    const p = productMap.get(it.productId);
+    const requestedPieces = p ? pieces(it, p.pcsPerCarton) : it.quantity;
+    const availablePieces = stockMap.get(it.productId) ?? 0;
+    return {
+      productId: it.productId,
+      productName: p?.name ?? it.productId,
+      itemNumber: p?.itemNumber ?? "",
+      unit: it.unit,
+      quantity: it.quantity,
+      requestedPieces,
+      availablePieces,
+      exceedsStock: requestedPieces > availablePieces,
+    };
+  });
+
+  return {
+    fromName: fromWh?.name ?? "",
+    toName: toWh?.name ?? "",
+    items,
+    anyExceeds: items.some((i) => i.exceedsStock),
+  };
+}
+
+// Notify admin (and optionally assigned staff) that a transfer was requested.
+async function notifyTransferRequested(requesterName: string, snapshot: Awaited<ReturnType<typeof buildTransferSnapshot>>) {
+  const settings = await getSettings().catch(() => null);
+  const target = settings?.adminApprovalWhatsappNumber?.trim() || settings?.storePhone?.trim();
+  const lines = snapshot.items
+    .map((i) => `• ${i.productName}: ${i.quantity} ${i.unit === "CARTON" ? "كرتون" : "قطعة"}${i.exceedsStock ? " ⚠️ أكبر من المتوفر" : ""}`)
+    .join("\n");
+  const message =
+    `🔄 طلب تحويل جديد\n` +
+    `الموظف: ${requesterName}\n` +
+    `من: ${snapshot.fromName}\nإلى: ${snapshot.toName}\n${lines}\n\n` +
+    `راجع وأقرّ من صفحة (الطلبات المعلّقة).`;
+  if (target) await sendWhatsAppText(target, message).catch(() => {});
+  else logger.warn("[Transfer] no admin WhatsApp number configured for transfer-request notice");
+}
+
+// Notify the requester (if they have a phone) + admin about an approve/reject.
+export async function notifyTransferReviewed(
+  requestData: unknown,
+  requestedBy: string,
+  status: "APPROVED" | "REJECTED"
+) {
+  const data = (requestData ?? {}) as {
+    snapshot?: { fromName?: string; toName?: string; items?: Array<{ productName: string; quantity: number; unit: string }> };
+    requesterName?: string;
+  };
+  const snap = data.snapshot ?? {};
+  const verb = status === "APPROVED" ? "تمت الموافقة على" : "تم رفض";
+  const lines = (snap.items ?? [])
+    .map((i) => `• ${i.productName}: ${i.quantity} ${i.unit === "CARTON" ? "كرتون" : "قطعة"}`)
+    .join("\n");
+  const message =
+    `${status === "APPROVED" ? "✅" : "❌"} ${verb} طلب التحويل\n` +
+    `من: ${snap.fromName ?? ""}\nإلى: ${snap.toName ?? ""}\n${lines}`;
+
+  const settings = await getSettings().catch(() => null);
+  const adminTarget = settings?.adminApprovalWhatsappNumber?.trim() || settings?.storePhone?.trim();
+
+  const requester = requestedBy
+    ? await prisma.user.findUnique({ where: { id: requestedBy }, select: { phone: true, name: true } }).catch(() => null)
+    : null;
+
+  if (requester?.phone?.trim()) {
+    await sendWhatsAppText(requester.phone.trim(), message).catch(() => {});
+  } else {
+    logger.warn(`[Transfer] لا يمكن إرسال إشعار للموظف (${requester?.name ?? requestedBy}) لعدم وجود رقم هاتف.`);
+  }
+  if (adminTarget) await sendWhatsAppText(adminTarget, message).catch(() => {});
+}
+
+// Create a transfer REQUEST that waits for approval (does not move stock yet).
+export async function createTransferRequest(input: CreateTransferInput, requestedBy: string, requesterName: string) {
+  if (input.fromBranchId === input.toBranchId) {
+    throw new AppError("Source and destination warehouses must be different", 400, "INVALID_TRANSFER");
+  }
+  if (!input.items?.length) {
+    throw new AppError("Transfer must have at least one item", 400, "INVALID_TRANSFER");
+  }
+  for (const item of input.items) {
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new AppError("Transfer quantity must be positive", 400, "INVALID_TRANSFER_QUANTITY");
+    }
+  }
+  const warehouses = await prisma.branch.findMany({
+    where: { id: { in: [input.fromBranchId, input.toBranchId] }, isActive: true },
+    select: { id: true },
+  });
+  if (warehouses.length !== 2) {
+    throw new AppError("Warehouse not found or inactive", 404, "WAREHOUSE_NOT_FOUND");
+  }
+
+  const snapshot = await buildTransferSnapshot(input);
+  const approval = await createPendingApproval(
+    approvalRequestTypes.CREATE_TRANSFER,
+    {
+      body: input,
+      snapshot,
+      requesterName,
+    },
+    requestedBy,
+    requesterName
+  );
+
+  setImmediate(() => {
+    notifyTransferRequested(requesterName, snapshot).catch((err) =>
+      logger.error(`[Transfer] request notify failed: ${err}`)
+    );
+  });
+
+  return { approvalId: approval.id, snapshot };
+}
+
 export async function createTransfer(input: CreateTransferInput, createdBy: string) {
   if (input.fromBranchId === input.toBranchId) {
     throw new AppError("Source and destination warehouses must be different", 400, "INVALID_TRANSFER");
@@ -81,8 +227,19 @@ export async function createTransfer(input: CreateTransferInput, createdBy: stri
   if (!input.items?.length) {
     throw new AppError("Transfer must have at least one item", 400, "INVALID_TRANSFER");
   }
+  return prisma.$transaction((tx) => executeTransferWithin(tx, input, createdBy, false));
+}
 
-  return prisma.$transaction(async (tx) => {
+// The actual stock movement + transfer record. Used directly (admin immediate)
+// and from the approval executor (allowNegative=true so an approved transfer
+// always goes through, surfacing any deficit later in the stocktake).
+export async function executeTransferWithin(
+  tx: Prisma.TransactionClient,
+  input: CreateTransferInput,
+  createdBy: string,
+  allowNegative: boolean
+) {
+  {
     const warehouses = await tx.branch.findMany({
       where: { id: { in: [input.fromBranchId, input.toBranchId] }, isActive: true },
       select: { id: true },
@@ -136,7 +293,7 @@ export async function createTransfer(input: CreateTransferInput, createdBy: stri
         productId: product.id,
         warehouseId: input.fromBranchId,
         deltaPieces: -quantityInPieces,
-        allowNegative: false,
+        allowNegative,
       });
       const destination = await adjustWarehouseStock(tx, {
         productId: product.id,
@@ -171,5 +328,5 @@ export async function createTransfer(input: CreateTransferInput, createdBy: stri
       where: { id: transfer.id },
       include: transferInclude,
     });
-  });
+  }
 }

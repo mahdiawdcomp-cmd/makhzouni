@@ -33,6 +33,9 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "SELL_WITH_DISCOUNT",  label: "السماح بالخصم",     hint: "يمكنه تطبيق خصومات عند إنشاء الفواتير", group: "sell" },
   { id: "VIEW_PURCHASE_PRICE", label: "عرض سعر الشراء",    hint: "يرى سعر الشراء للمواد", group: "sell" },
   { id: "ACCESS_POS",          label: "نقطة البيع فقط",    hint: "صلاحية استخدام الكاشير المبسط فقط", group: "sell" },
+  // Warehouse transfers
+  { id: "REQUEST_TRANSFER",    label: "طلب تحويل",          hint: "يدخل صفحة التحويل ويرسل طلب نقل بين المخازن", group: "transfer" },
+  { id: "MANAGE_TRANSFERS",    label: "إدارة المخزن (قبول التحويلات)", hint: "يقبل أو يرفض طلبات التحويل بين المخازن", group: "transfer" },
 ]
 
 const fullPermissions = allPermissions.map((permission) => permission.id)
@@ -43,6 +46,7 @@ const emptyForm: UserForm = {
   password: "",
   role: "STAFF",
   permissions: [],
+  phone: "",
   isActive: true,
 }
 
@@ -78,6 +82,7 @@ export function UsersPage() {
       password: "",
       role: user.role,
       permissions: user.role === "ADMIN" ? fullPermissions : user.permissions ?? [],
+      phone: user.phone ?? "",
       isActive: user.isActive,
     })
     setError("")
@@ -121,6 +126,7 @@ export function UsersPage() {
             username: form.username,
             role: form.role,
             permissions,
+            phone: form.phone?.trim() || null,
             isActive: form.isActive,
             ...(form.password.trim() ? { password: form.password } : {}),
           },
@@ -305,6 +311,13 @@ export function UsersPage() {
               minLength={editing ? undefined : 4}
               value={form.password}
               onChange={(event) => setForm({ ...form, password: event.target.value })}
+            />
+            <Input
+              placeholder="رقم الواتساب (اختياري — للإشعارات)"
+              value={form.phone ?? ""}
+              inputMode="tel"
+              dir="ltr"
+              onChange={(event) => setForm({ ...form, phone: event.target.value })}
             />
             <select
               className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"

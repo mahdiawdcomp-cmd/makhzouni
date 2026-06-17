@@ -14,6 +14,8 @@ export type UserPermission =
   | "SELL_WITH_DISCOUNT"
   | "VIEW_PURCHASE_PRICE"
   | "ACCESS_POS"
+  | "REQUEST_TRANSFER"
+  | "MANAGE_TRANSFERS"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -30,6 +32,7 @@ export interface User {
   username: string
   role: Role
   permissions: UserPermission[]
+  phone?: string | null
   isActive: boolean
   createdAt?: string
   updatedAt?: string
@@ -46,6 +49,7 @@ export interface CreateUserPayload {
   password: string
   role: Role
   permissions?: UserPermission[]
+  phone?: string
   isActive?: boolean
 }
 
@@ -55,6 +59,7 @@ export interface UpdateUserPayload {
   password?: string
   role?: Role
   permissions?: UserPermission[]
+  phone?: string | null
   isActive?: boolean
 }
 
@@ -235,6 +240,7 @@ export interface ProductPayload {
   isNewArrival?: boolean
   isOffer?: boolean
   oldPrice?: number | null
+  warehouseDistribution?: { warehouseId: string; pieces: number }[]
   openingBalancePcs?: number
   cartonsAvailable?: number
   pcsPerCarton?: number

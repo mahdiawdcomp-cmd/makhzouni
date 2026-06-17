@@ -24,6 +24,9 @@ const userPermissionSchema = z.enum([
   "SELL_WITH_DISCOUNT",
   "VIEW_PURCHASE_PRICE",
   "ACCESS_POS",
+  // Warehouse-transfer permissions
+  "REQUEST_TRANSFER",
+  "MANAGE_TRANSFERS",
 ]);
 
 const auditEntitySchema = z.enum([
@@ -71,6 +74,7 @@ export const createUserSchema = z.object({
     password: z.string().min(4),
     role: z.enum(["ADMIN", "STAFF"]).default("STAFF"),
     permissions: z.array(userPermissionSchema).default([]),
+    phone: z.string().trim().max(20).optional(),
     isActive: z.boolean().optional(),
   }),
 });
@@ -84,6 +88,7 @@ export const updateUserSchema = z.object({
       password: z.string().min(4).optional(),
       role: z.enum(["ADMIN", "STAFF"]).optional(),
       permissions: z.array(userPermissionSchema).optional(),
+      phone: z.string().trim().max(20).nullable().optional(),
       isActive: z.boolean().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
@@ -321,6 +326,23 @@ export const catalogLinkBroadcastSchema = z.object({
   }),
 });
 
+export const createTransferSchema = z.object({
+  body: z.object({
+    fromBranchId: z.string().uuid(),
+    toBranchId: z.string().uuid(),
+    notes: z.string().trim().max(500).optional(),
+    items: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          quantity: z.coerce.number().int().positive(),
+          unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
+        })
+      )
+      .min(1),
+  }),
+});
+
 export const customerTransactionsSchema = z.object({
   params: uuidParam,
   query: z.object({
@@ -367,6 +389,9 @@ export const createProductSchema = z.object({
     isNewArrival: z.coerce.boolean().optional(),
     isOffer: z.coerce.boolean().optional(),
     oldPrice: z.coerce.number().nonnegative().nullable().optional(),
+    warehouseDistribution: z
+      .array(z.object({ warehouseId: z.string().uuid(), pieces: z.coerce.number().int().min(0) }))
+      .optional(),
     openingBalancePcs: z.coerce.number().int().min(0).default(0),
     cartonsAvailable: z.coerce.number().int().min(0).default(0),
     pcsPerCarton: z.coerce.number().int().min(1).default(1),

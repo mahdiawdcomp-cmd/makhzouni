@@ -4,6 +4,9 @@ import {
   listPendingApprovals,
   reviewApproval,
 } from "../services/approval.service";
+import { notifyTransferReviewed } from "../services/transfer.service";
+import { hasPermission } from "../middleware/permission.middleware";
+import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 
 export const getPendingApprovals = asyncHandler(async (_req, res) => {
@@ -32,13 +35,25 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
   if (!req.user) {
     throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
   }
-  if (req.user.role !== "ADMIN") {
+
+  const id = String(req.params.id);
+  // Admins review anything; holders of MANAGE_TRANSFERS may review transfers.
+  const target = await prisma.pendingApproval.findUnique({ where: { id }, select: { requestType: true } });
+  const isTransfer = target?.requestType === "CREATE_TRANSFER";
+  const canReview =
+    req.user.role === "ADMIN" || (isTransfer && hasPermission(req.user, "MANAGE_TRANSFERS"));
+  if (!canReview) {
     throw new AppError("Only admins can review approval requests", 403, "ADMIN_REQUIRED");
   }
 
-  const id = String(req.params.id);
   const { status, allowPrices, showStock } = req.body as { status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean };
   const result = await reviewApproval(id, status, req.user.id, { allowPrices, showStock });
+
+  // Notify the requester + admin about the transfer decision (fire-and-forget).
+  if (isTransfer) {
+    const approval = result.approval as { requestData?: unknown; requestedBy?: string };
+    notifyTransferReviewed(approval.requestData, approval.requestedBy ?? "", status).catch(() => {});
+  }
 
   res.json({
     success: true,

@@ -34,6 +34,9 @@ type ProductInput = {
   minStock?: number;
   storageLocation?: string | null;
   branchId?: string;
+  // Optional split of the opening stock across warehouses (pieces per warehouse).
+  // When given, the sum must equal the total opening pieces.
+  warehouseDistribution?: { warehouseId: string; pieces: number }[];
 };
 
 function stockFrom(product: {
@@ -264,15 +267,48 @@ export async function createProduct(
       },
     });
 
-    await upsertWarehouseStock(tx, {
-      productId: product.id,
-      warehouseId,
-      quantityPieces:
-        (input.openingBalancePcs ?? 0) +
-        (input.cartonsAvailable ?? 0) * (input.pcsPerCarton ?? 1),
-      storageLocation: input.storageLocation,
-      minStock: input.minStock ?? 0,
-    });
+    const totalPieces =
+      (input.openingBalancePcs ?? 0) +
+      (input.cartonsAvailable ?? 0) * (input.pcsPerCarton ?? 1);
+
+    const distribution = (input.warehouseDistribution ?? []).filter((d) => d.pieces > 0);
+    if (distribution.length > 0) {
+      // Distribute the opening stock across the chosen warehouses.
+      const sum = distribution.reduce((s, d) => s + d.pieces, 0);
+      if (sum !== totalPieces) {
+        throw new AppError(
+          `مجموع التوزيع (${sum}) لا يساوي الكمية الكلية (${totalPieces}). صحّح التوزيع قبل الحفظ.`,
+          400,
+          "DISTRIBUTION_MISMATCH"
+        );
+      }
+      const validWarehouses = await tx.branch.findMany({
+        where: { id: { in: distribution.map((d) => d.warehouseId) }, isActive: true },
+        select: { id: true },
+      });
+      const validIds = new Set(validWarehouses.map((w) => w.id));
+      for (const d of distribution) {
+        if (!validIds.has(d.warehouseId)) {
+          throw new AppError("Warehouse not found or inactive", 404, "WAREHOUSE_NOT_FOUND");
+        }
+        await upsertWarehouseStock(tx, {
+          productId: product.id,
+          warehouseId: d.warehouseId,
+          quantityPieces: d.pieces,
+          storageLocation: input.storageLocation,
+          minStock: input.minStock ?? 0,
+        });
+      }
+      await syncProductTotalStock(tx, product.id);
+    } else {
+      await upsertWarehouseStock(tx, {
+        productId: product.id,
+        warehouseId,
+        quantityPieces: totalPieces,
+        storageLocation: input.storageLocation,
+        minStock: input.minStock ?? 0,
+      });
+    }
 
     return tx.product.findUniqueOrThrow({
       where: { id: product.id },

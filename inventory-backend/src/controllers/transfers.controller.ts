@@ -26,11 +26,19 @@ export async function getTransfer(req: Request, res: Response, next: NextFunctio
   }
 }
 
+// Employees submit a transfer REQUEST — it does not move stock until an
+// authorized user approves it from the approvals page.
 export async function createTransfer(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = req.user!.id;
-    const transfer = await transferService.createTransfer(req.body, userId);
-    res.status(201).json(transfer);
+    const userName = req.user!.name ?? "موظف";
+    const result = await transferService.createTransferRequest(req.body, userId, userName);
+    res.status(201).json({
+      success: true,
+      message: "تم إرسال طلب التحويل للموافقة",
+      approvalId: result.approvalId,
+      snapshot: result.snapshot,
+    });
   } catch (error) {
     next(error);
   }

@@ -11,6 +11,7 @@ const userSelect = {
   username: true,
   role: true,
   permissions: true,
+  phone: true,
   isActive: true,
   createdAt: true,
   updatedAt: true,
@@ -35,6 +36,7 @@ export interface CreateUserInput {
   password: string;
   role?: UserRole;
   permissions?: UserPermission[];
+  phone?: string | null;
   isActive?: boolean;
 }
 
@@ -44,6 +46,7 @@ export interface UpdateUserInput {
   password?: string;
   role?: UserRole;
   permissions?: UserPermission[];
+  phone?: string | null;
   isActive?: boolean;
 }
 
@@ -74,6 +77,7 @@ export async function createUser(input: CreateUserInput, db: Db = prisma) {
       passwordHash,
       role: input.role ?? UserRole.STAFF,
       permissions: normalizePermissions(input.role ?? UserRole.STAFF, input.permissions),
+      phone: input.phone?.trim() || null,
       isActive: input.isActive ?? true,
     },
     select: userSelect,
@@ -90,6 +94,7 @@ export async function updateUser(id: string, input: UpdateUserInput, db: Db = pr
     data.permissions = normalizePermissions(input.role, input.permissions);
   }
   if (input.isActive !== undefined) data.isActive = input.isActive;
+  if (input.phone !== undefined) data.phone = input.phone?.trim() || null;
   if (input.password !== undefined) {
     data.passwordHash = await bcrypt.hash(input.password, getSaltRounds());
   }

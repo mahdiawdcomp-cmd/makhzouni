@@ -749,8 +749,21 @@ export async function getTransfer(id: string) {
   return data
 }
 
+export interface TransferRequestResult {
+  success: boolean
+  message?: string
+  approvalId: string
+  snapshot?: {
+    fromName: string
+    toName: string
+    anyExceeds: boolean
+    items: { productName: string; quantity: number; unit: string; requestedPieces: number; availablePieces: number; exceedsStock: boolean }[]
+  }
+}
+
+// Submits a transfer REQUEST (goes to approvals; does not move stock immediately).
 export async function createTransfer(payload: CreateTransferPayload) {
-  const { data } = await api.post<InventoryTransfer>("/transfers", payload)
+  const { data } = await api.post<TransferRequestResult>("/transfers", payload)
   return data
 }
 

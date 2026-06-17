@@ -152,13 +152,16 @@ function CreateTransferDialog({
 
   const mutation = useMutation({
     mutationFn: createTransfer,
-    onSuccess: () => {
-      toast({ title: "تم التحويل بنجاح" })
+    onSuccess: (res) => {
+      toast({
+        title: res?.message ?? "تم إرسال طلب التحويل للموافقة",
+        description: res?.snapshot?.anyExceeds ? "⚠️ بعض الكميات أكبر من المتوفر في المصدر — ستظهر للمسؤول عند الموافقة." : undefined,
+      })
       setFromBranchId(""); setToBranchId(""); setItems([]); setNotes("")
       onSuccess()
     },
     onError: (err: any) => {
-      toast({ title: "خطأ", description: err.response?.data?.message ?? "فشل التحويل", variant: "destructive" })
+      toast({ title: "خطأ", description: err.response?.data?.message ?? "فشل إرسال الطلب", variant: "destructive" })
     },
   })
 

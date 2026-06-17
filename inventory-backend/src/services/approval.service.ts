@@ -13,6 +13,7 @@ import {
   updateInvoice,
 } from "./invoice.service";
 import { createUser, deactivateUser, updateUser } from "./user.service";
+import { executeTransferWithin } from "./transfer.service";
 import { cancelVoucher, createVoucher, deleteVoucher, restoreVoucher, updateVoucher } from "./voucher.service";
 import { hardDeleteInvoice } from "./invoice.service";
 import { sendWhatsAppText } from "./whatsapp.service";
@@ -83,6 +84,7 @@ export const approvalRequestTypes = {
   CANCEL_VOUCHER: "CANCEL_VOUCHER",
   RESTORE_VOUCHER: "RESTORE_VOUCHER",
   DELETE_VOUCHER: "DELETE_VOUCHER",
+  CREATE_TRANSFER: "CREATE_TRANSFER",
 } as const;
 
 export type ApprovalRequestType =
@@ -489,6 +491,15 @@ async function executeApprovedRequest(
         tx,
         reviewerId,
         typeof data.reason === "string" ? data.reason : undefined
+      );
+    case approvalRequestTypes.CREATE_TRANSFER:
+      // Approved transfers always go through, even into negative stock — the
+      // deficit will surface in the stocktake (per spec).
+      return executeTransferWithin(
+        tx,
+        data.body as Parameters<typeof executeTransferWithin>[1],
+        reviewerId,
+        true
       );
     default:
       throw new AppError("Unsupported approval request type", 400, "UNSUPPORTED_APPROVAL");

@@ -324,6 +324,9 @@ export function ProductsPage() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
   const [showCategories, setShowCategories] = useState(false)
+  // Optional opening-stock split across warehouses (pieces per warehouse), used
+  // on initial product entry only.
+  const [dist, setDist] = useState<Record<string, number>>({})
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
@@ -428,6 +431,7 @@ export function ProductsPage() {
   function startCreate() {
     setEditing(null)
     setForm(emptyForm)
+    setDist({})
     setOpen(true)
   }
 
@@ -484,6 +488,18 @@ export function ProductsPage() {
       category: form.category?.trim() || undefined,
       storageLocation: form.storageLocation?.trim() || null,
       branchId: form.branchId?.trim() || undefined,
+    }
+    // On initial entry, attach the warehouse distribution (if any pieces split).
+    const distEntries = Object.entries(dist)
+      .map(([warehouseId, pieces]) => ({ warehouseId, pieces: Number(pieces) || 0 }))
+      .filter((d) => d.pieces > 0)
+    if (!editing && distEntries.length > 0) {
+      const sum = distEntries.reduce((s, d) => s + d.pieces, 0)
+      if (sum !== totalQuantity) {
+        alert(`مجموع التوزيع (${sum}) لا يساوي الكمية الكلية (${totalQuantity}). صحّح التوزيع قبل الحفظ.`)
+        return
+      }
+      payload.warehouseDistribution = distEntries
     }
     const mutation = editing
       ? updateMutation.mutateAsync({ id: editing.id, payload })
@@ -1011,6 +1027,39 @@ export function ProductsPage() {
           <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
             الكمية الإجمالية المحسوبة: <span className="font-bold">{totalQuantity}</span> قطعة
           </div>
+
+          {/* Initial distribution across warehouses (only on create) */}
+          {!editing && totalQuantity > 0 && branches.filter((b) => b.isActive).length > 1 && (() => {
+            const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
+            const ok = distSum === totalQuantity
+            return (
+              <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-2 dark:border-sky-900 dark:bg-sky-950/20">
+                <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
+                  توزيع الكمية على المخازن (اختياري — اتركه فارغاً ليذهب كله للمحل)
+                </p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {branches.filter((b) => b.isActive).map((b) => (
+                    <label key={b.id} className="text-xs">
+                      <span className="mb-1 block text-slate-500">{b.name}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={dist[b.id] ?? ""}
+                        onFocus={selectAllOnFocus}
+                        onChange={(e) => setDist({ ...dist, [b.id]: Number(e.target.value) })}
+                        placeholder="0"
+                      />
+                    </label>
+                  ))}
+                </div>
+                {distSum > 0 && (
+                  <p className={`text-xs font-semibold ${ok ? "text-emerald-600" : "text-rose-600"}`}>
+                    مجموع التوزيع: {distSum} / {totalQuantity} {ok ? "✓" : "✗ يجب أن يساوي الكمية الكلية"}
+                  </p>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Branch + Floor — optional */}
           <div className="rounded-md border border-dashed border-slate-300 p-3 dark:border-slate-700">

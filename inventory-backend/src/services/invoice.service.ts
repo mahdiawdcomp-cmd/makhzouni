@@ -320,19 +320,20 @@ async function applyStockMovement(
   }
 
   await ensureLegacyWarehouseStock(tx, product);
-  const warehouseId = await resolveWarehouseId(
-    tx,
-    item.warehouseId ?? branchId ?? product.branchId
-  );
+  // Sales always come out of المحل (the default/oldest warehouse) and may NOT go
+  // negative — the seller must transfer stock to المحل first. Other movements
+  // (purchase / return) use the chosen warehouse and keep prior behavior.
+  const isSale = invoiceType === InvoiceType.SALE;
+  const warehouseId = isSale
+    ? await resolveWarehouseId(tx, null)
+    : await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);
-  // PURCHASE and SALES_RETURN add stock; SALE subtracts.
-  // Negative balanceAfter is allowed — the product will show negative stock as a warning.
   const movement = await adjustWarehouseStock(tx, {
     productId: product.id,
     warehouseId,
     deltaPieces: addsStock ? quantityInPieces : -quantityInPieces,
-    allowNegative: !addsStock,
+    allowNegative: isSale ? false : !addsStock,
   });
   await syncProductTotalStock(tx, product.id);
 
