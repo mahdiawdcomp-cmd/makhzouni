@@ -8,6 +8,7 @@ import {
   EyeOff,
   Globe,
   Lock,
+  MessageCircle,
   Search,
   ShieldOff,
   Tag,
@@ -22,11 +23,13 @@ import {
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccess,
+  sendCatalogLinkToCustomer,
 } from "../api/endpoints"
 import type { CatalogCustomer } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
 
 dayjs.extend(relativeTime)
@@ -158,7 +161,14 @@ function GrantDialog({
 function CustomerRow({ customer }: { customer: CatalogCustomer }) {
   const [grantOpen, setGrantOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [promo, setPromo] = useState("")
   const qc = useQueryClient()
+
+  const sendLinkMut = useMutation({
+    mutationFn: () => sendCatalogLinkToCustomer(customer.id, promo.trim() || undefined),
+    onSuccess: (res) => { toast({ title: res.message ?? "تم إرسال رابط الكتلوج" }); setPromo("") },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإرسال", variant: "destructive" }),
+  })
 
   const patchMut = useMutation({
     mutationFn: (patch: { allowPrices?: boolean; showStock?: boolean }) =>
@@ -229,6 +239,28 @@ function CustomerRow({ customer }: { customer: CatalogCustomer }) {
             : customer.hasAccess
             ? "لم يُفتح بعد"
             : "—"}
+        </td>
+
+        {/* إرسال رابط الكتلوج بالواتساب + بروموكود */}
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={promo}
+              onChange={(e) => setPromo(e.target.value)}
+              placeholder="بروموكود (اختياري)"
+              className="h-8 w-28 text-xs"
+            />
+            <button
+              type="button"
+              title="إرسال رابط الكتلوج بالواتساب"
+              disabled={sendLinkMut.isPending}
+              onClick={() => sendLinkMut.mutate()}
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              {sendLinkMut.isPending ? "..." : "إرسال"}
+            </button>
+          </div>
         </td>
 
         {/* إجراءات */}
@@ -386,17 +418,18 @@ export function CatalogManagementPage() {
                   <th className="px-4 py-3 text-right">الأسعار</th>
                   <th className="px-4 py-3 text-right">الكمية</th>
                   <th className="px-4 py-3 text-right">آخر زيارة</th>
+                  <th className="px-4 py-3 text-right">رابط الكتلوج (واتساب)</th>
                   <th className="px-4 py-3 text-right">إجراءات</th>
                 </tr>
               </thead>
               <tbody className="bg-white">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">لا توجد نتائج</td>
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">لا توجد نتائج</td>
                   </tr>
                 ) : (
                   filtered.map((customer) => (

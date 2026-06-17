@@ -185,7 +185,7 @@ export function CustomerBroadcastPage() {
             </div>
             {tagsQuery.isLoading && <p className="text-sm text-slate-400">جاري التحميل...</p>}
             {!tagsQuery.isLoading && tags.length === 0 && (
-              <p className="text-sm text-slate-500">لا يوجد تاكات بعد. أضف تاكات للزبائن من صفحة الزبائن أو صفحة الاستيراد أولاً.</p>
+              <p className="text-sm text-slate-500">لا يوجد تاكات بعد. أضف تاكات للزبائن من صفحة الزبائن أو من زر «إدارة التاكات» بالأعلى.</p>
             )}
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (

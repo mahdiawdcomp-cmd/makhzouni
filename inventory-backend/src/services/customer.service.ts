@@ -3,6 +3,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { calculateCustomerBalance } from "../utils/financial";
 import { logger } from "../utils/logger";
+import { normalizePhone } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 
@@ -251,7 +252,7 @@ export async function createCustomer(input: CreateCustomerInput, db: Db = prisma
   const customer = await db.customer.create({
     data: {
       name: input.name,
-      phone: input.phone,
+      phone: normalizePhone(input.phone),
       address: input.address,
       notes: input.notes,
       tags: input.tags ?? [],
@@ -276,7 +277,7 @@ export async function updateCustomer(
   const data: Prisma.CustomerUncheckedUpdateInput = {};
 
   if (input.name !== undefined) data.name = input.name;
-  if (input.phone !== undefined) data.phone = input.phone;
+  if (input.phone !== undefined) data.phone = normalizePhone(input.phone);
   if (input.address !== undefined) data.address = input.address;
   if (input.notes !== undefined) data.notes = input.notes;
   if (input.tags !== undefined) data.tags = input.tags;
@@ -740,6 +741,26 @@ function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | nu
   const match = /^data:(image\/[a-zA-Z+]+);base64,(.+)$/.exec(dataUrl);
   if (!match) return null;
   return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
+}
+
+// Sends the public wholesale-catalog link to one customer over WhatsApp, with
+// a friendly intro and an optional per-customer promo code appended.
+export async function sendCatalogLinkToCustomer(id: string, promoCode?: string) {
+  const customer = await getCustomerOrThrow(id);
+  const settings = await getSettings().catch(() => null);
+  const link = (settings?.catalogPublicUrl || "").trim();
+  const store = (settings?.storeName || "متجرنا").trim();
+
+  let message =
+    `مرحبا حبيبي كيف حالك 🌹\n\n` +
+    `هذا رابط كتلوك ${store} فيه كل البضاعة معروضة، ادخل عليه واكتب رقم تلفونك وتصفح وتسوق براحتك بدون تعب 🛍️\n\n` +
+    `واحنا نجهزلك ونرسلك البضاعة لباب المحل 🚚` +
+    (link ? `\n\n${link}` : "");
+  const promo = promoCode?.trim();
+  if (promo) message += `\n\n🎁 كود الخصم الخاص بك: ${promo}`;
+
+  await sendWhatsAppText(customer.phone, message);
+  return { phone: customer.phone };
 }
 
 export async function broadcastToCustomers(input: {

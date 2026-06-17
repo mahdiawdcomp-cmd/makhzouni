@@ -20,6 +20,7 @@ import {
   listCustomersWithDebts,
   listCustomerTags,
   renameCustomerTag,
+  sendCatalogLinkToCustomer,
   listInactiveCustomers,
   softDeleteCustomer,
   updateCustomer,
@@ -221,6 +222,13 @@ export const deleteCustomerTagController = asyncHandler(async (req, res) => {
   const { name } = req.body as { name: string };
   const tags = await deleteCustomerTag(name);
   res.json({ success: true, data: tags });
+});
+
+export const postSendCatalogLink = asyncHandler(async (req, res) => {
+  const id = String(req.params.id);
+  const { promoCode } = req.body as { promoCode?: string };
+  const result = await sendCatalogLinkToCustomer(id, promoCode);
+  res.json({ success: true, message: `تم إرسال رابط الكتلوج إلى ${result.phone}`, data: result });
 });
 
 export const postCustomerBroadcast = asyncHandler(async (req, res) => {

@@ -307,6 +307,13 @@ export const customerTagDeleteSchema = z.object({
   }),
 });
 
+export const sendCatalogLinkSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    promoCode: z.string().trim().max(60).optional(),
+  }),
+});
+
 export const customerTransactionsSchema = z.object({
   params: uuidParam,
   query: z.object({

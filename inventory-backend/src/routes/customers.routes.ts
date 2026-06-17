@@ -17,6 +17,7 @@ import {
   patchCustomerTag,
   postCustomerBroadcast,
   postCustomerTag,
+  postSendCatalogLink,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
@@ -29,6 +30,7 @@ import {
   createCustomerSchema,
   createPortalLinkSchema,
   customerBroadcastSchema,
+  sendCatalogLinkSchema,
   customerTagCreateSchema,
   customerTagDeleteSchema,
   customerTagRenameSchema,
@@ -55,6 +57,7 @@ router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers)
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);
 router.post("/", validate(createCustomerSchema), addCustomer);
+router.post("/:id/send-catalog-link", requirePermission("MANAGE_CUSTOMERS"), validate(sendCatalogLinkSchema), postSendCatalogLink);
 router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
 router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);
 router.put("/:id", validate(updateCustomerSchema), editCustomer);
