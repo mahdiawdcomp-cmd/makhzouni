@@ -161,6 +161,12 @@ model Product {
   categoryTags  String[]  @default([]) @map("category_tags")
   typeTags      String[]  @default([]) @map("type_tags")
 
+  // Wholesale catalog merchandising flags (mirror the retail catalog):
+  // "new arrival" + "on offer" with an optional pre-offer price to strike through.
+  isNewArrival  Boolean   @default(false) @map("is_new_arrival")
+  isOffer       Boolean   @default(false) @map("is_offer")
+  oldPrice      Decimal?  @map("old_price") @db.Decimal(12, 2)
+
   @@index([createdBy])
   @@index([branchId])
   @@index([deletedAt])

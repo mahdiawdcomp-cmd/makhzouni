@@ -20,6 +20,9 @@ type ProductInput = {
   category?: string;
   categoryTags?: string[];
   typeTags?: string[];
+  isNewArrival?: boolean;
+  isOffer?: boolean;
+  oldPrice?: number | null;
   openingBalancePcs?: number;
   cartonsAvailable?: number;
   pcsPerCarton?: number;
@@ -243,6 +246,9 @@ export async function createProduct(
         category: input.category?.trim() || null,
         categoryTags: input.categoryTags ?? [],
         typeTags: input.typeTags ?? [],
+        isNewArrival: input.isNewArrival ?? false,
+        isOffer: input.isOffer ?? false,
+        oldPrice: input.oldPrice ?? null,
         openingBalancePcs: input.openingBalancePcs ?? 0,
         cartonsAvailable: input.cartonsAvailable ?? 0,
         pcsPerCarton: input.pcsPerCarton ?? 1,
@@ -316,6 +322,9 @@ export async function updateProduct(
   if (input.branchId !== undefined) data.branch = input.branchId ? { connect: { id: input.branchId } } : { disconnect: true };
   if (input.categoryTags !== undefined) data.categoryTags = input.categoryTags;
   if (input.typeTags !== undefined) data.typeTags = input.typeTags;
+  if (input.isNewArrival !== undefined) data.isNewArrival = input.isNewArrival;
+  if (input.isOffer !== undefined) data.isOffer = input.isOffer;
+  if (input.oldPrice !== undefined) data.oldPrice = input.oldPrice;
 
   const product = await tx.product.update({
     where: { id },

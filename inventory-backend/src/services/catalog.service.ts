@@ -337,6 +337,10 @@ export async function listCatalogProducts(token: string) {
         category: product.category,
         categoryTags: product.categoryTags,
         typeTags: product.typeTags,
+        isNewArrival: product.isNewArrival,
+        isOffer: product.isOffer,
+        oldPrice: access.allowPrices && product.oldPrice != null ? toNumber(product.oldPrice) : null,
+        createdAt: product.createdAt,
         salePrice: access.allowPrices ? toNumber(product.salePrice) : null,
         pcsPerCarton: product.pcsPerCarton,
         // Always send stock for cart max-quantity logic; showStock controls display only

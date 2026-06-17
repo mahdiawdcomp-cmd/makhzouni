@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Download, Edit, Eye, FileText, Plus, Printer, ScanQrCode, Upload } from "lucide-react"
+import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Upload } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -22,6 +22,7 @@ import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
+import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -47,6 +48,9 @@ const emptyForm: ProductFormState = {
   category: "",
   categoryTags: [],
   typeTags: [],
+  isNewArrival: false,
+  isOffer: false,
+  oldPrice: null,
   openingBalancePcs: 0,
   cartonsAvailable: 0,
   pcsPerCarton: 1,
@@ -319,6 +323,7 @@ export function ProductsPage() {
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
+  const [showCategories, setShowCategories] = useState(false)
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
@@ -451,6 +456,9 @@ export function ProductsPage() {
       category: product.category ?? "",
       categoryTags: product.categoryTags ?? [],
       typeTags: product.typeTags ?? [],
+      isNewArrival: product.isNewArrival ?? false,
+      isOffer: product.isOffer ?? false,
+      oldPrice: product.oldPrice ?? null,
       openingBalancePcs: product.openingBalancePcs,
       cartonsAvailable: product.cartonsAvailable,
       pcsPerCarton: product.pcsPerCarton,
@@ -542,12 +550,17 @@ export function ProductsPage() {
           >
             <Download className="h-4 w-4" /> قالب Excel
           </a>
+          <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
+            <FolderTree className="h-4 w-4" /> {showCategories ? "إخفاء الفئات" : "إدارة الفئات"}
+          </Button>
           <Button onClick={startCreate}>
             <Plus className="h-4 w-4" />
             منتج جديد
           </Button>
         </div>
       </div>
+
+      {showCategories && <CatalogCategoriesManager />}
 
       <Card>
         <CardHeader>
@@ -822,10 +835,7 @@ export function ProductsPage() {
                     />
                   </Field>
                   <p className="text-[11px] text-indigo-500">
-                    لإضافة قائمة فئات:{" "}
-                    <Link to="/settings" className="underline hover:text-indigo-700">
-                      الإعدادات ← فئات الكتالوج
-                    </Link>
+                    لإضافة قائمة فئات وأنواع: اضغط زر «إدارة الفئات» بأعلى صفحة المخزون.
                   </p>
                 </div>
               ) : (
@@ -956,6 +966,46 @@ export function ProductsPage() {
             <Field label="سعر المفرد (تجزئة — اختياري)">
               <Input type="number" value={form.retailPrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, retailPrice: Number(event.target.value) })} />
             </Field>
+          </div>
+
+          {/* ── عرض الكتلوج: جديد / عرض ─────────────────────────────── */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-3 space-y-3 dark:border-amber-900 dark:bg-amber-950/20">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">عرض المادة في كتلوج الجملة</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, isNewArrival: !form.isNewArrival })}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  form.isNewArrival
+                    ? "border-emerald-500 bg-emerald-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                }`}
+              >
+                ✨ جديد
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, isOffer: !form.isOffer })}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  form.isOffer
+                    ? "border-rose-500 bg-rose-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                }`}
+              >
+                🏷️ عليها عرض
+              </button>
+            </div>
+            {form.isOffer && (
+              <Field label="السعر القديم (يظهر مشطوب فوق السعر الحالي)" hint="اتركه فارغاً إذا ماكو سعر قديم">
+                <Input
+                  type="number"
+                  value={form.oldPrice ?? ""}
+                  onFocus={selectAllOnFocus}
+                  onChange={(event) => setForm({ ...form, oldPrice: event.target.value === "" ? null : Number(event.target.value) })}
+                  placeholder="مثال: 15000"
+                />
+              </Field>
+            )}
           </div>
 
           <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">

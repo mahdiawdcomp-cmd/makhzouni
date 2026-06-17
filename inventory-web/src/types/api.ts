@@ -100,6 +100,9 @@ export interface Product {
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]
+  isNewArrival?: boolean
+  isOffer?: boolean
+  oldPrice?: number | null
   openingBalancePcs: number
   cartonsAvailable: number
   pcsPerCarton: number
@@ -175,6 +178,10 @@ export interface PublicCatalogProduct {
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]
+  isNewArrival?: boolean
+  isOffer?: boolean
+  oldPrice?: number | null
+  createdAt?: string
   salePrice?: number | null
   pcsPerCarton: number
   currentStock: number
@@ -225,6 +232,9 @@ export interface ProductPayload {
   category?: string
   categoryTags?: string[]
   typeTags?: string[]
+  isNewArrival?: boolean
+  isOffer?: boolean
+  oldPrice?: number | null
   openingBalancePcs?: number
   cartonsAvailable?: number
   pcsPerCarton?: number
