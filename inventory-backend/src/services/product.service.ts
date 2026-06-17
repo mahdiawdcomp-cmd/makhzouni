@@ -373,33 +373,57 @@ export async function updateProduct(
   });
 
   await ensureLegacyWarehouseStock(tx, product);
-  const quantityWasEdited =
-    input.openingBalancePcs !== undefined || input.cartonsAvailable !== undefined;
-  const warehouseMetadataWasEdited =
-    input.storageLocation !== undefined || input.minStock !== undefined;
 
-  if (input.branchId !== undefined || quantityWasEdited || warehouseMetadataWasEdited) {
-    const warehouseId = await resolveWarehouseId(tx, input.branchId ?? product.branchId);
-    const pcsPerCarton = input.pcsPerCarton ?? product.pcsPerCarton;
-    const targetStock = existing.warehouseStocks?.find(
-      (stock: any) => stock.warehouseId === warehouseId
-    );
-    const targetPieces = targetStock?.quantityPieces ?? 0;
-    const targetCartons = targetPieces >= 0 ? Math.floor(targetPieces / pcsPerCarton) : 0;
-    const targetLoosePieces = targetPieces - targetCartons * pcsPerCarton;
-    const quantityPieces = quantityWasEdited
-      ? (input.openingBalancePcs ?? targetLoosePieces) +
-        (input.cartonsAvailable ?? targetCartons) * pcsPerCarton
-      : undefined;
-
-    await upsertWarehouseStock(tx, {
-      productId: id,
-      warehouseId,
-      quantityPieces,
-      storageLocation: input.storageLocation,
-      minStock: input.minStock,
+  const rawDistribution = (input.warehouseDistribution ?? []).filter((d) => d.pieces >= 0);
+  if (rawDistribution.length > 0) {
+    // Explicit per-warehouse redistribution — apply each warehouse's new stock directly.
+    const validWarehouses = await tx.branch.findMany({
+      where: { id: { in: rawDistribution.map((d) => d.warehouseId) }, isActive: true },
+      select: { id: true },
     });
+    const validIds = new Set(validWarehouses.map((w) => w.id));
+    for (const d of rawDistribution) {
+      if (!validIds.has(d.warehouseId)) {
+        throw new AppError("Warehouse not found or inactive", 404, "WAREHOUSE_NOT_FOUND");
+      }
+      await upsertWarehouseStock(tx, {
+        productId: id,
+        warehouseId: d.warehouseId,
+        quantityPieces: d.pieces,
+        storageLocation: input.storageLocation,
+        minStock: input.minStock ?? 0,
+      });
+    }
     await syncProductTotalStock(tx, id);
+  } else {
+    const quantityWasEdited =
+      input.openingBalancePcs !== undefined || input.cartonsAvailable !== undefined;
+    const warehouseMetadataWasEdited =
+      input.storageLocation !== undefined || input.minStock !== undefined;
+
+    if (input.branchId !== undefined || quantityWasEdited || warehouseMetadataWasEdited) {
+      const warehouseId = await resolveWarehouseId(tx, input.branchId ?? product.branchId);
+      const pcsPerCarton = input.pcsPerCarton ?? product.pcsPerCarton;
+      const targetStock = existing.warehouseStocks?.find(
+        (stock: any) => stock.warehouseId === warehouseId
+      );
+      const targetPieces = targetStock?.quantityPieces ?? 0;
+      const targetCartons = targetPieces >= 0 ? Math.floor(targetPieces / pcsPerCarton) : 0;
+      const targetLoosePieces = targetPieces - targetCartons * pcsPerCarton;
+      const quantityPieces = quantityWasEdited
+        ? (input.openingBalancePcs ?? targetLoosePieces) +
+          (input.cartonsAvailable ?? targetCartons) * pcsPerCarton
+        : undefined;
+
+      await upsertWarehouseStock(tx, {
+        productId: id,
+        warehouseId,
+        quantityPieces,
+        storageLocation: input.storageLocation,
+        minStock: input.minStock,
+      });
+      await syncProductTotalStock(tx, id);
+    }
   }
 
   return tx.product.findUniqueOrThrow({

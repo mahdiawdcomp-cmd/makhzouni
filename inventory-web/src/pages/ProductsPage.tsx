@@ -455,6 +455,12 @@ export function ProductsPage() {
 
   function startEdit(product: Product) {
     setEditing(product)
+    // Pre-fill dist with the product's current per-warehouse quantities
+    const initialDist: Record<string, number> = {}
+    for (const ws of product.warehouseStocks ?? []) {
+      initialDist[ws.warehouseId] = ws.quantityPieces
+    }
+    setDist(initialDist)
     setForm({
       itemNumber: product.itemNumber,
       name: product.name,
@@ -493,16 +499,23 @@ export function ProductsPage() {
       storageLocation: form.storageLocation?.trim() || null,
       branchId: form.branchId?.trim() || undefined,
     }
-    // On initial entry with stock > 0, distribution across warehouses is
-    // MANDATORY and its sum must equal the total quantity.
     const activeWarehouses = branches.filter((b) => b.isActive)
     const distEntries = Object.entries(dist)
       .map(([warehouseId, pieces]) => ({ warehouseId, pieces: Number(pieces) || 0 }))
-      .filter((d) => d.pieces > 0)
-    if (!editing && totalQuantity > 0 && activeWarehouses.length > 1) {
+      .filter((d) => d.pieces >= 0)
+
+    if (editing && activeWarehouses.length > 1) {
+      // Edit mode: always send the full per-warehouse distribution.
+      // Backend will apply each warehouse value directly and recompute totals.
+      payload.warehouseDistribution = distEntries
+      // Strip raw quantity fields — they'll be derived from distribution by the backend.
+      delete payload.openingBalancePcs
+      delete payload.cartonsAvailable
+    } else if (!editing && totalQuantity > 0 && activeWarehouses.length > 1) {
+      // Create mode: distribution is mandatory when total > 0.
       const sum = distEntries.reduce((s, d) => s + d.pieces, 0)
       if (distEntries.length === 0) {
-        alert(`وزّع الكمية (${totalQuantity} قطعة) على المخازن قبل الحفظ: المحل / مخزن العباسية / مخزن شارع العباس.`)
+        alert(`وزّع الكمية (${totalQuantity} قطعة) على المخازن قبل الحفظ.`)
         return
       }
       if (sum !== totalQuantity) {
@@ -519,8 +532,10 @@ export function ProductsPage() {
     mutation.then(() => setOpen(false))
   }
 
-  const totalQuantity =
-    (form.openingBalancePcs ?? 0) + (form.cartonsAvailable ?? 0) * (form.pcsPerCarton ?? 1)
+  const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
+  const totalQuantity = editing
+    ? distSum
+    : (form.openingBalancePcs ?? 0) + (form.cartonsAvailable ?? 0) * (form.pcsPerCarton ?? 1)
 
   return (
     <div className="space-y-4">
@@ -1072,27 +1087,35 @@ export function ProductsPage() {
             )
           })()}
 
-          {/* Edit mode: show current per-warehouse stock (read-only) with link to transfers */}
-          {editing && (editing.warehouseStocks ?? []).length > 0 && (
-            <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-2 dark:border-sky-800 dark:bg-sky-950/20">
-              <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">توزيع المخزون الحالي</p>
-              <div className="grid gap-1">
-                {(editing.warehouseStocks ?? []).map((ws) => (
-                  <div key={ws.warehouseId} className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 dark:text-slate-300">{ws.warehouse.name}</span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{ws.quantityPieces} قطعة</span>
-                  </div>
-                ))}
+          {/* Edit mode: editable per-warehouse distribution */}
+          {editing && branches.filter((b) => b.isActive).length > 1 && (() => {
+            const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
+            return (
+              <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-2 dark:border-sky-800 dark:bg-sky-950/20">
+                <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
+                  توزيع المخزون على المخازن — عدّل الكمية في كل مخزن مباشرة
+                </p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {branches.filter((b) => b.isActive).map((b) => (
+                    <label key={b.id} className="text-xs">
+                      <span className="mb-1 block text-slate-500">{b.name}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={dist[b.id] ?? 0}
+                        onFocus={selectAllOnFocus}
+                        onChange={(e) => setDist({ ...dist, [b.id]: Number(e.target.value) })}
+                        placeholder="0"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-sky-700 dark:text-sky-400 font-semibold">
+                  المجموع الكلي: {distSum} قطعة
+                </p>
               </div>
-              <Link
-                to={`/transfers?productId=${editing.id}`}
-                className="inline-block text-xs text-sky-600 hover:underline dark:text-sky-400"
-                onClick={() => setOpen(false)}
-              >
-                ↩ طلب تحويل بين المخازن
-              </Link>
-            </div>
-          )}
+            )
+          })()}
 
           <Button className="w-full" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
             {editing ? "تحديث" : "حفظ"}

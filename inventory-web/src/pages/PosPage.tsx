@@ -109,12 +109,12 @@ function priceFor(p: Product, unit: PosUnit) {
   if (unit === "DOZEN") return Number(p.salePrice) * 12
   return Number(p.salePrice)
 }
-function defaultWarehouseFor(p: Product) {
-  const stocks = p.warehouseStocks ?? []
-  if (stocks.length === 0) return undefined
-  return stocks.reduce((best, stock) =>
-    stock.quantityPieces > best.quantityPieces ? stock : best
-  ).warehouseId
+function bestAlternativeWarehouse(p: Product): { id: string; name: string; qty: number } | null {
+  const best = (p.warehouseStocks ?? [])
+    .filter((ws) => ws.quantityPieces > 0)
+    .sort((a, b) => b.quantityPieces - a.quantityPieces)[0]
+  if (!best) return null
+  return { id: best.warehouseId, name: best.warehouse?.name ?? best.warehouseId, qty: best.quantityPieces }
 }
 
 // ── Panel form state ──────────────────────────────────────────────
@@ -647,6 +647,7 @@ export function POSPage() {
   const [posConfig, setPosConfig] = useState<PosConfig>(loadConfig)
   const [activePanel, setActivePanel] = useState<string | null>(null)
   const [showCustomize, setShowCustomize] = useState(false)
+  const [shopStockAlert, setShopStockAlert] = useState<Product | null>(null)
 
   // Keep callback snapshots synchronized after React commits the latest state.
   useEffect(() => {
@@ -726,10 +727,10 @@ export function POSPage() {
     setTimeout(() => barcodeInputRef.current?.focus(), 0)
   }
 
-  function addProduct(product: Product, preferredCode = productQuery) {
+  function doAddProduct(product: Product, preferredCode = productQuery, overrideWarehouseId?: string) {
     const unit = detectUnit(product, preferredCode)
     setItems((prev) => {
-      const existing = prev.find((i) => i.productId === product.id && i.unit === unit)
+      const existing = prev.find((i) => i.productId === product.id && i.unit === unit && i.warehouseId === overrideWarehouseId)
       if (existing) {
         return prev.map((i) =>
           i.lineId === existing.lineId ? { ...i, quantity: i.quantity + 1 } : i,
@@ -740,7 +741,7 @@ export function POSPage() {
         {
           lineId: crypto.randomUUID(),
           productId: product.id,
-          warehouseId: defaultWarehouseFor(product),
+          warehouseId: overrideWarehouseId, // undefined → backend uses المحل
           name: product.name,
           unit,
           quantity: 1,
@@ -751,6 +752,18 @@ export function POSPage() {
     setProductQuery("")
     setMessage("")
     setTimeout(() => barcodeInputRef.current?.focus(), 0)
+  }
+
+  function addProduct(product: Product, preferredCode = productQuery) {
+    const shopStock = product.shopStock ?? 0
+    if (shopStock === 0) {
+      const alt = bestAlternativeWarehouse(product)
+      if (alt) {
+        setShopStockAlert(product)
+        return
+      }
+    }
+    doAddProduct(product, preferredCode)
   }
 
   function addBySearch() {
@@ -1200,6 +1213,47 @@ export function POSPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Shop-stock alert modal ── */}
+      {shopStockAlert && (() => {
+        const p = shopStockAlert
+        const alts = (p.warehouseStocks ?? []).filter((ws) => ws.quantityPieces > 0)
+        return (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center" onClick={() => setShopStockAlert(null)}>
+            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-2xl dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100">{p.name}</h3>
+                  <p className="text-xs text-rose-600 mt-0.5">نفد من المحل — المخزون موجود في مخازن أخرى</p>
+                </div>
+                <button type="button" onClick={() => setShopStockAlert(null)} className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <X className="h-4 w-4 text-slate-500" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                {alts.map((ws) => (
+                  <button
+                    key={ws.warehouseId}
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-right font-semibold text-sky-800 transition hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-900/60"
+                    onClick={() => { doAddProduct(p, productQuery, ws.warehouseId); setShopStockAlert(null) }}
+                  >
+                    <span>📦 سحب من {ws.warehouse?.name ?? ws.warehouseId}</span>
+                    <span className="text-sm text-sky-600 dark:text-sky-400">{ws.quantityPieces} قطعة</span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-slate-200 py-2.5 text-sm text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  onClick={() => { doAddProduct(p, productQuery, undefined); setShopStockAlert(null) }}
+                >
+                  إضافة بدون تحديد مخزن
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Customize Modal ── */}
       {showCustomize && (
