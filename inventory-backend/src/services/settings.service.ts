@@ -20,6 +20,9 @@ export interface AppSettings {
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
   backupWhatsappNumber?: string;
+  // The warehouse that acts as المحل — sales deduct from here only. Falls back
+  // to the oldest active warehouse when unset.
+  shopWarehouseId?: string;
   // Public catalog / WhatsApp workflow
   catalogPublicUrl?: string;
   catalogAdminWhatsappNumber?: string;
@@ -57,6 +60,7 @@ export const defaultSettings: AppSettings = {
   statementTemplate:
     "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
   themePreset: "classic",
+  shopWarehouseId: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",

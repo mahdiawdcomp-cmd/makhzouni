@@ -606,6 +606,7 @@ export interface AppSettings {
   statementTemplate?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
+  shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
   orderPreparationWhatsappNumbers?: string

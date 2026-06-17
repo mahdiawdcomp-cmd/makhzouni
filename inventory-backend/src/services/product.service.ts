@@ -4,6 +4,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import {
   ensureLegacyWarehouseStock,
+  resolveShopWarehouseId,
   resolveWarehouseId,
   syncProductTotalStock,
   upsertWarehouseStock,
@@ -160,7 +161,7 @@ export async function listProducts(query: {
       : {}),
   };
 
-  const shopWarehouseId = await resolveWarehouseId(prisma, null).catch(() => null);
+  const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
 
   if (query.lowStock) {
     const rows = await prisma.product.findMany({
@@ -219,7 +220,7 @@ export async function getProductById(id: string, db: Db = prisma) {
     throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
   }
 
-  const shopWarehouseId = await resolveWarehouseId(db, null).catch(() => null);
+  const shopWarehouseId = await resolveShopWarehouseId(db).catch(() => null);
   return serializeProduct(product, shopWarehouseId);
 }
 

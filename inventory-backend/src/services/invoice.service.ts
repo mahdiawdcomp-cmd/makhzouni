@@ -19,6 +19,7 @@ import {
 import {
   adjustWarehouseStock,
   ensureLegacyWarehouseStock,
+  resolveShopWarehouseId,
   resolveWarehouseId,
   syncProductTotalStock,
 } from "./warehouse-stock.service";
@@ -325,7 +326,7 @@ async function applyStockMovement(
   // (purchase / return) use the chosen warehouse and keep prior behavior.
   const isSale = invoiceType === InvoiceType.SALE;
   const warehouseId = isSale
-    ? await resolveWarehouseId(tx, null)
+    ? await resolveShopWarehouseId(tx)
     : await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);

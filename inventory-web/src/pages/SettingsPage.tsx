@@ -30,6 +30,7 @@ import {
 } from "lucide-react"
 import {
   getCustomers,
+  getBranches,
   getInvoices,
   getMessageTemplates,
   getProducts,
@@ -161,6 +162,7 @@ export function SettingsPage() {
   })
   const templatesQuery = useQuery({ queryKey: ["message-templates"], queryFn: getMessageTemplates })
   const productsQuery = useQuery({ queryKey: ["products", "backup"], queryFn: () => getProducts() })
+  const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const customersQuery = useQuery({ queryKey: ["customers", "backup"], queryFn: () => getCustomers() })
   const [saved, setSaved] = useState(false)
   const [backupMsg, setBackupMsg] = useState("")
@@ -316,7 +318,20 @@ export function SettingsPage() {
               <Field label="العملة">
                 <Input value={settings.currency} onChange={(e) => upd("currency", e.target.value)} placeholder="IQD" />
               </Field>
+              <Field label="مخزن البيع (المحل)">
+                <select
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  value={settings.shopWarehouseId ?? ""}
+                  onChange={(e) => upd("shopWarehouseId", e.target.value)}
+                >
+                  <option value="">تلقائي (أقدم مخزن)</option>
+                  {(branchesQuery.data ?? []).filter((b) => b.isActive).map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </Field>
             </div>
+            <p className="text-xs text-slate-500">«مخزن البيع» هو المحل — كل عمليات البيع تنقص منه فقط. اختر «المحل» هنا.</p>
             <Field label="شعار المتجر">
               <div className="flex items-center gap-3">
                 <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm hover:bg-slate-50 dark:border-slate-600 dark:hover:bg-slate-800">

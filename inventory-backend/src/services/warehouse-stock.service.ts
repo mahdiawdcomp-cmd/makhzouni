@@ -1,8 +1,28 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { getSettings } from "./settings.service";
 
 export type WarehouseDb = Prisma.TransactionClient | typeof prisma;
+
+/**
+ * The "المحل" warehouse that sales deduct from. Uses the explicitly configured
+ * settings.shopWarehouseId when set + still active; otherwise falls back to the
+ * oldest active warehouse. NOTE: do NOT infer المحل as "oldest" elsewhere — the
+ * oldest may be a depot (e.g. شارع العباس).
+ */
+export async function resolveShopWarehouseId(db: WarehouseDb): Promise<string> {
+  const settings = await getSettings().catch(() => null);
+  const configured = settings?.shopWarehouseId?.trim();
+  if (configured) {
+    const wh = await db.branch.findFirst({
+      where: { id: configured, isActive: true },
+      select: { id: true },
+    });
+    if (wh) return wh.id;
+  }
+  return resolveWarehouseId(db, null);
+}
 
 export function normalizeProductStock(totalPieces: number, pcsPerCarton: number) {
   if (totalPieces < 0 || pcsPerCarton <= 0) {

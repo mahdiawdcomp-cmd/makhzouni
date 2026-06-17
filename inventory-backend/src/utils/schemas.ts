@@ -634,6 +634,7 @@ export const updateSettingsSchema = z.object({
       statementTemplate: z.string().trim().optional(),
       themePreset: z.enum(["classic", "iraqi", "exclusive", "bold", "designer"]).optional(),
       backupWhatsappNumber: z.string().trim().optional(),
+      shopWarehouseId: z.string().trim().optional(),
       catalogPublicUrl: z.string().trim().optional(),
       catalogAdminWhatsappNumber: z.string().trim().optional(),
       orderPreparationWhatsappNumbers: z.string().trim().optional(),
