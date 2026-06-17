@@ -66,7 +66,5 @@ export function errorHandler(
   return res.status(500).json({
     success: false,
     message: "Internal server error",
-    // TEMP debug: surface the error name/message to diagnose the transfer-approval 500.
-    debug: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
   });
 }
