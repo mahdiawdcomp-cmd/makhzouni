@@ -6,6 +6,7 @@ import android.app.Application
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
+import com.inventory.data.repository.SyncRepository
 import com.inventory.workers.OfflineSyncScheduler
 import com.inventory.workers.SmartNotificationScheduler
 import dagger.hilt.android.HiltAndroidApp
@@ -17,6 +18,8 @@ class InventoryApp : Application() {
         createHighPriorityNotificationChannel()
         SmartNotificationScheduler.schedule(this)
         OfflineSyncScheduler.schedule(this)
+        // Refresh all local data on startup so deleted items disappear immediately
+        SyncRepository.scheduleNow(this)
     }
 
     private fun createHighPriorityNotificationChannel() {

@@ -45,10 +45,7 @@ class OfflineSyncWorker(
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val operations = dao.nextPending()
 
-        if (operations.isEmpty()) return Result.success()
-
         var hasRetryableFailure = false
-        var shouldRefreshCache = false
 
         for (operation in operations) {
             dao.updateStatus(operation.id, "SYNCING", 0, null, Instant.now().toString())
@@ -72,7 +69,6 @@ class OfflineSyncWorker(
 
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful || response.code == 202) {
-                        shouldRefreshCache = true
                         dao.delete(operation.id)
                     } else {
                         hasRetryableFailure = response.code >= 500 || response.code == 429
@@ -97,9 +93,9 @@ class OfflineSyncWorker(
             }
         }
 
-        if (shouldRefreshCache) {
-            refreshCache(client, gson, database, baseUrl, token)
-        }
+        // Always refresh local cache to keep Room DB in sync with the server
+        // (removes server-deleted items and reflects all remote changes)
+        refreshCache(client, gson, database, baseUrl, token)
 
         return if (hasRetryableFailure) Result.retry() else Result.success()
     }
@@ -134,10 +130,10 @@ class OfflineSyncWorker(
         body("customers?limit=500")?.let { json ->
             val type = object : TypeToken<PagedResponse<CustomerDto>>() {}.type
             val response = gson.fromJson<PagedResponse<CustomerDto>>(json, type)
-            database.customerDao().upsertAll(response.data.map { it.toEntity() })
+            database.customerDao().replaceAll(response.data.map { it.toEntity() })
         }
 
-        body("invoices?limit=500")?.let { json ->
+        body("invoices?limit=1000")?.let { json ->
             val type = object : TypeToken<PagedResponse<InvoiceDto>>() {}.type
             val response = gson.fromJson<PagedResponse<InvoiceDto>>(json, type)
             val invoiceEntities = response.data.map { it.toEntity() }
@@ -170,6 +166,7 @@ private fun ProductDto.toEntity() = ProductEntity(
     salePrice = salePrice,
     retailPrice = retailPrice,
     minStock = minStock,
+    shopStock = shopStock,
     updatedAt = updatedAt
 )
 

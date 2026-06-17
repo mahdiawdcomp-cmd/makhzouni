@@ -51,8 +51,9 @@ class InvoiceRepository @Inject constructor(
         }
 
         return try {
-            val remote = apiClient.api.getInvoices(from, to).data
-            cacheInvoices(remote, replace = from.isNullOrBlank() && to.isNullOrBlank())
+            val isFullLoad = from.isNullOrBlank() && to.isNullOrBlank()
+            val remote = apiClient.api.getInvoices(from, to, limit = if (isFullLoad) 1000 else 100).data
+            cacheInvoices(remote, replace = isFullLoad)
             ApiResult.Success(remote.map { it.toDomain() })
         } catch (error: Exception) {
             val local = localInvoices(from, to)
