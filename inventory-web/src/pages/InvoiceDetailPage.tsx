@@ -45,6 +45,7 @@ const DEFAULT_INVOICE_TEMPLATE =
 interface EditItem {
   productId: string; productName: string
   unit: "PIECE" | "DOZEN" | "CARTON"; quantity: number; unitPrice: number
+  warehouseId?: string; warehouseName?: string
 }
 
 export function InvoiceDetailPage() {
@@ -178,18 +179,37 @@ export function InvoiceDetailPage() {
     setEditTax("0")
     setEditPaid(Number(invoice.paidAmount ?? 0).toLocaleString("en-US"))
     setEditPaymentType((invoice.paymentType as "CREDIT" | "CASH" | "PARTIAL") ?? "CREDIT")
-    setEditItems((invoice.items ?? []).map((it) => ({
-      productId: it.productId, productName: it.productName ?? it.productId,
-      unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "CARTON",
-      quantity: it.quantity, unitPrice: Number(it.unitPrice),
-    })))
+    setEditItems((invoice.items ?? []).map((it) => {
+      const wsId = it.warehouseId
+      const product = allProducts.find((p) => p.id === it.productId)
+      const wsName = wsId ? product?.warehouseStocks?.find((ws) => ws.warehouseId === wsId)?.warehouse?.name : undefined
+      return {
+        productId: it.productId, productName: it.productName ?? it.productId,
+        unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "CARTON",
+        quantity: it.quantity, unitPrice: Number(it.unitPrice),
+        warehouseId: wsId, warehouseName: wsName,
+      }
+    }))
     setEditOpen(true)
   }
 
   function addEditProduct(p: Product) {
+    const isSale = invoice?.type === "SALE"
+    let warehouseId: string | undefined
+    let warehouseName: string | undefined
+    if (isSale) {
+      const shopStock = p.shopStock ?? 0
+      if (shopStock === 0) {
+        const best = (p.warehouseStocks ?? [])
+          .filter((ws) => ws.quantityPieces > 0)
+          .sort((a, b) => b.quantityPieces - a.quantityPieces)[0]
+        if (best) { warehouseId = best.warehouseId; warehouseName = best.warehouse?.name }
+      }
+    }
     setEditItems((prev) => [...prev, {
       productId: p.id, productName: p.name, unit: "PIECE", quantity: 1,
       unitPrice: (invoice?.type === "PURCHASE" ? p.purchasePrice : p.salePrice) ?? 0,
+      warehouseId, warehouseName,
     }])
     setEditProductOpen(false); setEditProductSearch("")
   }
@@ -202,7 +222,7 @@ export function InvoiceDetailPage() {
       type: invoice?.type, customerId: invoice?.customerId ?? "",
       discount: Number(editDiscount), tax: 0, paidAmount: Number(editPaid.replace(/,/g, "")),
       paymentType: editPaymentType,
-      items: editItems.map((it) => ({ productId: it.productId, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice })),
+      items: editItems.map((it) => ({ productId: it.productId, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId })),
     }),
     onSuccess: () => {
       setEditOpen(false)
@@ -455,7 +475,10 @@ export function InvoiceDetailPage() {
               <TBody>
                 {editItems.map((it, i) => (
                   <TR key={i}>
-                    <TD className="text-sm font-medium">{it.productName}</TD>
+                    <TD className="text-sm font-medium">
+                      {it.productName}
+                      {it.warehouseName ? <span className="block text-xs text-slate-500">📦 {it.warehouseName}</span> : null}
+                    </TD>
                     <TD>
                       <select className="h-8 rounded border bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-950" value={it.unit}
                         onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, unit: e.target.value as "PIECE" | "DOZEN" | "CARTON" } : x))}>

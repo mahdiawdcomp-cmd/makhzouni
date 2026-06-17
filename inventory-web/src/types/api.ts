@@ -415,6 +415,7 @@ export interface InvoiceItem {
   invoiceId?: string
   productId: string
   productName?: string
+  warehouseId?: string
   unit: "PIECE" | "DOZEN" | "CARTON"
   quantity: number
   unitPrice: number
