@@ -426,7 +426,15 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
       lastAudit: latestAuditByRecord.get(voucher.id),
       status: undefined,
     })),
-  ].sort((a, b) => a.date.getTime() - b.date.getTime() || a.sortKey - b.sortKey);
+  // Sort by business day (UTC day, ignoring intra-day time) then by actual entry time.
+  // Invoice dates are stored as midnight UTC of the chosen day; voucher dates may carry
+  // a real timestamp when created without an explicit date from old clients. Using day-level
+  // precision ensures same-day invoices and vouchers fall in createdAt order.
+  ].sort((a, b) => {
+    const dayA = Math.floor(a.date.getTime() / 86_400_000);
+    const dayB = Math.floor(b.date.getTime() / 86_400_000);
+    return dayA - dayB || a.sortKey - b.sortKey;
+  });
 
   // Cancelled vouchers are shown in the ledger for audit but, like cancelled
   // invoices, must NOT affect the running balance (keeps it consistent with the

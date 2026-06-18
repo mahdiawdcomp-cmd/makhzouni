@@ -134,6 +134,7 @@ export function VouchersPage() {
         amount: Number(amount.replace(/,/g, "")),
         notes: notes || undefined,
         description: description || undefined,
+        date: localDateStr(),
       }),
     onSuccess: () => {
       setDialogOpen(false)
