@@ -6,6 +6,9 @@ import {
   triggerDailySummary,
   downloadBackup,
   sendTelegramBackup,
+  wipeOperational,
+  mergeWarehousesHandler,
+  getDangerInfo,
 } from "../controllers/settings.controller";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -32,5 +35,10 @@ router.post("/backup/run", adminOnly, triggerManualBackup);
 router.get("/backup/download", adminOnly, backupLimiter, downloadBackup);
 router.post("/backup/telegram", adminOnly, backupLimiter, sendTelegramBackup);
 router.post("/daily-summary/run", adminOnly, triggerDailySummary);
+
+// ── Danger zone (admin only) ────────────────────────────────────────────────
+router.get("/danger/info", adminOnly, getDangerInfo);
+router.post("/danger/wipe-operational", adminOnly, backupLimiter, wipeOperational);
+router.post("/danger/merge-warehouses", adminOnly, mergeWarehousesHandler);
 
 export default router;

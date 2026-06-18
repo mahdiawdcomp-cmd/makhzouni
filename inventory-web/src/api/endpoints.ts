@@ -668,6 +668,36 @@ export async function triggerDailySummary() {
   return data
 }
 
+// ── Danger zone ──────────────────────────────────────────────────────────────
+export async function getDangerInfo() {
+  const { data } = await api.get<ApiEnvelope<{ wipeConfirmPhrase: string }>>("/settings/danger/info")
+  return data.data
+}
+
+export interface WipeResult {
+  deleted: Record<string, number>
+  keptCustomers: number
+  keptUsers: number
+  keptBranches: number
+}
+
+export async function wipeOperationalData(confirm: string) {
+  const { data } = await api.post<ApiEnvelope<WipeResult>>("/settings/danger/wipe-operational", { confirm })
+  return data
+}
+
+export interface MergeWarehousesResult {
+  mainBranch: { id: string; name: string }
+  keptBranches: { id: string; name: string }[]
+  deletedBranches: { id: string; name: string }[]
+  reassignedCustomers: number
+}
+
+export async function mergeWarehouses(payload: { mainBranchId: string; mainName: string; keepBranchIds: string[] }) {
+  const { data } = await api.post<ApiEnvelope<MergeWarehousesResult>>("/settings/danger/merge-warehouses", payload)
+  return data
+}
+
 export async function getMessageTemplates() {
   const { data } = await api.get<ApiEnvelope<MessageTemplate[]>>("/message-templates")
   return data.data ?? []

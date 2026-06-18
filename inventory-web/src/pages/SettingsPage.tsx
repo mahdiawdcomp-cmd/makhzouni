@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  AlertTriangle,
   Archive,
   BadgePercent,
   BellRing,
@@ -23,8 +24,10 @@ import {
   Save,
   Send,
   ShieldCheck,
+  Trash2,
   Upload,
   Users,
+  Warehouse,
   WifiOff,
   XCircle,
 } from "lucide-react"
@@ -46,6 +49,9 @@ import {
   triggerDailySummary,
   downloadFullBackup,
   sendBackupToTelegram,
+  getDangerInfo,
+  wipeOperationalData,
+  mergeWarehouses,
 } from "../api/endpoints"
 import type { WhatsAppStatus } from "../api/endpoints"
 import type { AppSettings, MessageTemplate } from "../types/api"
@@ -128,7 +134,7 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive"
+type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "store",    label: "المتجر",        icon: Building2 },
@@ -139,6 +145,7 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "backup",   label: "النسخ الاحتياطي", icon: Download },
   { id: "admin",    label: "الإدارة",       icon: ShieldCheck },
   { id: "archive",  label: "الأرشيف",       icon: Archive },
+  { id: "danger",   label: "منطقة الخطر",   icon: AlertTriangle },
 ]
 
 export function SettingsPage() {
@@ -785,6 +792,214 @@ export function SettingsPage() {
       {activeTab === "archive" && (
         <ArchivePanel queryClient={queryClient} />
       )}
+
+      {/* ── DANGER ZONE ────────────────────────────────────── */}
+      {activeTab === "danger" && (
+        <DangerZonePanel
+          branches={branchesQuery.data ?? []}
+          onDownloadBackup={handleDownloadBackup}
+          downloadPending={downloadPending}
+          downloadMsg={downloadMsg}
+          onDone={() => {
+            queryClient.invalidateQueries({ queryKey: ["branches"] })
+            queryClient.invalidateQueries({ queryKey: ["products"] })
+            queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Danger Zone Panel ────────────────────────────────────────────────────────
+
+interface BranchLite { id: string; name: string }
+
+function DangerZonePanel({
+  branches,
+  onDownloadBackup,
+  downloadPending,
+  downloadMsg,
+  onDone,
+}: {
+  branches: BranchLite[]
+  onDownloadBackup: () => void
+  downloadPending: boolean
+  downloadMsg: string
+  onDone: () => void
+}) {
+  const dangerInfoQuery = useQuery({ queryKey: ["danger-info"], queryFn: getDangerInfo })
+  const confirmPhrase = dangerInfoQuery.data?.wipeConfirmPhrase ?? "مسح نهائي"
+
+  // ── Wipe state ──
+  const [backupConfirmed, setBackupConfirmed] = useState(false)
+  const [typedPhrase, setTypedPhrase] = useState("")
+  const [wipeMsg, setWipeMsg] = useState("")
+
+  const wipeMutation = useMutation({
+    mutationFn: () => wipeOperationalData(typedPhrase),
+    onSuccess: (res) => {
+      const d = res.data?.deleted
+      setWipeMsg(
+        `✓ تم المسح — حُذف: ${d?.products ?? 0} مادة، ${d?.invoices ?? 0} فاتورة، ${d?.vouchers ?? 0} سند. ` +
+        `بقي: ${res.data?.keptCustomers ?? 0} زبون، ${res.data?.keptUsers ?? 0} مستخدم.`,
+      )
+      setTypedPhrase("")
+      setBackupConfirmed(false)
+      onDone()
+    },
+    onError: (err: Error) => setWipeMsg(`✗ ${err.message}`),
+  })
+
+  // ── Merge state ──
+  const [mainBranchId, setMainBranchId] = useState("")
+  const [keepBranchId, setKeepBranchId] = useState("")
+  const [mainName, setMainName] = useState("المخزن الرئيسي")
+  const [mergeMsg, setMergeMsg] = useState("")
+
+  const mergeMutation = useMutation({
+    mutationFn: () =>
+      mergeWarehouses({
+        mainBranchId,
+        mainName: mainName.trim(),
+        keepBranchIds: keepBranchId ? [keepBranchId] : [],
+      }),
+    onSuccess: (res) => {
+      const deleted = res.data?.deletedBranches?.map((b) => b.name).join("، ") || "لا شيء"
+      setMergeMsg(
+        `✓ تم — المخزن الرئيسي: «${res.data?.mainBranch.name}». ` +
+        `حُذفت المخازن: ${deleted}. أُعيد ربط ${res.data?.reassignedCustomers ?? 0} زبون.`,
+      )
+      onDone()
+    },
+    onError: (err: Error) => setMergeMsg(`✗ ${err.message}`),
+  })
+
+  const canWipe = backupConfirmed && typedPhrase.trim() === confirmPhrase && !wipeMutation.isPending
+  const canMerge =
+    mainBranchId.length > 0 &&
+    mainName.trim().length > 0 &&
+    keepBranchId !== mainBranchId &&
+    !mergeMutation.isPending
+
+  return (
+    <div className="space-y-4">
+      {/* Backup-first banner */}
+      <Card className="border-amber-300 bg-amber-50/60 dark:bg-amber-950/20">
+        <CardContent className="p-5 space-y-3">
+          <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="h-5 w-5" />
+            <SectionTitle>اعمل نسخة احتياطية قبل أي مسح</SectionTitle>
+          </div>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            العمليات هنا لا يمكن التراجع عنها. حمّل نسخة كاملة أولاً (تحفظ بياناتك على جهازك حتى لو خلص الاشتراك).
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={onDownloadBackup} disabled={downloadPending} className="gap-2 bg-amber-600 hover:bg-amber-700 text-white">
+              {downloadPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <HardDrive className="h-4 w-4" />}
+              {downloadPending ? "جاري التصدير..." : "تحميل نسخة كاملة الآن"}
+            </Button>
+            {downloadMsg && (
+              <span className={`text-sm ${downloadMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>{downloadMsg}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Merge warehouses */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Warehouse className="h-5 w-5 text-slate-500" />
+            <SectionTitle>تنظيم المخازن (دمج)</SectionTitle>
+          </div>
+          <p className="text-sm text-slate-500">
+            اختر مخزناً ليصبح «المخزن الرئيسي» المدموج، ومخزناً آخر يبقى كما هو. أي مخزن غير مختار سيُدمج في الرئيسي ويُحذف.
+            نفّذ «مسح البيانات التشغيلية» أولاً لضمان نجاح الحذف.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="المخزن الرئيسي المدموج (سيُعاد تسميته)">
+              <select
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-600 dark:bg-slate-800"
+                value={mainBranchId}
+                onChange={(e) => setMainBranchId(e.target.value)}
+              >
+                <option value="">— اختر —</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="اسم المخزن الرئيسي الجديد">
+              <Input value={mainName} onChange={(e) => setMainName(e.target.value)} placeholder="المخزن الرئيسي" />
+            </Field>
+            <Field label="المخزن الثاني (يبقى كما هو)">
+              <select
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-600 dark:bg-slate-800"
+                value={keepBranchId}
+                onChange={(e) => setKeepBranchId(e.target.value)}
+              >
+                <option value="">— اختر —</option>
+                {branches.filter((b) => b.id !== mainBranchId).map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={() => { setMergeMsg(""); mergeMutation.mutate() }} disabled={!canMerge} variant="outline" className="gap-2">
+              {mergeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Warehouse className="h-4 w-4" />}
+              {mergeMutation.isPending ? "جاري الدمج..." : "تنفيذ الدمج"}
+            </Button>
+            {mergeMsg && (
+              <span className={`text-sm ${mergeMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>{mergeMsg}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Wipe operational data */}
+      <Card className="border-rose-300">
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center gap-2 text-rose-600">
+            <Trash2 className="h-5 w-5" />
+            <SectionTitle>مسح البيانات التشغيلية</SectionTitle>
+          </div>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            يحذف نهائياً: المواد، الفواتير، السندات، عروض الأسعار، حركات المخزون، التحويلات، الجرد، الطلبات، الكوبونات.
+            <br />
+            <span className="font-semibold text-emerald-700 dark:text-emerald-400">يبقى محفوظاً:</span> الزبائن، حسابات الدخول، الإعدادات، المخازن.
+          </p>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={backupConfirmed} onChange={(e) => setBackupConfirmed(e.target.checked)} className="h-4 w-4" />
+            أكّدت أني حمّلت نسخة احتياطية كاملة
+          </label>
+
+          <Field label={`اكتب عبارة التأكيد بالضبط: «${confirmPhrase}»`}>
+            <Input
+              value={typedPhrase}
+              onChange={(e) => setTypedPhrase(e.target.value)}
+              placeholder={confirmPhrase}
+              disabled={!backupConfirmed}
+            />
+          </Field>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => { setWipeMsg(""); wipeMutation.mutate() }}
+              disabled={!canWipe}
+              className="gap-2 bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-40"
+            >
+              {wipeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {wipeMutation.isPending ? "جاري المسح..." : "مسح البيانات التشغيلية نهائياً"}
+            </Button>
+            {wipeMsg && (
+              <span className={`text-sm ${wipeMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>{wipeMsg}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
