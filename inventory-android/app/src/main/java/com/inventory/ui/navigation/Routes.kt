@@ -2,6 +2,7 @@ package com.inventory.ui.navigation
 
 object Routes {
     const val Splash = "splash"
+    const val SerialActivation = "serial-activation"
     const val Login = "login"
     const val Dashboard = "dashboard"
     const val Users = "users"
@@ -41,6 +42,7 @@ object Routes {
     const val QuotationCreate = "operations/quotations/new"
     const val Transfers = "operations/transfers"
     const val Branches = "operations/branches"
+    const val BranchDetail = "operations/branches/{branchId}"
     const val Coupons = "operations/coupons"
     const val AuditLogs = "operations/audit-logs"
     const val RetailOrders = "operations/retail-orders"
@@ -49,6 +51,7 @@ object Routes {
     fun productEdit(productId: String) = "products/$productId/edit"
     fun productAdd(qrCode: String = "", name: String = "") = "products/new?qrCode=${android.net.Uri.encode(qrCode)}&name=${android.net.Uri.encode(name)}"
     fun productMovement(productId: String) = "products/$productId/movement"
+    fun branchDetail(branchId: String) = "operations/branches/$branchId"
     fun customerDetail(customerId: String) = "customers/$customerId"
     fun customerStatement(customerId: String) = "customers/$customerId/statement"
     fun receipt(customerId: String = "") = "receipts/new?customerId=$customerId"

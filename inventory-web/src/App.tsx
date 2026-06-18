@@ -1,4 +1,6 @@
 import { lazy, Suspense, type ReactNode } from "react"
+import { useTenantConfig } from "./hooks/useTenantConfig"
+import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
@@ -125,5 +127,10 @@ const router = createBrowserRouter([
 ])
 
 export default function App() {
+  const { data: tenant } = useTenantConfig()
+
+  if (tenant?.isSuspended) return <SubscriptionExpiredPage suspended />
+  if (tenant?.isExpired)    return <SubscriptionExpiredPage />
+
   return <RouterProvider router={router} />
 }

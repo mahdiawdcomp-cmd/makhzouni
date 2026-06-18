@@ -62,6 +62,10 @@ class SessionManager @Inject constructor(
     private val invoiceTemplateKey = stringPreferencesKey("invoice_template")
     private val debtTemplateKey = stringPreferencesKey("debt_template")
     private val inactiveTemplateKey = stringPreferencesKey("inactive_template")
+    private val appThemeKey = stringPreferencesKey("app_theme")
+    private val serialCodeKey = stringPreferencesKey("activated_serial")
+    private val tenantFeaturesKey = stringPreferencesKey("tenant_features")
+    private val subscriptionExpiresAtKey = stringPreferencesKey("subscription_expires_at")
 
     private val preferencesFlow = context.dataStore.data.catch { emit(emptyPreferences()) }
 
@@ -94,9 +98,16 @@ class SessionManager @Inject constructor(
             inactiveCustomerDays = it[inactiveCustomerDaysKey] ?: 30,
             invoiceTemplate = it[invoiceTemplateKey] ?: "فاتورتك من {storeName}: {invoiceNumber} بتاريخ {date}",
             debtTemplate = it[debtTemplateKey] ?: "مرحباً {customerName}، لديك مبلغ {amount} مستحق منذ {daysLate} يوم.",
-            inactiveTemplate = it[inactiveTemplateKey] ?: "اشتقنالك في {storeName}. يسعدنا رجوعك بأي وقت."
+            inactiveTemplate = it[inactiveTemplateKey] ?: "اشتقنالك في {storeName}. يسعدنا رجوعك بأي وقت.",
+            appTheme = it[appThemeKey] ?: "PROFESSIONAL"
         )
     }
+    val appTheme = preferencesFlow.map { it[appThemeKey] ?: "PROFESSIONAL" }
+    val serialCode = preferencesFlow.map { it[serialCodeKey] }
+    val tenantFeatures = preferencesFlow.map {
+        it[tenantFeaturesKey]?.split(",")?.filter { f -> f.isNotBlank() }.orEmpty()
+    }
+    val subscriptionExpiresAt = preferencesFlow.map { it[subscriptionExpiresAtKey] }
 
     @Volatile
     private var cachedToken: String? = null
@@ -151,6 +162,22 @@ class SessionManager @Inject constructor(
         }
     }
 
+    suspend fun hasActivatedSerial(): Boolean {
+        return serialCode.first()?.isNotBlank() == true
+    }
+
+    suspend fun saveActivation(serial: String, backendUrl: String, features: List<String>, expiresAt: String?) {
+        val normalized = normalizeApiBaseUrl(backendUrl)
+        cachedBaseUrl = normalized
+        context.dataStore.edit {
+            it[serialCodeKey] = serial
+            it[baseUrlKey] = normalized
+            it[tenantFeaturesKey] = features.joinToString(",")
+            if (expiresAt != null) it[subscriptionExpiresAtKey] = expiresAt
+            else it.remove(subscriptionExpiresAtKey)
+        }
+    }
+
     suspend fun saveStoreSettings(settings: StoreSettings) {
         val normalizedBaseUrl = normalizeApiBaseUrl(settings.baseUrl)
         cachedBaseUrl = normalizedBaseUrl
@@ -168,6 +195,7 @@ class SessionManager @Inject constructor(
             it[invoiceTemplateKey] = settings.invoiceTemplate
             it[debtTemplateKey] = settings.debtTemplate
             it[inactiveTemplateKey] = settings.inactiveTemplate
+            it[appThemeKey] = settings.appTheme
         }
     }
 }
@@ -185,5 +213,6 @@ data class StoreSettings(
     val inactiveCustomerDays: Int,
     val invoiceTemplate: String,
     val debtTemplate: String,
-    val inactiveTemplate: String
+    val inactiveTemplate: String,
+    val appTheme: String = "PROFESSIONAL"
 )

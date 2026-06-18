@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.repository.AuthRepository
+import com.inventory.data.repository.SessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -11,6 +12,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+sealed class SplashDestination {
+    object SerialActivation : SplashDestination()
+    object Login : SplashDestination()
+    object Dashboard : SplashDestination()
+}
 
 data class LoginUiState(
     val username: String = "",
@@ -55,18 +62,25 @@ class LoginViewModel @Inject constructor(
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val sessionManager: SessionManager
 ) : ViewModel() {
-    private val _ready = MutableStateFlow<Boolean?>(null)
-    val ready: StateFlow<Boolean?> = _ready.asStateFlow()
+    private val _destination = MutableStateFlow<SplashDestination?>(null)
+    val destination: StateFlow<SplashDestination?> = _destination.asStateFlow()
 
     init {
         viewModelScope.launch {
             try {
-                delay(2_000)
-                _ready.value = authRepository.hasRememberedSession()
+                delay(800)
+                val hasSerial = sessionManager.hasActivatedSerial()
+                if (!hasSerial) {
+                    _destination.value = SplashDestination.SerialActivation
+                    return@launch
+                }
+                val hasSession = authRepository.hasRememberedSession()
+                _destination.value = if (hasSession) SplashDestination.Dashboard else SplashDestination.Login
             } catch (e: Exception) {
-                _ready.value = false
+                _destination.value = SplashDestination.Login
             }
         }
     }

@@ -30,14 +30,16 @@ fun SplashScreen(
     viewModel: SplashViewModel,
     onLoggedIn: () -> Unit,
     onLoginRequired: () -> Unit,
+    onSerialRequired: () -> Unit = {},
 ) {
-    val ready by viewModel.ready.collectAsState()
+    val destination by viewModel.destination.collectAsState()
 
-    LaunchedEffect(ready) {
-        when (ready) {
-            true  -> onLoggedIn()
-            false -> onLoginRequired()
-            null  -> Unit
+    LaunchedEffect(destination) {
+        when (destination) {
+            is SplashDestination.Dashboard        -> onLoggedIn()
+            is SplashDestination.Login            -> onLoginRequired()
+            is SplashDestination.SerialActivation -> onSerialRequired()
+            null                                  -> Unit
         }
     }
 

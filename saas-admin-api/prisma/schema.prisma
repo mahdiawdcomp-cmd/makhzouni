@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+enum SerialType {
+  ANDROID
+  WEB
+}
+
+model Tenant {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String
+  subdomain    String       @unique
+  backendUrl   String       @map("backend_url")
+  status       TenantStatus @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  subscriptions Subscription[]
+  serialNumbers SerialNumber[]
+
+  @@map("tenants")
+}
+
+model Subscription {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan         String    // "TRIAL" | "BASIC" | "FULL"
+  startsAt     DateTime  @default(now()) @map("starts_at")
+  expiresAt    DateTime? @map("expires_at")
+  maxInvoices  Int?      @map("max_invoices")
+  maxCustomers Int?      @map("max_customers")
+  features     String[]  // ["ANDROID","CATALOG","AI","MULTI_WAREHOUSE"]
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("subscriptions")
+}
+
+model SerialNumber {
+  id           String     @id @default(uuid()) @db.Uuid
+  code         String     @unique
+  tenantId     String     @map("tenant_id") @db.Uuid
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type         SerialType @default(ANDROID)
+  label        String?    // e.g. "Warehouse device", "Main store"
+  activatedAt  DateTime?  @map("activated_at")
+  activatedBy  String?    @map("activated_by") // device fingerprint
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@map("serial_numbers")
+}
+
+model AdminUser {
+  id           String   @id @default(uuid()) @db.Uuid
+  username     String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("admin_users")
+}

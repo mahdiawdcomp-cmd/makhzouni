@@ -33,14 +33,24 @@ android {
                 "API_BASE_URL",
                 "https://inventory-backend-production-7e85.up.railway.app/api/"
             )
+            val debugAdminUrl = localProperties.getProperty(
+                "SUPER_ADMIN_API_URL",
+                "https://saas-admin-api.up.railway.app"
+            )
             buildConfigField("String", "API_BASE_URL", "\"$debugApiUrl\"")
+            buildConfigField("String", "SUPER_ADMIN_API_URL", "\"$debugAdminUrl\"")
         }
         release {
             val releaseApiUrl =
                 (findProperty("RAILWAY_URL") as String?)
                     ?: localProperties.getProperty("RAILWAY_URL")
                     ?: "https://inventory-backend-production-7e85.up.railway.app/api/"
+            val releaseAdminUrl =
+                (findProperty("SUPER_ADMIN_API_URL") as String?)
+                    ?: localProperties.getProperty("SUPER_ADMIN_API_URL")
+                    ?: "https://saas-admin-api.up.railway.app"
             buildConfigField("String", "API_BASE_URL", "\"$releaseApiUrl\"")
+            buildConfigField("String", "SUPER_ADMIN_API_URL", "\"$releaseAdminUrl\"")
             isMinifyEnabled = false
         }
     }

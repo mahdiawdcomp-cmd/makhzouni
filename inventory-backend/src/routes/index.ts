@@ -29,10 +29,14 @@ import licenseRoutes from "./license.routes";
 import clientsRoutes from "./clients.routes";
 import paymentsRoutes from "./payments.routes";
 import retailCatalogRoutes from "./retail-catalog.routes";
+import realtimeRoutes from "./realtime.routes";
+import tenantInfoRoutes from "./tenant-info.routes";
 
 const router = Router();
 
+router.use("/tenant-info", tenantInfoRoutes);
 router.use("/public", publicRoutes);
+router.use("/realtime", realtimeRoutes);
 router.use("/agent", agentRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);

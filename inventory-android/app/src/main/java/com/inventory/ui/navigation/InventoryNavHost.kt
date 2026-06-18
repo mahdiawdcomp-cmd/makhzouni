@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Badge
@@ -65,6 +66,7 @@ import com.inventory.ui.operations.RetailOrdersScreen
 import com.inventory.ui.operations.QuotationsScreen
 import com.inventory.ui.operations.SalesOperationScreen
 import com.inventory.ui.operations.TransfersScreen
+import com.inventory.ui.operations.WarehouseDetailsScreen
 import com.inventory.ui.products.ProductDetailScreen
 import com.inventory.ui.products.ProductFormScreen
 import com.inventory.ui.products.ProductListScreen
@@ -77,6 +79,7 @@ import com.inventory.ui.users.UserManagementScreen
 import com.inventory.ui.catalog.CatalogManagementScreen
 import com.inventory.ui.voice.VoiceInvoiceScreen
 import com.inventory.ui.voice.OcrInvoiceScreen
+import com.inventory.ui.auth.SerialActivationScreen
 
 @Composable
 fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) {
@@ -84,7 +87,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
     val shellState by shellViewModel.state.collectAsState()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showShell = currentRoute !in listOf(Routes.Splash, Routes.Login, Routes.ProductScanner)
+    val showShell = currentRoute !in listOf(Routes.Splash, Routes.Login, Routes.SerialActivation, Routes.ProductScanner)
 
     Scaffold(
         topBar = {
@@ -120,16 +123,15 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     tonalElevation = 0.dp,
                     modifier = Modifier.navigationBarsPadding()
                 ) {
-                    val canViewReports = shellState.isAdmin || shellState.permissions.contains("VIEW_REPORTS")
                     listOf(
-                        BottomItem("الرئيسية", Routes.Dashboard, Icons.Default.Home, 0),
-                        BottomItem("المخزن", Routes.Products, Icons.Default.Inventory2, 0),
-                        BottomItem("الفواتير", Routes.Invoices, Icons.Default.ReceiptLong, 0),
-                        BottomItem("الزبائن", Routes.Customers, Icons.Default.Groups, 0),
-                        if (canViewReports) BottomItem("التقارير", Routes.Reports, Icons.Default.BarChart, reportBadge) else null,
-                    ).filterNotNull().forEach { item ->
+                        BottomItem("الرئيسية", Routes.Dashboard, Icons.Default.Home, 0, listOf(Routes.Dashboard)),
+                        BottomItem("المخزن", Routes.Products, Icons.Default.Inventory2, 0, listOf("products", Routes.Transfers, Routes.Branches)),
+                        BottomItem("الفواتير", Routes.Invoices, Icons.Default.ReceiptLong, 0, listOf("invoices", Routes.Pos, Routes.Returns, Routes.Quotations)),
+                        BottomItem("الزبائن", Routes.Customers, Icons.Default.Groups, 0, listOf("customers", Routes.AccountLookup, Routes.CatalogManagement, Routes.RetailOrders)),
+                        BottomItem("المزيد", Routes.Operations, Icons.Default.MoreHoriz, reportBadge, listOf(Routes.Operations, Routes.Vouchers, Routes.Reports, Routes.Settings, Routes.Users, Routes.Approvals, Routes.Coupons, Routes.AuditLogs)),
+                    ).forEach { item ->
                         NavigationBarItem(
-                            selected = currentRoute == item.route,
+                            selected = item.matches(currentRoute),
                             onClick = {
                                 navController.navigate(item.route) {
                                     launchSingleTop = true
@@ -174,7 +176,14 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     SplashScreen(
                         viewModel = hiltViewModel(),
                         onLoggedIn = { navController.navigate(Routes.Dashboard) { popUpTo(Routes.Splash) { inclusive = true } } },
-                        onLoginRequired = { navController.navigate(Routes.Login) { popUpTo(Routes.Splash) { inclusive = true } } }
+                        onLoginRequired = { navController.navigate(Routes.Login) { popUpTo(Routes.Splash) { inclusive = true } } },
+                        onSerialRequired = { navController.navigate(Routes.SerialActivation) { popUpTo(Routes.Splash) { inclusive = true } } }
+                    )
+                }
+                composable(Routes.SerialActivation) {
+                    SerialActivationScreen(
+                        viewModel = hiltViewModel(),
+                        onActivated = { navController.navigate(Routes.Login) { popUpTo(Routes.SerialActivation) { inclusive = true } } }
                     )
                 }
                 composable(Routes.Login) {
@@ -201,6 +210,15 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onAgent = { navController.navigate(Routes.Agent) },
                         onCatalogManagement = { navController.navigate(Routes.CatalogManagement) },
                         onOperations = { navController.navigate(Routes.Operations) },
+                        onPos = { navController.navigate(Routes.Pos) },
+                        onReturns = { navController.navigate(Routes.Returns) },
+                        onQuotations = { navController.navigate(Routes.Quotations) },
+                        onTransfers = { navController.navigate(Routes.Transfers) },
+                        onBranches = { navController.navigate(Routes.Branches) },
+                        onCoupons = { navController.navigate(Routes.Coupons) },
+                        onAudit = { navController.navigate(Routes.AuditLogs) },
+                        onRetailOrders = { navController.navigate(Routes.RetailOrders) },
+                        onOcrInvoice = { navController.navigate(Routes.OcrInvoice) },
                     )
                 }
                 composable(Routes.Users) { UserManagementScreen(viewModel = hiltViewModel()) }
@@ -249,7 +267,16 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     )
                 }
                 composable(Routes.ProductEdit) { ProductFormScreen(viewModel = hiltViewModel(), onDone = { navController.popBackStack() }) }
-                composable(Routes.ProductMovement) { ProductMovementScreen(viewModel = hiltViewModel(), onOpenInvoice = { }) }
+                composable(Routes.ProductMovement) {
+                    ProductMovementScreen(
+                        viewModel = hiltViewModel(),
+                        onOpenInvoice = { invoiceId ->
+                            if (invoiceId.isNotBlank()) {
+                                navController.navigate(Routes.invoiceDetail(invoiceId))
+                            }
+                        }
+                    )
+                }
                 composable(Routes.Customers) {
                     CustomerListScreen(
                         viewModel = hiltViewModel(),
@@ -456,7 +483,20 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     SalesOperationScreen("QUOTATION", "عرض سعر", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                 }
                 composable(Routes.Transfers) { TransfersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
-                composable(Routes.Branches) { BranchesScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.Branches) {
+                    BranchesScreen(
+                        viewModel = hiltViewModel(),
+                        onBack = { navController.popBackStack() },
+                        onOpenWarehouse = { navController.navigate(Routes.branchDetail(it)) }
+                    )
+                }
+                composable(Routes.BranchDetail) {
+                    WarehouseDetailsScreen(
+                        viewModel = hiltViewModel(),
+                        onBack = { navController.popBackStack() },
+                        onOpenProduct = { navController.navigate(Routes.productDetail(it)) }
+                    )
+                }
                 composable(Routes.Coupons) { CouponsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.AuditLogs) { AuditLogsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.RetailOrders) { RetailOrdersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
@@ -479,5 +519,11 @@ private data class BottomItem(
     val label: String,
     val route: String,
     val icon: ImageVector,
-    val badge: Int
-)
+    val badge: Int,
+    val matchPrefixes: List<String> = listOf(route),
+) {
+    fun matches(currentRoute: String?): Boolean {
+        val routeValue = currentRoute ?: return false
+        return matchPrefixes.any { prefix -> routeValue == prefix || routeValue.startsWith(prefix.substringBefore("{")) }
+    }
+}

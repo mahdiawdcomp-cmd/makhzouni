@@ -24,12 +24,15 @@ import { verifyLicense } from "./services/license.service";
 import { errorHandler } from "./middleware/error-handler.middleware";
 import { requestLogger } from "./middleware/request-logger.middleware";
 import { auditLogMiddleware } from "./middleware/audit-log.middleware";
+import { realtimeMutationMiddleware } from "./middleware/realtime.middleware";
 import { AppError } from "./utils/app-error";
 import { startNotificationJobs } from "./services/notification-jobs.service";
 import { initializeWhatsApp } from "./services/whatsapp.service";
 import { getSettings } from "./services/settings.service";
 import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger } from "./utils/logger";
+import { realtimeHeartbeat } from "./services/realtime.service";
+import { requireActiveSubscription } from "./middleware/tenant.middleware";
 
 const app = express();
 const port = Number(process.env.PORT ?? 5000);
@@ -67,11 +70,21 @@ app.use(cors({
 app.use(express.json({ limit: "8mb" }));   // صور base64 تحتاج حد أكبر
 app.use(requestLogger);
 app.use(auditLogMiddleware);
+app.use(realtimeMutationMiddleware);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "inventory-backend" });
 });
 
+// When TENANT_ID is set, block all API calls if subscription is suspended/expired.
+// /api/tenant-info and /api/public are exempt (needed to show the expired page).
+if (process.env.TENANT_ID) {
+  app.use("/api", (req, res, next) => {
+    const exempt = req.path.startsWith("/tenant-info") || req.path.startsWith("/public");
+    if (exempt) return next();
+    requireActiveSubscription(req, res, next);
+  });
+}
 app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {
   next(new AppError("Route not found", 404, "ROUTE_NOT_FOUND"));
@@ -88,6 +101,7 @@ process.on("unhandledRejection", (reason) => {
 
 app.listen(port, "0.0.0.0", () => {
   logger.info(`Inventory backend is running on port ${port}`);
+  setInterval(realtimeHeartbeat, 25_000).unref();
   // Verify license on startup (non-fatal — system runs even without license)
   verifyLicense();
   startNotificationJobs();
