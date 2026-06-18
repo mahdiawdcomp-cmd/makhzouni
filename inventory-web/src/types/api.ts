@@ -416,10 +416,37 @@ export interface InvoiceItem {
   productId: string
   productName?: string
   warehouseId?: string
+  warehouseName?: string | null
   unit: "PIECE" | "DOZEN" | "CARTON"
   quantity: number
   unitPrice: number
   totalPrice: number
+}
+
+export type LossReason = "DAMAGE" | "EXPIRY" | "THEFT" | "DEFECT" | "OTHER"
+
+export interface StockLossItem {
+  id: string
+  lossId: string
+  productId: string
+  productName: string
+  unit: "PIECE" | "DOZEN" | "CARTON"
+  quantity: number
+  product?: { id: string; name: string; pcsPerCarton: number }
+}
+
+export interface StockLoss {
+  id: string
+  lossNumber: string
+  date: string
+  warehouseId: string
+  warehouse: { id: string; name: string }
+  reason: LossReason
+  notes?: string | null
+  cancelledAt?: string | null
+  createdAt: string
+  creator?: { id: string; name: string; username: string }
+  items: StockLossItem[]
 }
 
 export interface CreateInvoicePayload {

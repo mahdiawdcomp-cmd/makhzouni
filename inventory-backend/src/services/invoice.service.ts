@@ -82,6 +82,7 @@ function serializeInvoice(invoice: any) {
       ...item,
       unitPrice: toNumber(item.unitPrice),
       totalPrice: toNumber(item.totalPrice),
+      warehouseName: item.warehouse?.name ?? null,
     })),
   };
 }
@@ -733,7 +734,10 @@ export async function getInvoiceById(id: string) {
     include: {
       customer: true,
       items: {
-        include: { product: true },
+        include: {
+          product: true,
+          warehouse: { select: { id: true, name: true } },
+        },
       },
       stockMovements: true,
       creator: {

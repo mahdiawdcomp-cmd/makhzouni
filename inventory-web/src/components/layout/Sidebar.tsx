@@ -2,6 +2,7 @@ import { useState, type ComponentType } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import {
+  AlertTriangle,
   ArrowRightLeft,
   BarChart3,
   Boxes,
@@ -92,6 +93,7 @@ const navItems: Item[] = [
       { to: "/vouchers?type=EXPENSE", label: "المصاريف", icon: Wallet, dotColor: "#F87171" },
     ],
   },
+  { to: "/losses", label: "التلف والخسائر", icon: AlertTriangle },
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
   { to: "/account", label: "كشف الحساب", icon: Search },

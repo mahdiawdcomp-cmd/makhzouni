@@ -1,4 +1,4 @@
-import { api, publicApi } from "./client"
+﻿import { api, publicApi } from "./client"
 import type {
   ApiEnvelope,
   AppSettings,
@@ -70,6 +70,8 @@ import type {
   AiChatResponse,
   ReferralInfo,
   CustomerReferral,
+  StockLoss,
+  LossReason,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -1223,4 +1225,25 @@ export async function getPublicReferralInfo(code: string) {
 export async function getPublicCustomerReferral(phone: string) {
   const { data } = await publicApi.get<ApiEnvelope<CustomerReferral | null>>("/public/retail/my-referral", { params: { phone } })
   return data.data ?? null
+}
+
+export async function listStockLosses(params?: { from?: string; to?: string; warehouseId?: string; page?: number }) {
+  const { data } = await api.get<ApiEnvelope<{ data: StockLoss[]; pagination: { total: number; page: number; limit: number; pages: number } }>>("/stock-losses", { params })
+  return data.data!
+}
+
+export async function createStockLoss(payload: {
+  date: string
+  warehouseId: string
+  reason: LossReason
+  notes?: string
+  items: Array<{ productId: string; unit: string; quantity: number }>
+}) {
+  const { data } = await api.post<ApiEnvelope<StockLoss>>("/stock-losses", payload)
+  return data.data!
+}
+
+export async function cancelStockLoss(id: string) {
+  const { data } = await api.patch<ApiEnvelope<StockLoss>>(`/stock-losses/${id}/cancel`)
+  return data.data!
 }

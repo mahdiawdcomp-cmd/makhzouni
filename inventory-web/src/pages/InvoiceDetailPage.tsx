@@ -553,16 +553,54 @@ export function InvoiceDetailPage() {
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog
-        open={confirmCancel}
-        title="إلغاء هذه الفاتورة؟"
-        description="سيتم إلغاء تأثيرها على الحساب والمخزون."
-        confirmLabel="إلغاء الفاتورة"
-        destructive
-        loading={cancelMutation.isPending}
-        onConfirm={() => { setConfirmCancel(false); cancelMutation.mutate() }}
-        onCancel={() => setConfirmCancel(false)}
-      />
+      {/* Cancel / Permanent-delete dialogs show WHERE each item's stock goes back */}
+      {(confirmCancel || confirmPermanentDelete) && invoice && (
+        <Dialog open onOpenChange={(v) => { if (!v) { setConfirmCancel(false); setConfirmPermanentDelete(false) } }}>
+          <DialogContent className="max-w-sm" dir="rtl">
+            <DialogHeader>
+              <DialogTitle className="text-rose-600">
+                {confirmCancel ? "تعطيل الفاتورة؟" : "حذف الفاتورة نهائياً؟"}
+              </DialogTitle>
+            </DialogHeader>
+            {invoice.type === "SALE" && invoice.items && invoice.items.length > 0 && (
+              <>
+                <p className="text-sm text-slate-600 dark:text-slate-400">المخزون الذي سيُرجع:</p>
+                <div className="space-y-1 rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-900">
+                  {invoice.items.map((it) => (
+                    <div key={it.id} className="flex justify-between gap-2">
+                      <span className="font-medium">{it.productName}</span>
+                      <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                        +{it.quantity} {it.unit === "CARTON" ? "كرتونة" : it.unit === "DOZEN" ? "درزن" : "قطعة"}
+                        {" → "}
+                        <span className="font-bold">{it.warehouseName ?? "المحل"}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {confirmPermanentDelete && (
+              <p className="text-xs text-rose-600">⚠ لا يمكن التراجع عن الحذف النهائي.</p>
+            )}
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setConfirmCancel(false); setConfirmPermanentDelete(false) }}>تراجع</Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                disabled={cancelMutation.isPending || permanentDeleteMutation.isPending}
+                onClick={() => {
+                  if (confirmCancel) { setConfirmCancel(false); cancelMutation.mutate() }
+                  else { setConfirmPermanentDelete(false); permanentDeleteMutation.mutate() }
+                }}
+              >
+                {cancelMutation.isPending || permanentDeleteMutation.isPending
+                  ? "..."
+                  : confirmCancel ? "تعطيل" : "حذف نهائي"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       <ConfirmDialog
         open={confirmReactivate}
         title="إرجاع الفاتورة نشطة؟"
@@ -571,16 +609,6 @@ export function InvoiceDetailPage() {
         loading={reactivateMutation.isPending}
         onConfirm={() => { setConfirmReactivate(false); reactivateMutation.mutate() }}
         onCancel={() => setConfirmReactivate(false)}
-      />
-      <ConfirmDialog
-        open={confirmPermanentDelete}
-        title="حذف الفاتورة نهائياً؟"
-        description="سيتم حذف الفاتورة بشكل دائم من قاعدة البيانات مع إرجاع أثرها على المخزون والحساب. لا يمكن التراجع عن هذا الإجراء."
-        confirmLabel="حذف نهائي"
-        destructive
-        loading={permanentDeleteMutation.isPending}
-        onConfirm={() => { setConfirmPermanentDelete(false); permanentDeleteMutation.mutate() }}
-        onCancel={() => setConfirmPermanentDelete(false)}
       />
     </div>
   )

@@ -49,6 +49,7 @@ const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "Stocktake
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
+const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
 
 function PageLoader() {
   return (
@@ -92,6 +93,7 @@ const router = createBrowserRouter([
           { path: "quotations", element: s(<QuotationsPage />) },
           { path: "vouchers", element: s(<VouchersPage />) },
           { path: "vouchers/:id", element: s(<VoucherDetailPage />) },
+          { path: "losses", element: s(<LossesPage />) },
           { path: "customers", element: s(<CustomersPage />) },
           { path: "customers/broadcast", element: s(<CustomerBroadcastPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },

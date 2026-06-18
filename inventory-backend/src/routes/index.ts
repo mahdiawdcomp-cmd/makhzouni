@@ -31,6 +31,7 @@ import paymentsRoutes from "./payments.routes";
 import retailCatalogRoutes from "./retail-catalog.routes";
 import realtimeRoutes from "./realtime.routes";
 import tenantInfoRoutes from "./tenant-info.routes";
+import stockLossRoutes from "./stock-loss.routes";
 
 const router = Router();
 
@@ -66,5 +67,6 @@ router.use("/license", licenseRoutes);
 router.use("/clients", clientsRoutes);
 router.use("/payments", paymentsRoutes);
 router.use("/retail-catalog", retailCatalogRoutes);
+router.use("/stock-losses", stockLossRoutes);
 
 export default router;

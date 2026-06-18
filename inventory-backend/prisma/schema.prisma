@@ -69,6 +69,50 @@ enum TransferStatus {
 enum StockMovementType {
   IN
   OUT
+  DAMAGE
+}
+
+enum LossReason {
+  DAMAGE
+  EXPIRY
+  THEFT
+  DEFECT
+  OTHER
+}
+
+model StockLoss {
+  id           String         @id @default(uuid()) @db.Uuid
+  lossNumber   String         @unique @map("loss_number")
+  date         DateTime
+  warehouseId  String         @map("warehouse_id") @db.Uuid
+  warehouse    Branch         @relation("StockLossWarehouse", fields: [warehouseId], references: [id])
+  reason       LossReason     @default(DAMAGE)
+  notes        String?        @db.Text
+  cancelledAt  DateTime?      @map("cancelled_at")
+  createdBy    String         @map("created_by") @db.Uuid
+  creator      User           @relation("StockLossCreatedBy", fields: [createdBy], references: [id])
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  items        StockLossItem[]
+
+  @@index([date])
+  @@index([warehouseId])
+  @@map("stock_losses")
+}
+
+model StockLossItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  lossId      String    @map("loss_id") @db.Uuid
+  loss        StockLoss @relation(fields: [lossId], references: [id], onDelete: Cascade)
+  productId   String    @map("product_id") @db.Uuid
+  product     Product   @relation("StockLossItems", fields: [productId], references: [id])
+  productName String    @map("product_name")
+  unit        Unit
+  quantity    Int
+
+  @@index([lossId])
+  @@index([productId])
+  @@map("stock_loss_items")
 }
 
 model User {
@@ -94,6 +138,7 @@ model User {
   createdTransfers   InventoryTransfer[] @relation("TransferCreatedBy")
   preparedOrders     OrderPreparation[]  @relation("PreparedByUser")
   stocktakeSessions  StocktakeSession[]
+  stockLosses        StockLoss[]         @relation("StockLossCreatedBy")
 
   @@map("users")
 }
@@ -117,6 +162,7 @@ model Branch {
   transfersOut       InventoryTransfer[] @relation("TransfersOut")
   transfersIn        InventoryTransfer[] @relation("TransfersIn")
   stocktakeSessions  StocktakeSession[]
+  stockLosses        StockLoss[]         @relation("StockLossWarehouse")
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
@@ -154,6 +200,7 @@ model Product {
   stocktakeItems    StocktakeItem[]
   warehouseStocks  ProductWarehouseStock[]
   retailItems       RetailCatalogItem[] @relation("RetailItemProduct")
+  stockLossItems    StockLossItem[]     @relation("StockLossItems")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   deletedAt         DateTime?       @map("deleted_at")
@@ -533,6 +580,7 @@ model StockMovement {
   branch        Branch?           @relation(fields: [branchId], references: [id])
   invoiceId     String?           @map("invoice_id") @db.Uuid
   invoice       Invoice?          @relation(fields: [invoiceId], references: [id])
+  lossId        String?           @map("loss_id") @db.Uuid
   type          StockMovementType
   quantity      Int
   balanceBefore Int               @map("balance_before")
