@@ -581,6 +581,41 @@ export function InvoiceCreatePage() {
     doAddProduct(product)
   }
 
+  // Split a line item across warehouses when qty > shopStock.
+  // Example: order 20, shop has 10 → line1: 10 from shop, line2: 10 from next warehouse.
+  function splitLineAcrossWarehouses(index: number) {
+    const item = items[index]
+    if (!item) return
+    const shopPcs = item.product.shopStock ?? 0
+    const itemPcs =
+      item.unit === "CARTON" ? item.quantity * item.product.pcsPerCarton
+      : item.unit === "DOZEN" ? item.quantity * 12
+      : item.quantity
+    const remaining = itemPcs - shopPcs
+    if (remaining <= 0) return
+    // Find warehouse with most remaining stock (excluding shop/undefined)
+    const otherWhs = (item.product.warehouseStocks ?? [])
+      .filter((ws) => ws.quantityPieces > 0)
+      .sort((a, b) => b.quantityPieces - a.quantityPieces)
+    if (otherWhs.length === 0) return
+    const pickWh = otherWhs[0]
+    setItems((current) => {
+      const next = [...current]
+      // Shrink current line to shop capacity
+      next[index] = { ...item, quantity: shopPcs, unit: "PIECE" as Unit }
+      // Insert a new line for the remainder from the other warehouse
+      next.splice(index + 1, 0, {
+        product: item.product,
+        unit: "PIECE" as Unit,
+        quantity: Math.min(remaining, pickWh.quantityPieces),
+        unitPrice: item.unitPrice,
+        warehouseId: pickWh.warehouseId,
+        warehouseName: pickWh.warehouse.name,
+      })
+      return next
+    })
+  }
+
   function quickCreateProduct() {
     const name = productQuery.trim()
     if (!name) return
@@ -1191,6 +1226,11 @@ export function InvoiceCreatePage() {
                   const rowKey = `${index}`
                   const stockAfterLine = isPurchase ? stockOf(item.product) + itemQuantityInPieces(item) : stockOf(item.product) - itemQuantityInPieces(item)
                   const hasNegativeStock = stockOf(item.product) < 0 || stockAfterLine < 0
+                  const shopPcs = item.product.shopStock ?? 0
+                  const lineQtyPcs = itemQuantityInPieces(item)
+                  // Show split button: sale line, no override warehouse, qty > shop stock, shop has some, other wh exists
+                  const canSplit = !isPurchase && !item.warehouseId && lineQtyPcs > shopPcs && shopPcs > 0
+                    && (item.product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
                   return (
                     <TR key={index}>
                       <TD>
@@ -1287,9 +1327,22 @@ export function InvoiceCreatePage() {
                         </TD>
                       )}
                       <TD>
-                        <Button variant="ghost" size="sm" onClick={() => removeItem(index)}>
-                          <Trash2 className="h-4 w-4 text-rose-500" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {canSplit && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 gap-1 border-sky-300 px-2 text-[11px] font-semibold text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300"
+                              onClick={() => splitLineAcrossWarehouses(index)}
+                              title={`المحل: ${shopPcs} ق — يتم التقسيم تلقائياً`}
+                            >
+                              ⚡ تقسيم
+                            </Button>
+                          )}
+                          <Button variant="ghost" size="sm" onClick={() => removeItem(index)}>
+                            <Trash2 className="h-4 w-4 text-rose-500" />
+                          </Button>
+                        </div>
                       </TD>
                     </TR>
                   )
