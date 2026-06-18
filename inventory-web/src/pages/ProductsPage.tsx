@@ -754,10 +754,33 @@ export function ProductsPage() {
                       </td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs text-gray-500">{p.category ?? "—"}</td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs">
-                        <div className="font-semibold text-slate-700">{branchName(p.branchId)}</div>
-                        {p.storageLocation ? <div className="text-slate-500">{p.storageLocation}</div> : null}
+                        {p.warehouseStocks && p.warehouseStocks.filter(ws => ws.quantityPieces > 0).length > 0 ? (
+                          <div className="flex flex-wrap justify-center gap-1">
+                            {p.warehouseStocks.filter(ws => ws.quantityPieces > 0).map(ws => (
+                              <div key={ws.warehouseId} className="relative group/ws">
+                                <span className="cursor-default rounded px-1.5 py-0.5 bg-slate-100 text-slate-700 font-semibold whitespace-nowrap hover:bg-blue-100 transition">
+                                  {ws.warehouse.name}
+                                </span>
+                                <div className="pointer-events-none absolute bottom-full mb-1.5 right-1/2 translate-x-1/2 z-50 hidden group-hover/ws:block bg-slate-800 text-white text-xs rounded-lg px-2.5 py-1.5 whitespace-nowrap shadow-xl">
+                                  <div className="font-bold">{ws.warehouse.name}</div>
+                                  <div>{ws.quantityPieces.toLocaleString("en-US")} قطعة · {(ws.quantityPieces / p.pcsPerCarton).toLocaleString("en-US", { maximumFractionDigits: 2 })} كرتون</div>
+                                  {ws.storageLocation && <div className="text-slate-300">📍 {ws.storageLocation}</div>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="font-semibold text-slate-700">{branchName(p.branchId)}</div>
+                            {p.storageLocation ? <div className="text-slate-500">{p.storageLocation}</div> : null}
+                          </div>
+                        )}
                       </td>
-                      <td className="py-2 px-3 border-l border-gray-200 text-center font-bold text-blue-700 bg-blue-50/30">{p.cartonsAvailable}</td>
+                      <td className="py-2 px-3 border-l border-gray-200 text-center font-bold text-blue-700 bg-blue-50/30">
+                        {p.pcsPerCarton > 1
+                          ? (totalPcs / p.pcsPerCarton).toLocaleString("en-US", { maximumFractionDigits: 2 })
+                          : totalPcs.toLocaleString("en-US")}
+                      </td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs bg-blue-50/30">{p.pcsPerCarton}</td>
                       <td className={`py-2 px-3 border-l border-gray-200 text-center font-bold ${isNegative ? "text-purple-700" : ""}`}>{totalPcs.toLocaleString("en-US")}</td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-red-600">{Number(p.purchasePrice).toLocaleString("en-US")}</td>
