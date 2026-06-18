@@ -19,6 +19,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { UnsavedChangesDialog } from "../components/ui/UnsavedChangesDialog"
 import { toast } from "../components/ui/use-toast"
+import { localDateStr } from "../utils/date"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
@@ -134,7 +135,7 @@ export function InvoiceCreatePage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [customerHighlight, setCustomerHighlight] = useState(0)
   const [customerListOpen, setCustomerListOpen] = useState(false)
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(localDateStr())
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("CREDIT")
 
   // ---- quick-add modals ----
@@ -186,7 +187,7 @@ export function InvoiceCreatePage() {
     setPaidAmount(0)
     setSavedInvoiceId(null)
     setLastSavedAt(null)
-    setDate(new Date().toISOString().slice(0, 10))
+    setDate(localDateStr())
     setPaymentMode("CREDIT")
     clientRequestIdRef.current = crypto.randomUUID()
     // Draft loading will run separately via the draftKey effect

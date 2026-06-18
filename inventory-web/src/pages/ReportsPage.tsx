@@ -11,6 +11,7 @@ import {
   useInventoryReport, useSalesReport, useTopCustomers,
 } from "../hooks/useReports"
 import { normalizePhone } from "../utils/whatsapp"
+import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { getProfitReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
 import { Button } from "../components/ui/button"
@@ -262,11 +263,11 @@ function TopCustomersTab() {
 
 // ─── End of Day Tab ───────────────────────────────────────────────────────────
 function EndOfDayTab() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
   const [date, setDate] = useState(today)
   const [showCloseDialog, setShowCloseDialog] = useState(false)
   const [closedAt, setClosedAt] = useState<string | null>(() => {
-    try { return localStorage.getItem(`registerClose_${new Date().toISOString().slice(0, 10)}`) } catch { return null }
+    try { return localStorage.getItem(`registerClose_${localDateStr()}`) } catch { return null }
   })
   const report = useEndOfDayReport(date)
   const d = report.data

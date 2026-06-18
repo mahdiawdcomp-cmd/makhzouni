@@ -18,19 +18,12 @@ import { Label } from "../components/ui/label"
 import { ModalForm } from "../components/ui/modal-form"
 import { TagPicker } from "../components/ui/tag-picker"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { localDateStr, formatDate, formatDateTime } from "../utils/date"
 
 const DEFAULT_STATEMENT_TEMPLATE =
   "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
 
 function money(value: number | undefined | null) { return fmt(value) }
-
-function formatDateTime(value?: string | Date | null) {
-  if (!value) return "-"
-  return new Date(value).toLocaleString("en-US", {
-    dateStyle: "short",
-    timeStyle: "short",
-  })
-}
 
 function translateLastType(type: string): string {
   const t = type.toUpperCase()
@@ -157,7 +150,7 @@ export function CustomerDetailPage() {
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: customer.name,
-      date: new Date().toISOString().slice(0, 10),
+      date: localDateStr(),
       openingBalance: money(customer.openingBalance),
       currentBalance: money(customer.currentBalance),
       currency: settings?.currency ?? "د.ع",
@@ -186,9 +179,9 @@ export function CustomerDetailPage() {
 
   const lastLink = lastActivityLink(last)
   const lastTimeStr = last?.date
-    ? new Date(last.date).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })
+    ? formatDateTime(last.date)
     : customer?.lastTransactionAt
-      ? new Date(customer.lastTransactionAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })
+      ? formatDateTime(customer.lastTransactionAt)
       : "-"
 
   if (!customer) return <div className="text-slate-500">جار تحميل الزبون...</div>
@@ -344,15 +337,15 @@ function StatementTab({
   setTo: (value: string) => void
 }) {
   const csv = useMemo(() => {
-    const fmtDate = (v: string | null | undefined) =>
-      v ? new Date(v).toLocaleString("ar-IQ", { dateStyle: "short", timeStyle: "short" }) : ""
+    const fmtDate = (v: string | null | undefined, dateOnly = false) =>
+      v ? (dateOnly ? formatDate(v) : formatDateTime(v)) : ""
     const q = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
     const header = [
       "التاريخ", "وقت الإدخال", "أنشأه", "النوع", "الرقم المرجعي",
       "مدين (على الزبون)", "دائن (للزبون)", "الرصيد", "آخر تعديل",
     ].map(q).join(",")
     const body = rows.map((row) => [
-      fmtDate(row.date),
+      fmtDate(row.date, true),
       fmtDate(row.createdAt),
       row.createdByName ?? "",
       translateRow(row),
@@ -382,7 +375,7 @@ function StatementTab({
           return (
             <TR key={`${row.id}-${row.referenceNumber}`} className={`${tone.row} ${link ? "cursor-pointer" : ""}`} style={tone.style}>
               <TD>
-                <div>{formatDateTime(row.date)}</div>
+                <div>{formatDate(row.date)}</div>
                 <div className="text-[11px] text-slate-500">إدخال: {formatDateTime(row.createdAt)}</div>
               </TD>
               <TD>
@@ -416,7 +409,7 @@ function ReceiptModal({
   const [query, setQuery] = useState(selectedCustomer.name)
   const [customer, setCustomer] = useState<Customer>(selectedCustomer)
   const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(localDateStr())
   const [notes, setNotes] = useState("")
   const suggestions = (customersQuery.data ?? []).filter((item) => item.name.includes(query) || item.phone.includes(query)).slice(0, 6)
 

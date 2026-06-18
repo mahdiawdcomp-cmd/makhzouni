@@ -9,6 +9,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import type { Customer } from "../types/api"
 import { cn } from "../utils/cn"
+import { localDateStr } from "../utils/date"
 
 type Line = { productId: string; quantity: number; unitPrice: number }
 
@@ -17,7 +18,7 @@ function money(value: number) {
 }
 
 function todayDate() {
-  return new Date().toISOString().slice(0, 10)
+  return localDateStr()
 }
 
 function normalize(value: string | undefined | null) {

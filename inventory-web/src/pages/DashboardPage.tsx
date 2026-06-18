@@ -43,6 +43,7 @@ import { useSettings } from "../hooks/useSettings"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { whatsappUrl } from "../utils/whatsapp"
+import { localDateStr } from "../utils/date"
 
 interface QuickAction {
   id: string
@@ -220,7 +221,7 @@ export function DashboardPage() {
   const { enabled, visible, toggle, reset } = useQuickActions()
   const settingsData = useSettings()
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localDateStr()
 
   const upcomingEvents = (() => {
     try {

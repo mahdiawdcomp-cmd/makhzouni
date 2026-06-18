@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
+import { formatDate, formatDateTime } from "../utils/date"
 
 type Type = Voucher["type"]
 type FilterType = "ALL" | Type
@@ -216,6 +217,7 @@ export function VouchersPage() {
                 <TH>المبلغ</TH>
                 <TH>الزبون / الوصف</TH>
                 <TH>التاريخ</TH>
+                <TH>ملاحظات</TH>
                 <TH>إجراءات</TH>
               </TR>
             </THead>
@@ -240,7 +242,11 @@ export function VouchersPage() {
                     <TD>{voucher.voucherNumber}</TD>
                     <TD>{Number(voucher.amount).toLocaleString("en-US")}</TD>
                     <TD>{voucher.customer?.name ?? voucher.description ?? "—"}</TD>
-                    <TD>{String(voucher.date).slice(0, 10)}</TD>
+                    <TD>
+                      <div>{formatDate(voucher.date)}</div>
+                      <div className="text-[11px] text-slate-400">إدخال: {formatDateTime(voucher.createdAt)}</div>
+                    </TD>
+                    <TD>{voucher.notes ?? "—"}</TD>
                     <TD>
                       <div className="flex items-center gap-1">
                         <Button
