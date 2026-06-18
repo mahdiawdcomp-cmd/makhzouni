@@ -414,6 +414,12 @@ class InvoiceCreateViewModel @Inject constructor(
         _state.value = _state.value.copy(items = _state.value.items.filterNot { it.lineId == lineId })
     }
 
+    fun quickScanAdd(product: Product) {
+        val existing = _state.value.items.find { it.product.id == product.id }
+        if (existing != null) updateItem(existing.lineId, quantity = existing.quantity + 1)
+        else addProduct(product)
+    }
+
     fun save() {
         val current = _state.value
         val customer = current.selectedCustomer

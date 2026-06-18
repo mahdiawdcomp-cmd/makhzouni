@@ -21,6 +21,7 @@ object Routes {
     const val Receipt = "receipts/new?customerId={customerId}"
     const val Invoices = "invoices"
     const val InvoiceCreate = "invoices/new"
+    const val QuickScanInvoice = "invoices/quick-scan"
     const val Vouchers = "vouchers"
     const val VoucherCreate = "vouchers/new"
     const val InvoiceDetail = "invoices/{invoiceId}"

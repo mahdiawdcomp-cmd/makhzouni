@@ -603,13 +603,13 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
             item {
                 SectionCard(title = "المخزون") {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        if (!state.isEditing || state.branches.size <= 1) {
+                        if (!state.isEditing) {
                             AppTextField(state.openingBalancePcs, { viewModel.update("openingBalancePcs", it) }, "قطع افتتاحية", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                             AppTextField(state.cartonsAvailable, { viewModel.update("cartonsAvailable", it) }, "كارتونات متوفرة", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                         }
                         AppTextField(state.pcsPerCarton, { viewModel.update("pcsPerCarton", it) }, "قطع بالكرتونة", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                         AppTextField(state.minStock, { viewModel.update("minStock", it) }, "حد التنبيه", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        if (state.isEditing && state.branches.size > 1) {
+                        if (state.branches.isNotEmpty()) {
                             Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
                                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("توزيع المخزون على المخازن", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -630,6 +630,21 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text("المجموع الكلي", style = MaterialTheme.typography.labelMedium)
                                         Text("${state.distSum} قطعة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                    if (!state.isEditing) {
+                                        val matches = state.distSum == state.enteredTotal
+                                        Text(
+                                            text = if (matches) {
+                                                "تم توزيع كامل الكمية (${state.enteredTotal} قطعة)"
+                                            } else if (state.distSum > state.enteredTotal) {
+                                                "التوزيع أكثر من الكمية بـ ${state.distSum - state.enteredTotal} قطعة"
+                                            } else {
+                                                "المتبقي للتوزيع: ${state.enteredTotal - state.distSum} قطعة"
+                                            },
+                                            color = if (matches) AppColor.Green600 else AppColor.Red600,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
                                 }
                             }
@@ -818,7 +833,7 @@ fun QrScannerScreen(
 }
 
 @Composable
-private fun ScannerOverlay() {
+internal fun ScannerOverlay() {
     val transition = rememberInfiniteTransition(label = "scan")
     val scanY by transition.animateFloat(
         initialValue = 0f, targetValue = 1f,
@@ -864,7 +879,7 @@ private fun ScannerOverlay() {
 }
 
 @Composable
-private fun CameraPreview(onQr: (String) -> Unit) {
+internal fun CameraPreview(onQr: (String) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }

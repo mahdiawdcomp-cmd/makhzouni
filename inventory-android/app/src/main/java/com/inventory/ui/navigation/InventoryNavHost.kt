@@ -55,6 +55,7 @@ import com.inventory.ui.dashboard.DashboardScreen
 import com.inventory.ui.invoices.InvoiceCreateScreen
 import com.inventory.ui.invoices.InvoiceListScreen
 import com.inventory.ui.invoices.InvoiceDetailScreen
+import com.inventory.ui.invoices.QuickScanInvoiceScreen
 import com.inventory.ui.vouchers.VoucherCreateScreen
 import com.inventory.ui.vouchers.VoucherListScreen
 import com.inventory.ui.notifications.NotificationScreen
@@ -219,6 +220,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onAudit = { navController.navigate(Routes.AuditLogs) },
                         onRetailOrders = { navController.navigate(Routes.RetailOrders) },
                         onOcrInvoice = { navController.navigate(Routes.OcrInvoice) },
+                        onQuickScan = { navController.navigate(Routes.QuickScanInvoice) },
                     )
                 }
                 composable(Routes.Users) { UserManagementScreen(viewModel = hiltViewModel()) }
@@ -387,6 +389,16 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                 }
                 composable(Routes.VoucherCreate) {
                     VoucherCreateScreen(viewModel = hiltViewModel(), onBack = { navController.popBackStack() })
+                }
+                composable(Routes.QuickScanInvoice) {
+                    QuickScanInvoiceScreen(
+                        onBack = { navController.popBackStack() },
+                        onInvoiceSaved = { invoiceId ->
+                            navController.navigate(Routes.invoiceDetail(invoiceId)) {
+                                popUpTo(Routes.QuickScanInvoice) { inclusive = true }
+                            }
+                        },
+                    )
                 }
                 composable(Routes.VoucherEdit) { backStackEntry ->
                     val id = backStackEntry.arguments?.getString("voucherId") ?: ""
