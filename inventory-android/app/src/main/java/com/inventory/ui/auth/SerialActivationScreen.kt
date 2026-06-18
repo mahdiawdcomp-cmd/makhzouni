@@ -115,5 +115,23 @@ fun SerialActivationScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+
+        if (com.inventory.BuildConfig.DEBUG) {
+            Spacer(Modifier.height(32.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "وضع التطوير",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { viewModel.skipForDebug() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("تخطي التفعيل (تطوير فقط)")
+            }
+        }
     }
 }

@@ -39,6 +39,21 @@ class SerialActivationViewModel @Inject constructor(
         _state.value = _state.value.copy(serial = value.uppercase().take(19), error = null)
     }
 
+    fun skipForDebug() {
+        viewModelScope.launch {
+            val backendUrl = com.inventory.BuildConfig.API_BASE_URL
+                .removeSuffix("/api/")
+                .removeSuffix("/api")
+            sessionManager.saveActivation(
+                serial = "DEBUG",
+                backendUrl = backendUrl,
+                features = listOf("CATALOG", "ANDROID", "REPORTS"),
+                expiresAt = null
+            )
+            _state.value = _state.value.copy(activated = true)
+        }
+    }
+
     fun activate() {
         val serial = _state.value.serial.trim()
         if (serial.isBlank()) return
