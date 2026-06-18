@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { UnsavedChangesDialog } from "../components/ui/UnsavedChangesDialog"
+import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
@@ -433,6 +434,14 @@ export function InvoiceCreatePage() {
       }
       return
     }
+    // Invoice already saved — close immediately without asking
+    if (savedInvoiceId) {
+      const destination = destinationAfterClose(tid)
+      removeTab(uid, tid)
+      refreshTabs()
+      navigate(destination)
+      return
+    }
     setCloseTabId(tid)
   }
 
@@ -845,7 +854,9 @@ export function InvoiceCreatePage() {
   }
 
   function save() {
-    void persistInvoice(true)
+    persistInvoice(true).catch((err) => {
+      toast({ title: err instanceof Error ? err.message : "تعذر حفظ الفاتورة", variant: "destructive" })
+    })
   }
 
   // Ctrl+S → save invoice from anywhere on this page
