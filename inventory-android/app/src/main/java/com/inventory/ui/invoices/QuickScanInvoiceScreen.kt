@@ -29,8 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventory.domain.model.Customer
-import com.inventory.ui.common.AppColor
 import com.inventory.ui.common.formatMoney
+import com.inventory.ui.theme.AppColor
 import com.inventory.ui.products.CameraPreview
 import com.inventory.ui.products.QrScannerState
 import com.inventory.ui.products.QrScannerViewModel

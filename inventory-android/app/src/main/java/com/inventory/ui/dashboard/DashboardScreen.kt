@@ -181,7 +181,7 @@ fun DashboardScreen(
             item {
                 QuickLaunchCard(
                     actions = listOf(
-                        MenuAction("مسح سريع", "باركود → فاتورة فوراً", Icons.Default.QrCodeScanner, Color(0xFF0369A1), onQuickScan),
+                        MenuAction("مسح سريع", "باركود → فاتورة فوراً", Icons.Default.DocumentScanner, Color(0xFF0369A1), onQuickScan),
                         MenuAction("فاتورة بيع", "الأكثر استخداماً", Icons.Default.Receipt, AppColor.Green600, onInvoices),
                         MenuAction("POS سريع", "كاشير وباركود", Icons.Default.PointOfSale, Color(0xFF0F766E), onPos),
                         MenuAction("مساعد ذكي", "أوامر صوتية وكتابية", Icons.Default.SmartToy, Color(0xFF7C3AED), onAgent),
