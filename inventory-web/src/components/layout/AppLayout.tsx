@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { AlertTriangle, Menu, X, Zap } from "lucide-react"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { Header } from "./Header"
@@ -75,7 +75,15 @@ export function AppLayout() {
   )
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const pwa = usePwaStatus()
+  const qc = useQueryClient()
   useGlobalShortcuts()
+
+  useEffect(() => {
+    if (pwa.lastSyncAt) {
+      void qc.invalidateQueries()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pwa.lastSyncAt])
   const mainRef = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
   const invoiceDraftOpen = pathname === "/invoices/new"

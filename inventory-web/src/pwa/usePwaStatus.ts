@@ -5,6 +5,7 @@ export function usePwaStatus() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [pendingCount, setPendingCount] = useState(0)
   const [needsRefresh, setNeedsRefresh] = useState(false)
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -26,6 +27,9 @@ export function usePwaStatus() {
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === "PWA_QUEUE_COUNT") {
         setPendingCount(Number(event.data.count ?? 0))
+      }
+      if (event.data?.type === "PWA_SYNC_DONE") {
+        setLastSyncAt(Date.now())
       }
     }
 
@@ -54,5 +58,5 @@ export function usePwaStatus() {
     navigator.serviceWorker.controller?.postMessage({ type: "PWA_SYNC_NOW" })
   }
 
-  return { isOnline, pendingCount, needsRefresh, refreshApp, syncNow }
+  return { isOnline, pendingCount, needsRefresh, lastSyncAt, refreshApp, syncNow }
 }

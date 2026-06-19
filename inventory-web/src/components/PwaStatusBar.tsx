@@ -16,35 +16,53 @@ export function PwaStatusBar({
 }) {
   if (isOnline && pendingCount === 0 && !needsRefresh) return null
 
+  if (!isOnline) {
+    return (
+      <div
+        className="flex flex-col gap-1 border-b px-4 py-3 text-sm"
+        style={{ backgroundColor: "#FEF3C7", borderColor: "#FDE68A", color: "#92400E" }}
+        dir="rtl"
+      >
+        <div className="flex items-center gap-2 font-semibold">
+          <WifiOff className="h-4 w-4 shrink-0" />
+          <span>لا يوجد اتصال بالإنترنت — تعمل بوضع غير متصل</span>
+        </div>
+        <p className="text-xs opacity-80 pr-6">
+          الفواتير والسندات والمنتجات ستُحفظ محلياً وتُزامن تلقائياً عند عودة الاتصال
+          {pendingCount > 0 ? ` (${pendingCount} عمليات بانتظار المزامنة)` : ""}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div
       className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2 text-sm"
-      style={{
-        backgroundColor: isOnline ? "#ECFDF5" : "#FEF3C7",
-        borderColor: isOnline ? "#A7F3D0" : "#FDE68A",
-        color: isOnline ? "#047857" : "#92400E",
-      }}
+      style={{ backgroundColor: "#ECFDF5", borderColor: "#A7F3D0", color: "#047857" }}
     >
       <div className="flex items-center gap-2">
-        {isOnline ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}
+        <Wifi className="h-4 w-4" />
         <span>
-          {!isOnline ? "أنت تعمل بدون إنترنت" : "الاتصال رجع"}
-          {pendingCount > 0 ? ` | عمليات بانتظار المزامنة: ${pendingCount}` : ""}
-          {needsRefresh ? " | يوجد تحديث جديد للتطبيق" : ""}
+          {pendingCount > 0
+            ? `الاتصال رجع — ${pendingCount} عمليات بانتظار المزامنة`
+            : needsRefresh
+              ? "يوجد تحديث جديد للتطبيق"
+              : "الاتصال رجع"}
         </span>
       </div>
       <div className="flex items-center gap-2">
-        {pendingCount > 0 && isOnline ? (
-          <Button variant="outline" size="sm" onClick={onSync}>
+        {pendingCount > 0 && (
+          <Button variant="outline" size="sm" onClick={onSync}
+            style={{ borderColor: "#A7F3D0", color: "#047857" }}>
             <RefreshCw className="h-3.5 w-3.5" />
             مزامنة الآن
           </Button>
-        ) : null}
-        {needsRefresh ? (
+        )}
+        {needsRefresh && (
           <Button size="sm" onClick={onRefresh}>
             تحديث
           </Button>
-        ) : null}
+        )}
       </div>
     </div>
   )

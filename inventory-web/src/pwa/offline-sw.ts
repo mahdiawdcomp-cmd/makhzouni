@@ -93,6 +93,7 @@ async function notifyClients() {
 
 async function replayQueue() {
   const rows = await listQueuedRequests()
+  let synced = 0
   for (const row of rows) {
     try {
       const response = await fetch(row.url, {
@@ -101,18 +102,25 @@ async function replayQueue() {
         body: row.body || undefined,
         credentials: "include",
       })
-      if (response.ok || response.status === 202) {
+      if (response.ok || response.status === 202 || response.status === 201) {
         if (row.id !== undefined) await deleteQueuedRequest(row.id)
+        synced++
       } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-        break
-      } else {
-        break
+        // Permanent failure (validation / conflict) — remove from queue, no point retrying
+        if (row.id !== undefined) await deleteQueuedRequest(row.id)
       }
+      // 5xx or 429: keep in queue, try again next time
     } catch {
-      break
+      // Network still down for this item — keep in queue, try others
     }
   }
   await notifyClients()
+  if (synced > 0) {
+    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: "window" })
+    for (const client of clients) {
+      client.postMessage({ type: "PWA_SYNC_DONE", synced })
+    }
+  }
 }
 
 function jsonResponse(body: unknown, status = 200) {
