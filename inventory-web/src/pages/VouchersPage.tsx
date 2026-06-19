@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
-import { formatDate, formatDateTime } from "../utils/date"
+import { formatDate, formatDateTime, localDateStr } from "../utils/date"
 
 type Type = Voucher["type"]
 type FilterType = "ALL" | Type

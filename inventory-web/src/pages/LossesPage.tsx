@@ -6,7 +6,7 @@ import type { Branch, LossReason, StockLoss } from "../types/api"
 import { useProducts } from "../hooks/useProducts"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { Button } from "../components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
@@ -37,8 +37,9 @@ interface DraftItem {
 export function LossesPage() {
   usePageTitle("التلف والخسائر")
   const qc = useQueryClient()
-  const { allProducts } = useProducts()
-  const branchesQuery = useQuery<Branch[]>({ queryKey: ["branches"], queryFn: getBranches })
+  const { productsQuery } = useProducts()
+  const allProducts = productsQuery.data ?? []
+  const branchesQuery = useQuery<Branch[]>({ queryKey: ["branches"], queryFn: () => getBranches() })
 
 
   const [open, setOpen] = useState(false)
@@ -54,7 +55,7 @@ export function LossesPage() {
 
   const lossesQuery = useQuery({
     queryKey: ["stock-losses"],
-    queryFn: () => listStockLosses({ limit: 100 }),
+    queryFn: () => listStockLosses(),
   })
   const losses = lossesQuery.data?.data ?? []
 
@@ -112,7 +113,7 @@ export function LossesPage() {
   }
 
   const filteredProducts = allProducts.filter(
-    (p) => !p.deletedAt && p.name.toLowerCase().includes(productSearch.toLowerCase())
+    (p) => p.name.toLowerCase().includes(productSearch.toLowerCase())
   ).slice(0, 10)
 
   return (

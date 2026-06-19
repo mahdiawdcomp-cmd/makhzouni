@@ -120,17 +120,6 @@ function transactionTone(row: CustomerTransaction) {
   }
 }
 
-function auditNote(row: CustomerTransaction) {
-  if (!row.lastChangedAt) return "-"
-  const action = row.lastAction === "DELETE"
-    ? "إلغاء"
-    : row.lastAction === "REACTIVATE"
-      ? "إرجاع نشطة"
-      : "تعديل"
-  const user = row.lastChangedByName ? ` | ${row.lastChangedByName}` : ""
-  return `${action}: ${formatDateTime(row.lastChangedAt)}${user}`
-}
-
 export function CustomerDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
