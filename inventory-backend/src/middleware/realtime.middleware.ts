@@ -11,6 +11,7 @@ function resourceForPath(path: string): RealtimeResource {
   if (clean.startsWith("/api/invoices")) return "invoices";
   if (clean.startsWith("/api/vouchers")) return "vouchers";
   if (clean.startsWith("/api/transfers")) return "transfers";
+  if (clean.startsWith("/api/stock-losses")) return "stock-losses";
   if (clean.startsWith("/api/branches")) return "branches";
   if (clean.startsWith("/api/quotations")) return "quotations";
   if (clean.startsWith("/api/coupons")) return "coupons";

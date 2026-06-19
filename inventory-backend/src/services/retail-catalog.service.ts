@@ -352,9 +352,6 @@ export async function listPublicRetailItems() {
 
   return items
     .map((item) => {
-      // The storefront should not make products disappear just because a
-      // pending order is reserving stock. Final availability is still checked
-      // when the customer submits the cart.
       const physical = item.product ? stockOf(item.product) : 0;
       return {
         id: item.id,

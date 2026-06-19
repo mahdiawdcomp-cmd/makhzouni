@@ -85,6 +85,7 @@ export const approvalRequestTypes = {
   RESTORE_VOUCHER: "RESTORE_VOUCHER",
   DELETE_VOUCHER: "DELETE_VOUCHER",
   CREATE_TRANSFER: "CREATE_TRANSFER",
+  NEGATIVE_STOCK_SALE: "NEGATIVE_STOCK_SALE",
 } as const;
 
 export type ApprovalRequestType =
@@ -108,6 +109,7 @@ const approvalTypeLabels: Record<string, string> = {
   UPDATE_VOUCHER: "تعديل سند",
   DELETE_PRODUCT: "حذف منتج",
   DELETE_CUSTOMER: "حذف زبون",
+  NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة (عجز مخزون)",
 };
 
 export async function createPendingApproval(
@@ -501,6 +503,11 @@ async function executeApprovedRequest(
         reviewerId,
         true
       );
+    case approvalRequestTypes.NEGATIVE_STOCK_SALE:
+      // Acknowledgment only: the sale already completed and stock already moved.
+      // Approving simply marks the shortage as reviewed by the manager; the deficit
+      // is settled automatically when stock arrives. Nothing to execute.
+      return { acknowledged: true };
     default:
       throw new AppError("Unsupported approval request type", 400, "UNSUPPORTED_APPROVAL");
   }

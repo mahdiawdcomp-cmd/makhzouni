@@ -36,10 +36,20 @@ interface DraftItem {
   unitPrice: number
   warehouseId?: string
   warehouseName?: string  // display name when pulling from a non-default warehouse
+  allowNegativeStock?: boolean  // seller chose to sell while out of stock (records a deficit)
 }
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
+}
+
+// Pieces available in the exact warehouse the backend will deduct this sale line from
+// (the chosen warehouse, else المحل). Used to detect an out-of-stock sale.
+function effectiveAvailablePcs(item: DraftItem): number {
+  const stocks = item.product.warehouseStocks ?? []
+  if (!stocks.length) return stockOf(item.product)
+  if (item.warehouseId) return stocks.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
+  return item.product.shopStock ?? stocks.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces ?? 0
 }
 
 function matchesProduct(product: Product, q: string) {
@@ -595,25 +605,56 @@ export function InvoiceCreatePage() {
       item.unit === "CARTON" ? item.quantity * item.product.pcsPerCarton
       : item.unit === "DOZEN" ? item.quantity * 12
       : item.quantity
-    const remaining = itemPcs - shopPcs
-    if (remaining <= 0 || shopPcs === 0) return
-    // Pick the non-shop warehouse with the most stock
-    const otherWhs = allWhs
-      .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopWh?.warehouseId)
+    if (itemPcs <= shopPcs || shopPcs <= 0) return
+
+    // The new lines are all in PIECE units, so the (possibly hand-edited) carton/
+    // dozen unit price MUST be converted down to a per-piece price — otherwise each
+    // piece would be billed at the carton price.
+    const piecePrice =
+      item.unit === "CARTON" ? item.unitPrice / (item.product.pcsPerCarton || 1)
+      : item.unit === "DOZEN" ? item.unitPrice / 12
+      : item.unitPrice
+    const roundedPiecePrice = Math.round(piecePrice * 1000) / 1000
+
+    // Greedy fill: المحل first, then the other warehouses by stock (most first),
+    // taking only what each holds so we never over-allocate a warehouse.
+    const shopId = shopWh?.warehouseId
+    const others = allWhs
+      .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopId)
       .sort((a, b) => b.quantityPieces - a.quantityPieces)
-    if (otherWhs.length === 0) return
-    const pickWh = otherWhs[0]
+
+    type Alloc = { warehouseId?: string; warehouseName?: string; pcs: number }
+    const allocations: Alloc[] = []
+    let remaining = itemPcs
+
+    const shopTake = Math.min(shopPcs, remaining)
+    allocations.push({ warehouseId: shopId, warehouseName: shopWh?.warehouse.name, pcs: shopTake })
+    remaining -= shopTake
+
+    for (const ws of others) {
+      if (remaining <= 0) break
+      const take = Math.min(ws.quantityPieces, remaining)
+      if (take <= 0) continue
+      allocations.push({ warehouseId: ws.warehouseId, warehouseName: ws.warehouse.name, pcs: take })
+      remaining -= take
+    }
+
+    // If total stock still can't cover the request, keep the leftover on the first
+    // (shop) line so NO quantity is silently dropped — the backend will then surface
+    // an honest "insufficient stock" instead of the cart quietly shrinking.
+    if (remaining > 0) allocations[0].pcs += remaining
+
     setItems((current) => {
       const next = [...current]
-      next[index] = { ...item, quantity: shopPcs, unit: "PIECE" as Unit }
-      next.splice(index + 1, 0, {
+      const newLines: DraftItem[] = allocations.map((a) => ({
         product: item.product,
         unit: "PIECE" as Unit,
-        quantity: Math.min(remaining, pickWh.quantityPieces),
-        unitPrice: item.unitPrice,
-        warehouseId: pickWh.warehouseId,
-        warehouseName: pickWh.warehouse.name,
-      })
+        quantity: a.pcs,
+        unitPrice: roundedPiecePrice,
+        warehouseId: a.warehouseId,
+        warehouseName: a.warehouseName,
+      }))
+      next.splice(index, 1, ...newLines)
       return next
     })
   }
@@ -839,6 +880,15 @@ export function InvoiceCreatePage() {
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         warehouseId: item.warehouseId,
+        // Authorize the deficit for any sale line that can't be fully covered — by the
+        // warehouse it pulls from OR by total stock. allowNegative only *permits* going
+        // below zero; it never forces it, so it's safe to set whenever a shortfall is possible.
+        allowNegativeStock:
+          (item.allowNegativeStock
+            || (invoiceType === "SALE"
+              && (itemQuantityInPieces(item) > effectiveAvailablePcs(item)
+                || itemQuantityInPieces(item) > stockOf(item.product))))
+          || undefined,
       })),
     })
       const id = response.data?.id ?? null
@@ -1236,6 +1286,10 @@ export function InvoiceCreatePage() {
                   // Show split banner: sale, no explicit warehouse chosen, qty exceeds shop stock, shop has some, other wh has stock
                   const canSplit = !isPurchase && !item.warehouseId && shopPcs > 0 && lineQtyPcs > shopPcs
                     && (item.product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0 && ws.warehouse.name !== (item.product.warehouseStocks ?? []).find(w => w.warehouse.name.includes("محل"))?.warehouse.name)
+                  // Out of stock for this sale line: the warehouse it pulls from can't cover it AND it
+                  // can't be split onto another warehouse. The sale is still allowed — it records a
+                  // deficit (negative stock) for manager review.
+                  const lineOutOfStock = !isPurchase && !canSplit && lineQtyPcs > effectiveAvailablePcs(item)
                   return (
                     <Fragment key={index}>
                     <TR>
@@ -1248,7 +1302,11 @@ export function InvoiceCreatePage() {
                               📦 {item.warehouseName}
                             </span>
                           )}
-                          {hasNegativeStock ? (
+                          {lineOutOfStock ? (
+                            <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                              ⛔ نفد — سيُسجَّل بالسالب
+                            </span>
+                          ) : hasNegativeStock ? (
                             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                               رصيد سالب
                             </span>

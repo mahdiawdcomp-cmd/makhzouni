@@ -45,6 +45,9 @@ export interface InvoiceItemInput {
   unit: Unit;
   quantity: number;
   unitPrice?: number;
+  // Seller opted to sell while out of stock — allow the line to go negative and
+  // flag it for manager review instead of blocking the sale.
+  allowNegativeStock?: boolean;
 }
 
 export interface CreateInvoiceInput {
@@ -334,7 +337,10 @@ async function applyStockMovement(
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);
   // Pre-check stock so the user gets a clear Arabic message instead of a generic DB error.
-  if (isSale) {
+  // When the seller explicitly opted in (allowNegativeStock), we skip the block and let
+  // the line go negative — the deficit is settled automatically when stock next arrives.
+  const allowNegativeSale = isSale && Boolean(item.allowNegativeStock);
+  if (isSale && !allowNegativeSale) {
     const whStock = await tx.productWarehouseStock.findUnique({
       where: { productId_warehouseId: { productId: product.id, warehouseId } },
       select: { quantityPieces: true },
@@ -354,9 +360,12 @@ async function applyStockMovement(
     productId: product.id,
     warehouseId,
     deltaPieces: addsStock ? quantityInPieces : -quantityInPieces,
-    allowNegative: isSale ? false : !addsStock,
+    allowNegative: isSale ? allowNegativeSale : !addsStock,
   });
   await syncProductTotalStock(tx, product.id);
+  // A SALE line that ended below zero is a recorded shortage to surface for review.
+  const deficitPieces = movement.balanceAfter < 0 ? -movement.balanceAfter : 0;
+  const wentNegative = isSale && deficitPieces > 0;
 
   // Normalize carton / piece split so the display always reflects reality.
   // If stock is negative we keep cartonsAvailable = 0 and openingBalancePcs carries the deficit.
@@ -383,6 +392,8 @@ async function applyStockMovement(
     quantityInPieces,
     unitPrice,
     totalPrice: roundMoney(unitPrice * item.quantity),
+    wentNegative,
+    deficitPieces,
   };
 }
 
@@ -580,10 +591,27 @@ async function createInvoiceInTransaction(
       });
 
   let subtotal = 0;
+  const negativeLines: Array<{
+    productId: string;
+    productName: string;
+    warehouseId: string;
+    quantityPieces: number;
+    deficitPieces: number;
+  }> = [];
 
   for (const item of input.items) {
     const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId);
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
+
+    if (pricedItem.wentNegative) {
+      negativeLines.push({
+        productId: pricedItem.product.id,
+        productName: pricedItem.product.name,
+        warehouseId: pricedItem.warehouseId,
+        quantityPieces: pricedItem.quantityInPieces,
+        deficitPieces: pricedItem.deficitPieces,
+      });
+    }
 
     await tx.invoiceItem.create({
       data: {
@@ -684,6 +712,32 @@ async function createInvoiceInTransaction(
   }
 
   await recalculateCustomerBalanceInTransaction(tx, input.customerId);
+
+  // Negative-stock review: a new SALE that pushed any product below zero is logged
+  // as a pending approval so the manager sees exactly which goods are short and on
+  // which invoice. The deficit itself is settled automatically when stock arrives.
+  if (invoiceType === InvoiceType.SALE && !existingInvoiceId && negativeLines.length > 0) {
+    const whNames = await tx.branch.findMany({
+      where: { id: { in: [...new Set(negativeLines.map((l) => l.warehouseId))] } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(whNames.map((w) => [w.id, w.name]));
+    await tx.pendingApproval.create({
+      data: {
+        requestType: "NEGATIVE_STOCK_SALE",
+        requestData: {
+          invoiceId: updatedInvoice.id,
+          invoiceNumber: updatedInvoice.invoiceNumber,
+          customerName: updatedInvoice.customer?.name ?? null,
+          lines: negativeLines.map((l) => ({
+            ...l,
+            warehouseName: nameById.get(l.warehouseId) ?? "",
+          })),
+        } as Prisma.InputJsonValue,
+        requestedBy: createdBy,
+      },
+    });
+  }
 
   return serializeInvoice(updatedInvoice);
 }

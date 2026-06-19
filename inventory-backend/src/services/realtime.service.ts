@@ -15,6 +15,7 @@ export type RealtimeResource =
   | "quotations"
   | "reports"
   | "settings"
+  | "stock-losses"
   | "stocktake"
   | "transfers"
   | "users"

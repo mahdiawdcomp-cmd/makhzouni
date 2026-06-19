@@ -22,7 +22,7 @@ import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
-import type { Product } from "../types/api"
+import type { InvoiceItem, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
@@ -46,6 +46,30 @@ interface EditItem {
   productId: string; productName: string
   unit: "PIECE" | "DOZEN" | "CARTON"; quantity: number; unitPrice: number
   warehouseId?: string; warehouseName?: string
+}
+
+// A single product can be split across warehouses (المحل + مخزن آخر) into multiple
+// lines for accurate stock. The customer-facing invoice should show ONE line per
+// product, so we merge lines that share product + unit + price, summing quantity
+// and total. (Stock movements stay per-warehouse on the backend — display only.)
+function mergeInvoiceItems(items: InvoiceItem[]): InvoiceItem[] {
+  const merged: InvoiceItem[] = []
+  const indexByKey = new Map<string, number>()
+  for (const item of items) {
+    const key = `${item.productId}|${item.unit}|${item.unitPrice}`
+    const existing = indexByKey.get(key)
+    if (existing === undefined) {
+      indexByKey.set(key, merged.length)
+      merged.push({ ...item })
+    } else {
+      merged[existing] = {
+        ...merged[existing],
+        quantity: merged[existing].quantity + item.quantity,
+        totalPrice: merged[existing].totalPrice + item.totalPrice,
+      }
+    }
+  }
+  return merged
 }
 
 export function InvoiceDetailPage() {
@@ -340,7 +364,7 @@ export function InvoiceDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {(invoice.items ?? []).map((item, i) => (
+              {mergeInvoiceItems(invoice.items ?? []).map((item, i) => (
                 <tr key={item.id ?? i} className="border-b border-gray-100 hover:bg-gray-50 transition">
                   <td className="py-3 px-4 text-gray-500 font-bold">{i + 1}</td>
                   <td className="py-3 px-4">

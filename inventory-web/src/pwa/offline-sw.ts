@@ -91,36 +91,71 @@ async function notifyClients() {
   }
 }
 
-async function replayQueue() {
+async function postToClients(message: Record<string, unknown>) {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true, type: "window" })
+  for (const client of clients) client.postMessage(message)
+}
+
+async function replayQueue(authToken?: string) {
   const rows = await listQueuedRequests()
   let synced = 0
+  let authBlocked = false
+  const failed: Array<{ url: string; method: string; status: number; message?: string }> = []
+
   for (const row of rows) {
+    let response: Response
     try {
-      const response = await fetch(row.url, {
+      const headers = new Headers(row.headers)
+      if (authToken) headers.set("Authorization", `Bearer ${authToken}`)
+      response = await fetch(row.url, {
         method: row.method,
-        headers: row.headers,
+        headers,
         body: row.body || undefined,
         credentials: "include",
       })
-      if (response.ok || response.status === 202 || response.status === 201) {
-        if (row.id !== undefined) await deleteQueuedRequest(row.id)
-        synced++
-      } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-        // Permanent failure (validation / conflict) — remove from queue, no point retrying
-        if (row.id !== undefined) await deleteQueuedRequest(row.id)
-      }
-      // 5xx or 429: keep in queue, try again next time
     } catch {
-      // Network still down for this item — keep in queue, try others
+      // Network still down — keep this and the rest queued, retry next time.
+      break
+    }
+
+    if (response.ok || response.status === 201 || response.status === 202) {
+      if (row.id !== undefined) await deleteQueuedRequest(row.id)
+      synced++
+      continue
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      // Session expired / not authorised. Do NOT drop — these replay fine after
+      // the user logs back in. Stop here and tell the app to prompt re-login.
+      authBlocked = true
+      break
+    }
+
+    if (response.status === 409 || response.status === 429 || response.status >= 500) {
+      // Conflict / rate-limited / server error: transient or order-dependent.
+      // Keep queued (preserve order) and retry on the next sync.
+      break
+    }
+
+    if (response.status >= 400) {
+      // Genuinely rejected (validation / not-found). Remove so the queue can't get
+      // stuck forever, but REPORT it so the user knows this entry didn't save.
+      let message: string | undefined
+      try {
+        const body = (await response.clone().json()) as { message?: string; error?: string }
+        message = body.message ?? body.error
+      } catch {
+        message = undefined
+      }
+      if (row.id !== undefined) await deleteQueuedRequest(row.id)
+      failed.push({ url: row.url, method: row.method, status: response.status, message })
     }
   }
+
   await notifyClients()
-  if (synced > 0) {
-    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: "window" })
-    for (const client of clients) {
-      client.postMessage({ type: "PWA_SYNC_DONE", synced })
-    }
-  }
+  if (synced > 0) await postToClients({ type: "PWA_SYNC_DONE", synced })
+  if (failed.length > 0) await postToClients({ type: "PWA_SYNC_FAILED", failed })
+  if (authBlocked) await postToClients({ type: "PWA_SYNC_AUTH" })
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -197,7 +232,9 @@ self.addEventListener("sync", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "PWA_SYNC_NOW") {
-    event.waitUntil(replayQueue())
+    event.waitUntil(replayQueue(
+      typeof event.data.token === "string" && event.data.token ? event.data.token : undefined,
+    ))
   }
   if (event.data?.type === "PWA_QUEUE_COUNT_REQUEST") {
     event.waitUntil(notifyClients())

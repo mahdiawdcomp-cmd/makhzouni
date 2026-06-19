@@ -1,6 +1,7 @@
 import { LossReason, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { lossUnitToPieces } from "../utils/loss-math";
 import {
   adjustWarehouseStock,
   ensureLegacyWarehouseStock,
@@ -32,10 +33,17 @@ export interface ListLossesQuery {
   limit: number;
 }
 
-function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number) {
-  if (unit === "CARTON") return quantity * pcsPerCarton;
-  if (unit === "DOZEN") return quantity * 12;
-  return quantity;
+async function getStockLossByIdFrom(db: Db, id: string) {
+  const loss = await db.stockLoss.findUnique({
+    where: { id },
+    include: {
+      warehouse: { select: { id: true, name: true } },
+      items: { include: { product: { select: { id: true, name: true, pcsPerCarton: true } } } },
+      creator: { select: { id: true, name: true, username: true } },
+    },
+  });
+  if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
+  return loss;
 }
 
 async function generateLossNumber(tx: Db, date: Date) {
@@ -80,10 +88,12 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
       const product = await tx.product.findUnique({ where: { id: item.productId } });
       if (!product) throw new AppError(`المادة غير موجودة: ${item.productId}`, 404, "PRODUCT_NOT_FOUND");
 
-      const pcs = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
+      // Strict conversion: rejects zero/negative/NaN quantities and bad units so a
+      // loss can never *raise* stock. (Also enforced by the zod route schema.)
+      const pcs = lossUnitToPieces(item.unit, item.quantity, product.pcsPerCarton);
 
       await ensureLegacyWarehouseStock(tx as typeof prisma, product);
-      await adjustWarehouseStock(tx as typeof prisma, {
+      const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx as typeof prisma, {
         productId: product.id,
         warehouseId: resolvedWarehouseId,
         deltaPieces: -pcs,
@@ -98,8 +108,8 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
           lossId: loss.id,
           type: "DAMAGE",
           quantity: pcs,
-          balanceBefore: 0,
-          balanceAfter: 0,
+          balanceBefore,
+          balanceAfter,
         },
       });
 
@@ -150,44 +160,58 @@ export async function listStockLosses(query: ListLossesQuery) {
 }
 
 export async function getStockLossById(id: string) {
-  const loss = await prisma.stockLoss.findUnique({
-    where: { id },
-    include: {
-      warehouse: { select: { id: true, name: true } },
-      items: { include: { product: { select: { id: true, name: true, pcsPerCarton: true } } } },
-      creator: { select: { id: true, name: true, username: true } },
-    },
-  });
-  if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
-  return loss;
+  return getStockLossByIdFrom(prisma, id);
 }
 
 export async function cancelStockLoss(id: string) {
-  const loss = await prisma.stockLoss.findUnique({
-    where: { id },
-    include: { items: { include: { product: true } } },
-  });
-  if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
-  if (loss.cancelledAt) return loss;
-
   return prisma.$transaction(async (tx) => {
+    // Atomically *claim* the cancellation: only the caller that flips
+    // null -> now() proceeds to restore stock. A second concurrent cancel
+    // updates 0 rows and returns the record untouched — so stock is never
+    // returned twice (idempotent + race-safe).
+    const claimed = await tx.stockLoss.updateMany({
+      where: { id, cancelledAt: null },
+      data: { cancelledAt: new Date() },
+    });
+
+    if (claimed.count === 0) {
+      const existing = await tx.stockLoss.findUnique({ where: { id } });
+      if (!existing) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
+      return getStockLossByIdFrom(tx, id); // already cancelled — no stock change
+    }
+
+    const loss = await tx.stockLoss.findUnique({
+      where: { id },
+      include: { items: { include: { product: true } } },
+    });
+    if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
+
     for (const item of loss.items) {
-      const pcs = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+      const pcs = lossUnitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
       await ensureLegacyWarehouseStock(tx as typeof prisma, item.product);
-      await adjustWarehouseStock(tx as typeof prisma, {
+      const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx as typeof prisma, {
         productId: item.productId,
         warehouseId: loss.warehouseId,
-        deltaPieces: pcs,
+        deltaPieces: pcs, // restore the damaged pieces back into the warehouse
         allowNegative: true,
       });
       await syncProductTotalStock(tx as typeof prisma, item.productId);
+
+      // Audit-preserving reversal: keep the original DAMAGE movement and append a
+      // compensating IN movement carrying the REAL before/after balances.
+      await (tx as typeof prisma).stockMovement.create({
+        data: {
+          productId: item.productId,
+          branchId: loss.warehouseId,
+          lossId: loss.id,
+          type: "IN",
+          quantity: pcs,
+          balanceBefore,
+          balanceAfter,
+        },
+      });
     }
 
-    await tx.stockMovement.deleteMany({ where: { lossId: id } });
-
-    return (tx as typeof prisma).stockLoss.update({
-      where: { id },
-      data: { cancelledAt: new Date() },
-    });
+    return getStockLossByIdFrom(tx, id);
   });
 }

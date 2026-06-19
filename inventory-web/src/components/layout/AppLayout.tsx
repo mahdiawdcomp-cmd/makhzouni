@@ -13,6 +13,7 @@ import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
 import { ErrorBoundary } from "../ErrorBoundary"
+import { toast } from "../ui/use-toast"
 
 const pageVariants = {
   initial: { opacity: 0, y: 10 },
@@ -84,6 +85,30 @@ export function AppLayout() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pwa.lastSyncAt])
+
+  // Never let a queued offline operation fail silently.
+  useEffect(() => {
+    if (pwa.syncFailures && pwa.syncFailures.items.length > 0) {
+      const first = pwa.syncFailures.items[0]
+      const extra = pwa.syncFailures.items.length - 1
+      toast({
+        title: "تعذّر حفظ بعض العمليات بعد رجوع الإنترنت",
+        description: `${first.message ?? "عملية مرفوضة من الخادم"}${extra > 0 ? ` (و${extra} غيرها)` : ""} — يرجى إعادة إدخالها.`,
+        variant: "destructive",
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pwa.syncFailures?.at])
+
+  useEffect(() => {
+    if (pwa.authBlockedAt) {
+      toast({
+        title: "انتهت الجلسة",
+        description: "سجّل الدخول من جديد حتى تُزامن العمليات المحفوظة محلياً.",
+        variant: "destructive",
+      })
+    }
+  }, [pwa.authBlockedAt])
   const mainRef = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
   const invoiceDraftOpen = pathname === "/invoices/new"
@@ -100,8 +125,6 @@ export function AppLayout() {
     window.open(`${destination.pathname}${destination.search}${destination.hash}`, "_blank", "noopener,noreferrer")
   }
 
-  if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
-
   // Refresh user permissions from DB on every app open
   useEffect(() => {
     if (!token) return
@@ -117,6 +140,9 @@ export function AppLayout() {
     document.documentElement.classList.toggle("dark", darkMode)
     localStorage.setItem("inventory_theme", darkMode ? "dark" : "light")
   }, [darkMode])
+
+  // All hooks above run unconditionally; only now may we bail out of rendering.
+  if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
 
   return (
     <div

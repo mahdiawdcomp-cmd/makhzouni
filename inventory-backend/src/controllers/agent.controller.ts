@@ -164,7 +164,7 @@ function normalizeArabic(value: string) {
     .trim();
 }
 
-async function answerKnownInventoryQuestion(text: string) {
+export async function answerKnownInventoryQuestion(text: string) {
   const normalized = normalizeArabic(text);
   const asksLowStock =
     /(مواد|ماده|اصناف|بضاعه|منتجات)/.test(normalized) &&

@@ -1,11 +1,22 @@
 import { useEffect, useState } from "react"
 import { registerSW } from "virtual:pwa-register"
 
+export type SyncFailure = { url: string; method: string; status: number; message?: string }
+
+function requestSync() {
+  navigator.serviceWorker.controller?.postMessage({
+    type: "PWA_SYNC_NOW",
+    token: localStorage.getItem("inventory_token"),
+  })
+}
+
 export function usePwaStatus() {
   const [isOnline, setIsOnline] = useState(() => navigator.onLine)
   const [pendingCount, setPendingCount] = useState(0)
   const [needsRefresh, setNeedsRefresh] = useState(false)
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
+  const [syncFailures, setSyncFailures] = useState<{ at: number; items: SyncFailure[] } | null>(null)
+  const [authBlockedAt, setAuthBlockedAt] = useState<number | null>(null)
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -20,7 +31,7 @@ export function usePwaStatus() {
 
     const onOnline = () => {
       setIsOnline(true)
-      navigator.serviceWorker.controller?.postMessage({ type: "PWA_SYNC_NOW" })
+      requestSync()
       navigator.serviceWorker.controller?.postMessage({ type: "PWA_QUEUE_COUNT_REQUEST" })
     }
     const onOffline = () => setIsOnline(false)
@@ -31,6 +42,12 @@ export function usePwaStatus() {
       if (event.data?.type === "PWA_SYNC_DONE") {
         setLastSyncAt(Date.now())
       }
+      if (event.data?.type === "PWA_SYNC_FAILED") {
+        setSyncFailures({ at: Date.now(), items: (event.data.failed ?? []) as SyncFailure[] })
+      }
+      if (event.data?.type === "PWA_SYNC_AUTH") {
+        setAuthBlockedAt(Date.now())
+      }
     }
 
     window.addEventListener("online", onOnline)
@@ -39,6 +56,7 @@ export function usePwaStatus() {
     navigator.serviceWorker.ready
       .then((registration) => {
         registration.active?.postMessage({ type: "PWA_QUEUE_COUNT_REQUEST" })
+        requestSync()
       })
       .catch(() => undefined)
 
@@ -55,8 +73,8 @@ export function usePwaStatus() {
   }
 
   function syncNow() {
-    navigator.serviceWorker.controller?.postMessage({ type: "PWA_SYNC_NOW" })
+    requestSync()
   }
 
-  return { isOnline, pendingCount, needsRefresh, lastSyncAt, refreshApp, syncNow }
+  return { isOnline, pendingCount, needsRefresh, lastSyncAt, syncFailures, authBlockedAt, refreshApp, syncNow }
 }

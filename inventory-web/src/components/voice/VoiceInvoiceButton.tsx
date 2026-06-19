@@ -28,6 +28,8 @@ interface VoicePlanItem {
   unit: "PIECE" | "DOZEN" | "CARTON"
   unitPrice: number
   totalPrice: number
+  warehouseId?: string
+  warehouseName?: string
 }
 
 interface VoicePlan {
@@ -42,18 +44,46 @@ interface VoicePlan {
   voucherType?: "RECEIPT" | "PAYMENT"
 }
 
+interface VoiceDraft {
+  type?: "INVOICE" | "VOUCHER"
+  customerName?: string | null
+  customerSuggestions?: string[]
+  warehouseName?: string | null
+  warehouseSuggestions?: string[]
+  productSuggestions?: string[]
+  pendingProductName?: string | null
+  items?: Array<{
+    productName?: string | null
+    quantity?: number | null
+    unit?: "PIECE" | "DOZEN" | "CARTON" | null
+    unitPrice?: number | null
+  }>
+  paymentType?: "CASH" | "CREDIT" | "PARTIAL" | null
+  paidAmount?: number | null
+  amount?: number | null
+  voucherType?: "RECEIPT" | "PAYMENT" | null
+}
+
 interface ParseResponse {
   type: "confirm" | "clarify" | "answer"
   plan?: VoicePlan
   confirmText?: string
   question?: string
   text?: string
+  suggestions?: string[]
+  draft?: VoiceDraft
+  resetConversation?: boolean
 }
 
 interface ExecuteResponse {
   message?: string
   invoice?: { id: string; invoiceNumber: string }
   voucher?: { id: string; voucherNumber: string }
+}
+
+interface LastInvoice {
+  id: string
+  invoiceNumber: string
 }
 
 interface Props {
@@ -83,6 +113,14 @@ const welcomeMessage: ChatMessage = {
 
 function newMessage(role: Role, text: string): ChatMessage {
   return { id: `${Date.now()}-${Math.random()}`, role, text }
+}
+
+function normalizedCommand(value: string) {
+  return value
+    .trim()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
 }
 
 function errorMessage(error?: string) {
@@ -131,6 +169,10 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
   const [listening, setListening] = useState(false)
   const [pendingPlan, setPendingPlan] = useState<VoicePlan | null>(null)
   const [pendingText, setPendingText] = useState("")
+  const [draft, setDraft] = useState<VoiceDraft>({})
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [lastInvoice, setLastInvoice] = useState<LastInvoice | null>(null)
+  const draftHistoryRef = useRef<VoiceDraft[]>([])
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -152,6 +194,64 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
   async function sendCommand(rawCommand: string) {
     const command = rawCommand.trim()
     if (!command || busy) return
+    const normalized = normalizedCommand(command)
+
+    const wantsWhatsApp =
+      /واتس\s*اب|واتساب|whatsapp/i.test(normalized) &&
+      /ارسل|ارسله|ارسلها|دز|دزها|ابعث|ابعثها/.test(normalized)
+
+    if (wantsWhatsApp) {
+      setMessages((current) => [...current, newMessage("user", command)])
+      setInput("")
+      if (!lastInvoice) {
+        appendAssistant("ما عندي فاتورة مثبتة بهذه المحادثة حتى أرسلها. ثبّت الفاتورة أولاً، وبعدها گلي: أرسلها واتساب.")
+        return
+      }
+
+      setBusy(true)
+      try {
+        await api.post(`/whatsapp/send-invoice/${lastInvoice.id}`)
+        appendAssistant(`تم إرسال الفاتورة ${lastInvoice.invoiceNumber} إلى واتساب الزبون بنجاح.`)
+      } catch (error) {
+        appendAssistant(apiError(error, "تعذر إرسال الفاتورة إلى واتساب. تأكد من رقم الزبون وإعدادات ربط واتساب."))
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+
+    if (pendingPlan && /^(اي|نعم|تمام|ثبت|ثبتها|اثبت|اثبتها|موافق|توكل)$/.test(normalized)) {
+      setMessages((current) => [...current, newMessage("user", command)])
+      await executePlan(pendingPlan)
+      return
+    }
+
+    if (pendingPlan && /^(لا|عدل|اريد اعدل|لا اريد اعدل|غيرها)$/.test(normalized)) {
+      setMessages((current) => [
+        ...current,
+        newMessage("user", command),
+        newMessage("assistant", "تمام، عدّل اللي تريده بالكلام: السعر، العدد، المادة، الزبون، الدفع أو المخزن."),
+      ])
+      setPendingPlan(null)
+      setPendingText("")
+      inputRef.current?.focus()
+      return
+    }
+
+    if (/^(تراجع|ارجع|رجع اخر تعديل)$/.test(normalized)) {
+      const previous = draftHistoryRef.current.pop()
+      setMessages((current) => [...current, newMessage("user", command)])
+      if (previous) {
+        setDraft(previous)
+        setPendingPlan(null)
+        setPendingText("")
+        setSuggestions([])
+        appendAssistant("رجعت آخر تعديل. گلي «كمل» حتى أعرض العملية من جديد.")
+      } else {
+        appendAssistant("ماكو تعديل سابق أرجع له.")
+      }
+      return
+    }
 
     const userMessage = newMessage("user", command)
     const history = messages
@@ -163,16 +263,24 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
     setInput("")
     setPendingPlan(null)
     setPendingText("")
+    setSuggestions([])
     setBusy(true)
 
     try {
-      const { data } = await api.post<ParseResponse>("/voice/parse", { command, history })
+      const { data } = await api.post<ParseResponse>("/voice/parse", { command, history, draft })
+      const nextDraft = data.resetConversation ? {} : (data.draft ?? draft)
+      if (JSON.stringify(nextDraft) !== JSON.stringify(draft)) {
+        draftHistoryRef.current.push(draft)
+        draftHistoryRef.current = draftHistoryRef.current.slice(-10)
+      }
+      setDraft(nextDraft)
       if (data.type === "confirm" && data.plan && data.confirmText) {
         appendAssistant(data.confirmText)
         setPendingPlan(data.plan)
         setPendingText(data.confirmText)
       } else if (data.type === "clarify" && data.question) {
         appendAssistant(data.question)
+        setSuggestions(data.suggestions ?? [])
       } else if (data.type === "answer" && data.text) {
         appendAssistant(data.text)
       } else {
@@ -185,15 +293,26 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
     }
   }
 
-  async function executePlan() {
-    if (!pendingPlan || busy) return
+  async function executePlan(planOverride?: VoicePlan) {
+    const plan = planOverride ?? pendingPlan
+    if (!plan || busy) return
     setBusy(true)
     try {
-      const { data } = await api.post<ExecuteResponse>("/voice/execute", { plan: pendingPlan })
+      const { data } = await api.post<ExecuteResponse>("/voice/execute", { plan })
       appendAssistant(data.message ?? "تم تنفيذ العملية بنجاح.")
       const invoiceId = data.invoice?.id
+      if (data.invoice?.id && data.invoice.invoiceNumber) {
+        setLastInvoice({
+          id: data.invoice.id,
+          invoiceNumber: data.invoice.invoiceNumber,
+        })
+        appendAssistant("إذا تريد، گلي «أرسلها واتساب» وأرسل الفاتورة للزبون مباشرة.")
+      }
       setPendingPlan(null)
       setPendingText("")
+      setDraft({})
+      setSuggestions([])
+      draftHistoryRef.current = []
       if (invoiceId) window.setTimeout(() => window.open(`/invoices/${invoiceId}`, "_blank"), 450)
     } catch (error) {
       appendAssistant(apiError(error, "ما تم تنفيذ العملية. راجع المعلومات وجرب مرة ثانية."))
@@ -248,6 +367,9 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
     setMessages([welcomeMessage])
     setPendingPlan(null)
     setPendingText("")
+    setDraft({})
+    setSuggestions([])
+    draftHistoryRef.current = []
     setInput("")
   }
 
@@ -328,7 +450,10 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
                     <div className="mt-3 border-t border-amber-200 pt-3 dark:border-amber-800">
                       {pendingPlan.items.map((item) => (
                         <div key={`${item.productId}-${item.unit}`} className="flex justify-between gap-3 py-1 text-xs text-slate-700 dark:text-slate-300">
-                          <span>{item.productName} × {item.quantity}</span>
+                          <span>
+                            {item.productName} × {item.quantity}
+                            {item.warehouseName ? ` — ${item.warehouseName}` : ""}
+                          </span>
                           <span>{item.totalPrice.toLocaleString("en-US")} د.ع</span>
                         </div>
                       ))}
@@ -344,6 +469,22 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
                     </button>
                   </div>
                   <span className="sr-only">{pendingText}</span>
+                </div>
+              ) : null}
+
+              {!pendingPlan && suggestions.length ? (
+                <div className="mr-auto flex max-w-[92%] flex-wrap gap-2">
+                  {suggestions.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void sendCommand(suggestion)}
+                      className="rounded-full border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 transition hover:bg-teal-100 disabled:opacity-60 dark:border-teal-700 dark:bg-teal-950/40 dark:text-teal-200"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
                 </div>
               ) : null}
 

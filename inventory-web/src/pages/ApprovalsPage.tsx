@@ -49,7 +49,48 @@ type ApprovalData = {
       exceedsStock: boolean
     }>
   }
+  // Negative-stock sale snapshot
+  invoiceId?: string
+  invoiceNumber?: string
+  lines?: Array<{
+    productName: string
+    warehouseName?: string
+    quantityPieces: number
+    deficitPieces: number
+  }>
   body?: unknown
+}
+
+// Approval sections shown on the page. Each pending request is routed to a section
+// by its requestType; anything unmapped falls into "أخرى".
+const APPROVAL_SECTIONS: Array<{ key: string; title: string; types: string[] }> = [
+  { key: "negative", title: "بضاعة سالبة (نواقص المخزون)", types: ["NEGATIVE_STOCK_SALE"] },
+  { key: "wholesale", title: "كتلوك الجملة", types: ["CATALOG_ACCESS", "CATALOG_ORDER"] },
+  { key: "retail", title: "كتلوك المفرد", types: ["RETAIL_ORDER", "RETAIL_ACCESS"] },
+  {
+    key: "documents",
+    title: "الفواتير والسندات",
+    types: [
+      "CREATE_INVOICE", "UPDATE_INVOICE", "CANCEL_INVOICE", "HARD_DELETE_INVOICE",
+      "CREATE_VOUCHER", "UPDATE_VOUCHER", "CANCEL_VOUCHER", "DELETE_VOUCHER", "RESTORE_VOUCHER",
+    ],
+  },
+  {
+    key: "data",
+    title: "المستخدمين والزبائن والمواد",
+    types: [
+      "CREATE_USER", "UPDATE_USER", "DEACTIVATE_USER",
+      "CREATE_CUSTOMER", "UPDATE_CUSTOMER", "DELETE_CUSTOMER",
+      "CREATE_PRODUCT", "UPDATE_PRODUCT", "DELETE_PRODUCT",
+    ],
+  },
+  { key: "transfers", title: "التحويلات بين المخازن", types: ["CREATE_TRANSFER"] },
+  { key: "other", title: "أخرى", types: [] },
+]
+
+function sectionKeyForType(type: string): string {
+  const match = APPROVAL_SECTIONS.find((s) => s.types.includes(type))
+  return match ? match.key : "other"
 }
 
 function money(value: unknown) {
@@ -81,6 +122,7 @@ function requestTypeLabel(type: string) {
     UPDATE_VOUCHER: "تعديل سند",
     DELETE_VOUCHER: "حذف سند",
     CREATE_TRANSFER: "تحويل بين المخازن",
+    NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة",
   }
   return labels[type] ?? type
 }
@@ -122,6 +164,22 @@ export function ApprovalsPage() {
                 </div>
                 <div className="text-xs text-slate-500">
                   {data.phone ?? "-"} — {money(data.subtotal)} د.ع
+                </div>
+              </div>
+            )
+          }
+          if (row.original.requestType === "NEGATIVE_STOCK_SALE") {
+            const lines = data.lines ?? []
+            return (
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold">فاتورة {data.invoiceNumber ?? "-"}</span>
+                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900 dark:text-rose-300">
+                    {lines.length} مادة ناقصة
+                  </span>
+                </div>
+                <div className="text-xs text-slate-500">
+                  {data.customerName ?? row.original.requester?.name ?? "-"}
                 </div>
               </div>
             )
@@ -229,6 +287,7 @@ export function ApprovalsPage() {
     columns,
     getCoreRowModel: getCoreRowModel(),
   })
+  const allRows = table.getRowModel().rows
 
   return (
     <div className="space-y-4">
@@ -237,43 +296,51 @@ export function ApprovalsPage() {
         <p className="text-slate-500">طلبات معلقة تنتظر موافقة الإدارة قبل تنفيذها.</p>
       </div>
       <CatalogLinkCard catalogUrl={catalogUrl} />
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            الطلبات المعلقة
-            <Badge>{rows.length}</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <THead>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TR key={headerGroup.id}>
-                  {headerGroup.headers.map((header) => (
-                    <TH key={header.id}>{flexRender(header.column.columnDef.header, header.getContext())}</TH>
+
+      {!approvalsQuery.isLoading && rows.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center text-slate-500">لا توجد طلبات معلقة</CardContent>
+        </Card>
+      ) : null}
+
+      {APPROVAL_SECTIONS.map((section) => {
+        const sectionRows = allRows.filter(
+          (row) => sectionKeyForType(row.original.requestType) === section.key,
+        )
+        if (sectionRows.length === 0) return null
+        return (
+          <Card key={section.key}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                {section.title}
+                <Badge>{sectionRows.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <THead>
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TR key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TH key={header.id}>{flexRender(header.column.columnDef.header, header.getContext())}</TH>
+                      ))}
+                    </TR>
                   ))}
-                </TR>
-              ))}
-            </THead>
-            <TBody>
-              {table.getRowModel().rows.map((row) => (
-                <TR key={row.id}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>
+                </THead>
+                <TBody>
+                  {sectionRows.map((row) => (
+                    <TR key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>
+                      ))}
+                    </TR>
                   ))}
-                </TR>
-              ))}
-              {!approvalsQuery.isLoading && rows.length === 0 ? (
-                <TR>
-                  <TD colSpan={columns.length} className="py-8 text-center text-slate-500">
-                    لا توجد طلبات معلقة
-                  </TD>
-                </TR>
-              ) : null}
-            </TBody>
-          </Table>
-        </CardContent>
-      </Card>
+                </TBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )
+      })}
 
       {reviewMutation.isError ? (
         <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">
@@ -418,6 +485,49 @@ function ApprovalDetails({
             </Table>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  if (approval?.requestType === "NEGATIVE_STOCK_SALE") {
+    const lines = data.lines ?? []
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-3 rounded-lg bg-slate-50 p-4 text-sm md:grid-cols-2 dark:bg-slate-900">
+          <Info label="الفاتورة" value={data.invoiceNumber || "-"} />
+          <Info label="الزبون" value={data.customerName || "-"} />
+        </div>
+        <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm font-semibold text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+          ⛔ هذه المواد بيعت وهي ناقصة من المخزن (رصيد سالب). سيُغطّى العجز تلقائياً عند وصول بضاعة جديدة. الموافقة تعني الاطلاع والإقرار فقط.
+        </div>
+        <div className="rounded-lg border">
+          <div className="border-b bg-white px-4 py-3 font-semibold dark:bg-slate-900">المواد الناقصة</div>
+          <div className="max-h-[45vh] overflow-auto">
+            <Table>
+              <THead>
+                <TR><TH>المادة</TH><TH>المخزن</TH><TH>المباع</TH><TH>العجز</TH></TR>
+              </THead>
+              <TBody>
+                {lines.map((line, i) => (
+                  <TR key={i}>
+                    <TD className="font-semibold">{line.productName}</TD>
+                    <TD>{line.warehouseName || "-"}</TD>
+                    <TD>{money(line.quantityPieces)} قطعة</TD>
+                    <TD className="font-bold text-rose-700 dark:text-rose-400">{money(line.deficitPieces)} قطعة</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </div>
+        </div>
+        {approval?.requestType === "NEGATIVE_STOCK_SALE" && data.invoiceId ? (
+          <Button variant="outline" className="w-full" onClick={() => window.open(`/invoices/${data.invoiceId}`, "_blank")}>
+            <ExternalLink className="h-4 w-4" /> فتح الفاتورة
+          </Button>
+        ) : null}
+        <Button className="w-full" disabled={approving} onClick={onApprove}>
+          <Check className="h-4 w-4" /> موافقة (إقرار بالاطلاع)
+        </Button>
       </div>
     )
   }

@@ -343,6 +343,29 @@ export const createTransferSchema = z.object({
   }),
 });
 
+export const createStockLossSchema = z.object({
+  body: z.object({
+    date: dateString,
+    warehouseId: z.string().uuid(),
+    reason: z.enum(["DAMAGE", "EXPIRY", "THEFT", "DEFECT", "OTHER"]).default("DAMAGE"),
+    notes: z.string().trim().max(500).optional(),
+    items: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
+          // Rejects 0, negatives, NaN and non-integers — a loss only removes stock.
+          quantity: z.coerce.number().int().positive(),
+        })
+      )
+      .min(1),
+  }),
+});
+
+export const cancelStockLossSchema = z.object({
+  params: uuidParam,
+});
+
 export const customerTransactionsSchema = z.object({
   params: uuidParam,
   query: z.object({
@@ -441,6 +464,9 @@ const invoiceItemSchema = z.object({
   unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
   quantity: z.coerce.number().int().min(1),
   unitPrice: z.coerce.number().nonnegative().optional(),
+  // Seller explicitly chose to sell a product that is out of stock — the line is
+  // allowed to push warehouse stock negative and is flagged for manager review.
+  allowNegativeStock: z.boolean().optional(),
 });
 
 const invoiceTypeSchema = z.enum(["SALE", "PURCHASE", "SALES_RETURN"]);

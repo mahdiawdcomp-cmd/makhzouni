@@ -1228,8 +1228,9 @@ export async function getPublicCustomerReferral(phone: string) {
 }
 
 export async function listStockLosses(params?: { from?: string; to?: string; warehouseId?: string; page?: number }) {
-  const { data } = await api.get<ApiEnvelope<{ data: StockLoss[]; pagination: { total: number; page: number; limit: number; pages: number } }>>("/stock-losses", { params })
-  return data.data!
+  // Backend follows the app-wide paginated shape: { success, data: StockLoss[], pagination }.
+  const { data } = await api.get<PagedResponse<StockLoss>>("/stock-losses", { params })
+  return data.data ?? []
 }
 
 export async function createStockLoss(payload: {

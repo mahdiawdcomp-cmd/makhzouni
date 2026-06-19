@@ -57,7 +57,7 @@ export function LossesPage() {
     queryKey: ["stock-losses"],
     queryFn: () => listStockLosses(),
   })
-  const losses = lossesQuery.data?.data ?? []
+  const losses = lossesQuery.data ?? []
 
   const createMutation = useMutation({
     mutationFn: createStockLoss,

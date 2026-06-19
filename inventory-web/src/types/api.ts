@@ -466,6 +466,7 @@ export interface CreateInvoicePayload {
     unit: "PIECE" | "DOZEN" | "CARTON"
     quantity: number
     unitPrice?: number
+    allowNegativeStock?: boolean
   }>
 }
 
