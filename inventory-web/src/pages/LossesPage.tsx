@@ -1,20 +1,17 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, Plus, Trash2, X } from "lucide-react"
-import { cancelStockLoss, createStockLoss, listStockLosses } from "../api/endpoints"
-import type { LossReason, StockLoss } from "../types/api"
+import { cancelStockLoss, createStockLoss, getBranches, listStockLosses } from "../api/endpoints"
+import type { Branch, LossReason, StockLoss } from "../types/api"
 import { useProducts } from "../hooks/useProducts"
-import { useBranches } from "../hooks/useBranches"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
-import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { toast } from "../components/ui/use-toast"
 import { localDateStr, formatDate, formatDateTime } from "../utils/date"
-import { useBranchFilter } from "../hooks/useBranchFilter"
 
 const REASONS: Record<LossReason, string> = {
   DAMAGE: "تلف",
@@ -41,8 +38,8 @@ export function LossesPage() {
   usePageTitle("التلف والخسائر")
   const qc = useQueryClient()
   const { allProducts } = useProducts()
-  const branches = useBranches()
-  const { shopBranchId } = useBranchFilter()
+  const branchesQuery = useQuery<Branch[]>({ queryKey: ["branches"], queryFn: getBranches })
+
 
   const [open, setOpen] = useState(false)
   const [cancelTarget, setCancelTarget] = useState<StockLoss | null>(null)
@@ -205,7 +202,7 @@ export function LossesPage() {
                   onChange={(e) => setWarehouseId(e.target.value)}
                 >
                   <option value="">— اختر المخزن —</option>
-                  {(branches.data ?? []).map((b) => (
+                  {(branchesQuery.data ?? []).map((b) => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
                 </select>
