@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
@@ -586,24 +586,26 @@ export function InvoiceCreatePage() {
   function splitLineAcrossWarehouses(index: number) {
     const item = items[index]
     if (!item) return
-    const shopPcs = item.product.shopStock ?? 0
+    const allWhs = item.product.warehouseStocks ?? []
+    const shopWh = allWhs.find((ws) => ws.warehouse.name.includes("محل"))
+    const shopPcs = item.product.shopStock
+      ?? shopWh?.quantityPieces
+      ?? 0
     const itemPcs =
       item.unit === "CARTON" ? item.quantity * item.product.pcsPerCarton
       : item.unit === "DOZEN" ? item.quantity * 12
       : item.quantity
     const remaining = itemPcs - shopPcs
-    if (remaining <= 0) return
-    // Find warehouse with most remaining stock (excluding shop/undefined)
-    const otherWhs = (item.product.warehouseStocks ?? [])
-      .filter((ws) => ws.quantityPieces > 0)
+    if (remaining <= 0 || shopPcs === 0) return
+    // Pick the non-shop warehouse with the most stock
+    const otherWhs = allWhs
+      .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopWh?.warehouseId)
       .sort((a, b) => b.quantityPieces - a.quantityPieces)
     if (otherWhs.length === 0) return
     const pickWh = otherWhs[0]
     setItems((current) => {
       const next = [...current]
-      // Shrink current line to shop capacity
       next[index] = { ...item, quantity: shopPcs, unit: "PIECE" as Unit }
-      // Insert a new line for the remainder from the other warehouse
       next.splice(index + 1, 0, {
         product: item.product,
         unit: "PIECE" as Unit,
@@ -1226,13 +1228,17 @@ export function InvoiceCreatePage() {
                   const rowKey = `${index}`
                   const stockAfterLine = isPurchase ? stockOf(item.product) + itemQuantityInPieces(item) : stockOf(item.product) - itemQuantityInPieces(item)
                   const hasNegativeStock = stockOf(item.product) < 0 || stockAfterLine < 0
-                  const shopPcs = item.product.shopStock ?? 0
+                  // Derive shop stock: use the dedicated field when populated; fall back to finding المحل by name
+                  const shopPcs = item.product.shopStock
+                    ?? (item.product.warehouseStocks ?? []).find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
+                    ?? 0
                   const lineQtyPcs = itemQuantityInPieces(item)
-                  // Show split button: sale line, no override warehouse, qty > shop stock, shop has some, other wh exists
-                  const canSplit = !isPurchase && !item.warehouseId && lineQtyPcs > shopPcs && shopPcs > 0
-                    && (item.product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
+                  // Show split banner: sale, no explicit warehouse chosen, qty exceeds shop stock, shop has some, other wh has stock
+                  const canSplit = !isPurchase && !item.warehouseId && shopPcs > 0 && lineQtyPcs > shopPcs
+                    && (item.product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0 && ws.warehouse.name !== (item.product.warehouseStocks ?? []).find(w => w.warehouse.name.includes("محل"))?.warehouse.name)
                   return (
-                    <TR key={index}>
+                    <Fragment key={index}>
+                    <TR>
                       <TD>
                         <div className="flex items-center gap-2 min-w-[140px]">
                           <ProductThumb product={item.product} />
@@ -1327,24 +1333,30 @@ export function InvoiceCreatePage() {
                         </TD>
                       )}
                       <TD>
-                        <div className="flex items-center gap-1">
-                          {canSplit && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1 border-sky-300 px-2 text-[11px] font-semibold text-sky-700 hover:bg-sky-50 dark:border-sky-700 dark:text-sky-300"
-                              onClick={() => splitLineAcrossWarehouses(index)}
-                              title={`المحل: ${shopPcs} ق — يتم التقسيم تلقائياً`}
-                            >
-                              ⚡ تقسيم
-                            </Button>
-                          )}
-                          <Button variant="ghost" size="sm" onClick={() => removeItem(index)}>
-                            <Trash2 className="h-4 w-4 text-rose-500" />
-                          </Button>
-                        </div>
+                        <Button variant="ghost" size="sm" onClick={() => removeItem(index)}>
+                          <Trash2 className="h-4 w-4 text-rose-500" />
+                        </Button>
                       </TD>
                     </TR>
+                    {canSplit && (
+                      <TR>
+                        <TD colSpan={hidePrice ? 5 : 7} className="p-0 pb-1">
+                          <div className="mx-2 flex items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-700/50 dark:bg-sky-950/30">
+                            <div className="text-[12px] text-sky-800 dark:text-sky-300">
+                              ⚡ <strong>المحل عنده {shopPcs} قطعة فقط</strong> — الكمية المطلوبة {lineQtyPcs} قطعة. هل تريد التقسيم على مخازن؟
+                            </div>
+                            <Button
+                              size="sm"
+                              className="h-7 shrink-0 bg-sky-600 px-3 text-xs text-white hover:bg-sky-700"
+                              onClick={() => splitLineAcrossWarehouses(index)}
+                            >
+                              تقسيم تلقائي
+                            </Button>
+                          </div>
+                        </TD>
+                      </TR>
+                    )}
+                    </Fragment>
                   )
                 })}
               </TBody>
