@@ -43,12 +43,31 @@ function translateRow(row: CustomerTransaction): string {
   if (row.status === "CANCELLED") return "فاتورة ملغاة"
   if (t === "RECEIPT") return "سند قبض"
   if (t === "PAYMENT") return "سند دفع"
+  if (t === "INVOICE_PAYMENT") return "دفعة"
   if (t === "EXPENSE") return "مصاريف"
   if (t === "SALE") return "فاتورة بيع"
   if (t === "PURCHASE") return "فاتورة شراء"
   if (t === "SALES_RETURN") return "فاتورة مرتجع"
   if (t.includes("INVOICE")) return Number(row.debit) > 0 ? "فاتورة بيع" : Number(row.credit) > 0 ? "فاتورة شراء" : "فاتورة"
   return translateLastType(row.type)
+}
+
+// Merge INVOICE + INVOICE_PAYMENT rows for the same invoice into one row.
+// The merged row shows: debit = invoice total, credit = amount paid on that invoice,
+// runningBalance = balance after both (i.e. from the INVOICE_PAYMENT row).
+function mergeStatementRows(rows: CustomerTransaction[]): CustomerTransaction[] {
+  const payments = new Map<string, CustomerTransaction>()
+  for (const row of rows) {
+    if (row.type === "INVOICE_PAYMENT") payments.set(row.id, row)
+  }
+  return rows
+    .filter((row) => row.type !== "INVOICE_PAYMENT")
+    .map((row) => {
+      if (row.type !== "INVOICE") return row
+      const payment = payments.get(row.id)
+      if (!payment || !Number(payment.credit)) return row
+      return { ...row, credit: payment.credit, runningBalance: payment.runningBalance }
+    })
 }
 
 function lastActivityLink(last: { type?: string; id?: string } | undefined | null): string | null {
@@ -336,6 +355,8 @@ function StatementTab({
   setFrom: (value: string) => void
   setTo: (value: string) => void
 }) {
+  const merged = useMemo(() => mergeStatementRows(rows), [rows])
+
   const csv = useMemo(() => {
     const fmtDate = (v: string | null | undefined, dateOnly = false) =>
       v ? (dateOnly ? formatDate(v) : formatDateTime(v)) : ""
@@ -344,7 +365,7 @@ function StatementTab({
       "التاريخ", "وقت الإدخال", "أنشأه", "النوع", "الرقم المرجعي",
       "مدين (على الزبون)", "دائن (للزبون)", "الرصيد", "آخر تعديل",
     ].map(q).join(",")
-    const body = rows.map((row) => [
+    const body = merged.map((row) => [
       fmtDate(row.date, true),
       fmtDate(row.createdAt),
       row.createdByName ?? "",
@@ -356,7 +377,7 @@ function StatementTab({
       row.lastChangedAt ? fmtDate(row.lastChangedAt) : "",
     ].map(q).join(","))
     return "﻿" + [header, ...body].join("\n")
-  }, [rows])
+  }, [merged])
 
   return (
     <div className="space-y-4">
@@ -364,30 +385,53 @@ function StatementTab({
         <Input className="w-44" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
         <Input className="w-44" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         <Button variant="outline" asChild><a href={`data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`} download={`${customer.name}-statement.csv`}>تصدير Excel</a></Button>
-        <CustomerStatementPdfButton customer={customer} rows={rows} />
+        <CustomerStatementPdfButton customer={customer} rows={merged} />
       </div>
       <Table>
-        <THead><TR><TH>التاريخ</TH><TH>النوع</TH><TH>على الزبون</TH><TH>بيه الزبون</TH><TH>الرصيد</TH><TH>فتح</TH></TR></THead>
-        <TBody>{rows.map((row) => {
+        <THead>
+          <TR>
+            <TH>التاريخ</TH>
+            <TH>النوع / الرقم</TH>
+            <TH className="text-rose-700">مدين — على الزبون</TH>
+            <TH className="text-emerald-700">دائن — بيه الزبون</TH>
+            <TH>الرصيد الكلي</TH>
+            <TH>فتح</TH>
+          </TR>
+        </THead>
+        <TBody>{merged.map((row) => {
           const link = transactionLink(row)
           const tone = transactionTone(row)
           const label = translateRow(row)
+          const debitAmt = Number(row.debit)
+          const creditAmt = Number(row.credit)
+          const balance = Number(row.runningBalance)
           return (
             <TR key={`${row.id}-${row.referenceNumber}`} className={`${tone.row} ${link ? "cursor-pointer" : ""}`} style={tone.style}>
               <TD>
-                <div>{formatDate(row.date)}</div>
-                <div className="text-[11px] text-slate-500">إدخال: {formatDateTime(row.createdAt)}</div>
+                <div className="font-medium">{formatDate(row.date)}</div>
+                <div className="text-[11px] text-slate-500">{formatDateTime(row.createdAt)}</div>
               </TD>
               <TD>
                 <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${tone.label}`}>{label}</span>
-                <div className="mt-1 text-[11px] text-slate-500">رقم: {row.referenceNumber}</div>
-                <div className="text-[11px] text-slate-500">أنشأه: {row.createdByName ?? "-"}</div>
-                <div className="text-[11px] text-slate-500">آخر تغيير: {auditNote(row)}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">{row.referenceNumber}</div>
+                <div className="text-[11px] text-slate-400">{row.createdByName ?? ""}</div>
               </TD>
-              <TD className={row.debit ? "font-semibold text-rose-700" : "text-slate-400"}>{row.debit ? money(row.debit) : "—"}</TD>
-              <TD className={row.credit ? "font-semibold text-emerald-700" : "text-slate-400"}>{row.credit ? money(row.credit) : "—"}</TD>
-              <TD className="font-bold">{money(row.runningBalance)}</TD>
-              <TD>{link ? <Button asChild variant="outline"><Link to={link}>فتح</Link></Button> : null}</TD>
+              <TD className="text-right">
+                {debitAmt > 0
+                  ? <span className="font-bold text-rose-700">{money(debitAmt)}</span>
+                  : <span className="text-slate-300">—</span>}
+              </TD>
+              <TD className="text-right">
+                {creditAmt > 0
+                  ? <span className="font-bold text-emerald-700">{money(creditAmt)}</span>
+                  : <span className="text-slate-300">—</span>}
+              </TD>
+              <TD className="text-right">
+                <span className={`text-base font-bold ${balance > 0 ? "text-rose-600" : balance < 0 ? "text-emerald-600" : "text-slate-500"}`}>
+                  {money(balance)}
+                </span>
+              </TD>
+              <TD>{link ? <Button asChild variant="outline" size="sm"><Link to={link}>فتح</Link></Button> : null}</TD>
             </TR>
           )
         })}</TBody>
