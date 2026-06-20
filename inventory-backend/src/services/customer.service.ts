@@ -145,6 +145,8 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
         where: {
           customerId,
           type: VoucherType.RECEIPT,
+          archivedAt: null,
+          cancelledAt: null,
         },
         _sum: { amount: true },
       }),
@@ -152,6 +154,8 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
         where: {
           customerId,
           type: VoucherType.PAYMENT,
+          archivedAt: null,
+          cancelledAt: null,
         },
         _sum: { amount: true },
       }),
@@ -163,7 +167,7 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
         orderBy: { date: "desc" },
       }),
       db.paymentVoucher.findFirst({
-        where: { customerId },
+        where: { customerId, archivedAt: null, cancelledAt: null },
         orderBy: { date: "desc" },
       }),
     ]);
@@ -517,8 +521,8 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
         "changes" in movement.lastAudit.metadata
           ? (movement.lastAudit.metadata as { changes?: unknown }).changes
           : null,
-      debit: !isCancelledInvoice && !isCredit ? movement.amount : 0,
-      credit: !isCancelledInvoice && isCredit ? movement.amount : 0,
+      debit: !isCancelled && !isCredit ? movement.amount : 0,
+      credit: !isCancelled && isCredit ? movement.amount : 0,
       runningBalance,
     }];
   });
@@ -545,7 +549,7 @@ export async function getLastCustomerTransaction(id: string) {
       orderBy: { date: "desc" },
     }),
     prisma.paymentVoucher.findFirst({
-      where: { customerId: id },
+      where: { customerId: id, archivedAt: null, cancelledAt: null },
       orderBy: { date: "desc" },
     }),
   ]);

@@ -366,30 +366,116 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
   }
 
   const invoicesDateFilter = dateFilter(query.from, query.to);
-  const items = await prisma.invoiceItem.findMany({
-    where: {
-      productId: query.productId,
-      invoice: {
-        status: InvoiceStatus.ACTIVE,
-        type: InvoiceType.SALE,
-        ...(query.branchId ? { branchId: query.branchId } : {}),
-        ...(invoicesDateFilter ? { date: invoicesDateFilter } : {}),
-      },
-    },
-    include: {
-      invoice: {
-        include: {
-          customer: true,
+  const [items, transferItems, lossItems] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: {
+        productId: query.productId,
+        ...(query.branchId ? { warehouseId: query.branchId } : {}),
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          archivedAt: null,
+          ...(invoicesDateFilter ? { date: invoicesDateFilter } : {}),
         },
       },
-      product: { select: { pcsPerCarton: true } },
-    },
-    orderBy: {
-      invoice: {
-        date: "desc",
+      include: {
+        warehouse: { select: { name: true } },
+        invoice: {
+          include: {
+            customer: true,
+          },
+        },
+        product: { select: { pcsPerCarton: true } },
       },
-    },
-  });
+    }),
+    prisma.transferItem.findMany({
+      where: {
+        productId: query.productId,
+        transfer: {
+          status: "COMPLETED",
+          ...(query.branchId
+            ? { OR: [{ fromBranchId: query.branchId }, { toBranchId: query.branchId }] }
+            : {}),
+          ...(invoicesDateFilter ? { date: invoicesDateFilter } : {}),
+        },
+      },
+      include: {
+        transfer: {
+          include: {
+            fromBranch: { select: { name: true } },
+            toBranch: { select: { name: true } },
+          },
+        },
+      },
+    }),
+    prisma.stockLossItem.findMany({
+      where: {
+        productId: query.productId,
+        loss: {
+          cancelledAt: null,
+          ...(query.branchId ? { warehouseId: query.branchId } : {}),
+          ...(invoicesDateFilter ? { date: invoicesDateFilter } : {}),
+        },
+      },
+      include: {
+        loss: {
+          include: {
+            warehouse: { select: { name: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  const invoiceRows = items.map((item) => ({
+    date: item.invoice.date,
+    movementType: item.invoice.type,
+    movementLabel:
+      item.invoice.type === InvoiceType.SALE
+        ? "بيع"
+        : item.invoice.type === InvoiceType.PURCHASE
+          ? "شراء"
+          : "مرتجع مبيعات",
+    customerName: item.invoice.customer.name,
+    warehouseName: item.warehouse?.name ?? null,
+    quantity: item.quantity,
+    unit: item.unit,
+    unitPrice: toNumber(item.unitPrice),
+    totalPrice: toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice),
+    invoiceNumber: item.invoice.invoiceNumber,
+    invoiceId: item.invoice.id,
+  }));
+
+  const transferRows = transferItems.map((item) => ({
+    date: item.transfer.date,
+    movementType: "TRANSFER",
+    movementLabel: "تحويل",
+    customerName: `${item.transfer.fromBranch.name} ← ${item.transfer.toBranch.name}`,
+    warehouseName: `${item.transfer.fromBranch.name} ← ${item.transfer.toBranch.name}`,
+    quantity: item.quantity,
+    unit: item.unit,
+    unitPrice: null,
+    totalPrice: null,
+    invoiceNumber: item.transfer.transferNumber,
+    invoiceId: null,
+  }));
+
+  const lossRows = lossItems.map((item) => ({
+    date: item.loss.date,
+    movementType: "LOSS",
+    movementLabel: "تلف / خسارة",
+    customerName: item.loss.warehouse.name,
+    warehouseName: item.loss.warehouse.name,
+    quantity: item.quantity,
+    unit: item.unit,
+    unitPrice: null,
+    totalPrice: null,
+    invoiceNumber: item.loss.lossNumber,
+    invoiceId: null,
+  }));
+
+  const rows = [...invoiceRows, ...transferRows, ...lossRows].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
 
   return {
     product: {
@@ -397,16 +483,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
       itemNumber: product.itemNumber,
       name: product.name,
     },
-    rows: items.map((item) => ({
-      date: item.invoice.date,
-      customerName: item.invoice.customer.name,
-      quantity: item.quantity,
-      unit: item.unit,
-      unitPrice: toNumber(item.unitPrice),
-      totalPrice: toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice),
-      invoiceNumber: item.invoice.invoiceNumber,
-      invoiceId: item.invoice.id,
-    })),
+    rows,
     totals: {
       quantitySold: items.reduce(
         (sum, item) => sum + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),

@@ -23,9 +23,15 @@ export interface ListAuditLogsQuery {
   limit: number;
 }
 
-function asJson(value: unknown): Prisma.InputJsonValue | undefined {
+export function asAuditJson(value: unknown): Prisma.InputJsonValue | undefined {
   if (value === undefined) return undefined;
-  return value as Prisma.InputJsonValue;
+  const json = JSON.stringify(value, (_key, item) => {
+    if (typeof item === "bigint") return item.toString();
+    if (typeof item === "function" || typeof item === "symbol") return undefined;
+    return item;
+  });
+  if (json === undefined) return undefined;
+  return JSON.parse(json) as Prisma.InputJsonValue;
 }
 
 export async function createAuditLog(input: CreateAuditLogInput) {
@@ -35,9 +41,9 @@ export async function createAuditLog(input: CreateAuditLogInput) {
       action: input.action,
       entity: input.entity,
       recordId: input.recordId,
-      before: asJson(input.before),
-      after: asJson(input.after),
-      metadata: asJson(input.metadata),
+      before: asAuditJson(input.before),
+      after: asAuditJson(input.after),
+      metadata: asAuditJson(input.metadata),
       ipAddress: input.ipAddress,
       userAgent: input.userAgent,
     },

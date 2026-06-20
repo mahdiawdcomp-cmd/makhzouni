@@ -276,7 +276,7 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
     tx.paymentVoucher.findFirst({
-      where: { customerId, archivedAt: null },
+      where: { customerId, archivedAt: null, cancelledAt: null },
       orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     }),
   ]);
@@ -920,8 +920,15 @@ export async function updateInvoice(
     return updateInvoiceInTransaction(db, id, input, updatedBy);
   }
 
-  return prisma.$transaction((tx) =>
-    updateInvoiceInTransaction(tx, id, input, updatedBy)
+  return prisma.$transaction(
+    (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
+    {
+      // Updating an invoice reverses stock, rebuilds its lines and recalculates
+      // the customer atomically. A remote Neon connection can exceed Prisma's
+      // 5-second default even though every query is healthy.
+      maxWait: 10_000,
+      timeout: 20_000,
+    }
   );
 }
 

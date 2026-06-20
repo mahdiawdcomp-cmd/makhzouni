@@ -18,14 +18,23 @@ function redact(value: unknown): unknown {
   }
 
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
-        key,
-        sensitiveKeys.has(key) ? "[REDACTED]" : redact(item),
-      ])
-    );
+    if (value instanceof Date) return value.toISOString();
+
+    const toJSON = (value as { toJSON?: () => unknown }).toJSON;
+    if (typeof toJSON === "function") {
+      return redact(toJSON.call(value));
+    }
+
+    const entries: Array<[string, unknown]> = [];
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof item === "function" || typeof item === "symbol" || item === undefined) continue;
+      entries.push([key, sensitiveKeys.has(key) ? "[REDACTED]" : redact(item)]);
+    }
+    return Object.fromEntries(entries);
   }
 
+  if (typeof value === "bigint") return value.toString();
+  if (typeof value === "function" || typeof value === "symbol") return undefined;
   return value;
 }
 

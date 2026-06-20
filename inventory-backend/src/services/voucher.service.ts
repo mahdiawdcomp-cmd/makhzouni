@@ -121,7 +121,7 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
         orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       }),
       tx.paymentVoucher.findFirst({
-        where: { customerId },
+        where: { customerId, archivedAt: null, cancelledAt: null },
         orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       }),
   ]);
