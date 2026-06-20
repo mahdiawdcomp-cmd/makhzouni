@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { logout } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { NotificationsBell } from "./NotificationsBell"
+import { LanguageSwitcher } from "./LanguageSwitcher"
 
 function useCurrentPageLabel(): string {
   const { pathname, search } = useLocation()
@@ -102,6 +103,8 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
             </motion.div>
           </AnimatePresence>
         </motion.button>
+
+        <LanguageSwitcher />
 
         <NotificationsBell />
 

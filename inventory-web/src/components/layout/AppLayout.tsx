@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { AlertTriangle, Menu, X, Zap } from "lucide-react"
+import { AlertTriangle, Menu, Moon, Sun, X, Zap } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
@@ -15,6 +15,7 @@ import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
 import { ErrorBoundary } from "../ErrorBoundary"
 import { toast } from "../ui/use-toast"
+import { LanguageSwitcher } from "./LanguageSwitcher"
 
 const pageVariants = {
   initial: { opacity: 0, y: 10 },
@@ -227,6 +228,18 @@ export function AppLayout() {
             <span className="text-[14px] font-bold tracking-tight" style={{ color: "var(--theme-textPrimary)" }}>
               مخزوني
             </span>
+          </div>
+          <div className="ms-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setDarkMode((value) => !value)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg"
+              style={{ color: "var(--theme-textSecondary)" }}
+              aria-label="تبديل الوضع"
+            >
+              {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            <LanguageSwitcher />
           </div>
         </div>
 

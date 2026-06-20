@@ -7,6 +7,7 @@ import { useAuthStore } from "../store/authStore"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { LanguageSwitcher } from "../components/layout/LanguageSwitcher"
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -51,8 +52,11 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-screen place-items-center bg-slate-100 p-4 dark:bg-slate-950">
+      <div className="fixed end-4 top-4 rounded-lg border bg-white/90 p-1 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
+        <LanguageSwitcher />
+      </div>
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+        <CardHeader className="flex-col justify-center text-center">
           <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-xl bg-slate-900 text-amber-400 dark:bg-amber-500 dark:text-slate-950">
             <Boxes className="h-7 w-7" />
           </div>

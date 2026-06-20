@@ -104,6 +104,15 @@ body {
   line-height: 1.6;
 }
 
+:root[data-admin-language="en"] {
+  --theme-fontFamily: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+
+:root[data-admin-language="ar"],
+:root[data-admin-language="fa"] {
+  --theme-fontFamily: "Tajawal", "Cairo", system-ui, sans-serif;
+}
+
 button, input, select, textarea { font: inherit; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
