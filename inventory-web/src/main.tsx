@@ -8,6 +8,8 @@ import { RealtimeSyncBridge } from "./components/RealtimeSyncBridge"
 import App from "./App"
 import "./index.css"
 import "virtual:pwa-register"
+import { configureTenantApi } from "./api/client"
+import { LanguageProvider } from "./i18n/LanguageProvider"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,16 +25,36 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <RealtimeSyncBridge />
-      <ThemeProvider>
-        <RTLProvider>
-          <App />
-        </RTLProvider>
-      </ThemeProvider>
-      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />}
-    </QueryClientProvider>
-  </StrictMode>,
-)
+// Multi-tenant routing: configureTenantApi resolves each subdomain to its own backend.
+async function bootstrap() {
+  try {
+    await configureTenantApi()
+  } catch {
+    document.getElementById("root")!.innerHTML = `
+      <main dir="rtl" style="min-height:100vh;display:grid;place-items:center;background:#f8fafc;font-family:system-ui">
+        <section style="max-width:440px;padding:28px;text-align:center;background:white;border:1px solid #e2e8f0;border-radius:8px">
+          <h1 style="font-size:20px;margin:0 0 8px">تعذر فتح رابط المحل</h1>
+          <p style="color:#64748b;margin:0">الرابط غير مسجل أو خدمة الإدارة غير متاحة حالياً. تحقق من الرابط وحاول مرة أخرى.</p>
+        </section>
+      </main>`
+    return
+  }
+
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <RealtimeSyncBridge />
+        <ThemeProvider>
+          <LanguageProvider>
+            <RTLProvider>
+              <App />
+            </RTLProvider>
+          </LanguageProvider>
+        </ThemeProvider>
+        {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />}
+      </QueryClientProvider>
+    </StrictMode>,
+  )
+}
+
+void bootstrap()
