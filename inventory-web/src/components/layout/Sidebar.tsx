@@ -441,3 +441,70 @@ export function Sidebar() {
     </aside>
   )
 }
+
+/** Compact horizontal icon-strip shown at the top when in invoice focus mode.
+ *  All links pass through keepInvoiceOpen → open in new tab automatically. */
+export function SidebarTopBar() {
+  const user = useAuthStore((s) => s.user)
+  const isAdmin = user?.role === "ADMIN"
+  const permissions = user?.permissions ?? []
+
+  const topItems = navItems.filter((item) => {
+    if (!user) return false
+    if (isAdmin) return true
+    const perm = permissionForItem(item)
+    return perm === null || permissions.includes(perm)
+  })
+
+  return (
+    <div
+      className="hidden lg:flex items-center gap-0.5 px-2 h-10 shrink-0 border-b border-white/10"
+      style={{ background: "linear-gradient(90deg, var(--theme-sidebar) 0%, #0A0F1E 100%)" }}
+    >
+      {/* Logo */}
+      <div className="flex items-center gap-1.5 px-2 mr-1 border-r border-white/10">
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+          style={{ background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)" }}>
+          <Zap className="h-3.5 w-3.5 text-white" />
+        </div>
+        <span className="text-[12px] font-bold text-white/70 tracking-tight">مخزوني</span>
+      </div>
+      {topItems.map((item) => {
+        const to = "to" in item ? item.to : item.basePath
+        const Icon = item.icon
+        const label = item.label
+        if (to === "/pos") {
+          return (
+            <button key="/pos" type="button"
+              onClick={() => window.open("/pos", "_blank", "width=1024,height=768")}
+              title={label}
+              className="flex items-center justify-center h-8 w-8 rounded-md text-white/50 hover:bg-white/10 hover:text-white transition-all"
+            >
+              <Icon className="h-4 w-4" />
+            </button>
+          )
+        }
+        return (
+          <NavLink key={to} to={to} title={label}
+            className={({ isActive }) => cn(
+              "flex items-center justify-center h-8 w-8 rounded-md transition-all",
+              isActive ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/10 hover:text-white",
+            )}
+          >
+            <Icon className="h-4 w-4" />
+          </NavLink>
+        )
+      })}
+      {isAdmin && (
+        <NavLink to="/approvals" title="الموافقات"
+          className={({ isActive }) => cn(
+            "flex items-center justify-center h-8 w-8 rounded-md transition-all",
+            isActive ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/10 hover:text-white",
+          )}
+        >
+          <ShieldCheck className="h-4 w-4" />
+        </NavLink>
+      )}
+    </div>
+  )
+}

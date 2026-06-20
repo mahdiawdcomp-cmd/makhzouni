@@ -1242,60 +1242,9 @@ export function InvoiceCreatePage() {
         </CardContent>
       </Card>
 
-      {/* Customer info panel — shown when a customer is selected */}
-      {selectedCustomer && (
-        <div className="grid gap-3 sm:grid-cols-3">
-          {/* Balance */}
-          <div className={cn(
-            "rounded-xl border px-4 py-3 flex flex-col gap-1",
-            selectedCustomer.currentBalance > 0
-              ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20"
-              : selectedCustomer.currentBalance < 0
-                ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20"
-                : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40",
-          )}>
-            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">الرصيد الحالي</p>
-            <p className={cn(
-              "text-xl font-bold",
-              selectedCustomer.currentBalance > 0 ? "text-red-600 dark:text-red-400"
-                : selectedCustomer.currentBalance < 0 ? "text-amber-600 dark:text-amber-400"
-                : "text-slate-700 dark:text-slate-300",
-            )}>
-              {fmt(Math.abs(selectedCustomer.currentBalance))}
-              <span className="mr-1 text-sm font-normal">
-                {selectedCustomer.currentBalance > 0 ? "عليه" : selectedCustomer.currentBalance < 0 ? "له" : "صفر"}
-              </span>
-            </p>
-            <p className="text-[11px] text-slate-400">
-              رصيد افتتاحي: {fmt(Math.abs(selectedCustomer.openingBalance))}
-            </p>
-          </div>
-          {/* Last transaction */}
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-1 dark:border-slate-800 dark:bg-slate-900/40">
-            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">آخر معاملة</p>
-            <p className="text-base font-semibold text-slate-700 dark:text-slate-300">
-              {selectedCustomer.lastTransactionAt
-                ? new Date(selectedCustomer.lastTransactionAt).toLocaleDateString("ar-IQ", { year: "numeric", month: "short", day: "numeric" })
-                : "لا توجد"}
-            </p>
-            <p className="text-[11px] text-slate-400">
-              {selectedCustomer.phone || "—"}
-            </p>
-          </div>
-          {/* Link to customer page */}
-          <button
-            type="button"
-            onClick={() => navigate(`/customers/${selectedCustomer.id}`)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-right transition hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
-          >
-            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">ملف الزبون</p>
-            <p className="mt-1 text-base font-semibold text-blue-600 dark:text-blue-400">{selectedCustomer.name}</p>
-            <p className="mt-0.5 text-[11px] text-slate-400">اضغط لفتح السجل الكامل ←</p>
-          </button>
-        </div>
-      )}
-
-      {/* Items table */}
+      {/* Main body: items + totals beside a sticky customer mini-card */}
+      <div className="flex gap-3 items-start">
+      <div className="min-w-0 flex-1 space-y-4">
       <Card className={cn(cardBorder, "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/20")}>
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
@@ -1595,6 +1544,60 @@ export function InvoiceCreatePage() {
       </Card>
 
       <input ref={scanInputRef} className="sr-only" aria-hidden tabIndex={-1} />
+      </div>{/* end flex-1 */}
+
+      {/* Customer mini-panel — sticky on the right, only when customer selected */}
+      {selectedCustomer && (
+        <div className="hidden lg:flex flex-col w-52 shrink-0 sticky top-0 gap-2">
+          {/* Balance */}
+          <div className={cn(
+            "rounded-xl border px-3 py-2.5 flex flex-col gap-0.5",
+            selectedCustomer.currentBalance > 0
+              ? "border-red-200 bg-red-50 dark:border-red-900/60 dark:bg-red-950/20"
+              : selectedCustomer.currentBalance < 0
+                ? "border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/20"
+                : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40",
+          )}>
+            <p className="text-[10px] font-medium text-slate-400">الرصيد</p>
+            <p className={cn(
+              "text-lg font-bold leading-tight",
+              selectedCustomer.currentBalance > 0 ? "text-red-600 dark:text-red-400"
+                : selectedCustomer.currentBalance < 0 ? "text-amber-600 dark:text-amber-400"
+                : "text-slate-700 dark:text-slate-300",
+            )}>
+              {fmt(Math.abs(selectedCustomer.currentBalance))}
+            </p>
+            <p className="text-[10px] text-slate-400">
+              {selectedCustomer.currentBalance > 0 ? "عليه" : selectedCustomer.currentBalance < 0 ? "له" : "صفر"}
+            </p>
+          </div>
+
+          {/* Last transaction */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="text-[10px] font-medium text-slate-400">آخر معاملة</p>
+            <p className="mt-0.5 text-[12px] font-semibold text-slate-700 dark:text-slate-300">
+              {selectedCustomer.lastTransactionAt
+                ? new Date(selectedCustomer.lastTransactionAt).toLocaleDateString("ar-IQ", { month: "short", day: "numeric", year: "numeric" })
+                : "لا توجد"}
+            </p>
+            {selectedCustomer.phone && (
+              <p className="mt-0.5 text-[10px] text-slate-400">{selectedCustomer.phone}</p>
+            )}
+          </div>
+
+          {/* Link to full customer file */}
+          <button
+            type="button"
+            onClick={() => navigate(`/customers/${selectedCustomer.id}`)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-right transition hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+          >
+            <p className="text-[10px] text-slate-400">ملف الزبون</p>
+            <p className="mt-0.5 text-[12px] font-semibold text-blue-600 dark:text-blue-400 truncate">{selectedCustomer.name}</p>
+            <p className="mt-0.5 text-[10px] text-slate-400">فتح السجل الكامل ←</p>
+          </button>
+        </div>
+      )}
+      </div>{/* end flex row */}
 
       {/* Product picker modal */}
       <Dialog open={productModal} onOpenChange={setProductModal}>

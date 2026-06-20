@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { Header } from "./Header"
-import { Sidebar } from "./Sidebar"
+import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
@@ -152,7 +152,7 @@ export function AppLayout() {
       className="flex h-screen overflow-hidden"
       style={{ backgroundColor: "var(--theme-pageBg)", color: "var(--theme-textPrimary)" }}
     >
-      {/* Desktop Sidebar — hidden in focus mode (invoice writing, forms) */}
+      {/* Desktop Sidebar — collapses to top icon strip in focus mode */}
       {!focusMode && (
         <div className="hidden lg:flex lg:flex-col h-screen shrink-0 overflow-y-auto">
           <Sidebar />
@@ -195,6 +195,8 @@ export function AppLayout() {
 
       {/* Main area */}
       <div className="flex min-w-0 flex-1 flex-col h-screen overflow-hidden">
+        {/* Focus-mode top nav strip (replaces sidebar when writing an invoice) */}
+        {focusMode && <SidebarTopBar />}
         <PwaStatusBar
           isOnline={pwa.isOnline}
           pendingCount={pwa.pendingCount}
