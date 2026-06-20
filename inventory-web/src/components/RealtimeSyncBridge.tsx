@@ -52,7 +52,13 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
 }
 
 function realtimeUrl(token: string) {
-  const base = API_BASE_URL.replace(/\/$/, "")
+  const configuredBase = String(import.meta.env.VITE_REALTIME_API_URL ?? "").trim()
+  const base = (
+    configuredBase ||
+    (API_BASE_URL.startsWith("http")
+      ? API_BASE_URL
+      : "https://inventory-backend-production-7e85.up.railway.app/api")
+  ).replace(/\/$/, "")
   return `${base}/realtime/events?token=${encodeURIComponent(token)}`
 }
 
@@ -150,4 +156,3 @@ export function RealtimeSyncBridge() {
 
   return null
 }
-

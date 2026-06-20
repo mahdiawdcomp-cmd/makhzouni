@@ -10,6 +10,7 @@ import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useAuthStore } from "../store/authStore"
+import { useUiStore } from "../store/uiStore"
 import { useUnsavedWarning } from "../hooks/useUnsavedWarning"
 import type { Customer, Product } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -139,6 +140,7 @@ export function InvoiceCreatePage() {
   const { productsQuery, createMutation: createProductMutation } = useProducts()
   const createMutation = useCreateInvoice()
   const queryClient = useQueryClient()
+  const setFocusMode = useUiStore((s) => s.setFocusMode)
 
   // ---- header state ----
   const [customerQuery, setCustomerQuery] = useState("")
@@ -202,6 +204,12 @@ export function InvoiceCreatePage() {
     clientRequestIdRef.current = crypto.randomUUID()
     // Draft loading will run separately via the draftKey effect
   }, [activeTid])
+
+  // ── Focus mode: hide sidebar when a customer is selected to get full-width writing space ─
+  useEffect(() => {
+    setFocusMode(!!selectedCustomer)
+    return () => setFocusMode(false)
+  }, [selectedCustomer, setFocusMode])
 
   // ── Tab title: shows customer name so user knows which tab is which ──────────
   useEffect(() => {
@@ -1233,6 +1241,59 @@ export function InvoiceCreatePage() {
           </select>
         </CardContent>
       </Card>
+
+      {/* Customer info panel — shown when a customer is selected */}
+      {selectedCustomer && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          {/* Balance */}
+          <div className={cn(
+            "rounded-xl border px-4 py-3 flex flex-col gap-1",
+            selectedCustomer.currentBalance > 0
+              ? "border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/20"
+              : selectedCustomer.currentBalance < 0
+                ? "border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20"
+                : "border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/40",
+          )}>
+            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">الرصيد الحالي</p>
+            <p className={cn(
+              "text-xl font-bold",
+              selectedCustomer.currentBalance > 0 ? "text-red-600 dark:text-red-400"
+                : selectedCustomer.currentBalance < 0 ? "text-amber-600 dark:text-amber-400"
+                : "text-slate-700 dark:text-slate-300",
+            )}>
+              {fmt(Math.abs(selectedCustomer.currentBalance))}
+              <span className="mr-1 text-sm font-normal">
+                {selectedCustomer.currentBalance > 0 ? "عليه" : selectedCustomer.currentBalance < 0 ? "له" : "صفر"}
+              </span>
+            </p>
+            <p className="text-[11px] text-slate-400">
+              رصيد افتتاحي: {fmt(Math.abs(selectedCustomer.openingBalance))}
+            </p>
+          </div>
+          {/* Last transaction */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex flex-col gap-1 dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">آخر معاملة</p>
+            <p className="text-base font-semibold text-slate-700 dark:text-slate-300">
+              {selectedCustomer.lastTransactionAt
+                ? new Date(selectedCustomer.lastTransactionAt).toLocaleDateString("ar-IQ", { year: "numeric", month: "short", day: "numeric" })
+                : "لا توجد"}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {selectedCustomer.phone || "—"}
+            </p>
+          </div>
+          {/* Link to customer page */}
+          <button
+            type="button"
+            onClick={() => navigate(`/customers/${selectedCustomer.id}`)}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-right transition hover:border-blue-300 hover:bg-blue-50 dark:border-slate-800 dark:bg-slate-900/40 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
+          >
+            <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">ملف الزبون</p>
+            <p className="mt-1 text-base font-semibold text-blue-600 dark:text-blue-400">{selectedCustomer.name}</p>
+            <p className="mt-0.5 text-[11px] text-slate-400">اضغط لفتح السجل الكامل ←</p>
+          </button>
+        </div>
+      )}
 
       {/* Items table */}
       <Card className={cn(cardBorder, "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/20")}>

@@ -861,11 +861,28 @@ export function ProductsPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" variant="outline" asChild>
                       <label className="cursor-pointer">
-                        اختيار صورة
+                        📁 اختيار صورة
                         <input
                           className="hidden"
                           type="file"
                           accept="image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0]
+                            if (!file) return
+                            void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
+                            event.target.value = ""
+                          }}
+                        />
+                      </label>
+                    </Button>
+                    <Button type="button" variant="outline" asChild>
+                      <label className="cursor-pointer">
+                        📷 كاميرا
+                        <input
+                          className="hidden"
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
                           onChange={(event) => {
                             const file = event.target.files?.[0]
                             if (!file) return

@@ -306,11 +306,12 @@ export function ProductDetailPage() {
                   <THead>
                     <TR>
                       <TH>التاريخ</TH>
-                      <TH>الزبون</TH>
+                      <TH>نوع الحركة</TH>
+                      <TH>الجهة / المخزن</TH>
                       <TH>الكمية</TH>
                       <TH>الوحدة</TH>
                       <TH>سعر المفرد</TH>
-                      <TH>الفاتورة</TH>
+                      <TH>المرجع</TH>
                     </TR>
                   </THead>
                   <TBody>
@@ -321,12 +322,19 @@ export function ProductDetailPage() {
                         onClick={() => row.invoiceId && navigate(`/invoices/${row.invoiceId}`)}
                       >
                         <TD>{String(row.date).slice(0, 10)}</TD>
+                        <TD>
+                          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                            {row.movementLabel ?? row.movementType ?? "حركة"}
+                          </span>
+                        </TD>
                         <TD>{row.customerName}</TD>
                         <TD className="font-semibold">{row.quantity}</TD>
                         <TD>{row.unit ?? "قطعة"}</TD>
-                        <TD>{fmt(row.unitPrice ?? row.price ?? 0)}</TD>
+                        <TD>{row.unitPrice == null ? "—" : fmt(row.unitPrice ?? row.price ?? 0)}</TD>
                         <TD>
-                          <span className="font-mono text-xs text-blue-600">{row.invoiceNumber}</span>
+                          <span className={`font-mono text-xs ${row.invoiceId ? "text-blue-600" : "text-slate-500"}`}>
+                            {row.invoiceNumber}
+                          </span>
                         </TD>
                       </TR>
                     ))}

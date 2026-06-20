@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
+import { useNavigate } from "react-router-dom"
 import {
   Bot,
   Check,
@@ -162,6 +163,7 @@ function planDetails(plan: VoicePlan) {
 }
 
 export function VoiceInvoiceButton({ compact = false }: Props) {
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage])
   const [input, setInput] = useState("")
@@ -313,7 +315,7 @@ export function VoiceInvoiceButton({ compact = false }: Props) {
       setDraft({})
       setSuggestions([])
       draftHistoryRef.current = []
-      if (invoiceId) window.setTimeout(() => window.open(`/invoices/${invoiceId}`, "_blank"), 450)
+      if (invoiceId) window.setTimeout(() => navigate(`/invoices/${invoiceId}`), 450)
     } catch (error) {
       appendAssistant(apiError(error, "ما تم تنفيذ العملية. راجع المعلومات وجرب مرة ثانية."))
     } finally {

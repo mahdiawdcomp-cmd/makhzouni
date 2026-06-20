@@ -7,6 +7,7 @@ import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { Header } from "./Header"
 import { Sidebar } from "./Sidebar"
+import { useUiStore } from "../../store/uiStore"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
@@ -75,6 +76,7 @@ export function AppLayout() {
     () => localStorage.getItem("inventory_theme") === "dark",
   )
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const focusMode = useUiStore((s) => s.focusMode)
   const pwa = usePwaStatus()
   const qc = useQueryClient()
   useGlobalShortcuts()
@@ -150,10 +152,12 @@ export function AppLayout() {
       className="flex h-screen overflow-hidden"
       style={{ backgroundColor: "var(--theme-pageBg)", color: "var(--theme-textPrimary)" }}
     >
-      {/* Desktop Sidebar */}
-      <div className="hidden lg:flex lg:flex-col h-screen shrink-0 overflow-y-auto">
-        <Sidebar />
-      </div>
+      {/* Desktop Sidebar — hidden in focus mode (invoice writing, forms) */}
+      {!focusMode && (
+        <div className="hidden lg:flex lg:flex-col h-screen shrink-0 overflow-y-auto">
+          <Sidebar />
+        </div>
+      )}
 
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>

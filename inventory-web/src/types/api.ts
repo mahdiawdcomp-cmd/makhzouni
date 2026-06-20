@@ -257,14 +257,17 @@ export interface ProductPayload {
 
 export interface ProductMovement {
   date: string
+  movementType?: "SALE" | "PURCHASE" | "SALES_RETURN" | "TRANSFER" | "LOSS"
+  movementLabel?: string
   customerName: string
+  warehouseName?: string | null
   quantity: number
   unit?: string
-  unitPrice?: number
+  unitPrice?: number | null
   price?: number
-  totalPrice?: number
+  totalPrice?: number | null
   invoiceNumber: string
-  invoiceId?: string
+  invoiceId?: string | null
 }
 
 export interface ProductMovementResponse {

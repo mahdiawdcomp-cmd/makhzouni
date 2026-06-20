@@ -183,8 +183,8 @@ export function InvoicesPage() {
             <Button
               variant="outline"
               size="sm"
-              title="عرض الفاتورة (تبويب جديد)"
-              onClick={() => window.open(`/invoices/${row.original.id}`, "_blank", "noopener,noreferrer")}
+              title="عرض الفاتورة"
+              onClick={() => navigate(`/invoices/${row.original.id}`)}
             >
               <Eye className="h-4 w-4" />
             </Button>
@@ -334,7 +334,7 @@ export function InvoicesPage() {
                 <TR
                   key={row.id}
                   className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50"
-                  onDoubleClick={() => window.open(`/invoices/${row.original.id}`, "_blank", "noopener,noreferrer")}
+                  onDoubleClick={() => navigate(`/invoices/${row.original.id}`)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>

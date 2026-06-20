@@ -254,7 +254,7 @@ export function VouchersPage() {
                           variant="outline"
                           size="sm"
                           title="عرض السند (تبويب جديد)"
-                          onClick={() => window.open(`/vouchers/${voucher.id}`, "_blank", "noopener,noreferrer")}
+                          onClick={() => navigate(`/vouchers/${voucher.id}`)}
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
