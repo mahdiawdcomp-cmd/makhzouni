@@ -17,7 +17,12 @@ type ChatMessage = {
 
 type JsonRecord = Record<string, unknown>;
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let groq: Groq | null = null;
+function getGroq(): Groq {
+  if (!process.env.GROQ_API_KEY) throw new AppError("خدمة المحادثة غير مفعلة حالياً", 503, "GROQ_NOT_CONFIGURED");
+  if (!groq) groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return groq;
+}
 
 const SYSTEM_PROMPT = `أنت مساعد ذكي متخصص فقط في نظام إدارة مخزون ومحاسبة عراقي اسمه مخزوني.
 لا تجيب على أي سؤال خارج نطاق النظام — الطبخ، الأخبار، العلوم، السياسة، أي موضوع عام.
@@ -414,9 +419,6 @@ export const agentChat = asyncHandler(async (req, res) => {
     ].slice(-6) as ChatMessage[];
     return void res.json({ success: true, reply: directReply, history: nextHistory });
   }
-  if (!process.env.GROQ_API_KEY) {
-    throw new AppError("خدمة المحادثة غير مفعلة حالياً، لكن أسئلة المخزون المباشرة تعمل.", 503, "GROQ_NOT_CONFIGURED");
-  }
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: SYSTEM_PROMPT },
     ...cleanHistory,
@@ -425,7 +427,7 @@ export const agentChat = asyncHandler(async (req, res) => {
 
   let finalReply = "";
   for (let round = 0; round < 3; round++) {
-    const completion = await groq.chat.completions.create({
+    const completion = await getGroq().chat.completions.create({
       model: "llama-3.3-70b-versatile",
       temperature: 0.2,
       messages,
