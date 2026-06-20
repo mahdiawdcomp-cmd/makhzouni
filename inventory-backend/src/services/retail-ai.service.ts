@@ -2,7 +2,12 @@ import Groq from "groq-sdk";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+  if (!process.env.GROQ_API_KEY) throw new AppError("خدمة الذكاء الاصطناعي غير مفعلة", 503, "GROQ_NOT_CONFIGURED");
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -81,7 +86,7 @@ export async function retailAiChat(
     .slice(-6)
     .map((m) => ({ role: m.role, content: m.content.slice(0, 400) }));
 
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: "llama-3.3-70b-versatile",
     temperature: 0.4,
     response_format: { type: "json_object" },

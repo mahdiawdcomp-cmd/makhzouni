@@ -8,7 +8,12 @@ import { answerKnownInventoryQuestion } from "./agent.controller";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+  if (!process.env.GROQ_API_KEY) throw new AppError("خدمة الصوت غير مفعلة", 503, "GROQ_NOT_CONFIGURED");
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -529,7 +534,7 @@ export const parseVoiceCommand = asyncHandler(async (req, res) => {
     : "لا توجد مسودة حالية.";
   const deterministicHint = shortReplyHint(command.trim(), currentDraft);
 
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: "llama-3.3-70b-versatile",
     temperature: 0,
     response_format: { type: "json_object" },
@@ -592,7 +597,7 @@ export const parseVoiceCommand = asyncHandler(async (req, res) => {
   }
 
   if (parsed.type === "QUESTION" && !pendingWarehouseSelection && !pendingProductSelection) {
-    const answer = await groq.chat.completions.create({
+    const answer = await getGroq().chat.completions.create({
       model: "llama-3.3-70b-versatile",
       temperature: 0.25,
       messages: [

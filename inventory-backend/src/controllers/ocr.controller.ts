@@ -3,7 +3,12 @@ import prisma from "../config/database";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+let _groq: Groq | null = null;
+function getGroq(): Groq {
+  if (!process.env.GROQ_API_KEY) throw new AppError("خدمة OCR غير مفعلة", 503, "GROQ_NOT_CONFIGURED");
+  if (!_groq) _groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return _groq;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,7 +42,7 @@ export const scanInvoiceImage = asyncHandler(async (req, res) => {
   }
 
   // ── الخطوة 1: Groq Vision يقرأ الفاتورة ──────────────────────────────────
-  const completion = await groq.chat.completions.create({
+  const completion = await getGroq().chat.completions.create({
     model: "llama-3.2-11b-vision-preview",   // الموديل الرسمي للصور على Groq
     temperature: 0,
     response_format: { type: "json_object" },
