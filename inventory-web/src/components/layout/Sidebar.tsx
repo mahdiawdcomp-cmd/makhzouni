@@ -477,32 +477,34 @@ export function SidebarTopBar() {
           return (
             <button key="/pos" type="button"
               onClick={() => window.open("/pos", "_blank", "width=1024,height=768")}
-              title={label}
-              className="flex items-center justify-center h-8 w-8 rounded-md text-white/50 hover:bg-white/10 hover:text-white transition-all"
+              className="flex items-center gap-1.5 rounded-md px-2 h-8 text-white/50 hover:bg-white/10 hover:text-white transition-all"
             >
-              <Icon className="h-4 w-4" />
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-[11px] font-medium whitespace-nowrap">{label}</span>
             </button>
           )
         }
         return (
-          <NavLink key={to} to={to} title={label}
+          <NavLink key={to} to={to}
             className={({ isActive }) => cn(
-              "flex items-center justify-center h-8 w-8 rounded-md transition-all",
+              "flex items-center gap-1.5 rounded-md px-2 h-8 transition-all",
               isActive ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/10 hover:text-white",
             )}
           >
-            <Icon className="h-4 w-4" />
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <span className="text-[11px] font-medium whitespace-nowrap">{label}</span>
           </NavLink>
         )
       })}
       {isAdmin && (
-        <NavLink to="/approvals" title="الموافقات"
+        <NavLink to="/approvals"
           className={({ isActive }) => cn(
-            "flex items-center justify-center h-8 w-8 rounded-md transition-all",
+            "flex items-center gap-1.5 rounded-md px-2 h-8 transition-all",
             isActive ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/10 hover:text-white",
           )}
         >
-          <ShieldCheck className="h-4 w-4" />
+          <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+          <span className="text-[11px] font-medium whitespace-nowrap">الموافقات</span>
         </NavLink>
       )}
     </div>
