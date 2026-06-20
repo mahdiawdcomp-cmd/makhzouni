@@ -33,17 +33,26 @@ import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger } from "./utils/logger";
 import { realtimeHeartbeat } from "./services/realtime.service";
 import { requireActiveSubscription } from "./middleware/tenant.middleware";
+import { ensureInitialAdmin } from "./services/initial-admin.service";
 
 const app = express();
 const port = Number(process.env.PORT ?? 5000);
 const allowedOrigins = (
   process.env.ALLOWED_ORIGINS ??
   process.env.ALLOWED_ORIGIN ??
-  "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080"
+  "https://inventory-web-six-kohl.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080"
 )
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+
+function isCorsAllowed(origin: string | undefined): boolean {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  // Allow all *.mazbwoni.com subdomains automatically
+  if (/^https:\/\/[a-z0-9-]+\.mazbwoni\.com$/.test(origin)) return true;
+  return false;
+}
 
 app.set("trust proxy", 1);
 app.use(helmet({
@@ -64,7 +73,10 @@ app.use((_req, res, next) => {
 });
 app.use(compression());
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (isCorsAllowed(origin)) callback(null, true);
+    else callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: "8mb" }));   // صور base64 تحتاج حد أكبر
@@ -101,6 +113,9 @@ process.on("unhandledRejection", (reason) => {
 
 app.listen(port, "0.0.0.0", () => {
   logger.info(`Inventory backend is running on port ${port}`);
+  ensureInitialAdmin().catch((error) => {
+    logger.error("Failed to create initial administrator:", error);
+  });
   setInterval(realtimeHeartbeat, 25_000).unref();
   // Verify license on startup (non-fatal — system runs even without license)
   verifyLicense();
