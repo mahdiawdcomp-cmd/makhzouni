@@ -36,8 +36,11 @@ function auditNote(row: CustomerTransaction) {
 function transactionTone(tx: CustomerTransaction) {
   const type = String(tx.type ?? "").toUpperCase()
   const status = String(tx.status ?? "").toUpperCase()
-  const isInvoice = type.includes("INVOICE") || type === "SALE" || type === "PURCHASE" || type === "SALES_RETURN"
-  const isVoucher = type.includes("VOUCHER") || type === "RECEIPT" || type === "PAYMENT" || type === "EXPENSE"
+  const isPurchase = type === "INVOICE" && tx.invoiceType === "PURCHASE"
+  const isReturn   = type === "INVOICE" && tx.invoiceType === "SALES_RETURN"
+  const isSale     = type === "INVOICE" && tx.invoiceType === "SALE"
+  const isPayment  = type === "INVOICE_PAYMENT"
+  const isVoucher  = type === "RECEIPT" || type === "PAYMENT" || type === "EXPENSE"
 
   if (status === "CANCELLED") {
     return {
@@ -46,7 +49,21 @@ function transactionTone(tx: CustomerTransaction) {
       label: "bg-rose-100 text-rose-700 border border-rose-200",
     }
   }
-  if (isInvoice) {
+  if (isPurchase) {
+    return {
+      row: "border-r-4 border-amber-500 bg-amber-50/70 hover:bg-amber-100/70",
+      style: { backgroundColor: "#FFFBEB", borderRight: "4px solid #F59E0B" },
+      label: "bg-amber-100 text-amber-800 border border-amber-200",
+    }
+  }
+  if (isReturn) {
+    return {
+      row: "border-r-4 border-purple-400 bg-purple-50/70 hover:bg-purple-100/70",
+      style: { backgroundColor: "#FAF5FF", borderRight: "4px solid #A855F7" },
+      label: "bg-purple-100 text-purple-800 border border-purple-200",
+    }
+  }
+  if (isSale || isPayment) {
     return {
       row: "border-r-4 border-blue-500 bg-blue-50/70 hover:bg-blue-100/70",
       style: { backgroundColor: "#EFF6FF", borderRight: "4px solid #3B82F6" },
@@ -248,7 +265,7 @@ export function AccountLookupPage() {
                         <TH>التاريخ</TH>
                         <TH>النوع</TH>
                         <TH>الرقم</TH>
-                        <TH>مدين / دائن</TH>
+                        <TH><span className="text-rose-600">مدين</span> / <span className="text-emerald-600">دائن</span></TH>
                         <TH>الرصيد المتراكم</TH>
                         <TH></TH>
                       </TR>
@@ -256,14 +273,18 @@ export function AccountLookupPage() {
                     <TBody>
                       {transactions.map((tx) => {
                         const t = tx.type?.toUpperCase() ?? ""
-                        const isInvoice = t === "SALE" || t === "PURCHASE" || t === "SALES_RETURN" || t.includes("INVOICE")
+                        const isInvoice = t === "INVOICE" || t === "INVOICE_PAYMENT"
                         const link = isInvoice ? `/invoices/${tx.id}` : `/vouchers/${tx.id}`
                         const tone = transactionTone(tx)
-                        const typeLabel = t === "SALE" || t.includes("INVOICE") ? "فاتورة بيع"
-                          : t === "PURCHASE" ? "فاتورة شراء"
-                          : t === "RECEIPT" ? "سند قبض"
-                          : t === "PAYMENT" ? "سند دفع"
-                          : "مصاريف"
+                        const typeLabel =
+                          t === "INVOICE"
+                            ? tx.invoiceType === "PURCHASE" ? "فاتورة شراء"
+                              : tx.invoiceType === "SALES_RETURN" ? "مرتجع بيع"
+                              : "فاتورة بيع"
+                            : t === "INVOICE_PAYMENT" ? "دفعة مسبقة"
+                            : t === "RECEIPT" ? "سند قبض"
+                            : t === "PAYMENT" ? "سند دفع"
+                            : "مصاريف"
                         const label = tx.status === "CANCELLED" ? `${typeLabel} - ملغاة` : typeLabel
                         return (
                           <TR key={`${tx.id}-${tx.referenceNumber}`} className={tone.row} style={tone.style}>
@@ -278,8 +299,12 @@ export function AccountLookupPage() {
                             </TD>
                             <TD className="font-mono text-xs">{tx.referenceNumber}</TD>
                             <TD className="font-semibold">
-                              {fmt(tx.debit ?? tx.amount ?? 0)}
-                              {tx.credit ? <span className="mr-1 text-emerald-600">({fmt(tx.credit)})</span> : null}
+                              {(tx.debit && tx.debit > 0)
+                                ? <span className="text-rose-700">{fmt(tx.debit)}</span>
+                                : (tx.credit && tx.credit > 0)
+                                  ? <span className="text-emerald-600">({fmt(tx.credit)})</span>
+                                  : <span className="text-slate-400">—</span>
+                              }
                             </TD>
                             <TD className={`font-bold ${Number(tx.runningBalance) > 0 ? "text-rose-600" : "text-emerald-600"}`}>
                               {fmt(tx.runningBalance)}
