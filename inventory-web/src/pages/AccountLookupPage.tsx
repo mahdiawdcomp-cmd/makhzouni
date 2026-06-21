@@ -8,19 +8,11 @@ import { Link } from "react-router-dom"
 import { ArrowLeft, ExternalLink, Search, TrendingUp, Wallet } from "lucide-react"
 import { useAllCustomers, useCustomerDetails } from "../hooks/useCustomers"
 import { fmt } from "../utils/fmt"
+import { formatDate, formatDateTime } from "../utils/date"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
-
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import type { CustomerTransaction } from "../types/api"
-
-function formatDateTime(value?: string | Date | null) {
-  if (!value) return "-"
-  return new Date(value).toLocaleString("en-US", {
-    dateStyle: "short",
-    timeStyle: "short",
-  })
-}
 
 function auditNote(row: CustomerTransaction) {
   if (!row.lastChangedAt) return "-"
@@ -289,7 +281,7 @@ export function AccountLookupPage() {
                         return (
                           <TR key={`${tx.id}-${tx.referenceNumber}`} className={tone.row} style={tone.style}>
                             <TD className="text-xs">
-                              <div>{formatDateTime(tx.date)}</div>
+                              <div className="font-semibold">{formatDate(tx.date)}</div>
                               <div className="text-[11px] text-slate-500">إدخال: {formatDateTime(tx.createdAt)}</div>
                             </TD>
                             <TD>
