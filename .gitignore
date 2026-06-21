@@ -10,3 +10,13 @@ Thumbs.db
 graphify-out/
 # License private key — keep this file SECRET, never share or commit
 scripts/LICENSE_PRIVATE_KEY.pem
+
+# Database backups
+_db_backups/
+
+# Build outputs
+outputs/
+
+# Python cache
+.claude/skills/**/__pycache__/
+*.pyc

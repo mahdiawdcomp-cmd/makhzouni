@@ -10,7 +10,7 @@ export default defineConfig({
       strategies: "injectManifest",
       srcDir: "src/pwa",
       filename: "offline-sw.ts",
-      registerType: "autoUpdate",
+      registerType: "prompt",
       injectRegister: false,
       includeAssets: ["favicon.svg", "pwa-icon.svg"],
       manifest: {

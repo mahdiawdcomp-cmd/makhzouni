@@ -10,6 +10,7 @@ type DesignsByPaper = Record<PaperSize, Design>
 
 const SCALE: Record<PaperSize, number> = { a4: 0.62, "80mm": 1.15 }
 const GRID = 5
+const DRAFT_KEY = "invoiceDesign_draft"
 
 function loadStored(json: string | null | undefined): DesignsByPaper {
   const result: DesignsByPaper = { a4: defaultDesign("a4"), "80mm": defaultDesign("80mm") }
@@ -33,6 +34,7 @@ export function InvoiceDesignerPage() {
   const [selId, setSelId] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [snap, setSnap] = useState(true)
+  const [hasDraft, setHasDraft] = useState(false)
   const [past, setPast] = useState<DesignsByPaper[]>([])
   const [future, setFuture] = useState<DesignsByPaper[]>([])
   const lastSnap = useRef(0)
@@ -40,10 +42,31 @@ export function InvoiceDesignerPage() {
   const printRef = useRef<HTMLIFrameElement>(null)
   const drag = useRef<{ mode: "move" | "resize" } | null>(null)
 
-  // Load stored design ONCE (not on every settings refetch — that would wipe edits).
+  // Load stored design ONCE. Prefer localStorage draft if it exists (survives page reloads).
   useEffect(() => {
-    if (settings && !loaded.current) { loaded.current = true; setDesigns(loadStored(settings.invoiceDesign)) }
+    if (settings && !loaded.current) {
+      loaded.current = true
+      const draft = localStorage.getItem(DRAFT_KEY)
+      if (draft) {
+        setDesigns(loadStored(draft))
+        setHasDraft(true)
+        setSaved(false)
+      } else {
+        setDesigns(loadStored(settings.invoiceDesign))
+      }
+    }
   }, [settings])
+
+  // Autosave unsaved edits to localStorage (debounced 2s) so page reloads don't lose work.
+  const autosaveTimer = useRef<number | null>(null)
+  useEffect(() => {
+    if (!loaded.current || saved) return
+    if (autosaveTimer.current != null) window.clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = window.setTimeout(() => {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ v: 2, designs }))
+    }, 2000)
+    return () => { if (autosaveTimer.current != null) window.clearTimeout(autosaveTimer.current) }
+  }, [designs, saved])
 
   const design = designs[paper]
   const scale = SCALE[paper]
@@ -168,10 +191,21 @@ export function InvoiceDesignerPage() {
     updateSettings.mutate(
       { invoiceDesign: JSON.stringify({ v: 2, designs }) },
       {
-        onSuccess: () => setSaved(true),
+        onSuccess: () => {
+          setSaved(true)
+          setHasDraft(false)
+          localStorage.removeItem(DRAFT_KEY)
+        },
         onError: () => setSaved(false),
       },
     )
+  }
+
+  const discardDraft = () => {
+    localStorage.removeItem(DRAFT_KEY)
+    setHasDraft(false)
+    if (settings) setDesigns(loadStored(settings.invoiceDesign))
+    setSaved(true)
   }
   const handlePrint = () => {
     const html = renderDesignHTML(design, SAMPLE_INVOICE, store)
@@ -216,6 +250,15 @@ export function InvoiceDesignerPage() {
 
   return (
     <div className="space-y-3">
+      {hasDraft && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm" dir="rtl">
+          <span className="font-bold text-amber-800">⚠️ تم استعادة مسودة غير محفوظة من جلسة سابقة</span>
+          <div className="flex gap-2">
+            <button onClick={handleSave} className="rounded-lg bg-amber-600 px-3 py-1 text-xs font-bold text-white">💾 حفظ المسودة</button>
+            <button onClick={discardDraft} className="rounded-lg border border-amber-300 px-3 py-1 text-xs font-bold text-amber-800">تجاهل والعودة للمحفوظ</button>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-black text-[color:var(--theme-textPrimary)]">🎨 مصمّم الفاتورة الاحترافي</h1>
