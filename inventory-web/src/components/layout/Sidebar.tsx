@@ -100,6 +100,7 @@ const navItems: Item[] = [
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
+  { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },
 ]
 
