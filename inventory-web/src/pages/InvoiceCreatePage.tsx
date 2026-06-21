@@ -1114,14 +1114,16 @@ export function InvoiceCreatePage() {
         </div>
       ) : null}
 
-      {/* Compact invoice header form */}
-      <div className={cn("rounded-xl border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900 dark:bg-sky-950/20", cardBorder)}>
-        <div className="flex flex-wrap items-center gap-2">
+      {/* Invoice header form */}
+      <div className={cn("rounded-xl border border-sky-200 bg-sky-50/60 px-2.5 py-2 dark:border-sky-900 dark:bg-sky-950/20", cardBorder)}>
+        {/* Row 1: customer + payment + walk-in */}
+        <div className="flex items-center gap-1.5">
           {/* Customer picker */}
-          <div className="relative min-w-[180px] flex-1">
+          <div className="relative min-w-0 flex-1">
             <Input
               ref={customerInputRef}
-              placeholder={`${customerLabel}`}
+              className="h-8 text-sm"
+              placeholder={customerLabel}
               value={customerQuery}
               onChange={(event) => {
                 setCustomerQuery(event.target.value)
@@ -1139,33 +1141,34 @@ export function InvoiceCreatePage() {
                   <button
                     key={customer.id}
                     type="button"
-                    className={`block w-full rounded px-2 py-2 text-right text-sm ${idx === customerHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"}`}
+                    className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-right text-sm ${idx === customerHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"}`}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickCustomer(customer)}
                     onMouseEnter={() => setCustomerHighlight(idx)}
                   >
-                    <span>{customer.name} — {customer.phone}</span>
-                  {customer.isSupplier && (
-                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">مورد</span>
-                  )}
+                    <span className="flex-1 truncate">{customer.name} — {customer.phone}</span>
+                    {customer.isSupplier && (
+                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 shrink-0">مورد</span>
+                    )}
                   </button>
                 ))}
                 {customerSuggestions.length === 0 && (
                   <button
                     type="button"
-                    className="flex w-full items-center gap-2 rounded px-2 py-2 text-right text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-right text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={openQuickAddCustomer}
                   >
-                    <Plus className="h-4 w-4" />
-                    أضف "{customerQuery.trim()}" كـ{customerLabel} جديد
+                    <Plus className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">أضف "{customerQuery.trim()}"</span>
                   </button>
                 )}
               </div>
             ) : null}
           </div>
+          {/* Payment type */}
           <select
-            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
             value={paymentMode}
             onChange={(e) => {
               const mode = e.target.value as PaymentMode
@@ -1177,6 +1180,7 @@ export function InvoiceCreatePage() {
             <option value="CREDIT">آجل</option>
             <option value="CASH">نقد</option>
           </select>
+          {/* Walk-in */}
           {!isPurchase && !selectedCustomer && (
             <button
               type="button"
@@ -1189,17 +1193,19 @@ export function InvoiceCreatePage() {
                 } catch { /* ignore */ }
                 setWalkInLoading(false)
               }}
-              className="h-9 rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              className="h-8 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
             >
               {walkInLoading ? "..." : "⚡ نقدي"}
             </button>
           )}
         </div>
-        <div className="mt-2">
+        {/* Row 2: notes */}
+        <div className="mt-1.5">
           <Input
+            className="h-8 text-sm"
             value={invoiceNotes}
             onChange={(event) => setInvoiceNotes(event.target.value)}
-            placeholder="ملاحظات عامة (اختياري)"
+            placeholder="ملاحظات الفاتورة (اختياري)"
           />
         </div>
       </div>
@@ -1211,8 +1217,11 @@ export function InvoiceCreatePage() {
       {/* Items section */}
       <div className={cn("rounded-xl border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20", cardBorder)}>
         <div className="flex items-center justify-between gap-2 border-b border-emerald-100 px-3 py-2 dark:border-emerald-900/50">
-          <span className="text-sm font-semibold text-[color:var(--theme-textPrimary)]">الأصناف {items.length > 0 && <span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{items.length}</span>}</span>
+          {/* Buttons first = right side in RTL layout */}
           <div className="flex gap-1">
+            <button type="button" className="inline-flex h-7 items-center gap-1 rounded bg-emerald-600 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-700" onClick={() => { setProductModal(true); window.setTimeout(() => productSearchRef.current?.focus(), 50) }}>
+              <Plus className="h-3.5 w-3.5" /> أضف
+            </button>
             {!isPurchase && (
               <button
                 type="button"
@@ -1222,12 +1231,14 @@ export function InvoiceCreatePage() {
                 {useRetailPrice ? "مفرد" : "جملة"}
               </button>
             )}
-            <button type="button" className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={() => setShowPurchase((v) => !v)}>شراء</button>
-            <button type="button" className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={() => setShowStock((v) => !v)}>الكمية</button>
-            <button type="button" className="inline-flex h-7 items-center gap-1 rounded bg-emerald-600 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-700" onClick={() => { setProductModal(true); window.setTimeout(() => productSearchRef.current?.focus(), 50) }}>
-              <Plus className="h-3.5 w-3.5" /> أضف
-            </button>
+            <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showPurchase ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowPurchase((v) => !v)}>شراء</button>
+            <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showStock ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowStock((v) => !v)}>كمية</button>
           </div>
+          {/* Label on the left side */}
+          <span className="text-sm font-semibold text-[color:var(--theme-textPrimary)]">
+            {items.length > 0 ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{items.length}</span> : null}
+            {" "}الأصناف
+          </span>
         </div>
         <div className="overflow-x-auto px-1 py-1">
             <Table>
@@ -1407,102 +1418,137 @@ export function InvoiceCreatePage() {
 
       {/* Financial summary */}
       <div className={cn("rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900 dark:bg-amber-950/20", cardBorder)}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {/* Left: amounts */}
-            <div className="space-y-2">
-              <SummaryRow label="المجموع" value={subtotal} />
-              {!isPurchase ? (
-                <div>
-                  <label className="mb-1 block text-xs text-slate-500">كود الكوبون</label>
-                  <div className="flex gap-2">
-                    <Input value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="EID2026" />
-                    <Button type="button" variant="outline" size="sm" onClick={() => void applyCouponCode()}>تطبيق</Button>
-                  </div>
-                  {couponMessage ? <p className="mt-1 text-xs text-slate-500">{couponMessage}</p> : null}
-                </div>
-              ) : null}
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">الخصم</label>
-                <Input type="number" value={discount} onFocus={selectAllOnFocus} onChange={(e) => setDiscount(Number(e.target.value))} />
-              </div>
-              <SummaryRow label="الإجمالي" value={total} strong />
+
+        {/* Top grid: amounts on right, balance on left */}
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+
+          {/* Right column: invoice amounts */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-semibold">{fmt(subtotal)}</span>
+              <span className="text-slate-500">المجموع</span>
             </div>
-            {/* Right: balance */}
-            <div className="space-y-2">
-              <SummaryRow label={isPurchase ? "الرصيد السابق (للمورّد)" : "الحساب السابق"} value={previousBalance} />
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">{isPurchase ? "المبلغ المدفوع للمورّد" : "المبلغ الواصل"}</label>
-                <Input
-                  ref={paidInputRef}
-                  inputMode="numeric"
-                  dir="ltr"
-                  value={paidAmount === 0 ? "" : paidAmount.toLocaleString("en-US")}
-                  placeholder="0"
-                  onFocus={selectAllOnFocus}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/[^0-9]/g, "")
-                    setPaidAmount(raw ? Number(raw) : 0)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      setProductModal(true)
-                      window.setTimeout(() => productSearchRef.current?.focus(), 50)
-                    }
-                  }}
-                />
-              </div>
-              <SummaryRow label={isPurchase ? "المتبقي للمورّد" : "المبلغ الباقي"} value={remaining} />
-              {overpayment > 0 ? (
-                <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-                  زيادة {fmt(overpayment)} — سيُنشأ سند قبض تلقائياً
-                </div>
-              ) : null}
-              <SummaryRow label="الحساب النهائي" value={finalBalance} strong />
+            <div>
+              <label className="text-[11px] font-medium text-slate-500">الخصم</label>
+              <Input
+                type="number"
+                className="mt-0.5 h-8 text-sm"
+                value={discount}
+                onFocus={selectAllOnFocus}
+                onChange={(e) => setDiscount(Number(e.target.value))}
+              />
             </div>
+            {!isPurchase && (
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">كوبون</label>
+                <div className="mt-0.5 flex gap-1">
+                  <Input className="h-8 text-sm" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="EID2026" />
+                  <Button type="button" variant="outline" className="h-8 shrink-0 px-2 text-xs" onClick={() => void applyCouponCode()}>✓</Button>
+                </div>
+                {couponMessage ? <p className="mt-0.5 text-[11px] text-slate-500">{couponMessage}</p> : null}
+              </div>
+            )}
           </div>
 
-          {/* Actions */}
-          <div className="mt-3 flex flex-wrap gap-2 border-t border-amber-100 pt-2.5 dark:border-amber-900/50">
-            <Button size="sm" onClick={() => setPreview(true)}>معاينة</Button>
-            <Button size="sm" variant="outline" onClick={save} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-              حفظ
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-              <Download className="h-4 w-4" /> PDF
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-              <ImageDown className="h-4 w-4" /> صورة
-            </Button>
+          {/* Left column: balance / payment */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className={cn("font-semibold", previousBalance > 0 ? "text-red-600 dark:text-red-400" : previousBalance < 0 ? "text-amber-600 dark:text-amber-400" : "")}>{fmt(Math.abs(previousBalance))}</span>
+              <span className="text-slate-500 text-right">{isPurchase ? "رصيد المورد" : "حساب سابق"}</span>
+            </div>
+            <div>
+              <label className="text-[11px] font-medium text-slate-500">{isPurchase ? "المدفوع للمورد" : "المبلغ الواصل"}</label>
+              <Input
+                ref={paidInputRef}
+                className="mt-0.5 h-8 text-sm"
+                inputMode="numeric"
+                dir="ltr"
+                value={paidAmount === 0 ? "" : paidAmount.toLocaleString("en-US")}
+                placeholder="0"
+                onFocus={selectAllOnFocus}
+                onChange={(e) => {
+                  const raw = e.target.value.replace(/[^0-9]/g, "")
+                  setPaidAmount(raw ? Number(raw) : 0)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    setProductModal(true)
+                    window.setTimeout(() => productSearchRef.current?.focus(), 50)
+                  }
+                }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-semibold">{fmt(remaining)}</span>
+              <span className="text-slate-500">متبقي</span>
+            </div>
           </div>
+        </div>
 
-          {hasBelowCost ? (
-            <div className="mt-2 rounded-md border border-rose-300 bg-rose-50 p-2.5 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
-              <div className="mb-1 flex items-center gap-2 font-semibold">
-                <AlertTriangle className="h-4 w-4" /> تحذير: بيع تحت سعر الشراء
-              </div>
-              <div className="text-xs">{belowCostItems.size} مادة بسعر أقل من التكلفة — ستخسر على هذه العملية.</div>
-            </div>
-          ) : null}
-          {lowStockWarnings.length > 0 ? (
-            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-              <div className="mb-1 flex items-center gap-2 font-semibold">
-                <AlertTriangle className="h-4 w-4" /> تحذير: مخزون سيصبح سالب
-              </div>
-              {lowStockWarnings.map((w, i) => <div key={i} className="text-xs">• {w}</div>)}
-              <div className="mt-1 text-xs opacity-75">الفاتورة ستُحفظ وسيظهر الرصيد سالباً بالمخزون.</div>
-            </div>
-          ) : null}
-          {hasInvalidTotal ? (
-            <div className="mt-2 rounded-md bg-red-50 p-2.5 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
-              الخصم أكبر من مجموع الفاتورة.
-            </div>
-          ) : null}
-          {createMutation.isError ? (
-            <div className="mt-2 rounded-md bg-red-50 p-2.5 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
-              ⚠ {extractErrorMessage(createMutation.error)}
-            </div>
-          ) : null}
+        {/* Totals highlight row */}
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-1.5 dark:border-emerald-800 dark:bg-emerald-950/30">
+            <span className="font-bold text-emerald-700 dark:text-emerald-400">{fmt(total)}</span>
+            <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">الإجمالي</span>
+          </div>
+          <div className={cn("flex items-center justify-between rounded-lg border px-2.5 py-1.5",
+            finalBalance > 0 ? "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+              : finalBalance < 0 ? "border-amber-200 bg-amber-100/60 dark:border-amber-800 dark:bg-amber-950/30"
+              : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/40"
+          )}>
+            <span className={cn("font-bold",
+              finalBalance > 0 ? "text-red-600 dark:text-red-400"
+                : finalBalance < 0 ? "text-amber-600 dark:text-amber-400"
+                : "text-slate-700 dark:text-slate-300"
+            )}>{fmt(Math.abs(finalBalance))}</span>
+            <span className={cn("text-xs font-medium",
+              finalBalance > 0 ? "text-red-500 dark:text-red-400"
+                : finalBalance < 0 ? "text-amber-500 dark:text-amber-400"
+                : "text-slate-500"
+            )}>حساب نهائي</span>
+          </div>
+        </div>
+
+        {overpayment > 0 ? (
+          <div className="mt-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200">
+            ↑ زيادة {fmt(overpayment)} — سيُنشأ سند قبض تلقائياً
+          </div>
+        ) : null}
+
+        {/* Action buttons */}
+        <div className="mt-2 flex flex-wrap gap-1.5 border-t border-amber-100 pt-2 dark:border-amber-900/50">
+          <Button size="sm" className="h-8 text-xs" onClick={() => setPreview(true)}>معاينة</Button>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+            {createMutation.isPending ? "..." : "حفظ"}
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+            <Download className="h-3.5 w-3.5 ml-1" /> PDF
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+            <ImageDown className="h-3.5 w-3.5 ml-1" /> صورة
+          </Button>
+        </div>
+
+        {hasBelowCost ? (
+          <div className="mt-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+            <span className="font-semibold"><AlertTriangle className="inline h-3.5 w-3.5 ml-1" />بيع تحت سعر الشراء</span> — {belowCostItems.size} مادة
+          </div>
+        ) : null}
+        {lowStockWarnings.length > 0 ? (
+          <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <div className="font-semibold"><AlertTriangle className="inline h-3.5 w-3.5 ml-1" />مخزون سيصبح سالب</div>
+            {lowStockWarnings.map((w, i) => <div key={i} className="mt-0.5">• {w}</div>)}
+          </div>
+        ) : null}
+        {hasInvalidTotal ? (
+          <div className="mt-1.5 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">الخصم أكبر من المجموع.</div>
+        ) : null}
+        {createMutation.isError ? (
+          <div className="mt-1.5 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">
+            ⚠ {extractErrorMessage(createMutation.error)}
+          </div>
+        ) : null}
       </div>
 
       <input ref={scanInputRef} className="sr-only" aria-hidden tabIndex={-1} />
@@ -1847,27 +1893,57 @@ export function InvoiceCreatePage() {
       </Dialog>
 
       {/* WhatsApp send prompt */}
-      <Dialog open={!!whatsappPromptId} onOpenChange={(open) => { if (!open && !whatsappSending) { navigate(`/invoices/${whatsappPromptId}`); setWhatsappPromptId(null) } }}>
+      <Dialog
+        open={!!whatsappPromptId}
+        onOpenChange={(open) => {
+          // Only navigate from here when the dialog is dismissed by backdrop/X (not via the button)
+          if (!open && !whatsappSending) {
+            const id = whatsappPromptId
+            setWhatsappPromptId(null)
+            if (id) navigate(`/invoices/${id}`)
+          }
+        }}
+      >
         <DialogContent className="max-w-sm text-center">
           <DialogHeader>
             <DialogTitle className="text-xl">إرسال واتساب؟</DialogTitle>
           </DialogHeader>
-          <p className="text-slate-500 text-sm mb-4">تريد ترسل الفاتورة للزبون على واتساب؟</p>
+          <p className="text-slate-500 text-sm mb-4">
+            تريد ترسل الفاتورة لـ <strong>{selectedCustomer?.name}</strong> على واتساب؟
+          </p>
           <div className="flex gap-3 justify-center">
             <Button
               disabled={whatsappSending}
               onClick={async () => {
-                if (!whatsappPromptId) return
+                const id = whatsappPromptId
+                if (!id) return
                 setWhatsappSending(true)
-                try { await sendWhatsAppInvoice(whatsappPromptId) } catch { /* ignore */ }
-                setWhatsappSending(false)
+                try {
+                  await sendWhatsAppInvoice(id)
+                  toast({ title: "تم الإرسال على واتساب ✓" })
+                } catch (err) {
+                  toast({
+                    title: "فشل إرسال واتساب",
+                    description: err instanceof Error ? err.message : "تحقق من إعدادات واتساب في الإعدادات",
+                    variant: "destructive",
+                  })
+                }
+                // Keep whatsappSending=true while closing to prevent onOpenChange double-navigate
                 setWhatsappPromptId(null)
-                navigate(`/invoices/${whatsappPromptId}`)
+                navigate(`/invoices/${id}`)
               }}
             >
               {whatsappSending ? "جاري الإرسال..." : "نعم، أرسل"}
             </Button>
-            <Button variant="outline" disabled={whatsappSending} onClick={() => { navigate(`/invoices/${whatsappPromptId}`); setWhatsappPromptId(null) }}>
+            <Button
+              variant="outline"
+              disabled={whatsappSending}
+              onClick={() => {
+                const id = whatsappPromptId
+                setWhatsappPromptId(null)
+                if (id) navigate(`/invoices/${id}`)
+              }}
+            >
               لا شكراً
             </Button>
           </div>
@@ -1920,11 +1996,3 @@ export function InvoiceCreatePage() {
   )
 }
 
-function SummaryRow({ label, value, strong = false }: { label: string; value: number; strong?: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-md px-2 py-1">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className={strong ? "text-lg font-bold" : "font-medium"}>{fmt(value)}</span>
-    </div>
-  )
-}
