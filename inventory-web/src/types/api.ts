@@ -411,6 +411,7 @@ export interface Invoice {
   createdAt?: string
   updatedAt?: string
   creator?: User
+  notes?: string | null
 }
 
 export interface InvoiceItem {
@@ -424,6 +425,7 @@ export interface InvoiceItem {
   quantity: number
   unitPrice: number
   totalPrice: number
+  notes?: string | null
 }
 
 export type LossReason = "DAMAGE" | "EXPIRY" | "THEFT" | "DEFECT" | "OTHER"
@@ -463,6 +465,7 @@ export interface CreateInvoicePayload {
   tax: number
   paidAmount: number
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
+  notes?: string
   items: Array<{
     productId: string
     warehouseId?: string
@@ -470,6 +473,7 @@ export interface CreateInvoicePayload {
     quantity: number
     unitPrice?: number
     allowNegativeStock?: boolean
+    notes?: string
   }>
 }
 

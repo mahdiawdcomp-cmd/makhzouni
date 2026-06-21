@@ -1,184 +1,109 @@
 import { useState } from "react";
-import { tenantsApi, Plan } from "../api/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { Check, X } from "lucide-react";
+import { DOMAIN_ROOT, getErrorMessage, tenantsApi, type FeatureKey, type Plan } from "../api/client";
 
-const FEATURES_OPTIONS = [
-  { key: "ANDROID", label: "تطبيق أندرويد" },
-  { key: "CATALOG", label: "كتلوك المفرد" },
-  { key: "AI", label: "مساعد ذكاء اصطناعي" },
-  { key: "MULTI_WAREHOUSE", label: "مخازن متعددة" },
-  { key: "WHATSAPP", label: "واتساب" },
+const FEATURES: Array<{ key: FeatureKey; label: string }> = [
+  { key: "ANDROID", label: "تطبيق أندرويد" }, { key: "CATALOG", label: "كتالوج العملاء" },
+  { key: "POS", label: "نقطة البيع" }, { key: "AI", label: "المساعد الذكي" },
+  { key: "WHATSAPP", label: "إشعارات واتساب" }, { key: "MULTI_WAREHOUSE", label: "تعدد المخازن" },
+  { key: "QUOTATIONS", label: "عروض الأسعار" }, { key: "RETURNS", label: "المرتجعات" },
+  { key: "OFFLINE", label: "العمل دون إنترنت" }, { key: "AUDIT_LOG", label: "سجل التدقيق" },
 ];
 
-interface Props {
-  onClose: () => void;
-}
-
-export default function CreateTenantModal({ onClose }: Props) {
-  const qc = useQueryClient();
+export default function CreateTenantModal({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    name: "", ownerName: "", phone: "", email: "", subdomain: "", backendUrl: "",
+    plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY",
+    maxUsers: "3", maxWarehouses: "1", maxAndroidDevices: "1",
+    maxInvoices: "", maxCustomers: "", notes: "",
+    features: ["POS", "RETURNS", "QUOTATIONS", "AUDIT_LOG"] as FeatureKey[],
+  });
+  const set = (key: string, value: unknown) => setForm((current) => ({ ...current, [key]: value }));
+  const toggleFeature = (key: FeatureKey) => set("features", form.features.includes(key)
+    ? form.features.filter((item) => item !== key) : [...form.features, key]);
 
-  const [name, setName] = useState("");
-  const [subdomain, setSubdomain] = useState("");
-  const [backendUrl, setBackendUrl] = useState("");
-  const [notes, setNotes] = useState("");
-  const [plan, setPlan] = useState<Plan>("BASIC");
-  const [expiresAt, setExpiresAt] = useState("");
-  const [maxInvoices, setMaxInvoices] = useState("");
-  const [maxCustomers, setMaxCustomers] = useState("");
-  const [features, setFeatures] = useState<string[]>(["ANDROID"]);
-
-  function toggleFeature(key: string) {
-    setFeatures((prev) =>
-      prev.includes(key) ? prev.filter((f) => f !== key) : [...prev, key]
-    );
-  }
-
-  // Auto-derive subdomain from name
-  function handleNameChange(v: string) {
-    setName(v);
-    if (!subdomain) {
-      setSubdomain(
-        v.toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^a-z0-9-]/g, "")
-          .slice(0, 30)
-      );
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
+  async function submit() {
     setLoading(true);
+    setError("");
     try {
       await tenantsApi.create({
-        name, subdomain, backendUrl, notes: notes || undefined,
+        name: form.name, ownerName: form.ownerName || undefined, phone: form.phone || undefined,
+        email: form.email || undefined, subdomain: form.subdomain, backendUrl: form.backendUrl,
+        notes: form.notes || undefined,
         subscription: {
-          plan,
-          expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-          maxInvoices: maxInvoices ? parseInt(maxInvoices) : null,
-          maxCustomers: maxCustomers ? parseInt(maxCustomers) : null,
-          features,
+          plan: form.plan,
+          expiresAt: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
+          price: form.price ? Number(form.price) : null,
+          billingCycle: form.billingCycle,
+          maxUsers: form.maxUsers ? Number(form.maxUsers) : null,
+          maxWarehouses: form.maxWarehouses ? Number(form.maxWarehouses) : null,
+          maxAndroidDevices: form.maxAndroidDevices ? Number(form.maxAndroidDevices) : null,
+          maxInvoices: form.maxInvoices ? Number(form.maxInvoices) : null,
+          maxCustomers: form.maxCustomers ? Number(form.maxCustomers) : null,
+          currency: "IQD",
+          features: form.features,
         },
       });
-      await qc.invalidateQueries({ queryKey: ["tenants"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["tenants"] }),
+        queryClient.invalidateQueries({ queryKey: ["tenant-summary"] }),
+      ]);
       onClose();
-    } catch (err: any) {
-      setError(err.response?.data?.error ?? JSON.stringify(err.response?.data?.errors) ?? "فشل إنشاء الزبون");
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-header">
-          <span>➕ إنشاء زبون جديد</span>
-          <button className="btn-ghost" style={{ padding: "4px 10px" }} onClick={onClose}>✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit}>
-          <div className="modal-body">
-            <div className="form-grid">
-              <div className="form-row">
-                <label>اسم الزبون *</label>
-                <input value={name} onChange={(e) => handleNameChange(e.target.value)} placeholder="مثال: شركة الصالح" required />
-              </div>
-              <div className="form-row">
-                <label>الـ Subdomain *</label>
-                <input value={subdomain} onChange={(e) => setSubdomain(e.target.value.toLowerCase())} placeholder="alsaleh" required />
-                <span style={{ fontSize: 11, color: "var(--text2)" }}>
-                  {subdomain ? `سيكون الرابط: ${subdomain}.yourdomain.com` : ""}
-                </span>
-              </div>
-            </div>
-
-            <div className="form-row">
-              <label>رابط الـ Backend *</label>
-              <input
-                value={backendUrl}
-                onChange={(e) => setBackendUrl(e.target.value)}
-                placeholder="https://alsaleh-api.up.railway.app"
-                type="url"
-                required
-              />
-            </div>
-
-            <div className="form-row">
-              <label>ملاحظات</label>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="اختياري..." />
-            </div>
-
-            <hr style={{ borderColor: "var(--border)" }} />
-            <p style={{ fontWeight: 700, fontSize: 14, marginBottom: -4 }}>الاشتراك</p>
-
-            <div className="form-grid">
-              <div className="form-row">
-                <label>الباقة *</label>
-                <select value={plan} onChange={(e) => setPlan(e.target.value as Plan)}>
-                  <option value="TRIAL">تجريبية</option>
-                  <option value="BASIC">أساسية</option>
-                  <option value="FULL">كاملة</option>
-                </select>
-              </div>
-              <div className="form-row">
-                <label>تاريخ الانتهاء</label>
-                <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} />
-              </div>
-            </div>
-
-            {plan === "TRIAL" && (
+    <div className="modal-overlay" onMouseDown={(e) => e.currentTarget === e.target && onClose()}>
+      <section className="modal" dir="rtl">
+        <header className="modal-header"><div><h2>إضافة محل جديد</h2><p>الخطوة {step} من 2</p></div><button className="icon-command" onClick={onClose}><X size={19} /></button></header>
+        <div className="steps"><span className={step >= 1 ? "done" : ""}>1. بيانات المحل</span><span className={step >= 2 ? "done" : ""}>2. الاشتراك والمزايا</span></div>
+        <div className="modal-body">
+          {step === 1 ? (
+            <>
               <div className="form-grid">
-                <div className="form-row">
-                  <label>حد الفواتير</label>
-                  <input type="number" value={maxInvoices} onChange={(e) => setMaxInvoices(e.target.value)} placeholder="50" min="1" />
-                </div>
-                <div className="form-row">
-                  <label>حد العملاء</label>
-                  <input type="number" value={maxCustomers} onChange={(e) => setMaxCustomers(e.target.value)} placeholder="20" min="1" />
-                </div>
+                <label>اسم المحل *<input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="مثال: ألعاب مهدي" /></label>
+                <label>اسم المالك<input value={form.ownerName} onChange={(e) => set("ownerName", e.target.value)} /></label>
+                <label>رقم الهاتف<input value={form.phone} onChange={(e) => set("phone", e.target.value)} inputMode="tel" /></label>
+                <label>البريد الإلكتروني<input value={form.email} onChange={(e) => set("email", e.target.value)} type="email" /></label>
               </div>
-            )}
-
-            <div className="form-row">
-              <label>الميزات المتاحة</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-                {FEATURES_OPTIONS.map((f) => (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => toggleFeature(f.key)}
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: 20,
-                      border: "1px solid",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      background: features.includes(f.key) ? "var(--primary)" : "var(--bg3)",
-                      borderColor: features.includes(f.key) ? "var(--primary)" : "var(--border)",
-                      color: features.includes(f.key) ? "#fff" : "var(--text2)",
-                    }}
-                  >
-                    {f.label}
-                  </button>
-                ))}
+              <label>الرابط الفرعي *<div className="domain-input"><input dir="ltr" value={form.subdomain} onChange={(e) => set("subdomain", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} placeholder="mahdi" /><span>.{DOMAIN_ROOT}</span></div></label>
+              <label>رابط الباكند *<input dir="ltr" value={form.backendUrl} onChange={(e) => set("backendUrl", e.target.value)} placeholder="https://service.up.railway.app" /></label>
+            </>
+          ) : (
+            <>
+              <div className="form-grid">
+                <label>الباقة<select value={form.plan} onChange={(e) => set("plan", e.target.value)}><option value="TRIAL">تجريبية</option><option value="BASIC">أساسية</option><option value="PRO">احترافية</option><option value="FULL">كاملة</option></select></label>
+                <label>تاريخ الانتهاء<input type="date" value={form.expiresAt} onChange={(e) => set("expiresAt", e.target.value)} /></label>
+                <label>سعر الاشتراك<input type="number" min="0" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="د.ع" /></label>
+                <label>دورة الدفع<select value={form.billingCycle} onChange={(e) => set("billingCycle", e.target.value)}><option value="MONTHLY">شهري</option><option value="YEARLY">سنوي</option><option value="CUSTOM">مخصص</option></select></label>
+                <label>عدد المستخدمين<input type="number" min="1" value={form.maxUsers} onChange={(e) => set("maxUsers", e.target.value)} /></label>
+                <label>عدد المخازن<input type="number" min="1" value={form.maxWarehouses} onChange={(e) => set("maxWarehouses", e.target.value)} /></label>
+                <label>أجهزة أندرويد<input type="number" min="0" value={form.maxAndroidDevices} onChange={(e) => set("maxAndroidDevices", e.target.value)} /></label>
+                <label>حد الفواتير<input type="number" min="1" value={form.maxInvoices} onChange={(e) => set("maxInvoices", e.target.value)} placeholder="فارغ = غير محدود" /></label>
               </div>
-            </div>
-
-            {error && <p className="error-msg">{error}</p>}
-          </div>
-
-          <div className="modal-footer">
-            <button type="button" className="btn-ghost" onClick={onClose}>إلغاء</button>
-            <button type="submit" className="btn-primary" disabled={loading}>
-              {loading ? <span className="spinner" /> : "إنشاء الزبون"}
-            </button>
-          </div>
-        </form>
-      </div>
+              <label>المزايا</label>
+              <div className="feature-grid">{FEATURES.map((feature) => <button type="button" key={feature.key} className={form.features.includes(feature.key) ? "feature selected" : "feature"} onClick={() => toggleFeature(feature.key)}><Check size={15} />{feature.label}</button>)}</div>
+              <label>ملاحظات<textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} /></label>
+            </>
+          )}
+          {error && <div className="alert error">{error}</div>}
+        </div>
+        <footer className="modal-footer">
+          {step === 2 && <button className="secondary" onClick={() => setStep(1)}>السابق</button>}
+          {step === 1
+            ? <button className="primary" disabled={!form.name || !form.subdomain || !form.backendUrl} onClick={() => setStep(2)}>التالي</button>
+            : <button className="primary" disabled={loading} onClick={submit}>{loading ? "جاري الإنشاء..." : "إنشاء المحل"}</button>}
+        </footer>
+      </section>
     </div>
   );
 }

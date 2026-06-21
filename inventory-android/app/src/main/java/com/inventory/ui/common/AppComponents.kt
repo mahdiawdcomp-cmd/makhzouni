@@ -142,6 +142,7 @@ fun SectionCard(
     titleAction: (@Composable () -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     containerColor: Color = MaterialTheme.colorScheme.surface,
+    accentColor: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Surface(
@@ -156,6 +157,7 @@ fun SectionCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(accentColor?.copy(alpha = 0.10f) ?: Color.Transparent)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
@@ -164,11 +166,14 @@ fun SectionCard(
                         text = title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = accentColor ?: MaterialTheme.colorScheme.onSurface,
                     )
                     titleAction?.invoke()
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                HorizontalDivider(
+                    color = accentColor?.copy(alpha = 0.25f)
+                        ?: MaterialTheme.colorScheme.outlineVariant
+                )
             }
             Column(modifier = Modifier.padding(contentPadding)) { content() }
         }

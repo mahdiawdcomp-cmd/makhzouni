@@ -38,6 +38,7 @@ interface DraftItem {
   warehouseId?: string
   warehouseName?: string  // display name when pulling from a non-default warehouse
   allowNegativeStock?: boolean  // seller chose to sell while out of stock (records a deficit)
+  notes?: string
 }
 
 function stockOf(product: Product) {
@@ -149,6 +150,7 @@ export function InvoiceCreatePage() {
   const [customerListOpen, setCustomerListOpen] = useState(false)
   const [date, setDate] = useState(localDateStr())
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("CREDIT")
+  const [invoiceNotes, setInvoiceNotes] = useState("")
 
   // ---- quick-add modals ----
   const [quickAddCustomerOpen, setQuickAddCustomerOpen] = useState(false)
@@ -194,6 +196,7 @@ export function InvoiceCreatePage() {
     prevTidRef.current = activeTid
     setSelectedCustomer(null)
     setCustomerQuery("")
+    setInvoiceNotes("")
     setItems([])
     setDiscount(0)
     setPaidAmount(0)
@@ -882,12 +885,14 @@ export function InvoiceCreatePage() {
       tax: 0,
       paidAmount: effectivePaid,
       paymentType: financials.paymentType,
+      notes: invoiceNotes.trim() || undefined,
       items: items.map((item) => ({
         productId: item.product.id,
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         warehouseId: item.warehouseId,
+        notes: item.notes?.trim() || undefined,
         // Authorize the deficit for any sale line that can't be fully covered — by the
         // warehouse it pulls from OR by total stock. allowNegative only *permits* going
         // below zero; it never forces it, so it's safe to set whenever a shortfall is possible.
@@ -1204,6 +1209,13 @@ export function InvoiceCreatePage() {
               </div>
             ) : null}
           </div>
+          <div className="sm:col-span-3">
+            <Input
+              value={invoiceNotes}
+              onChange={(event) => setInvoiceNotes(event.target.value)}
+              placeholder="ملاحظات عامة للفاتورة (اختياري)"
+            />
+          </div>
           {!isPurchase && !selectedCustomer && (
             <button
               type="button"
@@ -1280,6 +1292,7 @@ export function InvoiceCreatePage() {
                   <TH>العدد</TH>
                   {!hidePrice && <TH>سعر المفرد</TH>}
                   {!hidePrice && <TH>الإجمالي</TH>}
+                  <TH>الملاحظات</TH>
                   <TH>حذف</TH>
                 </TR>
               </THead>
@@ -1400,6 +1413,14 @@ export function InvoiceCreatePage() {
                           />
                         </TD>
                       )}
+                      <TD>
+                        <Input
+                          className="min-w-40"
+                          value={item.notes ?? ""}
+                          onChange={(event) => updateItem(index, { notes: event.target.value })}
+                          placeholder="ملاحظة للمادة"
+                        />
+                      </TD>
                       <TD>
                         <Button variant="ghost" size="sm" onClick={() => removeItem(index)}>
                           <Trash2 className="h-4 w-4 text-rose-500" />

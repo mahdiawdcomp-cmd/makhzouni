@@ -464,6 +464,7 @@ const invoiceItemSchema = z.object({
   unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
   quantity: z.coerce.number().int().min(1),
   unitPrice: z.coerce.number().nonnegative().optional(),
+  notes: z.string().trim().max(500).optional(),
   // Seller explicitly chose to sell a product that is out of stock — the line is
   // allowed to push warehouse stock negative and is flagged for manager review.
   allowNegativeStock: z.boolean().optional(),
@@ -484,6 +485,7 @@ export const createInvoiceSchema = z.object({
     tax: z.coerce.number().nonnegative().default(0),
     paidAmount: z.coerce.number().nonnegative().default(0),
     paymentType: z.enum(["CASH", "CREDIT", "PARTIAL"]).optional(),
+    notes: z.string().trim().max(2000).optional(),
     items: z.array(invoiceItemSchema).min(1),
   }),
 });
@@ -498,6 +500,7 @@ export const updateInvoiceSchema = z.object({
     tax: z.coerce.number().nonnegative().default(0),
     paidAmount: z.coerce.number().nonnegative().default(0),
     paymentType: z.enum(["CASH", "CREDIT", "PARTIAL"]).optional(),
+    notes: z.string().trim().max(2000).optional(),
     items: z.array(invoiceItemSchema).min(1),
   }),
 });
@@ -656,6 +659,7 @@ export const updateSettingsSchema = z.object({
       storeAddress: z.string().trim().optional(),
       currency: z.string().trim().min(1).optional(),
       invoiceTemplate: z.string().trim().optional(),
+      invoiceDesign: z.string().trim().optional(),
       voucherTemplate: z.string().trim().optional(),
       statementTemplate: z.string().trim().optional(),
       themePreset: z.enum(["classic", "iraqi", "exclusive", "bold", "designer"]).optional(),

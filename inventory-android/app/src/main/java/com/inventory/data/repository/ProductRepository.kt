@@ -6,9 +6,11 @@ import com.inventory.data.remote.ApiClient
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.NetworkMonitor
 import com.inventory.data.remote.dto.BranchDto
+import com.inventory.data.remote.dto.CatalogCategoryDto
 import com.inventory.data.remote.dto.ProductDto
 import com.inventory.data.remote.dto.ProductMovementDto
 import com.inventory.data.remote.dto.UpsertProductRequest
+import com.inventory.domain.model.CatalogCategory
 import com.inventory.domain.model.Product
 import com.inventory.domain.model.ProductMovement
 import com.inventory.domain.model.WarehouseStock
@@ -39,11 +41,21 @@ class ProductRepository @Inject constructor(
         }
     }
 
+    suspend fun loadCatalogCategories(): ApiResult<List<CatalogCategory>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val data = apiClient.api.getCatalogCategories().data.orEmpty()
+            ApiResult.Success(data.map { it.toDomain() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل الفئات")
+        }
+    }
+
     suspend fun refreshProducts(search: String? = null, category: String? = null): ApiResult<List<Product>> {
         if (!networkMonitor.isOnline()) return ApiResult.Offline
         return try {
             val response = apiClient.api.getProducts(search = search.takeUnless { it.isNullOrBlank() }, category = category.takeUnless { it.isNullOrBlank() })
-            val entities = response.data.map { it.toEntity() }
+            val entities = response.data.orEmpty().map { it.toEntity() }
             if (search.isNullOrBlank() && category.isNullOrBlank()) {
                 productDao.replaceAll(entities)
             } else {
@@ -52,6 +64,20 @@ class ProductRepository @Inject constructor(
             ApiResult.Success(entities.map { it.toDomain() })
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر تحميل المنتجات")
+        }
+    }
+
+    suspend fun loadWarehouseProducts(warehouseId: String): ApiResult<List<Product>> {
+        if (!networkMonitor.isOnline()) {
+            val cached = productDao.listAll()
+            return if (cached.isNotEmpty()) ApiResult.Success(cached.map { it.toDomain() })
+                   else ApiResult.Offline
+        }
+        return try {
+            val response = apiClient.api.getProducts(branchId = warehouseId, limit = 5000)
+            ApiResult.Success(response.data.orEmpty().map { it.toDomainFull() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل مواد المخزن")
         }
     }
 
@@ -158,6 +184,11 @@ private fun ProductDto.toDomainFull() = Product(
     cartonQrCode = cartonQrCode.orEmpty(),
     imageUrl = imageUrl,
     category = category.orEmpty(),
+    categoryTags = categoryTags.orEmpty(),
+    typeTags = typeTags.orEmpty(),
+    isNewArrival = isNewArrival ?: false,
+    isOffer = isOffer ?: false,
+    oldPrice = oldPrice,
     openingBalancePcs = openingBalancePcs,
     cartonsAvailable = cartonsAvailable,
     pcsPerCarton = pcsPerCarton,
@@ -177,6 +208,13 @@ private fun ProductDto.toDomainFull() = Product(
         )
     } ?: emptyList(),
     updatedAt = updatedAt
+)
+
+private fun CatalogCategoryDto.toDomain() = CatalogCategory(
+    id = id,
+    name = name,
+    types = types,
+    sortOrder = sortOrder
 )
 
 private fun ProductDto.toEntity() = ProductEntity(
@@ -200,7 +238,10 @@ private fun ProductDto.toEntity() = ProductEntity(
 
 private fun ProductMovementDto.toDomain() = ProductMovement(
     date = date,
+    movementType = movementType,
+    movementLabel = movementLabel,
     customerName = customerName ?: "-",
+    warehouseName = warehouseName,
     quantity = quantity,
     unitPrice = unitPrice,
     unit = unit,

@@ -21,10 +21,14 @@ import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
@@ -37,6 +41,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +59,7 @@ import com.inventory.ui.theme.AppColor
 fun SettingsScreen(viewModel: SettingsViewModel) {
     val state by viewModel.state.collectAsState()
     val settings = state.settings
+    var showThemes by remember { mutableStateOf(false) }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         viewModel.update { it.copy(storeLogoUri = uri?.toString()) }
     }
@@ -81,6 +89,28 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             Text(settings.storeName.ifBlank { "مخزوني" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(settings.baseUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                         }
+                    }
+                }
+            }
+
+            item {
+                SectionCard(
+                    title = "المظهر والتنسيق",
+                    titleAction = { Icon(Icons.Default.Palette, null, tint = MaterialTheme.colorScheme.primary) }
+                ) {
+                    Text(
+                        text = "اختَر ألوان التطبيق المناسبة لك. يتغيّر التنسيق فوراً ويُحفظ على هذا الجهاز.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    FilledTonalButton(
+                        onClick = { showThemes = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Palette, null, Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                        Text("الثيمات")
                     }
                 }
             }
@@ -198,6 +228,123 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
             }
         }
     }
+
+    if (showThemes) {
+        ThemePickerDialog(
+            selectedTheme = settings.appTheme,
+            onSelect = { theme ->
+                viewModel.update { it.copy(appTheme = theme) }
+                showThemes = false
+            },
+            onDismiss = { showThemes = false }
+        )
+    }
+}
+
+private data class ThemeChoice(
+    val id: String,
+    val title: String,
+    val description: String,
+    val primary: Color,
+    val surface: Color,
+    val text: Color,
+)
+
+@Composable
+private fun ThemePickerDialog(
+    selectedTheme: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val themes = listOf(
+        ThemeChoice(
+            id = "PROFESSIONAL",
+            title = "الأزرق الاحترافي",
+            description = "واضح وهادئ للعمل اليومي والمحاسبة",
+            primary = Color(0xFF1D4ED8),
+            surface = Color(0xFFF8FAFC),
+            text = Color(0xFF111827),
+        ),
+        ThemeChoice(
+            id = "EMERALD",
+            title = "الزمردي الدافئ",
+            description = "أخضر أنيق مع خلفية مريحة للعين",
+            primary = Color(0xFF047857),
+            surface = Color(0xFFFFFDF8),
+            text = Color(0xFF17201B),
+        ),
+        ThemeChoice(
+            id = "MIDNIGHT",
+            title = "الليلي الفاخر",
+            description = "داكن قوي وواضح للعمل ليلاً",
+            primary = Color(0xFF3B82F6),
+            surface = Color(0xFF1E293B),
+            text = Color(0xFFE2E8F0),
+        ),
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Palette, null, tint = MaterialTheme.colorScheme.primary) },
+        title = { Text("الثيمات", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                themes.forEach { theme ->
+                    val selected = selectedTheme == theme.id
+                    OutlinedCard(
+                        onClick = { onSelect(theme.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.outlinedCardColors(
+                            containerColor = if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(theme.surface)
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Box(Modifier.size(20.dp).background(theme.primary, RoundedCornerShape(6.dp)))
+                                Box(Modifier.size(20.dp).background(theme.text, RoundedCornerShape(6.dp)))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    theme.title,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    theme.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (selected) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = "محدد",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onDismiss) { Text("إغلاق") }
+        }
+    )
 }
 
 @Composable
@@ -221,8 +368,8 @@ private fun CompactField(
 
 @Composable
 private fun StatusStrip(text: String, ok: Boolean) {
-    val bg = if (ok) AppColor.Green50 else AppColor.Red50
-    val fg = if (ok) AppColor.Green600 else AppColor.Red600
+    val bg = if (ok) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.errorContainer
+    val fg = if (ok) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onErrorContainer
     Row(
         modifier = Modifier
             .fillMaxWidth()

@@ -14,6 +14,7 @@ export interface AppSettings {
   currency: string;
   // WhatsApp message templates. {{placeholder}} syntax.
   invoiceTemplate: string;
+  invoiceDesign?: string;
   voucherTemplate: string;
   statementTemplate: string;
   // UI preferences
@@ -55,6 +56,7 @@ export const defaultSettings: AppSettings = {
   currency: "IQD",
   invoiceTemplate:
     "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير",
+  invoiceDesign: "",
   voucherTemplate:
     "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
   statementTemplate:

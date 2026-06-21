@@ -32,7 +32,8 @@ data class SettingsUiState(
         inactiveCustomerDays = 30,
         invoiceTemplate = "فاتورتك من {storeName}: {invoiceNumber} بتاريخ {date}",
         debtTemplate = "مرحباً {customerName}، لديك مبلغ {amount} مستحق منذ {daysLate} يوم.",
-        inactiveTemplate = "اشتقنالك في {storeName}. يسعدنا رجوعك بأي وقت."
+        inactiveTemplate = "اشتقنالك في {storeName}. يسعدنا رجوعك بأي وقت.",
+        appTheme = "PROFESSIONAL"
     ),
     val connectionMessage: String? = null,
     val backupMessage: String? = null,

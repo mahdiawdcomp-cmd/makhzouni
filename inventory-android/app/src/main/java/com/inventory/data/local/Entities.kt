@@ -66,7 +66,8 @@ data class InvoiceEntity(
     val finalBalance: Double,
     val paymentType: String,
     val status: String,
-    val createdAt: String?
+    val createdAt: String?,
+    val notes: String? = null
 )
 
 @Entity(tableName = "invoice_items")
@@ -78,7 +79,8 @@ data class InvoiceItemEntity(
     val unit: String,
     val quantity: Int,
     val unitPrice: Double,
-    val totalPrice: Double
+    val totalPrice: Double,
+    val notes: String? = null
 )
 
 @Entity(tableName = "payment_vouchers")
@@ -90,6 +92,7 @@ data class PaymentVoucherEntity(
     val type: String,
     val date: String,
     val notes: String?,
+    val cancelledAt: String? = null,
     val createdAt: String?
 )
 

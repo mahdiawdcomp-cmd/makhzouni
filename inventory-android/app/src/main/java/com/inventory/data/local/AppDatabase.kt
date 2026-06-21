@@ -11,6 +11,19 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
     }
 }
 
+val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE payment_vouchers ADD COLUMN cancelledAt TEXT DEFAULT NULL")
+    }
+}
+
+val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE invoices ADD COLUMN notes TEXT DEFAULT NULL")
+        database.execSQL("ALTER TABLE invoice_items ADD COLUMN notes TEXT DEFAULT NULL")
+    }
+}
+
 @Database(
     entities = [
         UserEntity::class,
@@ -26,7 +39,7 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
         SettingEntity::class,
         PendingSyncOperationEntity::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

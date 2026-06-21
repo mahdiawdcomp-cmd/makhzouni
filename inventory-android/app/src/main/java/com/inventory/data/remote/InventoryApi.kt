@@ -27,6 +27,7 @@ import com.inventory.data.remote.dto.PaginationEnvelope
 import com.inventory.data.remote.dto.DashboardReportDto
 import com.inventory.data.remote.dto.InventoryValuationDto
 import com.inventory.data.remote.dto.InvoiceDto
+import com.inventory.data.remote.dto.CatalogCategoryDto
 import com.inventory.data.remote.dto.ProductDto
 import com.inventory.data.remote.dto.ProductMovementResponse
 import com.inventory.data.remote.dto.QuotationDto
@@ -98,11 +99,15 @@ interface InventoryApi {
     suspend fun getProducts(
         @Query("search") search: String? = null,
         @Query("category") category: String? = null,
+        @Query("branchId") branchId: String? = null,
         @Query("limit") limit: Int = 5000
     ): PagedEnvelope<ProductDto>
 
     @GET("products/{id}")
     suspend fun getProduct(@Path("id") id: String): ApiEnvelope<ProductDto>
+
+    @GET("catalog-categories")
+    suspend fun getCatalogCategories(): ApiEnvelope<List<CatalogCategoryDto>>
 
     @GET("products/by-qr/{qrCode}")
     suspend fun getProductByQr(@Path("qrCode") qrCode: String): ApiEnvelope<ProductDto>

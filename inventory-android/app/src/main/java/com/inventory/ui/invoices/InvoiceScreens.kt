@@ -298,7 +298,11 @@ fun InvoiceCreateScreen(
         ) {
             // â”€â”€ Customer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             item {
-                SectionCard(title = "الزبون / المورد", containerColor = AppColor.Blue50) {
+                SectionCard(
+                    title = "الزبون / المورد",
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    accentColor = AppColor.Blue500
+                ) {
                     if (state.selectedCustomer == null) {
                         AppSearchBar(
                             query = state.customerQuery,
@@ -341,12 +345,26 @@ fun InvoiceCreateScreen(
                             }
                         }
                     }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = state.notes,
+                        onValueChange = viewModel::setNotes,
+                        label = { Text("ملاحظات عامة للفاتورة") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        shape = RoundedCornerShape(8.dp),
+                    )
                 }
             }
 
             // â”€â”€ Date + Payment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             item {
-                SectionCard(title = "معلومات الفاتورة", contentPadding = PaddingValues(10.dp), containerColor = AppColor.Blue50) {
+                SectionCard(
+                    title = "معلومات الفاتورة",
+                    contentPadding = PaddingValues(12.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    accentColor = AppColor.Purple600
+                ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
                         OutlinedTextField(
                             value = state.date,
@@ -398,7 +416,8 @@ fun InvoiceCreateScreen(
             item {
                 SectionCard(
                     title = "الأصناف",
-                    containerColor = AppColor.Green50,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    accentColor = AppColor.Green600,
                     titleAction = {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             FilterChip(
@@ -496,6 +515,7 @@ fun InvoiceCreateScreen(
                                     onQuantity = { viewModel.updateItem(item.lineId, quantity = it.toIntOrNull() ?: 0) },
                                     onPrice = { viewModel.updateItem(item.lineId, price = it.toDoubleOrNull() ?: item.unitPrice) },
                                     onTotal = { viewModel.updateItemTotal(item.lineId, it.toDoubleOrNull() ?: item.totalPrice) },
+                                    onNotes = { viewModel.updateItemNotes(item.lineId, it) },
                                     onDone = { productSearchFocus.requestFocus() },
                                     onRemove = { viewModel.removeItem(item.lineId) },
                                 )
@@ -516,7 +536,12 @@ fun InvoiceCreateScreen(
 
             // â”€â”€ Financial Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             item {
-                SectionCard(title = "الملخص المالي", contentPadding = PaddingValues(12.dp), containerColor = AppColor.Amber50) {
+                SectionCard(
+                    title = "الملخص المالي",
+                    contentPadding = PaddingValues(14.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    accentColor = AppColor.Amber600
+                ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = state.discountValue,
@@ -558,18 +583,26 @@ fun InvoiceCreateScreen(
             // â”€â”€ Errors & messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if (state.error != null) {
                 item {
-                    Surface(shape = RoundedCornerShape(10.dp), color = AppColor.Red50) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
                         Row(modifier = Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.ErrorOutline, null, tint = AppColor.Red600, modifier = Modifier.size(18.dp))
-                            Text(state.error!!, style = MaterialTheme.typography.bodySmall, color = AppColor.Red600)
+                            Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.size(18.dp))
+                            Text(state.error!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
                 }
             }
             if (state.queuedMessage != null) {
                 item {
-                    Surface(shape = RoundedCornerShape(10.dp), color = AppColor.Amber50) {
-                        Text(state.queuedMessage!!, style = MaterialTheme.typography.bodySmall, color = AppColor.Amber600, modifier = Modifier.padding(12.dp))
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Text(
+                            state.queuedMessage!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(12.dp)
+                        )
                     }
                 }
             }
@@ -626,6 +659,7 @@ private fun InvoiceItemRow(
     onQuantity: (String) -> Unit,
     onPrice: (String) -> Unit,
     onTotal: (String) -> Unit,
+    onNotes: (String) -> Unit,
     onDone: () -> Unit,
     onRemove: () -> Unit,
 ) {
@@ -639,7 +673,10 @@ private fun InvoiceItemRow(
         "DOZEN" -> item.quantity * 12
         else -> item.quantity
     }
-    val hasNegativeStock = item.product.currentStock < 0 || item.product.currentStock - quantityInPieces < 0
+    // Selling more than is on hand: the sale is still allowed but records a deficit
+    // (negative stock) for manager review — mirrors the web behavior.
+    val sellingShort = item.product.currentStock - quantityInPieces < 0
+    val hasNegativeStock = item.product.currentStock < 0
 
     LaunchedEffect(item.lineId) {
         if (item.quantity == 0) quantityFocus.requestFocus()
@@ -667,7 +704,11 @@ private fun InvoiceItemRow(
             Column(Modifier.weight(1f)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(item.product.name, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (hasNegativeStock) {
+                    if (sellingShort) {
+                        Surface(shape = RoundedCornerShape(6.dp), color = AppColor.Red50) {
+                            Text("⛔ نفد — سيُسجَّل بالسالب", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = AppColor.Red600, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    } else if (hasNegativeStock) {
                         Surface(shape = RoundedCornerShape(6.dp), color = AppColor.Amber50) {
                             Text("رصيد سالب", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = AppColor.Amber600, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         }
@@ -776,5 +817,13 @@ private fun InvoiceItemRow(
                 shape = RoundedCornerShape(8.dp),
             )
         }
+        OutlinedTextField(
+            value = item.notes,
+            onValueChange = onNotes,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("ملاحظات المادة", fontSize = 11.sp) },
+            minLines = 2,
+            shape = RoundedCornerShape(8.dp),
+        )
     }
 }

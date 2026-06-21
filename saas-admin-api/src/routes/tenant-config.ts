@@ -9,7 +9,7 @@ import prisma from "../prisma";
 const router = Router();
 
 router.get("/", async (req: Request, res: Response) => {
-  const subdomain = req.query.subdomain as string;
+  const subdomain = String(req.query.subdomain ?? "").trim().toLowerCase();
   if (!subdomain) {
     res.status(400).json({ error: "subdomain query param required" });
     return;
@@ -31,6 +31,8 @@ router.get("/", async (req: Request, res: Response) => {
   res.json({
     tenantId: tenant.id,
     name: tenant.name,
+    subdomain: tenant.subdomain,
+    frontendUrl: tenant.frontendUrl,
     backendUrl: tenant.backendUrl,
     status: isExpired ? "EXPIRED" : tenant.status,
     subscription: sub

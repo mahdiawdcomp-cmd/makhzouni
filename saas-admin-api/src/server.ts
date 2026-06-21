@@ -28,7 +28,16 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "http://localhost:5174")
 app.set("trust proxy", 1);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(compression());
-app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin) || /^https:\/\/[a-z0-9-]+\.mazbwoni\.com$/i.test(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("Origin not allowed"));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => {

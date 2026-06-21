@@ -7,8 +7,15 @@ node_modules
 graphify-out
 inventory-android
 inventory-web
+outputs
 postman
+saas-admin-api
+saas-admin-web
+scripts
 toy-website
 emulator-screen.png
 inventory-backend/dist
 inventory-backend/.wwebjs_auth
+inventory-backend/.vercel
+inventory-backend/.env
+inventory-backend/data

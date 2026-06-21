@@ -1,6 +1,5 @@
 package com.inventory.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -66,7 +65,7 @@ object AppColor {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Light Color Scheme
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-private val LightColors = lightColorScheme(
+private val ProfessionalColors = lightColorScheme(
     primary             = AppColor.Blue600,
     onPrimary           = AppColor.White,
     primaryContainer    = AppColor.Blue100,
@@ -104,6 +103,37 @@ private val LightColors = lightColorScheme(
     scrim               = Color(0x52000000),
 )
 
+private val EmeraldColors = lightColorScheme(
+    primary = Color(0xFF047857),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD1FAE5),
+    onPrimaryContainer = Color(0xFF064E3B),
+    secondary = Color(0xFF9A3412),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFFFEDD5),
+    onSecondaryContainer = Color(0xFF7C2D12),
+    tertiary = Color(0xFFB45309),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFFEF3C7),
+    onTertiaryContainer = Color(0xFF78350F),
+    background = Color(0xFFF4F7F2),
+    onBackground = Color(0xFF17201B),
+    surface = Color(0xFFFFFDF8),
+    onSurface = Color(0xFF17201B),
+    surfaceVariant = Color(0xFFE8EFE9),
+    onSurfaceVariant = Color(0xFF46554B),
+    outline = Color(0xFF87978C),
+    outlineVariant = Color(0xFFD4DED6),
+    error = Color(0xFFB42318),
+    onError = Color.White,
+    errorContainer = Color(0xFFFEE4E2),
+    onErrorContainer = Color(0xFF7A271A),
+    inverseSurface = Color(0xFF243029),
+    inverseOnSurface = Color(0xFFF2F7F3),
+    inversePrimary = Color(0xFF6EE7B7),
+    scrim = Color(0x66000000),
+)
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Dark Color Scheme
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -120,6 +150,8 @@ private val DarkColors = darkColorScheme(
 
     tertiary            = Color(0xFF34D399),
     onTertiary          = AppColor.Gray950,
+    tertiaryContainer   = Color(0xFF064E3B),
+    onTertiaryContainer = Color(0xFFA7F3D0),
 
     background          = AppColor.Dark900,
     onBackground        = AppColor.DarkText,
@@ -142,6 +174,17 @@ private val DarkColors = darkColorScheme(
     inversePrimary      = AppColor.Blue600,
     scrim               = Color(0x52000000),
 )
+
+enum class AppThemeStyle(val storageValue: String) {
+    PROFESSIONAL("PROFESSIONAL"),
+    EMERALD("EMERALD"),
+    MIDNIGHT("MIDNIGHT");
+
+    companion object {
+        fun fromStorage(value: String?): AppThemeStyle =
+            entries.firstOrNull { it.storageValue == value } ?: PROFESSIONAL
+    }
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Typography
@@ -180,11 +223,16 @@ private val AppShapes = Shapes(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 @Composable
 fun InventoryTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    style: AppThemeStyle = AppThemeStyle.PROFESSIONAL,
     content: @Composable () -> Unit
 ) {
+    val colors = when (style) {
+        AppThemeStyle.PROFESSIONAL -> ProfessionalColors
+        AppThemeStyle.EMERALD -> EmeraldColors
+        AppThemeStyle.MIDNIGHT -> DarkColors
+    }
     MaterialTheme(
-        colorScheme = if (darkTheme) DarkColors else LightColors,
+        colorScheme = colors,
         typography  = AppTypography,
         shapes      = AppShapes,
         content     = content,

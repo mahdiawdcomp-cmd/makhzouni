@@ -47,6 +47,7 @@ interface EditItem {
   productId: string; productName: string
   unit: "PIECE" | "DOZEN" | "CARTON"; quantity: number; unitPrice: number
   warehouseId?: string; warehouseName?: string
+  notes?: string
 }
 
 // A single product can be split across warehouses (المحل + مخزن آخر) into multiple
@@ -115,9 +116,12 @@ export function InvoiceDetailPage() {
       customerPhone: invoice.customer?.phone ?? "",
       lines: (invoice.items ?? []).map((it) => ({
         name: it.productName ?? "",
+        unit: unitLabel(it.unit),
         qty: it.quantity,
         price: it.unitPrice,
+        notes: it.notes ?? "",
       })),
+      notes: invoice.notes ?? "",
       subtotal: invoice.subtotal,
       discount: invoice.discount,
       tax: invoice.tax,
@@ -222,6 +226,7 @@ export function InvoiceDetailPage() {
   const [editTax, setEditTax] = useState("")
   const [editPaid, setEditPaid] = useState("")
   const [editPaymentType, setEditPaymentType] = useState<"CREDIT" | "CASH" | "PARTIAL">("CREDIT")
+  const [editNotes, setEditNotes] = useState("")
   const [editItems, setEditItems] = useState<EditItem[]>([])
   const [editProductSearch, setEditProductSearch] = useState("")
   const [editProductOpen, setEditProductOpen] = useState(false)
@@ -238,6 +243,7 @@ export function InvoiceDetailPage() {
     setEditTax("0")
     setEditPaid(Number(invoice.paidAmount ?? 0).toLocaleString("en-US"))
     setEditPaymentType((invoice.paymentType as "CREDIT" | "CASH" | "PARTIAL") ?? "CREDIT")
+    setEditNotes(invoice.notes ?? "")
     setEditItems((invoice.items ?? []).map((it) => {
       const wsId = it.warehouseId
       const product = allProducts.find((p) => p.id === it.productId)
@@ -247,6 +253,7 @@ export function InvoiceDetailPage() {
         unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "CARTON",
         quantity: it.quantity, unitPrice: Number(it.unitPrice),
         warehouseId: wsId, warehouseName: wsName,
+        notes: it.notes ?? "",
       }
     }))
     setEditOpen(true)
@@ -281,7 +288,8 @@ export function InvoiceDetailPage() {
       type: invoice?.type, customerId: invoice?.customerId ?? "",
       discount: Number(editDiscount), tax: 0, paidAmount: Number(editPaid.replace(/,/g, "")),
       paymentType: editPaymentType,
-      items: editItems.map((it) => ({ productId: it.productId, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId })),
+      notes: editNotes.trim() || undefined,
+      items: editItems.map((it) => ({ productId: it.productId, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, notes: it.notes?.trim() || undefined })),
     }),
     onSuccess: () => {
       setEditOpen(false)
@@ -530,7 +538,7 @@ export function InvoiceDetailPage() {
               <Button size="sm" onClick={() => setEditProductOpen(true)}><Plus className="h-4 w-4" /> أضف</Button>
             </div>
             <Table>
-              <THead><TR><TH>الاسم</TH><TH>الوحدة</TH><TH>العدد</TH><TH>السعر</TH><TH>الإجمالي</TH><TH>×</TH></TR></THead>
+              <THead><TR><TH>الاسم</TH><TH>الوحدة</TH><TH>العدد</TH><TH>السعر</TH><TH>الإجمالي</TH><TH>الملاحظات</TH><TH>×</TH></TR></THead>
               <TBody>
                 {editItems.map((it, i) => (
                   <TR key={i}>
@@ -554,12 +562,18 @@ export function InvoiceDetailPage() {
                         const tot = Number(e.target.value); const qty = it.quantity || 1
                         setEditItems((p) => p.map((x, j) => j === i ? { ...x, unitPrice: Math.round(tot / qty * 1000) / 1000 } : x))
                       }} /></TD>
+                    <TD><Input className="min-w-36 h-8 text-sm" value={it.notes ?? ""} placeholder="ملاحظة للمادة"
+                      onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, notes: e.target.value } : x))} /></TD>
                     <TD><Button variant="ghost" size="sm" onClick={() => setEditItems((p) => p.filter((_, j) => j !== i))}><Trash2 className="h-3.5 w-3.5 text-rose-500" /></Button></TD>
                   </TR>
                 ))}
                 {editItems.length === 0 ? <TR><TD colSpan={6} className="py-4 text-center text-sm text-slate-400">لا يوجد أصناف</TD></TR> : null}
               </TBody>
             </Table>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">ملاحظات عامة للفاتورة</label>
+              <Input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="ملاحظات عامة (اختياري)" />
+            </div>
             {editProductOpen ? (
               <div className="rounded-lg border p-3 bg-slate-50 dark:bg-slate-900 dark:border-slate-700">
                 <Input autoFocus placeholder="بحث بالاسم أو رقم الصنف" value={editProductSearch} onChange={(e) => setEditProductSearch(e.target.value)} className="mb-2" />

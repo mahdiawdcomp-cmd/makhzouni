@@ -463,16 +463,16 @@ private fun StatementRowItem(
     val isInvoice = upperType.contains("INVOICE") || upperType == "SALE" || upperType == "PURCHASE"
     val isVoucher = upperType.contains("VOUCHER") || upperType == "RECEIPT" || upperType == "PAYMENT" || upperType == "EXPENSE"
     val typeColor = when {
-        isCancelled -> AppColor.Red600
-        isInvoice -> AppColor.Blue600
-        isVoucher -> AppColor.Green600
+        isCancelled -> MaterialTheme.colorScheme.onErrorContainer
+        isInvoice -> MaterialTheme.colorScheme.onPrimaryContainer
+        isVoucher -> MaterialTheme.colorScheme.onTertiaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     val displayLabel = if (isCancelled) "$typeLabel - ملغاة" else typeLabel
     val bg = when {
-        isCancelled -> AppColor.Red50.copy(alpha = if (isEven) 0.75f else 0.45f)
-        isInvoice -> AppColor.Blue50.copy(alpha = if (isEven) 0.55f else 0.25f)
-        isVoucher -> AppColor.Green50.copy(alpha = if (isEven) 0.55f else 0.25f)
+        isCancelled -> MaterialTheme.colorScheme.errorContainer.copy(alpha = if (isEven) 0.90f else 0.65f)
+        isInvoice -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isEven) 0.80f else 0.55f)
+        isVoucher -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = if (isEven) 0.80f else 0.55f)
         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isEven) 0.45f else 0.18f)
     }
 
@@ -831,16 +831,16 @@ fun AccountLookupScreen(
                                     val isInvoice = upperType.contains("INVOICE") || upperType == "SALE" || upperType == "PURCHASE"
                                     val isVoucher = upperType.contains("VOUCHER") || upperType == "RECEIPT" || upperType == "PAYMENT" || upperType == "EXPENSE"
                                     val rowBg = when {
-                                        isCancelled -> AppColor.Red50.copy(alpha = 0.75f)
-                                        isInvoice -> AppColor.Blue50.copy(alpha = 0.7f)
-                                        isVoucher -> AppColor.Green50.copy(alpha = 0.7f)
+                                        isCancelled -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.85f)
+                                        isInvoice -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
+                                        isVoucher -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.75f)
                                         idx % 2 == 0 -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                         else -> Color.Transparent
                                     }
                                     val refColor = when {
-                                        isCancelled -> AppColor.Red600
-                                        isInvoice -> AppColor.Blue600
-                                        isVoucher -> AppColor.Green600
+                                        isCancelled -> MaterialTheme.colorScheme.onErrorContainer
+                                        isInvoice -> MaterialTheme.colorScheme.onPrimaryContainer
+                                        isVoucher -> MaterialTheme.colorScheme.onTertiaryContainer
                                         else -> MaterialTheme.colorScheme.primary
                                     }
                                     Row(

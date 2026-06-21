@@ -8,6 +8,7 @@ import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.data.remote.dto.WarehouseDistributionItem
 import com.inventory.data.repository.ProductRepository
 import com.inventory.data.repository.SessionManager
+import com.inventory.domain.model.CatalogCategory
 import com.inventory.domain.model.Product
 import com.inventory.domain.model.ProductMovement
 import com.inventory.utils.PermissionManager
@@ -184,18 +185,30 @@ data class ProductFormUiState(
     val itemNumber: String = "",
     val name: String = "",
     val qrCode: String = "",
+    val cartonQrCode: String = "",
     val imageUrl: String? = null,
     val category: String = "",
+    val categoryTags: List<String> = emptyList(),
+    val typeTags: List<String> = emptyList(),
+    val catalogCategories: List<CatalogCategory> = emptyList(),
+    /** Distinct categories already used in the product list — fed into the free-text dropdown when no catalog exists. */
+    val existingCategories: List<String> = emptyList(),
+    val isNewArrival: Boolean = false,
+    val isOffer: Boolean = false,
+    val oldPrice: String = "",
     val unit: String = "PIECE",
-    val openingBalancePcs: String = "0",
-    val cartonsAvailable: String = "0",
-    val pcsPerCarton: String = "1",
-    val purchasePrice: String = "0",
-    val salePrice: String = "0",
-    val retailPrice: String = "0",
-    val minStock: String = "0",
+    // All numeric fields start EMPTY; blanks are treated as their auto-default
+    // (0 for counts/prices, 1 for pcsPerCarton) in validate()/save().
+    val openingBalancePcs: String = "",
+    val cartonsAvailable: String = "",
+    val pcsPerCarton: String = "",
+    val purchasePrice: String = "",
+    val salePrice: String = "",
+    val retailPrice: String = "",
+    val minStock: String = "",
     val branchId: String = "",
     val branches: List<BranchItem> = emptyList(),
+    val branchesLoaded: Boolean = false,
     val warehouseDist: Map<String, String> = emptyMap(),
     val isEditing: Boolean = false,
     val isStaff: Boolean = false,
@@ -204,9 +217,9 @@ data class ProductFormUiState(
     val saved: Boolean = false
 ) {
     val distSum: Int = warehouseDist.values.sumOf { it.toIntOrNull() ?: 0 }
-    val totalQuantity: Int = if (isEditing && branches.size > 1) distSum
-        else openingBalancePcs.toIntOrNull().orZero() +
-            cartonsAvailable.toIntOrNull().orZero() * pcsPerCarton.toIntOrNull().orOne()
+    val enteredTotal: Int = openingBalancePcs.toIntOrNull().orZero() +
+        cartonsAvailable.toIntOrNull().orZero() * pcsPerCarton.toIntOrNull().orOne()
+    val totalQuantity: Int = if (warehouseDist.isNotEmpty()) distSum else enteredTotal
     val actionText: String = if (isStaff) "سيُرسل للموافقة" else "حفظ"
 }
 
@@ -235,14 +248,34 @@ class ProductFormViewModel @Inject constructor(
                 _state.value = _state.value.copy(isStaff = permissionManager.mustRequestApproval(role))
             }
         }
+        // Load catalog categories (searchable dropdowns for category + type selection)
+        viewModelScope.launch {
+            when (val result = repository.loadCatalogCategories()) {
+                is ApiResult.Success -> _state.value = _state.value.copy(catalogCategories = result.data)
+                else -> Unit
+            }
+        }
+        // Load distinct categories already used in products (fallback when no catalog categories exist)
+        viewModelScope.launch {
+            repository.products.collect { products ->
+                val cats = products.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
+                _state.value = _state.value.copy(existingCategories = cats)
+            }
+        }
         // Load branches for optional branch selection
         viewModelScope.launch {
             when (val result = repository.loadBranches()) {
                 is ApiResult.Success -> {
+                    val branches = result.data
+                        .filter { it.isActive }
+                        .map { BranchItem(id = it.id, name = it.name) }
+                    val existingDistribution = _state.value.warehouseDist
                     _state.value = _state.value.copy(
-                        branches = result.data
-                            .filter { it.isActive }
-                            .map { BranchItem(id = it.id, name = it.name) }
+                        branches = branches,
+                        branchesLoaded = true,
+                        warehouseDist = branches.associate { branch ->
+                            branch.id to (existingDistribution[branch.id] ?: "")
+                        }
                     )
                 }
                 else -> Unit
@@ -257,6 +290,7 @@ class ProductFormViewModel @Inject constructor(
                             itemNumber = product.itemNumber,
                             name = product.name,
                             qrCode = product.qrCode,
+                            cartonQrCode = product.cartonQrCode,
                             imageUrl = product.imageUrl,
                             category = product.category,
                             openingBalancePcs = product.openingBalancePcs.toString(),
@@ -275,6 +309,14 @@ class ProductFormViewModel @Inject constructor(
                 when (val result = repository.fetchById(productId)) {
                     is ApiResult.Success -> {
                         val product = result.data
+                        // Catalog metadata only comes from the full product fetch (not the cached entity)
+                        _state.value = _state.value.copy(
+                            categoryTags = product.categoryTags,
+                            typeTags = product.typeTags,
+                            isNewArrival = product.isNewArrival,
+                            isOffer = product.isOffer,
+                            oldPrice = product.oldPrice?.let { if (it > 0) it.toString() else "" } ?: ""
+                        )
                         if (product.warehouseStocks.isNotEmpty()) {
                             val dist = product.warehouseStocks.associate { ws ->
                                 ws.warehouseId to ws.quantityPieces.toString()
@@ -293,8 +335,10 @@ class ProductFormViewModel @Inject constructor(
             "itemNumber"       -> _state.value.copy(itemNumber = value)
             "name"             -> _state.value.copy(name = value)
             "qrCode"           -> _state.value.copy(qrCode = value)
+            "cartonQrCode"     -> _state.value.copy(cartonQrCode = value)
             "imageUrl"         -> _state.value.copy(imageUrl = value.ifBlank { null })
             "category"         -> _state.value.copy(category = value)
+            "oldPrice"         -> _state.value.copy(oldPrice = value.filterDecimal().let { if (it == "0") "" else it })
             "unit"             -> _state.value.copy(unit = value)
             "openingBalancePcs"-> _state.value.copy(openingBalancePcs = value.filterNumber())
             "cartonsAvailable" -> _state.value.copy(cartonsAvailable = value.filterNumber())
@@ -310,10 +354,50 @@ class ProductFormViewModel @Inject constructor(
 
     fun updateWarehouseDist(warehouseId: String, value: String) {
         _state.value = _state.value.copy(
-            warehouseDist = _state.value.warehouseDist + (warehouseId to value.filter { it.isDigit() }.ifBlank { "0" }),
+            warehouseDist = _state.value.warehouseDist + (warehouseId to value.filter { it.isDigit() }),
             error = null
         )
     }
+
+    /** Toggle a catalog category chip; drops any type tags that no longer belong to a selected category. */
+    fun toggleCategory(name: String) {
+        val current = _state.value
+        val selected = current.categoryTags.contains(name)
+        val newCats = if (selected) current.categoryTags - name else current.categoryTags + name
+        val validTypes = current.catalogCategories.filter { newCats.contains(it.name) }.flatMap { it.types }.toSet()
+        _state.value = current.copy(
+            categoryTags = newCats,
+            category = newCats.firstOrNull() ?: "",
+            typeTags = current.typeTags.filter { validTypes.contains(it) },
+            error = null
+        )
+    }
+
+    fun toggleType(name: String) {
+        val current = _state.value
+        val newTypes = if (current.typeTags.contains(name)) current.typeTags - name else current.typeTags + name
+        _state.value = current.copy(typeTags = newTypes, error = null)
+    }
+
+    /** Single-select primary category (dropdown). Empty clears it and any chosen type. */
+    fun selectPrimaryCategory(name: String) {
+        val current = _state.value
+        val validTypes = current.catalogCategories.firstOrNull { it.name == name }?.types ?: emptyList()
+        _state.value = current.copy(
+            category = name,
+            categoryTags = if (name.isBlank()) emptyList() else listOf(name),
+            typeTags = current.typeTags.filter { validTypes.contains(it) },
+            error = null
+        )
+    }
+
+    /** Single-select secondary category / type (dropdown). */
+    fun selectType(name: String) {
+        _state.value = _state.value.copy(typeTags = if (name.isBlank()) emptyList() else listOf(name), error = null)
+    }
+
+    fun toggleNewArrival() { _state.value = _state.value.copy(isNewArrival = !_state.value.isNewArrival, error = null) }
+    fun toggleOffer() { _state.value = _state.value.copy(isOffer = !_state.value.isOffer, error = null) }
 
     fun save() {
         val current = _state.value
@@ -324,7 +408,7 @@ class ProductFormViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _state.value = current.copy(isSaving = true)
-            val useDistribution = current.isEditing && current.branches.size > 1 && current.warehouseDist.isNotEmpty()
+            val useDistribution = current.branches.isNotEmpty() && current.warehouseDist.isNotEmpty()
             val distribution = if (useDistribution) {
                 current.warehouseDist.map { (warehouseId, qty) ->
                     WarehouseDistributionItem(warehouseId = warehouseId, pieces = qty.toIntOrNull() ?: 0)
@@ -334,15 +418,25 @@ class ProductFormViewModel @Inject constructor(
                 itemNumber = current.itemNumber.trim(),
                 name = current.name.trim(),
                 qrCode = current.qrCode.trim(),
+                cartonQrCode = current.cartonQrCode.trim().ifBlank { null },
                 imageUrl = current.imageUrl,
                 category = current.category.trim(),
-                openingBalancePcs = if (useDistribution) 0 else current.openingBalancePcs.toInt(),
-                cartonsAvailable = if (useDistribution) 0 else current.cartonsAvailable.toInt(),
-                pcsPerCarton = current.pcsPerCarton.toInt(),
-                purchasePrice = current.purchasePrice.toDouble(),
-                salePrice = current.salePrice.toDouble(),
-                retailPrice = current.retailPrice.toDouble(),
-                minStock = current.minStock.toInt(),
+                categoryTags = current.categoryTags.ifEmpty { null },
+                typeTags = current.typeTags.ifEmpty { null },
+                isNewArrival = current.isNewArrival,
+                isOffer = current.isOffer,
+                oldPrice = if (current.isOffer) current.oldPrice.toDoubleOrNull() else null,
+                // Always send real opening pieces/cartons: when a distribution is
+                // present the backend asserts sum(distribution) == openingPcs +
+                // cartons*pcsPerCarton. Zeroing these (the old bug) made the server
+                // compute total=0 and reject every stocked item with 400 DISTRIBUTION_MISMATCH.
+                openingBalancePcs = current.openingBalancePcs.toIntOrNull() ?: 0,
+                cartonsAvailable = current.cartonsAvailable.toIntOrNull() ?: 0,
+                pcsPerCarton = current.pcsPerCarton.toIntOrNull()?.coerceAtLeast(1) ?: 1,
+                purchasePrice = current.purchasePrice.toDoubleOrNull() ?: 0.0,
+                salePrice = current.salePrice.toDoubleOrNull() ?: 0.0,
+                retailPrice = current.retailPrice.toDoubleOrNull() ?: 0.0,
+                minStock = current.minStock.toIntOrNull() ?: 0,
                 branchId = current.branchId.ifBlank { null },
                 warehouseDistribution = distribution
             )
@@ -359,9 +453,14 @@ class ProductFormViewModel @Inject constructor(
 
     private fun validate(state: ProductFormUiState): String? = when {
         state.name.isBlank() -> "اسم المنتج مطلوب"
-        state.pcsPerCarton.toIntOrNull().orZero() <= 0 -> "عدد القطع بالكرتونة يجب أن يكون أكبر من صفر"
-        state.salePrice.toDoubleOrNull() == null -> "سعر البيع غير صحيح"
-        state.purchasePrice.toDoubleOrNull() == null -> "سعر الشراء غير صحيح"
+        // Blank = auto (1 piece/carton); only a typed non-positive value is invalid.
+        state.pcsPerCarton.isNotBlank() && state.pcsPerCarton.toIntOrNull().orZero() <= 0 -> "عدد القطع بالكرتونة يجب أن يكون أكبر من صفر"
+        state.salePrice.isNotBlank() && state.salePrice.toDoubleOrNull() == null -> "سعر البيع غير صحيح"
+        state.purchasePrice.isNotBlank() && state.purchasePrice.toDoubleOrNull() == null -> "سعر الشراء غير صحيح"
+        !state.branchesLoaded -> "تعذر تحميل المخازن. تحقق من الاتصال ثم أعد فتح الصفحة"
+        state.branches.isEmpty() -> "أضف مخزناً واحداً على الأقل قبل حفظ المادة"
+        !state.isEditing && state.distSum != state.enteredTotal ->
+            "وزّع كامل الكمية على المخازن. المدخل ${state.enteredTotal} قطعة والموزع ${state.distSum} قطعة"
         else -> null
     }
 }
@@ -443,7 +542,8 @@ sealed interface QrScannerState {
     data class NotFound(val code: String) : QrScannerState
 }
 
-private fun String.filterNumber() = filter { it.isDigit() }.ifBlank { "0" }
-private fun String.filterDecimal() = filter { it.isDigit() || it == '.' }.ifBlank { "0" }
+// Keep only valid characters but allow the field to be EMPTY (blank = auto-default).
+private fun String.filterNumber() = filter { it.isDigit() }
+private fun String.filterDecimal() = filter { it.isDigit() || it == '.' }
 private fun Int?.orZero() = this ?: 0
 private fun Int?.orOne() = this ?: 1

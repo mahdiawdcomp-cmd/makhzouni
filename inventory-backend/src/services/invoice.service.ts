@@ -45,6 +45,7 @@ export interface InvoiceItemInput {
   unit: Unit;
   quantity: number;
   unitPrice?: number;
+  notes?: string;
   // Seller opted to sell while out of stock — allow the line to go negative and
   // flag it for manager review instead of blocking the sale.
   allowNegativeStock?: boolean;
@@ -62,6 +63,7 @@ export interface CreateInvoiceInput {
   paidAmount: number;
   paymentType?: PaymentType;
   branchId?: string;
+  notes?: string;
   items: InvoiceItemInput[];
 }
 
@@ -566,6 +568,7 @@ async function createInvoiceInTransaction(
           paymentType: input.paymentType ?? PaymentType.CREDIT,
           couponId: null,
           originalInvoiceId: input.originalInvoiceId,
+          notes: input.notes?.trim() || null,
         },
       })
     : await tx.invoice.create({
@@ -586,6 +589,7 @@ async function createInvoiceInTransaction(
           paymentType: input.paymentType ?? PaymentType.CREDIT,
           clientRequestId: input.clientRequestId,
           originalInvoiceId: input.originalInvoiceId,
+          notes: input.notes?.trim() || null,
           createdBy,
         },
       });
@@ -627,6 +631,7 @@ async function createInvoiceInTransaction(
             ? toNumber(pricedItem.product.costPrice)
             : toNumber(pricedItem.product.purchasePrice),
         totalPrice: pricedItem.totalPrice,
+        notes: item.notes?.trim() || null,
       },
     });
   }

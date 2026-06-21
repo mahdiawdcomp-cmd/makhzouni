@@ -28,7 +28,7 @@ export function InvoiceDesignerPage() {
   const { data: settings } = useSettings()
   const updateSettings = useUpdateSettings()
 
-  const [paper, setPaper] = useState<PaperSize>("80mm")
+  const [paper, setPaper] = useState<PaperSize>("a4")
   const [designs, setDesigns] = useState<DesignsByPaper>(() => ({ a4: defaultDesign("a4"), "80mm": defaultDesign("80mm") }))
   const [selId, setSelId] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -165,7 +165,13 @@ export function InvoiceDesignerPage() {
 
   // ── save / print ──
   const handleSave = () => {
-    updateSettings.mutate({ invoiceDesign: JSON.stringify({ v: 2, designs }) }, { onSuccess: () => setSaved(true) })
+    updateSettings.mutate(
+      { invoiceDesign: JSON.stringify({ v: 2, designs }) },
+      {
+        onSuccess: () => setSaved(true),
+        onError: () => setSaved(false),
+      },
+    )
   }
   const handlePrint = () => {
     const html = renderDesignHTML(design, SAMPLE_INVOICE, store)
@@ -229,6 +235,7 @@ export function InvoiceDesignerPage() {
           <button onClick={handleSave} disabled={updateSettings.isPending} className="rounded-xl px-5 py-2 text-sm font-bold text-white shadow" style={{ background: "var(--theme-primaryBtn)" }}>
             {updateSettings.isPending ? "جارٍ الحفظ…" : saved ? "✓ تم الحفظ" : "💾 حفظ"}
           </button>
+          {updateSettings.isError ? <span className="text-xs font-bold text-rose-600">فشل الحفظ. تحقق من رسالة الخادم وحاول مرة أخرى.</span> : null}
         </div>
       </div>
 

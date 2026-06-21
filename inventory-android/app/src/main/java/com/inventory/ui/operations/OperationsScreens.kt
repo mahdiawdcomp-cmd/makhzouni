@@ -1,5 +1,6 @@
 package com.inventory.ui.operations
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -16,7 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -24,29 +24,33 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AssignmentReturn
-import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.LocalOffer
-import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PointOfSale
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RequestQuote
-import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Warehouse
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -58,14 +62,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,9 +76,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -92,12 +96,14 @@ import com.inventory.ui.common.EmptyState
 import com.inventory.ui.common.SectionCard
 import com.inventory.ui.common.StatusBadge
 import com.inventory.ui.common.StatusType
+import com.inventory.ui.common.SummaryRow
+import com.inventory.ui.common.TextAvatar
 import com.inventory.ui.common.formatMoney
 import com.inventory.ui.theme.AppColor
 
 private data class HubItem(
     val title: String,
-    val sub: String,
+    val subtitle: String,
     val icon: ImageVector,
     val color: Color,
     val onClick: () -> Unit,
@@ -125,91 +131,51 @@ fun OperationsHubScreen(
 
     val tiles = buildList {
         if (canInvoice) {
-            add(HubItem("POS سريع",       "فاتورة كاشير",         Icons.Default.PointOfSale,        AppColor.Green600,   onPos))
-            add(HubItem("مرتجع مبيعات",  "إرجاع كامل أو جزئي",  Icons.Default.AssignmentReturn,   AppColor.Red600,     onReturns))
-            add(HubItem("عروض الأسعار",  "إنشاء وتحويل لفاتورة", Icons.Default.RequestQuote,       AppColor.Blue600,    onQuotations))
-            add(HubItem("فاتورة شراء OCR", "قراءة من صورة",      Icons.Default.DocumentScanner,    Color(0xFF7C3AED),   onOcrInvoice))
-            add(HubItem("طلبات المفرد",   "كتلوك المفرد والتجهيز", Icons.Default.Storefront,        Color(0xFF6366F1),   onRetailOrders))
+            add(HubItem("POS سريع", "كاشير مختصر مع باركود", Icons.Default.PointOfSale, AppColor.Green600, onPos))
+            add(HubItem("مرتجع مبيعات", "إرجاع كامل أو جزئي", Icons.Default.AssignmentReturn, AppColor.Red600, onReturns))
+            add(HubItem("عروض الأسعار", "عرض يتحول إلى فاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations))
+            add(HubItem("فاتورة شراء OCR", "قراءة فاتورة من صورة", Icons.Default.DocumentScanner, Color(0xFF7C3AED), onOcrInvoice))
+            add(HubItem("طلبات المفرد", "طلبات الكتالوج والتجهيز", Icons.Default.Storefront, Color(0xFF6366F1), onRetailOrders))
         }
         if (canVouchers) {
-            add(HubItem("السندات",        "قبض / دفع / مصاريف",   Icons.Default.ConfirmationNumber, AppColor.Purple600,  onVouchers))
+            add(HubItem("السندات", "قبض، دفع، مصاريف", Icons.Default.ConfirmationNumber, AppColor.Purple600, onVouchers))
         }
         if (canSettings) {
-            add(HubItem("التحويلات",      "بين المخازن",           Icons.Default.SwapHoriz,          AppColor.Sky500,     onTransfers))
-            add(HubItem("المخازن",        "إدارة الفروع",          Icons.Default.Warehouse,          AppColor.Amber600,   onBranches))
-            add(HubItem("الكوبونات",      "خصومات وعروض",          Icons.Default.LocalOffer,         Color(0xFF0F766E),   onCoupons))
-            add(HubItem("سجل التدقيق",    "من عدل؟ متى؟",          Icons.Default.History,            AppColor.Gray700,    onAudit))
+            add(HubItem("التحويلات", "نقل مواد بين المخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers))
+            add(HubItem("المخازن", "المحل والمخازن", Icons.Default.Warehouse, AppColor.Amber600, onBranches))
+            add(HubItem("الكوبونات", "خصومات وعروض", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons))
+            add(HubItem("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
         }
     }
 
     AppScreen(title = "العمليات", onBack = onBack) { padding ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            gridItems(tiles) { tile ->
-                HubTile(
-                    title   = tile.title,
-                    subtitle = tile.sub,
-                    icon    = tile.icon,
-                    color   = tile.color,
-                    onClick = tile.onClick,
-                )
-            }
+            gridItems(tiles) { tile -> HubTile(tile) }
         }
     }
 }
 
 @Composable
-private fun HubTile(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    color: Color,
-    onClick: () -> Unit,
-) {
+private fun HubTile(tile: HubItem) {
     Card(
-        onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f)),
-        border = BorderStroke(1.dp, color.copy(alpha = 0.20f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        onClick = tile.onClick,
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, tile.color.copy(alpha = 0.18f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .background(color.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Box(Modifier.size(44.dp).background(tile.color.copy(alpha = 0.12f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Icon(tile.icon, contentDescription = null, tint = tile.color)
             }
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            Text(tile.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+            Text(tile.subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -224,6 +190,9 @@ fun SalesOperationScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+    val productFocus = remember { FocusRequester() }
+    val amountFocus = remember { FocusRequester() }
+
     LaunchedEffect(mode) { viewModel.setMode(mode) }
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -235,46 +204,91 @@ fun SalesOperationScreen(
     AppScreen(
         title = title,
         onBack = onBack,
-        actions = {
-            IconButton(onClick = onScan) { Icon(Icons.Default.QrCodeScanner, "مسح باركود") }
-        },
+        actions = { IconButton(onClick = onScan) { Icon(Icons.Default.QrCodeScanner, "مسح باركود") } },
         snackbarHost = { SnackbarHost(snackbar) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item { PosHero(mode, state.total, state.lines.size) }
+
             item {
-                SectionCard(title = "معلومات العملية", containerColor = MaterialTheme.colorScheme.surface) {
-                    OutlinedTextField(
-                        value = state.customerQuery,
-                        onValueChange = viewModel::setCustomerQuery,
-                        label = { Text("الزبون") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    state.customerSuggestions.forEach {
-                        SuggestionRow("${it.name} - ${it.phone}") { viewModel.selectCustomer(it) }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = state.productQuery,
-                        onValueChange = viewModel::setProductQuery,
-                        label = { Text("بحث المادة") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true
-                    )
-                    state.productSuggestions.forEach {
-                        SuggestionRow("${it.name} | رصيد ${it.currentStock}") { viewModel.addProduct(it) }
+                SectionCard(title = "الزبون", containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                    if (state.selectedCustomer == null) {
+                        OutlinedTextField(
+                            value = state.customerQuery,
+                            onValueChange = viewModel::setCustomerQuery,
+                            label = { Text("بحث باسم الزبون أو الرقم") },
+                            leadingIcon = { Icon(Icons.Default.Person, null) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            keyboardActions = KeyboardActions(onNext = {
+                                state.customerSuggestions.firstOrNull()?.let {
+                                    viewModel.selectCustomer(it)
+                                    productFocus.requestFocus()
+                                }
+                            }),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        state.customerSuggestions.forEach {
+                            SuggestionRow(
+                                title = it.name,
+                                subtitle = "${it.phone} | رصيد ${it.currentBalance.formatMoney()}",
+                                color = AppColor.Blue600
+                            ) {
+                                viewModel.selectCustomer(it)
+                                productFocus.requestFocus()
+                            }
+                        }
+                    } else {
+                        val customer = state.selectedCustomer!!
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            TextAvatar(customer.name, AppColor.Blue600)
+                            Column(Modifier.weight(1f)) {
+                                Text(customer.name, fontWeight = FontWeight.Bold)
+                                Text(customer.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { viewModel.setCustomerQuery("") }) { Text("تغيير") }
+                        }
                     }
                 }
             }
 
             item {
-                SectionCard(title = "المواد", containerColor = Color(0xFFF8FAFC)) {
+                SectionCard(title = "إضافة مادة", containerColor = MaterialTheme.colorScheme.tertiaryContainer) {
+                    OutlinedTextField(
+                        value = state.productQuery,
+                        onValueChange = viewModel::setProductQuery,
+                        label = { Text("بحث بالاسم أو الباركود") },
+                        modifier = Modifier.fillMaxWidth().focusRequester(productFocus),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                        keyboardActions = KeyboardActions(onNext = {
+                            state.productSuggestions.firstOrNull()?.let {
+                                viewModel.addProduct(it)
+                            }
+                        }),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    state.productSuggestions.forEach {
+                        SuggestionRow(
+                            title = it.name,
+                            subtitle = "${it.itemNumber} | مخزون ${it.currentStock} | سعر ${it.salePrice.formatMoney()}",
+                            color = AppColor.Green600
+                        ) {
+                            viewModel.addProduct(it)
+                        }
+                    }
+                }
+            }
+
+            item {
+                SectionCard(title = "المواد", containerColor = MaterialTheme.colorScheme.surface) {
                     if (state.lines.isEmpty()) {
-                        EmptyState(Icons.Default.Book, "لا توجد مواد", "ابحث عن مادة وأضفها للعملية")
+                        EmptyState(Icons.Default.Book, "لا توجد مواد", "ابحث عن مادة أو امسح الباركود حتى تضيفها")
                     } else {
                         state.lines.forEachIndexed { index, line ->
                             LineEditor(
@@ -292,43 +306,65 @@ fun SalesOperationScreen(
             }
 
             item {
-                SectionCard(title = "المال", containerColor = Color(0xFFF0FDF4)) {
-                    if (mode != "RETURN") {
+                SectionCard(title = "المال", containerColor = MaterialTheme.colorScheme.secondaryContainer) {
+                    if (mode != "RETURN" && mode != "QUOTATION") {
                         OutlinedTextField(
                             value = state.paid,
                             onValueChange = viewModel::setPaid,
-                            label = { Text("المدفوع") },
+                            label = { Text("المبلغ الواصل") },
+                            suffix = { Text("IQD") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().focusRequester(amountFocus),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
                         )
+                        Spacer(Modifier.height(8.dp))
                     }
                     if (mode == "QUOTATION") {
-                        Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = state.discount,
                             onValueChange = viewModel::setDiscount,
                             label = { Text("الخصم") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
                         )
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(
                             value = state.notes,
                             onValueChange = viewModel::setNotes,
                             label = { Text("ملاحظات") },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
                         )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    SummaryRow("مجموع المواد", "${state.subtotal.formatMoney()} IQD")
+                    if (state.discountAmount > 0) SummaryRow("الخصم", "-${state.discountAmount.formatMoney()} IQD", valueColor = AppColor.Red600)
+                    SummaryRow("الإجمالي", "${state.total.formatMoney()} IQD", bold = true)
+                    if (mode == "POS") {
+                        SummaryRow("الواصل", "${state.paidAmount.formatMoney()} IQD", valueColor = AppColor.Green600)
+                        SummaryRow("الباقي", "${state.remaining.formatMoney()} IQD", valueColor = if (state.remaining > 0) AppColor.Red600 else AppColor.Green600, bold = true)
+                        if (state.change > 0) SummaryRow("الراجع للزبون", "${state.change.formatMoney()} IQD", valueColor = AppColor.Blue600, bold = true)
                     }
                     Spacer(Modifier.height(12.dp))
-                    SummaryRow("المجموع", state.total.formatMoney(), true)
                     Button(
                         onClick = viewModel::save,
-                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        enabled = !state.loading
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        enabled = state.canSave,
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Add, null)
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (mode == "QUOTATION") "حفظ عرض السعر" else "حفظ")
+                        Icon(Icons.Default.CheckCircle, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            when (mode) {
+                                "QUOTATION" -> "حفظ عرض السعر"
+                                "RETURN" -> "حفظ المرتجع"
+                                else -> "حفظ فاتورة POS"
+                            },
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
             }
@@ -337,13 +373,38 @@ fun SalesOperationScreen(
 }
 
 @Composable
-private fun SuggestionRow(text: String, onClick: () -> Unit) {
-    Text(
-        text = text,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 8.dp),
-        style = MaterialTheme.typography.bodyMedium,
-        fontWeight = FontWeight.SemiBold
-    )
+private fun PosHero(mode: String, total: Double, count: Int) {
+    val (label, color) = when (mode) {
+        "RETURN" -> "مرتجع مبيعات" to AppColor.Red600
+        "QUOTATION" -> "عرض سعر" to AppColor.Blue600
+        else -> "POS سريع" to AppColor.Green600
+    }
+    Surface(shape = RoundedCornerShape(16.dp), color = color) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text(label, color = Color.White.copy(alpha = 0.82f), style = MaterialTheme.typography.labelMedium)
+                Text("$count مادة", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            Text("${total.formatMoney()} IQD", color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+@Composable
+private fun SuggestionRow(title: String, subtitle: String, color: Color, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(34.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+            Text(title.take(1), color = color, fontWeight = FontWeight.Bold)
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable
@@ -357,19 +418,22 @@ private fun LineEditor(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(line.product.name, Modifier.weight(1f), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f)) {
+                Text(line.product.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("المخزون ${line.product.currentStock} | شراء ${line.product.purchasePrice.formatMoney()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             TextButton(onClick = onRemove) { Text("حذف", color = MaterialTheme.colorScheme.error) }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SmallNumberField("عدد", line.quantity.toString(), { onQty(it.toIntOrNull() ?: 0) }, Modifier.weight(1f))
-            SmallNumberField("سعر", line.unitPrice.toString(), { onPrice(it.toDoubleOrNull() ?: 0.0) }, Modifier.weight(1f))
+            SmallNumberField("عدد", line.quantity.toString(), { onQty(it.toIntOrNull() ?: 0) }, Modifier.weight(0.9f))
+            SmallNumberField("سعر", line.unitPrice.cleanAmount(), { onPrice(it.toDoubleOrNull() ?: 0.0) }, Modifier.weight(1.1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
             listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "CARTON" to "كارتون").forEach { (key, label) ->
                 FilterChip(selected = line.unit == key, onClick = { onUnit(key) }, label = { Text(label) })
             }
         }
-        SummaryRow("سطر ${index + 1}", line.total.formatMoney(), false)
+        SummaryRow("سطر ${index + 1}", "${line.total.formatMoney()} IQD", bold = true)
     }
 }
 
@@ -377,38 +441,173 @@ private fun LineEditor(
 private fun SmallNumberField(label: String, value: String, onValue: (String) -> Unit, modifier: Modifier) {
     OutlinedTextField(
         value = value,
-        onValueChange = onValue,
+        onValueChange = { onValue(it.filter { ch -> ch.isDigit() || ch == '.' }) },
         label = { Text(label) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = modifier
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp)
     )
 }
 
 @Composable
-private fun SummaryRow(label: String, value: String, strong: Boolean) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, fontWeight = if (strong) FontWeight.Bold else FontWeight.Medium)
-        Text(value, fontWeight = if (strong) FontWeight.ExtraBold else FontWeight.SemiBold)
-    }
-}
-
-@Composable
-fun BranchesScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
+fun BranchesScreen(
+    viewModel: AdminOperationsViewModel,
+    onBack: () -> Unit,
+    onOpenWarehouse: (String) -> Unit
+) {
     val state by viewModel.state.collectAsState()
     var showAdd by remember { mutableStateOf(false) }
-    AdminListScreen(
-        title = "المخازن",
-        onBack = onBack,
-        onRefresh = viewModel::refreshAll,
-        fabText = "مخزن جديد",
-        onFab = { showAdd = true }
-    ) {
-        items(state.branches, key = { it.id }) { branch -> BranchCard(branch) }
+    LaunchedEffect(Unit) { viewModel.refreshBranches() }
+    AdminListScreen("المخازن", onBack, viewModel::refreshBranches, "مخزن جديد", { showAdd = true }) {
+        when {
+            state.loading -> item {
+                Box(
+                    Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            }
+            state.branches.isEmpty() -> item {
+                EmptyState(
+                    Icons.Default.Warehouse,
+                    "لا توجد مخازن",
+                    state.message ?: "أضف أول مخزن للبدء"
+                )
+            }
+            else -> items(state.branches, key = { it.id }) { branch ->
+                BranchCard(branch, onClick = { onOpenWarehouse(branch.id) })
+            }
+        }
     }
     if (showAdd) BranchDialog(onDismiss = { showAdd = false }) { name, code, phone, address ->
         showAdd = false
         viewModel.createBranch(name, code, phone, address)
+    }
+}
+
+@Composable
+fun WarehouseDetailsScreen(
+    viewModel: WarehouseDetailsViewModel,
+    onBack: () -> Unit,
+    onOpenProduct: (String) -> Unit
+) {
+    val state by viewModel.state.collectAsState()
+    val warehouse = state.warehouse
+
+    AppScreen(
+        title = warehouse?.name ?: "تفاصيل المخزن",
+        onBack = onBack,
+        actions = {
+            IconButton(onClick = viewModel::refresh) {
+                Icon(Icons.Default.Refresh, "تحديث")
+            }
+        }
+    ) { padding ->
+        when {
+            state.loading -> Box(
+                Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+
+            state.message != null -> Box(
+                Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                EmptyState(Icons.Default.ErrorOutline, "تعذر تحميل المخزن", state.message)
+            }
+
+            else -> LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(MaterialTheme.colorScheme.background),
+                contentPadding = PaddingValues(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    SectionCard(title = "ملخص المخزن") {
+                        SummaryRow("عدد المواد", state.products.size.toString(), bold = true)
+                        SummaryRow("إجمالي القطع", state.totalPieces.toString(), bold = true)
+                    }
+                }
+
+                if (state.products.isEmpty()) {
+                    item {
+                        EmptyState(
+                            Icons.Default.Inventory2,
+                            "المخزن فارغ",
+                            "لا توجد مواد مسجلة في هذا المخزن"
+                        )
+                    }
+                } else {
+                    items(state.products, key = { it.id }) { product ->
+                        val stock = product.warehouseStocks
+                            .firstOrNull { it.warehouseId == warehouse?.id }
+                            ?.quantityPieces ?: 0
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenProduct(product.id) },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(44.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.primaryContainer,
+                                            RoundedCornerShape(10.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Inventory2,
+                                        null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Column(Modifier.weight(1f)) {
+                                    Text(product.name, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        product.itemNumber,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "$stock قطعة",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.ExtraBold
+                                    )
+                                    Text(
+                                        "فتح المادة",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                                Icon(
+                                    Icons.Default.KeyboardArrowLeft,
+                                    null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -431,25 +630,22 @@ fun QuotationsScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit, on
     AppScreen(
         title = "عروض الأسعار",
         onBack = onBack,
-        actions = { IconButton(onClick = viewModel::refreshAll) { Icon(Icons.Default.Refresh, null) } },
+        actions = { IconButton(onClick = viewModel::refreshAll) { Icon(Icons.Default.Refresh, "تحديث") } },
         fab = { ExtendedFloatingActionButton(onClick = onCreate, icon = { Icon(Icons.Default.Add, null) }, text = { Text("عرض جديد") }) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            if (state.quotations.isEmpty()) {
-                item { EmptyState(Icons.Default.RequestQuote, "لا توجد عروض أسعار", "اضغط عرض جديد لإنشاء أول عرض") }
-            } else {
-                items(state.quotations, key = { it.id }) { quotation ->
-                    QuotationCard(
-                        quotation = quotation,
-                        onAccept = { viewModel.updateQuotation(quotation.id, "ACCEPTED") },
-                        onReject = { viewModel.updateQuotation(quotation.id, "REJECTED") },
-                        onConvert = { viewModel.convertQuotation(quotation.id) }
-                    )
-                }
+            if (state.quotations.isEmpty()) item { EmptyState(Icons.Default.RequestQuote, "لا توجد عروض أسعار", "اضغط عرض جديد لإنشاء أول عرض") }
+            else items(state.quotations, key = { it.id }) { quotation ->
+                QuotationCard(
+                    quotation = quotation,
+                    onAccept = { viewModel.updateQuotation(quotation.id, "ACCEPTED") },
+                    onReject = { viewModel.updateQuotation(quotation.id, "REJECTED") },
+                    onConvert = { viewModel.convertQuotation(quotation.id) }
+                )
             }
         }
     }
@@ -471,20 +667,15 @@ fun TransfersScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
 @Composable
 fun AuditLogsScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
-    AppScreen(
-        title = "سجل التدقيق",
-        onBack = onBack,
-        actions = { IconButton(onClick = viewModel::refreshAll) { Icon(Icons.Default.Refresh, null) } }
-    ) { padding ->
+    AppScreen(title = "سجل التدقيق", onBack = onBack, actions = { IconButton(onClick = viewModel::refreshAll) { Icon(Icons.Default.Refresh, "تحديث") } }) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                    val entities = listOf(null to "الكل", "invoices" to "الفواتير", "vouchers" to "السندات", "products" to "المواد", "customers" to "الزبائن", "users" to "المستخدمين", "branches" to "المخازن", "transfers" to "التحويلات", "coupons" to "الكوبونات", "quotations" to "العروض")
-                    entities.forEach { (key, label) ->
+                    listOf(null to "الكل", "invoices" to "الفواتير", "vouchers" to "السندات", "products" to "المواد", "customers" to "الزبائن", "users" to "المستخدمين", "branches" to "المخازن", "transfers" to "التحويلات", "coupons" to "الكوبونات", "quotations" to "العروض").forEach { (key, label) ->
                         FilterChip(selected = state.auditEntity == key, onClick = { viewModel.setAuditFilter(key, state.auditAction) }, label = { Text(label) })
                     }
                 }
@@ -513,12 +704,12 @@ private fun AdminListScreen(
     AppScreen(
         title = title,
         onBack = onBack,
-        actions = { IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, null) } },
+        actions = { IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "تحديث") } },
         fab = { ExtendedFloatingActionButton(onClick = onFab, icon = { Icon(Icons.Default.Add, null) }, text = { Text(fabText) }) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
             content = content
         )
@@ -526,13 +717,20 @@ private fun AdminListScreen(
 }
 
 @Composable
-private fun BranchCard(branch: BranchDto) {
-    InfoCard(Icons.Default.Warehouse, branch.name, "${branch.code} | ${branch.phone ?: "-"}", if (branch.isActive) "نشط" else "متوقف")
+private fun BranchCard(branch: BranchDto, onClick: () -> Unit) {
+    InfoCard(
+        Icons.Default.Warehouse,
+        branch.name,
+        "${branch.code} | ${branch.phone ?: "-"}",
+        if (branch.isActive) "نشط" else "متوقف",
+        onClick
+    )
 }
 
 @Composable
 private fun CouponCard(coupon: CouponDto) {
-    InfoCard(Icons.Default.LocalOffer, coupon.code, "${coupon.name} | ${coupon.discountValue.formatMoney()} ${if (coupon.discountType == "PERCENT") "%" else "د.ع"}", if (coupon.isActive) "نشط" else "متوقف")
+    val value = if (coupon.discountType == "PERCENT") "${coupon.discountValue.formatMoney()}%" else "${coupon.discountValue.formatMoney()} د.ع"
+    InfoCard(Icons.Default.LocalOffer, coupon.code, "${coupon.name} | $value", if (coupon.isActive) "نشط" else "متوقف")
 }
 
 @Composable
@@ -552,7 +750,7 @@ private fun QuotationCard(quotation: QuotationDto, onAccept: () -> Unit, onRejec
                 }
                 StatusBadge(quotationStatusLabel(quotation.status), quotationStatusType(quotation.status))
             }
-            SummaryRow("المجموع", quotation.totalAmount.formatMoney(), true)
+            SummaryRow("المجموع", "${quotation.totalAmount.formatMoney()} IQD", bold = true)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onConvert, enabled = quotation.status in listOf("PENDING", "ACCEPTED"), modifier = Modifier.weight(1f)) { Text("حول لفاتورة") }
                 TextButton(onClick = onAccept, enabled = quotation.status == "PENDING") { Text("قبول") }
@@ -564,12 +762,27 @@ private fun QuotationCard(quotation: QuotationDto, onAccept: () -> Unit, onRejec
 
 @Composable
 private fun AuditCard(log: AuditLogDto) {
-    InfoCard(Icons.Default.History, "${actionLabel(log.action)} | ${entityLabel(log.entity)}", "${log.user?.name ?: "-"} | ${log.createdAt?.take(16)?.replace("T", " ") ?: "-"}", log.recordId?.take(8) ?: "-")
+    InfoCard(
+        Icons.Default.History,
+        "${actionLabel(log.action)} | ${entityLabel(log.entity)}",
+        "${log.user?.name ?: "-"} | ${log.createdAt?.take(16)?.replace("T", " ") ?: "-"}",
+        log.recordId?.take(8) ?: "-"
+    )
 }
 
 @Composable
-private fun InfoCard(icon: ImageVector, title: String, subtitle: String, badge: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
+private fun InfoCard(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    badge: String,
+    onClick: (() -> Unit)? = null
+) {
+    Card(
+        modifier = Modifier.then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(1.dp)
+    ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(42.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
@@ -614,20 +827,24 @@ private fun CouponDialog(onDismiss: () -> Unit, onSave: (String, String, String,
         }
         DialogField("قيمة الخصم", value) { value = it }
         DialogField("أقصى استخدام", max) { max = it }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(selected = active, onClick = { active = !active }, label = { Text(if (active) "نشط" else "متوقف") })
-        }
+        FilterChip(selected = active, onClick = { active = !active }, label = { Text(if (active) "نشط" else "متوقف") })
     }
 }
 
 @Composable
-private fun TransferDialog(branches: List<BranchDto>, products: List<Product>, onDismiss: () -> Unit, onSave: (String, String, String, String, String, String) -> Unit) {
+private fun TransferDialog(
+    branches: List<BranchDto>,
+    products: List<Product>,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String, String, String) -> Unit
+) {
     var from by remember { mutableStateOf("") }
     var to by remember { mutableStateOf("") }
     var product by remember { mutableStateOf("") }
     var qty by remember { mutableStateOf("1") }
     var unit by remember { mutableStateOf("PIECE") }
     var notes by remember { mutableStateOf("") }
+
     SimpleDialog("تحويل جديد", onDismiss, { onSave(from, to, product, qty, unit, notes) }) {
         SelectField("من مخزن", branches.map { it.id to it.name }, from) { from = it }
         SelectField("إلى مخزن", branches.map { it.id to it.name }, to) { to = it }
@@ -639,7 +856,7 @@ private fun TransferDialog(branches: List<BranchDto>, products: List<Product>, o
             },
             product,
         ) { product = it }
-        DialogField("العدد", qty) { qty = it }
+        DialogField("العدد", qty) { qty = it.filter(Char::isDigit) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "CARTON" to "كارتون").forEach { (key, label) ->
                 FilterChip(selected = unit == key, onClick = { unit = key }, label = { Text(label) })
@@ -662,7 +879,7 @@ private fun SimpleDialog(title: String, onDismiss: () -> Unit, onSave: () -> Uni
 
 @Composable
 private fun DialogField(label: String, value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(value = value, onValueChange = onValue, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+    OutlinedTextField(value = value, onValueChange = onValue, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -677,7 +894,8 @@ private fun SelectField(label: String, options: List<Pair<String, String>>, sele
             readOnly = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor().fillMaxWidth()
+            modifier = Modifier.menuAnchor().fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (id, text) ->
@@ -723,3 +941,5 @@ private fun quotationStatusType(status: String) = when (status) {
     "PENDING" -> StatusType.WARNING
     else -> StatusType.NEUTRAL
 }
+
+private fun Double.cleanAmount(): String = if (this % 1.0 == 0.0) toLong().toString() else toString()

@@ -1,55 +1,31 @@
-import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import { Building2, LogOut, ShieldCheck } from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 export default function Layout() {
   const navigate = useNavigate();
-
-  function logout() {
-    localStorage.removeItem("sa_token");
-    navigate("/login");
-  }
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-      {/* Top bar */}
-      <header style={{
-        background: "var(--bg2)",
-        borderBottom: "1px solid var(--border)",
-        padding: "0 24px",
-        height: 56,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          <span style={{ fontWeight: 800, fontSize: 18, color: "var(--blue)" }}>
-            ⚡ Super Admin
-          </span>
-          <NavLink
-            to="/tenants"
-            style={({ isActive }) => ({
-              color: isActive ? "var(--text)" : "var(--text2)",
-              fontWeight: isActive ? 700 : 500,
-              fontSize: 14,
-              padding: "4px 8px",
-              borderRadius: 6,
-              background: isActive ? "var(--bg3)" : "transparent",
-            })}
-          >
-            الزبائن
-          </NavLink>
+    <div className="app-shell" dir="rtl">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark"><ShieldCheck size={20} /></span>
+          <div>
+            <strong>مخزوني</strong>
+            <small>الإدارة العليا</small>
+          </div>
         </div>
-        <button className="btn-ghost" style={{ fontSize: 13, padding: "6px 14px" }} onClick={logout}>
-          تسجيل خروج
+        <nav>
+          <NavLink to="/tenants" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+            <Building2 size={17} /> المحلات
+          </NavLink>
+        </nav>
+        <button className="icon-command" title="تسجيل الخروج" onClick={() => {
+          localStorage.removeItem("sa_token");
+          navigate("/login");
+        }}>
+          <LogOut size={18} />
         </button>
       </header>
-
-      {/* Content */}
-      <main style={{ flex: 1, padding: "24px", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
-        <Outlet />
-      </main>
+      <main className="page"><Outlet /></main>
     </div>
   );
 }

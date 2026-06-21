@@ -21,6 +21,9 @@ interface ProductDao {
     @Query("SELECT * FROM products ORDER BY itemNumber")
     fun observeProducts(): Flow<List<ProductEntity>>
 
+    @Query("SELECT * FROM products ORDER BY itemNumber")
+    suspend fun listAll(): List<ProductEntity>
+
     @Query("SELECT * FROM products WHERE id = :id LIMIT 1")
     fun observeProduct(id: String): Flow<ProductEntity?>
 
@@ -131,6 +134,15 @@ interface PaymentVoucherDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<PaymentVoucherEntity>)
+
+    @Query("DELETE FROM payment_vouchers")
+    suspend fun clearVouchers()
+
+    @Transaction
+    suspend fun replaceAll(items: List<PaymentVoucherEntity>) {
+        clearVouchers()
+        upsertAll(items)
+    }
 }
 
 @Dao

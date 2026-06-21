@@ -53,6 +53,11 @@ data class Product(
     val cartonQrCode: String = "",
     val imageUrl: String? = null,
     val category: String,
+    val categoryTags: List<String> = emptyList(),
+    val typeTags: List<String> = emptyList(),
+    val isNewArrival: Boolean = false,
+    val isOffer: Boolean = false,
+    val oldPrice: Double? = null,
     val openingBalancePcs: Int,
     val cartonsAvailable: Int,
     val pcsPerCarton: Int,
@@ -68,9 +73,19 @@ data class Product(
     val isLowStock: Boolean = currentStock <= minStock
 }
 
+data class CatalogCategory(
+    val id: String,
+    val name: String,
+    val types: List<String> = emptyList(),
+    val sortOrder: Int = 0
+)
+
 data class ProductMovement(
     val date: String,
+    val movementType: String?,
+    val movementLabel: String?,
     val customerName: String,
+    val warehouseName: String?,
     val quantity: Int,
     val unitPrice: Double,
     val unit: String?,
@@ -129,6 +144,7 @@ data class Invoice(
     val finalBalance: Double,
     val paymentType: String,
     val status: String,
+    val notes: String? = null,
     val items: List<InvoiceItem> = emptyList()
 )
 
@@ -139,7 +155,8 @@ data class InvoiceItem(
     val unit: String,
     val quantity: Int,
     val unitPrice: Double,
-    val totalPrice: Double
+    val totalPrice: Double,
+    val notes: String? = null
 )
 
 data class Voucher(

@@ -5,7 +5,42 @@ import java.math.RoundingMode
 
 // ── Voice Invoice DTOs ────────────────────────────────────────────────────────
 
-data class VoiceCommandRequest(val command: String)
+data class VoiceChatMessage(
+    val role: String,
+    val content: String,
+)
+
+data class VoiceCommandRequest(
+    val command: String,
+    val history: List<VoiceChatMessage> = emptyList(),
+    val draft: VoiceDraftDto? = null,
+)
+
+data class VoiceDraftItemDto(
+    val productName: String? = null,
+    val quantity: Double? = null,
+    val unit: String? = null,
+    val unitPrice: Double? = null,
+)
+
+data class VoiceDraftDto(
+    val type: String? = null,
+    val customerName: String? = null,
+    val items: List<VoiceDraftItemDto> = emptyList(),
+    val paymentType: String? = null,
+    val paidAmount: Double? = null,
+    val amount: Double? = null,
+    val voucherType: String? = null,
+)
+
+data class VoicePlanItemDto(
+    val productId: String,
+    val productName: String,
+    val quantity: Int,
+    val unit: String,
+    val unitPrice: Double,
+    val totalPrice: Double,
+)
 
 data class VoiceInvoiceBasic(
     val id: String,
@@ -23,6 +58,8 @@ data class VoicePlanDto(
     val operation: String,          // "INVOICE" | "VOUCHER"
     val customerId: String,
     val customerName: String,
+    val items: List<VoicePlanItemDto> = emptyList(),
+    // Legacy single-item fields are kept for older backend responses.
     val productId: String?    = null,
     val productName: String?  = null,
     val quantity: Int?        = null,
@@ -41,6 +78,9 @@ data class VoiceParseResponse(
     val confirmText: String?  = null,
     val question: String?     = null,
     val text: String?         = null,
+    val resetConversation: Boolean = false,
+    val suggestions: List<String> = emptyList(),
+    val draft: VoiceDraftDto? = null,
 )
 
 data class VoiceExecuteRequest(val plan: VoicePlanDto)
@@ -208,6 +248,11 @@ data class ProductDto(
     val cartonQrCode: String? = null,
     val imageUrl: String? = null,
     val category: String? = null,
+    val categoryTags: List<String>? = null,
+    val typeTags: List<String>? = null,
+    val isNewArrival: Boolean? = null,
+    val isOffer: Boolean? = null,
+    val oldPrice: Double? = null,
     val openingBalancePcs: Int = 0,
     val cartonsAvailable: Int = 0,
     val pcsPerCarton: Int = 1,
@@ -227,6 +272,14 @@ data class WarehouseDistributionItem(
     val pieces: Int
 )
 
+// Mirrors GET /catalog-categories — { id, name, types[], sortOrder }
+data class CatalogCategoryDto(
+    val id: String,
+    val name: String,
+    val types: List<String> = emptyList(),
+    val sortOrder: Int = 0
+)
+
 // Only `name` is required. Server auto-generates itemNumber / qrCode / cartonQrCode if blank.
 data class UpsertProductRequest(
     val name: String,
@@ -235,6 +288,11 @@ data class UpsertProductRequest(
     val cartonQrCode: String? = null,
     val imageUrl: String? = null,
     val category: String? = null,
+    val categoryTags: List<String>? = null,
+    val typeTags: List<String>? = null,
+    val isNewArrival: Boolean? = null,
+    val isOffer: Boolean? = null,
+    val oldPrice: Double? = null,
     val openingBalancePcs: Int = 0,
     val cartonsAvailable: Int = 0,
     val pcsPerCarton: Int = 1,
@@ -267,7 +325,10 @@ data class BranchRequest(
 
 data class ProductMovementDto(
     val date: String,
+    val movementType: String? = null,
+    val movementLabel: String? = null,
     val customerName: String? = null,
+    val warehouseName: String? = null,
     val unit: String? = null,
     val quantity: Int,
     val unitPrice: Double = 0.0,
@@ -369,6 +430,7 @@ data class VoucherDto(
     val date: String,
     val notes: String? = null,
     val description: String? = null,
+    val cancelledAt: String? = null,
     val createdAt: String? = null
 )
 
@@ -389,6 +451,7 @@ data class InvoiceDto(
     val finalBalance: Double = 0.0,
     val paymentType: String = "CREDIT",
     val status: String = "ACTIVE",
+    val notes: String? = null,
     val items: List<InvoiceItemDto> = emptyList(),
     val createdAt: String? = null
 )
@@ -403,6 +466,7 @@ data class InvoiceItemDto(
     val quantity: Int,
     val unitPrice: Double,
     val totalPrice: Double = (quantity * unitPrice).roundMoney()
+    ,val notes: String? = null
 )
 
 data class CreateInvoiceRequest(
@@ -417,6 +481,7 @@ data class CreateInvoiceRequest(
     val tax: Double,
     val paidAmount: Double,
     val paymentType: String,
+    val notes: String? = null,
     val items: List<CreateInvoiceItemRequest>
 )
 
@@ -425,7 +490,11 @@ data class CreateInvoiceItemRequest(
     val warehouseId: String? = null,
     val unit: String,
     val quantity: Int,
-    val unitPrice: Double
+    val unitPrice: Double,
+    val notes: String? = null,
+    // Seller opted to sell while out of stock — allow the line to go negative and
+    // flag it for manager review (matches the web behavior).
+    val allowNegativeStock: Boolean? = null
 )
 
 data class PaginationEnvelope<T>(

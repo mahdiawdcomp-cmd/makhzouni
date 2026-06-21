@@ -8,7 +8,7 @@ export type PaperSize = "80mm" | "a4"
 export type FieldKey =
   | "storeName" | "storePhone" | "storeAddress"
   | "title" | "invoiceNumber" | "date" | "paymentType" | "itemCount"
-  | "customerName" | "customerPhone"
+  | "customerName" | "customerPhone" | "invoiceNotes"
   | "subtotal" | "discount" | "tax" | "total"
   | "paid" | "remaining" | "previousBalance" | "finalBalance" | "grandTotal"
   | "footer"
@@ -65,6 +65,7 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   itemCount: "عدد الأصناف",
   customerName: "اسم الزبون",
   customerPhone: "هاتف الزبون",
+  invoiceNotes: "ملاحظات الفاتورة",
   subtotal: "مجموع الأصناف",
   discount: "الخصم",
   tax: "الضريبة",
@@ -82,7 +83,7 @@ export const newId = () => `el_${Date.now().toString(36)}_${_idc++}`
 
 // ── Data shapes ──────────────────────────────────────────────────────────────
 
-export interface PrintLine { name: string; qty: number; price: number }
+export interface PrintLine { name: string; unit?: string; qty: number; price: number; notes?: string }
 export interface PrintInvoice {
   number: string; date: string; customerName: string; customerPhone?: string
   lines: PrintLine[]; notes?: string
@@ -150,6 +151,7 @@ export function defaultDesign(paper: PaperSize): Design {
       { id: newId(), type: "field", field: "paymentType", x: 520, y: 232, w: 234, h: 22, fontSize: 14, align: "right", color: "#475569", prefix: "نوع الدفع: " },
       { id: newId(), type: "field", field: "customerName", x: 40, y: 160, w: 340, h: 24, fontSize: 15, bold: true, align: "right", color: "#0f172a", prefix: "الزبون: " },
       { id: newId(), type: "field", field: "customerPhone", x: 40, y: 188, w: 340, h: 22, fontSize: 13, align: "right", color: "#475569", prefix: "الهاتف: " },
+      { id: newId(), type: "field", field: "invoiceNotes", x: 40, y: 214, w: 340, h: 42, fontSize: 13, align: "right", color: "#475569", prefix: "ملاحظات: " },
       { id: newId(), type: "items", x: 40, y: 270, w: 714, h: 420, fontSize: 13, accent, showQty: true, showPrice: true },
       { id: newId(), type: "field", field: "subtotal", x: 440, y: 706, w: 314, h: 24, fontSize: 14, align: "right", color: "#0f172a", prefix: "مجموع الأصناف: " },
       { id: newId(), type: "field", field: "discount", x: 440, y: 732, w: 314, h: 24, fontSize: 14, align: "right", color: "#475569", prefix: "الخصم: " },
@@ -227,6 +229,7 @@ export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore):
     case "itemCount": return `${inv.lines.length}`
     case "customerName": return inv.customerName
     case "customerPhone": return inv.customerPhone || ""
+    case "invoiceNotes": return inv.notes || ""
     case "subtotal": return money(subtotal, cur)
     case "discount": return money(inv.discount ?? 0, cur)
     case "tax": return money(inv.tax ?? 0, cur)
@@ -247,16 +250,17 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const cur = store.currency || "د.ع"
   const accent = el.accent || "#4f46e5"
   const fs = el.fontSize || 12
-  const cols = ["#", "الصنف"]
+  const cols = ["#", "الصنف", "الوحدة"]
   if (el.showQty) cols.push("الكمية")
   if (el.showPrice) cols.push("السعر")
-  cols.push("المجموع")
+  cols.push("المجموع", "الملاحظات")
   const head = `<tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</th>`).join("")}</tr>`
   const body = inv.lines.map((l, idx) => {
-    const cells = [`${idx + 1}`, esc(l.name)]
+    const cells = [`${idx + 1}`, esc(l.name), esc(l.unit || "—")]
     if (el.showQty) cells.push(`${l.qty}`)
     if (el.showPrice) cells.push(money(l.price, cur))
     cells.push(money(l.qty * l.price, cur))
+    cells.push(esc(l.notes || ""))
     return `<tr>${cells.map((c, i) => `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</td>`).join("")}</tr>`
   }).join("")
   return `<table style="width:100%;border-collapse:collapse">${head}${body}</table>`

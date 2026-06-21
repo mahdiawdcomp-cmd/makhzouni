@@ -134,17 +134,34 @@ class InvoiceRepository @Inject constructor(
         ApiResult.Error(error.message ?: "تعذر إلغاء الفاتورة")
     }
 
+    suspend fun reactivateInvoice(id: String): ApiResult<Invoice> = try {
+        val invoice = apiClient.api.reactivateInvoice(id).data
+        if (invoice == null) {
+            ApiResult.Error("لم يرجع السيرفر الفاتورة")
+        } else {
+            cacheInvoices(listOf(invoice))
+            ApiResult.Success(invoice.toDomain())
+        }
+    } catch (error: Exception) {
+        ApiResult.Error(error.message ?: "تعذر إرجاع الفاتورة نشطة")
+    }
+
     private suspend fun cacheInvoices(invoices: List<InvoiceDto>, replace: Boolean = false) {
         if (replace) {
             invoiceDao.replaceAll(invoices.map { it.toEntity() })
             invoiceItemDao.replaceAll(invoices.flatMap { invoice ->
-                invoice.items.map { it.toEntity(invoice.id) }
+                invoice.items.mapIndexed { i, item -> item.toEntity(invoice.id, i) }
             })
         } else {
             invoiceDao.upsertAll(invoices.map { it.toEntity() })
             invoices.forEach { invoice ->
-                invoiceItemDao.deleteForInvoice(invoice.id)
-                invoiceItemDao.upsertAll(invoice.items.map { it.toEntity(invoice.id) })
+                // Only touch invoice_items when the server actually returned them.
+                // An empty list from a list-endpoint response must NOT wipe locally
+                // cached items that were fetched from the detail endpoint.
+                if (invoice.items.isNotEmpty()) {
+                    invoiceItemDao.deleteForInvoice(invoice.id)
+                    invoiceItemDao.upsertAll(invoice.items.mapIndexed { i, item -> item.toEntity(invoice.id, i) })
+                }
             }
         }
     }
@@ -237,6 +254,7 @@ fun InvoiceDto.toDomain() = Invoice(
     finalBalance = finalBalance,
     paymentType = paymentType,
     status = status,
+    notes = notes,
     items = items.map { it.toDomain() }
 )
 
@@ -256,7 +274,8 @@ private fun InvoiceDto.toEntity() = InvoiceEntity(
     finalBalance = finalBalance,
     paymentType = paymentType,
     status = status,
-    createdAt = createdAt
+    createdAt = createdAt,
+    notes = notes
 )
 
 private fun InvoiceEntity.toDomain(items: List<InvoiceItem>, customerName: String? = null) = Invoice(
@@ -276,6 +295,7 @@ private fun InvoiceEntity.toDomain(items: List<InvoiceItem>, customerName: Strin
     finalBalance = finalBalance,
     paymentType = paymentType,
     status = status,
+    notes = notes,
     items = items
 )
 
@@ -286,18 +306,21 @@ fun InvoiceItemDto.toDomain() = InvoiceItem(
     unit = unit,
     quantity = quantity,
     unitPrice = unitPrice,
-    totalPrice = totalPrice
+    totalPrice = totalPrice,
+    notes = notes
 )
 
-private fun InvoiceItemDto.toEntity(parentInvoiceId: String) = InvoiceItemEntity(
-    id = id ?: "${parentInvoiceId}_${productId}",
+// index is required so two lines with the same productId don't collide.
+private fun InvoiceItemDto.toEntity(parentInvoiceId: String, index: Int) = InvoiceItemEntity(
+    id = id ?: "${parentInvoiceId}_$index",
     invoiceId = invoiceId ?: parentInvoiceId,
     productId = productId,
     productName = productName ?: productId,
     unit = unit,
     quantity = quantity,
     unitPrice = unitPrice,
-    totalPrice = totalPrice
+    totalPrice = totalPrice,
+    notes = notes
 )
 
 private fun InvoiceItemEntity.toDomain() = InvoiceItem(
@@ -307,7 +330,8 @@ private fun InvoiceItemEntity.toDomain() = InvoiceItem(
     unit = unit,
     quantity = quantity,
     unitPrice = unitPrice,
-    totalPrice = totalPrice
+    totalPrice = totalPrice,
+    notes = notes
 )
 
 fun List<InvoiceItem>.toCreateItems() = map {
@@ -316,5 +340,6 @@ fun List<InvoiceItem>.toCreateItems() = map {
         unit = it.unit,
         quantity = it.quantity,
         unitPrice = it.unitPrice,
+        notes = it.notes,
     )
 }

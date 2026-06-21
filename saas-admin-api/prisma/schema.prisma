@@ -18,18 +18,32 @@ enum SerialType {
   WEB
 }
 
+enum ProvisioningStatus {
+  PENDING
+  READY
+  ERROR
+}
+
 model Tenant {
-  id           String       @id @default(uuid()) @db.Uuid
-  name         String
-  subdomain    String       @unique
-  backendUrl   String       @map("backend_url")
-  status       TenantStatus @default(ACTIVE)
-  notes        String?
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
+  id                 String             @id @default(uuid()) @db.Uuid
+  name               String
+  ownerName          String?            @map("owner_name")
+  phone              String?
+  email              String?
+  subdomain          String             @unique
+  frontendUrl        String?            @map("frontend_url")
+  backendUrl         String             @map("backend_url")
+  customDomain       String?            @unique @map("custom_domain")
+  status             TenantStatus       @default(ACTIVE)
+  provisioningStatus ProvisioningStatus @default(PENDING) @map("provisioning_status")
+  provisioningError  String?            @map("provisioning_error")
+  notes              String?
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
 
   subscriptions Subscription[]
   serialNumbers SerialNumber[]
+  auditLogs      AdminAuditLog[]
 
   @@map("tenants")
 }
@@ -43,7 +57,13 @@ model Subscription {
   expiresAt    DateTime? @map("expires_at")
   maxInvoices  Int?      @map("max_invoices")
   maxCustomers Int?      @map("max_customers")
+  maxUsers     Int?      @map("max_users")
+  maxWarehouses Int?     @map("max_warehouses")
+  maxAndroidDevices Int? @map("max_android_devices")
   features     String[]  // ["ANDROID","CATALOG","AI","MULTI_WAREHOUSE"]
+  price        Float?
+  currency     String    @default("IQD")
+  billingCycle String    @default("MONTHLY") @map("billing_cycle")
   isActive     Boolean   @default(true) @map("is_active")
   createdAt    DateTime  @default(now()) @map("created_at")
 
@@ -72,4 +92,18 @@ model AdminUser {
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("admin_users")
+}
+
+model AdminAuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  adminId   String?  @map("admin_id") @db.Uuid
+  action    String
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([createdAt])
+  @@map("admin_audit_logs")
 }

@@ -139,7 +139,8 @@ data class InvoiceDraftItem(
     val unit: String = "PIECE",
     val warehouseId: String? = null,
     val quantity: Int = 0,
-    val unitPrice: Double = unitPriceFor(product, unit)
+    val unitPrice: Double = unitPriceFor(product, unit),
+    val notes: String = ""
 ) {
     val totalPrice: Double = quantity * unitPrice
     fun toInvoiceItem() = InvoiceItem(
@@ -150,6 +151,7 @@ data class InvoiceDraftItem(
         quantity = quantity,
         unitPrice = unitPrice,
         totalPrice = totalPrice,
+        notes = notes.takeIf { it.isNotBlank() },
     )
 }
 
@@ -160,6 +162,31 @@ private fun unitPriceFor(product: Product, unit: String, useRetail: Boolean = fa
         "DOZEN" -> base * 12
         else -> base
     }
+}
+
+private fun quantityInPieces(unit: String, quantity: Int, pcsPerCarton: Int): Int = when (unit) {
+    "CARTON" -> quantity * pcsPerCarton
+    "DOZEN" -> quantity * 12
+    else -> quantity
+}
+
+// Pieces available in the warehouse the backend will deduct this sale line from
+// (the chosen warehouse, else المحل). Mirrors the web's effectiveAvailablePcs.
+private fun effectiveAvailablePcs(item: InvoiceDraftItem): Int {
+    val stocks = item.product.warehouseStocks
+    if (stocks.isEmpty()) return item.product.currentStock
+    item.warehouseId?.let { id -> return stocks.firstOrNull { it.warehouseId == id }?.quantityPieces ?: 0 }
+    return item.product.shopStock
+        ?: stocks.firstOrNull { it.warehouseName.contains("محل") }?.quantityPieces
+        ?: 0
+}
+
+// A SALE line that the chosen warehouse (or total stock) can't cover is allowed to go
+// negative — it records a deficit for manager review instead of blocking the sale.
+fun invoiceLineGoesNegative(item: InvoiceDraftItem, invoiceType: String): Boolean {
+    if (invoiceType != "SALE") return false
+    val pcs = quantityInPieces(item.unit, item.quantity, item.product.pcsPerCarton)
+    return pcs > effectiveAvailablePcs(item) || pcs > item.product.currentStock
 }
 
 data class InvoiceCreateUiState(
@@ -180,6 +207,7 @@ data class InvoiceCreateUiState(
     val discountMode: String = "amount",
     val paidAmount: String = "0",
     val paymentType: String = "CREDIT",
+    val notes: String = "",
     val preview: Boolean = false,
     val isSaving: Boolean = false,
     val error: String? = null,
@@ -192,7 +220,11 @@ data class InvoiceCreateUiState(
     val customerSuggestions = if (customerQuery.isBlank() || selectedCustomer != null) {
         emptyList()
     } else {
-        customers.filter { it.name.contains(customerQuery, true) || it.phone.contains(customerQuery) }.take(6)
+        val needsSupplier = invoiceType == "PURCHASE"
+        customers
+            .filter { it.isSupplier == needsSupplier }
+            .filter { it.name.contains(customerQuery, true) || it.phone.contains(customerQuery) }
+            .take(6)
     }
     val productSuggestions = if (productQuery.isBlank()) {
         emptyList()
@@ -252,6 +284,7 @@ class InvoiceCreateViewModel @Inject constructor(
     fun setPaid(value: String) { _state.value = _state.value.copy(paidAmount = value.filterDecimal()) }
     fun setDiscountMode(value: String) { _state.value = _state.value.copy(discountMode = value) }
     fun setPaymentType(value: String) { _state.value = _state.value.copy(paymentType = value) }
+    fun setNotes(value: String) { _state.value = _state.value.copy(notes = value) }
     fun showPreview() { _state.value = _state.value.copy(preview = true) }
     fun hidePreview() { _state.value = _state.value.copy(preview = false) }
 
@@ -297,6 +330,7 @@ class InvoiceCreateViewModel @Inject constructor(
                             warehouseId = invoiceItem.warehouseId,
                             quantity = invoiceItem.quantity,
                             unitPrice = invoiceItem.unitPrice
+                            ,notes = invoiceItem.notes.orEmpty()
                         )
                     }
                     _state.value = _state.value.copy(
@@ -310,6 +344,7 @@ class InvoiceCreateViewModel @Inject constructor(
                         discountMode = "amount",
                         paidAmount = invoice.paidAmount.toString(),
                         paymentType = invoice.paymentType,
+                        notes = invoice.notes.orEmpty(),
                         isSaving = false,
                         error = null,
                         editLoaded = true
@@ -399,6 +434,12 @@ class InvoiceCreateViewModel @Inject constructor(
         })
     }
 
+    fun updateItemNotes(lineId: String, notes: String) {
+        _state.value = _state.value.copy(items = _state.value.items.map {
+            if (it.lineId == lineId) it.copy(notes = notes) else it
+        })
+    }
+
     fun updateItemTotal(lineId: String, total: Double) {
         _state.value = _state.value.copy(items = _state.value.items.map {
             if (it.lineId == lineId) {
@@ -445,6 +486,7 @@ class InvoiceCreateViewModel @Inject constructor(
                 tax = 0.0,
                 paidAmount = current.paid,
                 paymentType = current.financials.paymentType,
+                notes = current.notes.takeIf { it.isNotBlank() },
                 items = current.items.map {
                     CreateInvoiceItemRequest(
                         productId = it.product.id,
@@ -452,6 +494,9 @@ class InvoiceCreateViewModel @Inject constructor(
                         unit = it.unit,
                         quantity = it.quantity,
                         unitPrice = it.unitPrice,
+                        notes = it.notes.takeIf { note -> note.isNotBlank() },
+                        // Authorize a deficit for any out-of-stock sale line (records negative + review).
+                        allowNegativeStock = if (invoiceLineGoesNegative(it, current.invoiceType)) true else null,
                     )
                 }
             )

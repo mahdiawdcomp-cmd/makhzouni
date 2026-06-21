@@ -10,6 +10,13 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
     return;
   }
   const token = authHeader.slice(7);
+  const serviceKey = process.env.SUPER_ADMIN_API_KEY;
+  if (serviceKey && token === serviceKey) {
+    (req as any).adminId = null;
+    (req as any).serviceAuth = true;
+    next();
+    return;
+  }
   try {
     const payload = jwt.verify(token, JWT_SECRET) as { adminId: string };
     (req as any).adminId = payload.adminId;

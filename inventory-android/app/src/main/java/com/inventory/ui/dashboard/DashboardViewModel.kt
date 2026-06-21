@@ -22,8 +22,15 @@ import javax.inject.Inject
 
 data class DashboardUiState(
     val role: String? = null,
+    val permissions: List<String> = emptyList(),
     val canManageUsers: Boolean = false,
     val canApprove: Boolean = false,
+    val canManageProducts: Boolean = false,
+    val canManageCustomers: Boolean = false,
+    val canManageInvoices: Boolean = false,
+    val canManageVouchers: Boolean = false,
+    val canViewReports: Boolean = false,
+    val canManageSettings: Boolean = false,
     val pendingApprovalCount: Int = 0,
     val unreadNotifications: Int = 0,
     val report: DashboardReport? = null,
@@ -52,8 +59,15 @@ class DashboardViewModel @Inject constructor(
     ) { role, permissions, approvals, unreadCount, dashboardReport ->
         DashboardUiState(
             role = role,
+            permissions = permissions,
             canManageUsers = permissionManager.canManageUsers(role, permissions),
             canApprove = permissionManager.canManageApprovals(role, permissions),
+            canManageProducts = permissionManager.canManageProducts(role, permissions),
+            canManageCustomers = permissionManager.canManageCustomers(role, permissions),
+            canManageInvoices = permissionManager.canManageInvoices(role, permissions),
+            canManageVouchers = permissionManager.canManageVouchers(role, permissions),
+            canViewReports = permissionManager.canViewReports(role, permissions),
+            canManageSettings = permissionManager.canManageSettings(role, permissions),
             pendingApprovalCount = approvals.size,
             unreadNotifications = unreadCount,
             report = dashboardReport

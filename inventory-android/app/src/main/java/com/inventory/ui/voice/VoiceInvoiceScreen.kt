@@ -13,22 +13,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.inventory.data.remote.dto.VoicePlanDto
+import com.inventory.data.remote.dto.VoiceChatMessage
 import com.inventory.ui.theme.AppColor
-import kotlinx.coroutines.delay
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +43,8 @@ fun VoiceInvoiceScreen(
     viewModel: VoiceInvoiceViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val conversation by viewModel.conversation.collectAsState()
+    var typedText by rememberSaveable { mutableStateOf("") }
 
     val speechLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -51,14 +57,6 @@ fun VoiceInvoiceScreen(
             else viewModel.resetToIdle()
         } else {
             viewModel.resetToIdle()
-        }
-    }
-
-    // Auto re-listen after clarification
-    LaunchedEffect(uiState) {
-        if (uiState is VoiceUiState.NeedsClarification) {
-            delay(2800)
-            startSpeech(speechLauncher, viewModel)
         }
     }
 
@@ -75,6 +73,13 @@ fun VoiceInvoiceScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
+                actions = {
+                    if (conversation.isNotEmpty()) {
+                        IconButton(onClick = viewModel::clearConversation) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = "محادثة جديدة")
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
@@ -87,6 +92,10 @@ fun VoiceInvoiceScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
+            if (conversation.isNotEmpty()) {
+                ConversationCard(conversation)
+            }
+
             // ── Mic button ─────────────────────────────────────────────────────
             MicButton(
                 uiState = uiState,
@@ -95,10 +104,43 @@ fun VoiceInvoiceScreen(
                         is VoiceUiState.Idle,
                         is VoiceUiState.Error,
                         is VoiceUiState.Success,
-                        is VoiceUiState.GeneralAnswer -> startSpeech(speechLauncher, viewModel)
+                        is VoiceUiState.GeneralAnswer,
+                        is VoiceUiState.NeedsClarification,
+                        is VoiceUiState.NeedsConfirmation -> startSpeech(speechLauncher, viewModel)
                         else -> Unit
                     }
                 }
+            )
+
+            OutlinedTextField(
+                value = typedText,
+                onValueChange = { typedText = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("اكتب مثل ما تحچي بالضبط…") },
+                maxLines = 3,
+                shape = RoundedCornerShape(14.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = {
+                    if (typedText.isNotBlank()) {
+                        viewModel.parseCommand(typedText)
+                        typedText = ""
+                    }
+                }),
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            if (typedText.isNotBlank()) {
+                                viewModel.parseCommand(typedText)
+                                typedText = ""
+                            }
+                        },
+                        enabled = typedText.isNotBlank() &&
+                            uiState !is VoiceUiState.Loading &&
+                            uiState !is VoiceUiState.Executing,
+                    ) {
+                        Icon(Icons.Default.Send, contentDescription = "إرسال")
+                    }
+                },
             )
 
             // ── State card ─────────────────────────────────────────────────────
@@ -115,10 +157,10 @@ fun VoiceInvoiceScreen(
                         onCancel   = { viewModel.resetToIdle() },
                     )
 
-                    is VoiceUiState.NeedsClarification -> StatusCard(
-                        text  = "❓  ${state.question}",
-                        color = AppColor.Amber600,
-                        icon  = { Icon(Icons.Default.HelpOutline, null, tint = AppColor.Amber600) },
+                    is VoiceUiState.NeedsClarification -> ClarificationCard(
+                        state = state,
+                        onSuggestion = viewModel::parseCommand,
+                        onSpeak = { startSpeech(speechLauncher, viewModel) },
                     )
 
                     is VoiceUiState.GeneralAnswer -> GeneralAnswerCard(
@@ -145,6 +187,62 @@ fun VoiceInvoiceScreen(
 }
 
 // ── Mic Button ────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ConversationCard(messages: List<VoiceChatMessage>) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    Icons.Default.SmartToy,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text("المحادثة الحالية", fontWeight = FontWeight.Bold)
+            }
+            messages.takeLast(6).forEach { message ->
+                val isUser = message.role == "user"
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (isUser) Arrangement.Start else Arrangement.End,
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(0.88f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isUser) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        },
+                    ) {
+                        Text(
+                            text = message.content,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isUser) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun MicButton(uiState: VoiceUiState, onClick: () -> Unit) {
@@ -181,7 +279,7 @@ private fun MicButton(uiState: VoiceUiState, onClick: () -> Unit) {
         FilledIconButton(
             onClick  = onClick,
             modifier = Modifier.size(92.dp),
-            enabled  = !isLoading && !isConfirm,
+            enabled  = !isLoading,
             colors   = IconButtonDefaults.filledIconButtonColors(
                 containerColor = bgColor,
                 contentColor   = Color.White,
@@ -267,6 +365,60 @@ private fun StatusCard(
 
 // ── Confirmation Card ─────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ClarificationCard(
+    state: VoiceUiState.NeedsClarification,
+    onSuggestion: (String) -> Unit,
+    onSpeak: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.secondary.copy(alpha = 0.35f),
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.HelpOutline, contentDescription = null)
+                Text(
+                    state.question,
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            if (state.suggestions.isNotEmpty()) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    state.suggestions.forEach { suggestion ->
+                        SuggestionChip(
+                            onClick = { onSuggestion("أقصد $suggestion") },
+                            label = { Text(suggestion) },
+                        )
+                    }
+                }
+            }
+            FilledTonalButton(onClick = onSpeak, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Mic, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("جاوب بالصوت")
+            }
+        }
+    }
+}
+
 @Composable
 private fun ConfirmationCard(
     state: VoiceUiState.NeedsConfirmation,
@@ -308,8 +460,26 @@ private fun ConfirmationCard(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (plan.operation == "INVOICE") {
                         DetailRow("الزبون", plan.customerName)
-                        DetailRow("المنتج", plan.productName ?: "")
-                        DetailRow("الكمية", "${plan.quantity ?: 0} ${unitLabel(plan.unit)}")
+                        val planItems = plan.items.ifEmpty {
+                            if (!plan.productName.isNullOrBlank()) {
+                                listOf(
+                                    com.inventory.data.remote.dto.VoicePlanItemDto(
+                                        productId = plan.productId.orEmpty(),
+                                        productName = plan.productName,
+                                        quantity = plan.quantity ?: 1,
+                                        unit = plan.unit ?: "PIECE",
+                                        unitPrice = plan.unitPrice ?: 0.0,
+                                        totalPrice = (plan.unitPrice ?: 0.0) * (plan.quantity ?: 1),
+                                    )
+                                )
+                            } else emptyList()
+                        }
+                        planItems.forEachIndexed { index, item ->
+                            DetailRow(
+                                if (planItems.size == 1) "المنتج" else "المادة ${index + 1}",
+                                "${item.quantity} ${unitLabel(item.unit)} ${item.productName}"
+                            )
+                        }
                         DetailRow("المجموع", "${plan.totalAmount?.toLong()?.let { "%,d".format(it) } ?: 0} د.ع")
                         DetailRow("الدفع", payLabel(plan.paymentType))
                     } else {

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.inventory.data.local.NotificationDao
 import com.inventory.data.remote.NetworkMonitor
 import com.inventory.data.repository.ApprovalRepository
+import com.inventory.data.repository.RealtimeSyncRepository
 import com.inventory.data.repository.SessionManager
 import com.inventory.data.repository.SyncRepository
 import com.inventory.utils.PermissionManager
@@ -37,6 +38,7 @@ class InventoryShellViewModel @Inject constructor(
     approvalRepository: ApprovalRepository,
     sessionManager: SessionManager,
     syncRepository: SyncRepository,
+    realtimeSyncRepository: RealtimeSyncRepository,
     permissionManager: PermissionManager,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
@@ -63,6 +65,8 @@ class InventoryShellViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShellUiState())
 
     init {
+        realtimeSyncRepository.start(viewModelScope)
+
         // When network is restored, flush any pending offline operations immediately.
         viewModelScope.launch {
             networkMonitor.observeOnline()

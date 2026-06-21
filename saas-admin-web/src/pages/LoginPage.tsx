@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { LockKeyhole, ShieldCheck, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { authApi } from "../api/client";
+import { authApi, getErrorMessage } from "../api/client";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -9,63 +10,36 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const res = await authApi.login(username, password);
-      localStorage.setItem("sa_token", res.data.token);
+      const response = await authApi.login(username, password);
+      localStorage.setItem("sa_token", response.data.token);
       navigate("/tenants");
-    } catch (err: any) {
-      setError(err.response?.data?.error ?? "فشل تسجيل الدخول");
+    } catch (err) {
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "var(--bg)",
-    }}>
-      <div className="card" style={{ width: "100%", maxWidth: 380 }}>
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>⚡</div>
-          <h1 style={{ fontSize: 22, fontWeight: 800 }}>Super Admin</h1>
-          <p style={{ color: "var(--text2)", fontSize: 13, marginTop: 4 }}>لوحة تحكم الإدارة العليا</p>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="form-row">
-            <label>اسم المستخدم</label>
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="superadmin"
-              autoFocus
-              required
-            />
-          </div>
-          <div className="form-row">
-            <label>كلمة المرور</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </div>
-          {error && <p className="error-msg">{error}</p>}
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? <span className="spinner" /> : "دخول"}
-          </button>
+    <main className="login-page" dir="rtl">
+      <section className="login-panel">
+        <div className="login-brand"><ShieldCheck size={28} /></div>
+        <h1>الإدارة العليا لمخزوني</h1>
+        <p>إدارة المحلات والاشتراكات والمزايا من مكان واحد</p>
+        <form onSubmit={submit}>
+          <label>اسم المستخدم</label>
+          <div className="input-icon"><User size={18} /><input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required /></div>
+          <label>كلمة المرور</label>
+          <div className="input-icon"><LockKeyhole size={18} /><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+          {error && <div className="alert error">{error}</div>}
+          <button className="primary wide" disabled={loading}>{loading ? "جاري الدخول..." : "دخول آمن"}</button>
         </form>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

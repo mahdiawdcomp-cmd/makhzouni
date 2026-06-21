@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
@@ -53,10 +54,9 @@ import com.inventory.ui.common.*
 import com.inventory.ui.theme.AppColor
 import java.util.concurrent.Executors
 import java.io.ByteArrayOutputStream
+import java.io.File
 
-private fun compressProductImage(context: android.content.Context, uri: Uri): String? {
-    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
-    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+private fun compressBitmapToDataUrl(bitmap: Bitmap): String {
     val maxSide = 900f
     val scale = minOf(1f, maxSide / maxOf(bitmap.width, bitmap.height).toFloat())
     val outBitmap = if (scale < 1f) {
@@ -65,6 +65,81 @@ private fun compressProductImage(context: android.content.Context, uri: Uri): St
     val out = ByteArrayOutputStream()
     outBitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
     return "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+}
+
+private fun compressProductImage(context: android.content.Context, uri: Uri): String? {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+    return compressBitmapToDataUrl(bitmap)
+}
+
+private fun decodeBitmap(context: android.content.Context, uri: Uri, maxSide: Float = 1200f): Bitmap? {
+    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    val raw = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+    val scale = minOf(1f, maxSide / maxOf(raw.width, raw.height).toFloat())
+    return if (scale < 1f) Bitmap.createScaledBitmap(raw, (raw.width * scale).toInt(), (raw.height * scale).toInt(), true) else raw
+}
+
+// BFS flood-fill from image borders: replaces background pixels (similar to corner color) with white.
+// Works offline with no external dependencies — ideal for product photos on simple backgrounds.
+private fun removeBackgroundToWhite(context: android.content.Context, uri: Uri, onResult: (String?) -> Unit) {
+    val bitmap = decodeBitmap(context, uri) ?: run { onResult(null); return }
+    Thread {
+        try {
+            val result = floodFillWhiteBackground(bitmap)
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                onResult(compressBitmapToDataUrl(result))
+            }
+        } catch (e: Exception) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { onResult(null) }
+        }
+    }.start()
+}
+
+private fun floodFillWhiteBackground(src: Bitmap): Bitmap {
+    val w = src.width; val h = src.height
+    val pixels = IntArray(w * h)
+    src.getPixels(pixels, 0, w, 0, 0, w, h)
+    val visited = BooleanArray(w * h)
+
+    // Sample background color from 4 corners and average them
+    val corners = listOf(pixels[0], pixels[w - 1], pixels[(h - 1) * w], pixels[h * w - 1])
+    val bgR = corners.map { android.graphics.Color.red(it) }.average().toInt()
+    val bgG = corners.map { android.graphics.Color.green(it) }.average().toInt()
+    val bgB = corners.map { android.graphics.Color.blue(it) }.average().toInt()
+    val threshold = 85 // Manhattan distance — increase if background isn't fully removed
+
+    fun dist(px: Int) =
+        Math.abs(android.graphics.Color.red(px) - bgR) +
+        Math.abs(android.graphics.Color.green(px) - bgG) +
+        Math.abs(android.graphics.Color.blue(px) - bgB)
+
+    val queue = ArrayDeque<Int>()
+
+    fun tryEnqueue(idx: Int) {
+        if (idx in pixels.indices && !visited[idx] && dist(pixels[idx]) < threshold) {
+            visited[idx] = true
+            queue.add(idx)
+        }
+    }
+
+    // Seed BFS from all border pixels that look like the background
+    for (x in 0 until w) { tryEnqueue(x); tryEnqueue((h - 1) * w + x) }
+    for (y in 0 until h) { tryEnqueue(y * w); tryEnqueue(y * w + w - 1) }
+
+    while (queue.isNotEmpty()) {
+        val idx = queue.removeFirst()
+        pixels[idx] = android.graphics.Color.WHITE
+        val x = idx % w; val y = idx / w
+        if (x > 0) tryEnqueue(idx - 1)
+        if (x < w - 1) tryEnqueue(idx + 1)
+        if (y > 0) tryEnqueue(idx - w)
+        if (y < h - 1) tryEnqueue(idx + w)
+    }
+
+    val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    result.setPixels(pixels, 0, w, 0, 0, w, h)
+    return result
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -543,16 +618,146 @@ private fun PriceBox(label: String, price: Double, textColor: Color, bgColor: Co
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  PRODUCT FORM
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** A labelled outlined text field sized to share a Row (two/three per line). */
+@Composable
+private fun RowScope.FieldCell(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String = "",
+    required: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    weight: Float = 1f,
+) {
+    Column(Modifier.weight(weight), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row {
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+            if (required) Text(" *", color = AppColor.Red600, style = MaterialTheme.typography.labelMedium)
+        }
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = if (placeholder.isNotEmpty()) {
+                { Text(placeholder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            } else null,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            ),
+        )
+    }
+}
+
+/** Searchable single-select dropdown sized to share a Row. Type to filter; pick to commit. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RowScope.DropdownCell(
+    label: String,
+    selected: String,
+    options: List<String>,
+    onSelect: (String) -> Unit,
+    placeholder: String = "اختر",
+    enabled: Boolean = true,
+    weight: Float = 1f,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var query by remember(selected) { mutableStateOf(selected) }
+    val filtered = remember(query, options, selected) {
+        if (query.isBlank() || query == selected) options
+        else options.filter { it.contains(query.trim(), ignoreCase = true) }
+    }
+    Column(Modifier.weight(weight), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+        ExposedDropdownMenuBox(
+            expanded = expanded && enabled && options.isNotEmpty(),
+            onExpandedChange = { if (enabled && options.isNotEmpty()) expanded = it },
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { v ->
+                    query = v
+                    if (options.isEmpty()) onSelect(v) // free-text mode: commit every keystroke
+                    else expanded = true
+                },
+                readOnly = !enabled,
+                enabled = enabled,
+                placeholder = { Text(placeholder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                singleLine = true,
+                trailingIcon = if (options.isNotEmpty()) {
+                    { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) }
+                } else null,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                ),
+            )
+            ExposedDropdownMenu(expanded = expanded && enabled && options.isNotEmpty(), onDismissRequest = { expanded = false; query = selected }) {
+                if (selected.isNotBlank()) {
+                    DropdownMenuItem(
+                        text = { Text("— بلا —", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                        onClick = { onSelect(""); query = ""; expanded = false },
+                    )
+                }
+                (if (filtered.isEmpty()) options else filtered).forEach { opt ->
+                    DropdownMenuItem(text = { Text(opt) }, onClick = { onSelect(opt); query = opt; expanded = false })
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var unitExpanded by remember { mutableStateOf(false) }
+    // Gallery / file picker.
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             compressProductImage(context, uri)?.let { viewModel.update("imageUrl", it) }
         }
+    }
+    // Camera capture: the photo is written to a temp file we expose via FileProvider,
+    // then compressed (optionally with the background removed onto white).
+    val cameraImageUri = remember { mutableStateOf<Uri?>(null) }
+    var pendingRemoveBg by remember { mutableStateOf(false) }
+    var processingImage by remember { mutableStateOf(false) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = cameraImageUri.value
+        val removeBg = pendingRemoveBg
+        pendingRemoveBg = false
+        if (success && uri != null) {
+            if (removeBg) {
+                processingImage = true
+                removeBackgroundToWhite(context, uri) { result ->
+                    processingImage = false
+                    if (result != null) viewModel.update("imageUrl", result)
+                }
+            } else {
+                compressProductImage(context, uri)?.let { viewModel.update("imageUrl", it) }
+            }
+        }
+    }
+    fun openCamera() {
+        val file = File.createTempFile("product_", ".jpg", context.cacheDir)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        cameraImageUri.value = uri
+        cameraLauncher.launch(uri)
+    }
+    val cameraPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) openCamera()
     }
     LaunchedEffect(state.saved) { if (state.saved) onDone() }
 
@@ -580,12 +785,44 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("صورة المادة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                Text("تُصغّر تلقائياً قبل الحفظ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { imagePicker.launch("image/*") }, shape = RoundedCornerShape(10.dp)) {
+                                Text(
+                                    if (processingImage) "⏳ جاري إزالة الخلفية..." else "خلفية بيضاء = صورة نظيفة موحّدة للكتلوك",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (processingImage) AppColor.Blue600 else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { pendingRemoveBg = false; cameraPermLauncher.launch(Manifest.permission.CAMERA) },
+                                        enabled = !processingImage,
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    ) {
                                         Icon(Icons.Default.PhotoCamera, null, Modifier.size(16.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("اختيار")
+                                        Text("كامرة")
+                                    }
+                                    Button(
+                                        onClick = { pendingRemoveBg = true; cameraPermLauncher.launch(Manifest.permission.CAMERA) },
+                                        enabled = !processingImage,
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    ) {
+                                        Icon(Icons.Default.AutoFixHigh, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("خلفية بيضاء")
+                                    }
+                                    OutlinedButton(
+                                        onClick = { pendingRemoveBg = false; imagePicker.launch("image/*") },
+                                        enabled = !processingImage,
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    ) {
+                                        Icon(Icons.Default.Image, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("معرض")
                                     }
                                     if (!state.imageUrl.isNullOrBlank()) {
                                         TextButton(onClick = { viewModel.update("imageUrl", "") }) { Text("حذف") }
@@ -593,10 +830,56 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                                 }
                             }
                         }
-                        AppTextField(state.name, { viewModel.update("name", it) }, "اسم الصنف", required = true)
-                        AppTextField(state.itemNumber, { viewModel.update("itemNumber", it) }, "رقم الآيتم")
-                        AppTextField(state.category, { viewModel.update("category", it) }, "الفئة")
-                        AppTextField(state.qrCode, { viewModel.update("qrCode", it) }, "QR Code")
+                        // Row 1 — name (required) beside item number
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            FieldCell("اسم الصنف", state.name, { viewModel.update("name", it) }, required = true, weight = 1.35f)
+                            FieldCell("رقم الآيتم", state.itemNumber, { viewModel.update("itemNumber", it) }, placeholder = "تلقائي")
+                        }
+
+                        // Row 2 — primary + secondary category
+                        // Catalog categories → searchable dropdowns with predefined types
+                        // No catalog but existing product categories → searchable dropdown (free-type allowed)
+                        // Nothing at all → plain text fields
+                        if (state.catalogCategories.isNotEmpty()) {
+                            val catNames = state.catalogCategories.map { it.name }
+                            val secondaryTypes = state.catalogCategories
+                                .firstOrNull { it.name == state.categoryTags.firstOrNull() }
+                                ?.types.orEmpty()
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                DropdownCell("الفئة الرئيسية", state.categoryTags.firstOrNull() ?: "", catNames, { viewModel.selectPrimaryCategory(it) })
+                                DropdownCell(
+                                    "الفئة الفرعية",
+                                    state.typeTags.firstOrNull() ?: "",
+                                    secondaryTypes,
+                                    { viewModel.selectType(it) },
+                                    enabled = secondaryTypes.isNotEmpty(),
+                                    placeholder = if (secondaryTypes.isEmpty()) "—" else "اختر",
+                                )
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                DropdownCell(
+                                    "الفئة الرئيسية",
+                                    state.category,
+                                    state.existingCategories,
+                                    { viewModel.update("category", it) },
+                                    placeholder = "مثلاً: مشروبات",
+                                )
+                                DropdownCell(
+                                    "الفئة الفرعية",
+                                    state.typeTags.firstOrNull() ?: "",
+                                    emptyList(),
+                                    { viewModel.selectType(it) },
+                                    placeholder = "اختياري",
+                                )
+                            }
+                        }
+
+                        // Row 3 — piece QR beside carton QR
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            FieldCell("رمز القطعة", state.qrCode, { viewModel.update("qrCode", it) }, placeholder = "تلقائي")
+                            FieldCell("رمز الكرتون", state.cartonQrCode, { viewModel.update("cartonQrCode", it) }, placeholder = "تلقائي")
+                        }
                     }
                 }
             }
@@ -604,43 +887,49 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                 SectionCard(title = "المخزون") {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         if (!state.isEditing) {
-                            AppTextField(state.openingBalancePcs, { viewModel.update("openingBalancePcs", it) }, "قطع افتتاحية", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                            AppTextField(state.cartonsAvailable, { viewModel.update("cartonsAvailable", it) }, "كارتونات متوفرة", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                FieldCell("قطع افتتاحية", state.openingBalancePcs, { viewModel.update("openingBalancePcs", it) }, placeholder = "0", keyboardType = KeyboardType.Number)
+                                FieldCell("كراتين متوفرة", state.cartonsAvailable, { viewModel.update("cartonsAvailable", it) }, placeholder = "0", keyboardType = KeyboardType.Number)
+                            }
                         }
-                        AppTextField(state.pcsPerCarton, { viewModel.update("pcsPerCarton", it) }, "قطع بالكرتونة", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        AppTextField(state.minStock, { viewModel.update("minStock", it) }, "حد التنبيه", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            FieldCell("قطع بالكرتون", state.pcsPerCarton, { viewModel.update("pcsPerCarton", it) }, placeholder = "تلقائي 1", keyboardType = KeyboardType.Number)
+                            FieldCell("حد التنبيه", state.minStock, { viewModel.update("minStock", it) }, placeholder = "0", keyboardType = KeyboardType.Number)
+                        }
                         if (state.branches.isNotEmpty()) {
-                            Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
+                            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)) {
                                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                     Text("توزيع المخزون على المخازن", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    state.branches.forEach { branch ->
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text(branch.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                            OutlinedTextField(
-                                                value = state.warehouseDist[branch.id] ?: "0",
-                                                onValueChange = { viewModel.updateWarehouseDist(branch.id, it) },
-                                                modifier = Modifier.width(110.dp),
-                                                singleLine = true,
-                                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                shape = RoundedCornerShape(8.dp),
-                                                suffix = { Text("قطعة", style = MaterialTheme.typography.labelSmall) }
-                                            )
+                                    // One row: a compact field per warehouse (scrolls if many)
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        state.branches.forEach { branch ->
+                                            Column(Modifier.width(124.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text(branch.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                OutlinedTextField(
+                                                    value = state.warehouseDist[branch.id] ?: "",
+                                                    onValueChange = { viewModel.updateWarehouseDist(branch.id, it) },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    singleLine = true,
+                                                    placeholder = { Text("0") },
+                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                )
+                                            }
                                         }
                                     }
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text("المجموع الكلي", style = MaterialTheme.typography.labelMedium)
+                                        Text("المجموع", style = MaterialTheme.typography.labelMedium)
                                         Text("${state.distSum} قطعة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                     }
                                     if (!state.isEditing) {
                                         val matches = state.distSum == state.enteredTotal
                                         Text(
-                                            text = if (matches) {
-                                                "تم توزيع كامل الكمية (${state.enteredTotal} قطعة)"
-                                            } else if (state.distSum > state.enteredTotal) {
-                                                "التوزيع أكثر من الكمية بـ ${state.distSum - state.enteredTotal} قطعة"
-                                            } else {
-                                                "المتبقي للتوزيع: ${state.enteredTotal - state.distSum} قطعة"
-                                            },
+                                            text = if (matches) "تم توزيع كامل الكمية (${state.enteredTotal} قطعة)"
+                                                else if (state.distSum > state.enteredTotal) "التوزيع أكثر بـ ${state.distSum - state.enteredTotal} قطعة"
+                                                else "المتبقي للتوزيع: ${state.enteredTotal - state.distSum} قطعة",
                                             color = if (matches) AppColor.Green600 else AppColor.Red600,
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.SemiBold
@@ -649,7 +938,7 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                                 }
                             }
                         } else if (state.totalQuantity > 0) {
-                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                            Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer) {
                                 Row(modifier = Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("الكمية الإجمالية", style = MaterialTheme.typography.labelMedium)
                                     Text("${state.totalQuantity} قطعة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -661,10 +950,39 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
             }
             item {
                 SectionCard(title = "الأسعار") {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        AppTextField(state.purchasePrice, { viewModel.update("purchasePrice", it) }, "سعر الشراء", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        AppTextField(state.salePrice, { viewModel.update("salePrice", it) }, "سعر البيع (جملة)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        AppTextField(state.retailPrice, { viewModel.update("retailPrice", it) }, "سعر المفرد (اختياري)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    // All three on one line
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FieldCell("شراء", state.purchasePrice, { viewModel.update("purchasePrice", it) }, placeholder = "0", keyboardType = KeyboardType.Number)
+                        FieldCell("بيع جملة", state.salePrice, { viewModel.update("salePrice", it) }, placeholder = "0", keyboardType = KeyboardType.Number)
+                        FieldCell("مفرد", state.retailPrice, { viewModel.update("retailPrice", it) }, placeholder = "اختياري", keyboardType = KeyboardType.Number)
+                    }
+                }
+            }
+            item {
+                SectionCard(title = "عرض المادة في الكتلوك") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilterChip(
+                                selected = state.isNewArrival,
+                                onClick = { viewModel.toggleNewArrival() },
+                                label = { Text("✨ جديد") },
+                                shape = RoundedCornerShape(20.dp),
+                            )
+                            FilterChip(
+                                selected = state.isOffer,
+                                onClick = { viewModel.toggleOffer() },
+                                label = { Text("🏷️ عليها عرض") },
+                                shape = RoundedCornerShape(20.dp),
+                            )
+                        }
+                        if (state.isOffer) {
+                            AppTextField(
+                                state.oldPrice,
+                                { viewModel.update("oldPrice", it) },
+                                "السعر القديم (يظهر مشطوباً فوق السعر الحالي)",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
                     }
                 }
             }
@@ -715,22 +1033,44 @@ fun ProductMovementScreen(viewModel: ProductMovementViewModel, onOpenInvoice: (S
                         Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
                             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
                                 Text("التاريخ",    Modifier.weight(1.4f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("الزبون",     Modifier.weight(1.6f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("الجهة / المخزن", Modifier.weight(1.6f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text("الكمية",     Modifier.weight(0.9f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("الفاتورة",   Modifier.weight(1.2f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("المرجع",      Modifier.weight(1.2f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline)
                     }
                     items(state.rows) { row ->
+                        val rowModifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (row.invoiceId.isNotBlank()) {
+                                    Modifier.clickable { onOpenInvoice(row.invoiceId) }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                         Row(
-                            Modifier.fillMaxWidth().clickable { onOpenInvoice(row.invoiceId) }.background(MaterialTheme.colorScheme.surface).padding(horizontal = 16.dp, vertical = 10.dp),
+                            rowModifier,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(row.date.toDisplayDate(),   Modifier.weight(1.4f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
-                            Text(row.customerName,           Modifier.weight(1.6f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                row.warehouseName ?: row.customerName,
+                                Modifier.weight(1.6f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                             Text("${row.quantity}",          Modifier.weight(0.9f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, color = AppColor.Blue600)
-                            Text(row.invoiceNumber,          Modifier.weight(1.2f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                            Column(Modifier.weight(1.2f)) {
+                                Text(row.invoiceNumber, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                                row.movementLabel?.let {
+                                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     }

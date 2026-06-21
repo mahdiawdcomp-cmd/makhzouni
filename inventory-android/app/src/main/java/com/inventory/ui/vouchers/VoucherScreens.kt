@@ -1,26 +1,87 @@
 package com.inventory.ui.vouchers
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.MoneyOff
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.inventory.ui.common.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.inventory.domain.model.Voucher
+import com.inventory.ui.common.AppScreen
+import com.inventory.ui.common.BalanceChip
+import com.inventory.ui.common.EmptyState
+import com.inventory.ui.common.ListRow
+import com.inventory.ui.common.SectionCard
+import com.inventory.ui.common.SummaryRow
+import com.inventory.ui.common.TextAvatar
+import com.inventory.ui.common.formatMoney
 import com.inventory.ui.theme.AppColor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,237 +92,218 @@ fun VoucherCreateScreen(
     voucherId: String? = null,
 ) {
     val state by viewModel.state.collectAsState()
-    var customerExpanded by remember { mutableStateOf(false) }
-    var typeExpanded by remember { mutableStateOf(false) }
+    val amountFocus = remember { FocusRequester() }
 
     LaunchedEffect(voucherId) {
         if (voucherId != null) viewModel.loadVoucher(voucherId)
     }
 
-    // Success dialog
     if (state.success) {
         AlertDialog(
             onDismissRequest = { viewModel.onEvent(VoucherEvent.DismissSuccess); onBack() },
             icon = { Icon(Icons.Default.CheckCircle, null, tint = AppColor.Green600) },
             title = { Text("تم الحفظ بنجاح", textAlign = TextAlign.Center) },
-            text = { Text("تم إنشاء السند بنجاح.", textAlign = TextAlign.Center) },
+            text = { Text(if (voucherId == null) "تم إنشاء السند وتحديث الحساب." else "تم تحديث السند وتحديث الحساب.", textAlign = TextAlign.Center) },
             confirmButton = {
-                Button(onClick = { viewModel.onEvent(VoucherEvent.DismissSuccess); onBack() }) {
-                    Text("موافق")
-                }
+                Button(onClick = { viewModel.onEvent(VoucherEvent.DismissSuccess); onBack() }) { Text("تم") }
             },
         )
     }
 
-    // Error dialog
     if (state.error != null) {
         AlertDialog(
             onDismissRequest = { viewModel.onEvent(VoucherEvent.DismissError) },
             icon = { Icon(Icons.Default.ErrorOutline, null, tint = AppColor.Red600) },
-            title = { Text("خطأ") },
-            text = { Text(state.error ?: "") },
+            title = { Text("تنبيه") },
+            text = { Text(state.error.orEmpty()) },
             confirmButton = {
-                TextButton(onClick = { viewModel.onEvent(VoucherEvent.DismissError) }) { Text("حسناً") }
+                TextButton(onClick = { viewModel.onEvent(VoucherEvent.DismissError) }) { Text("حسنا") }
             },
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        when (state.type) {
-                            "RECEIPT" -> "سند قبض جديد"
-                            "PAYMENT" -> "سند دفع جديد"
-                            "EXPENSE" -> "مصروف جديد"
-                            else      -> "سند جديد"
-                        },
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "رجوع") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
-            )
+    AppScreen(
+        title = when (state.type) {
+            "PAYMENT" -> if (voucherId == null) "سند دفع جديد" else "تعديل سند دفع"
+            "EXPENSE" -> if (voucherId == null) "مصروف جديد" else "تعديل مصروف"
+            else -> if (voucherId == null) "سند قبض جديد" else "تعديل سند قبض"
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        onBack = onBack
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ── Voucher type selector ────────────────────────────────
             item {
-                SectionCard(title = "نوع السند") {
+                VoucherHero(state.type, state.amount)
+            }
+
+            item {
+                SectionCard(
+                    title = "نوع السند",
+                    contentPadding = PaddingValues(12.dp),
+                    accentColor = MaterialTheme.colorScheme.primary
+                ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        VoucherTypeChip(
-                            label = "قبض",
-                            icon = Icons.Default.ArrowDownward,
-                            selected = state.type == "RECEIPT",
-                            color = AppColor.Green600,
-                            onClick = { if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("RECEIPT")) },
-                            modifier = Modifier.weight(1f),
-                        )
-                        VoucherTypeChip(
-                            label = "دفع",
-                            icon = Icons.Default.ArrowUpward,
-                            selected = state.type == "PAYMENT",
-                            color = AppColor.Amber600,
-                            onClick = { if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("PAYMENT")) },
-                            modifier = Modifier.weight(1f),
-                        )
-                        VoucherTypeChip(
-                            label = "مصروف",
-                            icon = Icons.Default.MoneyOff,
-                            selected = state.type == "EXPENSE",
-                            color = AppColor.Red600,
-                            onClick = { if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("EXPENSE")) },
-                            modifier = Modifier.weight(1f),
-                        )
+                        VoucherTypeChip("قبض", Icons.Default.ArrowDownward, state.type == "RECEIPT", AppColor.Green600, Modifier.weight(1f)) {
+                            if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("RECEIPT"))
+                        }
+                        VoucherTypeChip("دفع", Icons.Default.ArrowUpward, state.type == "PAYMENT", AppColor.Amber600, Modifier.weight(1f)) {
+                            if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("PAYMENT"))
+                        }
+                        VoucherTypeChip("مصروف", Icons.Default.MoneyOff, state.type == "EXPENSE", AppColor.Red600, Modifier.weight(1f)) {
+                            if (voucherId == null) viewModel.onEvent(VoucherEvent.TypeChanged("EXPENSE"))
+                        }
                     }
                 }
             }
 
-            // ── EXPENSE: description only ────────────────────────────
             if (state.isExpense) {
                 item {
-                    SectionCard(title = "وصف المصروف") {
-                        AppTextField(
+                    SectionCard(
+                        title = "وصف المصروف",
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        accentColor = AppColor.Red600
+                    ) {
+                        OutlinedTextField(
                             value = state.description,
                             onValueChange = { viewModel.onEvent(VoucherEvent.DescriptionChanged(it)) },
-                            label = "نوع المصروف",
-                            placeholder = "مثال: أجور موظفين، فاتورة كهرباء...",
-                            required = true,
-                            singleLine = false,
+                            label = { Text("نوع المصروف") },
+                            placeholder = { Text("مثال: أجور، كهرباء، نقل") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            keyboardActions = KeyboardActions(onNext = { amountFocus.requestFocus() }),
+                            shape = RoundedCornerShape(10.dp)
                         )
                     }
                 }
             } else {
-                // ── Customer picker ──────────────────────────────────
                 item {
-                    SectionCard(title = "الزبون") {
-                        ExposedDropdownMenuBox(expanded = customerExpanded, onExpandedChange = { customerExpanded = !customerExpanded }) {
-                            val selectedName = state.customers.find { it.id == state.selectedCustomerId }?.name ?: ""
+                    SectionCard(
+                        title = "الزبون",
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        accentColor = AppColor.Blue500
+                    ) {
+                        if (state.selectedCustomer == null) {
                             OutlinedTextField(
-                                value = selectedName,
-                                onValueChange = {},
-                                readOnly = true,
-                                modifier = Modifier.menuAnchor().fillMaxWidth(),
-                                label = { Text("اختر الزبون") },
+                                value = state.customerQuery,
+                                onValueChange = { viewModel.onEvent(VoucherEvent.CustomerQueryChanged(it)) },
+                                label = { Text("بحث باسم الزبون أو الرقم") },
                                 leadingIcon = { Icon(Icons.Default.Person, null) },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(customerExpanded) },
-                                shape = RoundedCornerShape(10.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                keyboardActions = KeyboardActions(onNext = {
+                                    state.customerSuggestions.firstOrNull()?.let {
+                                        viewModel.onEvent(VoucherEvent.CustomerChanged(it.id))
+                                        amountFocus.requestFocus()
+                                    }
+                                }),
+                                shape = RoundedCornerShape(10.dp)
                             )
-                            ExposedDropdownMenu(expanded = customerExpanded, onDismissRequest = { customerExpanded = false }) {
-                                state.customers.forEach { cust ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(cust.name, fontWeight = FontWeight.Medium)
-                                                Text(cust.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            }
-                                        },
-                                        leadingIcon = { TextAvatar(cust.name, AppColor.Blue600, size = 32.dp) },
-                                        trailingIcon = { BalanceChip(cust.currentBalance) },
-                                        onClick = {
-                                            viewModel.onEvent(VoucherEvent.CustomerChanged(cust.id))
-                                            customerExpanded = false
-                                        },
-                                    )
-                                }
+                            state.customerSuggestions.forEach { customer ->
+                                ListRow(
+                                    title = customer.name,
+                                    subtitle = customer.phone,
+                                    leading = { TextAvatar(customer.name, AppColor.Blue600, size = 36.dp) },
+                                    trailing = { BalanceChip(customer.currentBalance) },
+                                    onClick = {
+                                        viewModel.onEvent(VoucherEvent.CustomerChanged(customer.id))
+                                        amountFocus.requestFocus()
+                                    }
+                                )
                             }
-                        }
-
-                        // Show balance of selected customer
-                        state.customers.find { it.id == state.selectedCustomerId }?.let { cust ->
-                            Spacer(Modifier.height(8.dp))
-                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text("الرصيد الحالي", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    BalanceChip(cust.currentBalance)
+                        } else {
+                            val customer = state.selectedCustomer!!
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextAvatar(customer.name, AppColor.Blue600)
+                                Column(Modifier.weight(1f)) {
+                                    Text(customer.name, fontWeight = FontWeight.Bold)
+                                    Text(customer.phone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
+                                BalanceChip(customer.currentBalance)
+                                TextButton(onClick = { viewModel.onEvent(VoucherEvent.CustomerQueryChanged("")) }) { Text("تغيير") }
                             }
                         }
                     }
                 }
             }
 
-            // ── Amount + Date + Notes ────────────────────────────────
             item {
-                SectionCard(title = "تفاصيل السند") {
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        AppTextField(
-                            value = state.date,
-                            onValueChange = { viewModel.onEvent(VoucherEvent.DateChanged(it)) },
-                            label = "التاريخ",
-                            placeholder = "yyyy-MM-dd",
-                        )
-                        AppTextField(
-                            value = state.amount,
-                            onValueChange = { viewModel.onEvent(VoucherEvent.AmountChanged(it)) },
-                            label = "المبلغ",
-                            required = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        )
-                        AppTextField(
+                SectionCard(
+                    title = "المبلغ والتفاصيل",
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    accentColor = AppColor.Green600
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = state.date,
+                                onValueChange = { viewModel.onEvent(VoucherEvent.DateChanged(it)) },
+                                label = { Text("التاريخ") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                readOnly = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                            OutlinedTextField(
+                                value = state.amount,
+                                onValueChange = { viewModel.onEvent(VoucherEvent.AmountChanged(it)) },
+                                label = { Text("المبلغ") },
+                                suffix = { Text("IQD") },
+                                modifier = Modifier.weight(1.1f).focusRequester(amountFocus),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+                        OutlinedTextField(
                             value = state.notes,
                             onValueChange = { viewModel.onEvent(VoucherEvent.NotesChanged(it)) },
-                            label = "ملاحظات",
-                            singleLine = false,
+                            label = { Text("ملاحظات") },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 2,
+                            shape = RoundedCornerShape(10.dp)
                         )
                     }
                 }
             }
 
-            // ── Save button ──────────────────────────────────────────
             item {
-                val (btnColor, btnIcon) = when (state.type) {
-                    "RECEIPT" -> AppColor.Green600 to Icons.Default.ArrowDownward
-                    "PAYMENT" -> AppColor.Amber600 to Icons.Default.ArrowUpward
-                    else      -> AppColor.Red600   to Icons.Default.MoneyOff
+                val saveColor = when (state.type) {
+                    "PAYMENT" -> AppColor.Amber600
+                    "EXPENSE" -> AppColor.Red600
+                    else -> AppColor.Green600
                 }
                 Button(
                     onClick = { viewModel.onEvent(VoucherEvent.Submit) },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
                     enabled = !state.isLoading,
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = btnColor),
+                    colors = ButtonDefaults.buttonColors(containerColor = saveColor)
                 ) {
                     if (state.isLoading) {
                         CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                     } else {
-                        Icon(btnIcon, null, Modifier.size(18.dp))
+                        Icon(Icons.Default.CheckCircle, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(
-                            when (state.type) {
-                                "RECEIPT" -> "حفظ سند القبض"
-                                "PAYMENT" -> "حفظ سند الدفع"
-                                else      -> "حفظ المصروف"
-                            },
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Text(if (voucherId == null) "حفظ السند" else "تحديث السند", fontWeight = FontWeight.Bold)
                     }
                 }
             }
-
-            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoucherListScreen(
     viewModel: VoucherListViewModel = androidx.hilt.navigation.compose.hiltViewModel(),
@@ -270,19 +312,29 @@ fun VoucherListScreen(
     onNew: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Delete confirmation dialog
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.load()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     if (state.deleteConfirmId != null) {
         AlertDialog(
             onDismissRequest = { viewModel.cancelDelete() },
             icon = { Icon(Icons.Default.Delete, null, tint = AppColor.Red600) },
             title = { Text("حذف السند", textAlign = TextAlign.Center) },
-            text = { Text("هل أنت متأكد من حذف هذا السند؟ لا يمكن التراجع.") },
+            text = { Text("سيتم أرشفة السند وإلغاء أثره من الحساب. هل تريد المتابعة؟") },
             confirmButton = {
                 Button(
                     onClick = { viewModel.executeDelete() },
                     enabled = !state.deleteLoading,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColor.Red600),
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColor.Red600)
                 ) {
                     if (state.deleteLoading) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                     else Text("حذف")
@@ -296,9 +348,7 @@ fun VoucherListScreen(
         title = "السندات",
         onBack = onBack,
         actions = {
-            IconButton(onClick = { viewModel.load() }) {
-                Icon(Icons.Default.Refresh, "تحديث")
-            }
+            IconButton(onClick = { viewModel.load() }) { Icon(Icons.Default.Refresh, "تحديث") }
         },
         fab = {
             ExtendedFloatingActionButton(
@@ -306,88 +356,138 @@ fun VoucherListScreen(
                 icon = { Icon(Icons.Default.Add, null) },
                 text = { Text("سند جديد") },
                 containerColor = AppColor.Green600,
-                contentColor = Color.White,
+                contentColor = Color.White
             )
-        },
+        }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            // Type filter chips
+        Column(Modifier.fillMaxSize().padding(padding).background(MaterialTheme.colorScheme.background)) {
             Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(null to "الكل", "RECEIPT" to "قبض", "PAYMENT" to "دفع", "EXPENSE" to "مصاريف").forEach { (type, label) ->
-                    FilterChip(
-                        selected = state.typeFilter == type,
-                        onClick = { viewModel.load(type) },
-                        label = { Text(label) },
-                    )
+                listOf(null to "الكل", "RECEIPT" to "قبض", "PAYMENT" to "دفع", "EXPENSE" to "مصروف").forEach { (type, label) ->
+                    FilterChip(selected = state.typeFilter == type, onClick = { viewModel.load(type) }, label = { Text(label) })
                 }
             }
 
-            if (state.isLoading) {
-                Box(Modifier.padding(16.dp)) { SkeletonLoading(rows = 5) }
-            } else if (state.error != null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error)
+            when {
+                state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(Icons.Default.ErrorOutline, "تعذر تحميل السندات", state.error)
                 }
-            } else if (state.vouchers.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    EmptyState(Icons.Default.ConfirmationNumber, "لا توجد سندات", "اضغط + لإنشاء سند جديد")
+                state.vouchers.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    EmptyState(Icons.Default.ConfirmationNumber, "لا توجد سندات", "اضغط سند جديد لإضافة أول سند")
                 }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
+                else -> LazyColumn(
+                    contentPadding = PaddingValues(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    itemsIndexed(state.vouchers) { _, voucher ->
-                        val (color, typeLabel) = when (voucher.type) {
-                            "RECEIPT" -> AppColor.Green600 to "قبض"
-                            "PAYMENT" -> AppColor.Amber600 to "دفع"
-                            else      -> AppColor.Red600 to "مصاريف"
-                        }
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                // Type badge
-                                Box(
-                                    modifier = Modifier.size(44.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(typeLabel, color = color, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(voucher.voucherNumber, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                    Text(voucher.customerName ?: voucher.description ?: "—", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(voucher.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(
-                                        "%,.0f".format(voucher.amount),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = color
-                                    )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        IconButton(onClick = { onEdit(voucher.id) }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.Edit, "تعديل", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                                        }
-                                        IconButton(onClick = { viewModel.confirmDelete(voucher.id) }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.Delete, "حذف", modifier = Modifier.size(16.dp), tint = AppColor.Red600)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    items(state.vouchers, key = { it.id }) { voucher ->
+                        VoucherCard(voucher, onEdit = { onEdit(voucher.id) }, onDelete = { viewModel.confirmDelete(voucher.id) })
                     }
                     item { Spacer(Modifier.height(80.dp)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoucherHero(type: String, amount: String) {
+    val color = when (type) {
+        "PAYMENT" -> AppColor.Amber600
+        "EXPENSE" -> AppColor.Red600
+        else -> AppColor.Green600
+    }
+    val label = when (type) {
+        "PAYMENT" -> "سند دفع"
+        "EXPENSE" -> "مصروف"
+        else -> "سند قبض"
+    }
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.45f))
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(42.dp)
+                        .background(color.copy(alpha = 0.14f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        when (type) {
+                            "PAYMENT" -> Icons.Default.ArrowUpward
+                            "EXPENSE" -> Icons.Default.MoneyOff
+                            else -> Icons.Default.ArrowDownward
+                        },
+                        null,
+                        tint = color
+                    )
+                }
+                Column {
+                    Text(label, color = color, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "تحديث حساب مباشر",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Text(
+                "${amount.ifBlank { "0" }} IQD",
+                color = color,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.ExtraBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun VoucherCard(voucher: Voucher, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val (color, typeLabel, icon) = when (voucher.type) {
+        "PAYMENT" -> Triple(AppColor.Amber600, "دفع", Icons.Default.ArrowUpward)
+        "EXPENSE" -> Triple(AppColor.Red600, "مصروف", Icons.Default.MoneyOff)
+        else -> Triple(AppColor.Green600, "قبض", Icons.Default.ArrowDownward)
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(1.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(44.dp).background(color.copy(alpha = 0.12f), RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = color)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(voucher.voucherNumber, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(voucher.customerName ?: voucher.description ?: typeLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(voucher.date.take(10), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${voucher.amount.formatMoney()} IQD", color = color, fontWeight = FontWeight.ExtraBold)
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Edit, "تعديل", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)) }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Delete, "حذف", tint = AppColor.Red600, modifier = Modifier.size(18.dp)) }
                 }
             }
         }
@@ -400,27 +500,23 @@ private fun VoucherTypeChip(
     icon: ImageVector,
     selected: Boolean,
     color: Color,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onClick: () -> Unit,
 ) {
-    val bg  = if (selected) color else MaterialTheme.colorScheme.surfaceVariant
-    val fg  = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-    val brd = if (selected) color else MaterialTheme.colorScheme.outline
-
     OutlinedCard(
-        modifier = modifier,
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
-        border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp, brd),
-        colors = CardDefaults.outlinedCardColors(containerColor = bg),
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (selected) color else MaterialTheme.colorScheme.outline),
+        colors = CardDefaults.outlinedCardColors(containerColor = if (selected) color.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface)
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Icon(icon, null, tint = fg, modifier = Modifier.size(20.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, color = fg, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+            Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
+            Text(label, color = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
         }
     }
 }

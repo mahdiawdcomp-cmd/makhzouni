@@ -5,31 +5,41 @@ import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.dto.CreateVoucherRequest
 import com.inventory.data.repository.CustomerRepository
 import com.inventory.data.repository.VoucherRepository
+import com.inventory.domain.model.Customer
+import com.inventory.domain.model.Voucher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.LocalDate
 import javax.inject.Inject
 
 data class VoucherFormState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val success: Boolean = false,
-    val customers: List<com.inventory.domain.model.Customer> = emptyList(),
+    val customers: List<Customer> = emptyList(),
+    val customerQuery: String = "",
     val selectedCustomerId: String = "",
     val amount: String = "",
     val type: String = "RECEIPT",
-    val date: String = "",
+    val date: String = LocalDate.now().toString(),
     val notes: String = "",
-    val description: String = "",   // for EXPENSE vouchers
+    val description: String = "",
     val editingVoucherId: String? = null,
     val voucherNumber: String = "",
     val editLoaded: Boolean = false
 ) {
     val isExpense: Boolean get() = type == "EXPENSE"
+    val selectedCustomer: Customer? get() = customers.firstOrNull { it.id == selectedCustomerId }
+    val customerSuggestions: List<Customer>
+        get() = if (isExpense || selectedCustomer != null || customerQuery.isBlank()) {
+            emptyList()
+        } else {
+            customers
+                .filter { it.name.contains(customerQuery, true) || it.phone.contains(customerQuery) }
+                .take(8)
+        }
 }
 
 @HiltViewModel
@@ -42,23 +52,32 @@ class VoucherViewModel @Inject constructor(
     val state = _state.asStateFlow()
 
     init {
-        loadCustomers()
+        viewModelScope.launch { customerRepository.customers.collect { list -> _state.value = _state.value.copy(customers = list) } }
         viewModelScope.launch { customerRepository.refreshCustomers() }
-    }
-
-    private fun loadCustomers() {
-        viewModelScope.launch {
-            customerRepository.customers.collect { list ->
-                _state.value = _state.value.copy(customers = list)
-            }
-        }
     }
 
     fun onEvent(event: VoucherEvent) {
         when (event) {
-            is VoucherEvent.CustomerChanged -> _state.value = _state.value.copy(selectedCustomerId = event.id, error = null)
-            is VoucherEvent.AmountChanged -> _state.value = _state.value.copy(amount = event.amount, error = null)
-            is VoucherEvent.TypeChanged -> _state.value = _state.value.copy(type = event.type, error = null)
+            is VoucherEvent.CustomerQueryChanged -> _state.value = _state.value.copy(
+                customerQuery = event.query,
+                selectedCustomerId = "",
+                error = null
+            )
+            is VoucherEvent.CustomerChanged -> {
+                val customer = _state.value.customers.firstOrNull { it.id == event.id }
+                _state.value = _state.value.copy(
+                    selectedCustomerId = event.id,
+                    customerQuery = customer?.name.orEmpty(),
+                    error = null
+                )
+            }
+            is VoucherEvent.AmountChanged -> _state.value = _state.value.copy(amount = event.amount.decimal(), error = null)
+            is VoucherEvent.TypeChanged -> _state.value = _state.value.copy(
+                type = event.type,
+                selectedCustomerId = if (event.type == "EXPENSE") "" else _state.value.selectedCustomerId,
+                customerQuery = if (event.type == "EXPENSE") "" else _state.value.customerQuery,
+                error = null
+            )
             is VoucherEvent.DateChanged -> _state.value = _state.value.copy(date = event.date, error = null)
             is VoucherEvent.NotesChanged -> _state.value = _state.value.copy(notes = event.notes, error = null)
             is VoucherEvent.DescriptionChanged -> _state.value = _state.value.copy(description = event.description, error = null)
@@ -72,8 +91,8 @@ class VoucherViewModel @Inject constructor(
         if (_state.value.editLoaded && _state.value.editingVoucherId == voucherId) return
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, editingVoucherId = voucherId)
-            val result = voucherRepository.getVoucher(voucherId)
-            result.onSuccess { voucher ->
+            voucherRepository.getVoucher(voucherId).onSuccess { voucher ->
+                val customerName = _state.value.customers.firstOrNull { it.id == voucher.customerId }?.name.orEmpty()
                 _state.value = _state.value.copy(
                     isLoading = false,
                     error = null,
@@ -81,14 +100,15 @@ class VoucherViewModel @Inject constructor(
                     editingVoucherId = voucher.id,
                     voucherNumber = voucher.voucherNumber,
                     selectedCustomerId = voucher.customerId.orEmpty(),
-                    amount = voucher.amount.toString(),
+                    customerQuery = customerName,
+                    amount = voucher.amount.cleanAmount(),
                     type = voucher.type,
-                    date = voucher.date,
+                    date = voucher.date.take(10),
                     notes = voucher.notes.orEmpty(),
                     description = voucher.description.orEmpty()
                 )
             }.onFailure {
-                _state.value = _state.value.copy(isLoading = false, error = it.message)
+                _state.value = _state.value.copy(isLoading = false, error = it.message ?: "تعذر تحميل السند")
             }
         }
     }
@@ -96,51 +116,51 @@ class VoucherViewModel @Inject constructor(
     private fun submitVoucher() {
         val s = _state.value
         val amountDouble = s.amount.toDoubleOrNull()
-
-        // Validation
-        if (!s.isExpense && s.selectedCustomerId.isBlank()) {
-            _state.value = s.copy(error = "يجب اختيار الزبون")
-            return
+        val error = when {
+            !s.isExpense && s.selectedCustomerId.isBlank() -> "اختر الزبون"
+            s.isExpense && s.description.isBlank() -> "اكتب وصف المصروف"
+            amountDouble == null || amountDouble <= 0 -> "المبلغ غير صحيح"
+            s.date.isBlank() -> "التاريخ مطلوب"
+            else -> null
         }
-        if (s.isExpense && s.description.isBlank()) {
-            _state.value = s.copy(error = "يجب إدخال وصف للمصروف")
-            return
-        }
-        if (amountDouble == null || amountDouble <= 0) {
-            _state.value = s.copy(error = "المبلغ غير صحيح")
+        if (error != null) {
+            _state.value = s.copy(error = error)
             return
         }
 
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
-            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
             val request = CreateVoucherRequest(
                 customerId = if (s.isExpense) null else s.selectedCustomerId,
-                amount = amountDouble,
+                amount = amountDouble!!,
                 type = s.type,
-                date = s.date.takeIf { it.isNotBlank() } ?: sdf.format(Date()),
+                date = s.date,
                 notes = s.notes.takeIf { it.isNotBlank() },
                 description = s.description.takeIf { it.isNotBlank() }
             )
             val result = s.editingVoucherId?.let { voucherRepository.updateVoucher(it, request).map { } }
                 ?: voucherRepository.createVoucher(request)
             result.onSuccess {
+                customerRepository.refreshCustomers()
                 _state.value = _state.value.copy(
                     isLoading = false,
                     success = true,
                     amount = "",
                     notes = "",
                     description = "",
-                    selectedCustomerId = ""
+                    customerQuery = "",
+                    selectedCustomerId = "",
+                    date = LocalDate.now().toString()
                 )
             }.onFailure {
-                _state.value = _state.value.copy(isLoading = false, error = it.message)
+                _state.value = _state.value.copy(isLoading = false, error = it.message ?: "تعذر حفظ السند")
             }
         }
     }
 }
 
 sealed class VoucherEvent {
+    data class CustomerQueryChanged(val query: String) : VoucherEvent()
     data class CustomerChanged(val id: String) : VoucherEvent()
     data class AmountChanged(val amount: String) : VoucherEvent()
     data class DateChanged(val date: String) : VoucherEvent()
@@ -152,11 +172,9 @@ sealed class VoucherEvent {
     object DismissSuccess : VoucherEvent()
 }
 
-// ── Voucher List ─────────────────────────────────────────────────────────────
-
 data class VoucherListState(
     val isLoading: Boolean = false,
-    val vouchers: List<com.inventory.domain.model.Voucher> = emptyList(),
+    val vouchers: List<Voucher> = emptyList(),
     val error: String? = null,
     val typeFilter: String? = null,
     val deleteConfirmId: String? = null,
@@ -165,7 +183,8 @@ data class VoucherListState(
 
 @HiltViewModel
 class VoucherListViewModel @Inject constructor(
-    private val voucherRepository: VoucherRepository
+    private val voucherRepository: VoucherRepository,
+    private val customerRepository: CustomerRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(VoucherListState())
@@ -179,7 +198,7 @@ class VoucherListViewModel @Inject constructor(
             voucherRepository.listVouchers(type = type).onSuccess { list ->
                 _state.value = _state.value.copy(isLoading = false, vouchers = list)
             }.onFailure {
-                _state.value = _state.value.copy(isLoading = false, error = it.message)
+                _state.value = _state.value.copy(isLoading = false, error = it.message ?: "تعذر تحميل السندات")
             }
         }
     }
@@ -197,14 +216,25 @@ class VoucherListViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = _state.value.copy(deleteLoading = true)
             voucherRepository.deleteVoucher(id).onSuccess {
+                customerRepository.refreshCustomers()
                 _state.value = _state.value.copy(
                     deleteLoading = false,
                     deleteConfirmId = null,
                     vouchers = _state.value.vouchers.filter { it.id != id }
                 )
             }.onFailure {
-                _state.value = _state.value.copy(deleteLoading = false, error = it.message, deleteConfirmId = null)
+                _state.value = _state.value.copy(
+                    deleteLoading = false,
+                    error = it.message ?: "تعذر حذف السند",
+                    deleteConfirmId = null
+                )
             }
         }
     }
+}
+
+private fun String.decimal() = filter { it.isDigit() || it == '.' }.ifBlank { "" }
+
+private fun Double.cleanAmount(): String {
+    return if (this % 1.0 == 0.0) toLong().toString() else toString()
 }

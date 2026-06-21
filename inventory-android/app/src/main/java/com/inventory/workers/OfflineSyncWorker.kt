@@ -13,10 +13,12 @@ import com.inventory.data.repository.SessionManager
 import com.inventory.data.local.CustomerEntity
 import com.inventory.data.local.InvoiceEntity
 import com.inventory.data.local.InvoiceItemEntity
+import com.inventory.data.local.PaymentVoucherEntity
 import com.inventory.data.local.ProductEntity
 import com.inventory.data.remote.dto.CustomerDto
 import com.inventory.data.remote.dto.InvoiceDto
 import com.inventory.data.remote.dto.ProductDto
+import com.inventory.data.remote.dto.VoucherDto
 import com.inventory.di.DatabaseEntryPoint
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -133,6 +135,12 @@ class OfflineSyncWorker(
             database.customerDao().replaceAll(response.data.map { it.toEntity() })
         }
 
+        body("vouchers?limit=1000")?.let { json ->
+            val type = object : TypeToken<PagedResponse<VoucherDto>>() {}.type
+            val response = gson.fromJson<PagedResponse<VoucherDto>>(json, type)
+            database.paymentVoucherDao().replaceAll(response.data.map { it.toEntity() })
+        }
+
         body("invoices?limit=1000")?.let { json ->
             val type = object : TypeToken<PagedResponse<InvoiceDto>>() {}.type
             val response = gson.fromJson<PagedResponse<InvoiceDto>>(json, type)
@@ -182,6 +190,17 @@ private fun CustomerDto.toEntity() = CustomerEntity(
     lastTransactionAt = lastTransactionAt,
     updatedAt = updatedAt,
     deletedAt = null
+)
+
+private fun VoucherDto.toEntity() = PaymentVoucherEntity(
+    id = id,
+    voucherNumber = voucherNumber,
+    customerId = customerId,
+    amount = amount,
+    type = type,
+    date = date,
+    notes = notes ?: description,
+    createdAt = createdAt
 )
 
 private fun InvoiceDto.toEntity() = InvoiceEntity(
