@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, Link2, MessageCircle, Pencil } from "lucide-react"
+import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
-import { createCustomerPortalLink, getCustomerRatings } from "../api/endpoints"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
+import { createCustomerPortalLink, getCustomerRatings, deleteCustomer } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
@@ -128,8 +129,19 @@ export function CustomerDetailPage() {
   const [to, setTo] = useState("")
   const [receiptOpen, setReceiptOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const queryClient = useQueryClient()
   const details = useCustomerDetails(id)
   const updateMutation = useUpdateCustomer(id)
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteCustomer(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customers"] })
+      toast({ title: "تم حذف الزبون", description: "فواتيره وبضاعته محفوظة، لكنه لن يظهر في قائمة الزبائن." })
+      navigate("/customers")
+    },
+    onError: () => toast({ title: "تعذر حذف الزبون", variant: "destructive" }),
+  })
   const customer = details.customerQuery.data
   const ratingsQuery = useQuery({ queryKey: ["customer-ratings"], queryFn: getCustomerRatings, staleTime: 5 * 60_000 })
   const myRating = ratingsQuery.data?.find((r) => r.id === id)?.rating ?? null
@@ -226,6 +238,9 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4 text-slate-600" /> تعديل البيانات
           </Button>
+          <Button variant="outline" onClick={() => setDeleteOpen(true)}>
+            <Trash2 className="h-4 w-4 text-rose-600" /> حذف الزبون
+          </Button>
           <Button variant="outline" onClick={() => void sendStatement()} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
@@ -313,6 +328,16 @@ export function CustomerDetailPage() {
         }
         isPending={updateMutation.isPending}
         isError={updateMutation.isError}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        title={`حذف الزبون «${customer.name}»؟`}
+        description="سيختفي الزبون من القائمة، لكن فواتيره وحركة بضاعته تبقى محفوظة في النظام. تقدر تشوفه لاحقاً من «كشف الحساب»."
+        confirmLabel="حذف الزبون"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => { deleteMutation.mutate(); setDeleteOpen(false) }}
+        onCancel={() => setDeleteOpen(false)}
       />
     </div>
   )
@@ -494,6 +519,7 @@ function EditCustomerModal({
     tags: customer.tags ?? [],
     isSupplier: customer.isSupplier ?? false,
     creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
+    openingBalance: String(customer.openingBalance ?? 0),
   })
 
   // Reset form to latest customer data every time the modal opens
@@ -508,6 +534,7 @@ function EditCustomerModal({
         tags: customer.tags ?? [],
         isSupplier: customer.isSupplier ?? false,
         creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
+        openingBalance: String(customer.openingBalance ?? 0),
       })
     }
   }, [open, customer])
@@ -527,6 +554,7 @@ function EditCustomerModal({
       tags: form.tags,
       isSupplier: form.isSupplier,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
+      openingBalance: Number(form.openingBalance) || 0,
     })
   }
 
@@ -576,6 +604,18 @@ function EditCustomerModal({
         <div className="space-y-1">
           <Label>التاكات (اختر بالضغط أو أضف جديد)</Label>
           <TagPicker value={form.tags} onChange={(tags) => set("tags", tags)} />
+        </div>
+
+        <div className="space-y-1">
+          <Label>الرصيد الافتتاحي (حساب أول المدة) — صحّحه إذا انكتب غلط</Label>
+          <Input
+            type="number"
+            value={form.openingBalance}
+            onChange={(e) => set("openingBalance", e.target.value)}
+            placeholder="0"
+            dir="ltr"
+          />
+          <p className="text-xs text-amber-600">تغييره يعيد حساب رصيد الزبون الحالي تلقائياً.</p>
         </div>
 
         <div className="space-y-1">
