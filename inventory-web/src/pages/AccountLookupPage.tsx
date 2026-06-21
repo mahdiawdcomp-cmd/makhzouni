@@ -36,43 +36,72 @@ function transactionTone(tx: CustomerTransaction) {
 
   if (status === "CANCELLED") {
     return {
-      row: "border-r-4 border-rose-500 bg-rose-50/80 hover:bg-rose-100/80",
-      style: { backgroundColor: "#FFF1F2", borderRight: "4px solid #F43F5E" },
-      label: "bg-rose-100 text-rose-700 border border-rose-200",
+      row: "border-r-4 border-rose-600 bg-rose-100 hover:bg-rose-200/80",
+      style: { backgroundColor: "#FFE4E6", borderRight: "4px solid #DC2626" },
+      label: "bg-rose-200 text-rose-900 border border-rose-400 font-bold",
     }
   }
   if (isPurchase) {
+    // فاتورة شراء — برتقالي غامق واضح
     return {
-      row: "border-r-4 border-amber-500 bg-amber-50/70 hover:bg-amber-100/70",
-      style: { backgroundColor: "#FFFBEB", borderRight: "4px solid #F59E0B" },
-      label: "bg-amber-100 text-amber-800 border border-amber-200",
+      row: "border-r-4 border-amber-600 bg-amber-100 hover:bg-amber-200/80",
+      style: { backgroundColor: "#FEF3C7", borderRight: "4px solid #D97706" },
+      label: "bg-amber-200 text-amber-900 border border-amber-500 font-bold",
     }
   }
   if (isReturn) {
+    // مرتجع — بنفسجي
     return {
-      row: "border-r-4 border-purple-400 bg-purple-50/70 hover:bg-purple-100/70",
-      style: { backgroundColor: "#FAF5FF", borderRight: "4px solid #A855F7" },
-      label: "bg-purple-100 text-purple-800 border border-purple-200",
+      row: "border-r-4 border-purple-600 bg-purple-100 hover:bg-purple-200/80",
+      style: { backgroundColor: "#EDE9FE", borderRight: "4px solid #7C3AED" },
+      label: "bg-purple-200 text-purple-900 border border-purple-500 font-bold",
     }
   }
-  if (isSale || isPayment) {
+  if (isSale) {
+    // فاتورة بيع — أزرق غامق
     return {
-      row: "border-r-4 border-blue-500 bg-blue-50/70 hover:bg-blue-100/70",
-      style: { backgroundColor: "#EFF6FF", borderRight: "4px solid #3B82F6" },
-      label: "bg-blue-100 text-blue-700 border border-blue-200",
+      row: "border-r-4 border-blue-600 bg-blue-100 hover:bg-blue-200/80",
+      style: { backgroundColor: "#DBEAFE", borderRight: "4px solid #2563EB" },
+      label: "bg-blue-200 text-blue-900 border border-blue-500 font-bold",
+    }
+  }
+  if (isPayment) {
+    // دفعة مسبقة — أزرق فاتح أقل
+    return {
+      row: "border-r-4 border-sky-500 bg-sky-50 hover:bg-sky-100",
+      style: { backgroundColor: "#E0F2FE", borderRight: "4px solid #0284C7" },
+      label: "bg-sky-200 text-sky-900 border border-sky-400 font-bold",
     }
   }
   if (isVoucher) {
+    const t = String(type ?? "")
+    if (t === "RECEIPT") {
+      // سند قبض — أخضر غامق
+      return {
+        row: "border-r-4 border-emerald-600 bg-emerald-100 hover:bg-emerald-200/80",
+        style: { backgroundColor: "#D1FAE5", borderRight: "4px solid #059669" },
+        label: "bg-emerald-200 text-emerald-900 border border-emerald-600 font-bold",
+      }
+    }
+    if (t === "PAYMENT") {
+      // سند دفع — برتقالي/بني
+      return {
+        row: "border-r-4 border-orange-600 bg-orange-100 hover:bg-orange-200/80",
+        style: { backgroundColor: "#FFEDD5", borderRight: "4px solid #EA580C" },
+        label: "bg-orange-200 text-orange-900 border border-orange-500 font-bold",
+      }
+    }
+    // مصاريف
     return {
-      row: "border-r-4 border-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70",
-      style: { backgroundColor: "#ECFDF5", borderRight: "4px solid #10B981" },
-      label: "bg-emerald-100 text-emerald-700 border border-emerald-200",
+      row: "border-r-4 border-red-500 bg-red-50 hover:bg-red-100",
+      style: { backgroundColor: "#FEF2F2", borderRight: "4px solid #EF4444" },
+      label: "bg-red-100 text-red-900 border border-red-400 font-bold",
     }
   }
   return {
-    row: "border-r-4 border-slate-300 hover:bg-slate-50",
-    style: { borderRight: "4px solid #CBD5E1" },
-    label: "bg-slate-100 text-slate-700 border border-slate-200",
+    row: "border-r-4 border-slate-400 bg-slate-50 hover:bg-slate-100",
+    style: { borderRight: "4px solid #94A3B8" },
+    label: "bg-slate-200 text-slate-800 border border-slate-400 font-bold",
   }
 }
 

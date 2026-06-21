@@ -91,6 +91,7 @@ export interface PrintInvoice {
   subtotal?: number; discount?: number; tax?: number; total?: number
   paid?: number; remaining?: number; previousBalance?: number; finalBalance?: number
   paymentType?: string
+  invoiceType?: "SALE" | "PURCHASE" | "SALES_RETURN"
 }
 export interface PrintStore {
   storeName: string; storeLogo?: string; storePhone?: string; storeAddress?: string; currency?: string
@@ -238,7 +239,10 @@ export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore):
     case "storeName": return store.storeName || "اسم المحل"
     case "storePhone": return store.storePhone ? `📞 ${store.storePhone}` : ""
     case "storeAddress": return store.storeAddress ? `📍 ${store.storeAddress}` : ""
-    case "title": return "فاتورة بيع"
+    case "title":
+      return inv.invoiceType === "PURCHASE" ? "فاتورة شراء"
+        : inv.invoiceType === "SALES_RETURN" ? "مرتجع مبيعات"
+        : "فاتورة بيع"
     case "invoiceNumber": return inv.number
     case "date": return inv.date
     case "paymentType": return inv.paymentType || "—"
@@ -252,9 +256,21 @@ export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore):
     case "total": return money(total, cur)
     case "paid": return money(paid, cur)
     case "remaining": return money(remaining, cur)
-    case "previousBalance": return prev ? money(prev, cur) : "—"
-    case "finalBalance": return money(finalBalance, cur)
-    case "grandTotal": return money(total + prev, cur)
+    case "previousBalance": {
+      // Purchase invoices: balance is stored negative (supplier is creditor); negate for display
+      const displayPrev = inv.invoiceType === "PURCHASE" ? -prev : prev
+      return displayPrev ? money(displayPrev, cur) : "—"
+    }
+    case "finalBalance": {
+      const displayFinal = inv.invoiceType === "PURCHASE" ? -finalBalance : finalBalance
+      return money(displayFinal, cur)
+    }
+    case "grandTotal": {
+      // For sale: total + prev balance (what customer owes in total)
+      // For purchase: total + abs(prev) (total we owe supplier)
+      const displayGrand = inv.invoiceType === "PURCHASE" ? total + Math.abs(prev) : total + prev
+      return money(displayGrand, cur)
+    }
     case "footer": return "شكراً لتعاملكم معنا 🌟"
   }
 }

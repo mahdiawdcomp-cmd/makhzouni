@@ -131,6 +131,7 @@ export function InvoiceDetailPage() {
       previousBalance: invoice.previousBalance ?? 0,
       finalBalance: invoice.finalBalance,
       paymentType: invoice.paymentType === "CASH" ? "نقد" : invoice.paymentType === "PARTIAL" ? "جزئي" : "أجل",
+      invoiceType: invoice.type as "SALE" | "PURCHASE" | "SALES_RETURN",
     }
     const store = {
       storeName: settings?.storeName || "",
@@ -333,6 +334,7 @@ export function InvoiceDetailPage() {
       previousBalance: invoice.previousBalance ?? 0,
       finalBalance: invoice.finalBalance,
       paymentType: invoice.paymentType === "CASH" ? "نقد" : invoice.paymentType === "PARTIAL" ? "جزئي" : "أجل",
+      invoiceType: invoice.type as "SALE" | "PURCHASE" | "SALES_RETURN",
     }
     return renderDesignHTML(design, printInv, {
       storeName: settings?.storeName || "",
