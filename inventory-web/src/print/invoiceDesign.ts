@@ -138,6 +138,33 @@ export function defaultDesign(paper: PaperSize): Design {
   }
 }
 
+// Parse both per-paper designs from the stored invoiceTemplate JSON.
+export function parseDesigns(json?: string | null): Record<PaperSize, Design> {
+  const r: Record<PaperSize, Design> = { a4: defaultDesign("a4"), "80mm": defaultDesign("80mm") }
+  if (json) {
+    try {
+      const o = JSON.parse(json)
+      if (o?.designs?.a4) r.a4 = o.designs.a4
+      if (o?.designs?.["80mm"]) r["80mm"] = o.designs["80mm"]
+      else if (o?.v === 2 && o.paper) r[o.paper as PaperSize] = o
+    } catch { /* defaults */ }
+  }
+  return r
+}
+
+// Print an HTML document via a throwaway hidden iframe (no popup blockers).
+export function printHTML(html: string) {
+  const iframe = document.createElement("iframe")
+  iframe.style.cssText = "position:fixed;width:0;height:0;border:0;left:-9999px"
+  document.body.appendChild(iframe)
+  iframe.onload = () => {
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setTimeout(() => iframe.remove(), 1500)
+  }
+  iframe.srcdoc = html
+}
+
 export function parseDesign(json?: string | null, paper: PaperSize = "80mm"): Design {
   if (json) {
     try {

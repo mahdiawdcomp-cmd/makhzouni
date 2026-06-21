@@ -22,6 +22,7 @@ import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
+import { parseDesigns, renderDesignHTML, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
 import type { InvoiceItem, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -102,6 +103,32 @@ export function InvoiceDetailPage() {
         return difference || a.id.localeCompare(b.id)
       })
   }, [list])
+
+  // Print using the saved visual design (invoiceDesign)
+  function printWithDesign(paper: PaperSize) {
+    if (!invoice) return
+    const design = parseDesigns(settings?.invoiceDesign)[paper]
+    const printInv: PrintInvoice = {
+      number: invoice.invoiceNumber,
+      date: String(invoice.date).slice(0, 10),
+      customerName: invoice.customer?.name ?? "",
+      customerPhone: invoice.customer?.phone ?? "",
+      lines: (invoice.items ?? []).map((it) => ({
+        name: it.productName ?? "",
+        qty: it.quantity,
+        price: it.unitPrice,
+      })),
+      previousBalance: invoice.previousBalance ?? 0,
+    }
+    const store = {
+      storeName: settings?.storeName || "",
+      storeLogo: settings?.storeLogo || "",
+      storePhone: settings?.storePhone || "",
+      storeAddress: settings?.storeAddress || "",
+      currency: settings?.currency || "د.ع",
+    }
+    printHTML(renderDesignHTML(design, printInv, store))
+  }
 
   // WhatsApp preview
   const [waPreview, setWaPreview] = useState(false)
@@ -281,8 +308,8 @@ export function InvoiceDetailPage() {
         <RecordNavigator currentId={id} orderedIds={sorted.map((row) => row.id)} onNavigate={(target) => navigate(`/invoices/${target}`)} noun="فاتورة" />
         <div className="mr-auto flex flex-wrap gap-1.5">
           <Button variant="outline" size="sm" onClick={openWaPreview}><MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> واتساب</Button>
-          <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="h-3.5 w-3.5" /> طباعة</Button>
-          <Button variant="outline" size="sm" onClick={() => window.print()}><FileDown className="h-3.5 w-3.5" /> PDF / طباعة</Button>
+          <Button variant="outline" size="sm" onClick={() => printWithDesign("80mm")}><Printer className="h-3.5 w-3.5" /> طباعة حرارية</Button>
+          <Button variant="outline" size="sm" onClick={() => printWithDesign("a4")}><FileDown className="h-3.5 w-3.5" /> طباعة A4</Button>
           {invoice.status === "ACTIVE" ? (
             <>
               <Button variant="outline" size="sm" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>

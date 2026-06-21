@@ -42,7 +42,7 @@ export function InvoiceDesignerPage() {
 
   // Load stored design ONCE (not on every settings refetch — that would wipe edits).
   useEffect(() => {
-    if (settings && !loaded.current) { loaded.current = true; setDesigns(loadStored(settings.invoiceTemplate)) }
+    if (settings && !loaded.current) { loaded.current = true; setDesigns(loadStored(settings.invoiceDesign)) }
   }, [settings])
 
   const design = designs[paper]
@@ -165,7 +165,7 @@ export function InvoiceDesignerPage() {
 
   // ── save / print ──
   const handleSave = () => {
-    updateSettings.mutate({ invoiceTemplate: JSON.stringify({ v: 2, designs }) }, { onSuccess: () => setSaved(true) })
+    updateSettings.mutate({ invoiceDesign: JSON.stringify({ v: 2, designs }) }, { onSuccess: () => setSaved(true) })
   }
   const handlePrint = () => {
     const html = renderDesignHTML(design, SAMPLE_INVOICE, store)

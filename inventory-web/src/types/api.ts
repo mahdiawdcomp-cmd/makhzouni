@@ -636,6 +636,7 @@ export interface AppSettings {
   invoiceTemplate?: string
   voucherTemplate?: string
   statementTemplate?: string
+  invoiceDesign?: string   // visual invoice designer layout (JSON) — separate from WhatsApp text templates above
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   shopWarehouseId?: string
