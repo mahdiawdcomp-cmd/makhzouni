@@ -4,6 +4,7 @@
 export type ThemeId =
   | "zoho" | "classic" | "exclusive" | "bold" | "designer"
   | "midnight" | "rosegold" | "forest" | "coral" | "mono"
+  | "executive"
   | "custom"
 
 export interface ThemeVars {
@@ -225,6 +226,23 @@ export const themes: ThemeDef[] = [
       headerBg: "#ffffff", sidebar: "#09090b", sidebarText: "#a1a1aa",
       primaryBtn: "#18181b", primaryBtnHover: "#27272a",
       textPrimary: "#09090b", fontFamily: INTER,
+    },
+  },
+
+  // ── Executive — premium indigo/violet on deep navy (desktop POS look) ────────
+  {
+    id: "executive",
+    label: "نخبة 💎",
+    description: "نيلي وبنفسجي فاخر على كحلي عميق — مظهر برامج سطح المكتب الراقية.",
+    preview: { bg: "#090D16", accent: "#6366f1" },
+    vars: {
+      accent: "#6366f1", accentSoft: "rgba(99,102,241,0.12)",
+      receipt: "#10b981", payment: "#f59e0b", expense: "#fb7185",
+      sale: "#10b981", purchase: "#8b5cf6",
+      pageBg: "#090D16", cardBg: "#111A2E", cardBorder: "#1f2a3d",
+      headerBg: "#0E1524", sidebar: "#0E1524", sidebarText: "#94a3b8",
+      primaryBtn: "#4f46e5", primaryBtnHover: "#4338ca",
+      textPrimary: "#E2E8F0", fontFamily: CAIRO,
     },
   },
 
