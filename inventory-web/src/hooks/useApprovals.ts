@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { getApprovals, getMyApprovals, reviewApproval } from "../api/endpoints"
+import { bulkReviewApprovals, getApprovals, getMyApprovals, reviewApproval } from "../api/endpoints"
 
 export function useApprovals() {
   const queryClient = useQueryClient()
@@ -19,5 +19,11 @@ export function useApprovals() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
   })
 
-  return { approvalsQuery, myApprovalsQuery, reviewMutation }
+  const bulkReviewMutation = useMutation({
+    mutationFn: ({ ids, status }: { ids: string[]; status: "APPROVED" | "REJECTED" }) =>
+      bulkReviewApprovals(ids, status),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
+  })
+
+  return { approvalsQuery, myApprovalsQuery, reviewMutation, bulkReviewMutation }
 }

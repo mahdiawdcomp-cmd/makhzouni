@@ -210,6 +210,11 @@ export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED"
   return data
 }
 
+export async function bulkReviewApprovals(ids: string[], status: "APPROVED" | "REJECTED") {
+  const { data } = await api.post<{ success: boolean; done: number; failed: number; message: string }>("/approvals/bulk-review", { ids, status })
+  return data
+}
+
 export async function getProducts(params?: { search?: string; category?: string; limit?: number }) {
   const { data } = await api.get<PagedResponse<Product>>("/products", { params })
   return data.data ?? []

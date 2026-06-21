@@ -132,12 +132,20 @@ function approvalData(approval: Approval | null): ApprovalData {
 }
 
 export function ApprovalsPage() {
-  const { approvalsQuery, reviewMutation } = useApprovals()
+  const { approvalsQuery, reviewMutation, bulkReviewMutation } = useApprovals()
   const [selected, setSelected] = useState<Approval | null>(null)
   const [allowPricesById, setAllowPricesById] = useState<Record<string, boolean>>({})
   const [showStockById, setShowStockById] = useState<Record<string, boolean>>({})
+  const [rejectConfirm, setRejectConfirm] = useState<{ ids: string[]; label: string } | null>(null)
   const rows = approvalsQuery.data ?? []
   const catalogUrl = `${window.location.origin}/catalog`
+
+  function bulkApprove(ids: string[]) {
+    bulkReviewMutation.mutate({ ids, status: "APPROVED" })
+  }
+  function bulkReject(ids: string[], label: string) {
+    setRejectConfirm({ ids, label })
+  }
 
   const columns = useMemo<ColumnDef<Approval>[]>(
     () => [
@@ -308,13 +316,36 @@ export function ApprovalsPage() {
           (row) => sectionKeyForType(row.original.requestType) === section.key,
         )
         if (sectionRows.length === 0) return null
+        const sectionIds = sectionRows.map((r) => r.original.id)
         return (
           <Card key={section.key}>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                {section.title}
-                <Badge>{sectionRows.length}</Badge>
-              </CardTitle>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  {section.title}
+                  <Badge>{sectionRows.length}</Badge>
+                </CardTitle>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    disabled={bulkReviewMutation.isPending}
+                    onClick={() => bulkApprove(sectionIds)}
+                  >
+                    <Check className="h-3.5 w-3.5" /> وافق الكل
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-rose-300 text-rose-700 hover:bg-rose-50"
+                    disabled={bulkReviewMutation.isPending}
+                    onClick={() => bulkReject(sectionIds, section.title)}
+                  >
+                    <X className="h-3.5 w-3.5" /> ارفض الكل
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <Table>
@@ -342,11 +373,37 @@ export function ApprovalsPage() {
         )
       })}
 
-      {reviewMutation.isError ? (
+      {(reviewMutation.isError || bulkReviewMutation.isError) ? (
         <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">
-          {apiErrorMessage(reviewMutation.error, "تعذر تنفيذ الموافقة")}
+          {apiErrorMessage(reviewMutation.error ?? bulkReviewMutation.error, "تعذر تنفيذ الموافقة")}
         </div>
       ) : null}
+
+      {/* Reject-all confirm dialog */}
+      <Dialog open={Boolean(rejectConfirm)} onOpenChange={(open) => !open && setRejectConfirm(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>تأكيد رفض الكل</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600">
+            هل تريد رفض جميع طلبات <strong>{rejectConfirm?.label}</strong>؟ ({rejectConfirm?.ids.length} طلب)
+          </p>
+          <div className="flex gap-2 pt-2">
+            <Button variant="outline" className="flex-1" onClick={() => setRejectConfirm(null)}>إلغاء</Button>
+            <Button
+              variant="destructive"
+              className="flex-1"
+              disabled={bulkReviewMutation.isPending}
+              onClick={() => {
+                if (rejectConfirm) bulkReviewMutation.mutate({ ids: rejectConfirm.ids, status: "REJECTED" })
+                setRejectConfirm(null)
+              }}
+            >
+              <X className="h-4 w-4" /> رفض الكل
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="max-w-3xl">

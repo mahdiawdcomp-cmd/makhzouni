@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  bulkReviewApprovals,
   getMyApprovals,
   getPendingApprovals,
   reviewPendingApproval,
@@ -15,6 +16,7 @@ router.use(authMiddleware);
 
 router.get("/my-requests", getMyApprovals);
 router.get("/", adminOnly, getPendingApprovals);
+router.post("/bulk-review", adminOnly, bulkReviewApprovals);
 router.put("/:id", adminOnly, validate(reviewApprovalSchema), reviewPendingApproval);
 
 export default router;

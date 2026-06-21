@@ -68,13 +68,13 @@ function transactionTone(tx: CustomerTransaction) {
 }
 
 export function AccountLookupPage() {
-  usePageTitle("كشف الحساب")
+  usePageTitle("كشف الحساب العام")
   const [query, setQuery] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  // Include deleted customers — account lookup should show all history
+  // Include all persons (customers + suppliers) with deleted history
   const allCustomersQuery = useAllCustomers()
   const customers = allCustomersQuery.data ?? []
 
@@ -119,8 +119,8 @@ export function AccountLookupPage() {
     <div className="space-y-5 max-w-5xl mx-auto">
       {/* Title */}
       <div>
-        <h1 className="text-2xl font-bold">كشف الحساب</h1>
-        <p className="text-sm text-slate-500">ابحث عن أي زبون لعرض كامل حركاته ورصيده فوراً.</p>
+        <h1 className="text-2xl font-bold">كشف الحساب العام</h1>
+        <p className="text-sm text-slate-500">ابحث عن أي شخص — زبون أو مورد — لعرض كامل حركاته من فواتير بيع وشراء وسندات قبض ودفع.</p>
       </div>
 
       {/* Search box */}
@@ -130,7 +130,7 @@ export function AccountLookupPage() {
           <input
             ref={inputRef}
             className="flex-1 bg-transparent text-base outline-none placeholder:text-slate-400"
-            placeholder="اسم الزبون أو رقم الهاتف..."
+            placeholder="اكتب الاسم أو رقم الهاتف..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value)
@@ -158,6 +158,12 @@ export function AccountLookupPage() {
               >
                 <span className="flex items-center gap-2">
                   <span className="font-medium">{c.name}</span>
+                  {c.isBoth && (
+                    <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-700">ز+م</span>
+                  )}
+                  {!c.isBoth && c.isSupplier && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">مورد</span>
+                  )}
                   {c.deletedAt && (
                     <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">مؤرشف</span>
                   )}
@@ -173,7 +179,7 @@ export function AccountLookupPage() {
       {!selectedCustomer && (
         <div className="rounded-xl border-2 border-dashed border-slate-200 p-12 text-center dark:border-slate-700">
           <Search className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="text-slate-500">ابحث عن زبون لعرض كشف حسابه</p>
+          <p className="text-slate-500">ابحث عن أي زبون أو مورد لعرض كشف حسابه</p>
         </div>
       )}
 
@@ -187,7 +193,15 @@ export function AccountLookupPage() {
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-2xl font-bold">{selectedCustomer.name}</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-2xl font-bold">{selectedCustomer.name}</h2>
+                  {selectedCustomer.isBoth && (
+                    <span className="rounded-full bg-purple-200/80 px-2 py-0.5 text-xs font-bold text-purple-900">زبون ومورد</span>
+                  )}
+                  {!selectedCustomer.isBoth && selectedCustomer.isSupplier && (
+                    <span className="rounded-full bg-amber-200/80 px-2 py-0.5 text-xs font-bold text-amber-900">مورد</span>
+                  )}
+                </div>
                 <p className="text-sm opacity-80">{selectedCustomer.phone}</p>
                 {selectedCustomer.address ? <p className="text-sm opacity-70">{selectedCustomer.address}</p> : null}
               </div>
@@ -199,7 +213,7 @@ export function AccountLookupPage() {
                 </div>
                 <Button asChild variant="outline" className="bg-white/90 hover:bg-white text-slate-900">
                   <Link to={`/customers/${selectedCustomer.id}`}>
-                    <ExternalLink className="h-4 w-4" /> صفحة الزبون
+                    <ExternalLink className="h-4 w-4" /> صفحة الحساب
                   </Link>
                 </Button>
               </div>
@@ -245,11 +259,11 @@ export function AccountLookupPage() {
                         const isInvoice = t === "SALE" || t === "PURCHASE" || t === "SALES_RETURN" || t.includes("INVOICE")
                         const link = isInvoice ? `/invoices/${tx.id}` : `/vouchers/${tx.id}`
                         const tone = transactionTone(tx)
-                        const typeLabel = t === "SALE" || t.includes("INVOICE") ? "🧾 فاتورة"
-                          : t === "PURCHASE" ? "🛒 شراء"
-                          : t === "RECEIPT" ? "💚 قبض"
-                          : t === "PAYMENT" ? "🔸 دفع"
-                          : "💸 مصاريف"
+                        const typeLabel = t === "SALE" || t.includes("INVOICE") ? "فاتورة بيع"
+                          : t === "PURCHASE" ? "فاتورة شراء"
+                          : t === "RECEIPT" ? "سند قبض"
+                          : t === "PAYMENT" ? "سند دفع"
+                          : "مصاريف"
                         const label = tx.status === "CANCELLED" ? `${typeLabel} - ملغاة` : typeLabel
                         return (
                           <TR key={`${tx.id}-${tx.referenceNumber}`} className={tone.row} style={tone.style}>
