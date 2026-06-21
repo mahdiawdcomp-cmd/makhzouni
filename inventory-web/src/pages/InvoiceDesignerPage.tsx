@@ -320,6 +320,9 @@ export function InvoiceDesignerPage() {
               return (
                 <div key={el.id} style={common} onPointerDown={(e) => startDrag(e, el.id, "move")}>
                   {el.type === "items" || el.type === "image" ? <div style={{ width: "100%" }}>{renderInner(el)}</div> : renderInner(el)}
+                  {el.followItems && (
+                    <span style={{ position: "absolute", top: 1, left: 2, fontSize: 8, background: "#10b981", color: "#fff", borderRadius: 3, padding: "0 3px", pointerEvents: "none" }}>↕</span>
+                  )}
                   {isSel && (
                     <div onPointerDown={(e) => startDrag(e, el.id, "resize")}
                       style={{ position: "absolute", bottom: -6, left: -6, width: 14, height: 14, background: "#6366f1", borderRadius: 3, cursor: "nwse-resize", border: "2px solid #fff" }} />
@@ -399,6 +402,21 @@ export function InvoiceDesignerPage() {
                 <Num label="عرض" v={sel.w} onChange={(n) => patchEl(sel.id, { w: n })} />
                 <Num label="ارتفاع" v={sel.h} onChange={(n) => patchEl(sel.id, { h: n })} />
               </div>
+
+              {(sel.type === "field" || sel.type === "text") && (
+                <div className="mt-1 rounded-lg border border-[color:var(--theme-cardBorder)] p-2">
+                  <Toggle
+                    label="↕ يتبع الجدول (ينزل بعد المواد)"
+                    on={!!sel.followItems}
+                    onChange={(v) => patchEl(sel.id, { followItems: v })}
+                  />
+                  {sel.followItems && (
+                    <p className="mt-1 text-[10px] text-[color:var(--theme-textPrimary)]/50">
+                      هذا العنصر ينزل تلقائياً بعد جدول المواد — سطرين أو ٥ مواد، الحساب يتبعهم.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

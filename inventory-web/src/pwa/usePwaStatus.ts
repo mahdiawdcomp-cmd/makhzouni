@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { registerSW } from "virtual:pwa-register"
 
 export type SyncFailure = { url: string; method: string; status: number; message?: string }
@@ -17,6 +17,7 @@ export function usePwaStatus() {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
   const [syncFailures, setSyncFailures] = useState<{ at: number; items: SyncFailure[] } | null>(null)
   const [authBlockedAt, setAuthBlockedAt] = useState<number | null>(null)
+  const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null)
 
   useEffect(() => {
     const updateSW = registerSW({
@@ -28,6 +29,7 @@ export function usePwaStatus() {
         console.info("PWA offline cache is ready")
       },
     })
+    updateSWRef.current = updateSW
 
     const onOnline = () => {
       setIsOnline(true)
@@ -69,7 +71,11 @@ export function usePwaStatus() {
   }, [])
 
   function refreshApp() {
-    window.location.reload()
+    if (updateSWRef.current) {
+      void updateSWRef.current(true)
+    } else {
+      window.location.reload()
+    }
   }
 
   function syncNow() {

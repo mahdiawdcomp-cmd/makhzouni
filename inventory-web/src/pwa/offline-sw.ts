@@ -212,7 +212,7 @@ function isQueueableMutation(pathname: string) {
 }
 
 self.addEventListener("install", () => {
-  self.skipWaiting()
+  // Don't auto-skip waiting — user triggers update via the banner button
 })
 
 self.addEventListener("activate", (event) => {
@@ -231,6 +231,9 @@ self.addEventListener("sync", (event) => {
 })
 
 self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    void self.skipWaiting()
+  }
   if (event.data?.type === "PWA_SYNC_NOW") {
     event.waitUntil(replayQueue(
       typeof event.data.token === "string" && event.data.token ? event.data.token : undefined,

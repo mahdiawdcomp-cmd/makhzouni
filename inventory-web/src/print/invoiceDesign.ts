@@ -38,6 +38,7 @@ export interface El {
   accent?: string       // for "items" header tint
   showQty?: boolean
   showPrice?: boolean
+  followItems?: boolean // flow after items table in print (dynamic height)
 }
 
 export interface Design {
@@ -127,12 +128,12 @@ export function defaultDesign(paper: PaperSize): Design {
         { id: newId(), type: "field", field: "customerName", x: 16, y: 98, w: 270, h: 18, fontSize: 12, bold: true, align: "right", color: "#0f172a", prefix: "الزبون: " },
         { id: newId(), type: "field", field: "paymentType", x: 16, y: 116, w: 270, h: 16, fontSize: 11, align: "right", color: "#64748b", prefix: "نوع الدفع: " },
         { id: newId(), type: "items", x: 16, y: 138, w: 270, h: 180, fontSize: 11, accent, showQty: true, showPrice: true },
-        { id: newId(), type: "field", field: "total", x: 16, y: 324, w: 270, h: 18, fontSize: 12, align: "right", color: "#0f172a", prefix: "إجمالي الفاتورة: " },
-        { id: newId(), type: "field", field: "paid", x: 16, y: 344, w: 270, h: 18, fontSize: 12, align: "right", color: "#0d9488", prefix: "المدفوع: " },
-        { id: newId(), type: "field", field: "previousBalance", x: 16, y: 364, w: 270, h: 18, fontSize: 12, align: "right", color: "#b45309", prefix: "رصيد سابق: " },
-        { id: newId(), type: "field", field: "remaining", x: 16, y: 384, w: 270, h: 18, fontSize: 12, align: "right", color: "#dc2626", prefix: "المتبقي: " },
-        { id: newId(), type: "field", field: "grandTotal", x: 16, y: 408, w: 270, h: 30, fontSize: 15, bold: true, align: "center", color: "#ffffff", bg: accent, radius: 6, prefix: "المطلوب الكلّي: " },
-        { id: newId(), type: "field", field: "footer", x: 16, y: 448, w: 270, h: 20, fontSize: 11, align: "center", color: "#475569" },
+        { id: newId(), type: "field", field: "total", x: 16, y: 324, w: 270, h: 18, fontSize: 12, align: "right", color: "#0f172a", prefix: "إجمالي الفاتورة: ", followItems: true },
+        { id: newId(), type: "field", field: "paid", x: 16, y: 344, w: 270, h: 18, fontSize: 12, align: "right", color: "#0d9488", prefix: "المدفوع: ", followItems: true },
+        { id: newId(), type: "field", field: "previousBalance", x: 16, y: 364, w: 270, h: 18, fontSize: 12, align: "right", color: "#b45309", prefix: "رصيد سابق: ", followItems: true },
+        { id: newId(), type: "field", field: "remaining", x: 16, y: 384, w: 270, h: 18, fontSize: 12, align: "right", color: "#dc2626", prefix: "المتبقي: ", followItems: true },
+        { id: newId(), type: "field", field: "grandTotal", x: 16, y: 408, w: 270, h: 30, fontSize: 15, bold: true, align: "center", color: "#ffffff", bg: accent, radius: 6, prefix: "المطلوب الكلّي: ", followItems: true },
+        { id: newId(), type: "field", field: "footer", x: 16, y: 448, w: 270, h: 20, fontSize: 11, align: "center", color: "#475569", followItems: true },
       ],
     }
   }
@@ -326,6 +327,55 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
   const pageCss = is80
     ? `@page { size: 80mm auto; margin:0 } body{width:80mm}`
     : `@page { size:A4; margin:0 }`
+
+  const itemsEl = design.elements.find((el) => el.type === "items")
+  const useFlowLayout = !!itemsEl && design.elements.some((el) => el.followItems)
+
+  if (useFlowLayout && itemsEl) {
+    // Dynamic layout: header (absolute) → items (flow, height:auto) → footer (flow)
+    const headerEls = design.elements.filter((el) => !el.followItems && el.type !== "items")
+    const footerEls = [...design.elements.filter((el) => el.followItems)].sort((a, b) => a.y - b.y)
+
+    const headerHTML = headerEls
+      .map((el) => `<div style="${elBoxStyle(el)}">${elInnerHTML(el, inv, store)}</div>`)
+      .join("")
+
+    let prevBottom = itemsEl.y + itemsEl.h
+    const footerHTML = footerEls.map((el) => {
+      const gap = Math.max(4, el.y - prevBottom)
+      prevBottom = el.y + el.h
+      const s = [
+        `margin-top:${gap}px`,
+        `margin-right:${el.x}px`,
+        `width:${el.w}px`,
+        `min-height:${el.h}px`,
+        `font-size:${el.fontSize || 13}px`,
+        el.bold ? "font-weight:800" : "font-weight:500",
+        `color:${el.color || "#0f172a"}`,
+        `text-align:${el.align || "right"}`,
+        "display:flex", "align-items:center",
+        `justify-content:${el.align === "center" ? "center" : el.align === "left" ? "flex-start" : "flex-end"}`,
+      ]
+      if (el.bg) s.push(`background:${el.bg}`, "padding:0 4px")
+      if (el.borderColor) s.push(`border:1px solid ${el.borderColor}`)
+      if (el.radius) s.push(`border-radius:${el.radius}px`)
+      return `<div style="${s.join(";")}">${elInnerHTML(el, inv, store)}</div>`
+    }).join("")
+
+    return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><style>
+      ${pageCss}
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:"Cairo","Segoe UI",Tahoma,sans-serif;background:#fff}
+      .paper{width:${design.width}px;min-height:${design.height}px;background:#fff}
+      .hdr{position:relative;height:${itemsEl.y}px}
+    </style></head><body><div class="paper">
+      <div class="hdr">${headerHTML}</div>
+      <div style="margin-right:${itemsEl.x}px;width:${itemsEl.w}px;font-size:${itemsEl.fontSize || 12}px">${itemsTableHTML(itemsEl, inv, store)}</div>
+      ${footerHTML}
+    </div></body></html>`
+  }
+
+  // Original absolute layout (A4 or designs without followItems)
   const bodyEls = design.elements
     .map((el) => `<div style="${elBoxStyle(el)}">${elInnerHTML(el, inv, store)}</div>`)
     .join("")
