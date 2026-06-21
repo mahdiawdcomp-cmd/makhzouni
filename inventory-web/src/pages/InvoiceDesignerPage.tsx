@@ -3,7 +3,7 @@ import { useSettings, useUpdateSettings } from "../hooks/useSettings"
 import {
   defaultDesign, renderDesignHTML, resolveField,
   PAPER_PX, FIELD_LABELS, newId, SAMPLE_INVOICE,
-  type Design, type El, type ElType, type FieldKey, type PaperSize, type PrintStore,
+  type Design, type El, type ElType, type FieldKey, type PaperSize, type PrintStore, upgradeDesign,
 } from "../print/invoiceDesign"
 
 type DesignsByPaper = Record<PaperSize, Design>
@@ -16,9 +16,9 @@ function loadStored(json: string | null | undefined): DesignsByPaper {
   if (json) {
     try {
       const obj = JSON.parse(json)
-      if (obj?.designs?.a4) result.a4 = obj.designs.a4
-      if (obj?.designs?.["80mm"]) result["80mm"] = obj.designs["80mm"]
-      else if (obj?.v === 2 && obj.paper) result[obj.paper as PaperSize] = obj // legacy single
+      if (obj?.designs?.a4) result.a4 = upgradeDesign(obj.designs.a4)
+      if (obj?.designs?.["80mm"]) result["80mm"] = upgradeDesign(obj.designs["80mm"])
+      else if (obj?.v === 2 && obj.paper) result[obj.paper as PaperSize] = upgradeDesign(obj) // legacy single
     } catch { /* defaults */ }
   }
   return result
@@ -198,11 +198,11 @@ export function InvoiceDesignerPage() {
     if (el.type === "items") {
       return (
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: (el.fontSize || 12) * scale }}>
-          <thead><tr>{["#", "الصنف", ...(el.showQty ? ["كمية"] : []), ...(el.showPrice ? ["سعر"] : []), "مجموع"].map((c, i) => (
+          <thead><tr>{["#", "الصنف", "الوحدة", ...(el.showQty ? ["الكمية"] : []), ...(el.showPrice ? ["السعر"] : []), "المجموع", "الملاحظات"].map((c, i) => (
             <th key={i} style={{ background: (el.accent || "#4f46e5") + "22", color: el.accent || "#4f46e5", padding: 2, borderBottom: `2px solid ${el.accent || "#4f46e5"}` }}>{c}</th>
           ))}</tr></thead>
           <tbody>{SAMPLE_INVOICE.lines.slice(0, 4).map((l, i) => (
-            <tr key={i}>{[`${i + 1}`, l.name, ...(el.showQty ? [`${l.qty}`] : []), ...(el.showPrice ? [`${l.price}`] : []), `${l.qty * l.price}`].map((c, j) => (
+            <tr key={i}>{[`${i + 1}`, l.name, l.unit || "—", ...(el.showQty ? [`${l.qty}`] : []), ...(el.showPrice ? [`${l.price}`] : []), `${l.qty * l.price}`, l.notes || ""].map((c, j) => (
               <td key={j} style={{ padding: 2, borderBottom: "1px solid #e5e7eb", textAlign: j === 1 ? "right" : "center" }}>{c}</td>
             ))}</tr>
           ))}</tbody>

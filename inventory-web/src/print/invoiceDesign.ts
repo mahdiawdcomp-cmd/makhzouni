@@ -99,10 +99,10 @@ export const SAMPLE_INVOICE: PrintInvoice = {
   number: "INV-1042", date: "2026-06-21",
   customerName: "محل الرافدين للتجارة", customerPhone: "0770 123 4567",
   lines: [
-    { name: "شاحن سريع نوع C", qty: 3, price: 7500 },
-    { name: "كيبل بيانات مضفّر 1م", qty: 5, price: 3000 },
-    { name: "سماعة بلوتوث رياضية", qty: 2, price: 18000 },
-    { name: "حافظة موبايل شفافة", qty: 10, price: 2000 },
+    { name: "شاحن سريع نوع C", unit: "قطعة", qty: 3, price: 7500, notes: "لون أسود" },
+    { name: "كيبل بيانات مضفّر 1م", unit: "قطعة", qty: 5, price: 3000, notes: "" },
+    { name: "سماعة بلوتوث رياضية", unit: "قطعة", qty: 2, price: 18000, notes: "فحص قبل التسليم" },
+    { name: "حافظة موبايل شفافة", unit: "قطعة", qty: 10, price: 2000, notes: "" },
   ],
   notes: "البضاعة المباعة لا تُرد بعد 3 أيام.",
   subtotal: 93500, discount: 3500, total: 90000,
@@ -171,12 +171,27 @@ export function parseDesigns(json?: string | null): Record<PaperSize, Design> {
   if (json) {
     try {
       const o = JSON.parse(json)
-      if (o?.designs?.a4) r.a4 = o.designs.a4
-      if (o?.designs?.["80mm"]) r["80mm"] = o.designs["80mm"]
-      else if (o?.v === 2 && o.paper) r[o.paper as PaperSize] = o
+      if (o?.designs?.a4) r.a4 = upgradeDesign(o.designs.a4)
+      if (o?.designs?.["80mm"]) r["80mm"] = upgradeDesign(o.designs["80mm"])
+      else if (o?.v === 2 && o.paper) r[o.paper as PaperSize] = upgradeDesign(o as Design)
     } catch { /* defaults */ }
   }
   return r
+}
+
+export function upgradeDesign(design: Design): Design {
+  if (design.paper !== "a4" || design.elements.some((el) => el.type === "field" && el.field === "invoiceNotes")) return design
+  return {
+    ...design,
+    elements: [
+      ...design.elements,
+      {
+        id: newId(), type: "field", field: "invoiceNotes",
+        x: 40, y: 214, w: 340, h: 42, fontSize: 13,
+        align: "right", color: "#475569", prefix: "ملاحظات: ",
+      },
+    ],
+  }
 }
 
 // Print an HTML document via a throwaway hidden iframe (no popup blockers).
