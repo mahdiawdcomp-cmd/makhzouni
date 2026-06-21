@@ -14,7 +14,9 @@ export function PwaStatusBar({
   onRefresh: () => void
   onSync: () => void
 }) {
-  if (isOnline && pendingCount === 0 && !needsRefresh) return null
+  // Only show the bar when offline or when there are pending sync operations.
+  // The "update available" / "connection restored" state is intentionally hidden.
+  if (isOnline && pendingCount === 0) return null
 
   if (!isOnline) {
     return (
