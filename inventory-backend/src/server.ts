@@ -34,6 +34,7 @@ import { logger } from "./utils/logger";
 import { realtimeHeartbeat } from "./services/realtime.service";
 import { requireActiveSubscription } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
+import prisma from "./config/database";
 
 const app = express();
 const port = Number(process.env.PORT ?? 5000);
@@ -110,6 +111,19 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection] Server kept alive:", reason);
 });
+
+async function runStartupMigrations() {
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "customers" ADD COLUMN IF NOT EXISTS "is_both" BOOLEAN NOT NULL DEFAULT false`
+    );
+    logger.info("[migration] customers.is_both column ensured");
+  } catch (err) {
+    logger.warn("[migration] startup migration warning:", err);
+  }
+}
+
+void runStartupMigrations();
 
 app.listen(port, "0.0.0.0", () => {
   logger.info(`Inventory backend is running on port ${port}`);
