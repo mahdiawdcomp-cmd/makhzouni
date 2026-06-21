@@ -7,9 +7,11 @@ export type PaperSize = "80mm" | "a4"
 
 export type FieldKey =
   | "storeName" | "storePhone" | "storeAddress"
-  | "title" | "invoiceNumber" | "date"
+  | "title" | "invoiceNumber" | "date" | "paymentType" | "itemCount"
   | "customerName" | "customerPhone"
-  | "subtotal" | "previousBalance" | "grandTotal" | "footer"
+  | "subtotal" | "discount" | "tax" | "total"
+  | "paid" | "remaining" | "previousBalance" | "finalBalance" | "grandTotal"
+  | "footer"
 
 export type ElType = "text" | "field" | "image" | "items" | "line" | "box"
 
@@ -59,10 +61,18 @@ export const FIELD_LABELS: Record<FieldKey, string> = {
   title: "عنوان الفاتورة",
   invoiceNumber: "رقم الفاتورة",
   date: "التاريخ",
+  paymentType: "نوع الدفع (نقد/أجل/جزئي)",
+  itemCount: "عدد الأصناف",
   customerName: "اسم الزبون",
   customerPhone: "هاتف الزبون",
-  subtotal: "المجموع الفرعي",
+  subtotal: "مجموع الأصناف",
+  discount: "الخصم",
+  tax: "الضريبة",
+  total: "إجمالي الفاتورة",
+  paid: "المبلغ المدفوع",
+  remaining: "المتبقي على الفاتورة",
   previousBalance: "الرصيد السابق",
+  finalBalance: "الرصيد النهائي للحساب",
   grandTotal: "المطلوب الكلّي",
   footer: "التذييل",
 }
@@ -75,7 +85,10 @@ export const newId = () => `el_${Date.now().toString(36)}_${_idc++}`
 export interface PrintLine { name: string; qty: number; price: number }
 export interface PrintInvoice {
   number: string; date: string; customerName: string; customerPhone?: string
-  lines: PrintLine[]; notes?: string; previousBalance?: number
+  lines: PrintLine[]; notes?: string
+  subtotal?: number; discount?: number; tax?: number; total?: number
+  paid?: number; remaining?: number; previousBalance?: number; finalBalance?: number
+  paymentType?: string
 }
 export interface PrintStore {
   storeName: string; storeLogo?: string; storePhone?: string; storeAddress?: string; currency?: string
@@ -91,7 +104,9 @@ export const SAMPLE_INVOICE: PrintInvoice = {
     { name: "حافظة موبايل شفافة", qty: 10, price: 2000 },
   ],
   notes: "البضاعة المباعة لا تُرد بعد 3 أيام.",
-  previousBalance: 25000,
+  subtotal: 93500, discount: 3500, total: 90000,
+  paid: 50000, remaining: 40000, previousBalance: 25000, finalBalance: 65000,
+  paymentType: "جزئي",
 }
 
 // ── Default layouts ──────────────────────────────────────────────────────────
@@ -109,9 +124,14 @@ export function defaultDesign(paper: PaperSize): Design {
         { id: newId(), type: "field", field: "title", x: 16, y: 74, w: 150, h: 20, fontSize: 13, bold: true, align: "right", color: accent },
         { id: newId(), type: "field", field: "invoiceNumber", x: 166, y: 74, w: 120, h: 20, fontSize: 11, align: "left", color: "#64748b" },
         { id: newId(), type: "field", field: "customerName", x: 16, y: 98, w: 270, h: 18, fontSize: 12, bold: true, align: "right", color: "#0f172a", prefix: "الزبون: " },
-        { id: newId(), type: "items", x: 16, y: 122, w: 270, h: 220, fontSize: 11, accent, showQty: true, showPrice: true },
-        { id: newId(), type: "field", field: "grandTotal", x: 16, y: 352, w: 270, h: 30, fontSize: 15, bold: true, align: "center", color: "#ffffff", bg: accent, radius: 6, prefix: "المطلوب: " },
-        { id: newId(), type: "field", field: "footer", x: 16, y: 392, w: 270, h: 20, fontSize: 11, align: "center", color: "#475569" },
+        { id: newId(), type: "field", field: "paymentType", x: 16, y: 116, w: 270, h: 16, fontSize: 11, align: "right", color: "#64748b", prefix: "نوع الدفع: " },
+        { id: newId(), type: "items", x: 16, y: 138, w: 270, h: 180, fontSize: 11, accent, showQty: true, showPrice: true },
+        { id: newId(), type: "field", field: "total", x: 16, y: 324, w: 270, h: 18, fontSize: 12, align: "right", color: "#0f172a", prefix: "إجمالي الفاتورة: " },
+        { id: newId(), type: "field", field: "paid", x: 16, y: 344, w: 270, h: 18, fontSize: 12, align: "right", color: "#0d9488", prefix: "المدفوع: " },
+        { id: newId(), type: "field", field: "previousBalance", x: 16, y: 364, w: 270, h: 18, fontSize: 12, align: "right", color: "#b45309", prefix: "رصيد سابق: " },
+        { id: newId(), type: "field", field: "remaining", x: 16, y: 384, w: 270, h: 18, fontSize: 12, align: "right", color: "#dc2626", prefix: "المتبقي: " },
+        { id: newId(), type: "field", field: "grandTotal", x: 16, y: 408, w: 270, h: 30, fontSize: 15, bold: true, align: "center", color: "#ffffff", bg: accent, radius: 6, prefix: "المطلوب الكلّي: " },
+        { id: newId(), type: "field", field: "footer", x: 16, y: 448, w: 270, h: 20, fontSize: 11, align: "center", color: "#475569" },
       ],
     }
   }
@@ -127,12 +147,17 @@ export function defaultDesign(paper: PaperSize): Design {
       { id: newId(), type: "field", field: "title", x: 520, y: 150, w: 234, h: 30, fontSize: 22, bold: true, align: "right", color: accent },
       { id: newId(), type: "field", field: "invoiceNumber", x: 520, y: 184, w: 234, h: 22, fontSize: 14, align: "right", color: "#475569", prefix: "رقم: " },
       { id: newId(), type: "field", field: "date", x: 520, y: 208, w: 234, h: 22, fontSize: 14, align: "right", color: "#475569", prefix: "التاريخ: " },
+      { id: newId(), type: "field", field: "paymentType", x: 520, y: 232, w: 234, h: 22, fontSize: 14, align: "right", color: "#475569", prefix: "نوع الدفع: " },
       { id: newId(), type: "field", field: "customerName", x: 40, y: 160, w: 340, h: 24, fontSize: 15, bold: true, align: "right", color: "#0f172a", prefix: "الزبون: " },
       { id: newId(), type: "field", field: "customerPhone", x: 40, y: 188, w: 340, h: 22, fontSize: 13, align: "right", color: "#475569", prefix: "الهاتف: " },
-      { id: newId(), type: "items", x: 40, y: 250, w: 714, h: 460, fontSize: 13, accent, showQty: true, showPrice: true },
-      { id: newId(), type: "field", field: "subtotal", x: 440, y: 730, w: 314, h: 26, fontSize: 14, align: "right", color: "#0f172a", prefix: "المجموع الفرعي: " },
-      { id: newId(), type: "field", field: "previousBalance", x: 440, y: 758, w: 314, h: 26, fontSize: 14, align: "right", color: "#b45309", prefix: "رصيد سابق: " },
-      { id: newId(), type: "field", field: "grandTotal", x: 440, y: 790, w: 314, h: 40, fontSize: 18, bold: true, align: "center", color: "#ffffff", bg: accent, radius: 8, prefix: "المطلوب الكلّي: " },
+      { id: newId(), type: "items", x: 40, y: 270, w: 714, h: 420, fontSize: 13, accent, showQty: true, showPrice: true },
+      { id: newId(), type: "field", field: "subtotal", x: 440, y: 706, w: 314, h: 24, fontSize: 14, align: "right", color: "#0f172a", prefix: "مجموع الأصناف: " },
+      { id: newId(), type: "field", field: "discount", x: 440, y: 732, w: 314, h: 24, fontSize: 14, align: "right", color: "#475569", prefix: "الخصم: " },
+      { id: newId(), type: "field", field: "total", x: 440, y: 758, w: 314, h: 24, fontSize: 14, bold: true, align: "right", color: "#0f172a", prefix: "إجمالي الفاتورة: " },
+      { id: newId(), type: "field", field: "paid", x: 440, y: 784, w: 314, h: 24, fontSize: 14, align: "right", color: "#0d9488", prefix: "المدفوع: " },
+      { id: newId(), type: "field", field: "previousBalance", x: 440, y: 810, w: 314, h: 24, fontSize: 14, align: "right", color: "#b45309", prefix: "رصيد سابق: " },
+      { id: newId(), type: "field", field: "remaining", x: 440, y: 836, w: 314, h: 24, fontSize: 14, align: "right", color: "#dc2626", prefix: "المتبقي: " },
+      { id: newId(), type: "field", field: "grandTotal", x: 440, y: 866, w: 314, h: 40, fontSize: 18, bold: true, align: "center", color: "#ffffff", bg: accent, radius: 8, prefix: "المطلوب الكلّي: " },
       { id: newId(), type: "field", field: "footer", x: 40, y: 1060, w: 714, h: 28, fontSize: 13, align: "center", color: "#475569" },
     ],
   }
@@ -184,8 +209,13 @@ const money = (n: number, cur: string) => `${Math.round(n).toLocaleString("en-US
 
 export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore): string {
   const cur = store.currency || "د.ع"
-  const subtotal = inv.lines.reduce((a, l) => a + l.qty * l.price, 0)
+  const lineSum = inv.lines.reduce((a, l) => a + l.qty * l.price, 0)
+  const subtotal = inv.subtotal ?? lineSum
+  const total = inv.total ?? subtotal
   const prev = inv.previousBalance ?? 0
+  const paid = inv.paid ?? 0
+  const remaining = inv.remaining ?? Math.max(0, total - paid)
+  const finalBalance = inv.finalBalance ?? (prev + (total - paid))
   switch (f) {
     case "storeName": return store.storeName || "اسم المحل"
     case "storePhone": return store.storePhone ? `📞 ${store.storePhone}` : ""
@@ -193,11 +223,19 @@ export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore):
     case "title": return "فاتورة بيع"
     case "invoiceNumber": return inv.number
     case "date": return inv.date
+    case "paymentType": return inv.paymentType || "—"
+    case "itemCount": return `${inv.lines.length}`
     case "customerName": return inv.customerName
     case "customerPhone": return inv.customerPhone || ""
     case "subtotal": return money(subtotal, cur)
+    case "discount": return money(inv.discount ?? 0, cur)
+    case "tax": return money(inv.tax ?? 0, cur)
+    case "total": return money(total, cur)
+    case "paid": return money(paid, cur)
+    case "remaining": return money(remaining, cur)
     case "previousBalance": return prev ? money(prev, cur) : "—"
-    case "grandTotal": return money(subtotal + prev, cur)
+    case "finalBalance": return money(finalBalance, cur)
+    case "grandTotal": return money(total + prev, cur)
     case "footer": return "شكراً لتعاملكم معنا 🌟"
   }
 }

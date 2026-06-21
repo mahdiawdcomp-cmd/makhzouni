@@ -118,7 +118,15 @@ export function InvoiceDetailPage() {
         qty: it.quantity,
         price: it.unitPrice,
       })),
+      subtotal: invoice.subtotal,
+      discount: invoice.discount,
+      tax: invoice.tax,
+      total: invoice.totalAmount,
+      paid: invoice.paidAmount,
+      remaining: invoice.remainingAmount,
       previousBalance: invoice.previousBalance ?? 0,
+      finalBalance: invoice.finalBalance,
+      paymentType: invoice.paymentType === "CASH" ? "نقد" : invoice.paymentType === "PARTIAL" ? "جزئي" : "أجل",
     }
     const store = {
       storeName: settings?.storeName || "",
