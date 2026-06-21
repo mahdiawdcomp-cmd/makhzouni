@@ -32,6 +32,7 @@ export interface CreateCustomerInput {
   creditLimit?: number | null;
   branchId?: string;
   isSupplier?: boolean;
+  isBoth?: boolean;
 }
 
 export interface UpdateCustomerInput {
@@ -44,6 +45,7 @@ export interface UpdateCustomerInput {
   creditLimit?: number | null;
   branchId?: string | null;
   isSupplier?: boolean;
+  isBoth?: boolean;
 }
 
 export interface TransactionFilter {
@@ -208,7 +210,12 @@ export async function listCustomers(query: ListCustomersQuery) {
     // includeDeleted=true → show all (including archived); default → active only
     ...(query.includeDeleted ? {} : { deletedAt: null }),
     ...(query.branchId ? { branchId: query.branchId } : {}),
-    ...(query.isSupplier !== undefined ? { isSupplier: query.isSupplier } : {}),
+    // isBoth customers appear in both customer list and supplier list
+    ...(query.isSupplier !== undefined
+      ? query.isSupplier
+        ? { OR: [{ isSupplier: true }, { isBoth: true }] }
+        : { isSupplier: false }
+      : {}),
     ...(query.tags && query.tags.length > 0 ? { tags: { hasSome: query.tags } } : {}),
   };
 
@@ -265,6 +272,7 @@ export async function createCustomer(input: CreateCustomerInput, db: Db = prisma
       creditLimit: input.creditLimit ?? null,
       branchId: input.branchId,
       isSupplier: input.isSupplier ?? false,
+      isBoth: input.isBoth ?? false,
     },
   });
 
@@ -289,6 +297,7 @@ export async function updateCustomer(
   if (input.creditLimit !== undefined) data.creditLimit = input.creditLimit;
   if (input.branchId !== undefined) data.branchId = input.branchId;
   if (input.isSupplier !== undefined) data.isSupplier = input.isSupplier;
+  if (input.isBoth !== undefined) data.isBoth = input.isBoth;
 
   await db.customer.update({
     where: { id },

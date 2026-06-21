@@ -215,6 +215,9 @@ export function CustomerDetailPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold">{customer.name}</h1>
+            {customer.isBoth && (
+              <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">زبون ومورد</span>
+            )}
             {myRating && (
               <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold ${
                 myRating === "A" ? "bg-emerald-100 text-emerald-700" :
@@ -518,6 +521,7 @@ function EditCustomerModal({
     notes: customer.notes ?? "",
     tags: customer.tags ?? [],
     isSupplier: customer.isSupplier ?? false,
+    isBoth: customer.isBoth ?? false,
     creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
     openingBalance: String(customer.openingBalance ?? 0),
   })
@@ -533,6 +537,7 @@ function EditCustomerModal({
         notes: customer.notes ?? "",
         tags: customer.tags ?? [],
         isSupplier: customer.isSupplier ?? false,
+        isBoth: customer.isBoth ?? false,
         creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
         openingBalance: String(customer.openingBalance ?? 0),
       })
@@ -553,6 +558,7 @@ function EditCustomerModal({
       notes: form.notes.trim() || undefined,
       tags: form.tags,
       isSupplier: form.isSupplier,
+      isBoth: form.isBoth,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
       openingBalance: Number(form.openingBalance) || 0,
     })
@@ -634,17 +640,21 @@ function EditCustomerModal({
           <Label>النوع</Label>
           <div className="flex gap-2">
             {([
-              { label: "زبون", value: false, desc: "يظهر في قائمة الزبائن" },
-              { label: "مورد", value: true, desc: "يظهر في قائمة الموردين" },
-            ] as const).map(({ label, value, desc }) => (
-              <label key={label} className={`flex flex-1 cursor-pointer flex-col gap-0.5 rounded-lg border-2 p-3 transition ${form.isSupplier === value ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"}`}>
-                <div className="flex items-center gap-2">
-                  <input type="radio" name="customerType" checked={form.isSupplier === value} onChange={() => set("isSupplier", value)} className="accent-indigo-600" />
-                  <span className="font-semibold text-sm">{label}</span>
-                </div>
-                <span className="text-xs text-slate-500 mr-5">{desc}</span>
-              </label>
-            ))}
+              { label: "زبون", isSupplier: false, isBoth: false, desc: "قائمة الزبائن فقط" },
+              { label: "مورد", isSupplier: true, isBoth: false, desc: "قائمة الموردين فقط" },
+              { label: "زبون ومورد", isSupplier: false, isBoth: true, desc: "يظهر في كلا القائمتين" },
+            ] as const).map(({ label, isSupplier, isBoth, desc }) => {
+              const active = form.isBoth ? isBoth : (form.isSupplier === isSupplier && !isBoth)
+              return (
+                <label key={label} className={`flex flex-1 cursor-pointer flex-col gap-0.5 rounded-lg border-2 p-3 transition ${active ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"}`}>
+                  <div className="flex items-center gap-2">
+                    <input type="radio" name="customerType" checked={active} onChange={() => setForm((prev) => ({ ...prev, isSupplier, isBoth }))} className="accent-indigo-600" />
+                    <span className="font-semibold text-sm">{label}</span>
+                  </div>
+                  <span className="text-xs text-slate-500 mr-5">{desc}</span>
+                </label>
+              )
+            })}
           </div>
         </div>
 

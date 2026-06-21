@@ -27,6 +27,7 @@ const emptyCustomer: CustomerPayload = {
   tags: [],
   openingBalance: 0,
   isSupplier: false,
+  isBoth: false,
 }
 
 type CustomerSort = "createdDesc" | "updatedDesc" | "balanceDesc" | "balanceAsc" | "nameAsc" | "lastDesc"
@@ -70,7 +71,18 @@ export function CustomersPage() {
 
   const columns = useMemo<ColumnDef<Customer>[]>(
     () => [
-      { accessorKey: "name", header: "الاسم" },
+      {
+        accessorKey: "name",
+        header: "الاسم",
+        cell: ({ row }) => (
+          <span className="flex items-center gap-1.5">
+            {row.original.name}
+            {row.original.isBoth && (
+              <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">ز+م</span>
+            )}
+          </span>
+        ),
+      },
       { accessorKey: "phone", header: "الهاتف" },
       { accessorKey: "address", header: "العنوان", cell: ({ row }) => row.original.address ?? "-" },
       {
@@ -123,7 +135,7 @@ export function CustomersPage() {
           <h1 className="text-2xl font-bold">الزبائن والموردين</h1>
           <p className="text-slate-500">كشف الحساب والأرصدة والسندات.</p>
         </div>
-        <Button onClick={() => { setForm({ ...emptyCustomer, isSupplier: isSupplierTab }); setOpen(true); }}>
+        <Button onClick={() => { setForm({ ...emptyCustomer, isSupplier: isSupplierTab, isBoth: false }); setOpen(true); }}>
           <Plus className="h-4 w-4" /> {isSupplierTab ? "مورد جديد" : "زبون جديد"}
         </Button>
       </div>
@@ -217,14 +229,18 @@ export function CustomersPage() {
             <p className="text-xs font-medium text-slate-700 dark:text-slate-300">النوع</p>
             <div className="flex gap-2">
               {([
-                { label: "زبون", value: false },
-                { label: "مورد", value: true },
-              ] as const).map(({ label, value }) => (
-                <label key={label} className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 p-2.5 transition ${form.isSupplier === value ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"}`}>
-                  <input type="radio" name="newCustomerType" checked={form.isSupplier === value} onChange={() => setForm({ ...form, isSupplier: value })} className="accent-indigo-600" />
-                  <span className="font-semibold text-sm">{label}</span>
-                </label>
-              ))}
+                { label: "زبون", isSupplier: false, isBoth: false },
+                { label: "مورد", isSupplier: true, isBoth: false },
+                { label: "زبون ومورد", isSupplier: false, isBoth: true },
+              ] as const).map(({ label, isSupplier, isBoth }) => {
+                const active = form.isBoth ? isBoth : (form.isSupplier === isSupplier && !isBoth)
+                return (
+                  <label key={label} className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 p-2.5 transition ${active ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/20" : "border-slate-200 hover:border-slate-300 dark:border-slate-700"}`}>
+                    <input type="radio" name="newCustomerType" checked={active} onChange={() => setForm({ ...form, isSupplier, isBoth })} className="accent-indigo-600" />
+                    <span className="font-semibold text-sm">{label}</span>
+                  </label>
+                )
+              })}
             </div>
           </div>
           <Button className="w-full" type="submit">حفظ</Button>

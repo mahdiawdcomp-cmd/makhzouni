@@ -161,6 +161,7 @@ export function InvoiceCreatePage() {
   const [quickAddCustomerBalance, setQuickAddCustomerBalance] = useState("0")
   const [quickAddCustomerCreditLimit, setQuickAddCustomerCreditLimit] = useState("")
   const [quickAddCustomerIsSupplier, setQuickAddCustomerIsSupplier] = useState(false)
+  const [quickAddCustomerIsBoth, setQuickAddCustomerIsBoth] = useState(false)
   const [quickAddProductOpen, setQuickAddProductOpen] = useState(false)
   const [quickAddProductName, setQuickAddProductName] = useState("")
   const [quickAddProductSalePrice, setQuickAddProductSalePrice] = useState("")
@@ -710,6 +711,7 @@ export function InvoiceCreatePage() {
     setQuickAddCustomerBalance("0")
     setQuickAddCustomerCreditLimit("")
     setQuickAddCustomerIsSupplier(isPurchase)
+    setQuickAddCustomerIsBoth(false)
     setCustomerListOpen(false)
     setQuickAddCustomerOpen(true)
   }
@@ -726,6 +728,7 @@ export function InvoiceCreatePage() {
         openingBalance: Number(quickAddCustomerBalance) || 0,
         creditLimit: quickAddCustomerCreditLimit ? Number(quickAddCustomerCreditLimit) : undefined,
         isSupplier: quickAddCustomerIsSupplier,
+        isBoth: quickAddCustomerIsBoth,
       },
       {
         onSuccess: (response) => {
@@ -1147,9 +1150,11 @@ export function InvoiceCreatePage() {
                     onMouseEnter={() => setCustomerHighlight(idx)}
                   >
                     <span className="flex-1 truncate">{customer.name} — {customer.phone}</span>
-                    {customer.isSupplier && (
+                    {customer.isBoth ? (
+                      <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 shrink-0">ز+م</span>
+                    ) : customer.isSupplier ? (
                       <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 shrink-0">مورد</span>
-                    )}
+                    ) : null}
                   </button>
                 ))}
                 {customerSuggestions.length === 0 && (
@@ -1716,18 +1721,22 @@ export function InvoiceCreatePage() {
                 <label className="mb-1 block text-sm font-medium">النوع</label>
                 <div className="flex gap-2">
                   {([
-                    { label: "زبون", value: false },
-                    { label: "مورد", value: true },
-                  ] as const).map(({ label, value }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={() => setQuickAddCustomerIsSupplier(value)}
-                      className={`flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition ${quickAddCustomerIsSupplier === value ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                    { label: "زبون", isSupplier: false, isBoth: false },
+                    { label: "مورد", isSupplier: true, isBoth: false },
+                    { label: "ز+م", isSupplier: false, isBoth: true },
+                  ] as const).map(({ label, isSupplier, isBoth }) => {
+                    const active = quickAddCustomerIsBoth ? isBoth : (quickAddCustomerIsSupplier === isSupplier && !isBoth)
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => { setQuickAddCustomerIsSupplier(isSupplier); setQuickAddCustomerIsBoth(isBoth) }}
+                        className={`flex-1 rounded-lg border-2 py-2 text-sm font-semibold transition ${active ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </div>

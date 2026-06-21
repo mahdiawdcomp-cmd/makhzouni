@@ -330,17 +330,19 @@ export function InvoicesPage() {
               ))}
             </THead>
             <TBody>
-              {table.getRowModel().rows.map((row) => (
+              {table.getRowModel().rows.map((row) => {
+                const isBothPurchase = row.original.type === "PURCHASE" && row.original.customer?.isBoth
+                return (
                 <TR
                   key={row.id}
-                  className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                  className={cn("cursor-pointer", isBothPurchase ? "bg-purple-50/60 hover:bg-purple-100/60 dark:bg-purple-950/20 dark:hover:bg-purple-950/30" : "hover:bg-slate-50 dark:hover:bg-slate-900/50")}
                   onDoubleClick={() => navigate(`/invoices/${row.original.id}`)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TD key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TD>
                   ))}
                 </TR>
-              ))}
+              )})}
               {!invoicesQuery.isLoading && table.getRowModel().rows.length === 0 ? (
                 <TR>
                   <TD colSpan={columns.length} className="py-8 text-center text-slate-500">

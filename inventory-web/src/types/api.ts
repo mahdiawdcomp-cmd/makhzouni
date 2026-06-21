@@ -290,6 +290,7 @@ export interface Customer {
   currentBalance: number
   creditLimit?: number | null
   isSupplier?: boolean
+  isBoth?: boolean
   lastTransactionAt?: string | null
   createdAt?: string
   updatedAt?: string
@@ -305,6 +306,7 @@ export interface CustomerPayload {
   openingBalance: number
   creditLimit?: number | null
   isSupplier?: boolean
+  isBoth?: boolean
 }
 
 export interface CustomerBroadcastPayload {

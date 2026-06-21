@@ -263,6 +263,7 @@ export const createCustomerSchema = z.object({
     creditLimit: z.coerce.number().nonnegative().nullable().optional(),
     branchId: z.string().uuid().optional(),
     isSupplier: z.coerce.boolean().optional(),
+    isBoth: z.coerce.boolean().optional(),
   }),
 });
 
@@ -279,6 +280,7 @@ export const updateCustomerSchema = z.object({
       creditLimit: z.coerce.number().nonnegative().nullable().optional(),
       branchId: z.string().uuid().nullable().optional(),
       isSupplier: z.coerce.boolean().optional(),
+      isBoth: z.coerce.boolean().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one field is required",
