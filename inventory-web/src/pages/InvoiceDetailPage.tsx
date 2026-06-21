@@ -58,7 +58,7 @@ function mergeInvoiceItems(items: InvoiceItem[]): InvoiceItem[] {
   const merged: InvoiceItem[] = []
   const indexByKey = new Map<string, number>()
   for (const item of items) {
-    const key = `${item.productId}|${item.unit}|${item.unitPrice}`
+    const key = `${item.productId}|${item.unit}|${item.unitPrice}|${item.notes ?? ""}`
     const existing = indexByKey.get(key)
     if (existing === undefined) {
       indexByKey.set(key, merged.length)
@@ -308,6 +308,40 @@ export function InvoiceDetailPage() {
   const customerLabel = isPurchase ? "المورد" : "الزبون / العميل"
   const typeLabel = isPurchase ? "فاتورة شراء" : isReturn ? "فاتورة مرتجع مبيعات" : "فاتورة مبيعات"
   const currency = settings?.currency ?? "د.ع"
+  const a4PreviewHtml = (() => {
+    if (!invoice) return ""
+    const design = parseDesigns(settings?.invoiceDesign).a4
+    const printInv: PrintInvoice = {
+      number: invoice.invoiceNumber,
+      date: String(invoice.date).slice(0, 10),
+      customerName: invoice.customer?.name ?? "",
+      customerPhone: invoice.customer?.phone ?? "",
+      lines: mergeInvoiceItems(invoice.items ?? []).map((item) => ({
+        name: item.productName ?? item.productId,
+        unit: unitLabel(item.unit),
+        qty: item.quantity,
+        price: item.unitPrice,
+        notes: item.notes ?? "",
+      })),
+      notes: invoice.notes ?? "",
+      subtotal: invoice.subtotal,
+      discount: invoice.discount,
+      tax: invoice.tax,
+      total: invoice.totalAmount,
+      paid: invoice.paidAmount,
+      remaining: invoice.remainingAmount,
+      previousBalance: invoice.previousBalance ?? 0,
+      finalBalance: invoice.finalBalance,
+      paymentType: invoice.paymentType === "CASH" ? "نقد" : invoice.paymentType === "PARTIAL" ? "جزئي" : "أجل",
+    }
+    return renderDesignHTML(design, printInv, {
+      storeName: settings?.storeName || "",
+      storeLogo: settings?.storeLogo || "",
+      storePhone: settings?.storePhone || "",
+      storeAddress: settings?.storeAddress || "",
+      currency,
+    })
+  })()
 
   const lastEditNote = invoice.updatedAt && invoice.updatedAt !== invoice.createdAt
     ? `آخر تعديل: ${new Date(invoice.updatedAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}${invoice.creator ? ` | ${invoice.creator.name}` : ""}`
@@ -360,10 +394,16 @@ export function InvoiceDetailPage() {
 
       {/* ══════════════════════════════════════════════════════
           PRINTABLE INVOICE — matches the HTML design exactly   */}
-      <div
-        className="rounded-xl bg-white shadow-md overflow-hidden"
-        style={{ borderTop: `8px solid ${accentColor}` }}
-      >
+      <div className="rounded-xl border border-slate-200 bg-slate-100 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <iframe
+          title={`فاتورة ${invoice.invoiceNumber}`}
+          srcDoc={a4PreviewHtml}
+          className="mx-auto block w-full rounded-lg bg-white shadow"
+          style={{ height: "1123px", maxWidth: "794px" }}
+        />
+      </div>
+
+      <div className="hidden">
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 px-8 py-6">
           <div>
