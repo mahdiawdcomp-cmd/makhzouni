@@ -329,13 +329,15 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     : `@page { size:A4; margin:0 }`
 
   const itemsEl = design.elements.find((el) => el.type === "items")
-  const useFlowLayout = !!itemsEl && design.elements.some((el) => el.followItems)
+  // Flow layout only for 80mm thermal (variable-height paper). A4 always uses absolute.
+  const useFlowLayout = is80 && !!itemsEl && design.elements.some((el) => el.followItems)
 
   if (useFlowLayout && itemsEl) {
-    // Dynamic layout: header (absolute) → items (flow, height:auto) → footer (flow)
+    // Dynamic layout: header elements stay absolute, items+footer flow after items.y
     const headerEls = design.elements.filter((el) => !el.followItems && el.type !== "items")
     const footerEls = [...design.elements.filter((el) => el.followItems)].sort((a, b) => a.y - b.y)
 
+    // All non-followItems elements remain absolutely positioned within the paper
     const headerHTML = headerEls
       .map((el) => `<div style="${elBoxStyle(el)}">${elInnerHTML(el, inv, store)}</div>`)
       .join("")
@@ -366,12 +368,13 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
       ${pageCss}
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:"Cairo","Segoe UI",Tahoma,sans-serif;background:#fff}
-      .paper{width:${design.width}px;min-height:${design.height}px;background:#fff}
-      .hdr{position:relative;height:${itemsEl.y}px}
+      .paper{position:relative;width:${design.width}px;min-height:${design.height}px;height:auto;background:#fff}
     </style></head><body><div class="paper">
-      <div class="hdr">${headerHTML}</div>
-      <div style="margin-right:${itemsEl.x}px;width:${itemsEl.w}px;font-size:${itemsEl.fontSize || 12}px">${itemsTableHTML(itemsEl, inv, store)}</div>
-      ${footerHTML}
+      ${headerHTML}
+      <div style="margin-top:${itemsEl.y}px">
+        <div style="margin-right:${itemsEl.x}px;width:${itemsEl.w}px;font-size:${itemsEl.fontSize || 12}px">${itemsTableHTML(itemsEl, inv, store)}</div>
+        ${footerHTML}
+      </div>
     </div></body></html>`
   }
 
