@@ -29,6 +29,7 @@ export interface El {
   prefix?: string
   suffix?: string
   src?: "logo" | "stamp" // for "image"
+  dataUrl?: string       // uploaded image (logo/stamp) as data URL
   bg?: string
   borderColor?: string
   radius?: number
@@ -205,7 +206,7 @@ function elInnerHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
       return `${esc(el.prefix || "")}${esc(v)}${esc(el.suffix || "")}`
     }
     case "image": {
-      const src = el.src === "logo" ? store.storeLogo : undefined
+      const src = el.dataUrl || (el.src === "logo" ? store.storeLogo : undefined)
       return src ? `<img src="${esc(src)}" style="max-width:100%;max-height:100%;object-fit:contain" />`
                  : `<div style="width:100%;height:100%;border:2px dashed #cbd5e1;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px">${el.src === "logo" ? "شعار" : "ختم"}</div>`
     }

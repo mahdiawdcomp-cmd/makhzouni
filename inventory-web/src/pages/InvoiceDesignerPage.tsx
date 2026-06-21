@@ -9,6 +9,7 @@ import {
 type DesignsByPaper = Record<PaperSize, Design>
 
 const SCALE: Record<PaperSize, number> = { a4: 0.62, "80mm": 1.15 }
+const GRID = 5
 
 function loadStored(json: string | null | undefined): DesignsByPaper {
   const result: DesignsByPaper = { a4: defaultDesign("a4"), "80mm": defaultDesign("80mm") }
@@ -31,12 +32,17 @@ export function InvoiceDesignerPage() {
   const [designs, setDesigns] = useState<DesignsByPaper>(() => ({ a4: defaultDesign("a4"), "80mm": defaultDesign("80mm") }))
   const [selId, setSelId] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [snap, setSnap] = useState(true)
+  const [past, setPast] = useState<DesignsByPaper[]>([])
+  const [future, setFuture] = useState<DesignsByPaper[]>([])
+  const lastSnap = useRef(0)
+  const loaded = useRef(false)
   const printRef = useRef<HTMLIFrameElement>(null)
-  const canvasRef = useRef<HTMLDivElement>(null)
-  const drag = useRef<{ mode: "move" | "resize"; lastX: number; lastY: number } | null>(null)
+  const drag = useRef<{ mode: "move" | "resize" } | null>(null)
 
+  // Load stored design ONCE (not on every settings refetch — that would wipe edits).
   useEffect(() => {
-    if (settings) setDesigns(loadStored(settings.invoiceTemplate))
+    if (settings && !loaded.current) { loaded.current = true; setDesigns(loadStored(settings.invoiceTemplate)) }
   }, [settings])
 
   const design = designs[paper]
@@ -51,12 +57,46 @@ export function InvoiceDesignerPage() {
     currency: settings?.currency || "د.ع",
   }), [settings])
 
+  // ── history ──
+  const snapshot = (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastSnap.current < 400) return
+    lastSnap.current = now
+    setPast((p) => [...p.slice(-49), designs])
+    setFuture([])
+  }
+  const undo = () => {
+    if (!past.length) return
+    setFuture((f) => [designs, ...f].slice(0, 50))
+    setDesigns(past[past.length - 1])
+    setPast((p) => p.slice(0, -1))
+    setSaved(false)
+  }
+  const redo = () => {
+    if (!future.length) return
+    setPast((p) => [...p, designs].slice(-50))
+    setDesigns(future[0])
+    setFuture((f) => f.slice(1))
+    setSaved(false)
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redo() : undo() }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); redo() }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
+
   // ── mutations ──
   const patchEl = (id: string, patch: Partial<El>) => {
+    snapshot()
     setDesigns((d) => ({ ...d, [paper]: { ...d[paper], elements: d[paper].elements.map((e) => e.id === id ? { ...e, ...patch } : e) } }))
     setSaved(false)
   }
   const addEl = (type: ElType, extra: Partial<El> = {}) => {
+    snapshot(true)
     const el: El = {
       id: newId(), type, x: 40, y: 40, w: type === "items" ? 260 : 180, h: type === "items" ? 200 : type === "line" ? 3 : 28,
       fontSize: 14, bold: false, color: "#0f172a", align: "right",
@@ -72,35 +112,39 @@ export function InvoiceDesignerPage() {
     setSelId(el.id); setSaved(false)
   }
   const removeEl = (id: string) => {
+    snapshot(true)
     setDesigns((d) => ({ ...d, [paper]: { ...d[paper], elements: d[paper].elements.filter((e) => e.id !== id) } }))
     setSelId(null); setSaved(false)
   }
   const dupEl = (el: El) => {
+    snapshot(true)
     const c = { ...el, id: newId(), x: el.x + 12, y: el.y + 12 }
     setDesigns((d) => ({ ...d, [paper]: { ...d[paper], elements: [...d[paper].elements, c] } }))
     setSelId(c.id); setSaved(false)
   }
 
+  const snapVal = (v: number) => (snap ? Math.round(v / GRID) * GRID : Math.round(v))
+
   // ── drag / resize ──
   const startDrag = (e: React.PointerEvent, id: string, mode: "move" | "resize") => {
     e.stopPropagation()
     setSelId(id)
-    drag.current = { mode, lastX: e.clientX, lastY: e.clientY }
+    snapshot(true)
+    drag.current = { mode }
+    let lastX = e.clientX, lastY = e.clientY
     const move = (ev: PointerEvent) => {
       if (!drag.current) return
-      const dx = (ev.clientX - drag.current.lastX) / scale
-      const dy = (ev.clientY - drag.current.lastY) / scale
-      drag.current.lastX = ev.clientX; drag.current.lastY = ev.clientY
+      const dx = (ev.clientX - lastX) / scale
+      const dy = (ev.clientY - lastY) / scale
+      lastX = ev.clientX; lastY = ev.clientY
       setDesigns((d) => ({
         ...d,
         [paper]: {
           ...d[paper],
           elements: d[paper].elements.map((el) => {
             if (el.id !== id) return el
-            if (drag.current!.mode === "move") {
-              return { ...el, x: Math.max(0, Math.round(el.x - dx)), y: Math.max(0, Math.round(el.y + dy)) }
-            }
-            return { ...el, w: Math.max(24, Math.round(el.w - dx)), h: Math.max(12, Math.round(el.h + dy)) }
+            if (drag.current!.mode === "move") return { ...el, x: snapVal(Math.max(0, el.x - dx)), y: snapVal(Math.max(0, el.y + dy)) }
+            return { ...el, w: snapVal(Math.max(24, el.w - dx)), h: snapVal(Math.max(12, el.h + dy)) }
           }),
         },
       }))
@@ -111,12 +155,17 @@ export function InvoiceDesignerPage() {
     window.addEventListener("pointerup", up)
   }
 
+  // ── image upload ──
+  const onUpload = (id: string, file?: File) => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => patchEl(id, { dataUrl: String(reader.result) })
+    reader.readAsDataURL(file)
+  }
+
   // ── save / print ──
   const handleSave = () => {
-    updateSettings.mutate(
-      { invoiceTemplate: JSON.stringify({ v: 2, designs }) },
-      { onSuccess: () => setSaved(true) },
-    )
+    updateSettings.mutate({ invoiceTemplate: JSON.stringify({ v: 2, designs }) }, { onSuccess: () => setSaved(true) })
   }
   const handlePrint = () => {
     const html = renderDesignHTML(design, SAMPLE_INVOICE, store)
@@ -127,6 +176,7 @@ export function InvoiceDesignerPage() {
   }
   const resetPaper = () => {
     if (!confirm("إرجاع تصميم هذا الورق للوضع الافتراضي؟")) return
+    snapshot(true)
     setDesigns((d) => ({ ...d, [paper]: defaultDesign(paper) }))
     setSelId(null); setSaved(false)
   }
@@ -136,10 +186,8 @@ export function InvoiceDesignerPage() {
     if (el.type === "text") return el.text
     if (el.type === "field") return `${el.prefix || ""}${resolveField(el.field || "storeName", SAMPLE_INVOICE, store)}${el.suffix || ""}`
     if (el.type === "image") {
-      const src = el.src === "logo" ? store.storeLogo : ""
-      return src
-        ? <img src={src} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-        : <span style={{ color: "#94a3b8", fontSize: 11 }}>{el.src === "logo" ? "شعار" : "ختم"}</span>
+      const src = el.dataUrl || (el.src === "logo" ? store.storeLogo : "")
+      return src ? <img src={src} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} /> : <span style={{ color: "#94a3b8", fontSize: 11 }}>{el.src === "logo" ? "شعار" : "ختم"}</span>
     }
     if (el.type === "items") {
       return (
@@ -167,7 +215,10 @@ export function InvoiceDesignerPage() {
           <h1 className="text-xl font-black text-[color:var(--theme-textPrimary)]">🎨 مصمّم الفاتورة الاحترافي</h1>
           <p className="text-xs text-[color:var(--theme-textPrimary)]/60">اسحب أي عنصر وحرّكه، كبّره، وغيّر كل شي. يتزامن على كل أجهزتك.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={undo} disabled={!past.length} className="rounded-xl border border-[color:var(--theme-cardBorder)] px-3 py-2 text-xs font-bold text-[color:var(--theme-textPrimary)] disabled:opacity-40">↶ تراجع</button>
+          <button onClick={redo} disabled={!future.length} className="rounded-xl border border-[color:var(--theme-cardBorder)] px-3 py-2 text-xs font-bold text-[color:var(--theme-textPrimary)] disabled:opacity-40">↷ إعادة</button>
+          <button onClick={() => setSnap((s) => !s)} className={`rounded-xl border px-3 py-2 text-xs font-bold ${snap ? "border-[color:var(--theme-accent)] text-[color:var(--theme-accent)]" : "border-[color:var(--theme-cardBorder)] text-[color:var(--theme-textPrimary)]"}`}>⊞ محاذاة {snap ? "ON" : "OFF"}</button>
           <div className="flex gap-1 rounded-lg bg-black/10 p-1">
             {(["80mm", "a4"] as const).map((p) => (
               <button key={p} onClick={() => { setPaper(p); setSelId(null) }} className={`rounded-md px-3 py-1 text-xs font-bold ${paper === p ? "bg-[color:var(--theme-accent)] text-white" : "text-[color:var(--theme-textPrimary)]/70"}`}>{p === "80mm" ? "حراري 80mm" : "A4"}</button>
@@ -187,7 +238,7 @@ export function InvoiceDesignerPage() {
           <h3 className="mb-2 text-xs font-black text-[color:var(--theme-textPrimary)]/70">أضف عنصر</h3>
           <div className="grid grid-cols-2 gap-2">
             {([
-              ["field", "🔖 حقل"], ["text", "✏️ نص"], ["image", "🖼️ شعار"],
+              ["field", "🔖 حقل"], ["text", "✏️ نص"], ["image", "🖼️ صورة"],
               ["items", "📋 جدول"], ["line", "➖ خط"], ["box", "⬜ صندوق"],
             ] as [ElType, string][]).map(([t, label]) => (
               <button key={t} onClick={() => addEl(t)} className="rounded-lg border border-[color:var(--theme-cardBorder)] py-2 text-[11px] font-bold text-[color:var(--theme-textPrimary)] hover:bg-[color:var(--theme-accent)]/10">{label}</button>
@@ -197,9 +248,9 @@ export function InvoiceDesignerPage() {
         </div>
 
         {/* ── canvas ── */}
-        <div className="flex justify-center overflow-auto rounded-2xl border border-[color:var(--theme-cardBorder)] bg-slate-300/30 p-4">
+        <div className="flex justify-center overflow-auto rounded-2xl border border-[color:var(--theme-cardBorder)] bg-slate-300/30 p-4"
+          style={snap ? { backgroundImage: "radial-gradient(rgba(99,102,241,.18) 1px, transparent 1px)", backgroundSize: `${GRID * 2}px ${GRID * 2}px` } : undefined}>
           <div
-            ref={canvasRef}
             onPointerDown={() => setSelId(null)}
             dir="rtl"
             style={{ position: "relative", width: PAPER.width * scale, height: PAPER.height * scale, background: "#fff", boxShadow: "0 4px 24px rgba(0,0,0,.2)", flexShrink: 0 }}
@@ -220,10 +271,8 @@ export function InvoiceDesignerPage() {
                 <div key={el.id} style={common} onPointerDown={(e) => startDrag(e, el.id, "move")}>
                   {el.type === "items" || el.type === "image" ? <div style={{ width: "100%" }}>{renderInner(el)}</div> : renderInner(el)}
                   {isSel && (
-                    <div
-                      onPointerDown={(e) => startDrag(e, el.id, "resize")}
-                      style={{ position: "absolute", bottom: -6, left: -6, width: 14, height: 14, background: "#6366f1", borderRadius: 3, cursor: "nwse-resize", border: "2px solid #fff" }}
-                    />
+                    <div onPointerDown={(e) => startDrag(e, el.id, "resize")}
+                      style={{ position: "absolute", bottom: -6, left: -6, width: 14, height: 14, background: "#6366f1", borderRadius: 3, cursor: "nwse-resize", border: "2px solid #fff" }} />
                   )}
                 </div>
               )
@@ -245,9 +294,7 @@ export function InvoiceDesignerPage() {
                 </div>
               </div>
 
-              {sel.type === "text" && (
-                <Field label="النص"><input value={sel.text || ""} onChange={(e) => patchEl(sel.id, { text: e.target.value })} className={inp} /></Field>
-              )}
+              {sel.type === "text" && <Field label="النص"><input value={sel.text || ""} onChange={(e) => patchEl(sel.id, { text: e.target.value })} className={inp} /></Field>}
               {sel.type === "field" && (
                 <Field label="نوع الحقل">
                   <select value={sel.field} onChange={(e) => patchEl(sel.id, { field: e.target.value as FieldKey })} className={inp}>
@@ -255,15 +302,22 @@ export function InvoiceDesignerPage() {
                   </select>
                 </Field>
               )}
-              {sel.type === "field" && (
-                <Field label="نص قبل الحقل"><input value={sel.prefix || ""} onChange={(e) => patchEl(sel.id, { prefix: e.target.value })} className={inp} placeholder="مثال: الزبون: " /></Field>
-              )}
+              {sel.type === "field" && <Field label="نص قبل الحقل"><input value={sel.prefix || ""} onChange={(e) => patchEl(sel.id, { prefix: e.target.value })} className={inp} placeholder="مثال: الزبون: " /></Field>}
+
               {sel.type === "image" && (
-                <Field label="نوع الصورة">
-                  <select value={sel.src} onChange={(e) => patchEl(sel.id, { src: e.target.value as "logo" | "stamp" })} className={inp}>
-                    <option value="logo">شعار المحل</option><option value="stamp">ختم</option>
-                  </select>
-                </Field>
+                <>
+                  <Field label="ارفع صورة من جهازك">
+                    <input type="file" accept="image/*" onChange={(e) => onUpload(sel.id, e.target.files?.[0])} className="mt-1 w-full text-[11px] text-[color:var(--theme-textPrimary)]" />
+                  </Field>
+                  {sel.dataUrl && <button onClick={() => patchEl(sel.id, { dataUrl: undefined })} className="text-[11px] text-rose-500">إزالة الصورة المرفوعة</button>}
+                  {!sel.dataUrl && (
+                    <Field label="أو استخدم">
+                      <select value={sel.src} onChange={(e) => patchEl(sel.id, { src: e.target.value as "logo" | "stamp" })} className={inp}>
+                        <option value="logo">شعار المحل المحفوظ</option><option value="stamp">فراغ ختم</option>
+                      </select>
+                    </Field>
+                  )}
+                </>
               )}
               {sel.type === "items" && (
                 <>
@@ -275,9 +329,7 @@ export function InvoiceDesignerPage() {
               {sel.type !== "image" && sel.type !== "line" && (
                 <>
                   <Field label={`حجم الخط (${sel.fontSize || 13})`}><input type="range" min={8} max={36} value={sel.fontSize || 13} onChange={(e) => patchEl(sel.id, { fontSize: Number(e.target.value) })} className="w-full" /></Field>
-                  <div className="flex gap-2">
-                    <Toggle label="عريض" on={!!sel.bold} onChange={(v) => patchEl(sel.id, { bold: v })} />
-                  </div>
+                  <Toggle label="عريض" on={!!sel.bold} onChange={(v) => patchEl(sel.id, { bold: v })} />
                   <Field label="المحاذاة">
                     <div className="flex gap-1 rounded bg-black/10 p-1">
                       {(["right", "center", "left"] as const).map((a) => (
