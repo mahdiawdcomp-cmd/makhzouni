@@ -11,7 +11,7 @@ import { fmt } from "../utils/fmt"
 import { formatDate, formatDateTime } from "../utils/date"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
-import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+
 import type { CustomerTransaction } from "../types/api"
 
 function auditNote(row: CustomerTransaction) {
@@ -240,34 +240,44 @@ export function AccountLookupPage() {
 
           {/* Transactions */}
           <Card>
-            <CardHeader>
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
-                <CardTitle>حركات الحساب</CardTitle>
-                <span className="text-xs text-slate-500">{transactions.length} حركة</span>
+                <CardTitle>كشف الحساب التفصيلي</CardTitle>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  {transactions.length} حركة
+                </span>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-0">
               {transactions.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-500">لا توجد حركات</p>
+                <p className="py-10 text-center text-sm text-slate-500">لا توجد حركات</p>
               ) : (
-                <div className="max-h-[450px] overflow-y-auto">
-                  <Table>
-                    <THead>
-                      <TR>
-                        <TH>التاريخ</TH>
-                        <TH>النوع</TH>
-                        <TH>الرقم</TH>
-                        <TH><span className="text-rose-600">مدين</span> / <span className="text-emerald-600">دائن</span></TH>
-                        <TH>الرصيد المتراكم</TH>
-                        <TH></TH>
-                      </TR>
-                    </THead>
-                    <TBody>
-                      {transactions.map((tx) => {
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-right dark:border-slate-700 dark:bg-slate-900">
+                        <th className="px-3 py-2.5 font-semibold text-slate-600 text-xs">التاريخ</th>
+                        <th className="px-3 py-2.5 font-semibold text-slate-600 text-xs">النوع / الرقم</th>
+                        <th className="px-3 py-2.5 font-semibold text-slate-600 text-xs">بواسطة</th>
+                        <th className="px-3 py-2.5 font-semibold text-rose-700 text-xs text-center bg-rose-50 dark:bg-rose-950/20">
+                          المبلغ<br/><span className="font-normal text-[10px] text-rose-500">فاتورة / دفع</span>
+                        </th>
+                        <th className="px-3 py-2.5 font-semibold text-emerald-700 text-xs text-center bg-emerald-50 dark:bg-emerald-950/20">
+                          تسديد<br/><span className="font-normal text-[10px] text-emerald-500">قبض / خصم</span>
+                        </th>
+                        <th className="px-3 py-2.5 font-semibold text-slate-700 text-xs text-center">
+                          الرصيد<br/><span className="font-normal text-[10px] text-slate-400">د.ع</span>
+                        </th>
+                        <th className="px-2 py-2.5 w-8"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transactions.map((tx, idx) => {
                         const t = tx.type?.toUpperCase() ?? ""
                         const isInvoice = t === "INVOICE" || t === "INVOICE_PAYMENT"
                         const link = isInvoice ? `/invoices/${tx.id}` : `/vouchers/${tx.id}`
                         const tone = transactionTone(tx)
+                        const isCancelled = tx.status === "CANCELLED"
                         const typeLabel =
                           t === "INVOICE"
                             ? tx.invoiceType === "PURCHASE" ? "فاتورة شراء"
@@ -277,40 +287,106 @@ export function AccountLookupPage() {
                             : t === "RECEIPT" ? "سند قبض"
                             : t === "PAYMENT" ? "سند دفع"
                             : "مصاريف"
-                        const label = tx.status === "CANCELLED" ? `${typeLabel} - ملغاة` : typeLabel
+                        const label = isCancelled ? `${typeLabel} — ملغاة` : typeLabel
+                        const debitAmt  = tx.debit  ?? 0
+                        const creditAmt = tx.credit ?? 0
+                        const balance   = Number(tx.runningBalance)
                         return (
-                          <TR key={`${tx.id}-${tx.referenceNumber}`} className={tone.row} style={tone.style}>
-                            <TD className="text-xs">
-                              <div className="font-semibold">{formatDate(tx.date)}</div>
-                              <div className="text-[11px] text-slate-500">إدخال: {formatDateTime(tx.createdAt)}</div>
-                            </TD>
-                            <TD>
-                              <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${tone.label}`}>{label}</span>
-                              <div className="mt-1 text-[11px] text-slate-500">أنشأه: {tx.createdByName ?? "-"}</div>
-                              <div className="text-[11px] text-slate-500">آخر تغيير: {auditNote(tx)}</div>
-                            </TD>
-                            <TD className="font-mono text-xs">{tx.referenceNumber}</TD>
-                            <TD className="font-semibold">
-                              {(tx.debit && tx.debit > 0)
-                                ? <span className="text-rose-700">{fmt(tx.debit)}</span>
-                                : (tx.credit && tx.credit > 0)
-                                  ? <span className="text-emerald-600">({fmt(tx.credit)})</span>
-                                  : <span className="text-slate-400">—</span>
-                              }
-                            </TD>
-                            <TD className={`font-bold ${Number(tx.runningBalance) > 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                              {fmt(tx.runningBalance)}
-                            </TD>
-                            <TD>
-                              <Button asChild variant="ghost" size="sm">
-                                <Link to={link}><ArrowLeft className="h-4 w-4" /></Link>
+                          <tr
+                            key={`${tx.id}-${tx.referenceNumber}-${idx}`}
+                            className={`border-b border-slate-100 dark:border-slate-800 ${tone.row}`}
+                            style={tone.style}
+                          >
+                            {/* التاريخ */}
+                            <td className="px-3 py-2.5 text-xs whitespace-nowrap">
+                              <div className="font-bold text-slate-800 dark:text-slate-100">{formatDate(tx.date)}</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">{formatDateTime(tx.createdAt)}</div>
+                            </td>
+
+                            {/* النوع والرقم */}
+                            <td className="px-3 py-2.5">
+                              <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${tone.label}`}>
+                                {label}
+                              </span>
+                              <div className="mt-1 font-mono text-xs text-slate-500">{tx.referenceNumber}</div>
+                            </td>
+
+                            {/* بواسطة + آخر تغيير */}
+                            <td className="px-3 py-2.5 text-[11px] text-slate-500 max-w-[120px]">
+                              <div>{tx.createdByName ?? "—"}</div>
+                              {auditNote(tx) !== "-" && (
+                                <div className="text-[10px] text-amber-600 mt-0.5">{auditNote(tx)}</div>
+                              )}
+                            </td>
+
+                            {/* المبلغ (مدين) */}
+                            <td className="px-3 py-2.5 text-center font-mono bg-rose-50/40 dark:bg-rose-950/10">
+                              {debitAmt > 0 ? (
+                                <span className={`font-bold text-rose-700 text-sm ${isCancelled ? "line-through opacity-50" : ""}`}>
+                                  {fmt(debitAmt)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-200 dark:text-slate-700 text-xs select-none">—</span>
+                              )}
+                            </td>
+
+                            {/* تسديد (دائن) */}
+                            <td className="px-3 py-2.5 text-center font-mono bg-emerald-50/40 dark:bg-emerald-950/10">
+                              {creditAmt > 0 ? (
+                                <span className={`font-bold text-emerald-700 text-sm ${isCancelled ? "line-through opacity-50" : ""}`}>
+                                  {fmt(creditAmt)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-200 dark:text-slate-700 text-xs select-none">—</span>
+                              )}
+                            </td>
+
+                            {/* الرصيد */}
+                            <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                              <span className={`font-bold text-sm ${balance > 0 ? "text-rose-600" : balance < 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                                {fmt(Math.abs(balance))}
+                              </span>
+                              {balance !== 0 && (
+                                <div className="text-[9px] text-slate-400 mt-0.5">
+                                  {balance > 0 ? "عليه" : "له"}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* رابط */}
+                            <td className="px-2 py-2.5">
+                              <Button asChild variant="ghost" size="sm" className="h-7 w-7 p-0">
+                                <Link to={link}><ArrowLeft className="h-3.5 w-3.5" /></Link>
                               </Button>
-                            </TD>
-                          </TR>
+                            </td>
+                          </tr>
                         )
                       })}
-                    </TBody>
-                  </Table>
+                    </tbody>
+                    {/* Footer totals row */}
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-300 bg-slate-100 font-bold dark:border-slate-600 dark:bg-slate-900">
+                        <td className="px-3 py-2.5 text-xs text-slate-600" colSpan={3}>
+                          الإجمالي ({transactions.filter(tx => tx.status !== "CANCELLED").length} حركة نشطة)
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-mono text-rose-700 bg-rose-50 dark:bg-rose-950/20">
+                          {fmt(transactions.reduce((s, tx) => s + (tx.debit ?? 0), 0))}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-mono text-emerald-700 bg-emerald-50 dark:bg-emerald-950/20">
+                          {fmt(transactions.reduce((s, tx) => s + (tx.credit ?? 0), 0))}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-mono">
+                          <span className={`${Number(selectedCustomer.currentBalance) > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                            {fmt(Math.abs(selectedCustomer.currentBalance))}
+                          </span>
+                          <div className="text-[9px] text-slate-400">
+                            {Number(selectedCustomer.currentBalance) > 0 ? "عليه" : "له"}
+                          </div>
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               )}
             </CardContent>
