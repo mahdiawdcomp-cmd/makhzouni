@@ -14,7 +14,7 @@ import { useUiStore } from "../store/uiStore"
 import { useUnsavedWarning } from "../hooks/useUnsavedWarning"
 import type { Customer, Product } from "../types/api"
 import { Button } from "../components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
@@ -1041,10 +1041,10 @@ export function InvoiceCreatePage() {
   }
 
   return (
-    <div className={`space-y-4 rounded-xl p-1 ${pageTint}`}>
+    <div className={`space-y-2 rounded-xl ${pageTint}`}>
       {/* ── Tabs bar ─────────────────────────────────────────────────────────── */}
       {(tabs.length > 0 || activeTid) ? (
-        <div className="flex items-center gap-1.5 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1.5 dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
           {tabs.map((t) => {
             const isActive = t.id === activeTid
             const typeColor = t.type === "PURCHASE" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200"
@@ -1052,11 +1052,11 @@ export function InvoiceCreatePage() {
             return (
               <div
                 key={t.id}
-                className={`flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium cursor-pointer transition ${typeColor} ${activeRing}`}
+                className={`flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs font-medium cursor-pointer transition ${typeColor} ${activeRing}`}
                 onClick={() => !isActive && switchTab(t)}
               >
                 <span>{t.type === "PURCHASE" ? "🛒" : "🧾"}</span>
-                <span className="max-w-[90px] truncate">{t.label}</span>
+                <span className="max-w-[80px] truncate">{t.label}</span>
                 {t.subtotal > 0 ? <span className="opacity-60">{fmt(t.subtotal)}</span> : null}
                 <button
                   type="button"
@@ -1069,46 +1069,11 @@ export function InvoiceCreatePage() {
             )
           })}
           <div className="flex gap-1 mr-auto shrink-0">
-            <button
-              type="button"
-              title="فاتورة بيع جديدة"
-              className="rounded-md border border-dashed border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-              onClick={() => openNewTab("SALE")}
-            >
-              + بيع
-            </button>
-            <button
-              type="button"
-              title="فاتورة شراء جديدة"
-              className="rounded-md border border-dashed border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
-              onClick={() => openNewTab("PURCHASE")}
-            >
-              + شراء
-            </button>
+            <button type="button" className="rounded border border-dashed border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" onClick={() => openNewTab("SALE")}>+ بيع</button>
+            <button type="button" className="rounded border border-dashed border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300" onClick={() => openNewTab("PURCHASE")}>+ شراء</button>
           </div>
         </div>
       ) : null}
-
-      {/* AI Buttons Row — صوت + كاميرا */}
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 py-2">
-        <VoiceInvoiceButton compact />
-        {isPurchase ? (
-        <div className="flex flex-col items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setOcrOpen(true)}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 active:scale-95 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300"
-            title="قراءة فاتورة بالكاميرا"
-          >
-            <Camera className="h-4 w-4" />
-            قراءة صورة
-          </button>
-          <p className="hidden text-xs text-slate-400 text-center">
-            مسح فاتورة ورقية
-          </p>
-        </div>
-        ) : null}
-      </div>
 
       {/* OCR Dialog */}
       {ocrOpen && (
@@ -1123,50 +1088,40 @@ export function InvoiceCreatePage() {
         </Dialog>
       )}
 
-      {/* Header banner */}
-      <div className={`rounded-xl bg-gradient-to-l ${accentBg} p-5 text-white shadow-sm`}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <TitleIcon className="h-7 w-7" />
-            <div>
-              <h1 className="text-xl font-bold">{titleText}</h1>
-              <p className="text-sm opacity-90">
-                {isPurchase
-                  ? "ستضاف الكمية إلى المخزون، وسيُسجَّل ما تبقى كمستحقّ للمورّد."
-                  : "ستُخصم الكمية من المخزون، وسيُسجَّل ما تبقى كدَين على الزبون."}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={switchType}
-              className="rounded-lg border border-white/40 bg-white/20 px-3 py-1.5 text-sm font-medium text-white backdrop-blur hover:bg-white/30"
-            >
-              {isPurchase ? "↔ فاتورة بيع" : "↔ فاتورة شراء"}
+      {/* Compact header toolbar */}
+      <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 bg-gradient-to-l ${accentBg} text-white shadow-sm`}>
+        <TitleIcon className="h-5 w-5 shrink-0" />
+        <h1 className="text-base font-bold">{titleText}</h1>
+        <button type="button" onClick={switchType} className="rounded border border-white/30 bg-white/20 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/30">
+          {isPurchase ? "↔ بيع" : "↔ شراء"}
+        </button>
+        <div className="flex items-center gap-1 text-xs opacity-75">
+          <ScanLine className="h-3.5 w-3.5" /><span>باركود</span>
+        </div>
+        <div className="mr-auto flex items-center gap-1.5">
+          <VoiceInvoiceButton compact />
+          {isPurchase && (
+            <button type="button" onClick={() => setOcrOpen(true)} className="inline-flex h-7 items-center gap-1.5 rounded border border-white/30 bg-white/20 px-2 text-xs font-medium text-white hover:bg-white/30">
+              <Camera className="h-3.5 w-3.5" /> صورة
             </button>
-            <div className="flex items-center gap-1 text-xs opacity-90">
-              <ScanLine className="h-4 w-4" />
-              <span>باركود مفعّل</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
       {lastSavedAt && !savedInvoiceId ? (
-        <div className="rounded-md bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
-          حُفظ تلقائياً في {new Date(lastSavedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+        <div className="rounded-md bg-sky-50 px-2.5 py-1 text-xs text-sky-700 dark:bg-sky-950/40 dark:text-sky-200">
+          حُفظ تلقائياً {new Date(lastSavedAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
         </div>
       ) : null}
 
-      {/* Invoice header */}
-      <Card className={cn(cardBorder, "border-sky-200 bg-sky-50/80 dark:border-sky-900 dark:bg-sky-950/25")}>
-        <CardHeader><CardTitle>رأس الفاتورة</CardTitle></CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
-          <div className="relative">
+      {/* Compact invoice header form */}
+      <div className={cn("rounded-xl border border-sky-200 bg-sky-50/60 px-3 py-2.5 dark:border-sky-900 dark:bg-sky-950/20", cardBorder)}>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Customer picker */}
+          <div className="relative min-w-[180px] flex-1">
             <Input
               ref={customerInputRef}
-              placeholder={`اختيار ${customerLabel}`}
+              placeholder={`${customerLabel}`}
               value={customerQuery}
               onChange={(event) => {
                 setCustomerQuery(event.target.value)
@@ -1209,13 +1164,19 @@ export function InvoiceCreatePage() {
               </div>
             ) : null}
           </div>
-          <div className="sm:col-span-3">
-            <Input
-              value={invoiceNotes}
-              onChange={(event) => setInvoiceNotes(event.target.value)}
-              placeholder="ملاحظات عامة للفاتورة (اختياري)"
-            />
-          </div>
+          <select
+            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            value={paymentMode}
+            onChange={(e) => {
+              const mode = e.target.value as PaymentMode
+              setPaymentMode(mode)
+              if (mode === "CASH") setPaidAmount(total)
+              else setPaidAmount(0)
+            }}
+          >
+            <option value="CREDIT">آجل</option>
+            <option value="CASH">نقد</option>
+          </select>
           {!isPurchase && !selectedCustomer && (
             <button
               type="button"
@@ -1228,61 +1189,47 @@ export function InvoiceCreatePage() {
                 } catch { /* ignore */ }
                 setWalkInLoading(false)
               }}
-              className="h-10 rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              className="h-9 rounded-md border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
             >
-              {walkInLoading ? "..." : "⚡ الزبون النقدي"}
+              {walkInLoading ? "..." : "⚡ نقدي"}
             </button>
           )}
-          {isPurchase || selectedCustomer ? (
-            <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-slate-900 dark:border-slate-700">
-              تاريخ الفاتورة يثبت تلقائياً عند الحفظ
-            </div>
-          ) : null}
-          <select
-            className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
-            value={paymentMode}
-            onChange={(e) => {
-              const mode = e.target.value as PaymentMode
-              setPaymentMode(mode)
-              if (mode === "CASH") setPaidAmount(total)
-              else setPaidAmount(0)
-            }}
-          >
-            <option value="CREDIT">آجل</option>
-            <option value="CASH">نقد</option>
-          </select>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="mt-2">
+          <Input
+            value={invoiceNotes}
+            onChange={(event) => setInvoiceNotes(event.target.value)}
+            placeholder="ملاحظات عامة (اختياري)"
+          />
+        </div>
+      </div>
 
-      {/* Main body: items + totals beside a sticky customer mini-card */}
-      <div className="flex gap-3 items-start">
-      <div className="min-w-0 flex-1 space-y-4">
-      <Card className={cn(cardBorder, "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/20")}>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle>الأصناف</CardTitle>
-            <div className="flex gap-2">
-              {!isPurchase && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={useRetailPrice ? "border-orange-400 bg-orange-50 text-orange-700 dark:border-orange-600 dark:bg-orange-950/30 dark:text-orange-400" : ""}
-                  onClick={() => setUseRetailPrice((v) => !v)}
-                  title="تبديل بين سعر الجملة وسعر المفرد"
-                >
-                  {useRetailPrice ? "مفرد" : "جملة"}
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={() => setShowPurchase((v) => !v)}>سعر الشراء</Button>
-              <Button variant="outline" size="sm" onClick={() => setShowStock((v) => !v)}>الكمية</Button>
-              <Button size="sm" onClick={() => { setProductModal(true); window.setTimeout(() => productSearchRef.current?.focus(), 50) }}>
-                <Plus className="h-4 w-4" /> أضف صنف
-              </Button>
-            </div>
+      {/* Main body */}
+      <div className="flex gap-2 items-start">
+      <div className="min-w-0 flex-1 space-y-2">
+
+      {/* Items section */}
+      <div className={cn("rounded-xl border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900 dark:bg-emerald-950/20", cardBorder)}>
+        <div className="flex items-center justify-between gap-2 border-b border-emerald-100 px-3 py-2 dark:border-emerald-900/50">
+          <span className="text-sm font-semibold text-[color:var(--theme-textPrimary)]">الأصناف {items.length > 0 && <span className="ml-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{items.length}</span>}</span>
+          <div className="flex gap-1">
+            {!isPurchase && (
+              <button
+                type="button"
+                className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", useRetailPrice ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")}
+                onClick={() => setUseRetailPrice((v) => !v)}
+              >
+                {useRetailPrice ? "مفرد" : "جملة"}
+              </button>
+            )}
+            <button type="button" className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={() => setShowPurchase((v) => !v)}>شراء</button>
+            <button type="button" className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300" onClick={() => setShowStock((v) => !v)}>الكمية</button>
+            <button type="button" className="inline-flex h-7 items-center gap-1 rounded bg-emerald-600 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-700" onClick={() => { setProductModal(true); window.setTimeout(() => productSearchRef.current?.focus(), 50) }}>
+              <Plus className="h-3.5 w-3.5" /> أضف
+            </button>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
+        </div>
+        <div className="overflow-x-auto px-1 py-1">
             <Table>
               <THead>
                 <TR>
@@ -1456,37 +1403,32 @@ export function InvoiceCreatePage() {
               لا يوجد أصناف. اضغط "أضف صنف" أو امسح الباركود مباشرة.
             </div>
           ) : null}
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Financial summary — always BELOW items */}
-      <Card className={cn(cardBorder, "border-amber-200 bg-amber-50/80 dark:border-amber-900 dark:bg-amber-950/20")}>
-        <CardHeader><CardTitle>الملخص المالي</CardTitle></CardHeader>
-        <CardContent>
-          <div className="grid gap-6 sm:grid-cols-2">
+      {/* Financial summary */}
+      <div className={cn("rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900 dark:bg-amber-950/20", cardBorder)}>
+          <div className="grid gap-3 sm:grid-cols-2">
             {/* Left: amounts */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <SummaryRow label="المجموع" value={subtotal} />
               {!isPurchase ? (
                 <div>
                   <label className="mb-1 block text-xs text-slate-500">كود الكوبون</label>
                   <div className="flex gap-2">
                     <Input value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="EID2026" />
-                    <Button type="button" variant="outline" onClick={() => void applyCouponCode()}>تطبيق</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void applyCouponCode()}>تطبيق</Button>
                   </div>
                   {couponMessage ? <p className="mt-1 text-xs text-slate-500">{couponMessage}</p> : null}
                 </div>
               ) : null}
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-500">الخصم</label>
-                  <Input type="number" value={discount} onFocus={selectAllOnFocus} onChange={(e) => setDiscount(Number(e.target.value))} />
-                </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">الخصم</label>
+                <Input type="number" value={discount} onFocus={selectAllOnFocus} onChange={(e) => setDiscount(Number(e.target.value))} />
               </div>
               <SummaryRow label="الإجمالي" value={total} strong />
             </div>
             {/* Right: balance */}
-            <div className="space-y-3">
+            <div className="space-y-2">
               <SummaryRow label={isPurchase ? "الرصيد السابق (للمورّد)" : "الحساب السابق"} value={previousBalance} />
               <div>
                 <label className="mb-1 block text-xs text-slate-500">{isPurchase ? "المبلغ المدفوع للمورّد" : "المبلغ الواصل"}</label>
@@ -1521,21 +1463,21 @@ export function InvoiceCreatePage() {
           </div>
 
           {/* Actions */}
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4 dark:border-slate-800">
-            <Button onClick={() => setPreview(true)}>معاينة</Button>
-            <Button variant="outline" onClick={save} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-amber-100 pt-2.5 dark:border-amber-900/50">
+            <Button size="sm" onClick={() => setPreview(true)}>معاينة</Button>
+            <Button size="sm" variant="outline" onClick={save} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
               حفظ
             </Button>
-            <Button variant="outline" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+            <Button size="sm" variant="outline" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
               <Download className="h-4 w-4" /> PDF
             </Button>
-            <Button variant="outline" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+            <Button size="sm" variant="outline" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
               <ImageDown className="h-4 w-4" /> صورة
             </Button>
           </div>
 
           {hasBelowCost ? (
-            <div className="mt-2 rounded-md border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+            <div className="mt-2 rounded-md border border-rose-300 bg-rose-50 p-2.5 text-sm text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
               <div className="mb-1 flex items-center gap-2 font-semibold">
                 <AlertTriangle className="h-4 w-4" /> تحذير: بيع تحت سعر الشراء
               </div>
@@ -1543,7 +1485,7 @@ export function InvoiceCreatePage() {
             </div>
           ) : null}
           {lowStockWarnings.length > 0 ? (
-            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
               <div className="mb-1 flex items-center gap-2 font-semibold">
                 <AlertTriangle className="h-4 w-4" /> تحذير: مخزون سيصبح سالب
               </div>
@@ -1552,17 +1494,16 @@ export function InvoiceCreatePage() {
             </div>
           ) : null}
           {hasInvalidTotal ? (
-            <div className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
+            <div className="mt-2 rounded-md bg-red-50 p-2.5 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
               الخصم أكبر من مجموع الفاتورة.
             </div>
           ) : null}
           {createMutation.isError ? (
-            <div className="mt-2 rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
+            <div className="mt-2 rounded-md bg-red-50 p-2.5 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">
               ⚠ {extractErrorMessage(createMutation.error)}
             </div>
           ) : null}
-        </CardContent>
-      </Card>
+      </div>
 
       <input ref={scanInputRef} className="sr-only" aria-hidden tabIndex={-1} />
       </div>{/* end flex-1 */}
