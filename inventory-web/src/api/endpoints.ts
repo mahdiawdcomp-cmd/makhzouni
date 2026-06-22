@@ -794,7 +794,8 @@ export async function getTransfer(id: string) {
 export interface TransferRequestResult {
   success: boolean
   message?: string
-  approvalId: string
+  approvalId?: string
+  transfer?: InventoryTransfer
   snapshot?: {
     fromName: string
     toName: string
