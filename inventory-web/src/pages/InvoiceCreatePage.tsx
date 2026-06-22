@@ -384,6 +384,7 @@ export function InvoiceCreatePage() {
 
   // ----- PREFILL from order preparation (navigate state) -----
   useEffect(() => {
+    if (!activeTid) return  // wait until tid is established (after reset)
     if (prefillAppliedRef.current) return
     const state = location.state as {
       fromOrderPreparationId?: string
@@ -465,7 +466,7 @@ export function InvoiceCreatePage() {
     }
     if (newItems.length > 0) setItems(newItems)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, products])
+  }, [customers, products, activeTid])
 
   useEffect(() => {
     if (!pendingCloseTabId || pendingCloseTabId !== activeTid) return
