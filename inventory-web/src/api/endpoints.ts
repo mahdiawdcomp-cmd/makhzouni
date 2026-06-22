@@ -1206,7 +1206,7 @@ export async function submitPublicRetailOrder(payload: {
   isSubscriber?: boolean
   interests?: string[]
   wishNote?: string
-  items: Array<{ retailItemId: string; quantity: number }>
+  items: Array<{ retailItemId: string; quantity: number; warehouseId?: string }>
 }) {
   const { data } = await publicApi.post<ApiEnvelope<RetailOrderResult>>("/public/retail/orders", payload)
   return data.data!

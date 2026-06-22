@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react"
 import {
+  getBranches,
   getPublicActiveCoupon,
   getPublicCustomerReferral,
   getPublicReferralInfo,
@@ -46,7 +47,7 @@ import {
 import type { AiChatProduct, PublicRetailItem, PublicRetailCategory } from "../types/api"
 
 type Tab = "catalog" | "cart" | "orders"
-type CartLine = { item: PublicRetailItem; quantity: number }
+type CartLine = { item: PublicRetailItem; quantity: number; warehouseId?: string }
 type SavedOrder = { id: string; orderNumber: string; total: number; createdAt: string }
 
 const ORDERS_KEY = "retail_shop_orders"
@@ -123,14 +124,14 @@ export function RetailShopPage() {
   const cartCount = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.item.price * l.quantity, 0)
 
-  function addToCart(item: PublicRetailItem, qty = 1) {
+  function addToCart(item: PublicRetailItem, qty = 1, warehouseId?: string) {
     setCart((cur) => {
-      const existing = cur.find((l) => l.item.id === item.id)
+      const existing = cur.find((l) => l.item.id === item.id && l.warehouseId === warehouseId)
       const max = item.currentStock
       if (existing) {
-        return cur.map((l) => (l.item.id === item.id ? { ...l, quantity: Math.min(max, l.quantity + qty) } : l))
+        return cur.map((l) => (l.item.id === item.id && l.warehouseId === warehouseId ? { ...l, quantity: Math.min(max, l.quantity + qty) } : l))
       }
-      return [...cur, { item, quantity: Math.min(max, qty) }]
+      return [...cur, { item, quantity: Math.min(max, qty), warehouseId }]
     })
   }
 
@@ -255,7 +256,7 @@ export function RetailShopPage() {
             currency={currency}
             onClose={() => setDetail(null)}
             onShare={() => shareItem(detail)}
-            onAdd={(qty) => { addToCart(detail, qty); setDetail(null); setTab("cart") }}
+            onAdd={(qty, warehouseId) => { addToCart(detail, qty, warehouseId); setDetail(null); setTab("cart") }}
           />
         )}
       </AnimatePresence>
@@ -706,11 +707,14 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
   item: PublicRetailItem
   currency: string
   onClose: () => void
-  onAdd: (qty: number) => void
+  onAdd: (qty: number, warehouseId?: string) => void
   onShare: () => void
 }) {
   const [active, setActive] = useState(0)
   const [qty, setQty] = useState(1)
+  const [warehouseId, setWarehouseId] = useState("")
+  const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
+  const branches = branchesQuery.data ?? []
   const pct = item.oldPrice && item.oldPrice > item.price ? Math.round((1 - item.price / item.oldPrice) * 100) : null
 
   // Hardware/browser back button closes the modal instead of leaving the page,
@@ -773,6 +777,24 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
           {item.description ? <p className="text-sm leading-relaxed text-slate-600">{item.description}</p> : null}
           <div className="text-xs text-emerald-600">متوفر: {item.currentStock} قطعة</div>
 
+          {branches.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-600">اختر المخزن الرئيسي (لو ما كفى نقسم تلقائياً)</label>
+              <select
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm"
+              >
+                <option value="">المخزن الرئيسي (تلقائي)</option>
+                {branches.map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="flex items-center justify-center gap-4 rounded-xl bg-slate-50 py-2">
             <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="rounded-full bg-white p-2 shadow"><Minus className="h-4 w-4" /></button>
             <span className="w-10 text-center text-lg font-bold">{qty}</span>
@@ -781,7 +803,7 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
             )}
           </div>
 
-          <button type="button" onClick={() => onAdd(qty)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3.5 font-bold text-white active:scale-95">
+          <button type="button" onClick={() => { onAdd(qty, warehouseId); setWarehouseId("") }} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3.5 font-bold text-white active:scale-95">
             <ShoppingCart className="h-5 w-5" /> أضف للسلة — {money(item.price * qty)} {currency}
           </button>
         </div>
@@ -863,7 +885,7 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
         isSubscriber,
         interests: isSubscriber ? interests : undefined,
         wishNote: isSubscriber && wishNote.trim() ? wishNote.trim() : undefined,
-        items: cart.map((l) => ({ retailItemId: l.item.id, quantity: l.quantity })),
+        items: cart.map((l) => ({ retailItemId: l.item.id, quantity: l.quantity, warehouseId: l.warehouseId })),
       })
       setSuccess({ orderNumber: res.orderNumber })
       onPlaced({ id: res.id, orderNumber: res.orderNumber, total: res.total, createdAt: new Date().toISOString(), customerPhone: phone.trim(), ordersToken: res.ordersToken })
