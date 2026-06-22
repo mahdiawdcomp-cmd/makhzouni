@@ -13,6 +13,7 @@ import {
   restoreInvoice,
 } from "../controllers/invoices.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { enforcePlanLimit } from "../middleware/tenant.middleware";
 import { validate } from "../middleware/validate";
 import {
   createInvoiceSchema,
@@ -27,7 +28,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/", validate(listInvoicesSchema), getInvoices);
-router.post("/", validate(createInvoiceSchema), addInvoice);
+router.post("/", enforcePlanLimit("invoice"), validate(createInvoiceSchema), addInvoice);
 router.get("/last-sold-price", validate(lastSoldPriceSchema), getLastSoldPriceForProduct);
 router.get("/:id/pdf", validate(idParamSchema), exportInvoicePdf);
 router.get("/:id/image", validate(idParamSchema), exportInvoiceImage);

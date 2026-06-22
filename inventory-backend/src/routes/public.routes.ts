@@ -61,9 +61,10 @@ router.get("/retail/catalog", catalogLimiter, getPublicRetailCatalog);
 router.get("/retail/active-coupon", catalogLimiter, getPublicActiveCoupon);
 router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCouponSchema), previewPublicCoupon);
 router.post("/retail/orders", catalogLimiter, validate(submitRetailOrderSchema), postPublicRetailOrder);
-router.get("/retail/my-orders", catalogLimiter, getPublicRetailOrdersByPhone);
+// Removed GET /retail/my-orders?phone=... (privacy: exposed order history by phone without auth)
+// Use the token-based endpoint instead: GET /retail/my-orders/:token
 router.get("/retail/my-orders/:token", catalogLimiter, getPublicRetailOrdersByToken);
-router.get("/retail/orders/:id", catalogLimiter, validate(idParamSchema), getPublicRetailOrder);
+// Removed GET /retail/orders/:id (privacy: exposed individual orders without any authorization)
 router.get("/retail/referral/:code", catalogLimiter, getPublicReferralInfo);
 router.get("/retail/my-referral", catalogLimiter, getPublicCustomerReferral);
 router.post("/retail/ai-chat", catalogLimiter, postPublicRetailAiChat);

@@ -44,10 +44,14 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  // If already activated on a different device, reject
-  if (sn.activatedBy && deviceId && sn.activatedBy !== deviceId) {
-    res.status(403).json({ error: "Serial already activated on another device" });
-    return;
+  // If already bound to a device, the same deviceId must match.
+  // Missing deviceId is treated as a different device — closes the bypass
+  // where omitting deviceId would pass the old `sn.activatedBy && deviceId` check.
+  if (sn.activatedBy) {
+    if (!deviceId || sn.activatedBy !== deviceId) {
+      res.status(403).json({ error: "Serial already activated on another device" });
+      return;
+    }
   }
 
   const tenant = sn.tenant;

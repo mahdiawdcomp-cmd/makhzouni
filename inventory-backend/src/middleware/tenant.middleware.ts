@@ -7,6 +7,7 @@
  */
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../utils/logger";
+import prisma from "../config/database";
 
 export interface TenantConfig {
   tenantId: string;
@@ -89,4 +90,35 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     return;
   }
   next();
+}
+
+/**
+ * Enforces the plan's maxInvoices / maxCustomers ceilings. Apply ONLY on the
+ * create routes (POST). No TENANT_ID or a null limit ⇒ unlimited (skips).
+ * Counts are read live; the small TOCTOU window is acceptable for a soft
+ * commercial cap (a tenant can't meaningfully exceed it by racing).
+ */
+export function enforcePlanLimit(resource: "invoice" | "customer") {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const cfg = await getTenantConfig();
+    if (!cfg) { next(); return; } // single-tenant / dev — no limits
+
+    const limit = resource === "invoice" ? cfg.maxInvoices : cfg.maxCustomers;
+    if (limit === null || limit === undefined) { next(); return; } // unlimited
+
+    const count = resource === "invoice"
+      ? await prisma.invoice.count()
+      : await prisma.customer.count({ where: { deletedAt: null } });
+
+    if (count >= limit) {
+      res.status(403).json({
+        error: "PLAN_LIMIT_REACHED",
+        message: resource === "invoice"
+          ? `وصلت للحد الأقصى من الفواتير (${limit}) في باقتك. يرجى الترقية.`
+          : `وصلت للحد الأقصى من الزبائن (${limit}) في باقتك. يرجى الترقية.`,
+      });
+      return;
+    }
+    next();
+  };
 }

@@ -1,4 +1,4 @@
-import { DiscountType, Unit } from "@prisma/client";
+import { DiscountType, Prisma, Unit } from "@prisma/client";
 import { randomBytes } from "crypto";
 import prisma, { ensureConnected } from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -51,8 +51,10 @@ function stockOf(product: ProductStock) {
 // two customers. Cancelling an order auto-releases its hold (it stops being
 // counted), and preparing it deducts real stock via the invoice. Returns a map
 // of productId -> reserved pieces.
-async function getReservedByProduct(): Promise<Map<string, number>> {
-  const openOrders = await prisma.retailOrder.findMany({
+async function getReservedByProduct(
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+): Promise<Map<string, number>> {
+  const openOrders = await db.retailOrder.findMany({
     where: { status: { in: ["PENDING", "PROCESSING"] } },
     select: { items: true },
   });
@@ -405,7 +407,7 @@ export async function getActiveRetailCoupon() {
 }
 
 async function resolveCoupon(code: string | undefined, subtotal: number) {
-  if (!code) return { discount: 0, coupon: null as null | { id: string; code: string } };
+  if (!code) return { discount: 0, coupon: null as null | { id: string; code: string; maxUses: number | null } };
   const coupon = await prisma.retailCoupon.findUnique({ where: { code: code.trim().toUpperCase() } });
   if (!coupon || !couponIsValidNow(coupon)) {
     throw new AppError("الكوبون غير صالح أو منتهي", 400, "RETAIL_COUPON_INVALID");
@@ -415,7 +417,7 @@ async function resolveCoupon(code: string | undefined, subtotal: number) {
       ? subtotal * (toNumber(coupon.discountValue) / 100)
       : toNumber(coupon.discountValue);
   const discount = Math.min(subtotal, Math.max(0, raw));
-  return { discount, coupon: { id: coupon.id, code: coupon.code } };
+  return { discount, coupon: { id: coupon.id, code: coupon.code, maxUses: coupon.maxUses } };
 }
 
 export async function previewRetailCoupon(code: string, subtotal: number) {
@@ -542,17 +544,6 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     });
   }
 
-  // Validate available stock (physical minus what other open orders reserve).
-  const reservedByOthers = await getReservedByProduct();
-  for (const item of retailItems) {
-    if (!item.product) continue;
-    const requested = requestedByProduct.get(item.product.id) ?? 0;
-    const available = Math.max(0, stockOf(item.product) - (reservedByOthers.get(item.product.id) ?? 0));
-    if (requested > available) {
-      throw new AppError(`الكمية المطلوبة من "${item.title || item.product.name}" أكبر من المتوفر`, 400, "RETAIL_STOCK_NOT_ENOUGH");
-    }
-  }
-
   const subtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
   const { discount: couponDiscount, coupon } = await resolveCoupon(input.couponCode, subtotal);
   const { discount: referralDiscount, referralCode: usedReferralCode } = await resolveReferral(input.referralCode, subtotal);
@@ -560,27 +551,59 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
   const total = Math.max(0, subtotal - couponDiscount - referralDiscount);
 
   const orderNumber = await generateRetailOrderNumber();
-  const order = await prisma.retailOrder.create({
-    data: {
-      orderNumber,
-      customerName: input.customerName.trim(),
-      phone: normalizePhone(input.phone),
-      address: input.address?.trim() || null,
-      notes: input.notes?.trim() || null,
-      items: orderItems as unknown as object,
-      warehouseId: input.warehouseId || null,
-      subtotal,
-      discount,
-      referralDiscount,
-      total,
-      couponCode: coupon?.code ?? null,
-      referralCode: usedReferralCode,
-    },
-  });
 
-  if (coupon) {
-    await prisma.retailCoupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } }).catch(() => {});
-  }
+  // Re-check stock AND claim the coupon use atomically. Both the reservation
+  // read and the order insert run inside one transaction (Serializable) so two
+  // concurrent buyers can't oversell the same pieces or push a maxUses coupon
+  // past its limit.
+  const order = await prisma.$transaction(
+    async (tx) => {
+      const reservedByOthers = await getReservedByProduct(tx);
+      for (const item of retailItems) {
+        if (!item.product) continue;
+        const requested = requestedByProduct.get(item.product.id) ?? 0;
+        const available = Math.max(0, stockOf(item.product) - (reservedByOthers.get(item.product.id) ?? 0));
+        if (requested > available) {
+          throw new AppError(`الكمية المطلوبة من "${item.title || item.product.name}" أكبر من المتوفر`, 400, "RETAIL_STOCK_NOT_ENOUGH");
+        }
+      }
+
+      // Conditional increment closes the coupon race: only succeeds while
+      // usedCount is still below maxUses. maxUses null = unlimited.
+      if (coupon) {
+        if (coupon.maxUses !== null) {
+          const claimed = await tx.retailCoupon.updateMany({
+            where: { id: coupon.id, usedCount: { lt: coupon.maxUses } },
+            data: { usedCount: { increment: 1 } },
+          });
+          if (claimed.count === 0) {
+            throw new AppError("الكوبون غير صالح أو منتهي", 400, "RETAIL_COUPON_INVALID");
+          }
+        } else {
+          await tx.retailCoupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
+        }
+      }
+
+      return tx.retailOrder.create({
+        data: {
+          orderNumber,
+          customerName: input.customerName.trim(),
+          phone: normalizePhone(input.phone),
+          address: input.address?.trim() || null,
+          notes: input.notes?.trim() || null,
+          items: orderItems as unknown as object,
+          warehouseId: input.warehouseId || null,
+          subtotal,
+          discount,
+          referralDiscount,
+          total,
+          couponCode: coupon?.code ?? null,
+          referralCode: usedReferralCode,
+        },
+      });
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
 
   // Build/refresh the customer record (interests = main categories of ordered
   // items + any the customer explicitly picked).

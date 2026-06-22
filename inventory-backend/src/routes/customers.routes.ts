@@ -22,6 +22,7 @@ import {
   recalculateBalance,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { enforcePlanLimit } from "../middleware/tenant.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
@@ -60,7 +61,7 @@ router.post("/broadcast-catalog-link", requirePermission("MANAGE_CUSTOMERS"), va
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);
-router.post("/", validate(createCustomerSchema), addCustomer);
+router.post("/", enforcePlanLimit("customer"), validate(createCustomerSchema), addCustomer);
 router.post("/:id/send-catalog-link", requirePermission("MANAGE_CUSTOMERS"), validate(sendCatalogLinkSchema), postSendCatalogLink);
 router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
 router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);

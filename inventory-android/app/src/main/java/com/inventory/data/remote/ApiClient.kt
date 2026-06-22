@@ -17,7 +17,10 @@ class ApiClient @Inject constructor(
         .addInterceptor(dynamicBaseUrlInterceptor)
         .addInterceptor(jwtInterceptor)
         .addInterceptor(HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            // Full request/response bodies (incl. JWTs and customer data) only in
+            // debug builds. Release builds log nothing to avoid leaking secrets.
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY
+                    else HttpLoggingInterceptor.Level.NONE
         })
         .build()
 

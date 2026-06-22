@@ -4,10 +4,16 @@ if (!process.env.DATABASE_URL) {
   console.error("[FATAL] DATABASE_URL is not set.");
   process.exit(1);
 }
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === "change-this-strong-secret") {
+// Known weak/placeholder secrets that must never reach production. The two
+// route files fall back to "dev-secret" for local convenience, so we must
+// reject it here (and any unset secret) before any token is signed/verified.
+const WEAK_JWT_SECRETS = new Set(["change-this-strong-secret", "dev-secret"]);
+if (!process.env.JWT_SECRET || WEAK_JWT_SECRETS.has(process.env.JWT_SECRET)) {
   if (process.env.NODE_ENV === "production") {
     console.error("[FATAL] JWT_SECRET must be set to a strong random value in production.");
     process.exit(1);
+  } else {
+    console.warn("[WARN] JWT_SECRET is unset or weak — using an insecure dev fallback. Do NOT use in production.");
   }
 }
 
