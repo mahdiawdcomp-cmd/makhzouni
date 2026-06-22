@@ -848,6 +848,12 @@ export async function markOrderPrepared(id: string, opts?: { warehouseId?: strin
   return data
 }
 
+// Link an already-created invoice to a preparation and mark it prepared (manual flow)
+export async function completeOrderPreparation(id: string, invoiceId: string) {
+  const { data } = await api.post<ApiEnvelope<{ invoiceId?: string }>>(`/order-preparations/${id}/complete`, { invoiceId })
+  return data
+}
+
 // ── Profit Report ─────────────────────────────────────────────────────────────
 export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
   const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })

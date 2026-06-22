@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -1023,6 +1023,14 @@ export function InvoiceCreatePage() {
       }
       setSavedInvoiceId(id)
       clearDraft()
+      // If this invoice was built from a pending order preparation, mark that
+      // preparation done and link this invoice so it leaves the pending list.
+      if (fromPrepId) {
+        try {
+          await completeOrderPreparation(fromPrepId, id)
+          void queryClient.invalidateQueries({ queryKey: ["order-preparations"] })
+        } catch { /* don't block the invoice if completing the prep fails */ }
+      }
       if (showWhatsAppPrompt && !isPurchase && selectedCustomer?.phone) setWhatsappPromptId(id)
       if (navigateAfterSave && !(!isPurchase && selectedCustomer?.phone)) navigate(`/invoices/${id}`)
       }

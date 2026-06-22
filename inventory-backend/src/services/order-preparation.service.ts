@@ -173,6 +173,33 @@ export async function listPendingPreparations() {
   });
 }
 
+// Mark a preparation done by linking an ALREADY-created invoice (manual flow:
+// staff opened the full invoice page, edited and saved it themselves). Unlike
+// markPrepared, this never creates a new invoice and sends no WhatsApp — the
+// invoice page handles its own WhatsApp prompt. Idempotent.
+export async function completePreparationWithInvoice(
+  preparationId: string,
+  userId: string,
+  invoiceId: string,
+) {
+  const prep = await prisma.orderPreparation.findUnique({ where: { id: preparationId } });
+  if (!prep) throw new AppError("Preparation not found", 404, "PREP_NOT_FOUND");
+  if (prep.status === "PREPARED") return { invoiceId: prep.invoiceId ?? invoiceId };
+
+  await prisma.orderPreparation.update({
+    where: { id: preparationId },
+    data: {
+      status: "PREPARED",
+      preparedAt: new Date(),
+      preparedById: userId,
+      // Link the invoice only if this prep isn't already tied to one (invoiceId is @unique)
+      ...(prep.invoiceId ? {} : { invoiceId }),
+    },
+  });
+
+  return { invoiceId: prep.invoiceId ?? invoiceId };
+}
+
 // Split order items across warehouses if quantity insufficient in primary warehouse
 async function splitOrderItemsAcrossWarehouses(
   items: Array<{ productId: string; unit: string; quantity: number; unitPrice?: number; warehouseId?: string }>,
