@@ -19,6 +19,7 @@ import {
   postCustomerBroadcast,
   postCustomerTag,
   postSendCatalogLink,
+  recalculateBalance,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission } from "../middleware/permission.middleware";
@@ -64,6 +65,7 @@ router.post("/:id/send-catalog-link", requirePermission("MANAGE_CUSTOMERS"), val
 router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
 router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);
 router.put("/:id", validate(updateCustomerSchema), editCustomer);
+router.post("/:id/recalculate-balance", validate(idParamSchema), recalculateBalance);
 router.delete("/:id", validate(idParamSchema), deleteCustomer);
 router.get(
   "/:id/transactions",

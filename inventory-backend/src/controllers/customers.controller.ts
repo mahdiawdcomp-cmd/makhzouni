@@ -25,6 +25,7 @@ import {
   listInactiveCustomers,
   softDeleteCustomer,
   updateCustomer,
+  recalculateCustomerBalance,
 } from "../services/customer.service";
 import { hasPermission } from "../middleware/permission.middleware";
 import { logger } from "../utils/logger";
@@ -258,4 +259,10 @@ export const postCustomerBroadcast = asyncHandler(async (req, res) => {
       .then((r) => logger.info(`[CustomerBroadcast] done: ${r.sent}/${r.total} sent, ${r.failed} failed, ${r.skippedProducts} products skipped (no image)`))
       .catch((err) => logger.error(`[CustomerBroadcast] error: ${err}`));
   });
+});
+
+export const recalculateBalance = asyncHandler(async (req, res) => {
+  const { id } = req.params as { id: string };
+  const customer = await recalculateCustomerBalance(id);
+  res.json({ success: true, data: customer });
 });

@@ -369,6 +369,11 @@ export async function getCustomerTransactions(id: string, params?: { from?: stri
   return data.data?.transactions ?? []
 }
 
+export async function recalculateCustomerBalance(id: string) {
+  const { data } = await api.post<ApiEnvelope<Customer>>(`/customers/${id}/recalculate-balance`)
+  return data.data
+}
+
 export async function getLastCustomerTransaction(id: string) {
   const { data } = await api.get<ApiEnvelope<LastTransaction>>(`/customers/${id}/last-transaction`)
   return data.data

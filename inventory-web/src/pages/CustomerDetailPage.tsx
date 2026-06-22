@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
-import { createCustomerPortalLink, getCustomerRatings, deleteCustomer } from "../api/endpoints"
+import { createCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
@@ -142,6 +142,15 @@ export function CustomerDetailPage() {
     },
     onError: () => toast({ title: "تعذر حذف الزبون", variant: "destructive" }),
   })
+  const recalcMutation = useMutation({
+    mutationFn: () => recalculateCustomerBalance(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customer", id] })
+      queryClient.invalidateQueries({ queryKey: ["customers"] })
+      toast({ title: "تم إعادة حساب الرصيد" })
+    },
+    onError: () => toast({ title: "تعذر إعادة الحساب", variant: "destructive" }),
+  })
   const customer = details.customerQuery.data
   const ratingsQuery = useQuery({ queryKey: ["customer-ratings"], queryFn: getCustomerRatings, staleTime: 5 * 60_000 })
   const myRating = ratingsQuery.data?.find((r) => r.id === id)?.rating ?? null
@@ -260,6 +269,11 @@ export function CustomerDetailPage() {
         <Summary title="إجمالي المدفوع" value={totalReceived} />
         <Summary title="الرصيد النهائي" value={customer.currentBalance} danger={customer.currentBalance > 0} />
         <Summary title="إجمالي المشتريات" value={totalPurchases} />
+      </div>
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" disabled={recalcMutation.isPending} onClick={() => recalcMutation.mutate()}>
+          {recalcMutation.isPending ? "جاري الحساب..." : "🔄 إعادة حساب الرصيد"}
+        </Button>
       </div>
 
       {/* Last activity card — clickable */}
