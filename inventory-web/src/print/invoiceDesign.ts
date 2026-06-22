@@ -283,36 +283,34 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const accent = el.accent || "#4f46e5"
   const fs = el.fontSize || 12
   const fsSm = Math.max(fs - 2, 9)
-  const cols = ["#", "الصنف", "الوحدة"]
+  const hasItemNum = inv.lines.some((l) => l.itemNumber)
+  // columns: # | رقم الايتم (optional) | الصنف | الوحدة | الكمية | السعر | المجموع | الملاحظات
+  const cols = ["#"]
+  if (hasItemNum) cols.push("رقم الايتم")
+  cols.push("الصنف", "الوحدة")
   if (el.showQty) cols.push("الكمية")
   if (el.showPrice) cols.push("السعر")
   cols.push("المجموع", "الملاحظات")
-  const head = `<tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</th>`).join("")}</tr>`
-  const body = inv.lines.map((l, idx) => {
-    // Product name cell: item number inline before name, pcsPerCarton inline after (no extra line height)
-    const itemNumHtml = l.itemNumber
-      ? `<span style="font-size:${fsSm}px;color:#6366f1;font-weight:700;margin-left:4px">${esc(l.itemNumber)}</span> `
-      : ""
-    const pcsHtml = l.pcsPerCarton && l.pcsPerCarton > 1
-      ? ` <span style="font-size:${fsSm}px;color:#94a3b8">(${l.pcsPerCarton} ق/ك)</span>`
-      : ""
-    const nameCell = `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:${fs}px;white-space:nowrap">${itemNumHtml}${esc(l.name)}${pcsHtml}</td>`
+  const nameColIdx = hasItemNum ? 2 : 1
+  const head = `<tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === nameColIdx ? "right" : "center"};font-size:${fs}px">${c}</th>`).join("")}</tr>`
 
-    const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
-    const cells: string[] = [
-      `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${idx + 1}</td>`,
-      nameCell,
-      `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${esc(l.unit || "—")}</td>`,
-    ]
-    if (el.showQty) cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${l.qty}</td>`)
-    if (el.showPrice) cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${numFmt(l.price)}</td>`)
-    cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${numFmt(l.qty * l.price)}</td>`)
-    cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${esc(l.notes || "")}</td>`)
+  const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
+  const td = (content: string, right = false) =>
+    `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:${right ? "right" : "center"};font-size:${fs}px">${content}</td>`
+
+  const body = inv.lines.map((l, idx) => {
+    const cells: string[] = [td(`${idx + 1}`)]
+    if (hasItemNum) cells.push(td(`<span style="color:#6366f1;font-weight:700">${esc(l.itemNumber || "—")}</span>`))
+    cells.push(td(esc(l.name), true))
+    cells.push(td(esc(l.unit || "—")))
+    if (el.showQty) cells.push(td(`${l.qty}`))
+    if (el.showPrice) cells.push(td(numFmt(l.price)))
+    cells.push(td(numFmt(l.qty * l.price)))
+    cells.push(td(esc(l.notes || "")))
     return `<tr>${cells.join("")}</tr>`
   }).join("")
-  // Currency label row
-  const colSpanBefore = 2 + (el.showQty ? 1 : 0) + (el.showPrice ? 1 : 0)
-  const curRow = `<tr><td colspan="${colSpanBefore + 3}" style="padding:2px 4px;font-size:${fsSm}px;color:#94a3b8;text-align:center">الأسعار والمجاميع بـ ${cur}</td></tr>`
+  const totalCols = cols.length
+  const curRow = `<tr><td colspan="${totalCols}" style="padding:2px 4px;font-size:${fsSm}px;color:#94a3b8;text-align:center">الأسعار والمجاميع بـ ${cur}</td></tr>`
   return `<table style="width:100%;border-collapse:collapse">${head}${body}${curRow}</table>`
 }
 
