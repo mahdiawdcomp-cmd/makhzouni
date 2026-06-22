@@ -2,17 +2,16 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
-  Check,
   ChevronDown,
   ChevronUp,
   ClipboardList,
   Package,
   Phone,
-  Save,
+  FileText,
   Trash2,
 } from "lucide-react"
-import { getOrderPreparations, markOrderPrepared, getBranches, cancelInvoice } from "../../api/endpoints"
-import type { OrderPreparation } from "../../types/api"
+import { getOrderPreparations, cancelInvoice, createInvoice } from "../../api/endpoints"
+import type { OrderPreparation, CreateInvoicePayload } from "../../types/api"
 import { cn } from "../../utils/cn"
 
 function unitAr(unit: string) {
@@ -27,21 +26,16 @@ function money(v: number | undefined) {
 
 function OrderCard({ order }: { order: OrderPreparation }) {
   const [expanded, setExpanded] = useState(false)
-  const [done, setDone] = useState(false)
-  const [warehouseId, setWarehouseId] = useState("")
-  const [notes, setNotes] = useState("")
+  const [showCreateInvoice, setShowCreateInvoice] = useState(false)
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const qc = useQueryClient()
-  const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
-  const branches = branchesQuery.data ?? []
 
-  const mutation = useMutation({
-    mutationFn: () => markOrderPrepared(order.id, { warehouseId: warehouseId || undefined, notes: notes || undefined }),
+  const createInvoiceMutation = useMutation({
+    mutationFn: (payload: CreateInvoicePayload) => createInvoice(payload),
     onSuccess: () => {
-      setDone(true)
-      setTimeout(() => {
-        qc.invalidateQueries({ queryKey: ["order-preparations"] })
-      }, 1200)
+      setShowCreateInvoice(false)
+      qc.invalidateQueries({ queryKey: ["order-preparations"] })
+      qc.invalidateQueries({ queryKey: ["invoices"] })
     },
   })
 
@@ -56,14 +50,6 @@ function OrderCard({ order }: { order: OrderPreparation }) {
     },
   })
 
-  if (done) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 animate-pulse">
-        <Check className="h-4 w-4" />
-        <span className="font-semibold">تم تأكيد التجهيز — جاري إشعار {order.customerName}...</span>
-      </div>
-    )
-  }
 
   return (
     <>
@@ -109,6 +95,17 @@ function OrderCard({ order }: { order: OrderPreparation }) {
         </div>
       )}
 
+      {/* Create Invoice Modal */}
+      {showCreateInvoice && (
+        <CreateInvoiceModal
+          order={order}
+          onClose={() => setShowCreateInvoice(false)}
+          onSave={(payload) => createInvoiceMutation.mutate(payload)}
+          loading={createInvoiceMutation.isPending}
+          error={createInvoiceMutation.error?.message}
+        />
+      )}
+
       <div className="rounded-xl border-2 border-amber-300 bg-white shadow-md overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 bg-amber-50 px-4 py-3">
@@ -151,29 +148,29 @@ function OrderCard({ order }: { order: OrderPreparation }) {
 
           <button
             type="button"
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate()}
+            disabled={createInvoiceMutation.isPending}
+            onClick={() => setShowCreateInvoice(true)}
             className={cn(
               "flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-bold text-white transition-all",
-              mutation.isPending
-                ? "bg-emerald-400 cursor-wait"
-                : "bg-emerald-600 hover:bg-emerald-700 active:scale-95",
+              createInvoiceMutation.isPending
+                ? "bg-blue-400 cursor-wait"
+                : "bg-blue-600 hover:bg-blue-700 active:scale-95",
             )}
-            title={expanded ? "سيتم حفظ الملاحظات والمخزن" : "اضغط السهم لإضافة ملاحظات"}
+            title="فتح فاتورة جديدة معها البيانات مملوءة"
           >
-            {mutation.isPending ? (
+            {createInvoiceMutation.isPending ? (
               <>جاري...</>
             ) : (
               <>
-                {expanded ? <Save className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-                {expanded ? "حفظ التجهيز" : "تم التجهيز"}
+                <FileText className="h-4 w-4" />
+                إنشاء فاتورة
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Items list + warehouse/notes selection */}
+      {/* Items list */}
       {expanded && (
         <div className="divide-y border-t bg-white">
           {order.items.map((item, idx) => (
@@ -196,38 +193,115 @@ function OrderCard({ order }: { order: OrderPreparation }) {
             <span>المجموع</span>
             <span>{money(order.totalAmount)} د.ع</span>
           </div>
-          {/* Warehouse + Notes selection */}
-          <div className="space-y-3 px-4 py-3 bg-blue-50/50">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">المخزن</label>
-              <select
-                value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
-                className="w-full h-8 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-950"
-              >
-                <option value="">المخزن الرئيسي</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">ملاحظات</label>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="مثال: الطلب تم تجهيزه كاملاً"
-                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-950 resize-none"
-                rows={2}
-              />
-            </div>
-          </div>
         </div>
       )}
     </div>
     </>
+  )
+}
+
+// ── Create Invoice Modal ──────────────────────────────────────────────────
+
+function CreateInvoiceModal({ order, onClose, onSave, loading, error }: {
+  order: OrderPreparation
+  onClose: () => void
+  onSave: (payload: CreateInvoicePayload) => void
+  loading: boolean
+  error?: string | null
+}) {
+  const [notes, setNotes] = useState("")
+
+  const handleSave = () => {
+    const payload: CreateInvoicePayload = {
+      customerId: order.customerId,
+      items: order.items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        unit: (item.unit as "PIECE" | "DOZEN" | "CARTON"),
+      })),
+      notes: notes || undefined,
+      discount: 0,
+      tax: 0,
+      paidAmount: order.totalAmount,
+    }
+    onSave(payload)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
+        {/* Header */}
+        <div className="sticky top-0 border-b bg-blue-50 px-6 py-4">
+          <h3 className="text-lg font-bold text-slate-900">إنشاء فاتورة</h3>
+          <p className="text-xs text-slate-500 mt-1">البيانات مملوءة من الطلب: <strong>{order.customerName}</strong></p>
+        </div>
+
+        {/* Content */}
+        <div className="space-y-4 px-6 py-4">
+          {/* Items Summary */}
+          <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+            <p className="text-xs font-semibold text-slate-600 mb-2">المواد المطلوبة:</p>
+            <div className="space-y-1">
+              {order.items.map((item, idx) => (
+                <div key={idx} className="flex justify-between text-xs text-slate-700">
+                  <span>{item.productName}</span>
+                  <span className="font-semibold">{item.quantity} {unitAr(item.unit)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 border-t pt-2 flex justify-between text-sm font-bold text-slate-900">
+              <span>المجموع:</span>
+              <span>{money(order.totalAmount)} د.ع</span>
+            </div>
+          </div>
+
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">ملاحظات (اختياري)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="مثال: توصيل سريع، تغليف خاص..."
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs resize-none"
+              rows={3}
+            />
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-600">
+              ❌ {error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="sticky bottom-0 border-t bg-slate-50 px-6 py-3 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100 transition"
+          >
+            إلغاء
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={loading}
+            className={cn(
+              "flex-1 rounded-lg py-2.5 text-sm font-bold text-white transition",
+              loading
+                ? "bg-blue-400 cursor-wait"
+                : "bg-blue-600 hover:bg-blue-700 active:scale-95"
+            )}
+          >
+            {loading ? "جاري الإنشاء..." : "✓ إنشاء الفاتورة"}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
