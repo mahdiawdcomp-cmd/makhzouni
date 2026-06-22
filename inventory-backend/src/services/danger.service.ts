@@ -16,7 +16,12 @@ export const WIPE_CONFIRM_PHRASE = "مسح نهائي";
  * customers, users, branches, settings, message_templates, catalog_categories,
  * retail_categories, retail_coupons, retail_customers, customer_tags,
  * customer_portal_links, catalog_access_links, counters, licensed_clients,
- * client_payments.
+ * client_payments, products, product_warehouse_stocks, retail_catalog_items.
+ *
+ * NOTE: products, product_warehouse_stocks, and retail_catalog_items are
+ * intentionally excluded — they represent the merchant's product catalog
+ * (configuration data), not transactional records. Wiping invoices/vouchers
+ * should never destroy the product list or the retail storefront.
  *
  * Order does not matter because we pass them all to a single TRUNCATE ...
  * CASCADE statement; CASCADE only ever pulls in *child* tables, all of which
@@ -40,9 +45,6 @@ const OPERATIONAL_TABLES = [
   "pending_approvals",
   "notifications",
   "retail_orders",
-  "retail_catalog_items",
-  "product_warehouse_stocks",
-  "products",
   "audit_logs",
 ] as const;
 
@@ -51,6 +53,7 @@ export interface WipeResult {
   keptCustomers: number;
   keptUsers: number;
   keptBranches: number;
+  keptProducts: number;
 }
 
 /**
@@ -69,27 +72,29 @@ export async function wipeOperationalData(confirmPhrase: string): Promise<WipeRe
 
   // Snapshot row counts for the report (best-effort).
   const [
-    products,
     invoices,
     vouchers,
     quotations,
     stockMovements,
     transfers,
     coupons,
+    retailOrders,
     keptCustomers,
     keptUsers,
     keptBranches,
+    keptProducts,
   ] = await Promise.all([
-    prisma.product.count(),
     prisma.invoice.count(),
     prisma.paymentVoucher.count(),
     prisma.quotation.count(),
     prisma.stockMovement.count(),
     prisma.inventoryTransfer.count(),
     prisma.coupon.count(),
+    prisma.retailOrder.count(),
     prisma.customer.count({ where: { deletedAt: null } }),
     prisma.user.count(),
     prisma.branch.count(),
+    prisma.product.count({ where: { deletedAt: null } }),
   ]);
 
   // Single atomic TRUNCATE across every operational table.
@@ -107,15 +112,16 @@ export async function wipeOperationalData(confirmPhrase: string): Promise<WipeRe
 
   return {
     deleted: {
-      products,
       invoices,
       vouchers,
       quotations,
       stockMovements,
       transfers,
       coupons,
+      retailOrders,
     },
     keptCustomers,
+    keptProducts,
     keptUsers,
     keptBranches,
   };

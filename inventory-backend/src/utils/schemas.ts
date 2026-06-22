@@ -27,6 +27,8 @@ const userPermissionSchema = z.enum([
   // Warehouse-transfer permissions
   "REQUEST_TRANSFER",
   "MANAGE_TRANSFERS",
+  // Stocktake / inventory-count permissions
+  "INVENTORY_MANAGE",
 ]);
 
 const auditEntitySchema = z.enum([
