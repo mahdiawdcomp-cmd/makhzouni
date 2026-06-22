@@ -301,7 +301,10 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const body = inv.lines.map((l, idx) => {
     const cells: string[] = [td(`${idx + 1}`)]
     if (hasItemNum) cells.push(td(`<span style="color:#6366f1;font-weight:700">${esc(l.itemNumber || "—")}</span>`))
-    cells.push(td(esc(l.name), true))
+    const pcsHtml = l.pcsPerCarton && l.pcsPerCarton > 1
+      ? ` <span style="font-size:${fsSm}px;color:#94a3b8">(${l.pcsPerCarton} ق/ك)</span>`
+      : ""
+    cells.push(td(esc(l.name) + pcsHtml, true))
     cells.push(td(esc(l.unit || "—")))
     if (el.showQty) cells.push(td(`${l.qty}`))
     if (el.showPrice) cells.push(td(numFmt(l.price)))
