@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
@@ -89,6 +89,28 @@ function ProductThumb({ product, className = "" }: { product: Pick<Product, "nam
 
 function selectAllOnFocus(e: React.FocusEvent<HTMLInputElement>) {
   e.target.select()
+}
+
+function moveToNextProductField(event: ReactKeyboardEvent<HTMLFormElement>) {
+  if (event.key !== "Enter" || event.shiftKey) return
+
+  const target = event.target
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return
+  if (target instanceof HTMLTextAreaElement) return
+
+  const fields = Array.from(
+    event.currentTarget.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      'input:not([type="file"]):not([type="hidden"]):not([type="checkbox"]), select',
+    ),
+  ).filter((field) => !field.disabled && field.offsetParent !== null)
+
+  const currentIndex = fields.indexOf(target)
+  const nextField = fields[currentIndex + 1]
+  if (!nextField) return
+
+  event.preventDefault()
+  nextField.focus()
+  if (nextField instanceof HTMLInputElement) nextField.select()
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -940,21 +962,32 @@ export function ProductsPage() {
         title={editing ? "تعديل منتج" : "إضافة منتج جديد"}
         contentClassName="inset-0 left-0 top-0 h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-0 px-4 pb-0 pt-5 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:p-5"
       >
-        <form className="space-y-4 pb-24 sm:pb-0" onSubmit={submit}>
+        <form className="space-y-4 pb-24 sm:pb-0" onSubmit={submit} onKeyDown={moveToNextProductField}>
           <div className="rounded-md bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
             <FileText className="ml-1 inline h-3.5 w-3.5" />
-            اسم المنتج هو الحقل الوحيد المطلوب. بقية الحقول اختيارية — رقم الآيتم والرمز يتولّدان تلقائياً إذا تركتهما فارغة.
+            ابدأ برقم الآيتم واسم المنتج، ثم أكمل الكمية والأسعار. اضغط Enter للانتقال إلى الحقل التالي.
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="md:col-span-2 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            <div className="col-span-2 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-100 text-sm font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">1</span>
               <div>
                 <p className="text-sm font-bold text-slate-800 dark:text-slate-100">معلومات المنتج</p>
-                <p className="text-[11px] text-slate-500">الصورة والاسم والتصنيف.</p>
+                <p className="text-[11px] text-slate-500">رقم الآيتم والاسم والصورة والتصنيف.</p>
               </div>
             </div>
-            <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
+            <Field label="رقم الآيتم" hint={editing ? "" : "إذا تركته فارغاً يولّده النظام تلقائياً"}>
+              <Input
+                autoFocus
+                placeholder="مثلاً: AB0001"
+                value={form.itemNumber ?? ""}
+                onChange={(event) => setForm({ ...form, itemNumber: event.target.value })}
+              />
+            </Field>
+            <Field label="اسم المنتج *">
+              <Input required placeholder="مثلاً: سيارة بطارية" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
+            </Field>
+            <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex flex-wrap items-center gap-3">
                 {form.imageUrl ? (
                   <img src={form.imageUrl} alt={form.name || "صورة المادة"} className="h-20 w-20 rounded-xl object-cover ring-1 ring-slate-200" />
@@ -1005,12 +1038,9 @@ export function ProductsPage() {
                 </div>
               </div>
             </div>
-            <Field label="اسم المنتج *">
-              <Input required placeholder="مثلاً: سيارة بطارية" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} />
-            </Field>
 
             {/* ── الفئات والأنواع (متعددة) ─────────────────────────────── */}
-            <div className="md:col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-3 dark:border-indigo-900 dark:bg-indigo-950/20">
+            <div className="col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-3 dark:border-indigo-900 dark:bg-indigo-950/20">
               <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-400">
                 الفئات والأنواع — يمكن اختيار أكثر من فئة وأكثر من نوع
               </p>
@@ -1124,7 +1154,7 @@ export function ProductsPage() {
               )}
             </div>
 
-            <div className="md:col-span-2 mt-1 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+            <div className="col-span-2 mt-1 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">2</span>
               <div>
                 <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الكمية والمخزون</p>
@@ -1144,7 +1174,7 @@ export function ProductsPage() {
               <Input type="number" value={form.minStock ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, minStock: Number(event.target.value) })} />
             </Field>
 
-            <div className="md:col-span-2 mt-1 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+            <div className="col-span-2 mt-1 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">3</span>
               <div>
                 <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الأسعار</p>
@@ -1215,7 +1245,7 @@ export function ProductsPage() {
                 <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
                   توزيع الكمية على المخازن <span className="text-rose-500">*</span> — إجباري: حدّد وين راحت كل قطعة (المجموع لازم يساوي الكمية الكلية)
                 </p>
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {branches.filter((b) => b.isActive).map((b) => (
                     <label key={b.id} className="text-xs">
                       <span className="mb-1 block text-slate-500">{b.name}</span>
@@ -1245,7 +1275,7 @@ export function ProductsPage() {
                 <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
                   توزيع المخزون على المخازن — عدّل الكمية في كل مخزن مباشرة
                 </p>
-                <div className="grid gap-2 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {branches.filter((b) => b.isActive).map((b) => (
                     <label key={b.id} className="text-xs">
                       <span className="mb-1 block text-slate-500">{b.name}</span>
@@ -1271,14 +1301,11 @@ export function ProductsPage() {
             <div className="mb-3 flex items-center gap-2">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-200 text-sm font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200">4</span>
               <div>
-                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الرموز التلقائية</p>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الباركودات</p>
                 <p className="text-[11px] text-slate-500">اختيارية — اتركها فارغة وسيولدها النظام تلقائياً.</p>
               </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="رقم الآيتم" hint={editing ? "" : "يتولّد تلقائياً مثل AB0001"}>
-                <Input placeholder="تلقائي" value={form.itemNumber ?? ""} onChange={(event) => setForm({ ...form, itemNumber: event.target.value })} />
-              </Field>
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
               <Field label="باركود القطعة" hint={editing ? "" : "اتركه فارغاً للتوليد التلقائي"}>
                 <Input placeholder="تلقائي" value={form.qrCode ?? ""} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
               </Field>
