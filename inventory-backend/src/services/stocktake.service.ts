@@ -107,6 +107,7 @@ export async function getStocktakeSession(id: string) {
     actualQty: item.actualQty,
     variance: item.variance,
     notes: item.notes,
+    approvalStatus: item.approvalStatus ?? "PENDING",
     hasError: item.variance !== null && item.variance !== 0,
   }));
 
