@@ -245,10 +245,14 @@ export function InvoiceCreatePage() {
   const prefillStateRef = useRef<{
     fromOrderPreparationId?: string
     prefilledCustomerId?: string
+    prefilledCustomerPhone?: string
+    prefilledCustomerName?: string
     prefilledItems?: Array<{ productId: string; quantity: number; unit: "PIECE" | "DOZEN" | "CARTON"; unitPrice: number }>
   } | null>((location.state as {
     fromOrderPreparationId?: string
     prefilledCustomerId?: string
+    prefilledCustomerPhone?: string
+    prefilledCustomerName?: string
     prefilledItems?: Array<{ productId: string; quantity: number; unit: "PIECE" | "DOZEN" | "CARTON"; unitPrice: number }>
   } | null) ?? null)
 
@@ -365,7 +369,8 @@ export function InvoiceCreatePage() {
   useEffect(() => {
     if (savedInvoiceId) return
     // Skip draft when coming from order preparation (prefill effect handles it)
-    if (prefillStateRef.current?.prefilledCustomerId) return
+    const pf = prefillStateRef.current
+    if (pf && (pf.prefilledCustomerId || pf.prefilledCustomerPhone || (pf.prefilledItems?.length ?? 0) > 0)) return
     try {
       const raw = localStorage.getItem(draftKey)
       if (!raw) return
@@ -397,15 +402,30 @@ export function InvoiceCreatePage() {
     if (!activeTid) return  // wait until tid is established (after reset)
     if (prefillAppliedRef.current) return
     const state = prefillStateRef.current
-    if (!state?.prefilledCustomerId) return
+    const hasPrefill = !!state && (
+      !!state.prefilledCustomerId ||
+      !!state.prefilledCustomerPhone ||
+      (state.prefilledItems?.length ?? 0) > 0
+    )
+    if (!state || !hasPrefill) return
     if (customers.length === 0 || products.length === 0) return
 
     prefillAppliedRef.current = true
 
-    const customer = customers.find((c) => c.id === state.prefilledCustomerId)
+    // Match the customer by id first, then by phone (the order preparation
+    // stores phone, and the customer may not carry an id in older records).
+    let customer = state.prefilledCustomerId
+      ? customers.find((c) => c.id === state.prefilledCustomerId)
+      : undefined
+    if (!customer && state.prefilledCustomerPhone) {
+      customer = customers.find((c) => c.phone === state.prefilledCustomerPhone)
+    }
     if (customer) {
       setSelectedCustomer(customer)
       setCustomerQuery(customer.name)
+    } else if (state.prefilledCustomerName) {
+      // No matching customer record — seed the search box so the user can pick/add.
+      setCustomerQuery(state.prefilledCustomerName)
     }
 
     if (!state.prefilledItems?.length) return
@@ -418,22 +438,25 @@ export function InvoiceCreatePage() {
       const allWhs = product.warehouseStocks ?? []
       const activeWhs = allWhs.filter((ws) => ws.quantityPieces > 0)
 
+      // Fall back to the product's catalog price when the order didn't carry one.
+      const linePrice = pi.unitPrice > 0 ? pi.unitPrice : unitPriceFor(product, pi.unit)
+
       if (activeWhs.length <= 1) {
         // Single warehouse (or no warehouse data) — one row
         newItems.push({
           product,
           unit: pi.unit,
           quantity: pi.quantity,
-          unitPrice: pi.unitPrice,
+          unitPrice: linePrice,
           warehouseId: activeWhs[0]?.warehouseId,
           warehouseName: activeWhs[0]?.warehouse.name,
         })
       } else {
         // Multiple warehouses — split into one row per warehouse
         const piecePrice =
-          pi.unit === "CARTON" ? pi.unitPrice / (product.pcsPerCarton || 1)
-          : pi.unit === "DOZEN" ? pi.unitPrice / 12
-          : pi.unitPrice
+          pi.unit === "CARTON" ? linePrice / (product.pcsPerCarton || 1)
+          : pi.unit === "DOZEN" ? linePrice / 12
+          : linePrice
         const totalPcs =
           pi.unit === "CARTON" ? pi.quantity * product.pcsPerCarton
           : pi.unit === "DOZEN" ? pi.quantity * 12

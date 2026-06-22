@@ -36,12 +36,14 @@ function OrderCard({ order }: { order: OrderPreparation }) {
     navigate("/invoices/new", {
       state: {
         fromOrderPreparationId: order.id,
-        prefilledCustomerId: order.customerId,
+        prefilledCustomerId: order.customerId ?? undefined,
+        prefilledCustomerPhone: order.customerPhone,
+        prefilledCustomerName: order.customerName,
         prefilledItems: order.items.map(item => ({
           productId: item.productId,
           quantity: item.quantity,
           unit: item.unit as "PIECE" | "DOZEN" | "CARTON",
-          unitPrice: item.unitPrice,
+          unitPrice: item.unitPrice ?? 0,
         })),
         prefilledTotal: order.totalAmount,
       }

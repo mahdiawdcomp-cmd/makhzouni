@@ -136,17 +136,31 @@ export async function listPendingPreparations() {
     where: { status: "PENDING" },
     include: {
       invoice: {
-        select: { invoiceNumber: true, totalAmount: true, date: true },
+        select: { invoiceNumber: true, totalAmount: true, date: true, customerId: true },
       },
     },
     orderBy: { createdAt: "asc" },
   });
+
+  // The OrderPreparation model stores only customerPhone (no customerId FK).
+  // Resolve the customerId by phone so the frontend can pre-select the customer
+  // when opening the full invoice page. The customer was created when catalog
+  // access was approved, so the phone lookup normally succeeds.
+  const phones = Array.from(new Set(rows.map((r) => r.customerPhone).filter(Boolean)));
+  const matchedCustomers = phones.length
+    ? await prisma.customer.findMany({
+        where: { phone: { in: phones } },
+        select: { id: true, phone: true },
+      })
+    : [];
+  const customerIdByPhone = new Map(matchedCustomers.map((c) => [c.phone, c.id]));
 
   return rows.map((row) => {
     const od = row.orderData as { items?: PreparationItem[] } | null;
     const subtotal = od?.items?.reduce((s, it) => s + (it.quantity * (it.unitPrice ?? 0)), 0) ?? 0;
     return {
       id: row.id,
+      customerId: row.invoice?.customerId ?? customerIdByPhone.get(row.customerPhone) ?? null,
       invoiceId: row.invoiceId ?? null,
       invoiceNumber: row.invoice?.invoiceNumber ?? null,
       totalAmount: row.invoice ? Number(row.invoice.totalAmount) : subtotal,

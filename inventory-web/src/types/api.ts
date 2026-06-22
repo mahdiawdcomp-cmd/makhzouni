@@ -756,7 +756,7 @@ export interface BranchPayload {
 
 export interface OrderPreparation {
   id: string
-  customerId: string
+  customerId: string | null
   invoiceId: string | null
   invoiceNumber: string | null
   totalAmount: number
