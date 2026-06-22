@@ -555,7 +555,11 @@ export function ProductsPage() {
           <h1 className="text-2xl font-bold">المخزن</h1>
           <p className="text-slate-500">إدارة المنتجات والرموز والمخزون.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <Button className="h-12 w-full text-base shadow-lg md:hidden" onClick={startCreate}>
+          <Plus className="h-5 w-5" />
+          إضافة منتج جديد
+        </Button>
+        <div className="flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible md:pb-0">
           <Button variant="outline" asChild>
             <Link to="/inventory/low-stock">المخزون الناقص</Link>
           </Button>
@@ -581,7 +585,7 @@ export function ProductsPage() {
           <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
             <FolderTree className="h-4 w-4" /> {showCategories ? "إخفاء الفئات" : "إدارة الفئات"}
           </Button>
-          <Button onClick={startCreate}>
+          <Button className="hidden md:inline-flex" onClick={startCreate}>
             <Plus className="h-4 w-4" />
             منتج جديد
           </Button>
@@ -590,12 +594,12 @@ export function ProductsPage() {
 
       {showCategories && <CatalogCategoriesManager />}
 
-      <Card>
-        <CardHeader>
+      <Card className="overflow-hidden">
+        <CardHeader className="px-4 py-3 md:px-5 md:py-4">
           <CardTitle>جدول المنتجات</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_200px_220px]">
+        <CardContent className="space-y-4 p-3 md:p-5">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_200px_220px]">
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالاسم أو رقم الآيتم أو الباركود" />
             <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">كل الفئات</option>
@@ -618,7 +622,7 @@ export function ProductsPage() {
               <option value="valueDesc">أعلى قيمة مخزون</option>
             </select>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             <select
               className={`h-9 rounded-md border px-3 text-sm dark:bg-slate-950 ${missingFilter !== "all" ? "border-amber-400 bg-amber-50 font-semibold text-amber-800 dark:border-amber-600 dark:bg-amber-950/20 dark:text-amber-300" : "border-slate-200 bg-white dark:border-slate-700"}`}
               value={missingFilter}
@@ -667,7 +671,105 @@ export function ProductsPage() {
           {/* ── Excel-style inventory table ── */}
           {!productsQuery.isLoading && !productsQuery.isError && (
           <>
-          <div className="overflow-x-auto rounded-lg border border-gray-300 shadow-inner">
+          <div className="space-y-3 md:hidden">
+            {table.getRowModel().rows.map((row) => {
+              const p = row.original
+              const totalPcs = stockOf(p)
+              const isNegative = totalPcs < 0
+              const isOut = totalPcs <= 0
+              const isLow = !isNegative && totalPcs <= p.minStock && totalPcs > 0
+              const activeStocks = p.warehouseStocks?.filter((ws) => ws.quantityPieces > 0) ?? []
+
+              return (
+                <article
+                  key={p.id}
+                  className={`overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-slate-950 ${
+                    isNegative
+                      ? "border-purple-200 dark:border-purple-900"
+                      : isOut
+                        ? "border-rose-200 dark:border-rose-900"
+                        : isLow
+                          ? "border-amber-200 dark:border-amber-900"
+                          : "border-slate-200 dark:border-slate-800"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/inventory/${p.id}`)}
+                    className="flex w-full items-start gap-3 p-3 text-right"
+                  >
+                    <ProductThumb product={p} className="h-16 w-16 shrink-0 rounded-xl" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h3 className="truncate text-base font-bold text-slate-900 dark:text-slate-100">{p.name}</h3>
+                          <p className="mt-0.5 font-mono text-[11px] text-slate-500">{p.itemNumber}</p>
+                        </div>
+                        {isNegative ? (
+                          <Badge variant="danger">سالب</Badge>
+                        ) : isOut ? (
+                          <Badge variant="danger">نافد</Badge>
+                        ) : isLow ? (
+                          <Badge variant="warning">قليل</Badge>
+                        ) : (
+                          <Badge variant="success">متوفر</Badge>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {p.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">{p.category}</span> : null}
+                        {activeStocks.slice(0, 2).map((ws) => (
+                          <span key={ws.warehouseId} className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                            {ws.warehouse.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </button>
+
+                  <div className="grid grid-cols-3 border-y border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/60">
+                    <div className="p-2.5 text-center">
+                      <p className="text-[10px] text-slate-500">الكمية</p>
+                      <p className="mt-0.5 text-sm font-extrabold text-slate-900 dark:text-white">{totalPcs.toLocaleString("en-US")}</p>
+                    </div>
+                    <div className="border-x border-slate-200 p-2.5 text-center dark:border-slate-800">
+                      <p className="text-[10px] text-slate-500">سعر الشراء</p>
+                      <p className="mt-0.5 text-sm font-bold text-rose-600">{Number(p.purchasePrice).toLocaleString("en-US")}</p>
+                    </div>
+                    <div className="p-2.5 text-center">
+                      <p className="text-[10px] text-slate-500">سعر البيع</p>
+                      <p className="mt-0.5 text-sm font-bold text-emerald-600">{Number(p.salePrice).toLocaleString("en-US")}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1 p-2">
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => navigate(`/inventory/${p.id}`)}>
+                      <Eye className="h-4 w-4" /> عرض
+                    </Button>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => startEdit(p)}>
+                      <Edit className="h-4 w-4" /> تعديل
+                    </Button>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printPiece(p.id)}>
+                      <ScanQrCode className="h-4 w-4" /> قطعة
+                    </Button>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printCarton(p.id)}>
+                      <Printer className="h-4 w-4" /> كرتون
+                    </Button>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px] text-rose-600" onClick={() => setDeleteConfirm(p)}>
+                      <Trash2 className="h-4 w-4" /> حذف
+                    </Button>
+                  </div>
+                </article>
+              )
+            })}
+
+            {table.getRowModel().rows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-slate-700">
+                لا توجد منتجات مطابقة.
+              </div>
+            ) : null}
+          </div>
+
+          <div className="hidden overflow-x-auto rounded-lg border border-gray-300 shadow-inner md:block">
             <table className="w-full text-right text-sm">
               <thead className="bg-gray-100 border-b-2 border-gray-300 sticky top-0">
                 <tr className="text-gray-700">
@@ -816,11 +918,11 @@ export function ProductsPage() {
               </tfoot>
             </table>
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 pb-20 md:pb-0">
 
-            <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
-            <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
-            <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+            <Button variant="outline" className="px-3" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
+            <span className="text-center text-xs text-slate-500 md:text-sm">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
+            <Button variant="outline" className="px-3" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
           </div>
           </>
           )}
@@ -836,14 +938,22 @@ export function ProductsPage() {
           setOpen(v)
         }}
         title={editing ? "تعديل منتج" : "إضافة منتج جديد"}
+        contentClassName="inset-0 left-0 top-0 h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-0 px-4 pb-0 pt-5 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:p-5"
       >
-        <form className="space-y-4" onSubmit={submit}>
+        <form className="space-y-4 pb-24 sm:pb-0" onSubmit={submit}>
           <div className="rounded-md bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
             <FileText className="ml-1 inline h-3.5 w-3.5" />
             اسم المنتج هو الحقل الوحيد المطلوب. بقية الحقول اختيارية — رقم الآيتم والرمز يتولّدان تلقائياً إذا تركتهما فارغة.
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
+            <div className="md:col-span-2 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-indigo-100 text-sm font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">1</span>
+              <div>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">معلومات المنتج</p>
+                <p className="text-[11px] text-slate-500">الصورة والاسم والتصنيف.</p>
+              </div>
+            </div>
             <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex flex-wrap items-center gap-3">
                 {form.imageUrl ? (
@@ -1013,17 +1123,14 @@ export function ProductsPage() {
                 </>
               )}
             </div>
-            <Field label="رقم الآيتم" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً (مثل AB0001)"}>
-              <Input placeholder="تلقائي" value={form.itemNumber ?? ""} onChange={(event) => setForm({ ...form, itemNumber: event.target.value })} />
-            </Field>
-            <Field label="رمز القطعة" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً"}>
-              <Input placeholder="تلقائي" value={form.qrCode ?? ""} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
-            </Field>
-            <Field label="رمز الكرتون" hint={editing ? "" : "اتركه فارغاً ليتولّد تلقائياً"}>
-              <Input placeholder="تلقائي" value={form.cartonQrCode ?? ""} onChange={(event) => setForm({ ...form, cartonQrCode: event.target.value })} />
-            </Field>
-            <div className="hidden md:block" />
 
+            <div className="md:col-span-2 mt-1 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-950 dark:text-blue-300">2</span>
+              <div>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الكمية والمخزون</p>
+                <p className="text-[11px] text-slate-500">أدخل القطع المفردة والكراتين الموجودة حالياً.</p>
+              </div>
+            </div>
             <Field label="رصيد افتتاحي (قطع مفرّدة)" hint="عدد القطع المنفصلة الموجودة بالمخزن الآن">
               <Input type="number" value={form.openingBalancePcs ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, openingBalancePcs: Number(event.target.value) })} />
             </Field>
@@ -1037,6 +1144,13 @@ export function ProductsPage() {
               <Input type="number" value={form.minStock ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, minStock: Number(event.target.value) })} />
             </Field>
 
+            <div className="md:col-span-2 mt-1 flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">3</span>
+              <div>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الأسعار</p>
+                <p className="text-[11px] text-slate-500">سعر الشراء والجملة والمفرد للقطعة الواحدة.</p>
+              </div>
+            </div>
             <Field label="سعر الشراء (للقطعة)">
               <Input type="number" value={form.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, purchasePrice: Number(event.target.value) })} />
             </Field>
@@ -1153,11 +1267,45 @@ export function ProductsPage() {
             )
           })()}
 
-          <Button className="w-full" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-            {editing ? "تحديث" : "حفظ"}
-          </Button>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-200 text-sm font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-200">4</span>
+              <div>
+                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">الرموز التلقائية</p>
+                <p className="text-[11px] text-slate-500">اختيارية — اتركها فارغة وسيولدها النظام تلقائياً.</p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="رقم الآيتم" hint={editing ? "" : "يتولّد تلقائياً مثل AB0001"}>
+                <Input placeholder="تلقائي" value={form.itemNumber ?? ""} onChange={(event) => setForm({ ...form, itemNumber: event.target.value })} />
+              </Field>
+              <Field label="باركود القطعة" hint={editing ? "" : "اتركه فارغاً للتوليد التلقائي"}>
+                <Input placeholder="تلقائي" value={form.qrCode ?? ""} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
+              </Field>
+              <Field label="باركود الكرتون" hint={editing ? "" : "اتركه فارغاً للتوليد التلقائي"}>
+                <Input placeholder="تلقائي" value={form.cartonQrCode ?? ""} onChange={(event) => setForm({ ...form, cartonQrCode: event.target.value })} />
+              </Field>
+            </div>
+          </div>
+
+          <div className="sticky bottom-0 z-20 -mx-4 border-t border-slate-200 bg-white/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+            <Button className="h-12 w-full text-base" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? "جارٍ الحفظ..." : editing ? "تحديث المنتج" : "حفظ المنتج"}
+            </Button>
+          </div>
         </form>
       </ModalForm>
+
+      {!open ? (
+        <Button
+          onClick={startCreate}
+          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 h-14 rounded-full px-6 text-base shadow-2xl md:hidden"
+          aria-label="إضافة منتج جديد"
+        >
+          <Plus className="h-5 w-5" />
+          إضافة منتج
+        </Button>
+      ) : null}
 
       <ConfirmDialog
         open={closeProductConfirm}

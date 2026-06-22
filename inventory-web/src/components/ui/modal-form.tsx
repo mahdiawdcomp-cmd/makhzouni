@@ -7,12 +7,13 @@ interface ModalFormProps {
   title: string
   description?: string
   children: ReactNode
+  contentClassName?: string
 }
 
-export function ModalForm({ open, onOpenChange, title, description, children }: ModalFormProps) {
+export function ModalForm({ open, onOpenChange, title, description, children, contentClassName }: ModalFormProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={contentClassName}>
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
