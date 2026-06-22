@@ -200,6 +200,24 @@ export async function completePreparationWithInvoice(
   return { invoiceId: prep.invoiceId ?? invoiceId };
 }
 
+// Cancel a pending preparation (customer's catalog order rejected / not prepared).
+// Marks it CANCELLED so it leaves the pending list. If an invoice was already
+// created and linked, the caller should cancel that invoice separately. Idempotent.
+export async function cancelPreparation(preparationId: string) {
+  const prep = await prisma.orderPreparation.findUnique({ where: { id: preparationId } });
+  if (!prep) throw new AppError("Preparation not found", 404, "PREP_NOT_FOUND");
+  if (prep.status === "PREPARED") {
+    throw new AppError("Order already prepared — cancel its invoice instead", 400, "ALREADY_PREPARED");
+  }
+  if (prep.status === "CANCELLED") return { id: prep.id, status: "CANCELLED" };
+
+  await prisma.orderPreparation.update({
+    where: { id: preparationId },
+    data: { status: "CANCELLED" },
+  });
+  return { id: prep.id, status: "CANCELLED" };
+}
+
 // Split order items across warehouses if quantity insufficient in primary warehouse
 async function splitOrderItemsAcrossWarehouses(
   items: Array<{ productId: string; unit: string; quantity: number; unitPrice?: number; warehouseId?: string }>,

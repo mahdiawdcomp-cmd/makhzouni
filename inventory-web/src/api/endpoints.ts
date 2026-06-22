@@ -854,6 +854,12 @@ export async function completeOrderPreparation(id: string, invoiceId: string) {
   return data
 }
 
+// Cancel a pending preparation (rejected / not prepared)
+export async function cancelOrderPreparation(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(`/order-preparations/${id}/cancel`, {})
+  return data
+}
+
 // ── Profit Report ─────────────────────────────────────────────────────────────
 export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
   const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })

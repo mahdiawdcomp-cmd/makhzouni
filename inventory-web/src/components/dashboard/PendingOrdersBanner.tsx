@@ -11,7 +11,7 @@ import {
   FileText,
   Trash2,
 } from "lucide-react"
-import { getOrderPreparations, cancelInvoice } from "../../api/endpoints"
+import { getOrderPreparations, cancelInvoice, cancelOrderPreparation } from "../../api/endpoints"
 import type { OrderPreparation } from "../../types/api"
 import { cn } from "../../utils/cn"
 
@@ -38,9 +38,12 @@ function OrderCard({ order }: { order: OrderPreparation }) {
   }
 
   const cancelMutation = useMutation({
-    mutationFn: () => {
-      if (!order.invoiceId) throw new Error("لا يوجد فاتورة للإلغاء")
-      return cancelInvoice(order.invoiceId)
+    mutationFn: async () => {
+      // If an invoice was already created for this order, cancel it as well.
+      if (order.invoiceId) {
+        try { await cancelInvoice(order.invoiceId) } catch { /* may already be cancelled */ }
+      }
+      return cancelOrderPreparation(order.id)
     },
     onSuccess: () => {
       setShowCancelDialog(false)
@@ -62,7 +65,8 @@ function OrderCard({ order }: { order: OrderPreparation }) {
               <h3 className="text-lg font-bold text-slate-900">إلغاء الطلب؟</h3>
             </div>
             <p className="mb-6 text-sm text-slate-600">
-              هل أنت متأكد من إلغاء الفاتورة <strong>{order.invoiceNumber}</strong> للزبون <strong>{order.customerName}</strong>؟
+              هل أنت متأكد من إلغاء طلب الزبون <strong>{order.customerName}</strong>؟
+              {order.invoiceNumber ? <> سيتم إلغاء الفاتورة <strong>{order.invoiceNumber}</strong> أيضاً.</> : null}
             </p>
             <p className="mb-6 text-xs text-red-600 font-semibold">
               ⚠️ هذا الإجراء قد لا يكون قابلاً للتراجع عنه
