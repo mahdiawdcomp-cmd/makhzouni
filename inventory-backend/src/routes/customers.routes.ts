@@ -28,6 +28,7 @@ import { validate } from "../middleware/validate";
 import {
   createPortalLink,
   revokePortalLinks,
+  togglePortalLinkController,
 } from "../controllers/customer-portal.controller";
 import {
   createCustomerSchema,
@@ -64,6 +65,7 @@ router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);
 router.post("/", enforcePlanLimit("customer"), validate(createCustomerSchema), addCustomer);
 router.post("/:id/send-catalog-link", requirePermission("MANAGE_CUSTOMERS"), validate(sendCatalogLinkSchema), postSendCatalogLink);
 router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
+router.patch("/:id/portal-link", validate(idParamSchema), togglePortalLinkController);
 router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);
 router.put("/:id", validate(updateCustomerSchema), editCustomer);
 router.post("/:id/recalculate-balance", validate(idParamSchema), recalculateBalance);

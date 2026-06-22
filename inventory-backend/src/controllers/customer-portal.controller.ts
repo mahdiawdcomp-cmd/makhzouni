@@ -4,6 +4,7 @@ import {
   getCustomerPortalByToken,
   getPublicInvoiceByToken,
   revokeCustomerPortalLinks,
+  togglePortalLink,
   getPortalOrders,
   subscribeToArrival,
   getMyArrivalSubscriptions,
@@ -22,6 +23,11 @@ export const createPortalLink = asyncHandler(async (req, res) => {
 export const revokePortalLinks = asyncHandler(async (req, res) => {
   await revokeCustomerPortalLinks(String(req.params.id));
   res.json({ success: true });
+});
+
+export const togglePortalLinkController = asyncHandler(async (req, res) => {
+  const result = await togglePortalLink(String(req.params.id));
+  res.json({ success: true, data: result });
 });
 
 export const getClientPortal = asyncHandler(async (req, res) => {

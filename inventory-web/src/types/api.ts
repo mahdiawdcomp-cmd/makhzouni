@@ -297,6 +297,7 @@ export interface Customer {
   createdAt?: string
   updatedAt?: string
   deletedAt?: string | null
+  portalLinkEnabled?: boolean
 }
 
 export interface CustomerPayload {

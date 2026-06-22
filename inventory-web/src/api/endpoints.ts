@@ -356,6 +356,11 @@ export async function createCustomerPortalLink(id: string, expiresInDays = 30) {
   return data.data
 }
 
+export async function toggleCustomerPortalLink(id: string, enabled: boolean) {
+  const { data } = await api.patch<ApiEnvelope<CustomerPortalLink>>(`/customers/${id}/portal-link`, { enabled })
+  return data.data
+}
+
 export async function getCustomerPortal(token: string) {
   const { data } = await api.get<ApiEnvelope<CustomerPortalResponse>>(`/public/client/${token}`)
   return data.data

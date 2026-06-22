@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
-import { createCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
+import { toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
@@ -161,8 +161,28 @@ export function CustomerDetailPage() {
   const vouchers = details.vouchersQuery.data ?? []
   const last = details.lastTransactionQuery.data
   const settings = useSettings().data
+  const [portalEnabled, setPortalEnabled] = useState(customer?.portalLinkEnabled ?? false)
+
+  useEffect(() => {
+    setPortalEnabled(customer?.portalLinkEnabled ?? false)
+  }, [customer?.portalLinkEnabled])
+
   const portalMutation = useMutation({
-    mutationFn: () => createCustomerPortalLink(id!, 30),
+    mutationFn: (enable: boolean) => toggleCustomerPortalLink(id!, enable),
+    onSuccess: (result: any) => {
+      const isEnabled = !result?.revokedAt
+      setPortalEnabled(isEnabled)
+      toast({
+        title: isEnabled ? "✓ الرابط مفعّل" : "✓ الرابط معطّل",
+        variant: "default",
+      })
+    },
+    onError: () => {
+      toast({
+        title: "✗ خطأ في تبديل الرابط",
+        variant: "destructive",
+      })
+    },
   })
 
   const filteredTransactions = transactions.filter((row) => {
@@ -195,17 +215,9 @@ export function CustomerDetailPage() {
     }
   }
 
-  async function createPortalLinkAndShare() {
+  async function togglePortalAndShow() {
     if (!customer) return
-    const link = await portalMutation.mutateAsync()
-    if (!link) return
-    const fullUrl = `${window.location.origin}${link.urlPath}`
-    await navigator.clipboard?.writeText(fullUrl)
-    try {
-      await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: `رابط كشف حسابك:\n${fullUrl}` })
-    } catch {
-      toast({ title: "تم نسخ الرابط. تعذر الإرسال التلقائي." })
-    }
+    await portalMutation.mutateAsync(!portalEnabled)
   }
 
   const lastLink = lastActivityLink(last)
@@ -258,9 +270,19 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={() => void sendStatement()} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
-          <Button variant="outline" onClick={createPortalLinkAndShare} disabled={portalMutation.isPending || !customer.phone}>
-            {portalMutation.isPending ? <Copy className="h-4 w-4 animate-pulse" /> : <Link2 className="h-4 w-4 text-sky-600" />}
-            رابط العميل
+          <Button
+            variant={portalEnabled ? "default" : "outline"}
+            onClick={togglePortalAndShow}
+            disabled={portalMutation.isPending}
+          >
+            {portalMutation.isPending ? (
+              <Copy className="h-4 w-4 animate-pulse" />
+            ) : portalEnabled ? (
+              <Link2 className="h-4 w-4" />
+            ) : (
+              <Link2 className="h-4 w-4 text-slate-400" />
+            )}
+            {portalEnabled ? "رابط العميل مفعّل ✓" : "رابط العميل معطّل"}
           </Button>
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>

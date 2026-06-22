@@ -60,6 +60,32 @@ export async function revokeCustomerPortalLinks(customerId: string) {
   `;
 }
 
+export async function togglePortalLink(customerId: string) {
+  const link = await prisma.customerPortalLink.findFirst({
+    where: { customerId, revokedAt: null },
+    select: { id: true, revokedAt: true },
+  });
+
+  if (!link) {
+    throw new AppError("No active portal link found. Create one first.", 404, "PORTAL_LINK_NOT_FOUND");
+  }
+
+  const enabled = !link.revokedAt;
+  await prisma.customerPortalLink.update({
+    where: { id: link.id },
+    data: { revokedAt: enabled ? new Date() : null },
+  });
+
+  const updatedLink = await prisma.customerPortalLink.findUnique({
+    where: { id: link.id },
+  });
+
+  return {
+    enabled: !updatedLink?.revokedAt,
+    revokedAt: updatedLink?.revokedAt ?? null,
+  };
+}
+
 export async function getCustomerPortalByToken(token: string) {
   const tokenHash = hashToken(token);
   const rows = await prisma.$queryRaw<PortalLinkRow[]>`

@@ -59,13 +59,15 @@ function toNumber(value: DecimalLike) {
   return Number(value);
 }
 
-function serializeCustomer<T extends { openingBalance: DecimalLike; currentBalance: DecimalLike }>(
+function serializeCustomer<T extends { openingBalance: DecimalLike; currentBalance: DecimalLike; portalLinks?: any[] }>(
   customer: T
 ) {
+  const { portalLinks, ...rest } = customer as any;
   return {
-    ...customer,
-    openingBalance: toNumber(customer.openingBalance),
-    currentBalance: toNumber(customer.currentBalance),
+    ...rest,
+    openingBalance: toNumber(rest.openingBalance),
+    currentBalance: toNumber(rest.currentBalance),
+    portalLinkEnabled: portalLinks && portalLinks.length > 0,
   };
 }
 
@@ -104,6 +106,13 @@ function startDateForFilter(filter: TransactionFilter) {
 async function getCustomerOrThrow(id: string, db: Db = prisma) {
   const customer = await db.customer.findFirst({
     where: { id, deletedAt: null },
+    include: {
+      portalLinks: {
+        where: { revokedAt: null },
+        select: { id: true },
+        take: 1,
+      },
+    },
   });
 
   if (!customer) {
