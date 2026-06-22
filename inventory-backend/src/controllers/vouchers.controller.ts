@@ -94,9 +94,10 @@ export const editVoucher = asyncHandler(async (req, res) => {
 });
 
 export const exportVoucherPdf = asyncHandler(async (req, res) => {
-  const html = await generateVoucherPdf(String(req.params.id));
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(html);
+  const pdf = await generateVoucherPdf(String(req.params.id));
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="voucher-${String(req.params.id)}.pdf"`);
+  res.send(pdf);
 });
 
 export const exportVoucherImage = asyncHandler(async (req, res) => {

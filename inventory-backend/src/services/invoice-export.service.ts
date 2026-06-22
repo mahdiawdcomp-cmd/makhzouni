@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { getInvoiceById } from "./invoice.service";
 import { getSettings } from "./settings.service";
+import { pngToPdf } from "../utils/png-to-pdf";
 
 function money(value: number | string | null | undefined) {
   const n = Number(value ?? 0);
@@ -312,9 +313,15 @@ async function buildInvoiceHtml(invoiceId: string): Promise<string> {
 }
 
 /** Return the invoice as a beautiful HTML page (browser can print/save as PDF) */
-export async function generateInvoicePdf(invoiceId: string): Promise<Buffer> {
+export async function generateInvoiceHtml(invoiceId: string): Promise<Buffer> {
   const html = await buildInvoiceHtml(invoiceId);
   return Buffer.from(html, "utf8");
+}
+
+/** Return the invoice as a REAL PDF (image-backed, single page) */
+export async function generateInvoicePdf(invoiceId: string): Promise<Buffer> {
+  const png = await generateInvoicePng(invoiceId);
+  return pngToPdf(png);
 }
 
 /** Return invoice as PNG image (used for WhatsApp sharing) */

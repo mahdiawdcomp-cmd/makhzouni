@@ -2,6 +2,7 @@ import sharp from "sharp";
 import { getCustomerTransactions } from "./customer.service";
 import { getSettings } from "./settings.service";
 import { getVoucherById } from "./voucher.service";
+import { pngToPdf } from "../utils/png-to-pdf";
 
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Number(value ?? 0));
@@ -259,10 +260,16 @@ async function voucherContext(voucherId: string) {
   };
 }
 
-export async function generateVoucherPdf(voucherId: string) {
+export async function generateVoucherHtml(voucherId: string) {
   const context = await voucherContext(voucherId);
   const html = buildVoucherHtml(context.voucher, { ...context, includePrintButton: true });
   return Buffer.from(html, "utf8");
+}
+
+/** Return the voucher as a REAL PDF (image-backed, single page) */
+export async function generateVoucherPdf(voucherId: string) {
+  const png = await generateVoucherPng(voucherId);
+  return pngToPdf(png);
 }
 
 export async function generateVoucherPng(voucherId: string) {

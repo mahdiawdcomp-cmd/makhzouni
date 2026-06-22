@@ -189,11 +189,14 @@ export const restoreInvoice = asyncHandler(async (req, res) => {
 });
 
 export const exportInvoicePdf = asyncHandler(async (req, res) => {
-  const html = await generateInvoicePdf(String(req.params.id));
+  const pdf = await generateInvoicePdf(String(req.params.id));
 
-  // Return HTML so the browser renders and prints it — looks exactly like the web design
-  res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.send(html);
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="invoice-${String(req.params.id)}.pdf"`
+  );
+  res.send(pdf);
 });
 
 export const exportInvoiceImage = asyncHandler(async (req, res) => {
