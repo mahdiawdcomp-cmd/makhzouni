@@ -802,20 +802,22 @@ model StocktakeSession {
 }
 
 model StocktakeItem {
-  id          String           @id @default(uuid()) @db.Uuid
-  sessionId   String           @map("session_id") @db.Uuid
-  session     StocktakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  productId   String           @map("product_id") @db.Uuid
-  product     Product          @relation(fields: [productId], references: [id])
-  productName String           @map("product_name")
-  systemQty   Int              @map("system_qty")
-  actualQty   Int?             @map("actual_qty")
-  variance    Int?
-  notes       String?
+  id               String           @id @default(uuid()) @db.Uuid
+  sessionId        String           @map("session_id") @db.Uuid
+  session          StocktakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productId        String           @map("product_id") @db.Uuid
+  product          Product          @relation(fields: [productId], references: [id])
+  productName      String           @map("product_name")
+  systemQty        Int              @map("system_qty")
+  actualQty        Int?             @map("actual_qty")
+  variance         Int?
+  notes            String?
+  approvalStatus   String           @default("PENDING") @map("approval_status")
+  approvedQty      Int?             @map("approved_qty")
 
   @@unique([sessionId, productId])
   @@index([sessionId])
-  @@index([productId])
+  @@index([approvalStatus])
   @@map("stocktake_items")
 }
 

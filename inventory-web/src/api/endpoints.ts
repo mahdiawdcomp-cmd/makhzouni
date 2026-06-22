@@ -896,6 +896,16 @@ export async function closeStocktakeSession(id: string) {
   return data.data!
 }
 
+export async function approveStocktakeItem(sessionId: string, itemId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/stocktake/${sessionId}/items/${itemId}/approve`)
+  return data.data!
+}
+
+export async function rejectStocktakeItem(sessionId: string, itemId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${sessionId}/items/${itemId}/reject`)
+  return data.data!
+}
+
 // ── Excel Import ──────────────────────────────────────────────────────────────
 export async function importProductsExcel(file: File) {
   const form = new FormData()

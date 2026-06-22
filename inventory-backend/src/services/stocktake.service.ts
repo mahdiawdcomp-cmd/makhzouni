@@ -365,3 +365,84 @@ export async function submitPublicStocktake(token: string) {
 
   return { success: true };
 }
+
+// ─── Admin: Approve stocktake item (update warehouse stock) ────────────────────
+
+export async function approveStocktakeItem(
+  sessionId: string,
+  itemId: string,
+  approvingUserId: string,
+) {
+  const item = await prisma.stocktakeItem.findUnique({
+    where: { id: itemId },
+    include: {
+      session: { select: { status: true, branchId: true } },
+      product: { select: { id: true, pcsPerCarton: true } },
+    },
+  });
+
+  if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
+  if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
+  if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+  if (item.actualQty === null) throw new AppError("لم يتم إدخال الكمية الفعلية", 400, "NO_ACTUAL_QTY");
+  if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
+
+  if (!item.session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
+
+  return prisma.$transaction(async (tx) => {
+    if (item.actualQty === null) throw new AppError("لم يتم إدخال الكمية الفعلية", 400, "NO_ACTUAL_QTY");
+
+    const delta = item.actualQty - (item.systemQty ?? 0);
+
+    // Update warehouse stock
+    await tx.productWarehouseStock.update({
+      where: { productId_warehouseId: { productId: item.productId, warehouseId: item.session.branchId! } },
+      data: { quantityPieces: { increment: delta } },
+    });
+
+    // Sync total product stock
+    const newTotal = await tx.productWarehouseStock.aggregate({
+      where: { productId: item.productId },
+      _sum: { quantityPieces: true },
+    });
+
+    if (newTotal._sum.quantityPieces !== null) {
+      await tx.product.update({
+        where: { id: item.productId },
+        data: { openingBalancePcs: newTotal._sum.quantityPieces },
+      });
+    }
+
+    // Mark item as approved
+    await tx.stocktakeItem.update({
+      where: { id: itemId },
+      data: {
+        approvalStatus: "APPROVED",
+        approvedQty: item.actualQty,
+      },
+    });
+
+    return { success: true, delta, newQty: item.actualQty };
+  });
+}
+
+// ─── Admin: Reject stocktake item (keep system qty) ───────────────────────────
+
+export async function rejectStocktakeItem(sessionId: string, itemId: string) {
+  const item = await prisma.stocktakeItem.findUnique({
+    where: { id: itemId },
+    include: { session: { select: { status: true } } },
+  });
+
+  if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
+  if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
+  if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+  if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_PROCESSED");
+
+  await prisma.stocktakeItem.update({
+    where: { id: itemId },
+    data: { approvalStatus: "REJECTED" },
+  });
+
+  return { success: true };
+}

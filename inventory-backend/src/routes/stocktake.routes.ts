@@ -1,9 +1,11 @@
 import { Router } from "express";
 import {
+  approveItem,
   closeSession,
   createSession,
   getSession,
   listSessions,
+  rejectItem,
   submitSession,
   updateItem,
   publicGetSession,
@@ -22,6 +24,8 @@ router.get("/:id", authMiddleware, getSession);
 router.patch("/:id/items", authMiddleware, updateItem);
 router.post("/:id/submit", authMiddleware, submitSession);
 router.post("/:id/close", authMiddleware, closeSession);
+router.post("/:id/items/:itemId/approve", authMiddleware, approveItem);
+router.post("/:id/items/:itemId/reject", authMiddleware, rejectItem);
 
 // ── Public routes (no auth — for workers) ────────────────────────────────────
 router.get("/public/:token", publicGetSession);

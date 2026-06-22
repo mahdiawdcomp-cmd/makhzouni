@@ -171,6 +171,8 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
     actualQty: number | null
     variance: number | null
     notes: string | null
+    approvalStatus: "PENDING" | "APPROVED" | "REJECTED"
+    approvedQty: number | null
     hasError?: boolean
   }>
   stats?: { filled: number; total: number }

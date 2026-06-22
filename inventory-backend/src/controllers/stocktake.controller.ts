@@ -1,10 +1,12 @@
 import { asyncHandler } from "../utils/async-handler";
 import {
+  approveStocktakeItem,
   closeStocktakeSession,
   createStocktakeSession,
   getPublicSession,
   getStocktakeSession,
   listStocktakeSessions,
+  rejectStocktakeItem,
   scanQrCode,
   setItemQty,
   submitPublicStocktake,
@@ -52,6 +54,20 @@ export const updateItem = asyncHandler(async (req, res) => {
 
 export const submitSession = asyncHandler(async (req, res) => {
   const data = await submitStocktakeSession(String(req.params.id));
+  res.json({ success: true, data });
+});
+
+export const approveItem = asyncHandler(async (req, res) => {
+  const data = await approveStocktakeItem(
+    String(req.params.id),
+    String(req.params.itemId),
+    String(req.user!.id),
+  );
+  res.json({ success: true, data });
+});
+
+export const rejectItem = asyncHandler(async (req, res) => {
+  const data = await rejectStocktakeItem(String(req.params.id), String(req.params.itemId));
   res.json({ success: true, data });
 });
 

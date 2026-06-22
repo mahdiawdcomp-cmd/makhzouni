@@ -1,12 +1,14 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CheckCircle2, ChevronRight, ClipboardList, Copy, ExternalLink, Plus } from "lucide-react"
+import { CheckCircle2, ChevronRight, ClipboardList, Copy, ExternalLink, Plus, Check, X } from "lucide-react"
 import {
+  approveStocktakeItem,
   closeStocktakeSession,
   createStocktakeSession,
   getStocktakeSession,
   listStocktakeSessions,
   getBranches,
+  rejectStocktakeItem,
 } from "../api/endpoints"
 import type { StocktakeSessionDetail, StocktakeSessionSummary } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -238,6 +240,17 @@ function SessionView({
 }) {
   const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
   const [copied, setCopied] = useState(false)
+  const qc = useQueryClient()
+
+  const approveMut = useMutation({
+    mutationFn: (itemId: string) => approveStocktakeItem(session.id, itemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["stocktake-session", session.id] }),
+  })
+
+  const rejectMut = useMutation({
+    mutationFn: (itemId: string) => rejectStocktakeItem(session.id, itemId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["stocktake-session", session.id] }),
+  })
 
   function copy() {
     navigator.clipboard.writeText(publicUrl)
@@ -343,6 +356,7 @@ function SessionView({
                   <th className="px-3 py-2 text-center font-medium">بالنظام</th>
                   <th className="px-3 py-2 text-center font-medium">فعلي</th>
                   <th className="px-3 py-2 text-center font-medium">الفرق</th>
+                  {session.status === "SUBMITTED" && <th className="px-3 py-2 text-center font-medium">الموافقة</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -374,6 +388,44 @@ function SessionView({
                           </span>
                         ) : "—"}
                       </td>
+                      {session.status === "SUBMITTED" && (
+                        <td className="px-3 py-2 text-center">
+                          {item.approvalStatus === "PENDING" && (
+                            <div className="flex justify-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-100"
+                                onClick={() => approveMut.mutate(item.id)}
+                                disabled={approveMut.isPending}
+                                title="وافق"
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-red-600 hover:bg-red-100"
+                                onClick={() => rejectMut.mutate(item.id)}
+                                disabled={rejectMut.isPending}
+                                title="رفض"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          )}
+                          {item.approvalStatus === "APPROVED" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                              <Check className="h-3 w-3" /> موافق
+                            </span>
+                          )}
+                          {item.approvalStatus === "REJECTED" && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
+                              <X className="h-3 w-3" /> مرفوض
+                            </span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   )
                 })}
