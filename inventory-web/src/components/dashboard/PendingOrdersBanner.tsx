@@ -9,8 +9,9 @@ import {
   Package,
   Phone,
   Save,
+  Trash2,
 } from "lucide-react"
-import { getOrderPreparations, markOrderPrepared, getBranches } from "../../api/endpoints"
+import { getOrderPreparations, markOrderPrepared, getBranches, cancelInvoice } from "../../api/endpoints"
 import type { OrderPreparation } from "../../types/api"
 import { cn } from "../../utils/cn"
 
@@ -29,6 +30,7 @@ function OrderCard({ order }: { order: OrderPreparation }) {
   const [done, setDone] = useState(false)
   const [warehouseId, setWarehouseId] = useState("")
   const [notes, setNotes] = useState("")
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
   const qc = useQueryClient()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
@@ -43,6 +45,17 @@ function OrderCard({ order }: { order: OrderPreparation }) {
     },
   })
 
+  const cancelMutation = useMutation({
+    mutationFn: () => {
+      if (!order.invoiceId) throw new Error("لا يوجد فاتورة للإلغاء")
+      return cancelInvoice(order.invoiceId)
+    },
+    onSuccess: () => {
+      setShowCancelDialog(false)
+      qc.invalidateQueries({ queryKey: ["order-preparations"] })
+    },
+  })
+
   if (done) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 animate-pulse">
@@ -53,7 +66,50 @@ function OrderCard({ order }: { order: OrderPreparation }) {
   }
 
   return (
-    <div className="rounded-xl border-2 border-amber-300 bg-white shadow-md overflow-hidden">
+    <>
+      {/* Cancel confirmation dialog */}
+      {showCancelDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl" dir="rtl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">إلغاء الطلب؟</h3>
+            </div>
+            <p className="mb-6 text-sm text-slate-600">
+              هل أنت متأكد من إلغاء الفاتورة <strong>{order.invoiceNumber}</strong> للزبون <strong>{order.customerName}</strong>؟
+            </p>
+            <p className="mb-6 text-xs text-red-600 font-semibold">
+              ⚠️ هذا الإجراء قد لا يكون قابلاً للتراجع عنه
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCancelDialog(false)}
+                className="flex-1 rounded-lg border border-slate-300 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 transition"
+              >
+                لا، احتفظ به
+              </button>
+              <button
+                type="button"
+                disabled={cancelMutation.isPending}
+                onClick={() => cancelMutation.mutate()}
+                className={cn(
+                  "flex-1 rounded-lg py-2.5 text-sm font-bold text-white transition",
+                  cancelMutation.isPending
+                    ? "bg-red-400 cursor-wait"
+                    : "bg-red-600 hover:bg-red-700 active:scale-95"
+                )}
+              >
+                {cancelMutation.isPending ? "جاري الإلغاء..." : "نعم، ألغِ الفاتورة"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border-2 border-amber-300 bg-white shadow-md overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 bg-amber-50 px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -80,6 +136,17 @@ function OrderCard({ order }: { order: OrderPreparation }) {
             <ClipboardList className="h-3.5 w-3.5" />
             {order.items.length} صنف
             {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+
+          <button
+            type="button"
+            disabled={cancelMutation.isPending}
+            onClick={() => setShowCancelDialog(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold text-red-600 hover:bg-red-50 transition-all"
+            title="إلغاء الطلب"
+          >
+            <Trash2 className="h-4 w-4" />
+            إلغاء
           </button>
 
           <button
@@ -160,6 +227,7 @@ function OrderCard({ order }: { order: OrderPreparation }) {
         </div>
       )}
     </div>
+    </>
   )
 }
 
