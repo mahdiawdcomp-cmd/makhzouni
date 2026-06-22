@@ -776,7 +776,9 @@ function ItemDetailModal({ item, currency, onClose, onAdd, onShare }: {
           <div className="flex items-center justify-center gap-4 rounded-xl bg-slate-50 py-2">
             <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="rounded-full bg-white p-2 shadow"><Minus className="h-4 w-4" /></button>
             <span className="w-10 text-center text-lg font-bold">{qty}</span>
-            <button type="button" onClick={() => setQty((q) => Math.min(item.currentStock, q + 1))} className="rounded-full bg-white p-2 shadow"><Plus className="h-4 w-4" /></button>
+            {qty < item.currentStock && (
+              <button type="button" onClick={() => setQty((q) => Math.min(item.currentStock, q + 1))} className="rounded-full bg-white p-2 shadow"><Plus className="h-4 w-4" /></button>
+            )}
           </div>
 
           <button type="button" onClick={() => onAdd(qty)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3.5 font-bold text-white active:scale-95">
