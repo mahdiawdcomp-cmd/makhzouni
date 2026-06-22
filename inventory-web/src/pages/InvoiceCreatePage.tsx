@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useQueryClient } from "@tanstack/react-query"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
@@ -105,6 +105,7 @@ function extractErrorMessage(err: unknown): string {
 
 export function InvoiceCreatePage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const invoiceType: InvoiceType = (searchParams.get("type") === "PURCHASE" ? "PURCHASE" : "SALE")
   const isPurchase = invoiceType === "PURCHASE"
@@ -238,6 +239,7 @@ export function InvoiceCreatePage() {
   const scanInputRef = useRef<HTMLInputElement | null>(null)
   const lastFocusRef = useRef(0)
   const clientRequestIdRef = useRef(crypto.randomUUID())
+  const prefillAppliedRef = useRef(false)
 
   // ---- field refs ----
   const customerInputRef = useRef<HTMLInputElement | null>(null)
@@ -351,6 +353,9 @@ export function InvoiceCreatePage() {
   // ----- LOAD DRAFT on mount -----
   useEffect(() => {
     if (savedInvoiceId) return
+    // Skip draft when coming from order preparation (prefill effect handles it)
+    const ps = location.state as { prefilledCustomerId?: string } | null
+    if (ps?.prefilledCustomerId) return
     try {
       const raw = localStorage.getItem(draftKey)
       if (!raw) return
@@ -376,6 +381,91 @@ export function InvoiceCreatePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, products, draftKey])
+
+  // ----- PREFILL from order preparation (navigate state) -----
+  useEffect(() => {
+    if (prefillAppliedRef.current) return
+    const state = location.state as {
+      fromOrderPreparationId?: string
+      prefilledCustomerId?: string
+      prefilledItems?: Array<{
+        productId: string
+        quantity: number
+        unit: "PIECE" | "DOZEN" | "CARTON"
+        unitPrice: number
+      }>
+    } | null
+    if (!state?.prefilledCustomerId) return
+    if (customers.length === 0 || products.length === 0) return
+
+    prefillAppliedRef.current = true
+
+    const customer = customers.find((c) => c.id === state.prefilledCustomerId)
+    if (customer) {
+      setSelectedCustomer(customer)
+      setCustomerQuery(customer.name)
+    }
+
+    if (!state.prefilledItems?.length) return
+
+    const newItems: DraftItem[] = []
+    for (const pi of state.prefilledItems) {
+      const product = products.find((p) => p.id === pi.productId)
+      if (!product) continue
+
+      const allWhs = product.warehouseStocks ?? []
+      const activeWhs = allWhs.filter((ws) => ws.quantityPieces > 0)
+
+      if (activeWhs.length <= 1) {
+        // Single warehouse (or no warehouse data) — one row
+        newItems.push({
+          product,
+          unit: pi.unit,
+          quantity: pi.quantity,
+          unitPrice: pi.unitPrice,
+          warehouseId: activeWhs[0]?.warehouseId,
+          warehouseName: activeWhs[0]?.warehouse.name,
+        })
+      } else {
+        // Multiple warehouses — split into one row per warehouse
+        const piecePrice =
+          pi.unit === "CARTON" ? pi.unitPrice / (product.pcsPerCarton || 1)
+          : pi.unit === "DOZEN" ? pi.unitPrice / 12
+          : pi.unitPrice
+        const totalPcs =
+          pi.unit === "CARTON" ? pi.quantity * product.pcsPerCarton
+          : pi.unit === "DOZEN" ? pi.quantity * 12
+          : pi.quantity
+
+        const shopWh = allWhs.find((ws) => ws.warehouse.name.includes("محل"))
+        const shopId = shopWh?.warehouseId
+        const others = allWhs
+          .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopId)
+          .sort((a, b) => b.quantityPieces - a.quantityPieces)
+
+        let remaining = totalPcs
+
+        if (shopWh && shopWh.quantityPieces > 0) {
+          const take = Math.min(shopWh.quantityPieces, remaining)
+          newItems.push({ product, unit: "PIECE", quantity: take, unitPrice: piecePrice, warehouseId: shopId, warehouseName: shopWh.warehouse.name })
+          remaining -= take
+        }
+        for (const ws of others) {
+          if (remaining <= 0) break
+          const take = Math.min(ws.quantityPieces, remaining)
+          if (take <= 0) continue
+          newItems.push({ product, unit: "PIECE", quantity: take, unitPrice: piecePrice, warehouseId: ws.warehouseId, warehouseName: ws.warehouse.name })
+          remaining -= take
+        }
+        // Any leftover (insufficient stock across all warehouses) goes on a last row
+        if (remaining > 0) {
+          newItems.push({ product, unit: "PIECE", quantity: remaining, unitPrice: piecePrice })
+        }
+      }
+    }
+    if (newItems.length > 0) setItems(newItems)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customers, products])
 
   useEffect(() => {
     if (!pendingCloseTabId || pendingCloseTabId !== activeTid) return
