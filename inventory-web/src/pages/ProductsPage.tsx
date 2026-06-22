@@ -960,7 +960,7 @@ export function ProductsPage() {
           setOpen(v)
         }}
         title={editing ? "تعديل منتج" : "إضافة منتج جديد"}
-        contentClassName="inset-0 left-0 top-0 h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-0 px-4 pb-0 pt-5 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[90vh] sm:w-[calc(100%-2rem)] sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-lg sm:border sm:p-5"
+        contentClassName="inset-0 left-0 top-0 h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 rounded-none border-0 px-4 pb-0 pt-5 sm:left-1/2 sm:top-1/2 sm:h-auto sm:max-h-[92vh] sm:w-[calc(100%-3rem)] sm:max-w-4xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:p-6"
       >
         <form className="space-y-4 pb-24 sm:pb-0" onSubmit={submit} onKeyDown={moveToNextProductField}>
           <div className="rounded-md bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-950/40 dark:text-sky-200">
