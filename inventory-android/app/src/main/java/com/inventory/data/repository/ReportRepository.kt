@@ -50,8 +50,8 @@ private fun DashboardReportDto.toDomain() = DashboardReport(
 )
 
 private fun TopProductDto.toDomain() = TopProduct(productId, productName, quantitySold, totalSales)
-private fun SalesPointDto.toDomain() = SalesPoint(date ?: period ?: "", totalSales, netProfit)
-private fun SalesReportDto.toDomain() = SalesReport(totalSales, netProfit, chart.map { it.toDomain() })
+private fun SalesPointDto.toDomain() = SalesPoint(date ?: period ?: "", totalSales, grossProfit)
+private fun SalesReportDto.toDomain() = SalesReport(totalSales, grossProfit, chart.map { it.toDomain() })
 private fun InventoryValuationDto.toDomain() = InventoryValuation(
     products = products.map { it.toDomain() },
     totalPurchaseValue = totals.purchaseValue,

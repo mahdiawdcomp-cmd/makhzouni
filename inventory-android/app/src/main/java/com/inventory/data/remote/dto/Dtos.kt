@@ -647,7 +647,7 @@ data class SalesPointDto(
     val date: String? = null,
     val period: String? = null,
     val totalSales: Double = 0.0,
-    val netProfit: Double = 0.0
+    val grossProfit: Double = 0.0
 )
 
 // A/B/C customer rating from /reports/customers/ratings
@@ -666,7 +666,7 @@ data class CustomerRatingDto(
 data class SalesReportDto(
     val totalSales: Double = 0.0,
     val invoiceCount: Int = 0,
-    val netProfit: Double = 0.0,
+    val grossProfit: Double = 0.0,
     val chart: List<SalesPointDto> = emptyList()
 )
 

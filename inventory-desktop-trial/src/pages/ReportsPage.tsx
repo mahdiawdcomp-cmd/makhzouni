@@ -154,29 +154,11 @@ function ProfitsTab() {
       ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-        <MetricCard title="إجمالي الإيراد"      value={data?.summary.totalRevenue ?? 0} />
-        <MetricCard title="إجمالي التكلفة"      value={data?.summary.totalCost ?? 0}    color="text-rose-600" />
-        <MetricCard title="ربح المبيعات"         value={data?.summary.totalProfit ?? 0}  color="text-amber-600" />
-        <MetricCard title="متوسط هامش الربح"    value={data?.summary.avgMargin ?? 0}    suffix="%" color="text-blue-600" />
+        <MetricCard title="إجمالي الإيراد" value={data?.summary.totalRevenue ?? 0} />
+        <MetricCard title="إجمالي التكلفة" value={data?.summary.totalCost ?? 0} color="text-rose-600" />
+        <MetricCard title="صافي الربح" value={data?.summary.totalProfit ?? 0} color="text-emerald-600" />
+        <MetricCard title="متوسط هامش الربح" value={data?.summary.avgMargin ?? 0} suffix="%" color="text-blue-600" />
       </div>
-
-      {/* Net profit breakdown — losses & expenses deducted */}
-      {(data?.summary.lossesTotal ?? 0) + (data?.summary.expensesTotal ?? 0) > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:bg-slate-900 dark:border-slate-700" dir="rtl">
-          <p className="text-xs text-slate-500 mb-3 font-medium">تفصيل صافي الربح</p>
-          <div className="flex flex-wrap items-center gap-4 text-sm">
-            <span className="text-amber-700 font-semibold">ربح المبيعات: {(data?.summary.totalProfit ?? 0).toLocaleString("en-US")}</span>
-            <span className="text-slate-400">−</span>
-            <span className="text-rose-600">تلف: {(data?.summary.lossesTotal ?? 0).toLocaleString("en-US")}</span>
-            <span className="text-slate-400">−</span>
-            <span className="text-rose-600">مصاريف: {(data?.summary.expensesTotal ?? 0).toLocaleString("en-US")}</span>
-            <span className="text-slate-400">=</span>
-            <span className={`font-bold text-base ${(data?.summary.netProfit ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-              صافي الربح: {(data?.summary.netProfit ?? 0).toLocaleString("en-US")}
-            </span>
-          </div>
-        </div>
-      )}
 
       {(data?.periods?.length ?? 0) > 0 && (
         <Card>

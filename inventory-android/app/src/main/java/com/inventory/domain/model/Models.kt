@@ -190,12 +190,12 @@ data class TopProduct(
 data class SalesPoint(
     val label: String,
     val totalSales: Double,
-    val netProfit: Double = 0.0
+    val grossProfit: Double = 0.0
 )
 
 data class SalesReport(
     val totalSales: Double,
-    val netProfit: Double,
+    val grossProfit: Double,
     val chart: List<SalesPoint>
 )
 

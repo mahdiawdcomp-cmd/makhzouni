@@ -225,7 +225,7 @@ private fun SalesReportTab(state: ReportsUiState, viewModel: ReportsViewModel) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatCard("إجمالي المبيعات", sales.totalSales.toString(), AppColor.Green600, Modifier.weight(1f))
-                    StatCard("صافي الربح",      sales.netProfit.toString(),  AppColor.Blue600,  Modifier.weight(1f))
+                    StatCard("إجمالي الأرباح",   sales.grossProfit.toString(), AppColor.Blue600,  Modifier.weight(1f))
                 }
             }
             item {

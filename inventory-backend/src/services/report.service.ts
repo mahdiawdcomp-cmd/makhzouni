@@ -321,37 +321,39 @@ export async function getSalesReport(query: SalesReportQuery) {
     getInvoiceItemsForProfit(returnWhere),
   ]);
 
-  const chartMap = new Map<string, { totalSales: number; netProfit: number }>();
+  const chartMap = new Map<string, { totalSales: number; grossProfit: number }>();
 
   for (const item of items) {
     const key = labelFor(item.invoice.date, query.groupBy);
-    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice); // FIXED
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     const cost = itemCostPrice(item);
-    const current = chartMap.get(key) ?? { totalSales: 0, netProfit: 0 };
+    const current = chartMap.get(key) ?? { totalSales: 0, grossProfit: 0 };
     current.totalSales += revenue;
-    current.netProfit += revenue - cost;
+    current.grossProfit += revenue - cost;
     chartMap.set(key, current);
   }
   for (const item of returnItems) {
     const key = labelFor(item.invoice.date, query.groupBy);
     const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     const cost = itemCostPrice(item);
-    const current = chartMap.get(key) ?? { totalSales: 0, netProfit: 0 };
+    const current = chartMap.get(key) ?? { totalSales: 0, grossProfit: 0 };
     current.totalSales -= revenue;
-    current.netProfit -= revenue - cost;
+    current.grossProfit -= revenue - cost;
     chartMap.set(key, current);
   }
 
   return {
     totalSales: roundMoney(toNumber(invoiceTotals._sum.totalAmount) - toNumber(returnTotals._sum.totalAmount)),
     invoiceCount: invoiceTotals._count.id,
-    netProfit: roundMoney(calculateProfit(items) - calculateProfit(returnItems)),
+    // Gross profit = revenue minus cost of goods sold only (no losses/expenses).
+    // Use getProfitReport() for net profit which subtracts losses and expenses.
+    grossProfit: roundMoney(calculateProfit(items) - calculateProfit(returnItems)),
     chart: Array.from(chartMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([period, values]) => ({
         period,
         totalSales: roundMoney(values.totalSales),
-        netProfit: roundMoney(values.netProfit),
+        grossProfit: roundMoney(values.grossProfit),
       })),
   };
 }
@@ -1192,8 +1194,8 @@ export async function getCustomerRatings() {
       createdAt: true,
       lastTransactionAt: true,
       invoices: {
-        where: { type: "SALE", status: "ACTIVE" },
-        select: { totalAmount: true, paidAmount: true, date: true, createdAt: true },
+        where: { type: "SALE", status: "ACTIVE", archivedAt: null },
+        select: { totalAmount: true, remainingAmount: true, date: true },
       },
     },
   });
@@ -1204,15 +1206,17 @@ export async function getCustomerRatings() {
     const invoiceCount = c.invoices.length;
     const balance = toNumber(c.currentBalance);
 
-    // Estimate avg payment speed: how many days between invoice date and last transaction
-    let avgPaymentDays = 45;
-    if (c.lastTransactionAt && invoiceCount > 0) {
-      const lastInvoiceDate = c.invoices.reduce(
-        (max, i) => (i.date.getTime() > max ? i.date.getTime() : max),
-        0
-      );
-      const gap = (c.lastTransactionAt.getTime() - lastInvoiceDate) / 86_400_000;
-      avgPaymentDays = Math.max(0, Math.min(180, gap));
+    // avgPaymentDays = weighted average age of outstanding invoice balances.
+    // A customer with old unpaid invoices scores high; one who paid everything scores 0.
+    let avgPaymentDays = 0;
+    const invoicesWithDebt = c.invoices.filter((i) => toNumber(i.remainingAmount) > 0);
+    if (invoicesWithDebt.length > 0 && balance > 0) {
+      const totalDebt = invoicesWithDebt.reduce((s, i) => s + toNumber(i.remainingAmount), 0);
+      const weightedAge = invoicesWithDebt.reduce((s, i) => {
+        const ageDays = Math.floor((now - i.date.getTime()) / 86_400_000);
+        return s + ageDays * toNumber(i.remainingAmount);
+      }, 0);
+      avgPaymentDays = Math.min(180, Math.floor(weightedAge / totalDebt));
     }
 
     const rating = computeRating(balance, totalPurchases, avgPaymentDays);
@@ -1248,25 +1252,60 @@ export interface DebtAgingRow {
 export async function getDebtAging() {
   const customers = await prisma.customer.findMany({
     where: { deletedAt: null, isSupplier: false, currentBalance: { gt: 0 } },
-    select: {
-      id: true, name: true, phone: true, currentBalance: true, lastTransactionAt: true, createdAt: true,
-    },
+    select: { id: true, name: true, phone: true, currentBalance: true },
     orderBy: { currentBalance: "desc" },
-    take: 50,
+    // No take limit — return all customers with debt
   });
 
+  if (customers.length === 0) return [];
+
+  // Fetch active sale invoices with outstanding balance for these customers.
+  // Aging is computed per-invoice so a customer with mixed old/new debt gets
+  // accurate bucket distribution instead of putting everything in one bucket.
+  const customerIds = customers.map((c) => c.id);
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      customerId: { in: customerIds },
+      type: InvoiceType.SALE,
+      status: InvoiceStatus.ACTIVE,
+      archivedAt: null,
+      remainingAmount: { gt: 0 },
+    },
+    select: { customerId: true, remainingAmount: true, date: true },
+  });
+
+  type Buckets = { current: number; days30: number; days60: number; days90: number };
+  const agingMap = new Map<string, Buckets>();
   const now = Date.now();
+
+  for (const inv of invoices) {
+    if (!inv.customerId) continue;
+    const b = agingMap.get(inv.customerId) ?? { current: 0, days30: 0, days60: 0, days90: 0 };
+    const age = Math.floor((now - inv.date.getTime()) / 86_400_000);
+    const rem = toNumber(inv.remainingAmount);
+    if (age <= 30)       b.current += rem;
+    else if (age <= 60)  b.days30  += rem;
+    else if (age <= 90)  b.days60  += rem;
+    else                 b.days90  += rem;
+    agingMap.set(inv.customerId, b);
+  }
+
   return customers.map((c) => {
     const balance = toNumber(c.currentBalance);
-    const lastDate = c.lastTransactionAt ?? c.createdAt;
-    const ageDays = Math.floor((now - lastDate.getTime()) / 86_400_000);
+    const b = agingMap.get(c.id) ?? { current: 0, days30: 0, days60: 0, days90: 0 };
+    const invoicedTotal = b.current + b.days30 + b.days60 + b.days90;
+    // Opening-balance debt (no matching invoice) goes to 90+ bucket
+    if (invoicedTotal === 0 && balance > 0) b.days90 = balance;
 
-    // Bucket the full balance into one aging bucket based on debt age
-    const current = ageDays <= 30 ? balance : 0;
-    const days30 = ageDays > 30 && ageDays <= 60 ? balance : 0;
-    const days60 = ageDays > 60 && ageDays <= 90 ? balance : 0;
-    const days90 = ageDays > 90 ? balance : 0;
-
-    return { id: c.id, name: c.name, phone: c.phone, current, days30, days60, days90, total: balance };
+    return {
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      current:  roundMoney(b.current),
+      days30:   roundMoney(b.days30),
+      days60:   roundMoney(b.days60),
+      days90:   roundMoney(b.days90),
+      total:    balance,
+    };
   });
 }
