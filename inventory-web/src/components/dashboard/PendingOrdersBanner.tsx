@@ -32,22 +32,9 @@ function OrderCard({ order }: { order: OrderPreparation }) {
   const qc = useQueryClient()
 
   const handleCreateInvoice = () => {
-    // Pass order data via navigation state
-    navigate("/invoices/new", {
-      state: {
-        fromOrderPreparationId: order.id,
-        prefilledCustomerId: order.customerId ?? undefined,
-        prefilledCustomerPhone: order.customerPhone,
-        prefilledCustomerName: order.customerName,
-        prefilledItems: order.items.map(item => ({
-          productId: item.productId,
-          quantity: item.quantity,
-          unit: item.unit as "PIECE" | "DOZEN" | "CARTON",
-          unitPrice: item.unitPrice ?? 0,
-        })),
-        prefilledTotal: order.totalAmount,
-      }
-    })
+    // Pass the order id via the URL (survives the tid redirect, refreshes and
+    // new-tab opens — unlike location.state). The page fetches the order and fills.
+    navigate(`/invoices/new?type=SALE&fromPrep=${order.id}`)
   }
 
   const cancelMutation = useMutation({

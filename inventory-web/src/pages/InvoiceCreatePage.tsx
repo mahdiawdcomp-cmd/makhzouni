@@ -1,11 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
-import { useQueryClient } from "@tanstack/react-query"
-import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, createReceipt, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
+import { applyCoupon, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -105,7 +105,6 @@ function extractErrorMessage(err: unknown): string {
 
 export function InvoiceCreatePage() {
   const navigate = useNavigate()
-  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const invoiceType: InvoiceType = (searchParams.get("type") === "PURCHASE" ? "PURCHASE" : "SALE")
   const isPurchase = invoiceType === "PURCHASE"
@@ -240,21 +239,15 @@ export function InvoiceCreatePage() {
   const lastFocusRef = useRef(0)
   const clientRequestIdRef = useRef(crypto.randomUUID())
   const prefillAppliedRef = useRef(false)
-  // Snapshot navigation state at FIRST render. The tid redirect below calls
-  // setSearchParams which drops location.state, so we must capture it now or it's lost.
-  const prefillStateRef = useRef<{
-    fromOrderPreparationId?: string
-    prefilledCustomerId?: string
-    prefilledCustomerPhone?: string
-    prefilledCustomerName?: string
-    prefilledItems?: Array<{ productId: string; quantity: number; unit: "PIECE" | "DOZEN" | "CARTON"; unitPrice: number }>
-  } | null>((location.state as {
-    fromOrderPreparationId?: string
-    prefilledCustomerId?: string
-    prefilledCustomerPhone?: string
-    prefilledCustomerName?: string
-    prefilledItems?: Array<{ productId: string; quantity: number; unit: "PIECE" | "DOZEN" | "CARTON"; unitPrice: number }>
-  } | null) ?? null)
+  // Order-preparation id from the URL (?fromPrep=...). The page fetches the
+  // matching pending preparation and fills customer + items from it. Passing it
+  // in the URL (not location.state) survives the tid redirect / refresh / new tab.
+  const fromPrepId = searchParams.get("fromPrep")
+  const { data: pendingPreps } = useQuery({
+    queryKey: ["order-preparations"],
+    queryFn: getOrderPreparations,
+    enabled: !!fromPrepId,
+  })
 
   // ---- field refs ----
   const customerInputRef = useRef<HTMLInputElement | null>(null)
@@ -368,9 +361,8 @@ export function InvoiceCreatePage() {
   // ----- LOAD DRAFT on mount -----
   useEffect(() => {
     if (savedInvoiceId) return
-    // Skip draft when coming from order preparation (prefill effect handles it)
-    const pf = prefillStateRef.current
-    if (pf && (pf.prefilledCustomerId || pf.prefilledCustomerPhone || (pf.prefilledItems?.length ?? 0) > 0)) return
+    // Skip draft when coming from an order preparation (prefill effect handles it)
+    if (fromPrepId) return
     try {
       const raw = localStorage.getItem(draftKey)
       if (!raw) return
@@ -397,69 +389,68 @@ export function InvoiceCreatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, products, draftKey])
 
-  // ----- PREFILL from order preparation (navigate state) -----
+  // ----- PREFILL from an order preparation (?fromPrep=<id>) -----
   useEffect(() => {
-    if (!activeTid) return  // wait until tid is established (after reset)
+    if (!fromPrepId) return
+    if (!activeTid) return            // wait until tid is established (after reset)
     if (prefillAppliedRef.current) return
-    const state = prefillStateRef.current
-    const hasPrefill = !!state && (
-      !!state.prefilledCustomerId ||
-      !!state.prefilledCustomerPhone ||
-      (state.prefilledItems?.length ?? 0) > 0
-    )
-    if (!state || !hasPrefill) return
     if (customers.length === 0 || products.length === 0) return
+    if (!pendingPreps) return         // wait until preparations are fetched
+
+    const prep = pendingPreps.find((p) => p.id === fromPrepId)
+    if (!prep) return                 // already prepared/cancelled or unknown id
 
     prefillAppliedRef.current = true
 
-    // Match the customer by id first, then by phone (the order preparation
-    // stores phone, and the customer may not carry an id in older records).
-    let customer = state.prefilledCustomerId
-      ? customers.find((c) => c.id === state.prefilledCustomerId)
+    // Match the customer by id first, then by phone (preparations store phone;
+    // the id is resolved server-side and may be absent on older records).
+    let customer = prep.customerId
+      ? customers.find((c) => c.id === prep.customerId)
       : undefined
-    if (!customer && state.prefilledCustomerPhone) {
-      customer = customers.find((c) => c.phone === state.prefilledCustomerPhone)
+    if (!customer && prep.customerPhone) {
+      customer = customers.find((c) => c.phone === prep.customerPhone)
     }
     if (customer) {
       setSelectedCustomer(customer)
       setCustomerQuery(customer.name)
-    } else if (state.prefilledCustomerName) {
+    } else if (prep.customerName) {
       // No matching customer record — seed the search box so the user can pick/add.
-      setCustomerQuery(state.prefilledCustomerName)
+      setCustomerQuery(prep.customerName)
     }
 
-    if (!state.prefilledItems?.length) return
+    if (!prep.items?.length) return
 
     const newItems: DraftItem[] = []
-    for (const pi of state.prefilledItems) {
+    for (const pi of prep.items) {
       const product = products.find((p) => p.id === pi.productId)
       if (!product) continue
+      const unit = (pi.unit === "CARTON" || pi.unit === "DOZEN" ? pi.unit : "PIECE") as Unit
 
       const allWhs = product.warehouseStocks ?? []
       const activeWhs = allWhs.filter((ws) => ws.quantityPieces > 0)
 
       // Fall back to the product's catalog price when the order didn't carry one.
-      const linePrice = pi.unitPrice > 0 ? pi.unitPrice : unitPriceFor(product, pi.unit)
+      const linePrice = (pi.unitPrice ?? 0) > 0 ? pi.unitPrice! : unitPriceFor(product, unit)
 
       if (activeWhs.length <= 1) {
         // Single warehouse (or no warehouse data) — one row
         newItems.push({
           product,
-          unit: pi.unit,
+          unit,
           quantity: pi.quantity,
           unitPrice: linePrice,
           warehouseId: activeWhs[0]?.warehouseId,
           warehouseName: activeWhs[0]?.warehouse.name,
         })
       } else {
-        // Multiple warehouses — split into one row per warehouse
+        // Multiple warehouses — split into one PIECE row per warehouse
         const piecePrice =
-          pi.unit === "CARTON" ? linePrice / (product.pcsPerCarton || 1)
-          : pi.unit === "DOZEN" ? linePrice / 12
+          unit === "CARTON" ? linePrice / (product.pcsPerCarton || 1)
+          : unit === "DOZEN" ? linePrice / 12
           : linePrice
         const totalPcs =
-          pi.unit === "CARTON" ? pi.quantity * product.pcsPerCarton
-          : pi.unit === "DOZEN" ? pi.quantity * 12
+          unit === "CARTON" ? pi.quantity * product.pcsPerCarton
+          : unit === "DOZEN" ? pi.quantity * 12
           : pi.quantity
 
         const shopWh = allWhs.find((ws) => ws.warehouse.name.includes("محل"))
@@ -490,7 +481,7 @@ export function InvoiceCreatePage() {
     }
     if (newItems.length > 0) setItems(newItems)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, products, activeTid])
+  }, [customers, products, activeTid, pendingPreps, fromPrepId])
 
   useEffect(() => {
     if (!pendingCloseTabId || pendingCloseTabId !== activeTid) return
