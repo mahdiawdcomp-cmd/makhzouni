@@ -240,6 +240,17 @@ export function InvoiceCreatePage() {
   const lastFocusRef = useRef(0)
   const clientRequestIdRef = useRef(crypto.randomUUID())
   const prefillAppliedRef = useRef(false)
+  // Snapshot navigation state at FIRST render. The tid redirect below calls
+  // setSearchParams which drops location.state, so we must capture it now or it's lost.
+  const prefillStateRef = useRef<{
+    fromOrderPreparationId?: string
+    prefilledCustomerId?: string
+    prefilledItems?: Array<{ productId: string; quantity: number; unit: "PIECE" | "DOZEN" | "CARTON"; unitPrice: number }>
+  } | null>((location.state as {
+    fromOrderPreparationId?: string
+    prefilledCustomerId?: string
+    prefilledItems?: Array<{ productId: string; quantity: number; unit: "PIECE" | "DOZEN" | "CARTON"; unitPrice: number }>
+  } | null) ?? null)
 
   // ---- field refs ----
   const customerInputRef = useRef<HTMLInputElement | null>(null)
@@ -354,8 +365,7 @@ export function InvoiceCreatePage() {
   useEffect(() => {
     if (savedInvoiceId) return
     // Skip draft when coming from order preparation (prefill effect handles it)
-    const ps = location.state as { prefilledCustomerId?: string } | null
-    if (ps?.prefilledCustomerId) return
+    if (prefillStateRef.current?.prefilledCustomerId) return
     try {
       const raw = localStorage.getItem(draftKey)
       if (!raw) return
@@ -386,16 +396,7 @@ export function InvoiceCreatePage() {
   useEffect(() => {
     if (!activeTid) return  // wait until tid is established (after reset)
     if (prefillAppliedRef.current) return
-    const state = location.state as {
-      fromOrderPreparationId?: string
-      prefilledCustomerId?: string
-      prefilledItems?: Array<{
-        productId: string
-        quantity: number
-        unit: "PIECE" | "DOZEN" | "CARTON"
-        unitPrice: number
-      }>
-    } | null
+    const state = prefillStateRef.current
     if (!state?.prefilledCustomerId) return
     if (customers.length === 0 || products.length === 0) return
 
