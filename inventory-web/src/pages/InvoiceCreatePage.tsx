@@ -314,12 +314,17 @@ export function InvoiceCreatePage() {
     return base
   }
 
-  // Items selling below purchase price
+  // Items selling below purchase price — compare in the SAME unit as unitPrice
   const belowCostItems = useMemo(() => {
     if (isPurchase) return new Set<number>()
     const set = new Set<number>()
     items.forEach((item, i) => {
-      if (item.unitPrice < Number(item.product.purchasePrice ?? 0)) set.add(i)
+      const baseCost = Number(item.product.purchasePrice ?? 0)
+      const costInUnit =
+        item.unit === "CARTON" ? baseCost * item.product.pcsPerCarton :
+        item.unit === "DOZEN"  ? baseCost * 12 :
+        baseCost
+      if (item.unitPrice < costInUnit) set.add(i)
     })
     return set
   }, [items, isPurchase])

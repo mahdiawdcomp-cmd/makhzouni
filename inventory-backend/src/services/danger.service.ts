@@ -98,6 +98,13 @@ export async function wipeOperationalData(confirmPhrase: string): Promise<WipeRe
     `TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`,
   );
 
+  // Reset derived balance fields — customers table is kept but its
+  // currentBalance was calculated from the now-deleted invoices/vouchers.
+  // Without this reset, the customer card shows a stale (wrong) balance.
+  await prisma.$executeRawUnsafe(
+    `UPDATE customers SET current_balance = opening_balance, last_transaction_at = NULL`,
+  );
+
   return {
     deleted: {
       products,
