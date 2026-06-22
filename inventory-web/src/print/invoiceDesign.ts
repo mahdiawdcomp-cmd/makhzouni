@@ -84,7 +84,7 @@ export const newId = () => `el_${Date.now().toString(36)}_${_idc++}`
 
 // ── Data shapes ──────────────────────────────────────────────────────────────
 
-export interface PrintLine { name: string; unit?: string; qty: number; price: number; notes?: string }
+export interface PrintLine { name: string; unit?: string; qty: number; price: number; notes?: string; itemNumber?: string; pcsPerCarton?: number }
 export interface PrintInvoice {
   number: string; date: string; customerName: string; customerPhone?: string
   lines: PrintLine[]; notes?: string
@@ -282,20 +282,38 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const cur = store.currency || "د.ع"
   const accent = el.accent || "#4f46e5"
   const fs = el.fontSize || 12
+  const fsSm = Math.max(fs - 2, 9)
   const cols = ["#", "الصنف", "الوحدة"]
   if (el.showQty) cols.push("الكمية")
   if (el.showPrice) cols.push("السعر")
   cols.push("المجموع", "الملاحظات")
   const head = `<tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</th>`).join("")}</tr>`
   const body = inv.lines.map((l, idx) => {
-    const cells = [`${idx + 1}`, esc(l.name), esc(l.unit || "—")]
-    if (el.showQty) cells.push(`${l.qty}`)
-    if (el.showPrice) cells.push(money(l.price, cur))
-    cells.push(money(l.qty * l.price, cur))
-    cells.push(esc(l.notes || ""))
-    return `<tr>${cells.map((c, i) => `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</td>`).join("")}</tr>`
+    // Product name cell: item number above name, pcsPerCarton hint below
+    const itemNumHtml = l.itemNumber
+      ? `<div style="font-size:${fsSm}px;color:#6366f1;font-weight:700;line-height:1.2">${esc(l.itemNumber)}</div>`
+      : ""
+    const pcsHtml = l.pcsPerCarton && l.pcsPerCarton > 1
+      ? `<div style="font-size:${fsSm}px;color:#94a3b8;line-height:1.2">${l.pcsPerCarton} ق/ك</div>`
+      : ""
+    const nameCell = `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:${fs}px">${itemNumHtml}${esc(l.name)}${pcsHtml}</td>`
+
+    const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
+    const cells: string[] = [
+      `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${idx + 1}</td>`,
+      nameCell,
+      `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${esc(l.unit || "—")}</td>`,
+    ]
+    if (el.showQty) cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${l.qty}</td>`)
+    if (el.showPrice) cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${numFmt(l.price)}</td>`)
+    cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${numFmt(l.qty * l.price)}</td>`)
+    cells.push(`<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:${fs}px">${esc(l.notes || "")}</td>`)
+    return `<tr>${cells.join("")}</tr>`
   }).join("")
-  return `<table style="width:100%;border-collapse:collapse">${head}${body}</table>`
+  // Currency label row
+  const colSpanBefore = 2 + (el.showQty ? 1 : 0) + (el.showPrice ? 1 : 0)
+  const curRow = `<tr><td colspan="${colSpanBefore + 3}" style="padding:2px 4px;font-size:${fsSm}px;color:#94a3b8;text-align:center">الأسعار والمجاميع بـ ${cur}</td></tr>`
+  return `<table style="width:100%;border-collapse:collapse">${head}${body}${curRow}</table>`
 }
 
 function elInnerHTML(el: El, inv: PrintInvoice, store: PrintStore): string {

@@ -86,27 +86,20 @@ const productWarehouseInclude = {
 
 // ---------- Auto-generation helpers ----------
 
-const ITEM_NUMBER_COUNTER_KEY = "product_item_number";
+// AWD-700, AWD-701, ... (counter starts at 700 and increments by 1)
+const ITEM_NUMBER_COUNTER_KEY = "product_item_number_awd";
 
-// AB0001 → AB9999 → AC0001 ... ZZ9999 (676 × 10000 = 6.76M codes)
 function encodeItemNumber(seq: number) {
-  const within = ((seq - 1) % 10000) + 1; // 1..10000
-  const letterIdx = Math.floor((seq - 1) / 10000); // 0..675 (AA..ZZ)
-  const A = "A".charCodeAt(0);
-  const first = String.fromCharCode(A + Math.floor(letterIdx / 26));
-  const second = String.fromCharCode(A + (letterIdx % 26));
-  return `${first}${second}${String(within).padStart(4, "0")}`;
+  return `AWD-${seq}`;
 }
 
 async function nextItemNumber(db: Db): Promise<string> {
-  // upsert + increment atomically; on Postgres this is a single round-trip
   const counter = await db.counter.upsert({
     where: { key: ITEM_NUMBER_COUNTER_KEY },
     update: { value: { increment: 1 } },
-    create: { key: ITEM_NUMBER_COUNTER_KEY, value: 1 },
+    create: { key: ITEM_NUMBER_COUNTER_KEY, value: 700 },
   });
   const candidate = encodeItemNumber(counter.value);
-  // protect against the (rare) case where a manually-typed item number already uses this code
   const clash = await db.product.findUnique({ where: { itemNumber: candidate } });
   if (clash) return nextItemNumber(db);
   return candidate;
