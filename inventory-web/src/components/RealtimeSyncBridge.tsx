@@ -62,12 +62,17 @@ function realtimeUrl(token: string) {
   return `${base}/realtime/events?token=${encodeURIComponent(token)}`
 }
 
+const MIN_RECONNECT_MS = 3_000
+const MAX_RECONNECT_MS = 30_000
+
 export function RealtimeSyncBridge() {
   const queryClient = useQueryClient()
   const eventSourceRef = useRef<EventSource | null>(null)
   const tokenRef = useRef<string | null>(null)
   const invalidationTimer = useRef<number | null>(null)
   const pendingResources = useRef<Set<RealtimeResource>>(new Set())
+  const reconnectBackoff = useRef<number>(MIN_RECONNECT_MS)
+  const nextRetryAt = useRef<number>(0)
 
   useEffect(() => {
     function invalidate(resource: RealtimeResource) {
@@ -109,6 +114,8 @@ export function RealtimeSyncBridge() {
         return
       }
       if (tokenRef.current === token && eventSourceRef.current) return
+      // Respect exponential backoff after a failed connection
+      if (Date.now() < nextRetryAt.current) return
 
       tokenRef.current = token
       closeCurrent()
@@ -116,13 +123,12 @@ export function RealtimeSyncBridge() {
       const source = new EventSource(realtimeUrl(token))
       eventSourceRef.current = source
 
-      source.addEventListener("connected", (event) => {
-        try {
-          const payload = JSON.parse((event as MessageEvent).data) as RealtimeEvent
-          invalidate(payload.resource)
-        } catch {
-          invalidate("all")
-        }
+      // "connected" is just a handshake — do NOT invalidate here.
+      // The page already loaded fresh data; invalidating "all" on every
+      // (re)connect caused a refetch storm + flicker when the SSE connection
+      // dropped and reconnected repeatedly under server load.
+      source.addEventListener("connected", () => {
+        reconnectBackoff.current = MIN_RECONNECT_MS
       })
 
       source.addEventListener("changed", (event) => {
@@ -137,6 +143,9 @@ export function RealtimeSyncBridge() {
       source.onerror = () => {
         source.close()
         if (eventSourceRef.current === source) eventSourceRef.current = null
+        // Back off so a struggling server isn't hammered every 2s
+        nextRetryAt.current = Date.now() + reconnectBackoff.current
+        reconnectBackoff.current = Math.min(reconnectBackoff.current * 2, MAX_RECONNECT_MS)
       }
     }
 
