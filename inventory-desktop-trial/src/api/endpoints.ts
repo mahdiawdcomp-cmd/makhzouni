@@ -369,6 +369,11 @@ export async function getCustomerTransactions(id: string, params?: { from?: stri
   return data.data?.transactions ?? []
 }
 
+export async function recalculateCustomerBalance(id: string) {
+  const { data } = await api.post<ApiEnvelope<Customer>>(`/customers/${id}/recalculate-balance`)
+  return data.data
+}
+
 export async function getLastCustomerTransaction(id: string) {
   const { data } = await api.get<ApiEnvelope<LastTransaction>>(`/customers/${id}/last-transaction`)
   return data.data
@@ -849,6 +854,18 @@ export async function markOrderPrepared(id: string, opts?: { warehouseId?: strin
   return data
 }
 
+// Link an already-created invoice to a preparation and mark it prepared (manual flow)
+export async function completeOrderPreparation(id: string, invoiceId: string) {
+  const { data } = await api.post<ApiEnvelope<{ invoiceId?: string }>>(`/order-preparations/${id}/complete`, { invoiceId })
+  return data
+}
+
+// Cancel a pending preparation (rejected / not prepared)
+export async function cancelOrderPreparation(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(`/order-preparations/${id}/cancel`, {})
+  return data
+}
+
 // ── Profit Report ─────────────────────────────────────────────────────────────
 export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
   const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })
@@ -1207,7 +1224,7 @@ export async function submitPublicRetailOrder(payload: {
   isSubscriber?: boolean
   interests?: string[]
   wishNote?: string
-  items: Array<{ retailItemId: string; quantity: number }>
+  items: Array<{ retailItemId: string; quantity: number; warehouseId?: string }>
 }) {
   const { data } = await publicApi.post<ApiEnvelope<RetailOrderResult>>("/public/retail/orders", payload)
   return data.data!
