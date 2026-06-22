@@ -33,7 +33,7 @@ function OrderCard({ order }: { order: OrderPreparation }) {
 
   const handleCreateInvoice = () => {
     // Pass order data via navigation state
-    navigate("/invoices/create", {
+    navigate("/invoices/new", {
       state: {
         fromOrderPreparationId: order.id,
         prefilledCustomerId: order.customerId,
