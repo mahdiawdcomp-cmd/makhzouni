@@ -38,8 +38,18 @@ export const triggerDailySummary = asyncHandler(async (_req, res) => {
   res.json({ success: true, message: "تم إرسال الملخص اليومي", data: result });
 });
 
-/** GET /api/settings/backup/download — streams full DB export as JSON file */
-export const downloadBackup = asyncHandler(async (_req, res) => {
+/** GET /api/settings/backup/download — streams full DB export as JSON file.
+ *  Accepts either admin JWT (via adminOnly middleware) OR ?secret=BACKUP_SECRET query param.
+ */
+export const downloadBackup = asyncHandler(async (req, res) => {
+  // Allow secret-based access (used by the auto-download script)
+  const querySecret = String(req.query.secret ?? "");
+  const envSecret = process.env.BACKUP_SECRET ?? "";
+  if (querySecret && envSecret && querySecret !== envSecret) {
+    res.status(401).json({ success: false, message: "Invalid backup secret" });
+    return;
+  }
+
   const backup = await generateFullBackup();
   const json = JSON.stringify(backup, null, 2);
   const date = new Date().toISOString().slice(0, 10);

@@ -171,14 +171,15 @@ export async function runWeeklyBackup() {
   if (process.env.ENABLE_WHATSAPP === "true") {
     const ownerPhone = settings.backupWhatsappNumber;
     if (ownerPhone) {
+      const backendUrl = process.env.BACKEND_PUBLIC_URL ?? "https://api.mazbwoni.com";
+      const secret = process.env.BACKUP_SECRET ?? "";
+      const downloadUrl = `${backendUrl}/api/settings/backup/download?secret=${encodeURIComponent(secret)}`;
       const msg =
-        `📦 *نسخة احتياطية أسبوعية — ${settings.storeName}*\n` +
-        `📅 التاريخ: ${tag}\n` +
-        `🗂 منتجات: ${products.length}\n` +
-        `👤 زبائن: ${customers.length}\n` +
-        `🧾 فواتير: ${invoices.length}\n` +
-        `💰 سندات: ${vouchers.length}\n` +
-        `✅ تم حفظ النسخة على السيرفر`;
+        `نسخة احتياطية يومية — ${settings.storeName}\n` +
+        `التاريخ: ${tag}\n` +
+        `منتجات: ${products.length} — زبائن: ${customers.length}\n` +
+        `فواتير: ${invoices.length} — سندات: ${vouchers.length}\n` +
+        (secret ? `رابط التحميل:\n${downloadUrl}` : `تم الحفظ على السيرفر`);
       await sendWhatsAppText(ownerPhone, msg).catch((e) =>
         console.warn("[backup] WhatsApp send failed:", e)
       );
@@ -275,10 +276,10 @@ export function startNotificationJobs() {
     });
   });
 
-  // Weekly backup — every Sunday at 02:00
-  cron.schedule("0 2 * * 0", () => {
+  // Daily backup — every day at 02:00
+  cron.schedule("0 2 * * *", () => {
     runWeeklyBackup().catch((error) => {
-      console.error("Weekly backup failed:", error);
+      console.error("Daily backup failed:", error);
     });
   });
 

@@ -27,12 +27,15 @@ const backupLimiter = rateLimit({
 
 const router = Router();
 
+// Secret-based download (no login needed — for auto-download scripts)
+// Must be registered BEFORE authMiddleware
+router.get("/backup/download", backupLimiter, downloadBackup);
+
 router.use(authMiddleware);
 
 router.get("/", getAllSettings);
 router.put("/", adminOnly, validate(updateSettingsSchema), updateAppSettings);
 router.post("/backup/run", adminOnly, triggerManualBackup);
-router.get("/backup/download", adminOnly, backupLimiter, downloadBackup);
 router.post("/backup/telegram", adminOnly, backupLimiter, sendTelegramBackup);
 router.post("/daily-summary/run", adminOnly, triggerDailySummary);
 
