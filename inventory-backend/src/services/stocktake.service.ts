@@ -312,7 +312,7 @@ export async function setItemQty(
   productId: string,
   qty: number,
   unit: "CARTON" | "PIECE",
-  pcsPerCarton: number,
+  _pcsPerCarton: number, // Ignored — read from database instead
 ) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { publicToken: token },
@@ -323,11 +323,13 @@ export async function setItemQty(
 
   const item = await prisma.stocktakeItem.findFirst({
     where: { sessionId: session.id, productId },
+    include: { product: { select: { pcsPerCarton: true } } },
   });
   if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
 
-  // Convert pieces to cartons (round up to nearest carton)
-  const qtyInPieces = unit === "CARTON" ? qty * Math.max(1, pcsPerCarton) : qty;
+  // Convert cartons to pieces using the ACTUAL pcsPerCarton from the database
+  const actualPcsPerCarton = Math.max(1, item.product.pcsPerCarton);
+  const qtyInPieces = unit === "CARTON" ? qty * actualPcsPerCarton : qty;
 
   await prisma.stocktakeItem.update({
     where: { id: item.id },
@@ -374,24 +376,23 @@ export async function approveStocktakeItem(
   itemId: string,
   approvingUserId: string,
 ) {
-  const item = await prisma.stocktakeItem.findUnique({
-    where: { id: itemId },
-    include: {
-      session: { select: { status: true, branchId: true } },
-      product: { select: { id: true, pcsPerCarton: true } },
-    },
-  });
-
-  if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
-  if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
-  if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
-  if (item.actualQty === null) throw new AppError("لم يتم إدخال الكمية الفعلية", 400, "NO_ACTUAL_QTY");
-  if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
-
-  if (!item.session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
-
   return prisma.$transaction(async (tx) => {
+    // Lock the item row for update and re-check approvalStatus (race-safe)
+    const item = await tx.stocktakeItem.findUnique({
+      where: { id: itemId },
+      include: {
+        session: { select: { status: true, branchId: true } },
+        product: { select: { id: true } },
+      },
+    });
+
+    if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
+    if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
+    if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
     if (item.actualQty === null) throw new AppError("لم يتم إدخال الكمية الفعلية", 400, "NO_ACTUAL_QTY");
+    if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
+
+    if (!item.session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
 
     const delta = item.actualQty - (item.systemQty ?? 0);
 
@@ -401,27 +402,17 @@ export async function approveStocktakeItem(
       data: { quantityPieces: { increment: delta } },
     });
 
-    // Sync total product stock
-    const newTotal = await tx.productWarehouseStock.aggregate({
-      where: { productId: item.productId },
-      _sum: { quantityPieces: true },
-    });
+    // Sync total product stock to canonical warehouse representation (don't touch legacy fields)
+    // This ensures the next approval doesn't double-count. Rely on warehouse stock table only.
+    // (Do not write to openingBalancePcs or cartonsAvailable — they are legacy)
 
-    if (newTotal._sum.quantityPieces !== null) {
-      await tx.product.update({
-        where: { id: item.productId },
-        data: { openingBalancePcs: newTotal._sum.quantityPieces },
-      });
-    }
-
-    // Mark item as approved
-    await tx.stocktakeItem.update({
-      where: { id: itemId },
-      data: {
-        approvalStatus: "APPROVED",
-        approvedQty: item.actualQty,
-      },
+    // Mark item approved — condition on PENDING closes the race window atomically
+    const updated = await tx.stocktakeItem.updateMany({
+      where: { id: itemId, approvalStatus: "PENDING" },
+      data: { approvalStatus: "APPROVED", approvedQty: item.actualQty },
     });
+    if (updated.count === 0)
+      throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
 
     return { success: true, delta, newQty: item.actualQty };
   });
@@ -430,20 +421,23 @@ export async function approveStocktakeItem(
 // ─── Admin: Reject stocktake item (keep system qty) ───────────────────────────
 
 export async function rejectStocktakeItem(sessionId: string, itemId: string) {
-  const item = await prisma.stocktakeItem.findUnique({
-    where: { id: itemId },
-    include: { session: { select: { status: true } } },
+  return prisma.$transaction(async (tx) => {
+    // Lock the item and re-check approvalStatus (race-safe)
+    const item = await tx.stocktakeItem.findUnique({
+      where: { id: itemId },
+      include: { session: { select: { status: true } } },
+    });
+
+    if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
+    if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
+    if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+    if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_PROCESSED");
+
+    await tx.stocktakeItem.update({
+      where: { id: itemId },
+      data: { approvalStatus: "REJECTED" },
+    });
+
+    return { success: true };
   });
-
-  if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
-  if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
-  if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
-  if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_PROCESSED");
-
-  await prisma.stocktakeItem.update({
-    where: { id: itemId },
-    data: { approvalStatus: "REJECTED" },
-  });
-
-  return { success: true };
 }
