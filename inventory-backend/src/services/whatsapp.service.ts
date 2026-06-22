@@ -348,6 +348,14 @@ export function initializeWhatsApp() {
     return;
   }
 
+  if (provider() === "greenapi") {
+    state = "READY";
+    initialized = true;
+    lastError = null;
+    logger.info("[WhatsApp] Green API provider ready");
+    return;
+  }
+
   if (initialized) return;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
