@@ -83,7 +83,12 @@ function greenApiConfig() {
   const instanceId = process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId;
   const token = process.env.GREENAPI_TOKEN?.trim() || _greenApiToken;
   if (!instanceId || !token) throw new AppError("Green API is not configured", 503, "GREENAPI_NOT_CONFIGURED");
-  return { instanceId, token, baseUrl: `https://api.green-api.com/waInstance${instanceId}` };
+  // Support custom base URL (e.g. https://7107.api.greenapi.com) or fall back to default
+  const customBase = process.env.GREENAPI_BASE_URL?.trim();
+  const baseUrl = customBase
+    ? `${customBase}/waInstance${instanceId}`
+    : `https://api.green-api.com/waInstance${instanceId}`;
+  return { instanceId, token, baseUrl };
 }
 
 function normalizeGreenPhone(phone: string) {
