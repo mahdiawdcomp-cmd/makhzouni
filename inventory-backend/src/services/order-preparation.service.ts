@@ -6,6 +6,7 @@ import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppPdf, sendWhatsAppText } from "./whatsapp.service";
 import { createInvoice } from "./invoice.service";
+import { resolveWarehouseId } from "./warehouse-stock.service";
 
 type PreparationItem = {
   productId: string;
@@ -158,10 +159,74 @@ export async function listPendingPreparations() {
   });
 }
 
+// Split order items across warehouses if quantity insufficient in primary warehouse
+async function splitOrderItemsAcrossWarehouses(
+  items: Array<{ productId: string; unit: string; quantity: number; unitPrice?: number; warehouseId?: string }>,
+  primaryWarehouseId?: string,
+): Promise<typeof items> {
+  if (!primaryWarehouseId || items.length === 0) return items;
+
+  // Get all warehouses and their stock levels
+  const warehouses = await prisma.branch.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+  });
+
+  const splitItems = [];
+
+  for (const item of items) {
+    // Get stock in primary warehouse
+    const primaryStock = await prisma.productWarehouseStock.findUnique({
+      where: { productId_warehouseId: { productId: item.productId, warehouseId: primaryWarehouseId } },
+      select: { quantityPieces: true },
+    });
+
+    const available = primaryStock?.quantityPieces ?? 0;
+
+    if (available >= item.quantity) {
+      // All quantity available in primary warehouse
+      splitItems.push({ ...item, warehouseId: primaryWarehouseId });
+    } else {
+      // Split across warehouses
+      let remaining = item.quantity;
+
+      // First, take from primary warehouse
+      if (available > 0) {
+        splitItems.push({ ...item, quantity: available, warehouseId: primaryWarehouseId });
+        remaining -= available;
+      }
+
+      // Then, take from other warehouses
+      for (const warehouse of warehouses.filter((w) => w.id !== primaryWarehouseId)) {
+        if (remaining <= 0) break;
+
+        const stock = await prisma.productWarehouseStock.findUnique({
+          where: { productId_warehouseId: { productId: item.productId, warehouseId: warehouse.id } },
+          select: { quantityPieces: true },
+        });
+
+        const warehouseQty = Math.min(stock?.quantityPieces ?? 0, remaining);
+        if (warehouseQty > 0) {
+          splitItems.push({ ...item, quantity: warehouseQty, warehouseId: warehouse.id });
+          remaining -= warehouseQty;
+        }
+      }
+
+      // If still not enough, add remaining (will be negative stock)
+      if (remaining > 0) {
+        splitItems.push({ ...item, quantity: remaining, warehouseId: primaryWarehouseId });
+      }
+    }
+  }
+
+  return splitItems;
+}
+
 type OrderData = {
   customerName: string;
   phone: string;
   address?: string;
+  warehouseId?: string;
   items: Array<{ productId: string; unit: string; quantity: number; unitPrice?: number; warehouseId?: string }>;
   discount?: number;
   tax?: number;
@@ -205,12 +270,32 @@ export async function markPrepared(
       });
     }
 
-    const items = (od.items ?? []).map((it) => ({
+    let items = (od.items ?? []).map((it) => ({
       productId: it.productId,
       unit: it.unit as import("@prisma/client").Unit,
       quantity: it.quantity,
       unitPrice: it.unitPrice,
-      warehouseId: it.warehouseId ?? opts?.warehouseId,
+      warehouseId: it.warehouseId ?? opts?.warehouseId ?? od.warehouseId,
+    }));
+
+    // Split across warehouses if quantity insufficient
+    const splitResult = await splitOrderItemsAcrossWarehouses(
+      items.map((it) => ({
+        productId: it.productId,
+        unit: it.unit as string,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        warehouseId: it.warehouseId,
+      })),
+      od.warehouseId ?? opts?.warehouseId,
+    );
+
+    items = splitResult.map((it) => ({
+      productId: it.productId,
+      unit: it.unit as import("@prisma/client").Unit,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      warehouseId: it.warehouseId,
     }));
 
     const invoice = await createInvoice(

@@ -30,6 +30,7 @@ type SubmitRetailOrderInput = {
   notes?: string;
   couponCode?: string;
   referralCode?: string;
+  warehouseId?: string;
   items: RetailOrderItemInput[];
   isSubscriber?: boolean;
   interests?: string[];
@@ -567,6 +568,7 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
       address: input.address?.trim() || null,
       notes: input.notes?.trim() || null,
       items: orderItems as unknown as object,
+      warehouseId: input.warehouseId || null,
       subtotal,
       discount,
       referralDiscount,

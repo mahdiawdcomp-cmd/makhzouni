@@ -249,6 +249,7 @@ async function executeApprovedRequest(
         phone?: string;
         address?: string;
         notes?: string;
+        warehouseId?: string;
         items?: Parameters<typeof createInvoice>[0]["items"];
       };
       const phone = String(body.phone ?? "").trim();
@@ -288,6 +289,7 @@ async function executeApprovedRequest(
             customerName,
             phone,
             address: body.address,
+            warehouseId: body.warehouseId,
             items: body.items,
             discount: 0,
             tax: 0,

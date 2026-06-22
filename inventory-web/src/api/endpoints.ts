@@ -1202,6 +1202,7 @@ export async function submitPublicRetailOrder(payload: {
   notes?: string
   couponCode?: string
   referralCode?: string
+  warehouseId?: string
   isSubscriber?: boolean
   interests?: string[]
   wishNote?: string
