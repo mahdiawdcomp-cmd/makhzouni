@@ -656,11 +656,13 @@ model TransferItem {
 
 model OrderPreparation {
   id            String    @id @default(uuid()) @db.Uuid
-  invoiceId     String    @unique @map("invoice_id") @db.Uuid
-  invoice       Invoice   @relation(fields: [invoiceId], references: [id])
+  invoiceId     String?   @unique @map("invoice_id") @db.Uuid
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
   customerName  String    @map("customer_name")
   customerPhone String    @map("customer_phone")
   items         Json
+  orderData     Json?     @map("order_data")
+  notes         String?
   status        String    @default("PENDING")
   preparedAt    DateTime? @map("prepared_at")
   preparedById  String?   @map("prepared_by_id") @db.Uuid

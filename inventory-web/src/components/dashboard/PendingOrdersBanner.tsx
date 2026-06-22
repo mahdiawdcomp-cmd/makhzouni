@@ -8,8 +8,9 @@ import {
   ClipboardList,
   Package,
   Phone,
+  Save,
 } from "lucide-react"
-import { getOrderPreparations, markOrderPrepared } from "../../api/endpoints"
+import { getOrderPreparations, markOrderPrepared, getBranches } from "../../api/endpoints"
 import type { OrderPreparation } from "../../types/api"
 import { cn } from "../../utils/cn"
 
@@ -26,10 +27,14 @@ function money(v: number | undefined) {
 function OrderCard({ order }: { order: OrderPreparation }) {
   const [expanded, setExpanded] = useState(false)
   const [done, setDone] = useState(false)
+  const [warehouseId, setWarehouseId] = useState("")
+  const [notes, setNotes] = useState("")
   const qc = useQueryClient()
+  const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
+  const branches = branchesQuery.data ?? []
 
   const mutation = useMutation({
-    mutationFn: () => markOrderPrepared(order.id),
+    mutationFn: () => markOrderPrepared(order.id, { warehouseId: warehouseId || undefined, notes: notes || undefined }),
     onSuccess: () => {
       setDone(true)
       setTimeout(() => {
@@ -87,20 +92,21 @@ function OrderCard({ order }: { order: OrderPreparation }) {
                 ? "bg-emerald-400 cursor-wait"
                 : "bg-emerald-600 hover:bg-emerald-700 active:scale-95",
             )}
+            title={expanded ? "سيتم حفظ الملاحظات والمخزن" : "اضغط السهم لإضافة ملاحظات"}
           >
             {mutation.isPending ? (
               <>جاري...</>
             ) : (
               <>
-                <Check className="h-4 w-4" />
-                تم التجهيز
+                {expanded ? <Save className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+                {expanded ? "حفظ التجهيز" : "تم التجهيز"}
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Items list */}
+      {/* Items list + warehouse/notes selection */}
       {expanded && (
         <div className="divide-y border-t bg-white">
           {order.items.map((item, idx) => (
@@ -122,6 +128,34 @@ function OrderCard({ order }: { order: OrderPreparation }) {
           <div className="flex justify-between items-center px-4 py-2.5 bg-slate-50 text-sm font-semibold">
             <span>المجموع</span>
             <span>{money(order.totalAmount)} د.ع</span>
+          </div>
+          {/* Warehouse + Notes selection */}
+          <div className="space-y-3 px-4 py-3 bg-blue-50/50">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">المخزن</label>
+              <select
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
+                className="w-full h-8 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-600 dark:bg-slate-950"
+              >
+                <option value="">المخزن الرئيسي</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">ملاحظات</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="مثال: الطلب تم تجهيزه كاملاً"
+                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-950 resize-none"
+                rows={2}
+              />
+            </div>
           </div>
         </div>
       )}

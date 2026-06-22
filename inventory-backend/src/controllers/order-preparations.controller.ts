@@ -10,6 +10,7 @@ export const getPendingPreparations = asyncHandler(async (_req, res) => {
 export const markOrderPrepared = asyncHandler(async (req, res) => {
   if (!req.user) throw new AppError("Authentication required", 401, "AUTH_REQUIRED");
   const id = String(req.params.id);
-  await markPrepared(id, req.user.id);
-  res.json({ success: true, message: "Order marked as prepared and customer notified" });
+  const { warehouseId, notes } = req.body as { warehouseId?: string; notes?: string };
+  const result = await markPrepared(id, req.user.id, { warehouseId, notes });
+  res.json({ success: true, message: "Order marked as prepared and customer notified", ...result });
 });

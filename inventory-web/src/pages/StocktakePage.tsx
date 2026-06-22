@@ -6,6 +6,7 @@ import {
   createStocktakeSession,
   getStocktakeSession,
   listStocktakeSessions,
+  getBranches,
 } from "../api/endpoints"
 import type { StocktakeSessionDetail, StocktakeSessionSummary } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -36,7 +37,7 @@ export function StocktakePage() {
   })
 
   const createMut = useMutation({
-    mutationFn: (p: { notes?: string }) => createStocktakeSession(p),
+    mutationFn: (p: { notes?: string; branchId?: string }) => createStocktakeSession(p),
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
       setSelectedId(d.id)
@@ -78,7 +79,7 @@ export function StocktakePage() {
       {showNew && (
         <NewSessionCard
           onCancel={() => setShowNew(false)}
-          onCreate={(notes) => createMut.mutate({ notes })}
+          onCreate={(notes, branchId) => createMut.mutate({ notes, branchId })}
           loading={createMut.isPending}
         />
       )}
@@ -117,21 +118,40 @@ function NewSessionCard({
   loading,
 }: {
   onCancel: () => void
-  onCreate: (notes?: string) => void
+  onCreate: (notes?: string, branchId?: string) => void
   loading: boolean
 }) {
   const [notes, setNotes] = useState("")
+  const [branchId, setBranchId] = useState("")
+  const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
+  const branches = branchesQuery.data ?? []
+
   return (
     <Card className="border-blue-200 dark:border-blue-800">
       <CardContent className="p-4 space-y-3">
         <p className="font-medium">جلسة جرد جديدة</p>
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-slate-700">المخزن</label>
+          <select
+            value={branchId}
+            onChange={(e) => setBranchId(e.target.value)}
+            className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
+          >
+            <option value="">المخزن الرئيسي</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
         <Input
           placeholder="اسم الجرد أو ملاحظة (اختياري) — مثال: جرد شهر يونيو"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
         <div className="flex gap-2">
-          <Button onClick={() => onCreate(notes || undefined)} disabled={loading}>
+          <Button onClick={() => onCreate(notes || undefined, branchId || undefined)} disabled={loading}>
             {loading ? "جاري الإنشاء..." : "إنشاء الجلسة"}
           </Button>
           <Button variant="outline" onClick={onCancel}>إلغاء</Button>

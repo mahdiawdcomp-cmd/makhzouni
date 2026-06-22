@@ -5,6 +5,7 @@ import { logger } from "../utils/logger";
 import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppPdf, sendWhatsAppText } from "./whatsapp.service";
+import { createInvoice } from "./invoice.service";
 
 type PreparationItem = {
   productId: string;
@@ -112,17 +113,19 @@ async function safeSendInvoicePdf(phone: string, message: string, invoiceId: str
 }
 
 export async function createOrderPreparation(
-  invoiceId: string,
+  invoiceId: string | null,
   customerName: string,
   customerPhone: string,
   items: PreparationItem[],
+  orderData?: Prisma.InputJsonValue,
 ) {
   return prisma.orderPreparation.create({
     data: {
-      invoiceId,
+      ...(invoiceId ? { invoiceId } : {}),
       customerName,
       customerPhone,
       items: items as unknown as Prisma.InputJsonValue,
+      ...(orderData ? { orderData } : {}),
     },
   });
 }
@@ -132,38 +135,102 @@ export async function listPendingPreparations() {
     where: { status: "PENDING" },
     include: {
       invoice: {
-        select: {
-          invoiceNumber: true,
-          totalAmount: true,
-          date: true,
-        },
+        select: { invoiceNumber: true, totalAmount: true, date: true },
       },
     },
     orderBy: { createdAt: "asc" },
   });
 
-  return rows.map((row) => ({
-    id: row.id,
-    invoiceId: row.invoiceId,
-    invoiceNumber: row.invoice.invoiceNumber,
-    totalAmount: Number(row.invoice.totalAmount),
-    customerName: row.customerName,
-    customerPhone: row.customerPhone,
-    items: row.items as PreparationItem[],
-    createdAt: row.createdAt.toISOString(),
-  }));
+  return rows.map((row) => {
+    const od = row.orderData as { items?: PreparationItem[] } | null;
+    const subtotal = od?.items?.reduce((s, it) => s + (it.quantity * (it.unitPrice ?? 0)), 0) ?? 0;
+    return {
+      id: row.id,
+      invoiceId: row.invoiceId ?? null,
+      invoiceNumber: row.invoice?.invoiceNumber ?? null,
+      totalAmount: row.invoice ? Number(row.invoice.totalAmount) : subtotal,
+      customerName: row.customerName,
+      customerPhone: row.customerPhone,
+      items: row.items as PreparationItem[],
+      notes: row.notes ?? null,
+      createdAt: row.createdAt.toISOString(),
+    };
+  });
 }
 
-export async function markPrepared(preparationId: string, userId: string) {
+type OrderData = {
+  customerName: string;
+  phone: string;
+  address?: string;
+  items: Array<{ productId: string; unit: string; quantity: number; unitPrice?: number; warehouseId?: string }>;
+  discount?: number;
+  tax?: number;
+  paidAmount?: number;
+  paymentType?: string;
+};
+
+export async function markPrepared(
+  preparationId: string,
+  userId: string,
+  opts?: { warehouseId?: string; notes?: string },
+) {
   const prep = await prisma.orderPreparation.findUnique({
     where: { id: preparationId },
-    include: {
-      invoice: { select: { invoiceNumber: true, totalAmount: true } },
-    },
+    include: { invoice: { select: { invoiceNumber: true, totalAmount: true } } },
   });
 
   if (!prep) throw new AppError("Preparation not found", 404, "PREP_NOT_FOUND");
   if (prep.status === "PREPARED") throw new AppError("Already marked as prepared", 400, "ALREADY_PREPARED");
+
+  let invoiceId = prep.invoiceId;
+  let invoiceNumber = prep.invoice?.invoiceNumber ?? "";
+  let totalAmount = Number(prep.invoice?.totalAmount ?? 0);
+
+  // If invoice not yet created (new flow), create it now
+  if (!invoiceId && prep.orderData) {
+    const od = prep.orderData as unknown as OrderData;
+    const phone = od.phone ?? prep.customerPhone;
+
+    // Find or create customer by phone
+    let customer = await prisma.customer.findUnique({ where: { phone } });
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: {
+          name: od.customerName ?? prep.customerName,
+          phone,
+          address: od.address,
+          openingBalance: 0,
+          currentBalance: 0,
+        },
+      });
+    }
+
+    const items = (od.items ?? []).map((it) => ({
+      productId: it.productId,
+      unit: it.unit as import("@prisma/client").Unit,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      warehouseId: it.warehouseId ?? opts?.warehouseId,
+    }));
+
+    const invoice = await createInvoice(
+      {
+        customerId: customer.id,
+        type: "SALE",
+        discount: od.discount ?? 0,
+        tax: od.tax ?? 0,
+        paidAmount: od.paidAmount ?? 0,
+        paymentType: (od.paymentType as import("@prisma/client").PaymentType) ?? "CREDIT",
+        notes: opts?.notes,
+        items,
+      },
+      userId,
+    );
+
+    invoiceId = invoice.id;
+    invoiceNumber = invoice.invoiceNumber;
+    totalAmount = Number(invoice.totalAmount);
+  }
 
   await prisma.orderPreparation.update({
     where: { id: preparationId },
@@ -171,13 +238,29 @@ export async function markPrepared(preparationId: string, userId: string) {
       status: "PREPARED",
       preparedAt: new Date(),
       preparedById: userId,
+      ...(invoiceId && !prep.invoiceId ? { invoiceId } : {}),
+      ...(opts?.notes ? { notes: opts.notes } : {}),
     },
   });
 
-  // Text only — customer already received the PDF when the order was approved
-  await safeSendWA(prep.customerPhone, "طلبك تجهز وكامل وهو بطريقه اليك 🎉");
+  const settings = await getSettings().catch(() => null);
+  const currency = settings?.currency ?? "IQD";
+  const customerMsg = [
+    `مرحبا ${prep.customerName}`,
+    "",
+    "تم تجهيز طلبك وهو في طريقه إليك.",
+    "",
+    invoiceNumber ? `رقم الفاتورة: ${invoiceNumber}` : "",
+    `المجموع: ${money(totalAmount)} ${currency}`,
+  ].filter(Boolean).join("\n");
 
-  return prep;
+  if (invoiceId && invoiceNumber) {
+    await safeSendInvoicePdf(prep.customerPhone, customerMsg, invoiceId, invoiceNumber);
+  } else {
+    await safeSendWA(prep.customerPhone, customerMsg);
+  }
+
+  return { invoiceId, invoiceNumber, totalAmount };
 }
 
 export async function notifyCatalogAccessRequested(
@@ -274,6 +357,27 @@ export async function notifyCatalogOrderApproved(
 
   // Send the invoice PDF to the customer
   await safeSendInvoicePdf(customerPhone, message, invoiceId, invoiceNumber);
+}
+
+export async function notifyPreparationStaffPending(
+  customerName: string,
+  customerPhone: string,
+  items: PreparationItem[],
+) {
+  const settings = await getSettings().catch(() => null);
+  const phones = preparationPhones(settings);
+  if (phones.length === 0) return;
+
+  const msg = [
+    `مرحبا، طلب جديد من ${customerName} (${customerPhone})`,
+    "",
+    `عدد الأصناف: ${items.length}`,
+    itemLines(items),
+    "",
+    "يرجى تجهيزه من الصفحة الرئيسية.",
+  ].join("\n");
+
+  await Promise.all(phones.map((phone) => safeSendWA(phone, msg)));
 }
 
 export async function notifyPreparationStaff(

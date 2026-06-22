@@ -3,7 +3,7 @@ import { usePageTitle } from "../hooks/usePageTitle"
 import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { getBranches, importProductsExcel, getImportTemplateUrl, getCatalogCategories } from "../api/endpoints"
+import { getBranches, getCatalogCategories } from "../api/endpoints"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Upload } from "lucide-react"
+import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -74,6 +74,7 @@ async function compressProductImage(file: File): Promise<string> {
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
   return canvas.toDataURL("image/jpeg", 0.82)
 }
+
 
 function ProductThumb({ product, className = "" }: { product: Pick<Product, "name" | "imageUrl" | "itemNumber">; className?: string }) {
   if (product.imageUrl) {
@@ -307,6 +308,15 @@ function moneyForExport(value: number | string | undefined | null) {
 export function ProductsPage() {
   usePageTitle("المخزن")
   const navigate = useNavigate()
+
+  // Handle Esc key for lightbox
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxImage(null)
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [])
   const [searchParams, setSearchParams] = useSearchParams()
   const { productsQuery, createMutation, updateMutation, deleteMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
@@ -331,6 +341,7 @@ export function ProductsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null)
   const products = productsQuery.data ?? []
   const categories = Array.from(new Set(products.map((item) => item.category).filter(Boolean) as string[]))
 
@@ -567,32 +578,6 @@ export function ProductsPage() {
               <FileText className="h-4 w-4" /> الجرد الدوري
             </Link>
           </Button>
-          <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-800">
-            <Upload className="h-4 w-4" />
-            استيراد Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={async (e) => {
-                const file = e.target.files?.[0]
-                if (!file) return
-                try {
-                  const res = await importProductsExcel(file)
-                  alert(`✓ تم استيراد ${res.created} منتج. تم تخطي ${res.skipped}.${res.errors.length ? `\nأخطاء:\n${res.errors.slice(0,5).join("\n")}` : ""}`)
-                  e.target.value = ""
-                } catch { alert("✗ فشل الاستيراد") }
-              }}
-            />
-          </label>
-          <a
-            href={getImportTemplateUrl()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-800"
-          >
-            <Download className="h-4 w-4" /> قالب Excel
-          </a>
           <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
             <FolderTree className="h-4 w-4" /> {showCategories ? "إخفاء الفئات" : "إدارة الفئات"}
           </Button>
@@ -736,7 +721,18 @@ export function ProductsPage() {
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-gray-500 text-xs">{idx2 + 1}</td>
                       <td className="py-2 px-3 border-l border-gray-200">
                         <div className="flex items-center gap-3">
-                          <ProductThumb product={p} />
+                          {p.imageUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setLightboxImage({ url: p.imageUrl!, title: p.name })}
+                              className="cursor-zoom-in hover:opacity-80 transition"
+                              title="اضغط للتكبير"
+                            >
+                              <ProductThumb product={p} />
+                            </button>
+                          ) : (
+                            <ProductThumb product={p} />
+                          )}
                           <div>
                             <p className={`font-bold text-gray-900 ${isOut ? "line-through text-gray-400" : ""}`}>{p.name}</p>
                             <p className="text-xs text-gray-500 font-mono">{p.itemNumber}</p>
@@ -1183,6 +1179,31 @@ export function ProductsPage() {
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {/* Lightbox for product images */}
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div className="relative max-h-[90vh] max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setLightboxImage(null)}
+              className="absolute -top-10 right-0 p-2 text-white hover:bg-white/20 rounded-lg transition"
+              title="إغلاق (Esc)"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <div className="bg-white rounded-lg overflow-hidden shadow-2xl">
+              <img src={lightboxImage.url} alt={lightboxImage.title} className="w-full h-auto object-contain max-h-[80vh]" />
+              <div className="bg-slate-900 px-4 py-3 text-white text-sm font-medium text-center">
+                {lightboxImage.title}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

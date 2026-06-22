@@ -754,11 +754,12 @@ export interface BranchPayload {
 
 export interface OrderPreparation {
   id: string
-  invoiceId: string
-  invoiceNumber: string
+  invoiceId: string | null
+  invoiceNumber: string | null
   totalAmount: number
   customerName: string
   customerPhone: string
+  notes: string | null
   items: Array<{
     productId: string
     productName: string

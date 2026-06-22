@@ -843,8 +843,8 @@ export async function getOrderPreparations() {
   return data.data ?? []
 }
 
-export async function markOrderPrepared(id: string) {
-  const { data } = await api.post<ApiEnvelope<never>>(`/order-preparations/${id}/mark-prepared`)
+export async function markOrderPrepared(id: string, opts?: { warehouseId?: string; notes?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ invoiceId?: string; invoiceNumber?: string; totalAmount?: number }>>(`/order-preparations/${id}/mark-prepared`, opts ?? {})
   return data
 }
 
@@ -871,7 +871,7 @@ export async function listStocktakeSessions() {
   return data.data ?? []
 }
 
-export async function createStocktakeSession(payload: { branchId?: string; notes?: string }) {
+export async function createStocktakeSession(payload: { notes?: string; branchId?: string }) {
   const { data } = await api.post<ApiEnvelope<{ id: string }>>("/stocktake", payload)
   return data.data!
 }

@@ -25,8 +25,7 @@ import {
 import {
   createOrderPreparation,
   notifyCatalogAccessApproved,
-  notifyCatalogOrderApproved,
-  notifyPreparationStaff,
+  notifyPreparationStaffPending,
 } from "./order-preparation.service";
 import { getSettings } from "./settings.service";
 
@@ -258,42 +257,6 @@ async function executeApprovedRequest(
         throw new AppError("Catalog order is missing required data", 400, "CATALOG_ORDER_INVALID");
       }
 
-      const existingCustomer = await tx.customer.findUnique({ where: { phone } });
-      const customer = existingCustomer
-        ? await tx.customer.update({
-            where: { id: existingCustomer.id },
-            data: {
-              name: customerName,
-              address: body.address,
-              notes: body.notes,
-              deletedAt: null,
-            },
-          })
-        : await tx.customer.create({
-            data: {
-              name: customerName,
-              phone,
-              address: body.address,
-              notes: body.notes,
-              openingBalance: 0,
-              currentBalance: 0,
-            },
-          });
-
-      const invoice = await createInvoice(
-        {
-          customerId: customer.id,
-          type: "SALE",
-          discount: 0,
-          tax: 0,
-          paidAmount: 0,
-          paymentType: "CREDIT",
-          items: body.items,
-        },
-        reviewerId,
-        tx
-      );
-
       // displayItems from the approval snapshot (includes productId + productName)
       const displayItems = (data.displayItems ?? []) as Array<{
         productId: string;
@@ -304,15 +267,7 @@ async function executeApprovedRequest(
         totalPrice?: number;
       }>;
 
-      // Fallback: build from body.items if no displayItems
-      const prepItems: Array<{
-        productId: string;
-        productName?: string;
-        unit: string;
-        quantity: number;
-        unitPrice?: number;
-        totalPrice?: number;
-      }> = displayItems.length > 0
+      const prepItems = displayItems.length > 0
         ? displayItems
         : (body.items ?? []).map((it) => ({
             productId: it.productId ?? "",
@@ -323,40 +278,32 @@ async function executeApprovedRequest(
             totalPrice: undefined,
           }));
 
-      // Fire-and-forget (don't block tx)
+      // Create preparation record without invoice — invoice created when staff marks prepared
+      const prep = await tx.orderPreparation.create({
+        data: {
+          customerName,
+          customerPhone: phone,
+          items: prepItems as unknown as import("@prisma/client").Prisma.InputJsonValue,
+          orderData: {
+            customerName,
+            phone,
+            address: body.address,
+            items: body.items,
+            discount: 0,
+            tax: 0,
+            paidAmount: 0,
+            paymentType: "CREDIT",
+          } as unknown as import("@prisma/client").Prisma.InputJsonValue,
+          status: "PENDING",
+        },
+      });
+
+      // Fire-and-forget: notify preparation staff (text only, no invoice yet)
       setImmediate(async () => {
         try {
-          await createOrderPreparation(
-            invoice.id,
+          await notifyPreparationStaffPending(
             customerName,
             phone,
-            prepItems.map((item) => ({
-              productId: item.productId ?? "",
-              productName: item.productName ?? item.productId ?? "",
-              unit: item.unit,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              totalPrice: item.totalPrice,
-            })),
-          );
-
-          const settings = await getSettings().catch(() => null);
-          const currency = settings?.currency ?? "IQD";
-          await notifyCatalogOrderApproved(
-            customerName,
-            phone,
-            invoice.id,
-            invoice.invoiceNumber,
-            Number(invoice.totalAmount),
-            currency,
-          );
-          await notifyPreparationStaff(
-            customerName,
-            phone,
-            invoice.id,
-            invoice.invoiceNumber,
-            Number(invoice.totalAmount),
-            currency,
             prepItems.map((item) => ({
               productId: item.productId ?? "",
               productName: item.productName ?? item.productId ?? "",
@@ -367,11 +314,11 @@ async function executeApprovedRequest(
             })),
           );
         } catch (err) {
-          console.error("[CatalogOrder] post-approval tasks failed:", err);
+          console.error("[CatalogOrder] staff notify failed:", err);
         }
       });
 
-      return invoice;
+      return prep;
     }
     case approvalRequestTypes.UPDATE_USER:
       return updateUser(
