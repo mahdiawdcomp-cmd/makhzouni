@@ -289,14 +289,14 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   cols.push("المجموع", "الملاحظات")
   const head = `<tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</th>`).join("")}</tr>`
   const body = inv.lines.map((l, idx) => {
-    // Product name cell: item number above name, pcsPerCarton hint below
+    // Product name cell: item number inline before name, pcsPerCarton inline after (no extra line height)
     const itemNumHtml = l.itemNumber
-      ? `<div style="font-size:${fsSm}px;color:#6366f1;font-weight:700;line-height:1.2">${esc(l.itemNumber)}</div>`
+      ? `<span style="font-size:${fsSm}px;color:#6366f1;font-weight:700;margin-left:4px">${esc(l.itemNumber)}</span> `
       : ""
     const pcsHtml = l.pcsPerCarton && l.pcsPerCarton > 1
-      ? `<div style="font-size:${fsSm}px;color:#94a3b8;line-height:1.2">${l.pcsPerCarton} ق/ك</div>`
+      ? ` <span style="font-size:${fsSm}px;color:#94a3b8">(${l.pcsPerCarton} ق/ك)</span>`
       : ""
-    const nameCell = `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:${fs}px">${itemNumHtml}${esc(l.name)}${pcsHtml}</td>`
+    const nameCell = `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:right;font-size:${fs}px;white-space:nowrap">${itemNumHtml}${esc(l.name)}${pcsHtml}</td>`
 
     const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
     const cells: string[] = [
