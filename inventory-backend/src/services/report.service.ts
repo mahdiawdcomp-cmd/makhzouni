@@ -1081,6 +1081,40 @@ export async function getProfitReport(query: ProfitReportQuery) {
   const totalCost = periodData.reduce((s, p) => s + p.cost, 0);
   const totalProfit = totalRevenue - totalCost;
 
+  // Fetch losses and expenses to compute net profit
+  const [lossItems, expenseVouchers] = await Promise.all([
+    prisma.stockLossItem.findMany({
+      where: {
+        loss: {
+          cancelledAt: null,
+          ...(df ? { date: df } : {}),
+        },
+      },
+      include: {
+        product: { select: { purchasePrice: true, pcsPerCarton: true } },
+      },
+    }),
+    prisma.paymentVoucher.findMany({
+      where: {
+        type: "EXPENSE",
+        cancelledAt: null,
+        ...(df ? { date: df } : {}),
+      },
+      select: { amount: true },
+    }),
+  ]);
+
+  const lossesTotal = Math.round(
+    lossItems.reduce((s, item) => {
+      const pcs = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+      return s + pcs * toNumber(item.product.purchasePrice);
+    }, 0),
+  );
+  const expensesTotal = Math.round(
+    expenseVouchers.reduce((s, v) => s + toNumber(v.amount), 0),
+  );
+  const netProfit = Math.round(totalProfit - lossesTotal - expensesTotal);
+
   return {
     periods: periodData,
     topProducts,
@@ -1088,6 +1122,9 @@ export async function getProfitReport(query: ProfitReportQuery) {
       totalRevenue: Math.round(totalRevenue),
       totalCost: Math.round(totalCost),
       totalProfit: Math.round(totalProfit),
+      lossesTotal,
+      expensesTotal,
+      netProfit,
       avgMargin: totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0,
     },
   };

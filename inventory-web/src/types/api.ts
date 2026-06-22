@@ -135,7 +135,7 @@ export interface CatalogCategory {
 }
 
 export interface ProfitReport {
-  summary: { totalRevenue: number; totalCost: number; totalProfit: number; avgMargin: number }
+  summary: { totalRevenue: number; totalCost: number; totalProfit: number; lossesTotal: number; expensesTotal: number; netProfit: number; avgMargin: number }
   periods: Array<{ period: string; revenue: number; cost: number; profit: number; margin: number }>
   topProducts: Array<{ id: string; name: string; revenue: number; cost: number; profit: number; margin: number; qty: number }>
 }

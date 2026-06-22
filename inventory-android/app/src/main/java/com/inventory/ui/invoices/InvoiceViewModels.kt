@@ -142,7 +142,7 @@ data class InvoiceDraftItem(
     val unitPrice: Double = unitPriceFor(product, unit),
     val notes: String = ""
 ) {
-    val totalPrice: Double = quantity * unitPrice
+    val totalPrice: Double = (quantity * unitPrice).roundMoney()
     fun toInvoiceItem() = InvoiceItem(
         productId = product.id,
         productName = product.name,
