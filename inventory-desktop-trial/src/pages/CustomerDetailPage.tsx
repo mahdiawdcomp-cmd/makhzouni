@@ -6,6 +6,7 @@ import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfBu
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
+import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
@@ -151,6 +152,7 @@ export function CustomerDetailPage() {
     },
     onError: () => toast({ title: "تعذر إعادة الحساب", variant: "destructive" }),
   })
+  const isAdmin = useAuthStore((s) => s.isAdmin())
   const customer = details.customerQuery.data
   const ratingsQuery = useQuery({ queryKey: ["customer-ratings"], queryFn: getCustomerRatings, staleTime: 5 * 60_000 })
   const myRating = ratingsQuery.data?.find((r) => r.id === id)?.rating ?? null
@@ -270,11 +272,13 @@ export function CustomerDetailPage() {
         <Summary title="الرصيد النهائي" value={customer.currentBalance} danger={customer.currentBalance > 0} />
         <Summary title="إجمالي المشتريات" value={totalPurchases} />
       </div>
-      <div className="flex justify-end">
-        <Button variant="outline" size="sm" disabled={recalcMutation.isPending} onClick={() => recalcMutation.mutate()}>
-          {recalcMutation.isPending ? "جاري الحساب..." : "🔄 إعادة حساب الرصيد"}
-        </Button>
-      </div>
+      {isAdmin && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" disabled={recalcMutation.isPending} onClick={() => recalcMutation.mutate()}>
+            {recalcMutation.isPending ? "جاري الحساب..." : "إعادة حساب الرصيد"}
+          </Button>
+        </div>
+      )}
 
       {/* Last activity card — clickable */}
       <Card>
