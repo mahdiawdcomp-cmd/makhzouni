@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { Prisma } from "@prisma/client";
+import { Prisma, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { resolveWarehouseId } from "./warehouse-stock.service";
@@ -34,7 +34,7 @@ export async function createStocktakeSession(
         createdBy,
         branchId: warehouseId,
         notes,
-        status: "OPEN",
+        status: StocktakeSessionStatus.OPEN,
       },
     });
 
@@ -107,7 +107,7 @@ export async function getStocktakeSession(id: string) {
     actualQty: item.actualQty,
     variance: item.variance,
     notes: item.notes,
-    approvalStatus: item.approvalStatus ?? "PENDING",
+    approvalStatus: item.approvalStatus ?? StocktakeApprovalStatus.PENDING,
     hasError: item.variance !== null && item.variance !== 0,
   }));
 
@@ -140,11 +140,11 @@ export async function getStocktakeSession(id: string) {
 export async function closeStocktakeSession(sessionId: string) {
   const session = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
-  if (session.status === "CLOSED") throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
 
   await prisma.stocktakeSession.update({
     where: { id: sessionId },
-    data: { status: "CLOSED", closedAt: new Date() },
+    data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date() },
   });
 
   return getStocktakeSession(sessionId);
@@ -163,7 +163,7 @@ export async function updateStocktakeItem(
     select: { id: true, status: true },
   });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
-  if (session.status === "CLOSED") throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
+  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
 
   const item = await prisma.stocktakeItem.findFirst({
     where: { sessionId, productId },
@@ -188,7 +188,7 @@ export async function submitStocktakeSession(sessionId: string) {
     include: { items: true },
   });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
-  if (session.status === "CLOSED") throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
 
   await prisma.$transaction(async (tx) => {
     for (const item of session.items) {
@@ -201,7 +201,7 @@ export async function submitStocktakeSession(sessionId: string) {
     }
     await tx.stocktakeSession.update({
       where: { id: sessionId },
-      data: { status: "SUBMITTED" },
+      data: { status: StocktakeSessionStatus.SUBMITTED },
     });
   });
 
@@ -264,7 +264,7 @@ export async function scanQrCode(token: string, qrCode: string) {
     select: { id: true, status: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === "CLOSED") throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
+  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
 
   // Find product by qrCode OR cartonQrCode
   const product = await prisma.product.findFirst({
@@ -319,7 +319,7 @@ export async function setItemQty(
     select: { id: true, status: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === "CLOSED") throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
+  if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
 
   const item = await prisma.stocktakeItem.findFirst({
     where: { sessionId: session.id, productId },
@@ -347,7 +347,7 @@ export async function submitPublicStocktake(token: string) {
     include: { items: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
-  if (session.status === "CLOSED")
+  if (session.status === StocktakeSessionStatus.CLOSED)
     throw new AppError("الجلسة مغلقة بالفعل", 400, "SESSION_CLOSED");
 
   await prisma.$transaction(async (tx) => {
@@ -362,7 +362,7 @@ export async function submitPublicStocktake(token: string) {
     }
     await tx.stocktakeSession.update({
       where: { id: session.id },
-      data: { status: "SUBMITTED" },
+      data: { status: StocktakeSessionStatus.SUBMITTED },
     });
   });
 
@@ -388,9 +388,9 @@ export async function approveStocktakeItem(
 
     if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
     if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
-    if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+    if (item.session.status !== StocktakeSessionStatus.SUBMITTED) throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
     if (item.actualQty === null) throw new AppError("لم يتم إدخال الكمية الفعلية", 400, "NO_ACTUAL_QTY");
-    if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
+    if (item.approvalStatus !== StocktakeApprovalStatus.PENDING) throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
 
     if (!item.session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
 
@@ -408,8 +408,8 @@ export async function approveStocktakeItem(
 
     // Mark item approved — condition on PENDING closes the race window atomically
     const updated = await tx.stocktakeItem.updateMany({
-      where: { id: itemId, approvalStatus: "PENDING" },
-      data: { approvalStatus: "APPROVED", approvedQty: item.actualQty },
+      where: { id: itemId, approvalStatus: StocktakeApprovalStatus.PENDING },
+      data: { approvalStatus: StocktakeApprovalStatus.APPROVED, approvedQty: item.actualQty },
     });
     if (updated.count === 0)
       throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");
@@ -430,12 +430,12 @@ export async function rejectStocktakeItem(sessionId: string, itemId: string) {
 
     if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
     if (item.sessionId !== sessionId) throw new AppError("عدم تطابق الجلسة", 400, "SESSION_MISMATCH");
-    if (item.session.status !== "SUBMITTED") throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
-    if (item.approvalStatus !== "PENDING") throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_PROCESSED");
+    if (item.session.status !== StocktakeSessionStatus.SUBMITTED) throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+    if (item.approvalStatus !== StocktakeApprovalStatus.PENDING) throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_PROCESSED");
 
     await tx.stocktakeItem.update({
       where: { id: itemId },
-      data: { approvalStatus: "REJECTED" },
+      data: { approvalStatus: StocktakeApprovalStatus.REJECTED },
     });
 
     return { success: true };

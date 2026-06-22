@@ -1,6 +1,5 @@
 -- Add public_token to stocktake_sessions for worker access links
-ALTER TABLE "stocktake_sessions"
-  ADD COLUMN "public_token" TEXT;
+ALTER TABLE "stocktake_sessions" ADD COLUMN IF NOT EXISTS "public_token" TEXT;
 
 -- Back-fill existing sessions with a unique token
 UPDATE "stocktake_sessions"
@@ -11,5 +10,5 @@ UPDATE "stocktake_sessions"
 ALTER TABLE "stocktake_sessions"
   ALTER COLUMN "public_token" SET NOT NULL;
 
-CREATE UNIQUE INDEX "stocktake_sessions_public_token_key"
+CREATE UNIQUE INDEX IF NOT EXISTS "stocktake_sessions_public_token_key"
   ON "stocktake_sessions"("public_token");

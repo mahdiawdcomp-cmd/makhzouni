@@ -1,4 +1,4 @@
-import { DiscountType, Prisma, Unit } from "@prisma/client";
+import { DiscountType, Prisma, RetailOrderStatus, Unit } from "@prisma/client";
 import { randomBytes } from "crypto";
 import prisma, { ensureConnected } from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -55,7 +55,7 @@ async function getReservedByProduct(
   db: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<Map<string, number>> {
   const openOrders = await db.retailOrder.findMany({
-    where: { status: { in: ["PENDING", "PROCESSING"] } },
+    where: { status: { in: [RetailOrderStatus.PENDING, RetailOrderStatus.PROCESSING] } },
     select: { items: true },
   });
   const reserved = new Map<string, number>();
@@ -716,9 +716,9 @@ export async function listRetailOrders(status?: string) {
   // so staff can see and retry them instead of having them vanish.
   const where =
     status === "PENDING"
-      ? { status: { in: ["PENDING", "PROCESSING", "FAILED"] } }
+      ? { status: { in: [RetailOrderStatus.PENDING, RetailOrderStatus.PROCESSING, RetailOrderStatus.FAILED] } }
       : status
-        ? { status }
+        ? { status: status as RetailOrderStatus }
         : undefined;
   const orders = await prisma.retailOrder.findMany({
     where,
@@ -1014,16 +1014,16 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
   // idempotency guard — repeated clicks / parallel requests cannot both proceed,
   // so we never create two invoices or deduct stock twice.
   const claim = await prisma.retailOrder.updateMany({
-    where: { id: orderId, status: { in: ["PENDING", "FAILED"] } },
-    data: { status: "PROCESSING" },
+    where: { id: orderId, status: { in: [RetailOrderStatus.PENDING, RetailOrderStatus.FAILED] } },
+    data: { status: RetailOrderStatus.PROCESSING },
   });
 
   if (claim.count !== 1) {
     const existing = await prisma.retailOrder.findUnique({ where: { id: orderId } });
     if (!existing) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
-    if (existing.status === "PROCESSING") throw new AppError("الطلب قيد المعالجة حالياً، انتظر لحظة", 409, "RETAIL_ORDER_PROCESSING");
-    if (existing.status === "PREPARED") throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
-    if (existing.status === "CANCELLED") throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
+    if (existing.status === RetailOrderStatus.PROCESSING) throw new AppError("الطلب قيد المعالجة حالياً، انتظر لحظة", 409, "RETAIL_ORDER_PROCESSING");
+    if (existing.status === RetailOrderStatus.PREPARED) throw new AppError("الطلب مجهز مسبقاً", 400, "RETAIL_ALREADY_PREPARED");
+    if (existing.status === RetailOrderStatus.CANCELLED) throw new AppError("الطلب ملغي", 400, "RETAIL_ORDER_CANCELLED");
     throw new AppError("تعذّر تجهيز الطلب بهذه الحالة", 400, "RETAIL_ORDER_BAD_STATE");
   }
 
@@ -1036,7 +1036,7 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
 
     const finalized = await prisma.retailOrder.update({
       where: { id: orderId },
-      data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId },
+      data: { status: RetailOrderStatus.PREPARED, preparedAt: new Date(), preparedById: userId },
     });
     logger.info(`[RetailPrepare] order ${order.orderNumber} prepared + invoiced`);
 
@@ -1054,7 +1054,7 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
     if (after?.invoiceId) {
       await prisma.retailOrder.update({
         where: { id: orderId },
-        data: { status: "PREPARED", preparedAt: new Date(), preparedById: userId },
+        data: { status: RetailOrderStatus.PREPARED, preparedAt: new Date(), preparedById: userId },
       }).catch(() => {});
       setImmediate(() => {
         safeSendWA(after.phone, `طلبك رقم ${after.orderNumber} تم تجهيزه وهو في طريقه إليك 🚗💨\nشكراً لثقتك بنا ❤️`).catch(() => {});
@@ -1062,8 +1062,8 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
       return { id: after.id, orderNumber: after.orderNumber };
     }
     await prisma.retailOrder.updateMany({
-      where: { id: orderId, status: "PROCESSING" },
-      data: { status: "FAILED" },
+      where: { id: orderId, status: RetailOrderStatus.PROCESSING },
+      data: { status: RetailOrderStatus.FAILED },
     }).catch(() => {});
     const msg = err instanceof Error ? err.message : String(err);
     logger.error(`[RetailPrepare] failed order=${orderId}: ${msg}`);
@@ -1075,12 +1075,12 @@ export async function markRetailOrderPrepared(orderId: string, userId: string) {
 export async function cancelRetailOrder(orderId: string) {
   const order = await prisma.retailOrder.findUnique({ where: { id: orderId } });
   if (!order) throw new AppError("الطلب غير موجود", 404, "RETAIL_ORDER_NOT_FOUND");
-  if (order.status === "PREPARED") throw new AppError("لا يمكن إلغاء طلب مجهز", 400, "RETAIL_ALREADY_PREPARED");
-  if (order.status === "PROCESSING") throw new AppError("الطلب قيد المعالجة، لا يمكن إلغاؤه الآن", 409, "RETAIL_ORDER_PROCESSING");
-  if (order.status === "CANCELLED") return { id: order.id }; // idempotent
+  if (order.status === RetailOrderStatus.PREPARED) throw new AppError("لا يمكن إلغاء طلب مجهز", 400, "RETAIL_ALREADY_PREPARED");
+  if (order.status === RetailOrderStatus.PROCESSING) throw new AppError("الطلب قيد المعالجة، لا يمكن إلغاؤه الآن", 409, "RETAIL_ORDER_PROCESSING");
+  if (order.status === RetailOrderStatus.CANCELLED) return { id: order.id }; // idempotent
 
   await prisma.$transaction(async (tx) => {
-    await tx.retailOrder.update({ where: { id: orderId }, data: { status: "CANCELLED" } });
+    await tx.retailOrder.update({ where: { id: orderId }, data: { status: RetailOrderStatus.CANCELLED } });
     // Release the coupon use reserved at submit time so a cancelled order does
     // not permanently consume a coupon (floor the counter at 0).
     if (order.couponCode) {

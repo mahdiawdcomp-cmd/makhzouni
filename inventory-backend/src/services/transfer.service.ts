@@ -306,6 +306,7 @@ export async function executeTransferWithin(
           {
             productId: product.id,
             branchId: input.fromBranchId,
+            transferId: transfer.id,
             type: StockMovementType.OUT,
             quantity: quantityInPieces,
             balanceBefore: source.balanceBefore,
@@ -314,6 +315,7 @@ export async function executeTransferWithin(
           {
             productId: product.id,
             branchId: input.toBranchId,
+            transferId: transfer.id,
             type: StockMovementType.IN,
             quantity: quantityInPieces,
             balanceBefore: destination.balanceBefore,

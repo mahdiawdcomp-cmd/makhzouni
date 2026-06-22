@@ -120,6 +120,7 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
           productName: product.name,
           unit: item.unit,
           quantity: item.quantity,
+          costPrice: product.purchasePrice ?? 0,
         },
       });
     }

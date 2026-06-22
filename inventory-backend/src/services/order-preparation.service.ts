@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { OrderPreparationStatus, Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
@@ -133,7 +133,7 @@ export async function createOrderPreparation(
 
 export async function listPendingPreparations() {
   const rows = await prisma.orderPreparation.findMany({
-    where: { status: "PENDING" },
+    where: { status: OrderPreparationStatus.PENDING },
     include: {
       invoice: {
         select: { invoiceNumber: true, totalAmount: true, date: true, customerId: true },
@@ -184,12 +184,12 @@ export async function completePreparationWithInvoice(
 ) {
   const prep = await prisma.orderPreparation.findUnique({ where: { id: preparationId } });
   if (!prep) throw new AppError("Preparation not found", 404, "PREP_NOT_FOUND");
-  if (prep.status === "PREPARED") return { invoiceId: prep.invoiceId ?? invoiceId };
+  if (prep.status === OrderPreparationStatus.PREPARED) return { invoiceId: prep.invoiceId ?? invoiceId };
 
   await prisma.orderPreparation.update({
     where: { id: preparationId },
     data: {
-      status: "PREPARED",
+      status: OrderPreparationStatus.PREPARED,
       preparedAt: new Date(),
       preparedById: userId,
       // Link the invoice only if this prep isn't already tied to one (invoiceId is @unique)
@@ -206,16 +206,16 @@ export async function completePreparationWithInvoice(
 export async function cancelPreparation(preparationId: string) {
   const prep = await prisma.orderPreparation.findUnique({ where: { id: preparationId } });
   if (!prep) throw new AppError("Preparation not found", 404, "PREP_NOT_FOUND");
-  if (prep.status === "PREPARED") {
+  if (prep.status === OrderPreparationStatus.PREPARED) {
     throw new AppError("Order already prepared — cancel its invoice instead", 400, "ALREADY_PREPARED");
   }
-  if (prep.status === "CANCELLED") return { id: prep.id, status: "CANCELLED" };
+  if (prep.status === OrderPreparationStatus.CANCELLED) return { id: prep.id, status: OrderPreparationStatus.CANCELLED };
 
   await prisma.orderPreparation.update({
     where: { id: preparationId },
-    data: { status: "CANCELLED" },
+    data: { status: OrderPreparationStatus.CANCELLED },
   });
-  return { id: prep.id, status: "CANCELLED" };
+  return { id: prep.id, status: OrderPreparationStatus.CANCELLED };
 }
 
 // Split order items across warehouses if quantity insufficient in primary warehouse
@@ -304,7 +304,7 @@ export async function markPrepared(
   });
 
   if (!prep) throw new AppError("Preparation not found", 404, "PREP_NOT_FOUND");
-  if (prep.status === "PREPARED") throw new AppError("Already marked as prepared", 400, "ALREADY_PREPARED");
+  if (prep.status === OrderPreparationStatus.PREPARED) throw new AppError("Already marked as prepared", 400, "ALREADY_PREPARED");
 
   let invoiceId = prep.invoiceId;
   let invoiceNumber = prep.invoice?.invoiceNumber ?? "";
@@ -379,7 +379,7 @@ export async function markPrepared(
   await prisma.orderPreparation.update({
     where: { id: preparationId },
     data: {
-      status: "PREPARED",
+      status: OrderPreparationStatus.PREPARED,
       preparedAt: new Date(),
       preparedById: userId,
       ...(invoiceId && !prep.invoiceId ? { invoiceId } : {}),
