@@ -7,7 +7,15 @@ import {
   getCatalogSession,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
-import { getClientPortal, getClientPortalInvoice } from "../controllers/customer-portal.controller";
+import {
+  getClientPortal,
+  getClientPortalInvoice,
+  getClientPortalOrders,
+  postArrivalSubscribe,
+  getArrivalSubscriptions,
+  deleteArrivalSubscription,
+  getVapidKey,
+} from "../controllers/customer-portal.controller";
 import {
   getPublicActiveCoupon,
   getPublicCustomerReferral,
@@ -72,6 +80,11 @@ router.post("/retail/ai-chat", catalogLimiter, postPublicRetailAiChat);
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);
 router.get("/client/:token/invoice/:invoiceId", validate(portalTokenSchema), getClientPortalInvoice);
+router.get("/client/:token/orders", validate(portalTokenSchema), getClientPortalOrders);
+router.get("/client/:token/arrivals", validate(portalTokenSchema), getArrivalSubscriptions);
+router.post("/client/:token/arrivals", validate(portalTokenSchema), postArrivalSubscribe);
+router.delete("/client/:token/arrivals/:subId", validate(portalTokenSchema), deleteArrivalSubscription);
+router.get("/vapid-key", getVapidKey);
 
 // Store display screen — returns basic product info for a TV/display
 router.get("/display-products", catalogLimiter, asyncHandler(async (_req, res) => {

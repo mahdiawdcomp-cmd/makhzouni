@@ -229,6 +229,7 @@ model Product {
   warehouseStocks  ProductWarehouseStock[]
   retailItems       RetailCatalogItem[] @relation("RetailItemProduct")
   stockLossItems    StockLossItem[]     @relation("StockLossItems")
+  arrivalSubscriptions ProductArrivalSubscription[]
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   deletedAt         DateTime?       @map("deleted_at")
@@ -312,6 +313,7 @@ model Customer {
   notifications     Notification[]
   portalLinks       CustomerPortalLink[]
   catalogAccessLinks CatalogAccessLink[]
+  arrivalSubscriptions ProductArrivalSubscription[]
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
   deletedAt         DateTime?        @map("deleted_at")
@@ -888,4 +890,21 @@ model ClientPayment {
 
   @@index([clientId])
   @@map("client_payments")
+}
+
+model ProductArrivalSubscription {
+  id               String    @id @default(uuid()) @db.Uuid
+  customerId       String    @map("customer_id") @db.Uuid
+  customer         Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productId        String?   @map("product_id") @db.Uuid
+  product          Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName      String    @map("product_name")
+  phone            String
+  pushSubscription Json?     @map("push_subscription")
+  notifiedAt       DateTime? @map("notified_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@index([productId])
+  @@map("product_arrival_subscriptions")
 }

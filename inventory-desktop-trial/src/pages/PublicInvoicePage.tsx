@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link, useParams } from "react-router-dom"
-import { ArrowRight } from "lucide-react"
-import { getPublicInvoice } from "../api/endpoints"
+import { ArrowRight, RefreshCw } from "lucide-react"
+import { getPublicInvoice, getCustomerPortal } from "../api/endpoints"
 
 function money(value: number) {
   return new Intl.NumberFormat("ar-IQ").format(Math.round(value))
@@ -41,6 +41,13 @@ export function PublicInvoicePage() {
     enabled: Boolean(token && invoiceId),
     retry: false,
   })
+  const portalQuery = useQuery({
+    queryKey: ["client-portal", token],
+    queryFn: () => getCustomerPortal(token!),
+    enabled: Boolean(token),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
 
   if (query.isLoading) {
     return (
@@ -75,6 +82,8 @@ export function PublicInvoicePage() {
 
   const inv = query.data
   const isCancelled = inv.status === "CANCELLED"
+  const storePhone = portalQuery.data?.storePhone ?? null
+  const customerName = portalQuery.data?.customer.name ?? ""
 
   return (
     <div className="min-h-screen bg-slate-100 pb-8" dir="rtl">
@@ -177,12 +186,25 @@ export function PublicInvoicePage() {
           </div>
         </div>
 
+        {/* Re-order button — only for non-cancelled SALE invoices with items */}
+        {!isCancelled && inv.type === "SALE" && storePhone && inv.items.length > 0 && (
+          <a
+            href={`https://wa.me/${storePhone.replace(/\D/g, "")}?text=${encodeURIComponent(
+              `مرحبا، أنا ${customerName} أريد إعادة طلب نفس مشترياتي من الفاتورة رقم ${inv.invoiceNumber}:\n` +
+              inv.items.map((i) => `- ${i.productName} × ${i.quantity} ${unitLabel(i.unit)}`).join("\n")
+            )}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 py-3 text-sm font-bold text-white hover:bg-emerald-600"
+          >
+            <RefreshCw className="h-4 w-4" />
+            اطلب نفس المشتريات مرة ثانية
+          </a>
+        )}
+
         {token && (
           <div className="text-center pt-1">
-            <Link
-              to={`/client/${token}`}
-              className="inline-flex items-center gap-1 text-sm text-slate-500 underline"
-            >
+            <Link to={`/client/${token}`} className="inline-flex items-center gap-1 text-sm text-slate-500 underline">
               <ArrowRight className="h-3 w-3" /> العودة لكشف الحساب
             </Link>
           </div>

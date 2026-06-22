@@ -362,6 +362,27 @@ export interface CustomerPortalResponse {
   customer: Pick<Customer, "id" | "name" | "phone" | "openingBalance" | "currentBalance" | "lastTransactionAt">
   transactions: CustomerTransaction[]
   expiresAt?: string | null
+  storeName: string
+  storePhone: string | null
+  currency: string
+}
+
+export interface PortalRetailOrder {
+  id: string
+  orderNumber: string
+  status: "PENDING" | "PROCESSING" | "PREPARED" | "FAILED" | "CANCELLED"
+  total: number
+  subtotal: number
+  discount: number
+  items: Array<{ name: string; quantity: number; unitPrice: number }>
+  createdAt: string
+}
+
+export interface ArrivalSubscription {
+  id: string
+  productId: string | null
+  productName: string
+  createdAt: string
 }
 
 export interface PublicInvoiceDetail {

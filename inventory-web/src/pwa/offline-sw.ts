@@ -279,3 +279,37 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(cacheFirstApp(request))
   }
 })
+
+// ── Push notifications (product arrival alerts) ────────────────────────────
+self.addEventListener("push", (event) => {
+  let payload: { title?: string; body?: string; url?: string } = {}
+  try {
+    payload = event.data?.json() ?? {}
+  } catch {
+    payload = { title: "إشعار جديد", body: event.data?.text() ?? "" }
+  }
+
+  const title = payload.title ?? "مخزوني"
+  const options: NotificationOptions = {
+    body: payload.body ?? "",
+    icon: "/favicon.svg",
+    badge: "/favicon.svg",
+    dir: "rtl",
+    lang: "ar",
+    data: { url: payload.url ?? "/" },
+  }
+
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const url: string = event.notification.data?.url ?? "/"
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const existing = clients.find((c) => c.url.includes(url))
+      if (existing) return existing.focus()
+      return self.clients.openWindow(url)
+    })
+  )
+})

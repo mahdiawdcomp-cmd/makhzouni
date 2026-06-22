@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { getCustomerTransactions } from "./customer.service";
+import { getSettings } from "./settings.service";
+import { sendWhatsAppText } from "./whatsapp.service";
+import { sendPushNotification } from "../utils/push-notify";
 import { AppError } from "../utils/app-error";
 
 type PortalLinkRow = {
@@ -77,7 +80,7 @@ export async function getCustomerPortalByToken(token: string) {
     WHERE "id" = ${link.id}::uuid
   `;
 
-  const [customer, statement] = await Promise.all([
+  const [customer, statement, settings] = await Promise.all([
     prisma.customer.findFirst({
       where: { id: link.customer_id, deletedAt: null },
       select: {
@@ -90,6 +93,7 @@ export async function getCustomerPortalByToken(token: string) {
       },
     }),
     getCustomerTransactions(link.customer_id, { all: true }),
+    getSettings(),
   ]);
 
   if (!customer) {
@@ -104,7 +108,155 @@ export async function getCustomerPortalByToken(token: string) {
     },
     transactions: statement.transactions,
     expiresAt: link.expires_at,
+    storeName: settings.storeName,
+    storePhone: settings.storePhone || null,
+    currency: settings.currency,
   };
+}
+
+export async function getPortalOrders(token: string) {
+  const tokenHash = hashToken(token);
+  const rows = await prisma.$queryRaw<PortalLinkRow[]>`
+    SELECT "id", "customer_id", "expires_at", "revoked_at"
+    FROM "customer_portal_links"
+    WHERE "token_hash" = ${tokenHash}
+    LIMIT 1
+  `;
+  const link = rows[0];
+  if (!link || link.revoked_at || (link.expires_at && link.expires_at.getTime() < Date.now())) {
+    throw new AppError("Client link is invalid or expired", 404, "PORTAL_LINK_INVALID");
+  }
+  const customer = await prisma.customer.findFirst({
+    where: { id: link.customer_id, deletedAt: null },
+    select: { phone: true },
+  });
+  if (!customer?.phone) return [];
+
+  const orders = await prisma.retailOrder.findMany({
+    where: { phone: customer.phone },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+
+  return orders.map((o) => ({
+    id: o.id,
+    orderNumber: o.orderNumber,
+    status: o.status,
+    total: Number(o.total),
+    subtotal: Number(o.subtotal),
+    discount: Number(o.discount),
+    items: o.items as { name: string; quantity: number; unitPrice: number }[],
+    createdAt: o.createdAt,
+  }));
+}
+
+export async function subscribeToArrival(
+  token: string,
+  productId: string | null,
+  productName: string,
+  pushSubscription: object | null
+) {
+  const tokenHash = hashToken(token);
+  const rows = await prisma.$queryRaw<PortalLinkRow[]>`
+    SELECT "id", "customer_id", "expires_at", "revoked_at"
+    FROM "customer_portal_links"
+    WHERE "token_hash" = ${tokenHash}
+    LIMIT 1
+  `;
+  const link = rows[0];
+  if (!link || link.revoked_at || (link.expires_at && link.expires_at.getTime() < Date.now())) {
+    throw new AppError("Client link is invalid or expired", 404, "PORTAL_LINK_INVALID");
+  }
+  const customer = await prisma.customer.findFirst({
+    where: { id: link.customer_id, deletedAt: null },
+    select: { id: true, phone: true },
+  });
+  if (!customer) throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
+
+  // Upsert: one subscription per customer+product combo
+  const existing = await prisma.productArrivalSubscription.findFirst({
+    where: { customerId: customer.id, productId: productId ?? undefined, notifiedAt: null },
+  });
+  if (existing) return existing;
+
+  return prisma.productArrivalSubscription.create({
+    data: {
+      customerId: customer.id,
+      productId: productId ?? null,
+      productName,
+      phone: customer.phone,
+      pushSubscription: pushSubscription ?? undefined,
+    },
+  });
+}
+
+export async function getMyArrivalSubscriptions(token: string) {
+  const tokenHash = hashToken(token);
+  const rows = await prisma.$queryRaw<PortalLinkRow[]>`
+    SELECT "id", "customer_id", "expires_at", "revoked_at"
+    FROM "customer_portal_links"
+    WHERE "token_hash" = ${tokenHash}
+    LIMIT 1
+  `;
+  const link = rows[0];
+  if (!link || link.revoked_at || (link.expires_at && link.expires_at.getTime() < Date.now())) {
+    throw new AppError("Client link is invalid or expired", 404, "PORTAL_LINK_INVALID");
+  }
+  return prisma.productArrivalSubscription.findMany({
+    where: { customerId: link.customer_id, notifiedAt: null },
+    select: { id: true, productId: true, productName: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+export async function cancelArrivalSubscription(token: string, subscriptionId: string) {
+  const tokenHash = hashToken(token);
+  const rows = await prisma.$queryRaw<PortalLinkRow[]>`
+    SELECT "id", "customer_id", "expires_at", "revoked_at"
+    FROM "customer_portal_links"
+    WHERE "token_hash" = ${tokenHash}
+    LIMIT 1
+  `;
+  const link = rows[0];
+  if (!link || link.revoked_at || (link.expires_at && link.expires_at.getTime() < Date.now())) {
+    throw new AppError("Client link is invalid or expired", 404, "PORTAL_LINK_INVALID");
+  }
+  await prisma.productArrivalSubscription.deleteMany({
+    where: { id: subscriptionId, customerId: link.customer_id },
+  });
+}
+
+// Called from invoice service when a PURCHASE invoice is confirmed
+export async function notifyProductArrival(productId: string, productName: string) {
+  const subs = await prisma.productArrivalSubscription.findMany({
+    where: { productId, notifiedAt: null },
+  });
+  if (subs.length === 0) return;
+
+  const settings = await getSettings();
+  const storeName = settings.storeName || "المتجر";
+
+  await Promise.all(
+    subs.map(async (sub) => {
+      const msg = `مرحباً، المنتج "${productName}" أصبح متوفراً الآن في ${storeName}. تفضل بزيارتنا!`;
+      // WhatsApp notification
+      if (sub.phone) {
+        sendWhatsAppText(sub.phone, msg).catch(() => null);
+      }
+      // Browser push notification
+      if (sub.pushSubscription) {
+        sendPushNotification(sub.pushSubscription as any, {
+          title: `${productName} — متوفر الآن`,
+          body: `المنتج أصبح متاحاً في ${storeName}`,
+        }).catch(() => null);
+      }
+      // Mark notified
+      await prisma.productArrivalSubscription.update({
+        where: { id: sub.id },
+        data: { notifiedAt: new Date() },
+      });
+    })
+  );
 }
 
 export async function getPublicInvoiceByToken(token: string, invoiceId: string) {

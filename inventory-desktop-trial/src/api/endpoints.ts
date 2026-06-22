@@ -53,6 +53,8 @@ import type {
   StocktakeSessionSummary,
   StocktakeSessionDetail,
   PublicInvoiceDetail,
+  PortalRetailOrder,
+  ArrivalSubscription,
   RetailItem,
   RetailItemPayload,
   RetailCategory,
@@ -362,6 +364,43 @@ export async function getCustomerPortal(token: string) {
 export async function getPublicInvoice(token: string, invoiceId: string) {
   const { data } = await api.get<ApiEnvelope<PublicInvoiceDetail>>(`/public/client/${token}/invoice/${invoiceId}`)
   return data.data
+}
+
+export async function getPortalOrders(token: string) {
+  const { data } = await api.get<ApiEnvelope<PortalRetailOrder[]>>(`/public/client/${token}/orders`)
+  return data.data ?? []
+}
+
+export async function getPortalArrivalSubscriptions(token: string) {
+  const { data } = await api.get<ApiEnvelope<ArrivalSubscription[]>>(`/public/client/${token}/arrivals`)
+  return data.data ?? []
+}
+
+export async function subscribeToProductArrival(
+  token: string,
+  productId: string | null,
+  productName: string,
+  pushSubscription: PushSubscriptionJSON | null
+) {
+  const { data } = await api.post<ApiEnvelope<ArrivalSubscription>>(`/public/client/${token}/arrivals`, {
+    productId,
+    productName,
+    pushSubscription,
+  })
+  return data.data
+}
+
+export async function cancelArrivalSubscription(token: string, subId: string) {
+  await api.delete(`/public/client/${token}/arrivals/${subId}`)
+}
+
+export async function getVapidPublicKey(): Promise<string | null> {
+  try {
+    const { data } = await api.get<ApiEnvelope<{ publicKey: string }>>("/public/vapid-key")
+    return data.data?.publicKey ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function getCustomerTransactions(id: string, params?: { from?: string; to?: string }) {

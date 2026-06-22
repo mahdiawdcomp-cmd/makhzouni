@@ -817,13 +817,32 @@ export async function createInvoice(
   createdBy: string,
   db?: Db
 ) {
+  let result: Awaited<ReturnType<typeof createInvoiceInTransaction>>;
   if (db) {
-    return createInvoiceInTransaction(db, input, createdBy);
+    result = await createInvoiceInTransaction(db, input, createdBy);
+  } else {
+    result = await prisma.$transaction((tx) =>
+      createInvoiceInTransaction(tx, input, createdBy)
+    );
   }
 
-  return prisma.$transaction((tx) =>
-    createInvoiceInTransaction(tx, input, createdBy)
-  );
+  // Fire-and-forget: notify customers subscribed to arriving products
+  if (input.type === InvoiceType.PURCHASE) {
+    const productIds = input.items.map((i) => i.productId).filter(Boolean);
+    if (productIds.length > 0) {
+      import("./customer-portal.service").then(async ({ notifyProductArrival }) => {
+        const products = await prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true },
+        });
+        await Promise.all(
+          products.map((p) => notifyProductArrival(p.id, p.name).catch(() => null))
+        );
+      }).catch(() => null);
+    }
+  }
+
+  return result;
 }
 
 export async function getLastSoldPrice(customerId: string, productId: string) {
