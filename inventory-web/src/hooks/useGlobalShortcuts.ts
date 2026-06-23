@@ -81,12 +81,7 @@ export function useGlobalShortcuts() {
 
         e.preventDefault()
         if (location.pathname !== sc.target) {
-          // In browser: open new tab if already on invoices/new to preserve work
-          if (location.pathname === "/invoices/new") {
-            window.open(sc.target, "_blank", "noopener,noreferrer")
-          } else {
-            navigate(sc.target)
-          }
+          navigate(sc.target)
         }
         break
       }
