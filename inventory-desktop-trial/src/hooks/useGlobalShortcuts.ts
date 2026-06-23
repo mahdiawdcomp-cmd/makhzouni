@@ -80,11 +80,7 @@ export function useGlobalShortcuts() {
         if (!keyMatch || !modMatch) continue
 
         e.preventDefault()
-        if (location.pathname === "/invoices/new") {
-          window.open(sc.target, "_blank", "noopener,noreferrer")
-        } else {
-          navigate(sc.target)
-        }
+        navigate(sc.target)
         break
       }
     }
