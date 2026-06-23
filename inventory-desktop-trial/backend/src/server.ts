@@ -133,10 +133,42 @@ process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection] Server kept alive:", reason);
 });
 
-// SQLite: no runtime migrations needed — schema is managed by Prisma migrate
+// ── Auto-initialize SQLite database on first run ─────────────────────────────
+async function initializeDatabase() {
+  // Check if DB needs migration by trying to query the users table
+  const needsMigration = await prisma.$queryRaw`
+    SELECT count(*) as c FROM sqlite_master WHERE type='table' AND name='users'
+  `.then((rows: any) => Number((rows as any)[0]?.c ?? 0) === 0).catch(() => true);
 
-app.listen(port, "0.0.0.0", () => {
+  if (needsMigration) {
+    logger.info("[DB] Running initial migration…");
+    // Read migration SQL bundled alongside the exe
+    const candidates = [
+      path.join(path.dirname(process.execPath), "migration.sql"),
+      path.join(__dirname, "..", "..", "prisma", "migrations", "20260623025926_init", "migration.sql"),
+      path.join(__dirname, "migration.sql"),
+    ];
+    let sql = "";
+    for (const c of candidates) {
+      if (fs.existsSync(c)) { sql = fs.readFileSync(c, "utf8"); break; }
+    }
+    if (sql) {
+      // SQLite: execute each statement separately
+      const statements = sql.split(/;\s*\n/).map(s => s.trim()).filter(Boolean);
+      for (const stmt of statements) {
+        await prisma.$executeRawUnsafe(stmt).catch(() => {});
+      }
+      logger.info("[DB] Migration applied.");
+    } else {
+      logger.warn("[DB] Migration SQL not found — DB may be empty.");
+    }
+  }
+}
+
+app.listen(port, "0.0.0.0", async () => {
   logger.info(`Inventory backend is running on port ${port}`);
+  // Initialize DB schema if first run (local SQLite mode)
+  await initializeDatabase().catch((e) => logger.warn("[DB] Init error:", e));
   ensureInitialAdmin().catch((error) => {
     logger.error("Failed to create initial administrator:", error);
   });

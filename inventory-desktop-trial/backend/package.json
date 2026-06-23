@@ -5,7 +5,7 @@
   "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc && node -e \"const fs=require('fs');fs.mkdirSync('dist/src/assets',{recursive:true});try{fs.cpSync('src/assets','dist/src/assets',{recursive:true})}catch(e){};try{fs.copyFileSync('node_modules/.prisma/client/query_engine-windows.dll.node','dist/src/query_engine-windows.dll.node')}catch(e){}\"",
+    "build": "tsc && node -e \"const fs=require('fs');fs.mkdirSync('dist/src/assets',{recursive:true});try{fs.cpSync('src/assets','dist/src/assets',{recursive:true})}catch(e){};try{fs.copyFileSync('node_modules/.prisma/client/query_engine-windows.dll.node','dist/src/query_engine-windows.dll.node')}catch(e){};try{fs.mkdirSync('dist/src/migrations',{recursive:true});fs.copyFileSync('prisma/migrations/20260623025926_init/migration.sql','dist/src/migration.sql')}catch(e){}\"",
     "build:exe": "npm run build && pkg dist/src/server.js --target node22-win-x64 --output bin/server.exe --compress GZip",
     "test": "node --experimental-test-module-mocks --import tsx --test \"src/**/*.test.ts\"",
     "start": "node dist/src/server.js",
@@ -19,7 +19,8 @@
     "assets": [
       "node_modules/.prisma/client/*.node",
       "node_modules/@prisma/engines/*.node",
-      "prisma/schema.prisma"
+      "prisma/schema.prisma",
+      "dist/src/migration.sql"
     ],
     "scripts": [
       "dist/src/**/*.js"

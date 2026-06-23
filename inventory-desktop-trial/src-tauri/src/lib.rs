@@ -41,6 +41,14 @@ pub fn run() {
               .env("PRISMA_QUERY_ENGINE_LIBRARY", &engine_path)
               .env("DATABASE_URL", &db_path)
               .env("JWT_SECRET", "makhzouni-mahdi-local-secret-2026")
+              .env("JWT_EXPIRES_IN", "365d")
+              .env("INITIAL_ADMIN_NAME", "مدير النظام")
+              .env("INITIAL_ADMIN_USERNAME", "admin")
+              .env("INITIAL_ADMIN_PASSWORD", "Password123!")
+              .env("BCRYPT_SALT_ROUNDS", "10")
+              .env("ENABLE_WHATSAPP", "false")
+              .env("API_RATE_LIMIT_PER_MINUTE", "10000")
+              .env("LOGIN_RATE_LIMIT_PER_15_MINUTES", "1000")
               .env("ALLOWED_ORIGINS", "http://localhost:1421,tauri://localhost,https://tauri.localhost")
               .spawn();
 

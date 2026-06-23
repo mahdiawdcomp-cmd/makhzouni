@@ -1,14 +1,21 @@
 import { useState, useEffect, type ReactNode } from "react"
-import { PackageCheck, Server, User, Lock, Eye, EyeOff, Wifi, WifiOff, AlertCircle } from "lucide-react"
+import { PackageCheck, Loader2 } from "lucide-react"
 import { useAuthStore } from "./store/authStore"
 import axios from "axios"
 import { api } from "./api/client"
 
+const LOCAL_API = "http://localhost:5050/api"
+const LOCAL_CREDS_KEY = "makhzouni_local_creds"
 const SERVER_KEY = "makhzouni_server_url"
-const DEFAULT_SERVER = "https://api.mazbwoni.com/api"
 
-function getSavedServer(): string {
-  return localStorage.getItem(SERVER_KEY) || DEFAULT_SERVER
+const isTauri = Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)
+
+function getLocalCreds(): { username: string; password: string } {
+  try {
+    const saved = localStorage.getItem(LOCAL_CREDS_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return { username: "admin", password: "Password123!" }
 }
 
 export function DesktopTrialGate({ children }: { children: ReactNode }) {
@@ -16,40 +23,122 @@ export function DesktopTrialGate({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
 
   if (user && token) return <>{children}</>
-  return <SetupScreen />
+
+  // In Tauri: auto-login to local backend, no screen needed
+  if (isTauri) return <AutoLoginScreen />
+
+  // Web mode: show normal login screen
+  return <WebLoginScreen />
 }
 
-function SetupScreen() {
-  const [serverUrl, setServerUrl] = useState(getSavedServer)
+// ── Auto-login for Tauri (local mode) ────────────────────────────────────────
+function AutoLoginScreen() {
+  const [status, setStatus] = useState("جاري تشغيل النظام المحلي…")
+  const [error, setError] = useState("")
+  const setSession = useAuthStore((s) => s.setSession)
+
+  useEffect(() => {
+    api.defaults.baseURL = LOCAL_API
+    localStorage.setItem(SERVER_KEY, LOCAL_API)
+    void autoLogin()
+  }, [])
+
+  async function autoLogin(attempt = 0): Promise<void> {
+    // Wait for local backend to be ready (max 30s)
+    if (attempt > 30) {
+      setError("تعذر تشغيل الخادم المحلي. أعد تشغيل البرنامج.")
+      return
+    }
+
+    try {
+      await axios.get(`http://localhost:5050/health`, { timeout: 1000 })
+    } catch {
+      setStatus(`جاري تشغيل النظام المحلي… (${attempt + 1})`)
+      await new Promise((r) => setTimeout(r, 1000))
+      return autoLogin(attempt + 1)
+    }
+
+    // Backend is ready — login
+    setStatus("جاري الدخول…")
+    const creds = getLocalCreds()
+    try {
+      const res = await axios.post<{ token: string; user: unknown }>(
+        `${LOCAL_API}/auth/login`,
+        { username: creds.username, password: creds.password },
+        { timeout: 5000 }
+      )
+      if (!res.data.token || !res.data.user) throw new Error("no token")
+      setSession(res.data.token, res.data.user as Parameters<typeof setSession>[1], true)
+    } catch (err: any) {
+      // If wrong password stored, show error with reset option
+      const msg = err?.response?.data?.message
+      setError(msg ?? "خطأ في تسجيل الدخول المحلي. تحقق من الإعدادات.")
+    }
+  }
+
+  if (error) {
+    return (
+      <main dir="rtl" style={splashStyle}>
+        <div style={cardStyle}>
+          <PackageCheck size={48} color="#ef4444" />
+          <h2 style={{ color: "white", margin: "12px 0 8px", fontSize: 20 }}>خطأ في التشغيل</h2>
+          <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 20px", textAlign: "center" }}>{error}</p>
+          <button onClick={() => { setError(""); void autoLogin(0) }} style={btnStyle}>
+            إعادة المحاولة
+          </button>
+          <button
+            onClick={() => {
+              localStorage.removeItem(LOCAL_CREDS_KEY)
+              window.location.reload()
+            }}
+            style={{ ...btnStyle, background: "#1e293b", marginTop: 8 }}
+          >
+            إعادة ضبط كلمة المرور (admin / Password123!)
+          </button>
+        </div>
+      </main>
+    )
+  }
+
+  return (
+    <main dir="rtl" style={splashStyle}>
+      <div style={cardStyle}>
+        <div style={logoStyle}>
+          <PackageCheck size={40} color="white" />
+        </div>
+        <h1 style={{ color: "white", fontSize: 26, fontWeight: 800, margin: "16px 0 6px" }}>
+          مخزوني مهدي عوض
+        </h1>
+        <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 28px" }}>
+          نظام إدارة المخزون والحسابات
+        </p>
+        <Loader2 size={28} color="#3b82f6" style={{ animation: "spin 1s linear infinite" }} />
+        <p style={{ color: "#475569", fontSize: 13, marginTop: 16 }}>{status}</p>
+      </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </main>
+  )
+}
+
+// ── Web login screen (non-Tauri) ──────────────────────────────────────────────
+function WebLoginScreen() {
+  const [serverUrl, setServerUrl] = useState(
+    () => localStorage.getItem(SERVER_KEY) || "https://api.mazbwoni.com/api"
+  )
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [online, setOnline] = useState(navigator.onLine)
   const setSession = useAuthStore((s) => s.setSession)
 
-  useEffect(() => {
-    const on = () => setOnline(true)
-    const off = () => setOnline(false)
-    window.addEventListener("online", on)
-    window.addEventListener("offline", off)
-    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off) }
-  }, [])
-
   async function handleLogin() {
-    if (!username.trim() || !password.trim()) {
-      setError("أدخل اسم المستخدم وكلمة المرور.")
+    if (!username.trim() || !password.trim() || !serverUrl.trim()) {
+      setError("أدخل جميع البيانات.")
       return
     }
-    if (!serverUrl.trim()) {
-      setError("أدخل رابط السيرفر.")
-      return
-    }
-
     setLoading(true)
     setError("")
-
     const base = serverUrl.replace(/\/+$/, "")
     try {
       const res = await axios.post<{ token: string; user: unknown }>(
@@ -57,181 +146,65 @@ function SetupScreen() {
         { username: username.trim(), password },
         { timeout: 15000 }
       )
-      if (!res.data.token || !res.data.user) throw new Error("استجابة غير صحيحة من السيرفر")
-
-      // Save server URL and update axios base
+      if (!res.data.token || !res.data.user) throw new Error("no token")
       localStorage.setItem(SERVER_KEY, base)
       api.defaults.baseURL = base
-      ;(api.defaults as Record<string, unknown>).baseURL = base
-
       setSession(res.data.token, res.data.user as Parameters<typeof setSession>[1], true)
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      if (msg) setError(msg)
-      else if (!navigator.onLine) setError("لا يوجد اتصال بالإنترنت.")
-      else setError("تعذر الاتصال بالسيرفر. تحقق من الرابط واسم المستخدم وكلمة المرور.")
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? "تعذر الاتصال بالسيرفر.")
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <main dir="rtl" style={{
-      minHeight: "100vh", display: "flex", background: "#0f172a",
-      fontFamily: "'Cairo', Tahoma, Arial, sans-serif"
-    }}>
-      {/* Right panel - branding */}
-      <div style={{
-        flex: 1, background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)",
-        display: "flex", flexDirection: "column", justifyContent: "center",
-        alignItems: "flex-end", padding: "48px", gap: "24px",
-        borderLeft: "1px solid #1e293b"
-      }}>
-        <div style={{
-          width: 72, height: 72, borderRadius: 18,
-          background: "linear-gradient(135deg, #3b82f6, #0ea5e9)",
-          display: "flex", alignItems: "center", justifyContent: "center"
-        }}>
-          <PackageCheck size={36} color="white" />
+    <main dir="rtl" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f172a", fontFamily: "'Cairo', Tahoma, sans-serif" }}>
+      <div style={{ width: 400, display: "flex", flexDirection: "column", gap: 20, padding: 40, background: "#1e293b", borderRadius: 16, border: "1px solid #334155" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={logoStyle}><PackageCheck size={24} color="white" /></div>
+          <h2 style={{ color: "white", margin: 0, fontSize: 20 }}>مخزوني مهدي عوض</h2>
         </div>
-        <h1 style={{ color: "white", fontSize: 36, fontWeight: 800, margin: 0, textAlign: "right", lineHeight: 1.3 }}>
-          مخزوني<br />مهدي عوض
-        </h1>
-        <p style={{ color: "#94a3b8", fontSize: 16, margin: 0, textAlign: "right", maxWidth: 280, lineHeight: 1.7 }}>
-          نظام إدارة المخزون والحسابات — برنامج كمبيوتر متكامل
-        </p>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-end", marginTop: 16 }}>
-          {[
-            "يشتغل بدون متصفح",
-            "بياناتك على جهازك وعلى السيرفر",
-            "يكمل بدون نت ويزامن لما يرجع"
-          ].map((f) => (
-            <div key={f} style={{ display: "flex", gap: 8, alignItems: "center", color: "#cbd5e1", fontSize: 14 }}>
-              <span style={{ color: "#22c55e" }}>✓</span>
-              {f}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Left panel - login form */}
-      <div style={{
-        width: 460, display: "flex", flexDirection: "column",
-        justifyContent: "center", padding: "48px 40px", gap: 24,
-        background: "#0f172a"
-      }}>
-        {/* Online indicator */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6,
-          color: online ? "#22c55e" : "#f59e0b", fontSize: 13
-        }}>
-          {online ? <Wifi size={14} /> : <WifiOff size={14} />}
-          {online ? "متصل بالإنترنت" : "غير متصل — تأكد من النت قبل تسجيل الدخول"}
-        </div>
-
-        <div>
-          <h2 style={{ color: "white", fontSize: 24, fontWeight: 700, margin: "0 0 6px" }}>تسجيل الدخول</h2>
-          <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>ادخل بياناتك للاتصال بالنظام</p>
-        </div>
-
-        {/* Server URL */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span style={{ color: "#94a3b8", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            <Server size={14} /> رابط السيرفر
-          </span>
-          <input
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            dir="ltr"
-            placeholder="https://api.mazbwoni.com/api"
-            style={inputStyle}
-          />
-        </label>
-
-        {/* Username */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span style={{ color: "#94a3b8", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            <User size={14} /> اسم المستخدم
-          </span>
-          <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="mahdi"
-            dir="ltr"
-            style={inputStyle}
-            onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
-          />
-        </label>
-
-        {/* Password */}
-        <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <span style={{ color: "#94a3b8", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-            <Lock size={14} /> كلمة المرور
-          </span>
-          <div style={{ position: "relative" }}>
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type={showPass ? "text" : "password"}
-              placeholder="••••••••"
-              dir="ltr"
-              style={{ ...inputStyle, paddingLeft: 40 }}
-              onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
-            />
-            <button
-              onClick={() => setShowPass(!showPass)}
-              style={{
-                position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
-                background: "none", border: "none", cursor: "pointer", color: "#64748b", padding: 4
-              }}
-            >
-              {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </label>
-
-        {error && (
-          <div style={{
-            background: "#450a0a", border: "1px solid #7f1d1d", borderRadius: 8,
-            padding: "10px 14px", color: "#fca5a5", fontSize: 13,
-            display: "flex", gap: 8, alignItems: "flex-start"
-          }}>
-            <AlertCircle size={15} style={{ marginTop: 1, flexShrink: 0 }} />
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={() => void handleLogin()}
-          disabled={loading || !online}
-          style={{
-            background: loading || !online ? "#1e293b" : "linear-gradient(135deg, #3b82f6, #0ea5e9)",
-            color: loading || !online ? "#64748b" : "white",
-            border: "none", borderRadius: 10, padding: "13px 24px",
-            fontSize: 16, fontWeight: 700, cursor: loading || !online ? "not-allowed" : "pointer",
-            fontFamily: "inherit", transition: "all 0.2s"
-          }}
-        >
-          {loading ? "جاري الاتصال..." : "دخول"}
+        {[
+          { label: "رابط السيرفر", value: serverUrl, set: setServerUrl, type: "text", dir: "ltr" as const },
+          { label: "اسم المستخدم", value: username, set: setUsername, type: "text", dir: "ltr" as const },
+          { label: "كلمة المرور", value: password, set: setPassword, type: showPass ? "text" : "password", dir: "ltr" as const },
+        ].map(({ label, value, set, type, dir }) => (
+          <label key={label} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ color: "#94a3b8", fontSize: 13 }}>{label}</span>
+            <input value={value} onChange={(e) => set(e.target.value)} type={type} dir={dir}
+              style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "10px 12px", color: "white", fontSize: 14, fontFamily: "inherit", outline: "none", width: "100%", boxSizing: "border-box" }}
+              onKeyDown={(e) => e.key === "Enter" && void handleLogin()} />
+          </label>
+        ))}
+        {error && <p style={{ color: "#fca5a5", fontSize: 13, margin: 0 }}>{error}</p>}
+        <button onClick={() => void handleLogin()} disabled={loading} style={btnStyle}>
+          {loading ? "جاري الاتصال…" : "دخول"}
         </button>
-
-        <p style={{ color: "#334155", fontSize: 12, textAlign: "center", margin: 0 }}>
-          v1.0.0 — مخزوني مهدي عوض
-        </p>
       </div>
     </main>
   )
 }
 
-const inputStyle: React.CSSProperties = {
-  background: "#1e293b",
-  border: "1px solid #334155",
-  borderRadius: 8,
-  padding: "11px 14px",
-  color: "white",
-  fontSize: 14,
-  fontFamily: "inherit",
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const splashStyle: React.CSSProperties = {
+  minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+  background: "#0f172a", fontFamily: "'Cairo', Tahoma, sans-serif",
+}
+
+const cardStyle: React.CSSProperties = {
+  display: "flex", flexDirection: "column", alignItems: "center",
+  padding: "48px 40px", background: "#0f172a",
+}
+
+const logoStyle: React.CSSProperties = {
+  width: 72, height: 72, borderRadius: 18,
+  background: "linear-gradient(135deg, #3b82f6, #0ea5e9)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+}
+
+const btnStyle: React.CSSProperties = {
+  background: "linear-gradient(135deg, #3b82f6, #0ea5e9)",
+  color: "white", border: "none", borderRadius: 10,
+  padding: "12px 24px", fontSize: 15, fontWeight: 700,
+  cursor: "pointer", fontFamily: "inherit", width: "100%",
 }
