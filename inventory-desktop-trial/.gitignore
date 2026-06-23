@@ -1,0 +1,17 @@
+node_modules/
+dist/
+src-tauri/target/
+*.log
+.env
+.env.local
+backend/.env
+backend/node_modules/
+backend/dist/
+backend/bin/
+backend/prisma/*.db
+backend/prisma/*.db-journal
+postgres-data/
+# Large binaries (built locally, not tracked in git)
+src-tauri/binaries/*.exe
+src-tauri/binaries/*.node
+
