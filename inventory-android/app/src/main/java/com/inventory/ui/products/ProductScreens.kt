@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.Matrix
 import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,11 +33,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.draw.rotate
+import androidx.compose.foundation.Image
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -723,31 +728,26 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var unitExpanded by remember { mutableStateOf(false) }
-    // Gallery / file picker.
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            compressProductImage(context, uri)?.let { viewModel.update("imageUrl", it) }
-        }
-    }
-    // Camera capture: the photo is written to a temp file we expose via FileProvider,
-    // then compressed (optionally with the background removed onto white).
-    val cameraImageUri = remember { mutableStateOf<Uri?>(null) }
+
+    // Pending bitmap shown in preview overlay before confirming
+    var pendingBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var pendingRemoveBg by remember { mutableStateOf(false) }
     var processingImage by remember { mutableStateOf(false) }
+
+    // Gallery / file picker — opens preview before saving
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val bmp = decodeBitmap(context, uri, 1200f)
+            if (bmp != null) pendingBitmap = bmp
+        }
+    }
+    // Camera capture
+    val cameraImageUri = remember { mutableStateOf<Uri?>(null) }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val uri = cameraImageUri.value
-        val removeBg = pendingRemoveBg
-        pendingRemoveBg = false
         if (success && uri != null) {
-            if (removeBg) {
-                processingImage = true
-                removeBackgroundToWhite(context, uri) { result ->
-                    processingImage = false
-                    if (result != null) viewModel.update("imageUrl", result)
-                }
-            } else {
-                compressProductImage(context, uri)?.let { viewModel.update("imageUrl", it) }
-            }
+            val bmp = decodeBitmap(context, uri, 1200f)
+            if (bmp != null) pendingBitmap = bmp
         }
     }
     fun openCamera() {
@@ -758,6 +758,35 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
     }
     val cameraPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openCamera()
+    }
+
+    // Image preview overlay — shown when pendingBitmap is not null
+    if (pendingBitmap != null) {
+        ImagePreviewOverlay(
+            bitmap = pendingBitmap!!,
+            onConfirm = { confirmedBitmap ->
+                pendingBitmap = null
+                if (pendingRemoveBg) {
+                    processingImage = true
+                    // encode confirmed bitmap to temp file then remove bg
+                    val out = ByteArrayOutputStream()
+                    confirmedBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    val tmpFile = File.createTempFile("preview_", ".png", context.cacheDir)
+                    tmpFile.writeBytes(out.toByteArray())
+                    val tmpUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", tmpFile)
+                    removeBackgroundToWhite(context, tmpUri) { result ->
+                        processingImage = false
+                        pendingRemoveBg = false
+                        if (result != null) viewModel.update("imageUrl", result)
+                    }
+                } else {
+                    pendingRemoveBg = false
+                    viewModel.update("imageUrl", compressBitmapToDataUrl(confirmedBitmap))
+                }
+            },
+            onCancel = { pendingBitmap = null; pendingRemoveBg = false },
+        )
+        return
     }
     LaunchedEffect(state.saved) { if (state.saved) onDone() }
 
@@ -1214,6 +1243,97 @@ internal fun ScannerOverlay() {
             Offset(left + 8.dp.toPx(), scanLineY),
             Offset(left + frameSize - 8.dp.toPx(), scanLineY),
             3.dp.toPx(), StrokeCap.Round
+        )
+    }
+}
+
+/* ── Image preview overlay with rotation ──────────────────────────── */
+@Composable
+internal fun ImagePreviewOverlay(
+    bitmap: Bitmap,
+    onConfirm: (Bitmap) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var rotationDeg by remember { mutableStateOf(0) }
+
+    fun rotateBitmap(src: Bitmap, deg: Int): Bitmap {
+        val m = Matrix().also { it.postRotate(deg.toFloat()) }
+        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Image with CSS-like rotation (visual only)
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .rotate(rotationDeg.toFloat()),
+        )
+
+        // Top bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+                .background(Color.Black.copy(alpha = 0.55f))
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Cancel
+            IconButton(onClick = onCancel) {
+                Icon(Icons.Default.Close, contentDescription = "إلغاء", tint = Color.White, modifier = Modifier.size(28.dp))
+            }
+            // Rotation buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(
+                    onClick = { rotationDeg = (rotationDeg - 90 + 360) % 360 },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                ) { Text("↺", fontSize = 18.sp, color = Color.White) }
+                OutlinedButton(
+                    onClick = { rotationDeg = (rotationDeg + 90) % 360 },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                ) { Text("↻", fontSize = 18.sp, color = Color.White) }
+            }
+            // Confirm
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(Color(0xFF10B981), shape = RoundedCornerShape(22.dp))
+                    .clickable {
+                        val confirmed = if (rotationDeg == 0) bitmap else rotateBitmap(bitmap, rotationDeg)
+                        onConfirm(confirmed)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Default.Check, contentDescription = "حفظ", tint = Color.White, modifier = Modifier.size(22.dp))
+            }
+        }
+
+        // Bottom hint
+        Text(
+            text = "استخدم ↺ ↻ للتدوير  •  ✓ للحفظ",
+            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 11.sp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .background(Color.Black.copy(alpha = 0.4f))
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }

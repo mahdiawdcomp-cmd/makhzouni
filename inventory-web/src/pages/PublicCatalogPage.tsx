@@ -483,6 +483,7 @@ function CatalogShop({
         allowPrices={allowPrices}
         showStock={showStock}
         qtyInCart={qtyInCart}
+        compact={perRow >= 4}
         onAdd={(unit) => add(product, unit)}
         onRemoveOne={() => cartLine && changeQty(cartLine.id, -1)}
       />
@@ -798,18 +799,83 @@ function CatalogShop({
 
 /* ── Product Card ────────────────────────────────────────────────────── */
 function ProductCard({
-  product, allowPrices, showStock, qtyInCart, onAdd, onRemoveOne,
+  product, allowPrices, showStock, qtyInCart, compact = false, onAdd, onRemoveOne,
 }: {
   product: PublicCatalogProduct
   allowPrices: boolean
   showStock: boolean
   qtyInCart: number
+  compact?: boolean
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
 }) {
   const [unit, setUnit] = useState<CatalogUnit>("PIECE")
   const max = maxQty(product, unit)
 
+  /* ── Compact card (4-5 per row): image + overlay info + icon button ── */
+  if (compact) {
+    return (
+      <div className="relative overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
+        {/* Square image */}
+        <div className="relative aspect-square bg-gray-100">
+          {product.imageUrl ? (
+            <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-gray-300">
+              <ImageIcon className="h-6 w-6" />
+            </div>
+          )}
+
+          {/* Cart count badge */}
+          {qtyInCart > 0 && (
+            <span className="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-bold text-white shadow">
+              {qtyInCart}
+            </span>
+          )}
+          {/* Offer / New badges */}
+          {product.isOffer && (
+            <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>
+          )}
+          {product.isNewArrival && !product.isOffer && (
+            <span className="absolute right-1 top-1 rounded-full bg-emerald-500 px-1 py-0.5 text-[7px] font-bold text-white">جديد</span>
+          )}
+
+          {/* Dark gradient overlay at bottom with name + price */}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 pt-4 pb-1">
+            <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
+            {allowPrices && (
+              <p className="text-[8px] font-semibold text-emerald-300">{money(linePrice(product, unit))} د.ع</p>
+            )}
+          </div>
+        </div>
+
+        {/* Add/Remove row below image */}
+        <div className="flex items-center justify-center gap-1 py-1 px-1">
+          {qtyInCart > 0 ? (
+            <>
+              <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-90">
+                <Minus className="h-3 w-3" />
+              </button>
+              <span className="w-5 text-center text-[10px] font-bold text-emerald-700">{qtyInCart}</span>
+              <button onClick={() => onAdd(unit)} disabled={max < 1} className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-600 text-white disabled:opacity-40 active:scale-90">
+                <Plus className="h-3 w-3" />
+              </button>
+            </>
+          ) : (
+            <button
+              disabled={max < 1}
+              onClick={() => onAdd(unit)}
+              className="w-full rounded-lg bg-emerald-600 py-1 text-[9px] font-bold text-white disabled:opacity-40 active:scale-95"
+            >
+              {max < 1 ? "نفد" : "+ سلة"}
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  /* ── Full card (2-3 per row) ───────────────────────────────────────── */
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition hover:shadow-md">
       {/* Image */}
@@ -827,7 +893,6 @@ function ProductCard({
             {product.category}
           </span>
         )}
-        {/* New / Offer badges (mirror the retail catalog) */}
         <div className="absolute right-2 bottom-2 flex flex-col items-end gap-1">
           {product.isNewArrival && (
             <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">✨ جديد</span>
@@ -855,7 +920,6 @@ function ProductCard({
           </div>
         )}
 
-        {/* Price + Stock */}
         <div className="mt-2 flex items-end justify-between gap-1">
           <div>
             {allowPrices ? (
@@ -874,7 +938,6 @@ function ProductCard({
           </div>
         </div>
 
-        {/* Unit picker */}
         <div className="mt-2 flex gap-1">
           {UNITS.map((u) => (
             maxQty(product, u) > 0 ? (
@@ -892,7 +955,6 @@ function ProductCard({
           ))}
         </div>
 
-        {/* Add/Remove */}
         <div className="mt-2">
           {qtyInCart > 0 ? (
             <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-2 py-1">

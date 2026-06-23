@@ -638,7 +638,7 @@ export function ProductDetailPage() {
       {cropSrc && (
         <ImagePreviewModal
           src={cropSrc}
-          onConfirm={() => void onCropDone(cropSrc)}
+          onConfirm={(url) => void onCropDone(url)}
           onCancel={() => setCropSrc(null)}
         />
       )}
