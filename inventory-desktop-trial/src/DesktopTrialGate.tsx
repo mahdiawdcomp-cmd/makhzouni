@@ -1,174 +1,237 @@
-import { useState, type ReactNode } from "react"
-import { ArrowLeft, BadgeCheck, Building2, Check, KeyRound, PackageCheck, Phone, ShieldCheck, Sparkles } from "lucide-react"
-import { login } from "./api/endpoints"
+import { useState, useEffect, type ReactNode } from "react"
+import { PackageCheck, Server, User, Lock, Eye, EyeOff, Wifi, WifiOff, AlertCircle } from "lucide-react"
 import { useAuthStore } from "./store/authStore"
+import axios from "axios"
+import { api } from "./api/client"
 
-type Activation =
-  | { mode: "trial"; shopName: string; ownerName: string; phone: string; expiresAt: string }
-  | { mode: "serial"; serial: string }
+const SERVER_KEY = "makhzouni_server_url"
+const DEFAULT_SERVER = "https://api.mazbwoni.com/api"
 
-const STORAGE_KEY = "makhzouni-desktop-trial-activation-v2"
-
-function readActivation(): Activation | null {
-  try {
-    const value = localStorage.getItem(STORAGE_KEY)
-    if (!value) return null
-
-    const activation = JSON.parse(value) as Activation
-    if (activation.mode === "trial" && new Date(activation.expiresAt).getTime() <= Date.now()) {
-      localStorage.removeItem(STORAGE_KEY)
-      localStorage.removeItem("desktop_trial_shop_name")
-      return null
-    }
-
-    return activation
-  } catch {
-    return null
-  }
+function getSavedServer(): string {
+  return localStorage.getItem(SERVER_KEY) || DEFAULT_SERVER
 }
 
 export function DesktopTrialGate({ children }: { children: ReactNode }) {
-  const [activation, setActivation] = useState<Activation | null>(() => readActivation())
-  const [screen, setScreen] = useState<"welcome" | "trial" | "serial">("welcome")
-  const [trial, setTrial] = useState({ shopName: "", ownerName: "", phone: "" })
-  const [serial, setSerial] = useState("")
-  const [error, setError] = useState("")
+  const user = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
+
+  if (user && token) return <>{children}</>
+  return <SetupScreen />
+}
+
+function SetupScreen() {
+  const [serverUrl, setServerUrl] = useState(getSavedServer)
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
-  const setSession = useAuthStore((state) => state.setSession)
+  const [error, setError] = useState("")
+  const [online, setOnline] = useState(navigator.onLine)
+  const setSession = useAuthStore((s) => s.setSession)
 
-  function save(value: Activation) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(value))
-    localStorage.setItem("desktop_trial_shop_name", value.mode === "trial" ? value.shopName : "نسخة مفعّلة")
-    setActivation(value)
-  }
+  useEffect(() => {
+    const on = () => setOnline(true)
+    const off = () => setOnline(false)
+    window.addEventListener("online", on)
+    window.addEventListener("offline", off)
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off) }
+  }, [])
 
-  async function enterFullApp() {
-    const response = await login({ username: "admin", password: "Password123!" })
-    if (!response.token || !response.user) throw new Error("تعذر فتح الحساب التجريبي")
-    setSession(response.token, response.user, true)
-  }
-
-  async function startTrial() {
-    if (!trial.shopName.trim() || !trial.ownerName.trim() || trial.phone.trim().length < 7) {
-      setError("اكتب اسم المحل واسم صاحب المحل ورقم الهاتف.")
+  async function handleLogin() {
+    if (!username.trim() || !password.trim()) {
+      setError("أدخل اسم المستخدم وكلمة المرور.")
       return
     }
+    if (!serverUrl.trim()) {
+      setError("أدخل رابط السيرفر.")
+      return
+    }
+
     setLoading(true)
     setError("")
+
+    const base = serverUrl.replace(/\/+$/, "")
     try {
-      await enterFullApp()
-      const expiresAt = new Date()
-      expiresAt.setDate(expiresAt.getDate() + 30)
-      save({ mode: "trial", ...trial, expiresAt: expiresAt.toISOString() })
-    } catch {
-      setError("تعذر تشغيل بيئة التجربة. تأكد أن خدمة التجربة تعمل.")
+      const res = await axios.post<{ token: string; user: unknown }>(
+        `${base}/auth/login`,
+        { username: username.trim(), password },
+        { timeout: 15000 }
+      )
+      if (!res.data.token || !res.data.user) throw new Error("استجابة غير صحيحة من السيرفر")
+
+      // Save server URL and update axios base
+      localStorage.setItem(SERVER_KEY, base)
+      api.defaults.baseURL = base
+      ;(api.defaults as Record<string, unknown>).baseURL = base
+
+      setSession(res.data.token, res.data.user as Parameters<typeof setSession>[1], true)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      if (msg) setError(msg)
+      else if (!navigator.onLine) setError("لا يوجد اتصال بالإنترنت.")
+      else setError("تعذر الاتصال بالسيرفر. تحقق من الرابط واسم المستخدم وكلمة المرور.")
     } finally {
       setLoading(false)
     }
   }
-
-  async function activateSerial() {
-    if (serial.trim().length < 8) {
-      setError("السيريال غير مكتمل.")
-      return
-    }
-    setLoading(true)
-    setError("")
-    try {
-      await enterFullApp()
-      save({ mode: "serial", serial: serial.trim().toUpperCase() })
-    } catch {
-      setError("تعذر تشغيل بيئة التفعيل التجريبية.")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (activation) return children
 
   return (
-    <main className="activation-page">
-      <section className="hero-panel">
-        <div className="hero-logo"><PackageCheck size={34} /></div>
-        <span className="eyebrow light">برنامج الحسابات والمخزون</span>
-        <h1>كل البرنامج الأصلي،<br />داخل نسخة الكمبيوتر.</h1>
-        <p>بعد بدء التجربة تدخل إلى لوحة مخزوني الكاملة: الفواتير والمواد والزبائن والسندات والتقارير والإعدادات.</p>
-        <ul>
-          <li><Check /> تجربة كاملة لمدة 30 يوماً</li>
-          <li><Check /> لا يحتاج الزبون فتح موقع أو متصفح</li>
-          <li><Check /> بيئة التجارب ستكون منفصلة عن نظامك الحالي</li>
-        </ul>
-        <div className="hero-foot"><ShieldCheck /> مشروع مستقل — لا يغيّر ملفات أو بيانات الإنتاج</div>
-      </section>
-
-      <section className="form-panel">
-        <div className="form-wrap">
-          {screen !== "welcome" && (
-            <button className="back" onClick={() => { setScreen("welcome"); setError("") }}>
-              <ArrowLeft size={17} /> رجوع
-            </button>
-          )}
-
-          {screen === "welcome" && (
-            <>
-              <span className="eyebrow">أهلاً بك في مخزوني</span>
-              <h2>ابدأ بالطريقة المناسبة</h2>
-              <p className="lead">جرّب البرنامج كاملاً، أو فعّل نسختك بالسيريال.</p>
-              <button className="choice primary-choice" onClick={() => setScreen("trial")}>
-                <div className="choice-icon"><Sparkles /></div>
-                <div><strong>تجربة مجانية 30 يوم</strong><span>الدخول إلى البرنامج الكامل</span></div>
-                <ArrowLeft />
-              </button>
-              <button className="choice" onClick={() => setScreen("serial")}>
-                <div className="choice-icon key"><KeyRound /></div>
-                <div><strong>عندي سيريال تفعيل</strong><span>تفعيل النسخة الخاصة بالمحل</span></div>
-                <ArrowLeft />
-              </button>
-              <p className="privacy"><ShieldCheck /> هذه النسخة لا تتصل ببيانات الإنتاج.</p>
-            </>
-          )}
-
-          {screen === "trial" && (
-            <>
-              <span className="eyebrow">التجربة المجانية</span>
-              <h2>بيانات المحل</h2>
-              <p className="lead">بعدها يفتح البرنامج الأصلي كاملاً.</p>
-              <Field icon={<Building2 />} label="اسم المحل" value={trial.shopName} onChange={(shopName) => setTrial({ ...trial, shopName })} placeholder="مثال: أسواق الرافدين" />
-              <Field icon={<BadgeCheck />} label="اسم صاحب المحل" value={trial.ownerName} onChange={(ownerName) => setTrial({ ...trial, ownerName })} placeholder="الاسم الكامل" />
-              <Field icon={<Phone />} label="رقم الهاتف" value={trial.phone} onChange={(phone) => setTrial({ ...trial, phone })} placeholder="07xxxxxxxxx" dir="ltr" />
-              {error && <p className="error">{error}</p>}
-              <button className="submit" onClick={() => void startTrial()} disabled={loading}><Sparkles size={19} /> {loading ? "جاري تجهيز البرنامج..." : "ابدأ واستخدم البرنامج"}</button>
-            </>
-          )}
-
-          {screen === "serial" && (
-            <>
-              <span className="eyebrow">تفعيل البرنامج</span>
-              <h2>أدخل السيريال</h2>
-              <p className="lead">التحقق الحقيقي من السيريال سيُربط بخدمة التجارب المنفصلة.</p>
-              <Field icon={<KeyRound />} label="السيريال" value={serial} onChange={(value) => setSerial(value.toUpperCase())} placeholder="MKZ-XXXX-XXXX-XXXX" dir="ltr" />
-              {error && <p className="error">{error}</p>}
-              <button className="submit dark" onClick={() => void activateSerial()} disabled={loading}><KeyRound size={19} /> {loading ? "جاري التفعيل..." : "تفعيل البرنامج"}</button>
-            </>
-          )}
+    <main dir="rtl" style={{
+      minHeight: "100vh", display: "flex", background: "#0f172a",
+      fontFamily: "'Cairo', Tahoma, Arial, sans-serif"
+    }}>
+      {/* Right panel - branding */}
+      <div style={{
+        flex: 1, background: "linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%)",
+        display: "flex", flexDirection: "column", justifyContent: "center",
+        alignItems: "flex-end", padding: "48px", gap: "24px",
+        borderLeft: "1px solid #1e293b"
+      }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 18,
+          background: "linear-gradient(135deg, #3b82f6, #0ea5e9)",
+          display: "flex", alignItems: "center", justifyContent: "center"
+        }}>
+          <PackageCheck size={36} color="white" />
         </div>
-      </section>
+        <h1 style={{ color: "white", fontSize: 36, fontWeight: 800, margin: 0, textAlign: "right", lineHeight: 1.3 }}>
+          مخزوني<br />مهدي عوض
+        </h1>
+        <p style={{ color: "#94a3b8", fontSize: 16, margin: 0, textAlign: "right", maxWidth: 280, lineHeight: 1.7 }}>
+          نظام إدارة المخزون والحسابات — برنامج كمبيوتر متكامل
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "flex-end", marginTop: 16 }}>
+          {[
+            "يشتغل بدون متصفح",
+            "بياناتك على جهازك وعلى السيرفر",
+            "يكمل بدون نت ويزامن لما يرجع"
+          ].map((f) => (
+            <div key={f} style={{ display: "flex", gap: 8, alignItems: "center", color: "#cbd5e1", fontSize: 14 }}>
+              <span style={{ color: "#22c55e" }}>✓</span>
+              {f}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Left panel - login form */}
+      <div style={{
+        width: 460, display: "flex", flexDirection: "column",
+        justifyContent: "center", padding: "48px 40px", gap: 24,
+        background: "#0f172a"
+      }}>
+        {/* Online indicator */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6,
+          color: online ? "#22c55e" : "#f59e0b", fontSize: 13
+        }}>
+          {online ? <Wifi size={14} /> : <WifiOff size={14} />}
+          {online ? "متصل بالإنترنت" : "غير متصل — تأكد من النت قبل تسجيل الدخول"}
+        </div>
+
+        <div>
+          <h2 style={{ color: "white", fontSize: 24, fontWeight: 700, margin: "0 0 6px" }}>تسجيل الدخول</h2>
+          <p style={{ color: "#64748b", fontSize: 14, margin: 0 }}>ادخل بياناتك للاتصال بالنظام</p>
+        </div>
+
+        {/* Server URL */}
+        <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ color: "#94a3b8", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+            <Server size={14} /> رابط السيرفر
+          </span>
+          <input
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            dir="ltr"
+            placeholder="https://api.mazbwoni.com/api"
+            style={inputStyle}
+          />
+        </label>
+
+        {/* Username */}
+        <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ color: "#94a3b8", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+            <User size={14} /> اسم المستخدم
+          </span>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="mahdi"
+            dir="ltr"
+            style={inputStyle}
+            onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
+          />
+        </label>
+
+        {/* Password */}
+        <label style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <span style={{ color: "#94a3b8", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+            <Lock size={14} /> كلمة المرور
+          </span>
+          <div style={{ position: "relative" }}>
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              type={showPass ? "text" : "password"}
+              placeholder="••••••••"
+              dir="ltr"
+              style={{ ...inputStyle, paddingLeft: 40 }}
+              onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
+            />
+            <button
+              onClick={() => setShowPass(!showPass)}
+              style={{
+                position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer", color: "#64748b", padding: 4
+              }}
+            >
+              {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </label>
+
+        {error && (
+          <div style={{
+            background: "#450a0a", border: "1px solid #7f1d1d", borderRadius: 8,
+            padding: "10px 14px", color: "#fca5a5", fontSize: 13,
+            display: "flex", gap: 8, alignItems: "flex-start"
+          }}>
+            <AlertCircle size={15} style={{ marginTop: 1, flexShrink: 0 }} />
+            {error}
+          </div>
+        )}
+
+        <button
+          onClick={() => void handleLogin()}
+          disabled={loading || !online}
+          style={{
+            background: loading || !online ? "#1e293b" : "linear-gradient(135deg, #3b82f6, #0ea5e9)",
+            color: loading || !online ? "#64748b" : "white",
+            border: "none", borderRadius: 10, padding: "13px 24px",
+            fontSize: 16, fontWeight: 700, cursor: loading || !online ? "not-allowed" : "pointer",
+            fontFamily: "inherit", transition: "all 0.2s"
+          }}
+        >
+          {loading ? "جاري الاتصال..." : "دخول"}
+        </button>
+
+        <p style={{ color: "#334155", fontSize: 12, textAlign: "center", margin: 0 }}>
+          v1.0.0 — مخزوني مهدي عوض
+        </p>
+      </div>
     </main>
   )
 }
 
-function Field({ icon, label, value, onChange, placeholder, dir = "rtl" }: {
-  icon: ReactNode
-  label: string
-  value: string
-  onChange: (value: string) => void
-  placeholder: string
-  dir?: "rtl" | "ltr"
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <div>{icon}<input dir={dir} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></div>
-    </label>
-  )
+const inputStyle: React.CSSProperties = {
+  background: "#1e293b",
+  border: "1px solid #334155",
+  borderRadius: 8,
+  padding: "11px 14px",
+  color: "white",
+  fontSize: 14,
+  fontFamily: "inherit",
+  outline: "none",
+  width: "100%",
+  boxSizing: "border-box",
 }
