@@ -14,6 +14,7 @@ import {
   FileJson,
   HardDrive,
   ImagePlus,
+  Keyboard,
   KeyRound,
   Loader2,
   MessageCircle,
@@ -21,6 +22,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
   Save,
   Send,
   ShieldCheck,
@@ -55,6 +57,13 @@ import {
 } from "../api/endpoints"
 import type { WhatsAppStatus } from "../api/endpoints"
 import type { AppSettings, MessageTemplate } from "../types/api"
+import {
+  DEFAULT_SHORTCUTS,
+  loadShortcutOverrides,
+  saveShortcutOverrides,
+  resolveShortcuts,
+  type ShortcutOverride,
+} from "../hooks/useGlobalShortcuts"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -134,18 +143,19 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive" | "danger"
+type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
-  { id: "store",    label: "المتجر",        icon: Building2 },
-  { id: "theme",    label: "المظهر",        icon: Palette },
-  { id: "whatsapp", label: "واتساب",        icon: MessageCircle },
-  { id: "alerts",   label: "التنبيهات",     icon: BellRing },
-  { id: "security", label: "الأمان",        icon: KeyRound },
-  { id: "backup",   label: "النسخ الاحتياطي", icon: Download },
-  { id: "admin",    label: "الإدارة",       icon: ShieldCheck },
-  { id: "archive",  label: "الأرشيف",       icon: Archive },
-  { id: "danger",   label: "منطقة الخطر",   icon: AlertTriangle },
+  { id: "store",     label: "المتجر",           icon: Building2 },
+  { id: "theme",     label: "المظهر",           icon: Palette },
+  { id: "whatsapp",  label: "واتساب",           icon: MessageCircle },
+  { id: "alerts",    label: "التنبيهات",        icon: BellRing },
+  { id: "security",  label: "الأمان",           icon: KeyRound },
+  { id: "backup",    label: "النسخ الاحتياطي",  icon: Download },
+  { id: "admin",     label: "الإدارة",          icon: ShieldCheck },
+  { id: "archive",   label: "الأرشيف",          icon: Archive },
+  { id: "shortcuts", label: "الاختصارات",       icon: Keyboard },
+  { id: "danger",    label: "منطقة الخطر",      icon: AlertTriangle },
 ]
 
 export function SettingsPage() {
@@ -792,6 +802,9 @@ export function SettingsPage() {
       {activeTab === "archive" && (
         <ArchivePanel queryClient={queryClient} />
       )}
+
+      {/* ── SHORTCUTS ──────────────────────────────────────── */}
+      {activeTab === "shortcuts" && <ShortcutsPanel />}
 
       {/* ── DANGER ZONE ────────────────────────────────────── */}
       {activeTab === "danger" && (
@@ -1582,5 +1595,139 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
         <span className={`block h-5 w-5 rounded-full bg-white shadow transition-transform ${checked ? "-translate-x-5" : ""}`} />
       </span>
     </button>
+  )
+}
+
+// ── Shortcuts Panel ───────────────────────────────────────────────────────────
+
+const MOD_LABELS: Record<string, string> = {
+  "ctrl": "Ctrl",
+  "ctrl+shift": "Ctrl + Shift",
+}
+
+function ShortcutsPanel() {
+  const [overrides, setOverrides] = useState<ShortcutOverride[]>(() => loadShortcutOverrides())
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [listenKey, setListenKey] = useState<{ key: string; mod: "ctrl" | "ctrl+shift" } | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  const resolved = resolveShortcuts(overrides)
+
+  useEffect(() => {
+    if (!editingId) return
+    function capture(e: KeyboardEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      if (["Control", "Shift", "Meta", "Alt"].includes(e.key)) return
+      e.preventDefault()
+      const mod: "ctrl" | "ctrl+shift" = e.shiftKey ? "ctrl+shift" : "ctrl"
+      setListenKey({ key: e.key.toLowerCase(), mod })
+    }
+    window.addEventListener("keydown", capture)
+    return () => window.removeEventListener("keydown", capture)
+  }, [editingId])
+
+  function confirmEdit() {
+    if (!editingId || !listenKey) return
+    setOverrides((prev) => {
+      const filtered = prev.filter((o) => o.id !== editingId)
+      return [...filtered, { id: editingId, key: listenKey.key, mod: listenKey.mod }]
+    })
+    setEditingId(null)
+    setListenKey(null)
+  }
+
+  function toggleDisabled(id: string, disabled: boolean) {
+    setOverrides((prev) => {
+      const filtered = prev.filter((o) => o.id !== id)
+      const def = DEFAULT_SHORTCUTS.find((s) => s.id === id)!
+      const existing = prev.find((o) => o.id === id)
+      return [...filtered, { id, key: existing?.key ?? def.defaultKey, mod: existing?.mod ?? def.defaultMod, disabled }]
+    })
+  }
+
+  function handleSave() {
+    saveShortcutOverrides(overrides)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold">اختصارات لوحة المفاتيح</h2>
+          <p className="text-sm text-slate-500 mt-0.5">اضغط "تغيير" ثم اضغط الاختصار الجديد مباشرة — يعمل من أي صفحة ما عدا حقول الكتابة</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setOverrides([])} className="gap-1.5">
+            <RotateCcw className="h-3.5 w-3.5" />
+            إعادة الضبط
+          </Button>
+          <Button size="sm" onClick={handleSave} className="gap-1.5">
+            {saved ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+            {saved ? "تم الحفظ" : "حفظ"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs">
+            <tr>
+              <th className="text-right px-4 py-2.5 font-medium">الوظيفة</th>
+              <th className="text-right px-4 py-2.5 font-medium">الاختصار الحالي</th>
+              <th className="text-right px-4 py-2.5 font-medium">الافتراضي</th>
+              <th className="px-4 py-2.5 font-medium text-center">تفعيل</th>
+              <th className="px-4 py-2.5 font-medium text-center">تعديل</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {resolved.map((sc) => {
+              const isEditing = editingId === sc.id
+              const isDefault = sc.key === sc.defaultKey && sc.mod === sc.defaultMod
+              return (
+                <tr key={sc.id} className={`transition-colors ${sc.disabled ? "opacity-40" : "hover:bg-slate-50 dark:hover:bg-slate-800/30"}`}>
+                  <td className="px-4 py-3 font-medium">{sc.label}</td>
+                  <td className="px-4 py-3">
+                    {isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 bg-slate-100 dark:bg-slate-700 rounded px-2 py-1 min-w-[140px]">
+                          {listenKey ? `${MOD_LABELS[listenKey.mod]} + ${listenKey.key.toUpperCase()}` : "اضغط الاختصار الجديد..."}
+                        </span>
+                        <Button size="sm" variant="outline" onClick={confirmEdit} disabled={!listenKey} className="h-7 px-2 text-xs">تأكيد</Button>
+                        <Button size="sm" variant="ghost" onClick={() => { setEditingId(null); setListenKey(null) }} className="h-7 px-2 text-xs">إلغاء</Button>
+                      </div>
+                    ) : (
+                      <kbd className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs font-mono ${isDefault ? "border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" : "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400"}`}>
+                        {MOD_LABELS[sc.mod]} + {sc.key.toUpperCase()}
+                      </kbd>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <kbd className="inline-flex items-center rounded border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 text-xs font-mono text-slate-400">
+                      {MOD_LABELS[sc.defaultMod]} + {sc.defaultKey.toUpperCase()}
+                    </kbd>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => toggleDisabled(sc.id, !sc.disabled)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${!sc.disabled ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${!sc.disabled ? "translate-x-6" : "translate-x-1"}`} />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <Button variant="ghost" size="sm" onClick={() => setEditingId(sc.id)} disabled={sc.disabled || isEditing} className="h-7 px-3 text-xs">
+                      تغيير
+                    </Button>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-slate-400">* التغييرات تُحفظ محلياً على هذا الجهاز. اضغط "حفظ" لتفعيلها.</p>
+    </div>
   )
 }
