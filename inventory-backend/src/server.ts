@@ -52,6 +52,8 @@ function isCorsAllowed(origin: string | undefined): boolean {
   if (allowedOrigins.includes(origin)) return true;
   // Allow all *.mazbwoni.com subdomains automatically
   if (/^https:\/\/[a-z0-9-]+\.mazbwoni\.com$/.test(origin)) return true;
+  // Allow Tauri desktop app (tauri.localhost or tauri://localhost)
+  if (origin === "https://tauri.localhost" || origin === "http://tauri.localhost" || origin === "tauri://localhost") return true;
   return false;
 }
 
