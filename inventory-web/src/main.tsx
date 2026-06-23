@@ -15,12 +15,12 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      // Re-fetch when the user switches back to the tab (catches updates from other open tabs)
-      refetchOnWindowFocus: true,
-      // Auto-refresh every 30 seconds in the background
-      refetchInterval: 30_000,
-      // Keep data for 15 seconds before considering it stale
-      staleTime: 15_000,
+      // SSE realtime bridge handles cross-tab invalidation — window focus refetch is redundant
+      refetchOnWindowFocus: false,
+      // Auto-refresh every 2 minutes in the background (SSE handles instant updates)
+      refetchInterval: 120_000,
+      // Show cached data instantly for 5 minutes — avoids loading spinners on every page switch
+      staleTime: 300_000,
     },
   },
 })

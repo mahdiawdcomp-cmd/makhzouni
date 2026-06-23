@@ -298,4 +298,12 @@ export function startNotificationJobs() {
   cron.schedule("*/4 * * * *", () => {
     prisma.$queryRaw`SELECT 1`.catch(() => {/* silent */});
   });
+
+  // Keep Railway container alive — HTTP self-ping every 3 minutes.
+  // Railway sleeps the container after ~15 min of no HTTP traffic even if DB queries are running.
+  cron.schedule("*/3 * * * *", () => {
+    const base = process.env.BACKEND_PUBLIC_URL?.trim() ?? "https://api.mazbwoni.com";
+    fetch(`${base}/health`, { signal: AbortSignal.timeout(10_000) })
+      .catch(() => {/* silent — just keeping the process warm */});
+  });
 }
