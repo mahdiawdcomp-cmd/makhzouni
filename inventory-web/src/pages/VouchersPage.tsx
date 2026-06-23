@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Ban, Eye, Pencil, Plus, Receipt, ReceiptText, RefreshCw, Wallet } from "lucide-react"
-import { cancelVoucher, createVoucher, getCustomers, getVouchers } from "../api/endpoints"
+import { Ban, Eye, Pencil, Plus, Receipt, ReceiptText, RefreshCw, Trash2, Wallet } from "lucide-react"
+import { cancelVoucher, createVoucher, deleteVoucher, getCustomers, getVouchers } from "../api/endpoints"
 import type { Voucher } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -32,11 +32,21 @@ export function VouchersPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [cancelVoucherId, setCancelVoucherId] = useState<string | null>(null)
+  const [deleteVoucherId, setDeleteVoucherId] = useState<string | null>(null)
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelVoucher(id),
     onSuccess: () => {
       setCancelVoucherId(null)
+      void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
+      void queryClient.invalidateQueries({ queryKey: ["customers"] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteVoucher(id),
+    onSuccess: () => {
+      setDeleteVoucherId(null)
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
     },
@@ -277,6 +287,15 @@ export function VouchersPage() {
                             <Ban className="h-4 w-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="حذف نهائي"
+                          className="border-rose-300 text-rose-700 hover:bg-rose-50"
+                          onClick={() => setDeleteVoucherId(voucher.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TD>
                   </TR>
@@ -465,6 +484,16 @@ export function VouchersPage() {
         loading={cancelMutation.isPending}
         onConfirm={() => { if (cancelVoucherId) cancelMutation.mutate(cancelVoucherId) }}
         onCancel={() => setCancelVoucherId(null)}
+      />
+      <ConfirmDialog
+        open={!!deleteVoucherId}
+        title="حذف هذا السند نهائياً؟"
+        description="سيُحذف من قاعدة البيانات ولا يمكن التراجع عن هذا الإجراء."
+        confirmLabel="حذف نهائي"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => { if (deleteVoucherId) deleteMutation.mutate(deleteVoucherId) }}
+        onCancel={() => setDeleteVoucherId(null)}
       />
     </div>
   )

@@ -331,6 +331,8 @@ function CatalogShop({
   const [cartOpen, setCartOpen] = useState(false)
   const [notes, setNotes] = useState("")
   const [submitted, setSubmitted] = useState<string | null>(null)
+  const [perRow, setPerRow] = useState(3)
+  const [bannerIndex, setBannerIndex] = useState(0)
   const searchRef = useRef<HTMLInputElement>(null)
 
   // Welcome banner — shown once per session
@@ -340,6 +342,12 @@ function CatalogShop({
     sessionStorage.setItem(welcomeKey, "1")
     setShowWelcome(false)
   }
+
+  // Auto-advance banner every 3 seconds
+  useEffect(() => {
+    const timer = window.setInterval(() => setBannerIndex((i) => i + 1), 3000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   // Load predefined categories for filter panel
   const catsQuery = useQuery({
@@ -624,16 +632,69 @@ function CatalogShop({
         )}
       </header>
 
-      {/* ── Welcome banner ── */}
-      <div className="mx-auto max-w-7xl px-3 pt-4 pb-1">
-        <div className="flex items-center justify-between">
+      {/* ── Animated banner ── */}
+      {(() => {
+        const bannerProducts = products.filter((p) => p.imageUrl && p.currentStock > 0).slice(0, 8)
+        if (bannerProducts.length < 2) return null
+        const idx = bannerIndex % bannerProducts.length
+        return (
+          <div className="relative overflow-hidden h-36 sm:h-48">
+            {bannerProducts.map((p, i) => (
+              <div
+                key={p.id}
+                className="absolute inset-0 transition-opacity duration-700"
+                style={{ opacity: i === idx ? 1 : 0 }}
+              >
+                <img src={p.imageUrl!} alt={p.name} className="h-full w-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-3 right-3 text-white">
+                  <p className="text-base font-bold drop-shadow">{p.name}</p>
+                  {allowPrices && <p className="text-sm font-semibold text-emerald-300">{money(p.salePrice)} د.ع</p>}
+                </div>
+              </div>
+            ))}
+            {/* Dots */}
+            <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">
+              {bannerProducts.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setBannerIndex(i)}
+                  className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-5 bg-white" : "w-1.5 bg-white/50")}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Welcome bar ── */}
+      <div className="mx-auto max-w-7xl px-3 pt-3 pb-1">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-xs text-gray-500">مرحباً</p>
             <p className="text-sm font-bold text-gray-900">{customerName} 👋</p>
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             {allowPrices && <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-semibold text-blue-700">الأسعار ظاهرة</span>}
             {!showStock && <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700">الكميات مخفية</span>}
+            {/* Per-row selector */}
+            <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs">
+              <span className="text-gray-400">السطر:</span>
+              {[2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setPerRow(n)}
+                  className={cn(
+                    "h-5 w-5 rounded-full text-[11px] font-bold transition-all",
+                    perRow === n ? "bg-emerald-600 text-white" : "text-gray-500 hover:bg-gray-100",
+                  )}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -641,7 +702,7 @@ function CatalogShop({
       {/* ── Product Grid ── */}
       <main className="mx-auto max-w-7xl px-3 pb-28 pt-3">
         {productsQuery.isLoading && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
             {Array.from({ length: 10 }).map((_, i) => (
               <div key={i} className="animate-pulse rounded-2xl bg-white">
                 <div className="aspect-square bg-gray-200 rounded-t-2xl" />
@@ -695,7 +756,7 @@ function CatalogShop({
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
           {visible.map((product) => renderCard(product))}
         </div>
       </main>

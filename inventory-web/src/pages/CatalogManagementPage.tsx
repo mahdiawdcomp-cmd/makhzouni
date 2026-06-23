@@ -12,6 +12,7 @@ import {
   Search,
   ShieldOff,
   Tag,
+  Trash2,
   Unlock,
   X,
 } from "lucide-react"
@@ -20,6 +21,7 @@ import relativeTime from "dayjs/plugin/relativeTime"
 import "dayjs/locale/ar"
 import {
   broadcastCatalogLink,
+  deleteCustomer,
   getCatalogCustomers,
   getCustomerTags,
   getCustomersPaged,
@@ -29,8 +31,10 @@ import {
   sendCatalogLinkToCustomer,
 } from "../api/endpoints"
 import type { CatalogCustomer } from "../types/api"
+import { useAuthStore } from "../store/authStore"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
@@ -161,11 +165,23 @@ function GrantDialog({
   )
 }
 
-function CustomerRow({ customer }: { customer: CatalogCustomer }) {
+function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin: boolean }) {
   const [grantOpen, setGrantOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [promo, setPromo] = useState("")
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const qc = useQueryClient()
+
+  const deleteMut = useMutation({
+    mutationFn: () => deleteCustomer(customer.id),
+    onSuccess: () => {
+      setConfirmDelete(false)
+      void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+      toast({ title: `تم حذف الزبون ${customer.name}` })
+    },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحذف", variant: "destructive" }),
+  })
 
   const sendLinkMut = useMutation({
     mutationFn: () => sendCatalogLinkToCustomer(customer.id, promo.trim() || undefined),
@@ -196,12 +212,36 @@ function CustomerRow({ customer }: { customer: CatalogCustomer }) {
   return (
     <>
       {grantOpen && <GrantDialog customer={customer} onClose={() => setGrantOpen(false)} />}
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`حذف ${customer.name} نهائياً؟`}
+        description="سيُحذف الزبون وكل بياناته بشكل دائم. لا يمكن التراجع."
+        confirmLabel="حذف نهائي"
+        destructive
+        loading={deleteMut.isPending}
+        onConfirm={() => deleteMut.mutate()}
+        onCancel={() => setConfirmDelete(false)}
+      />
 
       <tr className="border-b last:border-0 hover:bg-slate-50/60 transition-colors">
         {/* الزبون */}
         <td className="px-4 py-3">
-          <p className="font-semibold text-slate-800">{customer.name}</p>
-          <p className="text-xs text-slate-500 mt-0.5">{customer.phone}</p>
+          <div className="flex items-center gap-2">
+            <div>
+              <p className="font-semibold text-slate-800">{customer.name}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{customer.phone}</p>
+            </div>
+            {isAdmin && (
+              <button
+                type="button"
+                title="حذف الزبون"
+                onClick={() => setConfirmDelete(true)}
+                className="mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 text-rose-500 hover:bg-rose-50 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </td>
 
         {/* الحالة */}
@@ -400,6 +440,7 @@ function isSentNotOpened(c: CatalogCustomer) {
 }
 
 export function CatalogManagementPage() {
+  const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
 
@@ -535,7 +576,7 @@ export function CatalogManagementPage() {
                   </tr>
                 ) : (
                   filtered.map((customer) => (
-                    <CustomerRow key={customer.id} customer={customer} />
+                    <CustomerRow key={customer.id} customer={customer} isAdmin={!!isAdmin} />
                   ))
                 )}
               </tbody>

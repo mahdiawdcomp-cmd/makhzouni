@@ -1083,6 +1083,14 @@ export function InvoiceCreatePage() {
   }
 
   // Ctrl+S → save invoice from anywhere on this page
+  // Auto-focus customer field when the page first loads (new invoice)
+  useEffect(() => {
+    if (!savedInvoiceId) {
+      window.setTimeout(() => customerInputRef.current?.focus(), 100)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {

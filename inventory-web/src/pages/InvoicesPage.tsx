@@ -9,9 +9,9 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Ban, Eye, Pencil, Plus, Receipt, RotateCcw, ShoppingCart } from "lucide-react"
+import { Ban, Eye, Pencil, Plus, Receipt, RotateCcw, ShoppingCart, Trash2 } from "lucide-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { cancelInvoice } from "../api/endpoints"
+import { cancelInvoice, permanentDeleteInvoice } from "../api/endpoints"
 import { useInvoices } from "../hooks/useInvoices"
 import type { Invoice, InvoiceType } from "../types/api"
 import { Badge } from "../components/ui/badge"
@@ -83,11 +83,21 @@ export function InvoicesPage() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [cancelId, setCancelId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelInvoice(id),
     onSuccess: () => {
       setCancelId(null)
+      void qc.invalidateQueries({ queryKey: ["invoices"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => permanentDeleteInvoice(id),
+    onSuccess: () => {
+      setDeleteId(null)
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
@@ -207,6 +217,15 @@ export function InvoicesPage() {
                 <Ban className="h-4 w-4" />
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              title="حذف نهائي"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50"
+              onClick={() => setDeleteId(row.original.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
         ),
       },
@@ -378,6 +397,16 @@ export function InvoicesPage() {
         loading={cancelMutation.isPending}
         onConfirm={() => { if (cancelId) cancelMutation.mutate(cancelId) }}
         onCancel={() => setCancelId(null)}
+      />
+      <ConfirmDialog
+        open={!!deleteId}
+        title="حذف هذه الفاتورة نهائياً؟"
+        description="سيُحذف من قاعدة البيانات ويرجع المخزون. لا يمكن التراجع عن هذا الإجراء."
+        confirmLabel="حذف نهائي"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId) }}
+        onCancel={() => setDeleteId(null)}
       />
     </div>
   )

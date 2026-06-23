@@ -476,7 +476,7 @@ export async function reactivateInvoice(id: string) {
 }
 
 export async function permanentDeleteInvoice(id: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/permanent`)
+  const { data } = await api.delete<ApiEnvelope<Invoice>>(`/invoices/${id}/permanent`)
   return data
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Download, Edit, Printer, ScanQrCode, Trash2 } from "lucide-react"
+import { ArrowRight, Download, Edit, FlipHorizontal2, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
 import { getCatalogCategories, productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
@@ -67,6 +67,22 @@ async function compressProductImage(file: File): Promise<string> {
   if (!ctx) throw new Error("Image compression failed")
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
   return canvas.toDataURL("image/jpeg", 0.82)
+}
+
+async function rotateDataUrl(dataUrl: string, degrees: 90 | 180 | 270): Promise<string> {
+  const img = new Image()
+  img.src = dataUrl
+  await new Promise<void>((resolve) => { img.onload = () => resolve() })
+  const swap = degrees === 90 || degrees === 270
+  const canvas = document.createElement("canvas")
+  canvas.width = swap ? img.height : img.width
+  canvas.height = swap ? img.width : img.height
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return dataUrl
+  ctx.translate(canvas.width / 2, canvas.height / 2)
+  ctx.rotate((degrees * Math.PI) / 180)
+  ctx.drawImage(img, -img.width / 2, -img.height / 2)
+  return canvas.toDataURL("image/jpeg", 0.9)
 }
 
 export function ProductDetailPage() {
@@ -461,7 +477,23 @@ export function ProductDetailPage() {
                       />
                     </label>
                   </Button>
-                  {editForm.imageUrl ? <Button type="button" variant="outline" onClick={() => setEditForm({ ...editForm, imageUrl: null })}>حذف الصورة</Button> : null}
+                  {editForm.imageUrl ? (
+                    <>
+                      <Button type="button" variant="outline" size="sm" title="تدوير 90° يسار"
+                        onClick={() => { if (editForm.imageUrl) void rotateDataUrl(editForm.imageUrl, 270).then((url) => setEditForm((f) => ({ ...f, imageUrl: url }))) }}>
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" title="تدوير 90° يمين"
+                        onClick={() => { if (editForm.imageUrl) void rotateDataUrl(editForm.imageUrl, 90).then((url) => setEditForm((f) => ({ ...f, imageUrl: url }))) }}>
+                        <RotateCw className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" title="قلب 180°"
+                        onClick={() => { if (editForm.imageUrl) void rotateDataUrl(editForm.imageUrl, 180).then((url) => setEditForm((f) => ({ ...f, imageUrl: url }))) }}>
+                        <FlipHorizontal2 className="h-4 w-4" />
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => setEditForm({ ...editForm, imageUrl: null })}>حذف الصورة</Button>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </div>
