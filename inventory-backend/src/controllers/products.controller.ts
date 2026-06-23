@@ -12,9 +12,11 @@ import {
   backfillQrCodes,
   createProduct,
   deleteProduct,
+  getDeletedProducts,
   getProductById,
   getProductByQrCode,
   listProducts,
+  restoreProduct,
   updateProduct,
 } from "../services/product.service";
 import { AppError } from "../utils/app-error";
@@ -136,6 +138,17 @@ export const removeProduct = asyncHandler(async (req, res) => {
     message: "Product deleted successfully",
     data: product,
   });
+});
+
+export const getDeletedProductsList = asyncHandler(async (_req, res) => {
+  const products = await getDeletedProducts();
+  res.json({ success: true, data: products });
+});
+
+export const restoreProductCtrl = asyncHandler(async (req, res) => {
+  const { id } = req.params as { id: string };
+  const product = await restoreProduct(id);
+  res.json({ success: true, message: "تم استرجاع المادة", data: product });
 });
 
 export const getProductQr = asyncHandler(async (req, res) => {

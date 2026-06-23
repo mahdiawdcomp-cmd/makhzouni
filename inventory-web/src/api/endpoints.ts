@@ -242,6 +242,16 @@ export async function deleteProduct(id: string) {
   return data
 }
 
+export async function getDeletedProducts() {
+  const { data } = await api.get<ApiEnvelope<Product[]>>("/products/deleted")
+  return data.data
+}
+
+export async function restoreProduct(id: string) {
+  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/restore`)
+  return data
+}
+
 export async function getProductMovement(productId: string) {
   const { data } = await api.get<ApiEnvelope<ProductMovementResponse>>("/reports/products/movement", {
     params: { productId },
@@ -478,6 +488,16 @@ export async function reactivateInvoice(id: string) {
 export async function permanentDeleteInvoice(id: string) {
   const { data } = await api.delete<ApiEnvelope<Invoice>>(`/invoices/${id}/permanent`)
   return data
+}
+
+export async function restoreArchivedInvoice(id: string) {
+  const { data } = await api.post<ApiEnvelope<Invoice>>(`/invoices/${id}/restore-archived`)
+  return data
+}
+
+export async function getRecentlyDeletedInvoices() {
+  const { data } = await api.get<ApiEnvelope<Invoice[]>>("/invoices/recently-deleted")
+  return data.data
 }
 
 export async function getInvoiceAuditTrail(id: string) {

@@ -4,12 +4,14 @@ import {
   backfillProductQrs,
   editProduct,
   getCartonSheetPdf,
+  getDeletedProductsList,
   getPieceLabelPdf,
   getProductByQr,
   getProductDetails,
   getProductQr,
   getProducts,
   removeProduct,
+  restoreProductCtrl,
 } from "../controllers/products.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
@@ -33,9 +35,11 @@ router.use(authMiddleware);
 router.get("/", validate(listProductsSchema), getProducts);
 router.post("/", validate(createProductSchema), addProduct);
 router.post("/backfill-qr", backfillProductQrs);
+router.get("/deleted", getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);
 router.get("/:id", validate(idParamSchema), getProductDetails);
 router.put("/:id", validate(updateProductSchema), editProduct);
 router.delete("/:id", validate(idParamSchema), removeProduct);
+router.post("/:id/restore", validate(idParamSchema), restoreProductCtrl);
 
 export default router;

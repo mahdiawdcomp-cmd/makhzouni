@@ -1,4 +1,4 @@
-import {
+﻿import {
   InvoiceStatus,
   InvoiceType,
   PaymentType,
@@ -1029,6 +1029,34 @@ export async function reactivateInvoice(id: string, db?: Db) {
   return prisma.$transaction((tx) => reactivateInvoiceInTransaction(tx, id));
 }
 
+
+const RESTORE_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+export async function listRecentlyDeletedInvoices() {
+  const cutoff = new Date(Date.now() - RESTORE_WINDOW_MS);
+  return prisma.invoice.findMany({
+    where: { archivedAt: { not: null, gte: cutoff } },
+    orderBy: { archivedAt: "desc" },
+    include: { customer: { select: { id: true, name: true } } },
+  });
+}
+
+export async function restoreArchivedInvoice(id: string) {
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findUnique({ where: { id }, include: { items: true } });
+    if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    if (!invoice.archivedAt) throw new AppError("الفاتورة غير محذوفة", 400, "INVOICE_NOT_ARCHIVED");
+
+    const cutoff = new Date(Date.now() - RESTORE_WINDOW_MS);
+    if (invoice.archivedAt < cutoff) throw new AppError("انتهت مهلة الاسترجاع (48 ساعة)", 400, "RESTORE_WINDOW_EXPIRED");
+
+    await tx.invoice.update({ where: { id }, data: { archivedAt: null, deletedBy: null, deleteReason: null } });
+    await applyInvoiceItemsStock(tx, id);
+    await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.ACTIVE } });
+    await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
+    return recalculateInvoiceBalances(tx, id);
+  });
+}
 // Accounting-safe "delete": the invoice row and all its related records
 // (items, stock movements, coupon redemptions) are RETAINED for audit. The
 // invoice is reversed (stock + balance) and marked archived so it disappears
@@ -1060,3 +1088,4 @@ export async function hardDeleteInvoice(id: string, deletedBy?: string, reason?:
     return { id, invoiceNumber: invoice.invoiceNumber };
   });
 }
+

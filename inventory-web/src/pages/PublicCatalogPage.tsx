@@ -331,7 +331,7 @@ function CatalogShop({
   const [cartOpen, setCartOpen] = useState(false)
   const [notes, setNotes] = useState("")
   const [submitted, setSubmitted] = useState<string | null>(null)
-  const [perRow, setPerRow] = useState(3)
+  const [perRow, setPerRow] = useState(2)
   const [bannerIndex, setBannerIndex] = useState(0)
   const searchRef = useRef<HTMLInputElement>(null)
 

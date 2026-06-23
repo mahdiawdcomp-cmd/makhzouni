@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent, type KeyboardEvent as Rea
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
-import { useQuery } from "@tanstack/react-query"
-import { getBranches, getCatalogCategories } from "../api/endpoints"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { getBranches, getCatalogCategories, getDeletedProducts, restoreProduct } from "../api/endpoints"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, X } from "lucide-react"
+import { ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -361,6 +361,24 @@ export function ProductsPage() {
   const [dist, setDist] = useState<Record<string, number>>({})
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
+  const [restoreConfirm, setRestoreConfirm] = useState<Product | null>(null)
+  const [trashOpen, setTrashOpen] = useState(false)
+  const qc = useQueryClient()
+
+  const deletedProductsQuery = useQuery({
+    queryKey: ["products", "deleted"],
+    queryFn: getDeletedProducts,
+    staleTime: 30_000,
+  })
+
+  const restoreProductMutation = useMutation({
+    mutationFn: (id: string) => restoreProduct(id),
+    onSuccess: () => {
+      setRestoreConfirm(null)
+      void qc.invalidateQueries({ queryKey: ["products"] })
+    },
+    onError: (err: Error) => { alert(err.message) },
+  })
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null)
@@ -454,11 +472,14 @@ export function ProductsPage() {
     [navigate],
   )
 
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 })
+
   const table = useReactTable({
     data: sortedProducts,
     columns,
-    state: { sorting },
+    state: { sorting, pagination },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
     autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -940,11 +961,20 @@ export function ProductsPage() {
               </tfoot>
             </table>
           </div>
-          <div className="flex items-center justify-between gap-2 pb-20 md:pb-0">
-
-            <Button variant="outline" className="px-3" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
-            <span className="text-center text-xs text-slate-500 md:text-sm">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
-            <Button variant="outline" className="px-3" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-20 md:pb-0">
+            <div className="flex items-center gap-1">
+              {[10, 50, 100].map((n) => (
+                <Button key={n} size="sm" variant={pagination.pageSize === n ? "default" : "outline"}
+                  onClick={() => setPagination({ pageIndex: 0, pageSize: n })}>
+                  {n}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" className="px-3" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
+              <span className="text-center text-xs text-slate-500 md:text-sm">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1} — {filtered.length} منتج</span>
+              <Button variant="outline" className="px-3" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+            </div>
           </div>
           </>
           )}
@@ -1354,6 +1384,46 @@ export function ProductsPage() {
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      <ConfirmDialog
+        open={!!restoreConfirm}
+        title={`استرجاع "${restoreConfirm?.name ?? ""}"؟`}
+        description="ستعود المادة لقائمة المواد وتصبح متاحة للفواتير."
+        confirmLabel="استرجاع"
+        loading={restoreProductMutation.isPending}
+        onConfirm={() => { if (restoreConfirm) restoreProductMutation.mutate(restoreConfirm.id) }}
+        onCancel={() => setRestoreConfirm(null)}
+      />
+
+      {/* Recently deleted products (48h restore window) */}
+      {(deletedProductsQuery.data?.length ?? 0) > 0 && (
+        <div className="fixed bottom-20 left-4 z-30 w-72 rounded-xl border border-amber-200 bg-amber-50 shadow-lg dark:bg-amber-950/30">
+          <button
+            className="flex w-full items-center justify-between px-4 py-2.5 text-sm font-semibold text-amber-700 dark:text-amber-400"
+            onClick={() => setTrashOpen((v) => !v)}
+          >
+            <span className="flex items-center gap-1.5">
+              <Trash2 className="h-4 w-4" />
+              محذوفات ({deletedProductsQuery.data?.length})
+            </span>
+            {trashOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {trashOpen && (
+            <div className="max-h-52 overflow-y-auto border-t border-amber-200 px-3 py-2 space-y-1.5">
+              {deletedProductsQuery.data?.map((p) => (
+                <div key={p.id} className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-900 px-2.5 py-1.5 shadow-sm">
+                  <span className="text-xs font-medium truncate max-w-[140px]">{p.name}</span>
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs gap-1 border-emerald-300 text-emerald-700"
+                    onClick={() => setRestoreConfirm(p)}>
+                    <Undo2 className="h-3 w-3" /> رجّع
+                  </Button>
+                </div>
+              ))}
+              <p className="text-center text-[10px] text-amber-600 py-1">الاسترجاع متاح خلال 48 ساعة</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lightbox for product images */}
       {lightboxImage && (

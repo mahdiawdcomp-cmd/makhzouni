@@ -439,6 +439,32 @@ export async function deleteProduct(id: string, db: Db = prisma) {
   return serializeProduct(product);
 }
 
+const RESTORE_WINDOW_MS = 48 * 60 * 60 * 1000; // 48 hours
+
+export async function getDeletedProducts(db: Db = prisma) {
+  const cutoff = new Date(Date.now() - RESTORE_WINDOW_MS);
+  const products = await db.product.findMany({
+    where: { deletedAt: { not: null, gte: cutoff } },
+    orderBy: { deletedAt: "desc" },
+  });
+  return products.map((p) => serializeProduct(p));
+}
+
+export async function restoreProduct(id: string, db: Db = prisma) {
+  const product = await db.product.findUnique({ where: { id } });
+  if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+  if (!product.deletedAt) throw new AppError("المادة غير محذوفة", 400, "PRODUCT_NOT_DELETED");
+
+  const cutoff = new Date(Date.now() - RESTORE_WINDOW_MS);
+  if (product.deletedAt < cutoff) throw new AppError("انتهت مهلة الاسترجاع (48 ساعة)", 400, "RESTORE_WINDOW_EXPIRED");
+
+  const restored = await db.product.update({
+    where: { id },
+    data: { deletedAt: null },
+  });
+  return serializeProduct(restored);
+}
+
 // Backfill missing QR codes / carton QR codes for legacy products (admin op).
 export async function backfillQrCodes() {
   const products = await prisma.product.findMany({

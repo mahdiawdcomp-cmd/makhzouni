@@ -12,7 +12,9 @@ import {
   getLastSoldPrice,
   hardDeleteInvoice,
   listInvoices,
+  listRecentlyDeletedInvoices,
   reactivateInvoice,
+  restoreArchivedInvoice,
   updateInvoice,
 } from "../services/invoice.service";
 import {
@@ -186,6 +188,17 @@ export const restoreInvoice = asyncHandler(async (req, res) => {
     message: "Invoice reactivated successfully",
     data: invoice,
   });
+});
+
+export const getRecentlyDeletedInvoicesCtrl = asyncHandler(async (_req, res) => {
+  const invoices = await listRecentlyDeletedInvoices();
+  res.json({ success: true, data: invoices });
+});
+
+export const restoreArchivedInvoiceCtrl = asyncHandler(async (req, res) => {
+  const { id } = req.params as { id: string };
+  const invoice = await restoreArchivedInvoice(id);
+  res.json({ success: true, message: "تم استرجاع الفاتورة", data: invoice });
 });
 
 export const exportInvoicePdf = asyncHandler(async (req, res) => {
