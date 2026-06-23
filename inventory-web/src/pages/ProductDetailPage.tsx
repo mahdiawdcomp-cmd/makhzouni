@@ -15,7 +15,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
-import { ImageCropModal } from "../components/ImageCropModal"
+import { ImagePreviewModal } from "../components/ImagePreviewModal"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -634,11 +634,11 @@ export function ProductDetailPage() {
       </ModalForm>
 
       {/* Delete Confirm Dialog */}
-      {/* Image crop modal */}
+      {/* Image preview modal */}
       {cropSrc && (
-        <ImageCropModal
+        <ImagePreviewModal
           src={cropSrc}
-          onDone={(url) => void onCropDone(url)}
+          onConfirm={() => void onCropDone(cropSrc)}
           onCancel={() => setCropSrc(null)}
         />
       )}

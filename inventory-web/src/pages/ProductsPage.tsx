@@ -22,6 +22,7 @@ import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
+import { useToast } from "../components/ui/use-toast"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 
 function stockOf(product: Product) {
@@ -340,6 +341,7 @@ export function ProductsPage() {
     return () => window.removeEventListener("keydown", handler)
   }, [])
   const [searchParams, setSearchParams] = useSearchParams()
+  const { toast } = useToast()
   const { productsQuery, createMutation, updateMutation, deleteMutation } = useProducts()
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const branches = branchesQuery.data ?? []
@@ -377,7 +379,7 @@ export function ProductsPage() {
       setRestoreConfirm(null)
       void qc.invalidateQueries({ queryKey: ["products"] })
     },
-    onError: (err: Error) => { alert(err.message) },
+    onError: (err: Error) => toast({ title: err.message ?? "تعذر الاسترجاع", variant: "destructive" }),
   })
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
@@ -583,7 +585,9 @@ export function ProductsPage() {
     const mutation = editing
       ? updateMutation.mutateAsync({ id: editing.id, payload })
       : createMutation.mutateAsync(payload)
-    mutation.then(() => setOpen(false))
+    mutation
+      .then(() => setOpen(false))
+      .catch((e: Error) => toast({ title: e.message ?? "تعذر الحفظ", variant: "destructive" }))
   }
 
   const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
@@ -1378,9 +1382,13 @@ export function ProductsPage() {
         title={`حذف "${deleteConfirm?.name ?? ""}"؟`}
         description="ستُحذف المادة من قائمة المواد لكنها تبقى مسجّلة في الفواتير القديمة."
         confirmLabel="حذف"
+        loading={deleteMutation.isPending}
         onConfirm={() => {
           if (!deleteConfirm) return
-          deleteMutation.mutate(deleteConfirm.id, { onSuccess: () => setDeleteConfirm(null) })
+          deleteMutation.mutate(deleteConfirm.id, {
+            onSuccess: () => setDeleteConfirm(null),
+            onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحذف", variant: "destructive" }),
+          })
         }}
         onCancel={() => setDeleteConfirm(null)}
       />
