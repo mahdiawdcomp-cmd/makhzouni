@@ -1,6 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { QueryClient } from "@tanstack/react-query"
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client"
 import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import { RealtimeSyncBridge } from "./components/RealtimeSyncBridge"
@@ -10,6 +11,8 @@ import { LanguageProvider } from "./i18n/LanguageProvider"
 import { DesktopTrialGate } from "./DesktopTrialGate"
 import "./desktop-trial.css"
 import { api } from "./api/client"
+import { idbPersister } from "./lib/offline-store"
+import { UpdateChecker } from "./components/UpdateChecker"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -17,7 +20,10 @@ const queryClient = new QueryClient({
       retry: 1,
       refetchOnWindowFocus: false,
       refetchInterval: 120_000,
-      staleTime: 300_000,
+      // Keep data 5 min before stale — shows instantly from cache
+      staleTime: 5 * 60 * 1000,
+      // Keep cache 24h in IndexedDB
+      gcTime: 24 * 60 * 60 * 1000,
     },
   },
 })
@@ -31,16 +37,24 @@ if (savedServer) {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <DesktopTrialGate>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister: idbPersister,
+          maxAge: 24 * 60 * 60 * 1000,
+          buster: "v1",
+        }}
+      >
         <RealtimeSyncBridge />
         <ThemeProvider>
           <LanguageProvider>
             <RTLProvider>
               <App />
+              <UpdateChecker />
             </RTLProvider>
           </LanguageProvider>
         </ThemeProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </DesktopTrialGate>
   </StrictMode>,
 )

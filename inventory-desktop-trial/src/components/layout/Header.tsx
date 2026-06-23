@@ -7,6 +7,7 @@ import { logout } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { NotificationsBell } from "./NotificationsBell"
 import { LanguageSwitcher } from "./LanguageSwitcher"
+import { SyncStatus } from "../SyncStatus"
 
 function useCurrentPageLabel(): string {
   const { pathname, search } = useLocation()
@@ -103,6 +104,8 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
             </motion.div>
           </AnimatePresence>
         </motion.button>
+
+        <SyncStatus />
 
         <LanguageSwitcher />
 

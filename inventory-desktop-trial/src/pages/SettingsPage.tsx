@@ -32,6 +32,10 @@ import {
   Warehouse,
   WifiOff,
   XCircle,
+  Server,
+  Eye,
+  EyeOff,
+  CheckCircle,
 } from "lucide-react"
 import {
   getCustomers,
@@ -68,6 +72,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { useTheme } from "../theme/ThemeProvider"
+import { useAuthStore } from "../store/authStore"
 import { cn } from "../utils/cn"
 import { ChangePasswordForm } from "../components/settings/ChangePasswordForm"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
@@ -143,9 +148,10 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
+type SettingsTab = "server" | "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
+  { id: "server",    label: "ربط السيرفر",       icon: Server },
   { id: "store",     label: "المتجر",           icon: Building2 },
   { id: "theme",     label: "المظهر",           icon: Palette },
   { id: "whatsapp",  label: "واتساب",           icon: MessageCircle },
@@ -797,6 +803,9 @@ export function SettingsPage() {
 
         </div>
       )}
+
+      {/* ── SERVER CONNECTION ──────────────────────────────── */}
+      {activeTab === "server" && <ServerConnectionPanel />}
 
       {/* ── ARCHIVE ────────────────────────────────────────── */}
       {activeTab === "archive" && (
@@ -1763,6 +1772,190 @@ function ShortcutsPanel() {
       <p className="text-xs text-slate-400">
         * التغييرات تُحفظ محلياً على هذا الجهاز فقط. اضغط "حفظ" لتفعيلها.
       </p>
+    </div>
+  )
+}
+
+// ─── Server Connection Panel ─────────────────────────────────────────────────
+
+function ServerConnectionPanel() {
+  const [serverUrl, setServerUrl] = useState(() => localStorage.getItem("makhzouni_server_url") ?? "https://api.mazbwoni.com/api")
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [showPass, setShowPass] = useState(false)
+  const [changePass, setChangePass] = useState(false)
+  const [newPass, setNewPass] = useState("")
+  const [savingPass, setSavingPass] = useState(false)
+  const user = useAuthStore((s) => s.user)
+  const token = useAuthStore((s) => s.token)
+
+  async function testConnection() {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const base = serverUrl.replace(/\/+$/, "")
+      const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(8000) })
+      if (r.ok) {
+        setTestResult({ ok: true, msg: "الاتصال ناجح ✓" })
+      } else {
+        setTestResult({ ok: false, msg: `السيرفر رد بخطأ ${r.status}` })
+      }
+    } catch {
+      setTestResult({ ok: false, msg: "تعذر الاتصال — تحقق من الرابط والنت" })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  function saveServerUrl() {
+    const base = serverUrl.replace(/\/+$/, "")
+    localStorage.setItem("makhzouni_server_url", base)
+    // Update axios base URL live
+    const axiosInstance = (window as { __makhzouni_api?: { defaults: { baseURL: string } } }).__makhzouni_api
+    if (axiosInstance) axiosInstance.defaults.baseURL = base
+    setTestResult({ ok: true, msg: "تم حفظ الرابط. سيُطبَّق عند إعادة التشغيل." })
+  }
+
+  async function changePassword() {
+    if (!newPass.trim() || !token) return
+    setSavingPass(true)
+    try {
+      const { default: axios } = await import("axios")
+      const base = localStorage.getItem("makhzouni_server_url") ?? "https://api.mazbwoni.com/api"
+      await axios.patch(`${base}/users/me/password`, { password: newPass }, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setNewPass("")
+      setChangePass(false)
+      setTestResult({ ok: true, msg: "تم تغيير كلمة المرور بنجاح" })
+    } catch {
+      setTestResult({ ok: false, msg: "فشل تغيير كلمة المرور" })
+    } finally {
+      setSavingPass(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Server URL */}
+      <div className="rounded-xl border p-5 space-y-4" style={{ borderColor: "var(--theme-cardBorder)", background: "var(--theme-cardBg)" }}>
+        <div className="flex items-center gap-2">
+          <Server className="h-5 w-5" style={{ color: "var(--theme-accent)" }} />
+          <h3 className="font-semibold" style={{ color: "var(--theme-textPrimary)" }}>ربط السيرفر</h3>
+        </div>
+
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-sm mb-1.5 block" style={{ color: "var(--theme-textSecondary)" }}>رابط الـ API</span>
+            <input
+              value={serverUrl}
+              onChange={(e) => { setServerUrl(e.target.value); setTestResult(null) }}
+              dir="ltr"
+              placeholder="https://api.mazbwoni.com/api"
+              className="w-full rounded-lg border px-3 py-2 text-sm font-mono"
+              style={{
+                borderColor: "var(--theme-cardBorder)",
+                background: "var(--theme-inputBg, var(--theme-cardBg))",
+                color: "var(--theme-textPrimary)"
+              }}
+            />
+          </label>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => void testConnection()}
+              disabled={testing}
+              className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition hover:opacity-80"
+              style={{ borderColor: "var(--theme-cardBorder)", color: "var(--theme-textSecondary)" }}
+            >
+              {testing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              اختبار الاتصال
+            </button>
+            <button
+              onClick={saveServerUrl}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-white transition hover:opacity-90"
+              style={{ background: "var(--theme-accent)" }}
+            >
+              <Save className="h-4 w-4" />
+              حفظ الرابط
+            </button>
+          </div>
+
+          {testResult && (
+            <div className={`flex items-center gap-2 rounded-lg p-3 text-sm ${testResult.ok ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
+              {testResult.ok ? <CheckCircle className="h-4 w-4 shrink-0" /> : <XCircle className="h-4 w-4 shrink-0" />}
+              {testResult.msg}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Current account */}
+      <div className="rounded-xl border p-5 space-y-4" style={{ borderColor: "var(--theme-cardBorder)", background: "var(--theme-cardBg)" }}>
+        <div className="flex items-center gap-2">
+          <Users className="h-5 w-5" style={{ color: "var(--theme-accent)" }} />
+          <h3 className="font-semibold" style={{ color: "var(--theme-textPrimary)" }}>الحساب الحالي</h3>
+        </div>
+
+        <div className="text-sm space-y-1" style={{ color: "var(--theme-textSecondary)" }}>
+          <p>الاسم: <span style={{ color: "var(--theme-textPrimary)" }}>{user?.name ?? "—"}</span></p>
+          <p>الصلاحية: <span style={{ color: "var(--theme-textPrimary)" }}>{user?.role === "ADMIN" ? "مدير" : "موظف"}</span></p>
+        </div>
+
+        {!changePass ? (
+          <button
+            onClick={() => setChangePass(true)}
+            className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition hover:opacity-80"
+            style={{ borderColor: "var(--theme-cardBorder)", color: "var(--theme-textSecondary)" }}
+          >
+            <KeyRound className="h-4 w-4" />
+            تغيير كلمة المرور
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="relative">
+              <input
+                value={newPass}
+                onChange={(e) => setNewPass(e.target.value)}
+                type={showPass ? "text" : "password"}
+                placeholder="كلمة المرور الجديدة"
+                dir="ltr"
+                className="w-full rounded-lg border px-3 py-2 text-sm pr-10"
+                style={{
+                  borderColor: "var(--theme-cardBorder)",
+                  background: "var(--theme-inputBg, var(--theme-cardBg))",
+                  color: "var(--theme-textPrimary)"
+                }}
+              />
+              <button
+                onClick={() => setShowPass(!showPass)}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2"
+                style={{ color: "var(--theme-textSecondary)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+              >
+                {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => void changePassword()}
+                disabled={savingPass || !newPass.trim()}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm text-white transition hover:opacity-90"
+                style={{ background: "var(--theme-accent)" }}
+              >
+                {savingPass ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                حفظ
+              </button>
+              <button
+                onClick={() => { setChangePass(false); setNewPass("") }}
+                className="rounded-lg border px-4 py-2 text-sm transition hover:opacity-80"
+                style={{ borderColor: "var(--theme-cardBorder)", color: "var(--theme-textSecondary)" }}
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
