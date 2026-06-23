@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Download, Edit, FlipHorizontal2, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
+import { ArrowRight, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
 import { getCatalogCategories, productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
@@ -15,6 +15,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
+import { ImageCropModal } from "../components/ImageCropModal"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -56,18 +57,6 @@ const emptyEditForm: ProductPayload = {
   purchasePrice: 0, salePrice: 0, retailPrice: 0, costPrice: 0, minStock: 5,
 }
 
-async function compressProductImage(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file)
-  const maxSide = 900
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
-  const canvas = document.createElement("canvas")
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
-  const ctx = canvas.getContext("2d")
-  if (!ctx) throw new Error("Image compression failed")
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-  return canvas.toDataURL("image/jpeg", 0.82)
-}
 
 async function rotateDataUrl(dataUrl: string, degrees: 90 | 180 | 270): Promise<string> {
   const img = new Image()
@@ -108,6 +97,36 @@ export function ProductDetailPage() {
   // Edit modal state
   const [editOpen, setEditOpen] = useState(false)
   const [editForm, setEditForm] = useState<ProductPayload>(emptyEditForm)
+
+  // Image crop state
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const galleryInputRef = useRef<HTMLInputElement>(null)
+
+  function handleImageFile(file: File | undefined) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (e) => { if (e.target?.result) setCropSrc(e.target.result as string) }
+    reader.readAsDataURL(file)
+  }
+
+  async function onCropDone(croppedDataUrl: string) {
+    setCropSrc(null)
+    // Compress after crop
+    const img = new Image()
+    img.src = croppedDataUrl
+    await new Promise<void>((res) => { img.onload = () => res() })
+    const maxSide = 900
+    const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(img.width * scale)
+    canvas.height = Math.round(img.height * scale)
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    const compressed = canvas.toDataURL("image/jpeg", 0.82)
+    setEditForm((f) => ({ ...f, imageUrl: compressed }))
+  }
 
   // Delete confirm state
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -461,22 +480,32 @@ export function ProductDetailPage() {
                 <div className="text-sm font-semibold">صورة المادة</div>
                 <div className="text-xs text-slate-500">تنضغط تلقائياً قبل الحفظ.</div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" asChild>
-                    <label className="cursor-pointer">
-                      اختيار صورة
-                      <input
-                        className="hidden"
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0]
-                          if (!file) return
-                          void compressProductImage(file).then((imageUrl) => setEditForm((current) => ({ ...current, imageUrl })))
-                          event.target.value = ""
-                        }}
-                      />
-                    </label>
+                  {/* Camera capture */}
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => cameraInputRef.current?.click()}>
+                    <Camera className="h-4 w-4" /> كاميرا
                   </Button>
+                  <input
+                    ref={cameraInputRef}
+                    className="hidden"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => { handleImageFile(e.target.files?.[0]); e.target.value = "" }}
+                  />
+
+                  {/* Gallery pick */}
+                  <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => galleryInputRef.current?.click()}>
+                    <Images className="h-4 w-4" /> معرض
+                  </Button>
+                  <input
+                    ref={galleryInputRef}
+                    className="hidden"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => { handleImageFile(e.target.files?.[0]); e.target.value = "" }}
+                  />
+
+                  {/* Rotation + delete (only when image exists) */}
                   {editForm.imageUrl ? (
                     <>
                       <Button type="button" variant="outline" size="sm" title="تدوير 90° يسار"
@@ -491,7 +520,8 @@ export function ProductDetailPage() {
                         onClick={() => { if (editForm.imageUrl) void rotateDataUrl(editForm.imageUrl, 180).then((url) => setEditForm((f) => ({ ...f, imageUrl: url }))) }}>
                         <FlipHorizontal2 className="h-4 w-4" />
                       </Button>
-                      <Button type="button" variant="outline" onClick={() => setEditForm({ ...editForm, imageUrl: null })}>حذف الصورة</Button>
+                      <Button type="button" variant="outline" size="sm" className="text-rose-600 hover:bg-rose-50"
+                        onClick={() => setEditForm({ ...editForm, imageUrl: null })}>حذف الصورة</Button>
                     </>
                   ) : null}
                 </div>
@@ -604,6 +634,15 @@ export function ProductDetailPage() {
       </ModalForm>
 
       {/* Delete Confirm Dialog */}
+      {/* Image crop modal */}
+      {cropSrc && (
+        <ImageCropModal
+          src={cropSrc}
+          onDone={(url) => void onCropDone(url)}
+          onCancel={() => setCropSrc(null)}
+        />
+      )}
+
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
