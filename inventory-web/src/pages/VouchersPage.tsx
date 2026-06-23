@@ -34,22 +34,29 @@ export function VouchersPage() {
   const [cancelVoucherId, setCancelVoucherId] = useState<string | null>(null)
   const [deleteVoucherId, setDeleteVoucherId] = useState<string | null>(null)
 
+  const [cancelError, setCancelError] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelVoucher(id),
     onSuccess: () => {
       setCancelVoucherId(null)
+      setCancelError(null)
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
     },
+    onError: (e) => setCancelError(e instanceof Error ? e.message : "تعذر تعطيل السند"),
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteVoucher(id),
     onSuccess: () => {
       setDeleteVoucherId(null)
+      setDeleteError(null)
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
     },
+    onError: (e) => setDeleteError(e instanceof Error ? e.message : "تعذر حذف السند"),
   })
   const urlType = searchParams.get("type") as FilterType | null
   const urlAction = searchParams.get("action") as Type | null
@@ -478,22 +485,22 @@ export function VouchersPage() {
       <ConfirmDialog
         open={!!cancelVoucherId}
         title="تعطيل هذا السند؟"
-        description="سيتم إلغاء تأثيره على حساب الزبون. يمكن استعادته لاحقاً من صفحة التفاصيل."
+        description={cancelError ?? "سيتم إلغاء تأثيره على حساب الزبون. يمكن استعادته لاحقاً من صفحة التفاصيل."}
         confirmLabel="تعطيل"
         destructive
         loading={cancelMutation.isPending}
         onConfirm={() => { if (cancelVoucherId) cancelMutation.mutate(cancelVoucherId) }}
-        onCancel={() => setCancelVoucherId(null)}
+        onCancel={() => { setCancelVoucherId(null); setCancelError(null) }}
       />
       <ConfirmDialog
         open={!!deleteVoucherId}
         title="حذف هذا السند نهائياً؟"
-        description="سيُحذف من قاعدة البيانات ولا يمكن التراجع عن هذا الإجراء."
+        description={deleteError ?? "سيُحذف من قاعدة البيانات ولا يمكن التراجع عن هذا الإجراء."}
         confirmLabel="حذف نهائي"
         destructive
         loading={deleteMutation.isPending}
         onConfirm={() => { if (deleteVoucherId) deleteMutation.mutate(deleteVoucherId) }}
-        onCancel={() => setDeleteVoucherId(null)}
+        onCancel={() => { setDeleteVoucherId(null); setDeleteError(null) }}
       />
     </div>
   )

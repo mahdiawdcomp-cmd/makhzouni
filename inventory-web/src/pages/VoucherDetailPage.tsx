@@ -91,6 +91,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["customers"] })
       void qc.invalidateQueries({ queryKey: ["customer"] })
     },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر تعطيل السند", variant: "destructive" }),
   })
 
   const restoreMutation = useMutation({
@@ -100,6 +101,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["customers"] })
       void qc.invalidateQueries({ queryKey: ["customer"] })
     },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر استعادة السند", variant: "destructive" }),
   })
   const [editAmountDisplay, setEditAmountDisplay] = useState("")
   const [editNotes, setEditNotes] = useState("")
@@ -136,6 +138,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["transactions"] })
       navigate(-1)
     },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر حذف السند", variant: "destructive" }),
   })
 
   function openEdit() {
@@ -295,17 +298,43 @@ export function VoucherDetailPage() {
 
             {/* Account summary for this voucher */}
             {(() => {
-              const txs = transactionsQuery.data ?? []
-              const thisTx = txs.find((t) => t.referenceNumber === voucher.voucherNumber || t.id === voucher.id)
-              if (!thisTx) return null
-              const txIndex = txs.indexOf(thisTx)
-              const balanceAfter = thisTx.runningBalance
-              const balanceBefore = balanceAfter - (thisTx.credit ?? 0) + (thisTx.debit ?? 0)
-              const lastTx = txs[txIndex - 1]
               const cur = settings?.currency ?? "د.ع"
+              const txs = transactionsQuery.data ?? []
+              // Match by voucher id (most reliable) OR by voucherNumber as referenceNumber
+              const txIndex = txs.findIndex((t) => t.id === voucher.id || t.referenceNumber === voucher.voucherNumber)
+              const thisTx = txIndex >= 0 ? txs[txIndex] : null
+
+              // Fallback when ledger data not yet loaded or not found:
+              // estimate from current balance using voucher effect direction
+              const isReceipt = voucher.type === "RECEIPT"
+              const amt = Number(voucher.amount)
+              const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
+
+              let balanceAfter: number
+              let balanceBefore: number
+
+              if (thisTx) {
+                // Exact: balance before = runningBalance reversed by this transaction
+                // credit (RECEIPT) reduces debt: runningBalance decreased → reverse: add credit back
+                // debit  (PAYMENT) increases debt: runningBalance increased → reverse: subtract debit
+                balanceAfter = thisTx.runningBalance
+                balanceBefore = balanceAfter + (thisTx.credit ?? 0) - (thisTx.debit ?? 0)
+              } else {
+                // Approximate (only exact if this was the last transaction)
+                balanceAfter = currentBalance
+                balanceBefore = isReceipt ? currentBalance + amt : currentBalance - amt
+              }
+
+              const lastTx = thisTx && txIndex > 0 ? txs[txIndex - 1] : null
+
               return (
                 <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
-                  <CardHeader><CardTitle className="text-blue-800 dark:text-blue-200">ملخص الحساب</CardTitle></CardHeader>
+                  <CardHeader>
+                    <CardTitle className="text-blue-800 dark:text-blue-200">ملخص الحساب</CardTitle>
+                    {!thisTx && transactionsQuery.isSuccess && (
+                      <p className="text-[11px] text-amber-600">الأرقام تقديرية بناءً على الرصيد الحالي</p>
+                    )}
+                  </CardHeader>
                   <CardContent className="space-y-3 text-sm">
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
@@ -317,7 +346,7 @@ export function VoucherDetailPage() {
                       <div className="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/40">
                         <div className="text-[11px] text-blue-600">مبلغ السند</div>
                         <div className="mt-1 text-base font-bold text-blue-700 dark:text-blue-300">
-                          {money(voucher.amount)} {cur}
+                          {money(amt)} {cur}
                         </div>
                       </div>
                       <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
@@ -327,14 +356,17 @@ export function VoucherDetailPage() {
                         </div>
                       </div>
                     </div>
-                    {lastTx && (
+                    {lastTx ? (
                       <div className="rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
                         <span className="text-slate-500">آخر تعامل قبله: </span>
                         <span className="font-semibold">{lastTx.referenceNumber}</span>
                         <span className="mx-1 text-slate-400">—</span>
                         <span>{String(lastTx.date).slice(0, 10)}</span>
                       </div>
-                    )}
+                    ) : null}
+                    {voucher.cancelledAt ? (
+                      <p className="text-xs text-amber-600">السند معطل — لا يؤثر على الرصيد</p>
+                    ) : null}
                   </CardContent>
                 </Card>
               )
