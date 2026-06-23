@@ -28,7 +28,7 @@ const queryClient = new QueryClient({
   },
 })
 
-// Load saved server URL on startup
+// Load saved server URL (set by login screen or default to remote)
 const savedServer = localStorage.getItem("makhzouni_server_url")
 if (savedServer) {
   api.defaults.baseURL = savedServer

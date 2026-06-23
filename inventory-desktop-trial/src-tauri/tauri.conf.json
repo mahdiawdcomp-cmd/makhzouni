@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' https://api.mazbwoni.com https://mahdi.mazbwoni.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:;"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:5050 https://api.mazbwoni.com https://mahdi.mazbwoni.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:;"
     }
   },
   "plugins": {
@@ -43,6 +43,12 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
+    ],
+    "resources": [
+      "binaries/query_engine-windows.dll.node"
+    ],
+    "externalBin": [
+      "binaries/server"
     ]
   }
 }

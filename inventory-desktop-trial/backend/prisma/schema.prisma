@@ -1,0 +1,857 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum PaymentType {
+  CASH
+  CREDIT
+  PARTIAL
+}
+
+enum InvoiceStatus {
+  ACTIVE
+  CANCELLED
+}
+
+enum Unit {
+  PIECE
+  DOZEN
+  CARTON
+}
+
+enum VoucherType {
+  RECEIPT
+  PAYMENT
+  EXPENSE
+}
+
+enum InvoiceType {
+  SALE
+  PURCHASE
+  SALES_RETURN
+}
+
+enum DiscountType {
+  PERCENT
+  AMOUNT
+}
+
+enum QuotationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum TransferStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  DAMAGE
+}
+
+enum LossReason {
+  DAMAGE
+  EXPIRY
+  THEFT
+  DEFECT
+  OTHER
+}
+
+model StockLoss {
+  id           String         @id @default(uuid())
+  lossNumber   String         @unique @map("loss_number")
+  date         DateTime
+  warehouseId  String         @map("warehouse_id")
+  warehouse    Branch         @relation("StockLossWarehouse", fields: [warehouseId], references: [id])
+  reason       LossReason     @default(DAMAGE)
+  notes        String?
+  cancelledAt  DateTime?      @map("cancelled_at")
+  createdBy    String         @map("created_by")
+  creator      User           @relation("StockLossCreatedBy", fields: [createdBy], references: [id])
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  items        StockLossItem[]
+
+  @@index([date])
+  @@index([warehouseId])
+  @@map("stock_losses")
+}
+
+model StockLossItem {
+  id          String    @id @default(uuid())
+  lossId      String    @map("loss_id")
+  loss        StockLoss @relation(fields: [lossId], references: [id], onDelete: Cascade)
+  productId   String    @map("product_id")
+  product     Product   @relation("StockLossItems", fields: [productId], references: [id])
+  productName String    @map("product_name")
+  unit        Unit
+  quantity    Int
+
+  @@index([lossId])
+  @@index([productId])
+  @@map("stock_loss_items")
+}
+
+model User {
+  id                 String              @id @default(uuid())
+  name               String
+  username           String              @unique
+  passwordHash       String              @map("password_hash")
+  role               UserRole            @default(STAFF)
+  permissions        Json            @default("[]")
+  phone              String?
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  products           Product[]           @relation("ProductCreatedBy")
+  invoices           Invoice[]           @relation("InvoiceCreatedBy")
+  paymentVouchers    PaymentVoucher[]    @relation("PaymentVoucherCreatedBy")
+  coupons            Coupon[]            @relation("CouponCreatedBy")
+  quotations         Quotation[]         @relation("QuotationCreatedBy")
+  requestedApprovals PendingApproval[]   @relation("ApprovalRequestedBy")
+  reviewedApprovals  PendingApproval[]   @relation("ApprovalReviewedBy")
+  auditLogs          AuditLog[]
+  branches           Branch[]
+  createdTransfers   InventoryTransfer[] @relation("TransferCreatedBy")
+  preparedOrders     OrderPreparation[]  @relation("PreparedByUser")
+  stocktakeSessions  StocktakeSession[]
+  stockLosses        StockLoss[]         @relation("StockLossCreatedBy")
+
+  @@map("users")
+}
+
+model Branch {
+  id              String           @id @default(uuid())
+  name            String
+  code            String           @unique
+  phone           String?
+  address         String?
+  isActive        Boolean          @default(true) @map("is_active")
+  createdBy       String?          @map("created_by")
+  creator         User?            @relation(fields: [createdBy], references: [id])
+  products        Product[]
+  productStocks   ProductWarehouseStock[]
+  invoiceItems    InvoiceItem[]            @relation("InvoiceItemWarehouse")
+  customers       Customer[]
+  invoices        Invoice[]
+  paymentVouchers PaymentVoucher[]
+  stockMovements  StockMovement[]
+  transfersOut       InventoryTransfer[] @relation("TransfersOut")
+  transfersIn        InventoryTransfer[] @relation("TransfersIn")
+  stocktakeSessions  StocktakeSession[]
+  stockLosses        StockLoss[]         @relation("StockLossWarehouse")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+
+  @@index([createdBy])
+  @@map("branches")
+}
+
+model Product {
+  id                String          @id @default(uuid())
+  itemNumber        String          @unique @map("item_number")
+  name              String
+  qrCode            String          @unique @map("qr_code")
+  cartonQrCode      String?         @unique @map("carton_qr_code")
+  imageUrl          String?         @map("image_url")
+  category          String?
+  openingBalancePcs Int             @default(0) @map("opening_balance_pcs")
+  cartonsAvailable  Int             @default(0) @map("cartons_available")
+  pcsPerCarton      Int             @default(1) @map("pcs_per_carton")
+  purchasePrice     Decimal         @default(0) @map("purchase_price")
+  salePrice         Decimal         @default(0) @map("sale_price")
+  retailPrice       Decimal         @default(0) @map("retail_price")
+  costPrice         Decimal         @default(0) @map("cost_price")
+  expiryDate        DateTime?       @map("expiry_date")
+  minStock          Int             @default(0) @map("min_stock")
+  currentStock      Int             @default(0) @map("current_stock")
+  storageLocation   String?         @map("storage_location")
+  branchId          String?         @map("branch_id")
+  branch            Branch?         @relation(fields: [branchId], references: [id])
+  createdBy         String          @map("created_by")
+  creator           User            @relation("ProductCreatedBy", fields: [createdBy], references: [id])
+  invoiceItems      InvoiceItem[]
+  quotationItems    QuotationItem[]
+  stockMovements    StockMovement[]
+  transferItems     TransferItem[]
+  stocktakeItems    StocktakeItem[]
+  warehouseStocks  ProductWarehouseStock[]
+  retailItems       RetailCatalogItem[] @relation("RetailItemProduct")
+  stockLossItems    StockLossItem[]     @relation("StockLossItems")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+  deletedAt         DateTime?       @map("deleted_at")
+
+  // Multi-category & type tags (stored as PostgreSQL text arrays)
+  categoryTags  Json  @default("[]") @map("category_tags")
+  typeTags      Json  @default("[]") @map("type_tags")
+
+  // Wholesale catalog merchandising flags (mirror the retail catalog):
+  // "new arrival" + "on offer" with an optional pre-offer price to strike through.
+  isNewArrival  Boolean   @default(false) @map("is_new_arrival")
+  isOffer       Boolean   @default(false) @map("is_offer")
+  oldPrice      Decimal?  @map("old_price")
+
+  @@index([createdBy])
+  @@index([branchId])
+  @@index([deletedAt])
+  @@map("products")
+}
+
+// A Branch row is kept for API compatibility, but represents a warehouse
+// inside the single shop. Product stock is stored separately per warehouse.
+model ProductWarehouseStock {
+  id              String   @id @default(uuid())
+  productId       String   @map("product_id")
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId     String   @map("warehouse_id")
+  warehouse       Branch   @relation(fields: [warehouseId], references: [id])
+  quantityPieces  Int      @default(0) @map("quantity_pieces")
+  storageLocation String?  @map("storage_location")
+  minStock        Int?     @map("min_stock")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([productId, warehouseId])
+  @@index([warehouseId])
+  @@map("product_warehouse_stocks")
+}
+
+// Predefined catalog categories with their sub-types
+model CatalogCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  types     Json @default("[]")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("catalog_categories")
+}
+
+// Generic sequence counters (item-number generator, etc.)
+model Counter {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("counters")
+}
+
+model Customer {
+  id                String           @id @default(uuid())
+  name              String
+  phone             String           @unique
+  address           String?
+  notes             String?
+  isSupplier        Boolean          @default(false) @map("is_supplier")
+  isBoth            Boolean          @default(false) @map("is_both")
+  tags              Json         @default("[]")
+  catalogLinkSentAt DateTime?        @map("catalog_link_sent_at")
+  openingBalance    Decimal          @default(0) @map("opening_balance")
+  currentBalance    Decimal          @default(0) @map("current_balance")
+  creditLimit       Decimal?         @map("credit_limit")
+  lastTransactionAt DateTime?        @map("last_transaction_at")
+  branchId          String?          @map("branch_id")
+  branch            Branch?          @relation(fields: [branchId], references: [id])
+  invoices          Invoice[]
+  paymentVouchers   PaymentVoucher[]
+  couponRedemptions  CouponRedemption[]
+  quotations         Quotation[]
+  notifications     Notification[]
+  portalLinks       CustomerPortalLink[]
+  catalogAccessLinks CatalogAccessLink[]
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+  deletedAt         DateTime?        @map("deleted_at")
+
+  @@index([branchId])
+  @@map("customers")
+}
+
+// Canonical list of customer tags, so a tag can be created and managed
+// independently of whether any customer currently carries it. The actual
+// assignment still lives in Customer.tags (a string array).
+model CustomerTag {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("customer_tags")
+}
+
+model CustomerPortalLink {
+  id           String    @id @default(uuid())
+  token        String    @unique
+  tokenHash    String    @unique @map("token_hash")
+  customerId   String    @map("customer_id")
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  expiresAt    DateTime? @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastViewedAt DateTime? @map("last_viewed_at")
+
+  @@index([customerId])
+  @@index([expiresAt])
+  @@map("customer_portal_links")
+}
+
+model CatalogAccessLink {
+  id           String    @id @default(uuid())
+  token        String    @unique
+  tokenHash    String    @unique @map("token_hash")
+  customerId   String    @map("customer_id")
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  allowPrices  Boolean   @default(false) @map("allow_prices")
+  showStock    Boolean   @default(true) @map("show_stock")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastViewedAt DateTime? @map("last_viewed_at")
+
+  @@index([customerId])
+  @@map("catalog_access_links")
+}
+
+model Invoice {
+  id               String           @id @default(uuid())
+  invoiceNumber    String           @unique @map("invoice_number")
+  type             InvoiceType      @default(SALE)
+  customerId       String           @map("customer_id")
+  customer         Customer         @relation(fields: [customerId], references: [id])
+  branchId         String?          @map("branch_id")
+  branch           Branch?          @relation(fields: [branchId], references: [id])
+  date             DateTime         @default(now())
+  subtotal         Decimal
+  discount         Decimal          @default(0)
+  tax              Decimal          @default(0)
+  totalAmount      Decimal          @map("total_amount")
+  paidAmount       Decimal          @default(0) @map("paid_amount")
+  remainingAmount  Decimal          @default(0) @map("remaining_amount")
+  previousBalance  Decimal          @default(0) @map("previous_balance")
+  finalBalance     Decimal          @default(0) @map("final_balance")
+  paymentType      PaymentType      @map("payment_type")
+  status           InvoiceStatus    @default(ACTIVE)
+  clientRequestId  String?          @unique @map("client_request_id")
+  couponId         String?          @map("coupon_id")
+  coupon           Coupon?          @relation(fields: [couponId], references: [id])
+  originalInvoiceId String?         @map("original_invoice_id")
+  originalInvoice   Invoice?        @relation("InvoiceReturns", fields: [originalInvoiceId], references: [id])
+  returnInvoices    Invoice[]       @relation("InvoiceReturns")
+  sourceQuotationId String?         @unique @map("source_quotation_id")
+  sourceQuotation   Quotation?      @relation("QuotationInvoice", fields: [sourceQuotationId], references: [id])
+  createdBy        String           @map("created_by")
+  creator          User             @relation("InvoiceCreatedBy", fields: [createdBy], references: [id])
+  items            InvoiceItem[]
+  stockMovements   StockMovement[]
+  couponRedemptions CouponRedemption[]
+  preparation      OrderPreparation?
+  notes            String?
+  createdAt        DateTime         @default(now()) @map("created_at")
+  // Accounting-safe deletion: rows are never physically removed. Archived
+  // invoices are hidden from lists/reports but retained for audit.
+  archivedAt       DateTime?        @map("archived_at")
+  deletedBy        String?          @map("deleted_by")
+  deleteReason     String?          @map("delete_reason")
+
+  @@index([customerId])
+  @@index([date])
+  @@index([createdAt])
+  @@index([customerId, date])
+  @@index([createdBy])
+  @@index([branchId])
+  @@index([couponId])
+  @@index([originalInvoiceId])
+  @@index([archivedAt])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  invoiceId   String  @map("invoice_id")
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId   String  @map("product_id")
+  product     Product @relation(fields: [productId], references: [id])
+  warehouseId String? @map("warehouse_id")
+  warehouse   Branch? @relation("InvoiceItemWarehouse", fields: [warehouseId], references: [id])
+  productName String  @map("product_name")
+  unit        Unit
+  quantity    Int
+  unitPrice   Decimal @map("unit_price")
+  costPrice   Decimal @default(0) @map("cost_price")
+  totalPrice  Decimal @map("total_price")
+  notes       String?
+
+  @@index([invoiceId])
+  @@index([productId])
+  @@index([warehouseId])
+  @@map("invoice_items")
+}
+
+model PaymentVoucher {
+  id            String      @id @default(uuid())
+  voucherNumber String      @unique @map("voucher_number")
+  // Nullable: EXPENSE vouchers have no customer (e.g. generator fuel)
+  customerId    String?     @map("customer_id")
+  customer      Customer?   @relation(fields: [customerId], references: [id])
+  description   String?     // free-text label, mainly for EXPENSE vouchers
+  branchId      String?     @map("branch_id")
+  branch        Branch?     @relation(fields: [branchId], references: [id])
+  amount        Decimal
+  type          VoucherType
+  date          DateTime    @default(now())
+  notes         String?
+  createdBy     String      @map("created_by")
+  creator       User        @relation("PaymentVoucherCreatedBy", fields: [createdBy], references: [id])
+  createdAt     DateTime    @default(now()) @map("created_at")
+  cancelledAt   DateTime?   @map("cancelled_at")
+  // Accounting-safe deletion: archived vouchers are retained for audit but
+  // excluded from lists, reports, and balance calculations.
+  archivedAt    DateTime?   @map("archived_at")
+  deletedBy     String?     @map("deleted_by")
+  deleteReason  String?     @map("delete_reason")
+
+  @@index([customerId])
+  @@index([date])
+  @@index([createdAt])
+  @@index([createdBy])
+  @@index([branchId])
+  @@index([archivedAt])
+  @@map("payment_vouchers")
+}
+
+model Coupon {
+  id             String             @id @default(uuid())
+  code           String             @unique
+  name           String
+  discountType   DiscountType       @map("discount_type")
+  discountValue  Decimal            @map("discount_value")
+  startsAt       DateTime?          @map("starts_at")
+  endsAt         DateTime?          @map("ends_at")
+  maxUses        Int?               @map("max_uses")
+  isActive       Boolean            @default(true) @map("is_active")
+  createdBy      String             @map("created_by")
+  creator        User               @relation("CouponCreatedBy", fields: [createdBy], references: [id])
+  invoices       Invoice[]
+  redemptions    CouponRedemption[]
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@index([startsAt, endsAt])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id         String   @id @default(uuid())
+  couponId   String   @map("coupon_id")
+  coupon     Coupon   @relation(fields: [couponId], references: [id])
+  invoiceId  String   @map("invoice_id")
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+  customerId String   @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id])
+  amount     Decimal
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([couponId, invoiceId])
+  @@index([customerId])
+  @@map("coupon_redemptions")
+}
+
+model Quotation {
+  id              String          @id @default(uuid())
+  quotationNumber String          @unique @map("quotation_number")
+  customerId      String          @map("customer_id")
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  status          QuotationStatus @default(PENDING)
+  subtotal        Decimal
+  discount        Decimal         @default(0)
+  totalAmount     Decimal         @map("total_amount")
+  expiresAt       DateTime?       @map("expires_at")
+  notes           String?
+  createdBy       String          @map("created_by")
+  creator         User            @relation("QuotationCreatedBy", fields: [createdBy], references: [id])
+  invoice         Invoice?        @relation("QuotationInvoice")
+  items           QuotationItem[]
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String    @id @default(uuid())
+  quotationId String    @map("quotation_id")
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  productId   String    @map("product_id")
+  product     Product   @relation(fields: [productId], references: [id])
+  productName String    @map("product_name")
+  unit        Unit
+  quantity    Int
+  unitPrice   Decimal   @map("unit_price")
+  totalPrice  Decimal   @map("total_price")
+
+  @@index([quotationId])
+  @@index([productId])
+  @@map("quotation_items")
+}
+
+model PendingApproval {
+  id            String         @id @default(uuid())
+  requestType   String         @map("request_type")
+  requestData   Json           @map("request_data")
+  requestedBy   String         @map("requested_by")
+  requester     User           @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id])
+  status        ApprovalStatus @default(PENDING)
+  reviewedBy    String?        @map("reviewed_by")
+  reviewer      User?          @relation("ApprovalReviewedBy", fields: [reviewedBy], references: [id])
+  reviewedAt    DateTime?      @map("reviewed_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  @@index([requestedBy])
+  @@index([reviewedBy])
+  @@map("pending_approvals")
+}
+
+model Notification {
+  id         String    @id @default(uuid())
+  customerId String?   @map("customer_id")
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  type       String
+  message    String
+  sentAt     DateTime? @map("sent_at")
+  isRead     Boolean   @default(false) @map("is_read")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("notifications")
+}
+
+model MessageTemplate {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  body      String
+  type      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("message_templates")
+}
+
+model Setting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+model StockMovement {
+  id            String            @id @default(uuid())
+  productId     String            @map("product_id")
+  product       Product           @relation(fields: [productId], references: [id])
+  branchId      String?           @map("branch_id")
+  branch        Branch?           @relation(fields: [branchId], references: [id])
+  invoiceId     String?           @map("invoice_id")
+  invoice       Invoice?          @relation(fields: [invoiceId], references: [id])
+  lossId        String?           @map("loss_id")
+  type          StockMovementType
+  quantity      Int
+  balanceBefore Int               @map("balance_before")
+  balanceAfter  Int               @map("balance_after")
+  createdAt     DateTime          @default(now()) @map("created_at")
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([productId, createdAt])
+  @@index([invoiceId])
+  @@index([branchId])
+  @@map("stock_movements")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  recordId  String?  @map("record_id")
+  before    Json?
+  after     Json?
+  metadata  Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([entity])
+  @@index([recordId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model InventoryTransfer {
+  id              String           @id @default(uuid())
+  transferNumber  String           @unique @map("transfer_number")
+  fromBranchId    String           @map("from_branch_id")
+  fromBranch      Branch           @relation("TransfersOut", fields: [fromBranchId], references: [id])
+  toBranchId      String           @map("to_branch_id")
+  toBranch        Branch           @relation("TransfersIn", fields: [toBranchId], references: [id])
+  status          TransferStatus   @default(COMPLETED)
+  date            DateTime         @default(now())
+  notes           String?
+  createdBy       String           @map("created_by")
+  creator         User             @relation("TransferCreatedBy", fields: [createdBy], references: [id])
+  items           TransferItem[]
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@index([fromBranchId])
+  @@index([toBranchId])
+  @@index([createdBy])
+  @@map("inventory_transfers")
+}
+
+model TransferItem {
+  id             String            @id @default(uuid())
+  transferId     String            @map("transfer_id")
+  transfer       InventoryTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  productId      String            @map("product_id")
+  product        Product           @relation(fields: [productId], references: [id])
+  quantity       Int
+  unit           Unit
+
+  @@index([transferId])
+  @@index([productId])
+  @@map("transfer_items")
+}
+
+model OrderPreparation {
+  id            String    @id @default(uuid())
+  invoiceId     String?   @unique @map("invoice_id")
+  invoice       Invoice?  @relation(fields: [invoiceId], references: [id])
+  customerName  String    @map("customer_name")
+  customerPhone String    @map("customer_phone")
+  items         Json
+  orderData     Json?     @map("order_data")
+  notes         String?
+  status        String    @default("PENDING")
+  preparedAt    DateTime? @map("prepared_at")
+  preparedById  String?   @map("prepared_by_id")
+  preparedBy    User?     @relation("PreparedByUser", fields: [preparedById], references: [id])
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("order_preparations")
+}
+
+// â”€â”€ Retail Catalog (ÙƒØªÙ„ÙˆÙƒ Ø§Ù„Ù…ÙØ±Ø¯) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// A fully public, mobile-first retail storefront. Items reference a Product
+// only to read its live piece-stock; all display data (images, price, title)
+// is independent of the wholesale catalog.
+
+model RetailCatalogItem {
+  id            String   @id @default(uuid())
+  productId     String   @map("product_id")
+  product       Product  @relation("RetailItemProduct", fields: [productId], references: [id])
+  title         String?
+  description   String?
+  price         Decimal
+  oldPrice      Decimal? @map("old_price")
+  categories    Json @default("[]")
+  subCategories Json @default("[]") @map("sub_categories")
+  images        Json     @default("[]")
+  sortOrder     Int      @default(0) @map("sort_order")
+  featured      Boolean  @default(false)
+  isBestSeller  Boolean  @default(false) @map("is_best_seller")
+  isNew         Boolean  @default(false) @map("is_new")
+  isOffer       Boolean  @default(false) @map("is_offer")
+  lowStockBadge Boolean  @default(false) @map("low_stock_badge")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@index([productId])
+  @@map("retail_catalog_items")
+}
+
+model RetailCategory {
+  id            String   @id @default(uuid())
+  name          String   @unique
+  subCategories Json @default("[]") @map("sub_categories")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("retail_categories")
+}
+
+model RetailCustomer {
+  id           String    @id @default(uuid())
+  phone        String    @unique
+  name         String
+  isSubscriber Boolean   @default(false) @map("is_subscriber")
+  interests    Json  @default("[]")
+  wishNote     String?   @map("wish_note")
+  ordersCount  Int       @default(0) @map("orders_count")
+  lastOrderAt  DateTime? @map("last_order_at")
+  referralCode String?   @unique @map("referral_code")
+  referredBy   String?   @map("referred_by")
+  // Secret token so a customer can view their own orders via a private link
+  // instead of exposing orders to anyone who knows the phone number (#5).
+  ordersToken  String?   @unique @map("orders_token")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([isSubscriber])
+  @@map("retail_customers")
+}
+
+model RetailCoupon {
+  id            String       @id @default(uuid())
+  code          String       @unique
+  name          String
+  discountType  DiscountType @map("discount_type")
+  discountValue Decimal      @map("discount_value")
+  startsAt      DateTime?    @map("starts_at")
+  endsAt        DateTime?    @map("ends_at")
+  maxUses       Int?         @map("max_uses")
+  usedCount     Int          @default(0) @map("used_count")
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([isActive])
+  @@map("retail_coupons")
+}
+
+model RetailOrder {
+  id                    String    @id @default(uuid())
+  orderNumber           String    @unique @map("order_number")
+  customerName          String    @map("customer_name")
+  phone                 String
+  address               String?
+  notes                 String?
+  items                 Json
+  warehouseId           String?   @map("warehouse_id")
+  warehouseDistribution Json?     @map("warehouse_distribution")
+  subtotal              Decimal
+  discount              Decimal   @default(0)
+  referralDiscount      Decimal   @default(0) @map("referral_discount")
+  total                 Decimal
+  couponCode            String?   @map("coupon_code")
+  referralCode          String?   @map("referral_code")
+  status                String    @default("PENDING")
+  invoiceId             String?   @map("invoice_id")
+  preparedAt            DateTime? @map("prepared_at")
+  preparedById          String?   @map("prepared_by_id")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([phone])
+  @@map("retail_orders")
+}
+
+// â”€â”€ Inventory Stocktake â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+model StocktakeSession {
+  id          String          @id @default(uuid())
+  publicToken String          @unique @map("public_token")
+  branchId    String?         @map("branch_id")
+  branch      Branch?         @relation(fields: [branchId], references: [id])
+  status      String          @default("OPEN")
+  notes       String?
+  createdBy   String          @map("created_by")
+  creator     User            @relation(fields: [createdBy], references: [id])
+  items       StocktakeItem[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+  closedAt    DateTime?       @map("closed_at")
+
+  @@index([branchId])
+  @@index([createdBy])
+  @@index([status])
+  @@map("stocktake_sessions")
+}
+
+model StocktakeItem {
+  id               String           @id @default(uuid())
+  sessionId        String           @map("session_id")
+  session          StocktakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productId        String           @map("product_id")
+  product          Product          @relation(fields: [productId], references: [id])
+  productName      String           @map("product_name")
+  systemQty        Int              @map("system_qty")
+  actualQty        Int?             @map("actual_qty")
+  variance         Int?
+  notes            String?
+  approvalStatus   String           @default("PENDING") @map("approval_status")
+  approvedQty      Int?             @map("approved_qty")
+
+  @@unique([sessionId, productId])
+  @@index([sessionId])
+  @@index([approvalStatus])
+  @@map("stocktake_items")
+}
+
+model LicensedClient {
+  id              String           @id @default(uuid())
+  name            String
+  licenseKey      String           @map("license_key")
+  expiresAt       DateTime         @map("expires_at")
+  months          Int
+  notes           String?
+  contactPhone    String?          @map("contact_phone")
+  contactEmail    String?          @map("contact_email")
+  backendUrl      String?          @map("backend_url")
+  frontendUrl     String?          @map("frontend_url")
+  isRevoked       Boolean          @default(false) @map("is_revoked")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  payments        ClientPayment[]
+
+  @@map("licensed_clients")
+}
+
+model ClientPayment {
+  id         String         @id @default(uuid())
+  clientId   String         @map("client_id")
+  client     LicensedClient @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  amount     Float
+  currency   String         @default("USD")
+  paidAt     DateTime       @map("paid_at")
+  method     String?
+  notes      String?
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@map("client_payments")
+}
