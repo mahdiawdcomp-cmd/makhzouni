@@ -1,0 +1,20 @@
+[package]
+name = "makhzouni-mahdi"
+version = "1.0.0"
+description = "مخزوني مهدي عوض — نظام إدارة المخزون"
+authors = ["Mahdi Awd"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "makhzouni_mahdi_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.3", features = [] }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde_json = "1"
