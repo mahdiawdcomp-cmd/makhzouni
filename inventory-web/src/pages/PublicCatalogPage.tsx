@@ -32,7 +32,7 @@ import type { PublicCatalogProduct } from "../types/api"
 import { cn } from "../utils/cn"
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
-type CatalogUnit = "PIECE" | "DOZEN" | "CARTON"
+type CatalogUnit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type CartLine = { id: string; product: PublicCatalogProduct; unit: CatalogUnit; quantity: number }
 type Theme = "clean" | "warm" | "dark" | "vibrant"
 type SortKey = "default" | "cheap" | "expensive" | "new"
@@ -40,8 +40,14 @@ type ViewMode = "grid" | "list"
 
 const storageKey = "inventory_catalog_access"
 const themeKey = "catalog_theme"
-const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", CARTON: "كارتون" }
-const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "CARTON"]
+const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", BOX: "علبة", CARTON: "كارتون" }
+const UNIT_DESC: Record<CatalogUnit, (pcsPerCarton: number) => string> = {
+  PIECE: () => "قطعة واحدة",
+  DOZEN: () => "12 قطعة",
+  BOX: (n) => `${Math.ceil(n / 2)} قطعة — نصف كارتون`,
+  CARTON: (n) => `${n} قطعة`,
+}
+const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
 interface ThemeTokens {
@@ -123,8 +129,13 @@ const SORT_LABELS: Record<SortKey, string> = {
 const money = (v: number | null | undefined) =>
   new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)))
 
-const pcs = (product: PublicCatalogProduct, unit: CatalogUnit) =>
-  unit === "CARTON" ? Math.max(1, product.pcsPerCarton) : unit === "DOZEN" ? 12 : 1
+const pcs = (product: PublicCatalogProduct, unit: CatalogUnit): number => {
+  const n = Math.max(1, product.pcsPerCarton)
+  if (unit === "CARTON") return n
+  if (unit === "BOX") return Math.ceil(n / 2)
+  if (unit === "DOZEN") return 12
+  return 1 // PIECE
+}
 
 const linePrice = (product: PublicCatalogProduct, unit: CatalogUnit) =>
   Number(product.salePrice ?? 0) * pcs(product, unit)
@@ -398,6 +409,7 @@ function CatalogShop({
   const [bannerIndex, setBannerIndex] = useState(0)
   const [showThemePicker, setShowThemePicker] = useState(false)
   const [zoomedImg, setZoomedImg] = useState<{ src: string; name: string } | null>(null)
+  const [pickerProduct, setPickerProduct] = useState<PublicCatalogProduct | null>(null)
   const [promoCode, setPromoCode] = useState("")
   const [promoResult, setPromoResult] = useState<{ code: string; type: string; value: number | null; description: string | null } | null>(null)
   const [promoError, setPromoError] = useState("")
@@ -595,8 +607,11 @@ function CatalogShop({
   }
 
   function renderCard(product: PublicCatalogProduct) {
-    const cartLine = cart.find(l => l.product.id === product.id)
-    const qtyInCart = cartLine?.quantity ?? 0
+    const productLines = cart.filter(l => l.product.id === product.id)
+    const qtyInCart = productLines.reduce((s, l) => s + l.quantity, 0)
+    // If exactly one unit type in cart → reuse it on "+" without reopening picker
+    const cartUnit = productLines.length === 1 ? productLines[0].unit : null
+    const firstLine = productLines[0] ?? null
     return (
       <ProductCard
         key={product.id}
@@ -604,11 +619,13 @@ function CatalogShop({
         allowPrices={allowPrices}
         showStock={showStock}
         qtyInCart={qtyInCart}
+        cartUnit={cartUnit}
         tk={tk}
         viewMode={viewMode}
         compact={viewMode === "grid" && perRow >= 4}
         onAdd={(unit) => add(product, unit)}
-        onRemoveOne={() => cartLine && changeQty(cartLine.id, -1)}
+        onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
+        onOpenPicker={() => setPickerProduct(product)}
         onZoom={(src) => setZoomedImg({ src, name: product.name })}
       />
     )
@@ -976,7 +993,126 @@ function CatalogShop({
           <p className="mt-4 text-center text-sm font-semibold text-white/80 px-4">{zoomedImg.name}</p>
         </div>
       )}
+
+      {/* ── Unit picker sheet ── */}
+      {pickerProduct && (
+        <UnitPickerSheet
+          product={pickerProduct}
+          allowPrices={allowPrices}
+          showStock={showStock}
+          tk={tk}
+          onSelect={(unit) => { add(pickerProduct, unit); setPickerProduct(null) }}
+          onClose={() => setPickerProduct(null)}
+        />
+      )}
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   UNIT PICKER SHEET
+══════════════════════════════════════════════════════════════════════ */
+function UnitPickerSheet({
+  product, allowPrices, showStock, tk, onSelect, onClose,
+}: {
+  product: PublicCatalogProduct; allowPrices: boolean; showStock: boolean
+  tk: ThemeTokens; onSelect: (unit: CatalogUnit) => void; onClose: () => void
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-[160] rounded-t-3xl shadow-2xl" style={{ background: tk.cardBg }} dir="rtl">
+        {/* Handle */}
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${tk.divider}` }}>
+          {product.imageUrl ? (
+            <img src={product.imageUrl} alt={product.name} className="h-14 w-14 rounded-xl object-cover border" style={{ borderColor: tk.divider }} />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl" style={{ background: tk.catIdle }}>
+              <ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.4 }} />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="line-clamp-2 text-sm font-bold" style={{ color: tk.text }}>{product.name}</p>
+            <p className="text-xs" style={{ color: tk.subtext }}>{product.itemNumber}</p>
+            {showStock && (
+              <p className="text-xs font-semibold" style={{ color: product.currentStock <= 5 ? "#ef4444" : tk.subtext }}>
+                {product.currentStock <= 5 ? `⚠️ ${product.currentStock} قطعة متبقية` : `${money(product.currentStock)} قطعة متوفرة`}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="shrink-0 rounded-xl p-2" style={{ background: tk.catIdle }}>
+            <X className="h-5 w-5" style={{ color: tk.subtext }} />
+          </button>
+        </div>
+
+        {/* Unit options */}
+        <div className="p-4 space-y-2.5 pb-8">
+          <p className="text-xs font-semibold mb-3" style={{ color: tk.subtext }}>اختر الوحدة:</p>
+          {UNITS.map((u) => {
+            const qty = maxQty(product, u)
+            const price = linePrice(product, u)
+            const disabled = qty < 1
+            const pcsCount = pcs(product, u)
+            return (
+              <button
+                key={u}
+                disabled={disabled}
+                onClick={() => onSelect(u)}
+                className="flex w-full items-center gap-3 rounded-2xl p-4 text-right transition active:scale-[0.98] disabled:opacity-35"
+                style={{
+                  background: disabled ? tk.catIdle : tk.cardBg,
+                  border: `2px solid ${disabled ? tk.divider : tk.accent}`,
+                  boxShadow: disabled ? "none" : `0 2px 8px ${tk.accent}22`,
+                }}
+              >
+                {/* Unit emoji / icon */}
+                <span className="text-2xl">
+                  {u === "PIECE" ? "1️⃣" : u === "DOZEN" ? "📦" : u === "BOX" ? "🗂️" : "📫"}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-extrabold" style={{ color: disabled ? tk.subtext : tk.text }}>
+                      {UNIT_LABELS[u]}
+                    </span>
+                    {u === "BOX" && (
+                      <span className="rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: tk.accentLight, color: tk.accent }}>
+                        نصف كارتون
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs" style={{ color: tk.subtext }}>
+                    {UNIT_DESC[u](product.pcsPerCarton)}
+                    {!disabled && ` · متوفر: ${qty} ${UNIT_LABELS[u]}`}
+                    {disabled && " · غير متوفر"}
+                  </p>
+                </div>
+                {allowPrices && !disabled && (
+                  <div className="text-right">
+                    <p className="text-base font-extrabold" style={{ color: tk.accent }}>{money(price)}</p>
+                    <p className="text-[10px]" style={{ color: tk.subtext }}>د.ع / {UNIT_LABELS[u]}</p>
+                    {pcsCount > 1 && (
+                      <p className="text-[9px]" style={{ color: tk.subtext }}>
+                        ({money(Math.round(price / pcsCount))} للقطعة)
+                      </p>
+                    )}
+                  </div>
+                )}
+                {!disabled && (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ background: tk.accent }}>
+                    <Plus className="h-4 w-4 text-white" />
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -984,105 +1120,88 @@ function CatalogShop({
    PRODUCT CARD
 ══════════════════════════════════════════════════════════════════════ */
 function ProductCard({
-  product, allowPrices, showStock, qtyInCart, tk, viewMode, compact,
-  onAdd, onRemoveOne, onZoom,
+  product, allowPrices, showStock, qtyInCart, cartUnit, tk, viewMode, compact,
+  onAdd, onRemoveOne, onOpenPicker, onZoom,
 }: {
   product: PublicCatalogProduct
   allowPrices: boolean
   showStock: boolean
   qtyInCart: number
+  cartUnit: CatalogUnit | null
   tk: ThemeTokens
   viewMode: ViewMode
   compact: boolean
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
+  onOpenPicker: () => void
   onZoom: (src: string) => void
 }) {
-  const [unit, setUnit] = useState<CatalogUnit>("PIECE")
-  const max = maxQty(product, unit)
+  const outOfStock = product.currentStock <= 0
   const lowStock = product.currentStock > 0 && product.currentStock <= 5
+  // Price shown is for PIECE by default (when not in cart) or the cart unit
+  const displayUnit = cartUnit ?? "PIECE"
+  const displayPrice = linePrice(product, displayUnit)
+  const canAddMore = !outOfStock && (cartUnit ? maxQty(product, cartUnit) > qtyInCart : true)
+
+  // "+ button" logic: if already have one unit type in cart → add same, else open picker
+  function handleAddPress() {
+    if (outOfStock) return
+    if (cartUnit) { onAdd(cartUnit) } else { onOpenPicker() }
+  }
 
   /* ── List view ── */
   if (viewMode === "list") {
     return (
       <div className="flex gap-3 overflow-hidden rounded-2xl p-3 transition"
-        style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}`, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-        {/* Image */}
+        style={{ background: tk.cardBg, border: `1px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
         <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
           {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name}
-              className="h-full w-full cursor-zoom-in object-cover"
-              loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+            <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
           ) : (
-            <div className="flex h-full items-center justify-center">
-              <ImageIcon className="h-7 w-7" style={{ color: tk.subtext, opacity: 0.4 }} />
-            </div>
+            <div className="flex h-full items-center justify-center"><ImageIcon className="h-7 w-7" style={{ color: tk.subtext, opacity: 0.4 }} /></div>
           )}
           {qtyInCart > 0 && (
-            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: tk.accent }}>
-              {qtyInCart}
-            </span>
+            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: tk.accent }}>{qtyInCart}</span>
           )}
           {product.isOffer && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>}
         </div>
 
-        {/* Info */}
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex items-start justify-between gap-1">
-            <p className="line-clamp-2 text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
-            {product.isNewArrival && (
-              <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {allowPrices && (
-              <div>
-                {product.isOffer && product.oldPrice != null && product.oldPrice > 0 && (
-                  <p className="text-[9px] text-gray-400 line-through">{money(Number(product.oldPrice) * pcs(product, unit))} د.ع</p>
-                )}
+        <div className="flex min-w-0 flex-1 flex-col justify-between">
+          <div>
+            <div className="flex items-start justify-between gap-1">
+              <p className="line-clamp-2 text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
+              {product.isNewArrival && <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+              {allowPrices && (
                 <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
-                  {money(linePrice(product, unit))} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع</span>
+                  {money(displayPrice)} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع/قطعة</span>
                 </p>
+              )}
+              {showStock && (
+                <span className="text-[10px] font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
+                  {lowStock ? `⚠️ ${product.currentStock} متبقية` : `${money(product.currentStock)} متوفر`}
+                </span>
+              )}
+              {cartUnit && <span className="rounded-full px-1.5 py-0.5 text-[8px] font-semibold" style={{ background: tk.accentLight, color: tk.accent }}>{UNIT_LABELS[cartUnit]}</span>}
+            </div>
+          </div>
+          <div className="mt-2 flex items-center justify-end gap-2">
+            {qtyInCart > 0 && (
+              <div className="flex items-center gap-1.5 rounded-xl px-2 py-1" style={{ background: tk.accentLight }}>
+                <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
+                  <Minus className="h-3 w-3" style={{ color: tk.text }} />
+                </button>
+                <span className="min-w-[1.25rem] text-center text-xs font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
               </div>
             )}
-            {showStock && (
-              <span className="text-[10px] font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
-                {lowStock ? `⚠️ ${product.currentStock} متبقية` : `${money(product.currentStock)} متوفر`}
-              </span>
-            )}
-          </div>
-
-          {/* Unit + qty controls */}
-          <div className="mt-auto flex items-center gap-1.5">
-            {UNITS.filter(u => maxQty(product, u) > 0).map(u => (
-              <button key={u} onClick={() => setUnit(u)}
-                className="rounded-lg px-2 py-0.5 text-[9px] font-bold transition"
-                style={u === unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
-                {UNIT_LABELS[u]}
-              </button>
-            ))}
-            <div className="ml-auto flex items-center gap-1">
-              {qtyInCart > 0 ? (
-                <div className="flex items-center gap-1 rounded-xl p-1" style={{ background: tk.accentLight }}>
-                  <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
-                    <Minus className="h-3 w-3" style={{ color: tk.text }} />
-                  </button>
-                  <span className="w-5 text-center text-xs font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
-                  <button onClick={() => onAdd(unit)} disabled={max < 1}
-                    className="flex h-6 w-6 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
-                    style={{ background: tk.accent }}>
-                    <Plus className="h-3 w-3 text-white" />
-                  </button>
-                </div>
-              ) : (
-                <button disabled={max < 1} onClick={() => onAdd(unit)}
-                  className="rounded-xl px-3 py-1.5 text-[10px] font-bold transition active:scale-95 disabled:opacity-40"
-                  style={{ background: tk.accent, color: tk.accentText }}>
-                  {max < 1 ? "نفد" : "أضف"}
-                </button>
-              )}
-            </div>
+            <button
+              disabled={outOfStock || !canAddMore}
+              onClick={handleAddPress}
+              className="flex h-9 w-9 items-center justify-center rounded-xl shadow-sm transition active:scale-90 disabled:opacity-40"
+              style={{ background: tk.accent }}>
+              {outOfStock ? <span className="text-[8px] font-bold text-white">نفد</span> : <Plus className="h-5 w-5 text-white" />}
+            </button>
           </div>
         </div>
       </div>
@@ -1092,49 +1211,39 @@ function ProductCard({
   /* ── Compact grid (4+ per row) ── */
   if (compact) {
     return (
-      <div className="overflow-hidden rounded-xl transition"
-        style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}` }}>
+      <div className="overflow-hidden rounded-xl transition" style={{ background: tk.cardBg, border: `1px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}` }}>
         <div className="relative aspect-square" style={{ background: tk.catIdle }}>
           {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name}
-              className="h-full w-full cursor-zoom-in object-cover"
-              loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+            <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
           ) : (
-            <div className="flex h-full items-center justify-center">
-              <ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.4 }} />
-            </div>
+            <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.4 }} /></div>
           )}
           {qtyInCart > 0 && (
-            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white shadow" style={{ background: tk.accent }}>
-              {qtyInCart}
-            </span>
+            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white shadow" style={{ background: tk.accent }}>{qtyInCart}</span>
           )}
           {product.isOffer && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[6px] font-bold text-white">عرض</span>}
           {product.isNewArrival && !product.isOffer && <span className="absolute right-1 top-1 rounded-full px-1 py-0.5 text-[6px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
-          {/* Gradient overlay */}
           <div className="absolute inset-x-0 bottom-0 px-1.5 pt-6 pb-1" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }}>
             <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
-            {allowPrices && <p className="text-[8px] font-semibold" style={{ color: "#6ee7b7" }}>{money(linePrice(product, unit))} د.ع</p>}
+            {allowPrices && <p className="text-[8px] font-semibold" style={{ color: "#6ee7b7" }}>{money(displayPrice)} د.ع</p>}
           </div>
         </div>
-        <div className="flex items-center justify-center gap-1 px-1 py-1">
+        <div className="flex items-center justify-between gap-1 px-1.5 py-1.5">
           {qtyInCart > 0 ? (
-            <>
+            <div className="flex items-center gap-1">
               <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg active:scale-90" style={{ background: tk.catIdle }}>
                 <Minus className="h-3 w-3" style={{ color: tk.text }} />
               </button>
               <span className="w-5 text-center text-[10px] font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
-              <button onClick={() => onAdd(unit)} disabled={max < 1} className="flex h-6 w-6 items-center justify-center rounded-lg disabled:opacity-40 active:scale-90" style={{ background: tk.accent }}>
-                <Plus className="h-3 w-3 text-white" />
-              </button>
-            </>
-          ) : (
-            <button disabled={max < 1} onClick={() => onAdd(unit)}
-              className="w-full rounded-lg py-1 text-[9px] font-bold text-white disabled:opacity-40 active:scale-95"
-              style={{ background: tk.accent }}>
-              {max < 1 ? "نفد" : "+ سلة"}
-            </button>
-          )}
+            </div>
+          ) : <span />}
+          <button
+            disabled={outOfStock || !canAddMore}
+            onClick={handleAddPress}
+            className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
+            style={{ background: tk.accent }}>
+            <Plus className="h-4 w-4 text-white" />
+          </button>
         </div>
       </div>
     )
@@ -1143,36 +1252,25 @@ function ProductCard({
   /* ── Full grid card (2-3 per row) ── */
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl transition"
-      style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+      style={{ background: tk.cardBg, border: `1px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
       {/* Image */}
       <div className="relative aspect-square" style={{ background: tk.catIdle }}>
         {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name}
-            className="h-full w-full cursor-zoom-in object-cover"
-            loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+          <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-1">
             <ImageIcon className="h-8 w-8" style={{ color: tk.subtext, opacity: 0.3 }} />
           </div>
         )}
-        {/* Badges */}
         <div className="absolute right-2 bottom-2 flex flex-col items-end gap-1">
-          {product.isNewArrival && (
-            <span className="rounded-full px-2 py-0.5 text-[9px] font-bold text-white shadow" style={{ background: tk.accent }}>✨ جديد</span>
-          )}
-          {product.isOffer && (
-            <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">🏷️ عرض</span>
-          )}
+          {product.isNewArrival && <span className="rounded-full px-2 py-0.5 text-[9px] font-bold text-white shadow" style={{ background: tk.accent }}>✨ جديد</span>}
+          {product.isOffer && <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">🏷️ عرض</span>}
         </div>
         {qtyInCart > 0 && (
-          <span className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white shadow" style={{ background: tk.accent }}>
-            {qtyInCart}
-          </span>
+          <span className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold text-white shadow" style={{ background: tk.accent }}>{qtyInCart}</span>
         )}
         {product.category && (
-          <span className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm" style={{ background: "rgba(0,0,0,0.4)" }}>
-            {product.category}
-          </span>
+          <span className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm" style={{ background: "rgba(0,0,0,0.4)" }}>{product.category}</span>
         )}
       </div>
 
@@ -1181,7 +1279,6 @@ function ProductCard({
         <p className="line-clamp-2 min-h-[2.4rem] text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
         <p className="mt-0.5 text-[10px]" style={{ color: tk.subtext }}>{product.itemNumber}</p>
 
-        {/* Type tags */}
         {product.typeTags && product.typeTags.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {product.typeTags.map(t => (
@@ -1190,16 +1287,18 @@ function ProductCard({
           </div>
         )}
 
-        {/* Price + stock */}
-        <div className="mt-2">
+        <div className="mt-2 flex-1">
           {allowPrices ? (
             <div>
               {product.isOffer && product.oldPrice != null && Number(product.oldPrice) > 0 && (
-                <p className="text-[10px] text-gray-400 line-through">{money(Number(product.oldPrice) * pcs(product, unit))} د.ع</p>
+                <p className="text-[10px] text-gray-400 line-through">{money(Number(product.oldPrice))} د.ع</p>
               )}
               <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
-                {money(linePrice(product, unit))} <span className="text-[10px] font-medium" style={{ color: tk.subtext }}>د.ع</span>
+                {money(displayPrice)} <span className="text-[10px] font-medium" style={{ color: tk.subtext }}>د.ع</span>
               </p>
+              {cartUnit && cartUnit !== "PIECE" && (
+                <p className="text-[9px]" style={{ color: tk.subtext }}>للـ{UNIT_LABELS[cartUnit]} ({pcs(product, cartUnit)} قطعة)</p>
+              )}
             </div>
           ) : (
             <p className="text-xs font-semibold" style={{ color: tk.subtext }}>السعر مخفي</p>
@@ -1211,42 +1310,27 @@ function ProductCard({
           )}
         </div>
 
-        {/* Unit buttons */}
-        {UNITS.filter(u => maxQty(product, u) > 0).length > 1 && (
-          <div className="mt-2 flex gap-1">
-            {UNITS.map((u) =>
-              maxQty(product, u) > 0 ? (
-                <button key={u} onClick={() => setUnit(u)}
-                  className="flex-1 rounded-lg py-1 text-[9px] font-bold transition"
-                  style={u === unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
-                  {UNIT_LABELS[u]}
-                </button>
-              ) : null
-            )}
-          </div>
-        )}
-
-        {/* Add/remove */}
-        <div className="mt-2">
+        {/* Add/remove controls */}
+        <div className="mt-2.5 flex items-center justify-between gap-2">
           {qtyInCart > 0 ? (
-            <div className="flex items-center justify-between rounded-xl px-2 py-1" style={{ background: tk.accentLight }}>
+            <div className="flex items-center gap-1.5 rounded-xl px-2 py-1" style={{ background: tk.accentLight }}>
               <button onClick={onRemoveOne} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
                 <Minus className="h-3.5 w-3.5" style={{ color: tk.text }} />
               </button>
-              <span className="text-sm font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
-              <button onClick={() => onAdd(unit)} disabled={max < 1}
-                className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
-                style={{ background: tk.accent }}>
-                <Plus className="h-3.5 w-3.5 text-white" />
-              </button>
+              <span className="min-w-[1.5rem] text-center text-sm font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
             </div>
           ) : (
-            <button disabled={max < 1} onClick={() => onAdd(unit)}
-              className="w-full rounded-xl py-2 text-xs font-bold transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: tk.accent, color: tk.accentText }}>
-              {max < 1 ? "نفد المخزون" : "أضف للسلة"}
-            </button>
+            <span className="text-[9px]" style={{ color: tk.subtext }}>
+              {outOfStock ? "نفد المخزون" : "اضغط + لاختيار الوحدة"}
+            </span>
           )}
+          <button
+            disabled={outOfStock || !canAddMore}
+            onClick={handleAddPress}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-md transition active:scale-90 disabled:opacity-40"
+            style={{ background: tk.accent }}>
+            <Plus className="h-5 w-5 text-white" />
+          </button>
         </div>
       </div>
     </div>
@@ -1411,6 +1495,10 @@ function CartItem({
   onChangeQty: (id: string, d: number) => void; onChangeUnit: (id: string, u: CatalogUnit) => void
   onRemove: (id: string) => void; tk: ThemeTokens
 }) {
+  const unitPcs = pcs(line.product, line.unit)
+  const unitPriceVal = linePrice(line.product, line.unit)
+  const totalPcs = unitPcs * line.quantity
+
   return (
     <div className="rounded-2xl p-3" style={{ background: tk.bg, border: `1px solid ${tk.cardBorder}` }}>
       <div className="flex gap-3">
@@ -1422,25 +1510,43 @@ function CartItem({
               <Trash2 className="h-4 w-4 text-red-400" />
             </button>
           </div>
+          {/* Unit badge */}
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: tk.accentLight, color: tk.accent }}>
+              {UNIT_LABELS[line.unit]}
+            </span>
+            <span className="text-[10px]" style={{ color: tk.subtext }}>
+              {unitPcs > 1 ? `${unitPcs} قطعة/وحدة` : "قطعة"}
+            </span>
+            {allowPrices && (
+              <span className="text-[10px] font-semibold" style={{ color: tk.subtext }}>
+                · {money(unitPriceVal)} د.ع/وحدة
+              </span>
+            )}
+          </div>
           {allowPrices && (
-            <p className="text-xs font-semibold" style={{ color: tk.accent }}>
-              {money(linePrice(line.product, line.unit))} × {line.quantity} = {money(linePrice(line.product, line.unit) * line.quantity)} د.ع
+            <p className="mt-0.5 text-xs font-bold" style={{ color: tk.accent }}>
+              {line.quantity} وحدة × {money(unitPriceVal)} = {money(unitPriceVal * line.quantity)} د.ع
+              {unitPcs > 1 && <span className="mr-1 text-[9px] font-normal" style={{ color: tk.subtext }}>({money(totalPcs)} قطعة إجمالاً)</span>}
             </p>
           )}
         </div>
       </div>
-      <div className="mt-2 flex items-center gap-2">
-        <div className="flex gap-1 flex-1">
+
+      <div className="mt-2.5 flex items-center justify-between gap-2">
+        {/* Unit switcher */}
+        <div className="flex gap-1 flex-wrap">
           {UNITS.map((u) =>
             maxQty(line.product, u) > 0 ? (
               <button key={u} onClick={() => onChangeUnit(line.id, u)}
-                className="rounded-lg px-2 py-1 text-[10px] font-semibold transition"
+                className="rounded-lg px-2 py-1 text-[9px] font-bold transition"
                 style={u === line.unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
                 {UNIT_LABELS[u]}
               </button>
             ) : null
           )}
         </div>
+        {/* Qty controls */}
         <div className="flex items-center gap-1 rounded-xl p-1" style={{ background: tk.catIdle }}>
           <button onClick={() => onChangeQty(line.id, -1)} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
             <Minus className="h-3 w-3" style={{ color: tk.text }} />

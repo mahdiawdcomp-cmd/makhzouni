@@ -33,6 +33,7 @@ function paymentTypeAr(type: string) {
 
 function unitAr(unit: string) {
   if (unit === "CARTON") return "كرتونة";
+  if (unit === "BOX") return "علبة";
   if (unit === "DOZEN")  return "درزن";
   return "قطعة";
 }

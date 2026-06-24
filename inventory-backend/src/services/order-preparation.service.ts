@@ -21,6 +21,7 @@ const retryDelays = [3000, 8000, 15000, 30000];
 
 function unitAr(unit: string) {
   if (unit === "CARTON") return "كارتون";
+  if (unit === "BOX") return "علبة";
   if (unit === "DOZEN") return "درزن";
   return "قطعة";
 }

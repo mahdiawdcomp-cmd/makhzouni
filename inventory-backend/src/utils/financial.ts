@@ -12,8 +12,9 @@ export function invoiceBalanceSign(type: FinancialInvoiceType): 1 | -1 {
   return type === "SALE" ? 1 : -1;
 }
 
-export function amountInPieces(unit: "PIECE" | "DOZEN" | "CARTON", quantity: number, pcsPerCarton: number): number {
+export function amountInPieces(unit: "PIECE" | "DOZEN" | "BOX" | "CARTON", quantity: number, pcsPerCarton: number): number {
   if (unit === "CARTON") return quantity * pcsPerCarton;
+  if (unit === "BOX") return quantity * Math.ceil(pcsPerCarton / 2);
   if (unit === "DOZEN") return quantity * 12;
   return quantity;
 }

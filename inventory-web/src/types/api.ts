@@ -226,7 +226,7 @@ export interface CatalogOrderPayload {
   items: Array<{
     productId: string
     warehouseId?: string
-    unit: "PIECE" | "DOZEN" | "CARTON"
+    unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
     quantity: number
   }>
 }
@@ -496,7 +496,7 @@ export interface CreateInvoicePayload {
   items: Array<{
     productId: string
     warehouseId?: string
-    unit: "PIECE" | "DOZEN" | "CARTON"
+    unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
     quantity: number
     unitPrice?: number
     allowNegativeStock?: boolean
