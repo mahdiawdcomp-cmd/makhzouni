@@ -636,33 +636,38 @@ function CatalogShop({
 
   /* ── Render ── */
   return (
-    <div dir="rtl" style={{ background: tk.bg, minHeight: "100vh", transition: "background 0.3s" }}>
+    <div dir="rtl" style={{ minHeight: "100vh", background: `radial-gradient(circle at top right, ${tk.accent}35 0%, ${tk.accent}55 28%, ${tk.bg} 65%)`, transition: "background 0.3s" }}>
+      <div className="mx-auto flex min-h-screen max-w-[600px] flex-col shadow-2xl shadow-slate-950/15" style={{ background: tk.bg }}>
 
       {/* ── Sticky Header ── */}
-      <header className="sticky top-0 z-30" style={{ background: tk.headerBg, boxShadow: tk.headerShadow }}>
+      <header className="sticky top-0 z-30 overflow-hidden" style={{ background: `linear-gradient(135deg, ${tk.accent} 0%, ${tk.accent}cc 100%)`, boxShadow: "0 4px 24px rgba(0,0,0,0.22)" }}>
+        {/* Decorative circles */}
+        <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10 blur-sm" />
+        <div className="pointer-events-none absolute -bottom-14 left-6 h-28 w-28 rounded-full bg-white/10 blur-md" />
+
         {/* Row 1: logo + search + actions */}
-        <div className="px-3 py-2.5">
+        <div className="relative px-3 py-2.5">
           <div className="flex items-center gap-2">
             {/* Logo */}
             {design?.logoUrl ? (
-              <img src={design.logoUrl} alt="شعار" className="h-9 w-9 shrink-0 rounded-xl object-contain border" style={{ borderColor: tk.divider }} onError={(e) => e.currentTarget.style.display = "none"} />
+              <img src={design.logoUrl} alt="شعار" className="h-9 w-9 shrink-0 rounded-xl object-contain border border-white/30 bg-white/20 p-0.5" onError={(e) => e.currentTarget.style.display = "none"} />
             ) : (
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: tk.accent }}>
-                <ShoppingBag className="h-5 w-5" style={{ color: tk.accentText }} />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/20 ring-1 ring-white/30">
+                <ShoppingBag className="h-5 w-5 text-white" />
               </div>
             )}
 
             {/* Search */}
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: tk.subtext }} />
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/60" />
               <input
                 ref={searchRef}
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setActiveSugg(0) }}
                 onKeyDown={handleKey}
                 placeholder="ابحث عن منتج..."
-                className="h-9 w-full rounded-xl border-0 pr-9 pl-3 text-sm outline-none transition placeholder:opacity-60"
-                style={{ background: tk.inputBg, color: tk.inputText }}
+                className="h-9 w-full rounded-xl border-0 pr-9 pl-3 text-sm text-white outline-none transition placeholder:text-white/55"
+                style={{ background: "rgba(255,255,255,0.2)" }}
               />
               {search && (
                 <button onClick={() => setSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100">
@@ -697,11 +702,11 @@ function CatalogShop({
             <div className="relative" ref={themeRef}>
               <button
                 onClick={() => setShowThemePicker(v => !v)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition"
-                style={{ background: showThemePicker ? tk.accentLight : tk.catIdle }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
+                style={{ background: showThemePicker ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.2)" }}
                 title="تغيير الثيم"
               >
-                <Palette className="h-4 w-4" style={{ color: tk.accent }} />
+                <Palette className="h-4 w-4 text-white" />
               </button>
               {showThemePicker && (
                 <div className="absolute top-full left-0 z-50 mt-2 rounded-2xl p-2 shadow-2xl"
@@ -725,17 +730,17 @@ function CatalogShop({
             <button
               onClick={() => void productsQuery.refetch()}
               disabled={productsQuery.isFetching}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-50"
-              style={{ background: tk.catIdle }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-50 active:scale-95"
+              style={{ background: "rgba(255,255,255,0.2)" }}
             >
-              <RefreshCw className={cn("h-4 w-4", productsQuery.isFetching && "animate-spin")} style={{ color: tk.subtext }} />
+              <RefreshCw className={cn("h-4 w-4 text-white/80", productsQuery.isFetching && "animate-spin")} />
             </button>
 
             {/* Cart */}
             <button onClick={() => setCartOpen(true)}
               className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
-              style={{ background: tk.accent }}>
-              <ShoppingCart className="h-5 w-5" style={{ color: tk.accentText }} />
+              style={{ background: "rgba(255,255,255,0.28)" }}>
+              <ShoppingCart className="h-5 w-5 text-white" />
               {cartQty > 0 && (
                 <span className="absolute -left-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
                   {cartQty}
@@ -747,14 +752,14 @@ function CatalogShop({
 
         {/* Row 2: Category tabs */}
         {categories.length > 0 && (
-          <div className="overflow-x-auto scrollbar-hide" style={{ borderTop: `1px solid ${tk.divider}` }}>
+          <div className="overflow-x-auto scrollbar-hide border-t border-white/20">
             <div className="flex gap-2 px-3 py-2">
               {["all", ...categories].map((cat) => (
                 <button key={cat} onClick={() => { setCategory(cat); setTypeFilter("all") }}
                   className="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all active:scale-95"
                   style={category === cat
-                    ? { background: tk.catActive, color: tk.catActiveText }
-                    : { background: tk.catIdle, color: tk.catIdleText }
+                    ? { background: "rgba(255,255,255,0.92)", color: tk.accent }
+                    : { background: "rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.92)" }
                   }>
                   {cat === "all" ? "الكل" : cat}
                 </button>
@@ -765,14 +770,14 @@ function CatalogShop({
 
         {/* Row 3: Sub-types (when category selected) */}
         {availableTypes.length > 0 && (
-          <div className="overflow-x-auto scrollbar-hide" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
+          <div className="overflow-x-auto scrollbar-hide border-t border-white/15">
             <div className="flex gap-1.5 px-3 py-1.5">
               {["all", ...availableTypes].map((t) => (
                 <button key={t} onClick={() => setTypeFilter(t)}
                   className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition-all"
                   style={typeFilter === t
-                    ? { background: tk.subtext, color: "#fff" }
-                    : { background: tk.cardBg, color: tk.subtext, border: `1px solid ${tk.divider}` }
+                    ? { background: "rgba(255,255,255,0.85)", color: tk.accent }
+                    : { background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.8)", border: "1px solid rgba(255,255,255,0.25)" }
                   }>
                   {t === "all" ? "كل الأنواع" : t}
                 </button>
@@ -782,15 +787,15 @@ function CatalogShop({
         )}
 
         {/* Row 4: Sort + View toggle */}
-        <div className="flex items-center gap-2 px-3 py-2" style={{ borderTop: `1px solid ${tk.divider}` }}>
+        <div className="relative flex items-center gap-2 px-3 py-2 border-t border-white/15">
           {/* Sort */}
           <div className="flex flex-1 gap-1 overflow-x-auto scrollbar-hide">
             {(Object.keys(SORT_LABELS) as SortKey[]).map(sk => (
               <button key={sk} onClick={() => setSortKey(sk)}
                 className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all"
                 style={sortKey === sk
-                  ? { background: tk.accent, color: tk.accentText }
-                  : { background: tk.catIdle, color: tk.catIdleText }
+                  ? { background: "rgba(255,255,255,0.9)", color: tk.accent }
+                  : { background: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.85)" }
                 }>
                 {SORT_LABELS[sk]}
               </button>
@@ -798,24 +803,24 @@ function CatalogShop({
           </div>
 
           {/* View mode toggle */}
-          <div className="flex shrink-0 rounded-xl overflow-hidden" style={{ border: `1.5px solid ${tk.divider}` }}>
+          <div className="flex shrink-0 rounded-xl overflow-hidden" style={{ border: "1.5px solid rgba(255,255,255,0.35)" }}>
             <button onClick={() => setViewMode("grid")} className="flex h-7 w-8 items-center justify-center transition"
-              style={{ background: viewMode === "grid" ? tk.accent : "transparent" }}>
-              <Grid className="h-3.5 w-3.5" style={{ color: viewMode === "grid" ? tk.accentText : tk.subtext }} />
+              style={{ background: viewMode === "grid" ? "rgba(255,255,255,0.9)" : "transparent" }}>
+              <Grid className="h-3.5 w-3.5" style={{ color: viewMode === "grid" ? tk.accent : "rgba(255,255,255,0.8)" }} />
             </button>
             <button onClick={() => setViewMode("list")} className="flex h-7 w-8 items-center justify-center transition"
-              style={{ background: viewMode === "list" ? tk.accent : "transparent", borderRight: `1px solid ${tk.divider}` }}>
-              <LayoutList className="h-3.5 w-3.5" style={{ color: viewMode === "list" ? tk.accentText : tk.subtext }} />
+              style={{ background: viewMode === "list" ? "rgba(255,255,255,0.9)" : "transparent", borderRight: "1px solid rgba(255,255,255,0.25)" }}>
+              <LayoutList className="h-3.5 w-3.5" style={{ color: viewMode === "list" ? tk.accent : "rgba(255,255,255,0.8)" }} />
             </button>
           </div>
 
           {/* Per-row (only in grid mode) */}
           {viewMode === "grid" && (
-            <div className="flex shrink-0 items-center gap-0.5 rounded-xl overflow-hidden" style={{ border: `1.5px solid ${tk.divider}` }}>
+            <div className="flex shrink-0 items-center gap-0.5 rounded-xl overflow-hidden" style={{ border: "1.5px solid rgba(255,255,255,0.35)" }}>
               {[2, 3, 4].map(n => (
                 <button key={n} onClick={() => setPerRow(n)}
                   className="flex h-7 w-6 items-center justify-center text-[11px] font-bold transition"
-                  style={{ background: perRow === n ? tk.accent : "transparent", color: perRow === n ? tk.accentText : tk.subtext }}>
+                  style={{ background: perRow === n ? "rgba(255,255,255,0.9)" : "transparent", color: perRow === n ? tk.accent : "rgba(255,255,255,0.8)" }}>
                   {n}
                 </button>
               ))}
@@ -873,7 +878,7 @@ function CatalogShop({
       })()}
 
       {/* ── Main content ── */}
-      <main className="mx-auto max-w-7xl px-3 pb-32 pt-3">
+      <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-32 pt-4 overflow-hidden" style={{ background: tk.bg }}>
 
         {/* Loading skeleton */}
         {productsQuery.isLoading && viewMode === "grid" && (
@@ -949,6 +954,7 @@ function CatalogShop({
           )
         )}
       </main>
+      </div>{/* end card container */}
 
       {/* ── Floating cart button ── */}
       {cartQty > 0 && !cartOpen && (
