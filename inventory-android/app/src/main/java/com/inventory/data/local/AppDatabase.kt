@@ -24,6 +24,12 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
     }
 }
 
+val MIGRATION_11_12 = object : Migration(11, 12) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE products ADD COLUMN thumbnailUrl TEXT DEFAULT NULL")
+    }
+}
+
 @Database(
     entities = [
         UserEntity::class,
@@ -39,7 +45,7 @@ val MIGRATION_10_11 = object : Migration(10, 11) {
         SettingEntity::class,
         PendingSyncOperationEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

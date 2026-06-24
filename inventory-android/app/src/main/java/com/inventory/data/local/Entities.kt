@@ -22,6 +22,7 @@ data class ProductEntity(
     val qrCode: String,
     val cartonQrCode: String = "",
     val imageUrl: String? = null,
+    val thumbnailUrl: String? = null,
     val category: String,
     val openingBalancePcs: Int,
     val cartonsAvailable: Int,

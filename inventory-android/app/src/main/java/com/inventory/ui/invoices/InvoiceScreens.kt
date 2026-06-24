@@ -464,9 +464,9 @@ fun InvoiceCreateScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    if (!product.imageUrl.isNullOrBlank()) {
+                                    if (!product.thumbnailUrl.isNullOrBlank() || !product.imageUrl.isNullOrBlank()) {
                                         AsyncImage(
-                                            model = product.imageUrl,
+                                            model = product.thumbnailUrl ?: product.imageUrl,
                                             contentDescription = product.name,
                                             modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)),
                                         )
@@ -693,9 +693,9 @@ private fun InvoiceItemRow(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (!item.product.imageUrl.isNullOrBlank()) {
+            if (!item.product.thumbnailUrl.isNullOrBlank() || !item.product.imageUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = item.product.imageUrl,
+                    model = item.product.thumbnailUrl ?: item.product.imageUrl,
                     contentDescription = item.product.name,
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)),
                 )

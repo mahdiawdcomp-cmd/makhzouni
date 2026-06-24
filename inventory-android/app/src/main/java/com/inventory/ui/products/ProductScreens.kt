@@ -290,9 +290,9 @@ private fun ProductListItem(product: Product, hidePrices: Boolean = false, onCli
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            if (!product.imageUrl.isNullOrBlank()) {
+            if (!product.thumbnailUrl.isNullOrBlank() || !product.imageUrl.isNullOrBlank()) {
                 AsyncImage(
-                    model = product.imageUrl,
+                    model = product.thumbnailUrl ?: product.imageUrl,
                     contentDescription = product.name,
                     modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
                 )
@@ -803,9 +803,9 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (!state.imageUrl.isNullOrBlank()) {
+                            if (!state.imageUrl.isNullOrBlank() || !state.thumbnailUrl.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = state.imageUrl,
+                                    model = state.imageUrl ?: state.thumbnailUrl,
                                     contentDescription = state.name,
                                     modifier = Modifier.size(76.dp).clip(RoundedCornerShape(14.dp)),
                                 )

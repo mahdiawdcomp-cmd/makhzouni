@@ -187,6 +187,9 @@ data class ProductFormUiState(
     val qrCode: String = "",
     val cartonQrCode: String = "",
     val imageUrl: String? = null,
+    // Thumbnail shown in the edit preview only — never sent back on save, so the
+    // full image is never overwritten by the small thumbnail.
+    val thumbnailUrl: String? = null,
     val category: String = "",
     val categoryTags: List<String> = emptyList(),
     val typeTags: List<String> = emptyList(),
@@ -292,6 +295,7 @@ class ProductFormViewModel @Inject constructor(
                             qrCode = product.qrCode,
                             cartonQrCode = product.cartonQrCode,
                             imageUrl = product.imageUrl,
+                            thumbnailUrl = product.thumbnailUrl,
                             category = product.category,
                             openingBalancePcs = product.openingBalancePcs.toString(),
                             cartonsAvailable = product.cartonsAvailable.toString(),

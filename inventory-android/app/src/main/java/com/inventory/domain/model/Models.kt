@@ -52,6 +52,7 @@ data class Product(
     val qrCode: String,
     val cartonQrCode: String = "",
     val imageUrl: String? = null,
+    val thumbnailUrl: String? = null,
     val category: String,
     val categoryTags: List<String> = emptyList(),
     val typeTags: List<String> = emptyList(),

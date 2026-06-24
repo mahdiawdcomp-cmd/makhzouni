@@ -247,6 +247,7 @@ data class ProductDto(
     val qrCode: String? = null,
     val cartonQrCode: String? = null,
     val imageUrl: String? = null,
+    val thumbnailUrl: String? = null,
     val category: String? = null,
     val categoryTags: List<String>? = null,
     val typeTags: List<String>? = null,
@@ -263,6 +264,7 @@ data class ProductDto(
     val currentStock: Int? = null,
     val shopStock: Int? = null,
     val warehouseStocks: List<WarehouseStockDto>? = null,
+    val lastMovementAt: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
 )
