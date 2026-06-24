@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, X } from "lucide-react"
+import { Boxes, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -602,6 +602,11 @@ export function ProductsPage() {
           <Button variant="outline" asChild>
             <Link to="/inventory/stocktake">
               <FileText className="h-4 w-4" /> الجرد الدوري
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/variety">
+              <Boxes className="h-4 w-4" /> تحويل إلى متنوع
             </Link>
           </Button>
           <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
