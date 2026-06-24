@@ -77,27 +77,7 @@ function AutoLoginScreen() {
   }
 
   if (error) {
-    return (
-      <main dir="rtl" style={splashStyle}>
-        <div style={cardStyle}>
-          <PackageCheck size={48} color="#ef4444" />
-          <h2 style={{ color: "white", margin: "12px 0 8px", fontSize: 20 }}>خطأ في التشغيل</h2>
-          <p style={{ color: "#94a3b8", fontSize: 14, margin: "0 0 20px", textAlign: "center" }}>{error}</p>
-          <button onClick={() => { setError(""); void autoLogin(0) }} style={btnStyle}>
-            إعادة المحاولة
-          </button>
-          <button
-            onClick={() => {
-              localStorage.removeItem(LOCAL_CREDS_KEY)
-              window.location.reload()
-            }}
-            style={{ ...btnStyle, background: "#1e293b", marginTop: 8 }}
-          >
-            إعادة ضبط كلمة المرور (admin / Password123!)
-          </button>
-        </div>
-      </main>
-    )
+    return <CloudFallbackScreen localError={error} onRetry={() => { setError(""); void autoLogin(0) }} />
   }
 
   return (
@@ -116,6 +96,82 @@ function AutoLoginScreen() {
         <p style={{ color: "#475569", fontSize: 13, marginTop: 16 }}>{status}</p>
       </div>
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </main>
+  )
+}
+
+// ── Cloud fallback when local server fails ────────────────────────────────────
+function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRetry: () => void }) {
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [showPass, setShowPass] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const setSession = useAuthStore((s) => s.setSession)
+
+  const CLOUD_API = "https://api.mazbwoni.com/api"
+
+  async function handleCloudLogin() {
+    if (!username.trim() || !password.trim()) { setError("أدخل اسم المستخدم وكلمة المرور."); return }
+    setLoading(true); setError("")
+    try {
+      const res = await axios.post<{ token: string; user: unknown }>(
+        `${CLOUD_API}/auth/login`,
+        { username: username.trim(), password },
+        { timeout: 15000 }
+      )
+      if (!res.data.token || !res.data.user) throw new Error("no token")
+      localStorage.setItem(SERVER_KEY, CLOUD_API)
+      api.defaults.baseURL = CLOUD_API
+      setSession(res.data.token, res.data.user as Parameters<typeof setSession>[1], true)
+    } catch (err: any) {
+      setError(err?.response?.data?.message ?? "تعذر الاتصال بالسيرفر.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main dir="rtl" style={splashStyle}>
+      <div style={{ ...cardStyle, gap: 0, padding: "36px 40px", background: "#1e293b", borderRadius: 20, border: "1px solid #334155", width: 380 }}>
+        <PackageCheck size={42} color="#ef4444" style={{ marginBottom: 12 }} />
+        <h2 style={{ color: "white", margin: "0 0 6px", fontSize: 18 }}>تعذّر تشغيل الخادم المحلي</h2>
+        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 24px", textAlign: "center" }}>{localError}</p>
+
+        <div style={{ width: "100%", borderTop: "1px solid #334155", marginBottom: 20 }} />
+
+        <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 16px", alignSelf: "flex-start" }}>
+          سجّل دخول بالحساب السحابي بدلاً من ذلك:
+        </p>
+
+        {[
+          { label: "اسم المستخدم", value: username, set: setUsername, type: "text" },
+          { label: "كلمة المرور",  value: password, set: setPassword, type: showPass ? "text" : "password" },
+        ].map(({ label, value, set, type }) => (
+          <label key={label} style={{ display: "flex", flexDirection: "column", gap: 5, width: "100%", marginBottom: 12 }}>
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>{label}</span>
+            <input
+              value={value} onChange={(e) => set(e.target.value)}
+              type={type} dir="ltr"
+              onKeyDown={(e) => e.key === "Enter" && void handleCloudLogin()}
+              style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "white", fontSize: 14, fontFamily: "inherit", outline: "none", width: "100%", boxSizing: "border-box" as const }}
+            />
+          </label>
+        ))}
+        <label style={{ display: "flex", alignItems: "center", gap: 6, alignSelf: "flex-start", marginBottom: 16, cursor: "pointer" }}>
+          <input type="checkbox" checked={showPass} onChange={(e) => setShowPass(e.target.checked)} />
+          <span style={{ color: "#64748b", fontSize: 12 }}>إظهار كلمة المرور</span>
+        </label>
+
+        {error && <p style={{ color: "#fca5a5", fontSize: 12, margin: "0 0 12px" }}>{error}</p>}
+
+        <button onClick={() => void handleCloudLogin()} disabled={loading} style={{ ...btnStyle, marginBottom: 8 }}>
+          {loading ? "جاري الاتصال…" : "دخول بالحساب السحابي"}
+        </button>
+        <button onClick={onRetry} style={{ ...btnStyle, background: "#1e293b", border: "1px solid #334155", fontSize: 13 }}>
+          إعادة المحاولة (محلي)
+        </button>
+      </div>
     </main>
   )
 }
