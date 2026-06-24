@@ -87,7 +87,13 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   useEffect(() => {
-    // Arabic is the native language — no translation or DOM observer needed.
+    // Always set the HTML dir/lang attributes so the layout stays RTL for Arabic.
+    const activeLanguage = !isAdministrationPath() ? "ar" : language
+    document.documentElement.lang = activeLanguage
+    document.documentElement.dir = activeLanguage === "en" ? "ltr" : "rtl"
+    document.documentElement.dataset.adminLanguage = language
+
+    // Arabic is the native language — no DOM translation or observer needed.
     if (language === "ar") return
     if (!dictionary) return
     const textSources = new WeakMap<Node, string>()
