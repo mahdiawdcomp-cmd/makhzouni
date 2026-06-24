@@ -29,6 +29,7 @@ import { AppError } from "./utils/app-error";
 import { startNotificationJobs } from "./services/notification-jobs.service";
 import { initializeWhatsApp } from "./services/whatsapp.service";
 import { getSettings } from "./services/settings.service";
+import { backfillThumbnails } from "./services/product.service";
 import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger } from "./utils/logger";
 import { realtimeHeartbeat } from "./services/realtime.service";
@@ -139,6 +140,13 @@ app.listen(port, "0.0.0.0", () => {
 
   // Load DB settings to sync WhatsApp Cloud API credentials into the WA service
   getSettings().catch((e) => logger.warn("Failed to preload settings:", e));
+
+  // One-time (self-healing) thumbnail backfill: generate small thumbnails for
+  // existing products that have a full image but no thumbnail yet. Runs in the
+  // background and is a no-op once every product has a thumbnail.
+  void backfillThumbnails()
+    .then((r) => { if (r.updated > 0) logger.info(`[thumbnails] backfilled ${r.updated}/${r.scanned} products`); })
+    .catch((e) => logger.warn("[thumbnails] backfill skipped:", e));
 
   // WhatsApp only runs when explicitly enabled (requires local Chrome for web provider)
   if (process.env.ENABLE_WHATSAPP === "true") {
