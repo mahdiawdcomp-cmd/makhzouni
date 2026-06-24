@@ -11,6 +11,7 @@ import { useUiStore } from "../../store/uiStore"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
+import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { OnboardingWizard } from "../OnboardingWizard"
 import { AgentButton } from "../agent/AgentButton"
 import { ErrorBoundary } from "../ErrorBoundary"
@@ -81,6 +82,7 @@ export function AppLayout() {
   const pwa = usePwaStatus()
   const qc = useQueryClient()
   useGlobalShortcuts()
+  useGlobalBarcodeScanner()
 
   useEffect(() => {
     if (pwa.lastSyncAt) {

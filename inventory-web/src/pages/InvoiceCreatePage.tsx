@@ -939,6 +939,18 @@ export function InvoiceCreatePage() {
       setProductHighlight((i) => Math.max(i - 1, 0))
     } else if (e.key === "Enter") {
       e.preventDefault()
+      // If what was typed/scanned exactly matches a barcode, add via the
+      // carton-aware path so a scanned carton barcode is added as CARTON, not PIECE.
+      const c = productQuery.trim().toLowerCase()
+      const exactByCode = c
+        ? products.find((p) => p.qrCode?.toLowerCase() === c || p.cartonQrCode?.toLowerCase() === c)
+        : undefined
+      if (exactByCode) {
+        addProductByCode(productQuery.trim())
+        setProductQuery("")
+        setProductModal(false)
+        return
+      }
       addProduct(productSuggestions[productHighlight])
     }
   }
@@ -983,6 +995,22 @@ export function InvoiceCreatePage() {
     return () => window.removeEventListener("keydown", onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanBuffer, productModal, preview, products])
+
+  // ---- Auto-add a product when arriving from the global scanner (/invoices/new?scan=CODE) ----
+  const scanParamAppliedRef = useRef(false)
+  useEffect(() => {
+    if (scanParamAppliedRef.current) return
+    const code = searchParams.get("scan")
+    if (!code) return
+    if (products.length === 0) return // wait until products are loaded
+    scanParamAppliedRef.current = true
+    addProductByCode(code)
+    // Clear the param so a refresh doesn't re-add the same line.
+    const next = new URLSearchParams(searchParams)
+    next.delete("scan")
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, searchParams])
 
   async function persistInvoice(navigateAfterSave = false, showWhatsAppPrompt = true) {
     if (savedInvoiceId) return savedInvoiceId
@@ -1463,6 +1491,7 @@ export function InvoiceCreatePage() {
                         >
                           <option value="PIECE">قطعة</option>
                           <option value="DOZEN">درزن</option>
+                          <option value="BOX">علبة</option>
                           <option value="CARTON">كرتونة</option>
                         </select>
                       </TD>

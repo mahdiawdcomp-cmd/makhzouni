@@ -230,7 +230,13 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma) {
     throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
   }
 
-  return serializeProduct(product);
+  // Tell the caller WHICH barcode matched so the POS can pre-select the right unit:
+  // the carton barcode → CARTON, otherwise → PIECE.
+  const code = qrCode.trim();
+  const scannedUnit: "CARTON" | "PIECE" =
+    product.cartonQrCode && product.cartonQrCode === code ? "CARTON" : "PIECE";
+
+  return { ...serializeProduct(product), scannedUnit };
 }
 
 export async function createProduct(

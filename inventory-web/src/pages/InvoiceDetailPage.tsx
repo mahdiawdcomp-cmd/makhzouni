@@ -37,6 +37,7 @@ function money(v: number | undefined) { return fmt(v) }
 function unitLabel(unit: string) {
   if (unit === "CARTON") return "كرتونة"
   if (unit === "DOZEN") return "درزن"
+  if (unit === "BOX") return "علبة"
   return "قطعة"
 }
 
@@ -45,7 +46,7 @@ const DEFAULT_INVOICE_TEMPLATE =
 
 interface EditItem {
   productId: string; productName: string
-  unit: "PIECE" | "DOZEN" | "CARTON"; quantity: number; unitPrice: number
+  unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"; quantity: number; unitPrice: number
   warehouseId?: string; warehouseName?: string
   notes?: string
 }
@@ -253,7 +254,7 @@ export function InvoiceDetailPage() {
       const wsName = wsId ? product?.warehouseStocks?.find((ws) => ws.warehouseId === wsId)?.warehouse?.name : undefined
       return {
         productId: it.productId, productName: it.productName ?? it.productId,
-        unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "CARTON",
+        unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "BOX" | "CARTON",
         quantity: it.quantity, unitPrice: Number(it.unitPrice),
         warehouseId: wsId, warehouseName: wsName,
         notes: it.notes ?? "",
@@ -594,8 +595,8 @@ export function InvoiceDetailPage() {
                     </TD>
                     <TD>
                       <select className="h-8 rounded border bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-950" value={it.unit}
-                        onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, unit: e.target.value as "PIECE" | "DOZEN" | "CARTON" } : x))}>
-                        <option value="PIECE">قطعة</option><option value="DOZEN">درزن</option><option value="CARTON">كرتونة</option>
+                        onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, unit: e.target.value as "PIECE" | "DOZEN" | "BOX" | "CARTON" } : x))}>
+                        <option value="PIECE">قطعة</option><option value="DOZEN">درزن</option><option value="BOX">علبة</option><option value="CARTON">كرتونة</option>
                       </select>
                     </TD>
                     <TD><Input type="number" className="w-20 h-8 text-sm" value={it.quantity} onFocus={(e) => e.target.select()}

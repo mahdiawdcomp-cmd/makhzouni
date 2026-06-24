@@ -25,6 +25,7 @@ ENV NODE_ENV=production
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
      openssl ca-certificates \
+     postgresql-client \
      # Chrome/Puppeteer dependencies for WhatsApp
      libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
      libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \

@@ -1396,6 +1396,24 @@ export function ProductsPage() {
             </Button>
           </div>
         </form>
+
+        {/* Image editor — rendered INSIDE the dialog so Radix's modal pointer-events
+            lock doesn't swallow clicks on the crop/save controls */}
+        {cropSrc && (
+          <ImageCropModal
+            src={cropSrc}
+            onCancel={() => setCropSrc(null)}
+            onDone={async (croppedDataUrl) => {
+              setCropSrc(null)
+              // compress the cropped result before saving to form
+              const resp = await fetch(croppedDataUrl)
+              const blob = await resp.blob()
+              const file = new File([blob], "cropped.jpg", { type: "image/jpeg" })
+              const imageUrl = await compressProductImage(file)
+              setForm((f) => ({ ...f, imageUrl }))
+            }}
+          />
+        )}
       </ModalForm>
 
       {!open ? (
@@ -1499,22 +1517,6 @@ export function ProductsPage() {
         </div>
       )}
 
-      {/* Image editor modal — shown after camera capture or when editing existing product image */}
-      {cropSrc && (
-        <ImageCropModal
-          src={cropSrc}
-          onCancel={() => setCropSrc(null)}
-          onDone={async (croppedDataUrl) => {
-            setCropSrc(null)
-            // compress the cropped result before saving to form
-            const resp = await fetch(croppedDataUrl)
-            const blob = await resp.blob()
-            const file = new File([blob], "cropped.jpg", { type: "image/jpeg" })
-            const imageUrl = await compressProductImage(file)
-            setForm((f) => ({ ...f, imageUrl }))
-          }}
-        />
-      )}
     </div>
   )
 }

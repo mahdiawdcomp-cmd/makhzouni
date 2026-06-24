@@ -98,7 +98,9 @@ function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number) {
 
 function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: number) {
   const price = toNumber(salePrice);
-  if (unit === Unit.CARTON) return roundMoney(price * pcsPerCarton);
+  const n = Math.max(1, pcsPerCarton);
+  if (unit === Unit.CARTON) return roundMoney(price * n);
+  if (unit === Unit.BOX) return roundMoney(price * Math.ceil(n / 2));
   if (unit === Unit.DOZEN) return roundMoney(price * 12);
   return roundMoney(price);
 }
