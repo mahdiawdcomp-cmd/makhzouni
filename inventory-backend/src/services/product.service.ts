@@ -10,6 +10,7 @@ import {
   upsertWarehouseStock,
 } from "./warehouse-stock.service";
 import { validateDistribution } from "../utils/warehouse-math";
+import { makeThumbnail } from "../utils/thumbnail";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -160,6 +161,7 @@ export async function listProducts(query: {
     const rows = await prisma.product.findMany({
       where,
       include: productWarehouseInclude,
+      omit: { imageUrl: true }, // list never needs the full image — thumbnailUrl is enough
       orderBy: { name: "asc" },
     });
     const filtered = rows
@@ -183,6 +185,7 @@ export async function listProducts(query: {
     prisma.product.findMany({
       where,
       include: productWarehouseInclude,
+      omit: { imageUrl: true }, // list never needs the full image — thumbnailUrl is enough
       orderBy: { name: "asc" },
       skip: (page - 1) * limit,
       take: limit,
@@ -250,6 +253,7 @@ export async function createProduct(
     const { qrCode, cartonQrCode } = normalizeQrCodes(input);
 
     const warehouseId = await resolveWarehouseId(tx, input.branchId);
+    const thumbnailUrl = await makeThumbnail(input.imageUrl);
     const product = await tx.product.create({
       data: {
         itemNumber,
@@ -257,6 +261,7 @@ export async function createProduct(
         qrCode,
         cartonQrCode,
         imageUrl: input.imageUrl || null,
+        thumbnailUrl,
         category: input.category?.trim() || null,
         categoryTags: input.categoryTags ?? [],
         typeTags: input.typeTags ?? [],
@@ -347,7 +352,11 @@ export async function updateProduct(
     data.qrCode = normalized.qrCode;
     data.cartonQrCode = normalized.cartonQrCode;
   }
-  if (input.imageUrl !== undefined) data.imageUrl = input.imageUrl || null;
+  if (input.imageUrl !== undefined) {
+    data.imageUrl = input.imageUrl || null;
+    // Regenerate the thumbnail whenever the image changes (or clear it if removed).
+    data.thumbnailUrl = input.imageUrl ? await makeThumbnail(input.imageUrl) : null;
+  }
   if (input.category !== undefined) data.category = input.category?.trim() || null;
   if (input.openingBalancePcs !== undefined) data.openingBalancePcs = input.openingBalancePcs;
   if (input.cartonsAvailable !== undefined) data.cartonsAvailable = input.cartonsAvailable;
@@ -469,6 +478,80 @@ export async function restoreProduct(id: string, db: Db = prisma) {
     data: { deletedAt: null },
   });
   return serializeProduct(restored);
+}
+
+/**
+ * List "stale" products — items with NO stock movement (no sale, transfer, loss,
+ * or restock) for the last `days` days. Products created within the window are
+ * excluded (they're new, not stale). Returns last-activity date + current stock
+ * so the user can decide whether to delete or keep each one.
+ */
+export async function getStaleProducts(days = 60) {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
+
+  const products = await prisma.product.findMany({
+    where: {
+      deletedAt: null,
+      createdAt: { lt: cutoff }, // brand-new products are never "stale"
+    },
+    include: {
+      ...productWarehouseInclude,
+      stockMovements: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { createdAt: true },
+      },
+    },
+    omit: { imageUrl: true },
+    orderBy: { name: "asc" },
+  });
+
+  const stale = products
+    .filter((p) => {
+      const lastMovement = p.stockMovements[0]?.createdAt;
+      // Stale = either never moved, or last movement is older than the cutoff.
+      return !lastMovement || lastMovement < cutoff;
+    })
+    .map((p) => {
+      const { stockMovements, ...rest } = p;
+      return {
+        ...serializeProduct(rest, shopWarehouseId),
+        lastMovementAt: stockMovements[0]?.createdAt ?? null,
+      };
+    });
+
+  return { days, cutoff, count: stale.length, data: stale };
+}
+
+/** Soft-delete many products at once (used by the stale-products cleanup). */
+export async function bulkDeleteProducts(ids: string[]) {
+  if (!ids.length) return { deleted: 0 };
+  const result = await prisma.product.updateMany({
+    where: { id: { in: ids }, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  return { deleted: result.count };
+}
+
+/**
+ * One-time admin op: generate thumbnails for existing products that have an
+ * image but no thumbnail yet (so the legacy 1000 products load fast too).
+ */
+export async function backfillThumbnails() {
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null, imageUrl: { not: null }, thumbnailUrl: null },
+    select: { id: true, imageUrl: true },
+  });
+  let updated = 0;
+  for (const p of products) {
+    const thumbnailUrl = await makeThumbnail(p.imageUrl);
+    if (thumbnailUrl) {
+      await prisma.product.update({ where: { id: p.id }, data: { thumbnailUrl } });
+      updated++;
+    }
+  }
+  return { scanned: products.length, updated };
 }
 
 // Backfill missing QR codes / carton QR codes for legacy products (admin op).

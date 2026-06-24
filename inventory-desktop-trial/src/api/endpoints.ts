@@ -242,6 +242,23 @@ export async function deleteProduct(id: string) {
   return data
 }
 
+// ── Stale products (no movement in N days) ──────────────────────────────────
+export interface StaleProductsResult {
+  days: number
+  count: number
+  data: Product[]
+}
+
+export async function getStaleProducts(days = 60) {
+  const { data } = await api.get<StaleProductsResult & { success: boolean }>("/products/stale", { params: { days } })
+  return { days: data.days, count: data.count, data: data.data ?? [] }
+}
+
+export async function bulkDeleteProducts(ids: string[]) {
+  const { data } = await api.post<{ success: boolean; deleted: number; message?: string }>("/products/bulk-delete", { ids })
+  return data
+}
+
 export async function getProductMovement(productId: string) {
   const { data } = await api.get<ApiEnvelope<ProductMovementResponse>>("/reports/products/movement", {
     params: { productId },

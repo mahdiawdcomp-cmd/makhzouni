@@ -10,11 +10,14 @@ import {
 } from "../services/approval.service";
 import {
   backfillQrCodes,
+  backfillThumbnails,
+  bulkDeleteProducts,
   createProduct,
   deleteProduct,
   getDeletedProducts,
   getProductById,
   getProductByQrCode,
+  getStaleProducts,
   listProducts,
   restoreProduct,
   updateProduct,
@@ -41,6 +44,24 @@ export const getProducts = asyncHandler(async (req, res) => {
     success: true,
     ...result,
   });
+});
+
+export const getStale = asyncHandler(async (req, res) => {
+  const days = req.query.days ? Math.max(7, Math.min(365, Number(req.query.days))) : 60;
+  const result = await getStaleProducts(days);
+  res.json({ success: true, ...result });
+});
+
+export const bulkDelete = asyncHandler(async (req, res) => {
+  requireUser(req.user);
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as string[]) : [];
+  const result = await bulkDeleteProducts(ids);
+  res.json({ success: true, message: `تم حذف ${result.deleted} مادة`, ...result });
+});
+
+export const backfillThumbs = asyncHandler(async (_req, res) => {
+  const result = await backfillThumbnails();
+  res.json({ success: true, message: `تم توليد ${result.updated} صورة مصغّرة`, ...result });
 });
 
 export const getProductDetails = asyncHandler(async (req, res) => {

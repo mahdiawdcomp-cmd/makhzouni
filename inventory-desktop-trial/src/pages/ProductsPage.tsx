@@ -3,7 +3,7 @@ import { usePageTitle } from "../hooks/usePageTitle"
 import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
-import { getBranches, getCatalogCategories } from "../api/endpoints"
+import { getBranches, getCatalogCategories, getProduct } from "../api/endpoints"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { Boxes, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, X } from "lucide-react"
+import { ArchiveX, Boxes, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -76,9 +76,10 @@ async function compressProductImage(file: File): Promise<string> {
 }
 
 
-function ProductThumb({ product, className = "" }: { product: Pick<Product, "name" | "imageUrl" | "itemNumber">; className?: string }) {
-  if (product.imageUrl) {
-    return <img src={product.imageUrl} alt={product.name} className={`h-11 w-11 rounded-lg object-cover ring-1 ring-slate-200 ${className}`} />
+function ProductThumb({ product, className = "" }: { product: Pick<Product, "name" | "imageUrl" | "thumbnailUrl" | "itemNumber">; className?: string }) {
+  const src = product.thumbnailUrl || product.imageUrl
+  if (src) {
+    return <img src={src} alt={product.name} loading="lazy" decoding="async" className={`h-11 w-11 rounded-lg object-cover ring-1 ring-slate-200 ${className}`} />
   }
   return (
     <div className={`grid h-11 w-11 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200 ${className}`}>
@@ -194,7 +195,7 @@ function exportInventoryDesignedHtml(products: Product[]) {
     return `
       <tr class="${status.rowClass}">
         <td>${index + 1}</td>
-        <td>${p.imageUrl ? `<button class="image-button" data-src="${escapeHtml(p.imageUrl)}" data-title="${escapeHtml(p.name)}" onclick="showImage(this.dataset.src,this.dataset.title)"><img class="item-image" src="${escapeHtml(p.imageUrl)}" /></button>` : `<div class="item-image">IMG</div>`}</td>
+        <td>${(p.thumbnailUrl || p.imageUrl) ? `<button class="image-button" data-src="${escapeHtml((p.thumbnailUrl || p.imageUrl)!)}" data-title="${escapeHtml(p.name)}" onclick="showImage(this.dataset.src,this.dataset.title)"><img class="item-image" src="${escapeHtml((p.thumbnailUrl || p.imageUrl)!)}" /></button>` : `<div class="item-image">IMG</div>`}</td>
         <td class="mono">${escapeHtml(p.itemNumber)}</td>
         <td class="name">${escapeHtml(p.name)}</td>
         <td>${escapeHtml(p.category ?? "-")}</td>
@@ -363,6 +364,9 @@ export function ProductsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
+  // The list no longer carries the full imageUrl — only resend it on save if the
+  // user actually changed it, otherwise we'd overwrite the full image.
+  const [imageDirty, setImageDirty] = useState(false)
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null)
   const products = productsQuery.data ?? []
   const categories = Array.from(new Set(products.map((item) => item.category).filter(Boolean) as string[]))
@@ -467,6 +471,7 @@ export function ProductsPage() {
 
   function startCreate() {
     setEditing(null)
+    setImageDirty(false)
     setForm(emptyForm)
     setDist({})
     setOpen(true)
@@ -488,6 +493,7 @@ export function ProductsPage() {
 
   function startEdit(product: Product) {
     setEditing(product)
+    setImageDirty(false)
     // Pre-fill dist with the product's current per-warehouse quantities
     const initialDist: Record<string, number> = {}
     for (const ws of product.warehouseStocks ?? []) {
@@ -499,7 +505,7 @@ export function ProductsPage() {
       name: product.name,
       qrCode: product.qrCode ?? "",
       cartonQrCode: product.cartonQrCode ?? "",
-      imageUrl: product.imageUrl ?? null,
+      imageUrl: product.imageUrl ?? product.thumbnailUrl ?? null,
       category: product.category ?? "",
       categoryTags: product.categoryTags ?? [],
       typeTags: product.typeTags ?? [],
@@ -516,6 +522,12 @@ export function ProductsPage() {
       storageLocation: product.storageLocation ?? "",
     })
     setOpen(true)
+    // Fetch the full-resolution image in the background and swap it in.
+    if (product.id && product.id !== "__optimistic__") {
+      void getProduct(product.id)
+        .then((full) => { if (full?.imageUrl) setForm((f) => ({ ...f, imageUrl: full.imageUrl ?? f.imageUrl })) })
+        .catch(() => {})
+    }
   }
 
   function submit(event: FormEvent) {
@@ -531,6 +543,10 @@ export function ProductsPage() {
       category: form.category?.trim() || undefined,
       storageLocation: form.storageLocation?.trim() || null,
       branchId: form.branchId?.trim() || undefined,
+    }
+    // On edit, only send the image if the user actually changed it.
+    if (editing && !imageDirty) {
+      delete payload.imageUrl
     }
     const activeWarehouses = branches.filter((b) => b.isActive)
     const distEntries = Object.entries(dist)
@@ -607,6 +623,11 @@ export function ProductsPage() {
           <Button variant="outline" asChild>
             <Link to="/inventory/variety">
               <Boxes className="h-4 w-4" /> تحويل إلى متنوع
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/stale">
+              <ArchiveX className="h-4 w-4" /> المواد الراكدة
             </Link>
           </Button>
           <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
@@ -850,10 +871,16 @@ export function ProductsPage() {
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-gray-500 text-xs">{idx2 + 1}</td>
                       <td className="py-2 px-3 border-l border-gray-200">
                         <div className="flex items-center gap-3">
-                          {p.imageUrl ? (
+                          {(p.thumbnailUrl || p.imageUrl) ? (
                             <button
                               type="button"
-                              onClick={() => setLightboxImage({ url: p.imageUrl!, title: p.name })}
+                              onClick={async () => {
+                                setLightboxImage({ url: (p.thumbnailUrl || p.imageUrl)!, title: p.name })
+                                try {
+                                  const full = await getProduct(p.id)
+                                  if (full?.imageUrl) setLightboxImage({ url: full.imageUrl, title: p.name })
+                                } catch {}
+                              }}
                               className="cursor-zoom-in hover:opacity-80 transition"
                               title="اضغط للتكبير"
                             >
@@ -1013,7 +1040,7 @@ export function ProductsPage() {
                           onChange={(event) => {
                             const file = event.target.files?.[0]
                             if (!file) return
-                            void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
+                            setImageDirty(true); void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
                             event.target.value = ""
                           }}
                         />
@@ -1030,14 +1057,14 @@ export function ProductsPage() {
                           onChange={(event) => {
                             const file = event.target.files?.[0]
                             if (!file) return
-                            void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
+                            setImageDirty(true); void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
                             event.target.value = ""
                           }}
                         />
                       </label>
                     </Button>
                     {form.imageUrl ? (
-                      <Button type="button" variant="outline" onClick={() => setForm({ ...form, imageUrl: null })}>حذف الصورة</Button>
+                      <Button type="button" variant="outline" onClick={() => { setImageDirty(true); setForm({ ...form, imageUrl: null }) }}>حذف الصورة</Button>
                     ) : null}
                   </div>
                 </div>

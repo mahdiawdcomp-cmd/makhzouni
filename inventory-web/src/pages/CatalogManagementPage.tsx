@@ -465,7 +465,7 @@ function BannerProductPicker({ onPick }: { onPick: (url: string, name: string) =
     queryFn: () => import("../api/endpoints").then(m => m.getProducts({ search: search || undefined, limit: 30 })),
     staleTime: 60_000,
   })
-  const products = useMemo(() => (data ?? []).filter((p) => p.imageUrl), [data])
+  const products = useMemo(() => (data ?? []).filter((p) => p.thumbnailUrl || p.imageUrl), [data])
 
   if (!open) {
     return (
@@ -488,11 +488,18 @@ function BannerProductPicker({ onPick }: { onPick: (url: string, name: string) =
       <div className="grid grid-cols-4 gap-1.5 p-2 max-h-48 overflow-y-auto">
         {products.map((p) => (
           <button key={p.id} type="button"
-            onClick={() => { onPick(p.imageUrl ?? "", p.name); setOpen(false) }}
+            onClick={async () => {
+              // Grid shows the thumbnail, but the banner needs the full image.
+              let full = p.imageUrl
+              if (!full) {
+                try { full = (await import("../api/endpoints").then(m => m.getProduct(p.id)))?.imageUrl ?? p.thumbnailUrl ?? "" } catch { full = p.thumbnailUrl ?? "" }
+              }
+              onPick(full ?? "", p.name); setOpen(false)
+            }}
             className="group overflow-hidden rounded-lg border border-slate-200 hover:border-violet-400 transition-colors"
             title={p.name}>
             <div className="aspect-square overflow-hidden">
-              <img src={p.imageUrl ?? ""} alt={p.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+              <img src={p.thumbnailUrl ?? p.imageUrl ?? ""} alt={p.name} loading="lazy" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
             </div>
             <p className="truncate px-1 py-0.5 text-[9px] text-slate-500">{p.name}</p>
           </button>

@@ -72,8 +72,9 @@ function itemQuantityInPieces(item: DraftItem) {
 }
 
 function ProductThumb({ product }: { product: Product }) {
-  if (product.imageUrl) {
-    return <img src={product.imageUrl} alt={product.name} className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
+  const src = product.thumbnailUrl || product.imageUrl
+  if (src) {
+    return <img src={src} alt={product.name} loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
   }
   return <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
 }

@@ -102,6 +102,7 @@ export interface Product {
   qrCode?: string
   cartonQrCode?: string | null
   imageUrl?: string | null
+  thumbnailUrl?: string | null
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]
@@ -123,6 +124,7 @@ export interface Product {
   currentStock?: number
   shopStock?: number
   warehouseStocks?: WarehouseStock[]
+  lastMovementAt?: string | null
   createdAt?: string
   updatedAt?: string
 }

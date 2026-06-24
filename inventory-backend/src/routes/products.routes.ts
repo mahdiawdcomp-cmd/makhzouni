@@ -2,6 +2,8 @@ import { Router } from "express";
 import {
   addProduct,
   backfillProductQrs,
+  backfillThumbs,
+  bulkDelete,
   convertVariety,
   editProduct,
   getCartonSheetPdf,
@@ -11,6 +13,7 @@ import {
   getProductDetails,
   getProductQr,
   getProducts,
+  getStale,
   removeProduct,
   restoreProductCtrl,
 } from "../controllers/products.controller";
@@ -37,7 +40,10 @@ router.use(authMiddleware);
 router.get("/", validate(listProductsSchema), getProducts);
 router.post("/", validate(createProductSchema), addProduct);
 router.post("/backfill-qr", backfillProductQrs);
+router.post("/backfill-thumbnails", backfillThumbs);
 router.post("/variety-convert", validate(varietyConvertSchema), convertVariety);
+router.get("/stale", getStale);
+router.post("/bulk-delete", bulkDelete);
 router.get("/deleted", getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);
 router.get("/:id", validate(idParamSchema), getProductDetails);

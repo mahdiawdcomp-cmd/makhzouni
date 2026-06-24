@@ -212,6 +212,7 @@ model Product {
   qrCode            String          @unique @map("qr_code")
   cartonQrCode      String?         @unique @map("carton_qr_code")
   imageUrl          String?         @map("image_url") @db.Text
+  thumbnailUrl      String?         @map("thumbnail_url") @db.Text
   category          String?
   openingBalancePcs Int             @default(0) @map("opening_balance_pcs")
   cartonsAvailable  Int             @default(0) @map("cartons_available")
