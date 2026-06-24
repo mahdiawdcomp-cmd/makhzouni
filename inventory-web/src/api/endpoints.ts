@@ -901,9 +901,9 @@ export async function createTransfer(payload: CreateTransferPayload) {
 }
 
 // ── Catalog Management ──────────────────────────────────────────────────────
-export async function getCatalogCustomers() {
-  const { data } = await api.get<ApiEnvelope<CatalogCustomer[]>>("/catalog-management")
-  return data.data ?? []
+export async function getCatalogCustomers(params?: { search?: string; limit?: number; offset?: number }) {
+  const { data } = await api.get<ApiEnvelope<CatalogCustomer[]> & { total?: number }>("/catalog-management", { params })
+  return { rows: data.data ?? [], total: data.total ?? 0 }
 }
 
 export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean }) {

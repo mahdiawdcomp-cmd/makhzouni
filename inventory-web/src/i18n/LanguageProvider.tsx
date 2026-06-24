@@ -87,7 +87,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   }, [language])
 
   useEffect(() => {
-    if (language !== "ar" && !dictionary) return
+    // Arabic is the native language — no translation or DOM observer needed.
+    if (language === "ar") return
+    if (!dictionary) return
     const textSources = new WeakMap<Node, string>()
     const textLastApplied = new WeakMap<Node, string>()
     const attributeSources = new WeakMap<Element, Map<string, string>>()

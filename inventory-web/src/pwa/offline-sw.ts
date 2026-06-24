@@ -212,7 +212,9 @@ function isQueueableMutation(pathname: string) {
 }
 
 self.addEventListener("install", () => {
-  // Don't auto-skip waiting — user triggers update via the banner button
+  // Skip waiting immediately so every browser gets the new version without
+  // needing to close all tabs first.
+  void self.skipWaiting()
 })
 
 self.addEventListener("activate", (event) => {

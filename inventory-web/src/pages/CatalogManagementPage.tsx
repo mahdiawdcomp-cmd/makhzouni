@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BookOpen,
@@ -715,7 +715,8 @@ function PromoCodesTab() {
 
   const { data: promos = [], isLoading } = useQuery({ queryKey: ["admin-promo-codes"], queryFn: listAdminPromoCodes })
 
-  const { data: customers = [] } = useQuery({ queryKey: ["catalog-customers"], queryFn: getCatalogCustomers })
+  const { data: catalogData } = useQuery({ queryKey: ["catalog-customers", "", 0], queryFn: () => getCatalogCustomers({ limit: 200 }) })
+  const customers = catalogData?.rows ?? []
 
   const createMut = useMutation({
     mutationFn: () => createAdminPromoCode({
@@ -906,36 +907,45 @@ function PromoCodesTab() {
   )
 }
 
+const PAGE_SIZE = 50
+
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
   const [tab, setTab] = useState<"customers" | "design" | "promos">("customers")
-  const [search, setSearch] = useState("")
+  const [searchInput, setSearchInput] = useState("")
+  const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
+  const [page, setPage] = useState(0)
 
-  const { data: customers = [], isLoading } = useQuery({
-    queryKey: ["catalog-customers"],
-    queryFn: getCatalogCustomers,
+  // Debounce search so we don't hit the server on every keystroke
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function handleSearchChange(v: string) {
+    setSearchInput(v)
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    searchTimeout.current = setTimeout(() => { setSearch(v); setPage(0) }, 350)
+  }
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["catalog-customers", search, page],
+    queryFn: () => getCatalogCustomers({ search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
+    staleTime: 3 * 60_000,
+    placeholderData: (prev) => prev,
   })
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return customers.filter((c) => {
-      const matchSearch = !q || c.name.toLowerCase().includes(q) || c.phone.includes(q)
-      const matchFilter =
-        filter === "all" ||
-        (filter === "active" && c.hasAccess) ||
-        (filter === "inactive" && !c.hasAccess) ||
-        (filter === "sentNotOpened" && isSentNotOpened(c))
-      return matchSearch && matchFilter
-    })
-  }, [customers, search, filter])
+  const customers = data?.rows ?? []
+  const total = data?.total ?? 0
 
-  const stats = useMemo(() => ({
-    total: customers.length,
-    active: customers.filter((c) => c.hasAccess).length,
-    inactive: customers.filter((c) => !c.hasAccess).length,
-    sentNotOpened: customers.filter(isSentNotOpened).length,
-  }), [customers])
+  // Client-side filter for has/no access (fast, only within the current page)
+  const filtered = useMemo(() => {
+    return customers.filter((c) => {
+      if (filter === "active") return c.hasAccess
+      if (filter === "inactive") return !c.hasAccess
+      if (filter === "sentNotOpened") return isSentNotOpened(c)
+      return true
+    })
+  }, [customers, filter])
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
@@ -968,21 +978,9 @@ export function CatalogManagementPage() {
       {tab === "customers" && <>
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
-        <StatCard
-          label="إجمالي الزبائن"
-          value={stats.total}
-          color="slate"
-        />
-        <StatCard
-          label="لديهم صلاحية"
-          value={stats.active}
-          color="emerald"
-        />
-        <StatCard
-          label="بدون صلاحية"
-          value={stats.inactive}
-          color="rose"
-        />
+        <StatCard label="إجمالي الزبائن" value={total} color="slate" />
+        <StatCard label="لديهم صلاحية" value={customers.filter(c => c.hasAccess).length} color="emerald" />
+        <StatCard label="بدون صلاحية" value={customers.filter(c => !c.hasAccess).length} color="rose" />
       </div>
 
       {/* Info Card */}
@@ -1020,21 +1018,21 @@ export function CatalogManagementPage() {
               <Input
                 className="pr-9"
                 placeholder="ابحث باسم الزبون أو الهاتف"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={(e) => handleSearchChange(e.target.value)}
               />
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {(["all", "active", "inactive", "sentNotOpened"] as const).map((f) => (
+              {(["all", "active", "inactive"] as const).map((f) => (
                 <button
                   key={f}
-                  onClick={() => setFilter(f)}
+                  onClick={() => { setFilter(f); setPage(0) }}
                   className={cn(
                     "rounded-full px-3 py-1.5 text-xs font-semibold transition",
                     filter === f ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
                   )}
                 >
-                  {f === "all" ? `الكل (${stats.total})` : f === "active" ? `نشط (${stats.active})` : f === "inactive" ? `بدون صلاحية (${stats.inactive})` : `أرسلت ولم تُفتح (${stats.sentNotOpened})`}
+                  {f === "all" ? "الكل" : f === "active" ? "لديهم صلاحية" : "بدون صلاحية"}
                 </button>
               ))}
             </div>
@@ -1072,10 +1070,32 @@ export function CatalogManagementPage() {
             </table>
           </div>
 
-          {filtered.length > 0 && (
-            <p className="text-right text-xs text-slate-400">
-              {filtered.length} زبون{filtered.length !== customers.length ? ` من ${customers.length}` : ""}
-            </p>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-slate-500">
+                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} من {total} زبون
+              </span>
+              <div className="flex gap-2">
+                <button
+                  disabled={page === 0}
+                  onClick={() => setPage(p => p - 1)}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 hover:bg-slate-50"
+                >
+                  السابق
+                </button>
+                <span className="flex items-center px-2 text-xs text-slate-500">
+                  {page + 1} / {totalPages}
+                </span>
+                <button
+                  disabled={page >= totalPages - 1}
+                  onClick={() => setPage(p => p + 1)}
+                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 hover:bg-slate-50"
+                >
+                  التالي
+                </button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

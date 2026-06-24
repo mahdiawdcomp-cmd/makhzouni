@@ -14,9 +14,12 @@ import {
 import { getSettings, updateSettings } from "../services/settings.service";
 import prisma from "../config/database";
 
-export const getCatalogCustomers = asyncHandler(async (_req, res) => {
-  const rows = await listCustomersWithCatalogStatus();
-  res.json({ success: true, data: rows });
+export const getCatalogCustomers = asyncHandler(async (req, res) => {
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  const limit = req.query.limit ? Math.min(200, Math.max(1, Number(req.query.limit))) : 100;
+  const offset = req.query.offset ? Math.max(0, Number(req.query.offset)) : 0;
+  const result = await listCustomersWithCatalogStatus({ search, limit, offset });
+  res.json({ success: true, data: result.rows, total: result.total, limit, offset });
 });
 
 export const grantCatalogAccess = asyncHandler(async (req, res) => {

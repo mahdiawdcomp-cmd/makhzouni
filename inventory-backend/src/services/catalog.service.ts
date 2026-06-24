@@ -167,45 +167,67 @@ export type CatalogCustomerRow = {
   catalogLinkSentAt: Date | null;
 };
 
-export async function listCustomersWithCatalogStatus(): Promise<CatalogCustomerRow[]> {
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    name: string;
-    phone: string;
-    token: string | null;
-    allow_prices: boolean | null;
-    show_stock: boolean | null;
-    last_viewed_at: Date | null;
-    link_created_at: Date | null;
-    catalog_link_sent_at: Date | null;
-  }>>`
-    SELECT
-      c.id, c.name, c.phone,
-      c.catalog_link_sent_at,
-      cal.token,
-      cal.allow_prices,
-      cal.show_stock,
-      cal.last_viewed_at,
-      cal.created_at AS link_created_at
-    FROM customers c
-    LEFT JOIN catalog_access_links cal
-      ON cal.customer_id = c.id AND cal.revoked_at IS NULL
-    WHERE c.deleted_at IS NULL
-    ORDER BY c.name ASC
-  `;
+export async function listCustomersWithCatalogStatus(opts?: {
+  search?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ rows: CatalogCustomerRow[]; total: number }> {
+  const search = opts?.search?.trim() ?? "";
+  const limit = opts?.limit ?? 100;
+  const offset = opts?.offset ?? 0;
+  const searchPattern = `%${search}%`;
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    phone: row.phone,
-    hasAccess: row.token !== null,
-    allowPrices: row.allow_prices ?? false,
-    showStock: row.show_stock ?? true,
-    token: row.token,
-    lastViewedAt: row.last_viewed_at,
-    createdAt: row.link_created_at,
-    catalogLinkSentAt: row.catalog_link_sent_at,
-  }));
+  const [rows, countRows] = await Promise.all([
+    prisma.$queryRaw<Array<{
+      id: string;
+      name: string;
+      phone: string;
+      token: string | null;
+      allow_prices: boolean | null;
+      show_stock: boolean | null;
+      last_viewed_at: Date | null;
+      link_created_at: Date | null;
+      catalog_link_sent_at: Date | null;
+    }>>`
+      SELECT
+        c.id, c.name, c.phone,
+        c.catalog_link_sent_at,
+        cal.token,
+        cal.allow_prices,
+        cal.show_stock,
+        cal.last_viewed_at,
+        cal.created_at AS link_created_at
+      FROM customers c
+      LEFT JOIN catalog_access_links cal
+        ON cal.customer_id = c.id AND cal.revoked_at IS NULL
+      WHERE c.deleted_at IS NULL
+        AND (${search} = '' OR c.name ILIKE ${searchPattern} OR c.phone ILIKE ${searchPattern})
+      ORDER BY c.name ASC
+      LIMIT ${limit} OFFSET ${offset}
+    `,
+    prisma.$queryRaw<[{ count: bigint }]>`
+      SELECT COUNT(*) AS count FROM customers c
+      WHERE c.deleted_at IS NULL
+        AND (${search} = '' OR c.name ILIKE ${searchPattern} OR c.phone ILIKE ${searchPattern})
+    `,
+  ]);
+
+  const total = Number((countRows[0] as { count: bigint }).count);
+  return {
+    total,
+    rows: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      hasAccess: row.token !== null,
+      allowPrices: row.allow_prices ?? false,
+      showStock: row.show_stock ?? true,
+      token: row.token,
+      lastViewedAt: row.last_viewed_at,
+      createdAt: row.link_created_at,
+      catalogLinkSentAt: row.catalog_link_sent_at,
+    })),
+  };
 }
 
 export async function requestCatalogAccess(input: CatalogAccessInput) {
