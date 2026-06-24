@@ -234,9 +234,12 @@ export function InvoiceCreatePage() {
   const [ocrOpen, setOcrOpen] = useState(false)
 
   // ---- barcode state ----
-  const [scanBuffer, setScanBuffer] = useState("")
   const scanInputRef = useRef<HTMLInputElement | null>(null)
-  const lastFocusRef = useRef(0)
+  // Timing-based scanner capture: a barcode gun types very fast and ends with Enter.
+  const scanBufRef = useRef("")
+  const scanLastKeyRef = useRef(0)
+  // Snapshot of a focused field at burst start so we can wipe any chars the gun leaked into it.
+  const scanSnapRef = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; val: string } | null>(null)
   const clientRequestIdRef = useRef(crypto.randomUUID())
   const prefillAppliedRef = useRef(false)
   // Order-preparation id from the URL (?fromPrep=...). The page fetches the
@@ -975,26 +978,67 @@ export function InvoiceCreatePage() {
     e.target.select()
   }
 
-  // ---- USB barcode scanner ----
+  // ---- USB barcode scanner (timing-based) ----
+  // A barcode gun types its code very fast (<100ms between keys) and ends with
+  // Enter. We capture that burst even while a field is focused, so the user can
+  // keep scanning into the SAME invoice without clicking «add product» first.
+  // Any chars the gun briefly typed into a focused field are wiped on Enter.
   useEffect(() => {
+    // Set a React-controlled input's value back to `val` (used to undo a leak).
+    function restoreField(el: HTMLInputElement | HTMLTextAreaElement, val: string) {
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
+      setter?.call(el, val)
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+
     function onKey(e: globalThis.KeyboardEvent) {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return
+      // The product-search modal has its own carton-aware Enter handler.
       if (productModal || preview) return
+      if (e.ctrlKey || e.altKey || e.metaKey) return
+
       const now = Date.now()
-      if (now - lastFocusRef.current > 100) setScanBuffer("")
-      lastFocusRef.current = now
+      const gap = now - scanLastKeyRef.current
+      scanLastKeyRef.current = now
+      // A slow gap means a human, not a gun → start a fresh buffer.
+      if (gap > 100) {
+        scanBufRef.current = ""
+        scanSnapRef.current = null
+      }
+
       if (e.key === "Enter") {
-        if (scanBuffer.length >= 3) addProductByCode(scanBuffer)
-        setScanBuffer("")
+        const code = scanBufRef.current.trim()
+        scanBufRef.current = ""
+        // Long burst = a real scan (our barcodes are long PCS-/CTN- codes).
+        if (code.length >= 4) {
+          e.preventDefault()
+          e.stopPropagation()
+          const snap = scanSnapRef.current
+          scanSnapRef.current = null
+          if (snap) restoreField(snap.el, snap.val)
+          addProductByCode(code)
+        }
         return
       }
-      if (e.key.length === 1) setScanBuffer((b) => b + e.key)
+
+      if (e.key.length === 1) {
+        // At burst start, snapshot the focused field (its value is still clean
+        // because keydown fires before the character is inserted).
+        if (scanBufRef.current === "") {
+          const el = document.activeElement as HTMLElement | null
+          if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+            scanSnapRef.current = { el: el as HTMLInputElement, val: (el as HTMLInputElement).value }
+          } else {
+            scanSnapRef.current = null
+          }
+        }
+        scanBufRef.current += e.key
+      }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanBuffer, productModal, preview, products])
+  }, [productModal, preview, products])
 
   // ---- Auto-add a product when arriving from the global scanner (/invoices/new?scan=CODE) ----
   const scanParamAppliedRef = useRef(false)
