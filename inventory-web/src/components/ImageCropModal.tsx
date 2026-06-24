@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Check, X } from "lucide-react"
+import { Check, FlipHorizontal, RotateCcw, RotateCw, X } from "lucide-react"
 import { Button } from "./ui/button"
 import { cn } from "../utils/cn"
 
@@ -48,6 +48,8 @@ export function ImageCropModal({
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   const [crop, setCrop] = useState<CropRect>({ x: 5, y: 5, w: 90, h: 90 })
+  // workingSrc tracks the image after rotations/flips
+  const [workingSrc, setWorkingSrc] = useState(src)
 
   const onPointerDown = useCallback((e: React.PointerEvent, handle: Handle) => {
     e.stopPropagation()
@@ -111,16 +113,79 @@ export function ImageCropModal({
     onDone(canvas.toDataURL("image/jpeg", 0.92))
   }
 
+  /** Apply a transform (rotate/flip) to the current working image and update workingSrc */
+  function applyTransform(type: "cw" | "ccw" | "flip-h") {
+    const img = imgRef.current
+    if (!img) return
+    const iw = img.naturalWidth
+    const ih = img.naturalHeight
+    const canvas = document.createElement("canvas")
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    if (type === "flip-h") {
+      canvas.width = iw; canvas.height = ih
+      ctx.translate(iw, 0)
+      ctx.scale(-1, 1)
+      ctx.drawImage(img, 0, 0)
+    } else {
+      // 90° rotation: swap width/height
+      canvas.width = ih; canvas.height = iw
+      if (type === "cw") {
+        ctx.translate(ih, 0)
+        ctx.rotate(Math.PI / 2)
+      } else {
+        ctx.translate(0, iw)
+        ctx.rotate(-Math.PI / 2)
+      }
+      ctx.drawImage(img, 0, 0)
+    }
+    const newSrc = canvas.toDataURL("image/jpeg", 0.95)
+    setWorkingSrc(newSrc)
+    setCrop({ x: 5, y: 5, w: 90, h: 90 }) // reset crop after transform
+  }
+
   const cursors = handleCursors()
 
   return (
-    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/80 p-3" dir="rtl">
+    <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/90 p-2" dir="rtl">
       <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 overflow-hidden shadow-2xl flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700">
-          <h3 className="font-bold text-slate-800 dark:text-slate-100">اقتصاص الصورة</h3>
+          <h3 className="font-bold text-slate-800 dark:text-slate-100">تعديل الصورة</h3>
           <button onClick={onCancel} className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800">
             <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Transform toolbar */}
+        <div className="flex items-center justify-center gap-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 px-4 py-2">
+          <button
+            onClick={() => applyTransform("ccw")}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-transform dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            title="تدوير يسار"
+          >
+            <RotateCcw className="h-4 w-4" /> يسار
+          </button>
+          <button
+            onClick={() => applyTransform("cw")}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-transform dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            title="تدوير يمين"
+          >
+            <RotateCw className="h-4 w-4" /> يمين
+          </button>
+          <button
+            onClick={() => applyTransform("flip-h")}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 active:scale-95 transition-transform dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+            title="قلب أفقي"
+          >
+            <FlipHorizontal className="h-4 w-4" /> قلب
+          </button>
+          <button
+            onClick={() => setCrop({ x: 5, y: 5, w: 90, h: 90 })}
+            className="mr-auto rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 shadow-sm hover:bg-slate-50 active:scale-95 transition-transform dark:border-slate-700 dark:bg-slate-800"
+          >
+            تهيئة
           </button>
         </div>
 
@@ -128,14 +193,14 @@ export function ImageCropModal({
         <div
           ref={containerRef}
           className="relative flex items-center justify-center overflow-hidden bg-slate-100 dark:bg-slate-800"
-          style={{ maxHeight: "60vh" }}
+          style={{ maxHeight: "55vh" }}
         >
           <img
             ref={imgRef}
-            src={src}
-            alt="للاقتصاص"
+            src={workingSrc}
+            alt="للتعديل"
             className="block select-none"
-            style={{ maxHeight: "60vh", maxWidth: "100%", objectFit: "contain", touchAction: "none" }}
+            style={{ maxHeight: "55vh", maxWidth: "100%", objectFit: "contain", touchAction: "none" }}
             draggable={false}
           />
 
@@ -207,11 +272,11 @@ export function ImageCropModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 dark:border-slate-700">
-          <p className="text-xs text-slate-500">اسحب الزوايا للضبط • اسحب الوسط للتحريك</p>
+          <p className="text-[11px] text-slate-400">اسحب الزوايا للاقتصاص • اسحب المنتصف للتحريك</p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onCancel}>إلغاء</Button>
-            <Button onClick={applyCrop} className="gap-1.5">
-              <Check className="h-4 w-4" /> قص وحفظ
+            <Button onClick={applyCrop} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+              <Check className="h-4 w-4" /> حفظ
             </Button>
           </div>
         </div>
