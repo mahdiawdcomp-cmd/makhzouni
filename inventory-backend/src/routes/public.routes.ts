@@ -5,6 +5,7 @@ import {
   getCatalogAccessStatus,
   getCatalogProducts,
   getCatalogSession,
+  validatePromoCtrl,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import {
@@ -55,12 +56,34 @@ router.post("/otp/send", otpLimiter, validate(sendOtpSchema), sendOtp);
 router.post("/otp/verify", catalogLimiter, validate(verifyOtpSchema), confirmOtp);
 router.get("/otp/check", catalogLimiter, validate(checkVerifiedSchema), checkVerified);
 
+// Catalog design (public — no auth needed)
+router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => {
+  const settings = await prisma.setting.findMany({ where: { key: { startsWith: "catalogDesign" } } });
+  const kv: Record<string, unknown> = {};
+  for (const s of settings) {
+    try { kv[s.key] = JSON.parse(String(s.value)); } catch { kv[s.key] = s.value; }
+  }
+  res.json({
+    success: true,
+    data: {
+      primaryColor: (kv.catalogDesignPrimaryColor as string) ?? null,
+      bgColor: (kv.catalogDesignBgColor as string) ?? null,
+      defaultTheme: (kv.catalogDesignDefaultTheme as string) ?? "clean",
+      logoUrl: (kv.catalogDesignLogoUrl as string) ?? null,
+      welcomeMessage: (kv.catalogDesignWelcomeMessage as string) ?? null,
+      bannerEnabled: kv.catalogDesignBannerEnabled ?? true,
+      bannerImages: (kv.catalogDesignBannerImages as Array<{ url: string; title: string; order: number }>) ?? [],
+    },
+  });
+}));
+
 // Catalog public endpoints
 router.post("/catalog/access/request", catalogLimiter, validate(catalogAccessRequestSchema), createCatalogAccessRequest);
 router.get("/catalog/access/status", catalogLimiter, validate(catalogAccessStatusSchema), getCatalogAccessStatus);
 router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogSession);
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
+router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
 
 // Retail storefront (كتلوك المفرد) — fully public, no login
 router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);

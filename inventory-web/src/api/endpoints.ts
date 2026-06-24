@@ -907,6 +907,78 @@ export async function revokeCatalogAccess(customerId: string) {
   return data
 }
 
+// ── Catalog Design Settings ───────────────────────────────────────────────────
+export interface CatalogDesign {
+  primaryColor: string | null
+  bgColor: string | null
+  defaultTheme: "clean" | "warm" | "dark" | "vibrant"
+  logoUrl: string | null
+  welcomeMessage: string | null
+  bannerEnabled: boolean
+  bannerImages: Array<{ url: string; title: string; order: number }>
+}
+
+export async function getCatalogDesign() {
+  const { data } = await api.get<ApiEnvelope<CatalogDesign>>("/catalog-management/design")
+  return data.data!
+}
+
+export async function updateCatalogDesign(payload: Partial<CatalogDesign>) {
+  const { data } = await api.put<ApiEnvelope<never>>("/catalog-management/design", payload)
+  return data
+}
+
+// ── Promo Codes ───────────────────────────────────────────────────────────────
+export interface PromoCode {
+  id: string
+  code: string
+  type: "PERCENT" | "AMOUNT" | "FREE_DELIVERY"
+  value: number | null
+  customerId: string | null
+  customer: { id: string; name: string; phone: string } | null
+  expiresAt: string | null
+  usageLimit: number | null
+  usedCount: number
+  active: boolean
+  description: string | null
+  createdAt: string
+}
+
+export async function listAdminPromoCodes() {
+  const { data } = await api.get<ApiEnvelope<PromoCode[]>>("/catalog-management/promo-codes")
+  return data.data ?? []
+}
+
+export async function createAdminPromoCode(payload: {
+  code: string
+  type: "PERCENT" | "AMOUNT" | "FREE_DELIVERY"
+  value?: number
+  customerId?: string
+  expiresAt?: string
+  usageLimit?: number
+  description?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<PromoCode>>("/catalog-management/promo-codes", payload)
+  return data.data!
+}
+
+export async function deleteAdminPromoCode(id: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/catalog-management/promo-codes/${id}`)
+  return data
+}
+
+export async function toggleAdminPromoCode(id: string, active: boolean) {
+  const { data } = await api.patch<ApiEnvelope<PromoCode>>(`/catalog-management/promo-codes/${id}/toggle`, { active })
+  return data.data!
+}
+
+export async function validatePublicPromoCode(code: string, customerId: string) {
+  const { data } = await api.post<ApiEnvelope<{ code: string; type: string; value: number | null; description: string | null }>>(
+    "/public/catalog/validate-promo", { code, customerId }
+  )
+  return data.data!
+}
+
 // ── Order Preparations ───────────────────────────────────────────────────────
 export async function getOrderPreparations() {
   const { data } = await api.get<ApiEnvelope<OrderPreparation[]>>("/order-preparations")

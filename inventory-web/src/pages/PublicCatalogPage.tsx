@@ -26,6 +26,7 @@ import {
   sendCatalogOtp,
   verifyCatalogOtp,
   submitPublicCatalogOrder,
+  validatePublicPromoCode,
 } from "../api/endpoints"
 import type { PublicCatalogProduct } from "../types/api"
 import { cn } from "../utils/cn"
@@ -187,6 +188,7 @@ export function PublicCatalogPage() {
       accessToken={accessToken}
       allowPrices={allowPrices}
       showStock={showStock ?? true}
+      customerId={customer.id}
       customerName={customer.name}
       customerPhone={customer.phone}
     />
@@ -363,9 +365,10 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
    SHOP
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
-  accessToken, allowPrices, showStock, customerName, customerPhone,
+  accessToken, allowPrices, showStock, customerId, customerName, customerPhone,
 }: {
-  accessToken: string; allowPrices: boolean; showStock: boolean; customerName: string; customerPhone: string
+  accessToken: string; allowPrices: boolean; showStock: boolean
+  customerId: string; customerName: string; customerPhone: string
 }) {
   const productsQuery = useQuery({
     queryKey: ["public-catalog-products", accessToken],
@@ -395,10 +398,30 @@ function CatalogShop({
   const [bannerIndex, setBannerIndex] = useState(0)
   const [showThemePicker, setShowThemePicker] = useState(false)
   const [zoomedImg, setZoomedImg] = useState<{ src: string; name: string } | null>(null)
+  const [promoCode, setPromoCode] = useState("")
+  const [promoResult, setPromoResult] = useState<{ code: string; type: string; value: number | null; description: string | null } | null>(null)
+  const [promoError, setPromoError] = useState("")
+  const [promoLoading, setPromoLoading] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const themeRef = useRef<HTMLDivElement>(null)
 
-  const tk = THEMES[theme]
+  const designQuery = useQuery({
+    queryKey: ["catalog-design-public"],
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }> } }).data ?? {}),
+    staleTime: 5 * 60_000,
+  })
+  const design = designQuery.data
+
+  const baseTk = THEMES[design?.defaultTheme ?? theme]
+  const tk: ThemeTokens = {
+    ...baseTk,
+    ...(design?.primaryColor ? {
+      accent: design.primaryColor,
+      catActive: design.primaryColor,
+      accentLight: design.primaryColor + "22",
+    } : {}),
+    ...(design?.bgColor ? { bg: design.bgColor } : {}),
+  }
 
   function applyTheme(t: Theme) {
     setTheme(t)
@@ -490,14 +513,40 @@ function CatalogShop({
   const offers = useMemo(() => products.filter(p => p.isOffer && p.currentStock > 0).slice(0, 12), [products])
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
+  const promoDiscount = useMemo(() => {
+    if (!promoResult) return 0
+    if (promoResult.type === "PERCENT") return Math.round(subtotal * (promoResult.value ?? 0) / 100)
+    if (promoResult.type === "AMOUNT") return Math.min(promoResult.value ?? 0, subtotal)
+    return 0
+  }, [promoResult, subtotal])
+  const finalTotal = Math.max(0, subtotal - promoDiscount)
+  const hasFreeDelivery = promoResult?.type === "FREE_DELIVERY"
+
+  async function applyPromo() {
+    if (!promoCode.trim()) return
+    setPromoError(""); setPromoLoading(true)
+    try {
+      const r = await validatePublicPromoCode(promoCode.trim().toUpperCase(), customerId)
+      setPromoResult(r); setPromoError("")
+    } catch (e) {
+      setPromoError(e instanceof Error ? e.message : "كود الخصم غير صحيح")
+      setPromoResult(null)
+    } finally {
+      setPromoLoading(false)
+    }
+  }
 
   const orderMut = useMutation({
     mutationFn: () =>
       submitPublicCatalogOrder(
-        { customerName, phone: customerPhone, notes: notes.trim() || undefined, items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })) },
+        {
+          customerName, phone: customerPhone, notes: notes.trim() || undefined,
+          items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+          promoCode: promoResult?.code,
+        },
         accessToken,
       ),
-    onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes("") },
+    onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
   function add(product: PublicCatalogProduct, unit: CatalogUnit = "PIECE") {
@@ -575,9 +624,13 @@ function CatalogShop({
         <div className="px-3 py-2.5">
           <div className="flex items-center gap-2">
             {/* Logo */}
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: tk.accent }}>
-              <ShoppingBag className="h-5 w-5" style={{ color: tk.accentText }} />
-            </div>
+            {design?.logoUrl ? (
+              <img src={design.logoUrl} alt="شعار" className="h-9 w-9 shrink-0 rounded-xl object-contain border" style={{ borderColor: tk.divider }} onError={(e) => e.currentTarget.style.display = "none"} />
+            ) : (
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: tk.accent }}>
+                <ShoppingBag className="h-5 w-5" style={{ color: tk.accentText }} />
+              </div>
+            )}
 
             {/* Search */}
             <div className="relative flex-1">
@@ -753,33 +806,43 @@ function CatalogShop({
 
       {/* ── Hero banner (slideshow) ── */}
       {(() => {
-        const bps = products.filter(p => p.imageUrl && p.currentStock > 0).slice(0, 8)
-        if (bps.length < 2) return null
-        const idx = bannerIndex % bps.length
+        const bannerEnabled = design?.bannerEnabled !== false
+        if (!bannerEnabled) return null
+        // Admin banner images take priority over product images
+        const adminImgs = [...(design?.bannerImages ?? [])].sort((a, b) => a.order - b.order)
+        const slides: Array<{ src: string; title: string; subtitle?: string }> =
+          adminImgs.length >= 2
+            ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
+            : products.filter(p => p.imageUrl && p.currentStock > 0).slice(0, 8).map(p => ({
+                src: p.imageUrl!, title: p.name,
+                subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
+              }))
+        if (slides.length < 2) return null
+        const idx = bannerIndex % slides.length
+        const welcomeMsg = design?.welcomeMessage || `مرحباً ${customerName} 👋`
         return (
           <div className="relative overflow-hidden" style={{ height: "140px" }}>
-            {bps.map((p, i) => (
-              <div key={p.id} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
-                <img src={p.imageUrl!} alt={p.name} className="h-full w-full object-cover" />
+            {slides.map((s, i) => (
+              <div key={i} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
+                <img src={s.src} alt={s.title} className="h-full w-full object-cover" />
                 <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.1) 60%, transparent 100%)" }} />
-                <div className="absolute bottom-3 right-4">
-                  <p className="text-sm font-bold text-white drop-shadow">{p.name}</p>
-                  {allowPrices && <p className="text-xs font-semibold" style={{ color: "#6ee7b7" }}>{money(p.salePrice)} د.ع</p>}
-                </div>
+                {s.title && (
+                  <div className="absolute bottom-3 right-4">
+                    <p className="text-sm font-bold text-white drop-shadow">{s.title}</p>
+                    {s.subtitle && <p className="text-xs font-semibold" style={{ color: "#6ee7b7" }}>{s.subtitle}</p>}
+                  </div>
+                )}
               </div>
             ))}
-            {/* welcome overlay (first slide only) */}
-            {(bannerIndex % bps.length) === 0 && (
-              <div className="absolute inset-0 flex items-center justify-end pr-4" style={{ background: "linear-gradient(to left, rgba(0,0,0,0.5) 0%, transparent 60%)" }}>
-                <div className="text-right">
-                  <p className="text-xs text-white/70">مرحباً</p>
-                  <p className="text-base font-extrabold text-white">{customerName} 👋</p>
-                </div>
+            {/* welcome overlay */}
+            <div className="absolute top-0 inset-x-0 flex items-center justify-end px-4 pt-2.5">
+              <div className="rounded-xl px-3 py-1.5 text-right" style={{ background: "rgba(0,0,0,0.45)" }}>
+                <p className="text-xs font-semibold text-white">{welcomeMsg}</p>
               </div>
-            )}
+            </div>
             {/* dots */}
             <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">
-              {bps.map((_, i) => (
+              {slides.map((_, i) => (
                 <button key={i} type="button" onClick={() => setBannerIndex(i)}
                   className="rounded-full transition-all"
                   style={{ height: "6px", width: i === idx ? "20px" : "6px", background: i === idx ? "#fff" : "rgba(255,255,255,0.4)" }} />
@@ -891,6 +954,11 @@ function CatalogShop({
           onSubmit={() => orderMut.mutate()}
           isPending={orderMut.isPending} submitted={submitted} isError={orderMut.isError}
           tk={tk}
+          promoCode={promoCode} onPromoCode={setPromoCode}
+          promoResult={promoResult} promoError={promoError}
+          promoLoading={promoLoading} onApplyPromo={applyPromo}
+          promoDiscount={promoDiscount} finalTotal={finalTotal} hasFreeDelivery={hasFreeDelivery}
+          onClearPromo={() => { setPromoResult(null); setPromoCode(""); setPromoError("") }}
         />
       )}
 
@@ -1191,12 +1259,18 @@ function ProductCard({
 function CartOverlay({
   cart, allowPrices, subtotal, notes, onNotes, onChangeQty, onChangeUnit, onRemove,
   onClose, onSubmit, isPending, submitted, isError, tk,
+  promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
+  promoDiscount, finalTotal, hasFreeDelivery, onClearPromo,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
   onNotes: (v: string) => void; onChangeQty: (id: string, d: number) => void
   onChangeUnit: (id: string, u: CatalogUnit) => void; onRemove: (id: string) => void
   onClose: () => void; onSubmit: () => void; isPending: boolean; submitted: string | null; isError: boolean
   tk: ThemeTokens
+  promoCode: string; onPromoCode: (v: string) => void
+  promoResult: { code: string; type: string; value: number | null; description: string | null } | null
+  promoError: string; promoLoading: boolean; onApplyPromo: () => void
+  promoDiscount: number; finalTotal: number; hasFreeDelivery: boolean; onClearPromo: () => void
 }) {
   return (
     <>
@@ -1254,12 +1328,68 @@ function CartOverlay({
               placeholder="ملاحظات إضافية (اختياري)"
               className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
               style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
-            {allowPrices && (
-              <div className="flex justify-between text-sm font-extrabold" style={{ color: tk.text }}>
-                <span>المجموع</span>
-                <span style={{ color: tk.accent }}>{money(subtotal)} د.ع</span>
+
+            {/* Promo code */}
+            {promoResult ? (
+              <div className="flex items-center justify-between rounded-xl px-3 py-2.5"
+                style={{ background: "#d1fae5", border: "1px solid #6ee7b7" }}>
+                <div>
+                  <p className="text-xs font-bold text-emerald-800">✓ كود الخصم: {promoResult.code}</p>
+                  <p className="text-xs text-emerald-700">
+                    {promoResult.type === "FREE_DELIVERY" ? "توصيل مجاني" : `خصم ${money(promoDiscount)} د.ع`}
+                    {promoResult.description ? ` — ${promoResult.description}` : ""}
+                  </p>
+                </div>
+                <button onClick={onClearPromo} className="rounded-lg p-1 text-emerald-500 hover:text-red-500">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  value={promoCode}
+                  onChange={(e) => onPromoCode(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === "Enter" && onApplyPromo()}
+                  placeholder="كود خصم (اختياري)"
+                  dir="ltr"
+                  className="flex-1 rounded-xl px-3 py-2.5 text-sm font-mono uppercase tracking-widest outline-none transition"
+                  style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }}
+                />
+                <button onClick={onApplyPromo} disabled={!promoCode.trim() || promoLoading}
+                  className="shrink-0 rounded-xl px-3 py-2.5 text-xs font-bold text-white transition disabled:opacity-40"
+                  style={{ background: tk.accent }}>
+                  {promoLoading ? "..." : "تطبيق"}
+                </button>
               </div>
             )}
+            {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+
+            {/* Totals */}
+            {allowPrices && (
+              <div className="space-y-1.5 rounded-xl px-3 py-2.5" style={{ background: tk.cardBg, border: `1px solid ${tk.divider}` }}>
+                <div className="flex justify-between text-sm" style={{ color: tk.subtext }}>
+                  <span>المجموع الفرعي</span>
+                  <span>{money(subtotal)} د.ع</span>
+                </div>
+                {promoDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-emerald-700">
+                    <span>الخصم</span>
+                    <span>- {money(promoDiscount)} د.ع</span>
+                  </div>
+                )}
+                {hasFreeDelivery && (
+                  <div className="flex justify-between text-sm text-blue-600">
+                    <span>التوصيل</span>
+                    <span>مجاني</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t pt-1.5 text-sm font-extrabold" style={{ borderColor: tk.divider, color: tk.text }}>
+                  <span>الإجمالي</span>
+                  <span style={{ color: tk.accent }}>{money(finalTotal)} د.ع</span>
+                </div>
+              </div>
+            )}
+
             {isError && <p className="text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
             <button disabled={isPending} onClick={onSubmit}
               className="w-full rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition active:scale-95 disabled:opacity-50"

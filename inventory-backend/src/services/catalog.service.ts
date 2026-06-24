@@ -1,4 +1,4 @@
-import { Unit } from "@prisma/client";
+import { PromoCodeType, Unit } from "@prisma/client";
 import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -8,12 +8,14 @@ import {
   notifyCatalogAccessRequested,
   notifyCatalogOrderSubmitted,
 } from "./order-preparation.service";
+import { getSettings } from "./settings.service";
 
 type CatalogOrderInput = {
   customerName: string;
   phone: string;
   address?: string;
   notes?: string;
+  promoCode?: string;
   items: Array<{
     productId: string;
     unit: Unit;
@@ -316,10 +318,22 @@ export async function getCatalogAccess(token: string) {
     throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
   }
 
+  const settings = await getSettings();
+  const catalogDesign = {
+    primaryColor: settings.catalogDesignPrimaryColor ?? null,
+    bgColor: settings.catalogDesignBgColor ?? null,
+    defaultTheme: settings.catalogDesignDefaultTheme ?? "clean",
+    logoUrl: settings.catalogDesignLogoUrl ?? null,
+    welcomeMessage: settings.catalogDesignWelcomeMessage ?? null,
+    bannerEnabled: settings.catalogDesignBannerEnabled ?? true,
+    bannerImages: settings.catalogDesignBannerImages ?? [],
+  };
+
   return {
     customer,
     allowPrices: link.allow_prices,
     showStock: link.show_stock,
+    catalogDesign,
   };
 }
 
@@ -405,6 +419,28 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
     };
   });
 
+  // Promo code
+  let promoDiscount = 0;
+  let promoLabel: string | undefined;
+  let isFreeDelivery = false;
+  const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  if (input.promoCode) {
+    const promo = await validatePromoCode(input.promoCode, access.customer.id);
+    if (promo.type === PromoCodeType.PERCENT) {
+      promoDiscount = Math.round(subtotal * (Number(promo.value) / 100));
+      promoLabel = `خصم ${promo.value}%`;
+    } else if (promo.type === PromoCodeType.AMOUNT) {
+      promoDiscount = Math.min(Number(promo.value), subtotal);
+      promoLabel = `خصم ${Number(promo.value).toLocaleString()} د.ع`;
+    } else if (promo.type === PromoCodeType.FREE_DELIVERY) {
+      isFreeDelivery = true;
+      promoLabel = "توصيل مجاني";
+    }
+    // Increment usage
+    await prisma.promoCode.update({ where: { id: promo.id }, data: { usedCount: { increment: 1 } } });
+  }
+
   // Check if this is customer's first order
   const invoiceCount = await prisma.invoice.count({
     where: { customerId: access.customer.id, status: "ACTIVE" },
@@ -423,12 +459,20 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       isFirstOrder,
       address: input.address,
       notes: input.notes,
-      subtotal: normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0),
+      subtotal,
+      promoCode: input.promoCode,
+      promoDiscount,
+      promoLabel,
+      isFreeDelivery,
+      finalTotal: subtotal - promoDiscount,
       body: {
         customerName: access.customer.name,
         phone: access.customer.phone,
         address: input.address,
         notes: input.notes,
+        promoCode: input.promoCode,
+        promoDiscount,
+        isFreeDelivery,
         items: normalizedItems.map((item) => ({
           productId: item.productId,
           unit: item.unit,
@@ -457,5 +501,60 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
     ).catch((err) => console.error("[CatalogOrder] submit notify failed:", err));
   });
 
-  return { approvalId: approval.id };
+  return { approvalId: approval.id, promoDiscount, isFreeDelivery, finalTotal: subtotal - promoDiscount };
+}
+
+/* ── Promo Code Services ──────────────────────────────────────────── */
+
+export async function validatePromoCode(code: string, customerId: string) {
+  const promo = await prisma.promoCode.findUnique({ where: { code: code.trim().toUpperCase() } });
+
+  if (!promo || !promo.active) throw new AppError("كود الخصم غير صحيح أو منتهي", 400, "PROMO_INVALID");
+  if (promo.expiresAt && promo.expiresAt < new Date()) throw new AppError("انتهت صلاحية كود الخصم", 400, "PROMO_EXPIRED");
+  if (promo.usageLimit !== null && promo.usedCount >= promo.usageLimit) throw new AppError("كود الخصم استُنفد", 400, "PROMO_EXHAUSTED");
+  if (promo.customerId && promo.customerId !== customerId) throw new AppError("كود الخصم غير مخصص لهذا الحساب", 400, "PROMO_WRONG_CUSTOMER");
+
+  return promo;
+}
+
+export async function listPromoCodes() {
+  return prisma.promoCode.findMany({
+    orderBy: { createdAt: "desc" },
+    include: { customer: { select: { id: true, name: true, phone: true } } },
+  });
+}
+
+export async function createPromoCode(input: {
+  code: string;
+  type: PromoCodeType;
+  value?: number;
+  customerId?: string;
+  expiresAt?: Date;
+  usageLimit?: number;
+  description?: string;
+}) {
+  const code = input.code.trim().toUpperCase();
+  const existing = await prisma.promoCode.findUnique({ where: { code } });
+  if (existing) throw new AppError("كود الخصم موجود مسبقاً", 400, "PROMO_DUPLICATE");
+
+  return prisma.promoCode.create({
+    data: {
+      code,
+      type: input.type,
+      value: input.value ?? null,
+      customerId: input.customerId ?? null,
+      expiresAt: input.expiresAt ?? null,
+      usageLimit: input.usageLimit ?? null,
+      description: input.description ?? null,
+    },
+    include: { customer: { select: { id: true, name: true, phone: true } } },
+  });
+}
+
+export async function deletePromoCode(id: string) {
+  await prisma.promoCode.delete({ where: { id } });
+}
+
+export async function togglePromoCode(id: string, active: boolean) {
+  return prisma.promoCode.update({ where: { id }, data: { active } });
 }

@@ -42,6 +42,14 @@ export interface AppSettings {
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
+  // Wholesale catalog design (admin-configurable)
+  catalogDesignPrimaryColor?: string;
+  catalogDesignBgColor?: string;
+  catalogDesignDefaultTheme?: "clean" | "warm" | "dark" | "vibrant";
+  catalogDesignLogoUrl?: string;
+  catalogDesignWelcomeMessage?: string;
+  catalogDesignBannerEnabled?: boolean;
+  catalogDesignBannerImages?: Array<{ url: string; title: string; order: number }>;
 }
 
 export const defaultSettings: AppSettings = {

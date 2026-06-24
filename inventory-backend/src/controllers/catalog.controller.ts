@@ -4,6 +4,7 @@ import {
   lookupCatalogAccess,
   requestCatalogAccess,
   submitCatalogOrder,
+  validatePromoCode,
 } from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
 
@@ -37,5 +38,19 @@ export const createCatalogOrder = asyncHandler(async (req, res) => {
     success: true,
     message: "Catalog order submitted for approval",
     data: result,
+  });
+});
+
+export const validatePromoCtrl = asyncHandler(async (req, res) => {
+  const { code, customerId } = req.body as { code: string; customerId: string };
+  const promo = await validatePromoCode(code, customerId);
+  res.json({
+    success: true,
+    data: {
+      code: promo.code,
+      type: promo.type,
+      value: promo.value !== null ? Number(promo.value) : null,
+      description: promo.description,
+    },
   });
 });

@@ -7,11 +7,15 @@ import {
   Eye,
   EyeOff,
   Globe,
+  Image,
   Lock,
   MessageCircle,
+  Palette,
+  Plus,
   Search,
   ShieldOff,
   Tag,
+  Ticket,
   Trash2,
   Unlock,
   X,
@@ -23,12 +27,20 @@ import {
   broadcastCatalogLink,
   deleteCustomer,
   getCatalogCustomers,
+  getCatalogDesign,
+  updateCatalogDesign,
+  listAdminPromoCodes,
+  createAdminPromoCode,
+  deleteAdminPromoCode,
+  toggleAdminPromoCode,
   getCustomerTags,
   getCustomersPaged,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccess,
   sendCatalogLinkToCustomer,
+  type CatalogDesign,
+  type PromoCode,
 } from "../api/endpoints"
 import type { CatalogCustomer } from "../types/api"
 import { useAuthStore } from "../store/authStore"
@@ -439,8 +451,391 @@ function isSentNotOpened(c: CatalogCustomer) {
   return new Date(c.lastViewedAt).getTime() < new Date(c.catalogLinkSentAt).getTime()
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+   CATALOG DESIGN TAB
+══════════════════════════════════════════════════════════════════════ */
+const THEME_LABELS = { clean: "☀️ نظيف", warm: "🏪 دافئ", dark: "🌙 فاخر", vibrant: "🎨 حيوي" }
+
+function CatalogDesignTab() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({ queryKey: ["catalog-design"], queryFn: getCatalogDesign })
+  const [form, setForm] = useState<Partial<CatalogDesign>>({})
+  const [newBannerUrl, setNewBannerUrl] = useState("")
+  const [newBannerTitle, setNewBannerTitle] = useState("")
+
+  const current: CatalogDesign = {
+    primaryColor: null, bgColor: null, defaultTheme: "clean", logoUrl: null,
+    welcomeMessage: null, bannerEnabled: true, bannerImages: [],
+    ...data,
+    ...form,
+  }
+
+  const saveMut = useMutation({
+    mutationFn: () => updateCatalogDesign(current),
+    onSuccess: () => { toast({ title: "تم حفظ تصميم الكتلوك" }); qc.invalidateQueries({ queryKey: ["catalog-design"] }); setForm({}) },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  function patch(key: keyof CatalogDesign, value: unknown) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  function addBanner() {
+    if (!newBannerUrl.trim()) return
+    const images = [...(current.bannerImages ?? []), { url: newBannerUrl.trim(), title: newBannerTitle.trim(), order: current.bannerImages.length }]
+    patch("bannerImages", images)
+    setNewBannerUrl(""); setNewBannerTitle("")
+  }
+
+  function removeBanner(idx: number) {
+    patch("bannerImages", current.bannerImages.filter((_, i) => i !== idx).map((img, i) => ({ ...img, order: i })))
+  }
+
+  if (isLoading) return <div className="py-10 text-center text-sm text-slate-400">جاري التحميل...</div>
+
+  return (
+    <div className="space-y-6">
+      {/* Colors */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Palette className="h-5 w-5 text-violet-600" />الألوان والثيم</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {(Object.keys(THEME_LABELS) as Array<keyof typeof THEME_LABELS>).map((t) => (
+              <button
+                key={t}
+                onClick={() => patch("defaultTheme", t)}
+                className={cn(
+                  "flex flex-col items-center gap-2 rounded-2xl border-2 p-3 text-sm font-semibold transition",
+                  current.defaultTheme === t ? "border-violet-500 bg-violet-50 text-violet-700" : "border-slate-200 hover:border-violet-300",
+                )}
+              >
+                <span className="text-2xl">{THEME_LABELS[t].split(" ")[0]}</span>
+                <span>{THEME_LABELS[t].split(" ").slice(1).join(" ")}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-slate-600">لون رئيسي مخصص (اختياري — يتجاوز ألوان الثيم)</span>
+              <div className="flex items-center gap-2">
+                <input type="color" value={current.primaryColor ?? "#059669"}
+                  onChange={(e) => patch("primaryColor", e.target.value)}
+                  className="h-9 w-14 cursor-pointer rounded-lg border p-1" />
+                <Input value={current.primaryColor ?? ""} onChange={(e) => patch("primaryColor", e.target.value || null)}
+                  placeholder="#059669" className="flex-1 font-mono text-sm" dir="ltr" />
+                {current.primaryColor && <button onClick={() => patch("primaryColor", null)} className="text-xs text-slate-400 hover:text-red-500">مسح</button>}
+              </div>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-slate-600">لون الخلفية المخصص (اختياري)</span>
+              <div className="flex items-center gap-2">
+                <input type="color" value={current.bgColor ?? "#f8fafc"}
+                  onChange={(e) => patch("bgColor", e.target.value)}
+                  className="h-9 w-14 cursor-pointer rounded-lg border p-1" />
+                <Input value={current.bgColor ?? ""} onChange={(e) => patch("bgColor", e.target.value || null)}
+                  placeholder="#f8fafc" className="flex-1 font-mono text-sm" dir="ltr" />
+                {current.bgColor && <button onClick={() => patch("bgColor", null)} className="text-xs text-slate-400 hover:text-red-500">مسح</button>}
+              </div>
+            </label>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Logo + Welcome */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Image className="h-5 w-5 text-blue-600" />الشعار والرسالة</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">رابط الشعار (URL)</span>
+            <div className="flex items-center gap-2">
+              <Input value={current.logoUrl ?? ""} onChange={(e) => patch("logoUrl", e.target.value || null)}
+                placeholder="https://..." dir="ltr" className="flex-1 text-sm" />
+              {current.logoUrl && <img src={current.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain border" onError={(e) => e.currentTarget.classList.add("hidden")} />}
+            </div>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">رسالة الترحيب (تظهر للزبون في الكتلوك)</span>
+            <Input value={current.welcomeMessage ?? ""} onChange={(e) => patch("welcomeMessage", e.target.value || null)}
+              placeholder="مرحباً بك في متجرنا — أسعار الجملة المميزة" className="text-sm" />
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* Banner images */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Image className="h-5 w-5 text-emerald-600" />صور البانر المتحرك</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex items-center gap-3">
+            <input type="checkbox" checked={current.bannerEnabled} onChange={(e) => patch("bannerEnabled", e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+            <span className="text-sm font-medium text-slate-700">إظهار البانر المتحرك</span>
+          </label>
+
+          {/* Existing images */}
+          {current.bannerImages.length > 0 && (
+            <div className="space-y-2">
+              {current.bannerImages.map((img, idx) => (
+                <div key={idx} className="flex items-center gap-3 rounded-xl border bg-slate-50 p-2.5">
+                  <img src={img.url} alt="" className="h-12 w-16 rounded-lg object-cover border" onError={(e) => e.currentTarget.src = ""} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-800">{img.title || "(بدون عنوان)"}</p>
+                    <p className="truncate text-xs text-slate-400" dir="ltr">{img.url}</p>
+                  </div>
+                  <button onClick={() => removeBanner(idx)} className="shrink-0 rounded-lg p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new banner */}
+          <div className="rounded-xl border-2 border-dashed border-slate-200 p-3 space-y-2">
+            <p className="text-xs font-semibold text-slate-500">إضافة صورة للبانر</p>
+            <Input value={newBannerUrl} onChange={(e) => setNewBannerUrl(e.target.value)} placeholder="رابط الصورة (URL)" dir="ltr" className="text-sm" />
+            <div className="flex gap-2">
+              <Input value={newBannerTitle} onChange={(e) => setNewBannerTitle(e.target.value)} placeholder="عنوان الصورة (اختياري)" className="flex-1 text-sm" />
+              <Button variant="outline" onClick={addBanner} disabled={!newBannerUrl.trim()}>
+                <Plus className="h-4 w-4" /> إضافة
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Save */}
+      <div className="flex justify-end">
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="px-8">
+          {saveMut.isPending ? "جاري الحفظ..." : "حفظ التغييرات"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PROMO CODES TAB
+══════════════════════════════════════════════════════════════════════ */
+const PROMO_TYPE_LABELS: Record<PromoCode["type"], string> = {
+  PERCENT: "خصم %",
+  AMOUNT: "خصم مبلغ",
+  FREE_DELIVERY: "توصيل مجاني",
+}
+
+function PromoCodesTab() {
+  const qc = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [code, setCode] = useState("")
+  const [type, setType] = useState<PromoCode["type"]>("PERCENT")
+  const [value, setValue] = useState("")
+  const [customerId, setCustomerId] = useState("")
+  const [expiresAt, setExpiresAt] = useState("")
+  const [usageLimit, setUsageLimit] = useState("")
+  const [description, setDescription] = useState("")
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+
+  const { data: promos = [], isLoading } = useQuery({ queryKey: ["admin-promo-codes"], queryFn: listAdminPromoCodes })
+
+  const { data: customers = [] } = useQuery({ queryKey: ["catalog-customers"], queryFn: getCatalogCustomers })
+
+  const createMut = useMutation({
+    mutationFn: () => createAdminPromoCode({
+      code, type,
+      value: value ? Number(value) : undefined,
+      customerId: customerId || undefined,
+      expiresAt: expiresAt || undefined,
+      usageLimit: usageLimit ? Number(usageLimit) : undefined,
+      description: description || undefined,
+    }),
+    onSuccess: () => {
+      toast({ title: "تم إنشاء كود الخصم" })
+      qc.invalidateQueries({ queryKey: ["admin-promo-codes"] })
+      setShowForm(false)
+      setCode(""); setType("PERCENT"); setValue(""); setCustomerId(""); setExpiresAt(""); setUsageLimit(""); setDescription("")
+    },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإنشاء", variant: "destructive" }),
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteAdminPromoCode(id),
+    onSuccess: () => { toast({ title: "تم الحذف" }); qc.invalidateQueries({ queryKey: ["admin-promo-codes"] }); setDeleteId(null) },
+    onError: () => toast({ title: "تعذر الحذف", variant: "destructive" }),
+  })
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) => toggleAdminPromoCode(id, active),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-promo-codes"] }),
+  })
+
+  const customersWithAccess = customers.filter((c) => c.hasAccess)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">أكواد الخصم</p>
+          <p className="text-xs text-slate-500">أنشئ أكواد خصم للزبائن أو لكل الطلبات</p>
+        </div>
+        <Button onClick={() => setShowForm(!showForm)}>
+          <Plus className="h-4 w-4" /> إنشاء كود
+        </Button>
+      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <Card className="border-violet-200 bg-violet-50/30">
+          <CardContent className="space-y-3 pt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">الكود *</span>
+                <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  placeholder="SALE2024" dir="ltr" className="font-mono tracking-wider uppercase" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">نوع الخصم *</span>
+                <select value={type} onChange={(e) => setType(e.target.value as PromoCode["type"])}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  {(Object.keys(PROMO_TYPE_LABELS) as PromoCode["type"][]).map((t) => (
+                    <option key={t} value={t}>{PROMO_TYPE_LABELS[t]}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {type !== "FREE_DELIVERY" && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">{type === "PERCENT" ? "نسبة الخصم (%)" : "مبلغ الخصم (د.ع)"}</span>
+                <Input type="number" value={value} onChange={(e) => setValue(e.target.value)}
+                  placeholder={type === "PERCENT" ? "10" : "5000"} dir="ltr" min="0" />
+              </label>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">خاص بزبون (اختياري)</span>
+                <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+                  <option value="">كل الزبائن</option>
+                  {customersWithAccess.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">حد الاستخدام (اختياري)</span>
+                <Input type="number" value={usageLimit} onChange={(e) => setUsageLimit(e.target.value)}
+                  placeholder="لا يوجد حد" dir="ltr" min="1" />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">تاريخ الانتهاء (اختياري)</span>
+                <Input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} dir="ltr" />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-slate-600">وصف (اختياري)</span>
+                <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="عرض صيف 2024" />
+              </label>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button onClick={() => createMut.mutate()} disabled={!code.trim() || (type !== "FREE_DELIVERY" && !value) || createMut.isPending} className="flex-1">
+                {createMut.isPending ? "جاري الإنشاء..." : "إنشاء الكود"}
+              </Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>إلغاء</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Table */}
+      {isLoading ? (
+        <div className="py-8 text-center text-sm text-slate-400">جاري التحميل...</div>
+      ) : promos.length === 0 ? (
+        <div className="py-12 text-center">
+          <Ticket className="mx-auto mb-3 h-10 w-10 text-slate-200" />
+          <p className="text-sm font-medium text-slate-500">لا توجد أكواد خصم</p>
+          <p className="text-xs text-slate-400">اضغط «إنشاء كود» لإنشاء أول كود</p>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+              <tr>
+                <th className="px-4 py-3 text-right">الكود</th>
+                <th className="px-4 py-3 text-right">النوع</th>
+                <th className="px-4 py-3 text-right">الزبون</th>
+                <th className="px-4 py-3 text-right">الاستخدام</th>
+                <th className="px-4 py-3 text-right">الانتهاء</th>
+                <th className="px-4 py-3 text-right">الحالة</th>
+                <th className="px-4 py-3 text-right"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y bg-white">
+              {promos.map((p) => (
+                <tr key={p.id} className={cn("transition", !p.active && "opacity-50")}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-md bg-violet-100 px-2 py-0.5 font-mono text-xs font-bold text-violet-800">{p.code}</span>
+                      {p.description && <span className="text-xs text-slate-400">{p.description}</span>}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold",
+                      p.type === "FREE_DELIVERY" ? "bg-blue-100 text-blue-700"
+                        : p.type === "PERCENT" ? "bg-orange-100 text-orange-700"
+                          : "bg-emerald-100 text-emerald-700")}>
+                      {p.type === "FREE_DELIVERY" ? "توصيل مجاني" : p.type === "PERCENT" ? `${p.value}%` : `${(p.value ?? 0).toLocaleString()} د.ع`}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600 text-xs">{p.customer ? p.customer.name : <span className="text-slate-400">الكل</span>}</td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {p.usedCount}{p.usageLimit ? `/${p.usageLimit}` : ""} مرة
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {p.expiresAt ? dayjs(p.expiresAt).format("YYYY/MM/DD") : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => toggleMut.mutate({ id: p.id, active: !p.active })}
+                      className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold transition",
+                        p.active ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-slate-100 text-slate-500 hover:bg-slate-200")}>
+                      {p.active ? "نشط" : "معطّل"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => setDeleteId(p.id)} className="rounded-lg p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="حذف كود الخصم"
+        description="هل أنت متأكد؟ لا يمكن التراجع."
+        onConfirm={() => deleteId && deleteMut.mutate(deleteId)}
+        onCancel={() => setDeleteId(null)}
+        loading={deleteMut.isPending}
+      />
+    </div>
+  )
+}
+
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
+  const [tab, setTab] = useState<"customers" | "design" | "promos">("customers")
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
 
@@ -473,10 +868,31 @@ export function CatalogManagementPage() {
     <div className="space-y-6 p-6" dir="rtl">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">إدارة كاتلوك المنتجات</h1>
-        <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن للوصول إلى الكاتلوك العام وإظهار الأسعار والكميات</p>
+        <h1 className="text-2xl font-bold text-slate-900">إدارة كاتلوك الجملة</h1>
+        <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن والتصميم وأكواد الخصم</p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
+        {([
+          { key: "customers", label: "الزبائن", icon: <Globe className="h-4 w-4" /> },
+          { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
+          { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
+        ] as const).map(({ key, label, icon }) => (
+          <button key={key} onClick={() => setTab(key)}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+              tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+            )}>
+            {icon}{label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "design" && <CatalogDesignTab />}
+      {tab === "promos" && <PromoCodesTab />}
+
+      {tab === "customers" && <>
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <StatCard
@@ -590,6 +1006,7 @@ export function CatalogManagementPage() {
           )}
         </CardContent>
       </Card>
+      </>}
     </div>
   )
 }

@@ -46,6 +46,12 @@ enum DiscountType {
   AMOUNT
 }
 
+enum PromoCodeType {
+  PERCENT
+  AMOUNT
+  FREE_DELIVERY
+}
+
 enum QuotationStatus {
   PENDING
   ACCEPTED
@@ -314,6 +320,7 @@ model Customer {
   portalLinks       CustomerPortalLink[]
   catalogAccessLinks CatalogAccessLink[]
   arrivalSubscriptions ProductArrivalSubscription[]
+  promoCodes        PromoCode[]
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
   deletedAt         DateTime?        @map("deleted_at")
@@ -890,6 +897,25 @@ model ClientPayment {
 
   @@index([clientId])
   @@map("client_payments")
+}
+
+model PromoCode {
+  id          String        @id @default(uuid()) @db.Uuid
+  code        String        @unique
+  type        PromoCodeType
+  value       Decimal?      @db.Decimal(12, 2)
+  customerId  String?       @map("customer_id") @db.Uuid
+  customer    Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  expiresAt   DateTime?     @map("expires_at")
+  usageLimit  Int?          @map("usage_limit")
+  usedCount   Int           @default(0) @map("used_count")
+  active      Boolean       @default(true)
+  description String?
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@map("promo_codes")
 }
 
 model ProductArrivalSubscription {

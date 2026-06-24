@@ -222,6 +222,7 @@ export interface CatalogOrderPayload {
   phone: string
   address?: string
   notes?: string
+  promoCode?: string
   items: Array<{
     productId: string
     warehouseId?: string

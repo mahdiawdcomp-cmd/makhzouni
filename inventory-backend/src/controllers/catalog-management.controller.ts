@@ -1,3 +1,4 @@
+import { PromoCodeType } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
@@ -5,7 +6,12 @@ import {
   createCatalogAccessLink,
   updateCatalogAccessLink,
   revokeCatalogAccess,
+  listPromoCodes,
+  createPromoCode,
+  deletePromoCode,
+  togglePromoCode,
 } from "../services/catalog.service";
+import { getSettings, updateSettings } from "../services/settings.service";
 import prisma from "../config/database";
 
 export const getCatalogCustomers = asyncHandler(async (_req, res) => {
@@ -58,4 +64,89 @@ export const revokeCatalogAccessCtrl = asyncHandler(async (req, res) => {
   const customerId = String(req.params.id);
   await revokeCatalogAccess(customerId);
   res.json({ success: true, message: "Catalog access revoked" });
+});
+
+/* ── Promo Codes ─────────────────────────────────────────────────── */
+
+export const listPromoCodesCtrl = asyncHandler(async (_req, res) => {
+  const codes = await listPromoCodes();
+  res.json({ success: true, data: codes });
+});
+
+export const createPromoCodeCtrl = asyncHandler(async (req, res) => {
+  const { code, type, value, customerId, expiresAt, usageLimit, description } = req.body as {
+    code: string;
+    type: PromoCodeType;
+    value?: number;
+    customerId?: string;
+    expiresAt?: string;
+    usageLimit?: number;
+    description?: string;
+  };
+
+  const promo = await createPromoCode({
+    code,
+    type,
+    value,
+    customerId: customerId || undefined,
+    expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+    usageLimit,
+    description,
+  });
+  res.status(201).json({ success: true, data: promo });
+});
+
+export const deletePromoCodeCtrl = asyncHandler(async (req, res) => {
+  await deletePromoCode(String(req.params.id));
+  res.json({ success: true, message: "Promo code deleted" });
+});
+
+export const togglePromoCodeCtrl = asyncHandler(async (req, res) => {
+  const { active } = req.body as { active: boolean };
+  const promo = await togglePromoCode(String(req.params.id), active);
+  res.json({ success: true, data: promo });
+});
+
+/* ── Catalog Design Settings ─────────────────────────────────────── */
+
+export const getCatalogDesignCtrl = asyncHandler(async (_req, res) => {
+  const settings = await getSettings();
+  res.json({
+    success: true,
+    data: {
+      primaryColor: settings.catalogDesignPrimaryColor ?? null,
+      bgColor: settings.catalogDesignBgColor ?? null,
+      defaultTheme: settings.catalogDesignDefaultTheme ?? "clean",
+      logoUrl: settings.catalogDesignLogoUrl ?? null,
+      welcomeMessage: settings.catalogDesignWelcomeMessage ?? null,
+      bannerEnabled: settings.catalogDesignBannerEnabled ?? true,
+      bannerImages: settings.catalogDesignBannerImages ?? [],
+    },
+  });
+});
+
+export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
+  const {
+    primaryColor, bgColor, defaultTheme, logoUrl, welcomeMessage, bannerEnabled, bannerImages,
+  } = req.body as {
+    primaryColor?: string;
+    bgColor?: string;
+    defaultTheme?: "clean" | "warm" | "dark" | "vibrant";
+    logoUrl?: string;
+    welcomeMessage?: string;
+    bannerEnabled?: boolean;
+    bannerImages?: Array<{ url: string; title: string; order: number }>;
+  };
+
+  await updateSettings({
+    catalogDesignPrimaryColor: primaryColor,
+    catalogDesignBgColor: bgColor,
+    catalogDesignDefaultTheme: defaultTheme,
+    catalogDesignLogoUrl: logoUrl,
+    catalogDesignWelcomeMessage: welcomeMessage,
+    catalogDesignBannerEnabled: bannerEnabled,
+    catalogDesignBannerImages: bannerImages,
+  });
+
+  res.json({ success: true, message: "Catalog design updated" });
 });
