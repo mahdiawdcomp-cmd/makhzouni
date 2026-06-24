@@ -50,6 +50,16 @@ export function ImageCropModal({
   const [crop, setCrop] = useState<CropRect>({ x: 5, y: 5, w: 90, h: 90 })
   // workingSrc tracks the image after rotations/flips
   const [workingSrc, setWorkingSrc] = useState(src)
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // If the modal is reused with a new source, reset everything.
+  useEffect(() => {
+    setWorkingSrc(src)
+    setCrop({ x: 5, y: 5, w: 90, h: 90 })
+    setLoaded(false)
+    setError(null)
+  }, [src])
 
   const onPointerDown = useCallback((e: React.PointerEvent, handle: Handle) => {
     e.stopPropagation()
@@ -97,52 +107,69 @@ export function ImageCropModal({
 
   function applyCrop() {
     const img = imgRef.current
-    if (!img) return
-    const scaleX = img.naturalWidth / img.getBoundingClientRect().width
-    const scaleY = img.naturalHeight / img.getBoundingClientRect().height
-    const x = (crop.x / 100) * img.getBoundingClientRect().width * scaleX
-    const y = (crop.y / 100) * img.getBoundingClientRect().height * scaleY
-    const w = (crop.w / 100) * img.getBoundingClientRect().width * scaleX
-    const h = (crop.h / 100) * img.getBoundingClientRect().height * scaleY
-    const canvas = document.createElement("canvas")
-    canvas.width = Math.round(w)
-    canvas.height = Math.round(h)
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-    ctx.drawImage(img, x, y, w, h, 0, 0, w, h)
-    onDone(canvas.toDataURL("image/jpeg", 0.92))
+    if (!img || !img.naturalWidth || !img.naturalHeight) {
+      setError("الصورة لم تُحمّل بعد — انتظر لحظة وحاول مجدداً")
+      return
+    }
+    try {
+      const rect = img.getBoundingClientRect()
+      const scaleX = img.naturalWidth / rect.width
+      const scaleY = img.naturalHeight / rect.height
+      const x = (crop.x / 100) * rect.width * scaleX
+      const y = (crop.y / 100) * rect.height * scaleY
+      const w = (crop.w / 100) * rect.width * scaleX
+      const h = (crop.h / 100) * rect.height * scaleY
+      const canvas = document.createElement("canvas")
+      canvas.width = Math.max(1, Math.round(w))
+      canvas.height = Math.max(1, Math.round(h))
+      const ctx = canvas.getContext("2d")
+      if (!ctx) { setError("تعذّر تجهيز الصورة"); return }
+      ctx.drawImage(img, x, y, w, h, 0, 0, w, h)
+      onDone(canvas.toDataURL("image/jpeg", 0.92))
+    } catch {
+      // Tainted canvas (cross-origin image without CORS) or other draw failure.
+      setError("تعذّر اقتصاص هذه الصورة. التقط صورة جديدة بالكاميرا أو اخترها من الجهاز.")
+    }
   }
 
   /** Apply a transform (rotate/flip) to the current working image and update workingSrc */
   function applyTransform(type: "cw" | "ccw" | "flip-h") {
     const img = imgRef.current
-    if (!img) return
-    const iw = img.naturalWidth
-    const ih = img.naturalHeight
-    const canvas = document.createElement("canvas")
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    if (type === "flip-h") {
-      canvas.width = iw; canvas.height = ih
-      ctx.translate(iw, 0)
-      ctx.scale(-1, 1)
-      ctx.drawImage(img, 0, 0)
-    } else {
-      // 90° rotation: swap width/height
-      canvas.width = ih; canvas.height = iw
-      if (type === "cw") {
-        ctx.translate(ih, 0)
-        ctx.rotate(Math.PI / 2)
-      } else {
-        ctx.translate(0, iw)
-        ctx.rotate(-Math.PI / 2)
-      }
-      ctx.drawImage(img, 0, 0)
+    if (!img || !img.naturalWidth || !img.naturalHeight) {
+      setError("الصورة لم تُحمّل بعد — انتظر لحظة وحاول مجدداً")
+      return
     }
-    const newSrc = canvas.toDataURL("image/jpeg", 0.95)
-    setWorkingSrc(newSrc)
-    setCrop({ x: 5, y: 5, w: 90, h: 90 }) // reset crop after transform
+    try {
+      const iw = img.naturalWidth
+      const ih = img.naturalHeight
+      const canvas = document.createElement("canvas")
+      const ctx = canvas.getContext("2d")
+      if (!ctx) { setError("تعذّر تجهيز الصورة"); return }
+
+      if (type === "flip-h") {
+        canvas.width = iw; canvas.height = ih
+        ctx.translate(iw, 0)
+        ctx.scale(-1, 1)
+        ctx.drawImage(img, 0, 0)
+      } else {
+        // 90° rotation: swap width/height
+        canvas.width = ih; canvas.height = iw
+        if (type === "cw") {
+          ctx.translate(ih, 0)
+          ctx.rotate(Math.PI / 2)
+        } else {
+          ctx.translate(0, iw)
+          ctx.rotate(-Math.PI / 2)
+        }
+        ctx.drawImage(img, 0, 0)
+      }
+      const newSrc = canvas.toDataURL("image/jpeg", 0.95)
+      setLoaded(false) // the <img> will reload with the transformed source
+      setWorkingSrc(newSrc)
+      setCrop({ x: 5, y: 5, w: 90, h: 90 }) // reset crop after transform
+    } catch {
+      setError("تعذّر تدوير هذه الصورة. التقط صورة جديدة بالكاميرا أو اخترها من الجهاز.")
+    }
   }
 
   const cursors = handleCursors()
@@ -199,6 +226,10 @@ export function ImageCropModal({
             ref={imgRef}
             src={workingSrc}
             alt="للتعديل"
+            // Allow cross-origin images to be drawn to canvas when the host sends CORS headers.
+            crossOrigin={workingSrc.startsWith("data:") ? undefined : "anonymous"}
+            onLoad={() => setLoaded(true)}
+            onError={() => setError("تعذّر تحميل الصورة")}
             className="block select-none"
             style={{ maxHeight: "55vh", maxWidth: "100%", objectFit: "contain", touchAction: "none" }}
             draggable={false}
@@ -270,12 +301,21 @@ export function ImageCropModal({
           </div>
         </div>
 
+        {/* Error banner */}
+        {error && (
+          <div className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+            {error}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 dark:border-slate-700">
-          <p className="text-[11px] text-slate-400">اسحب الزوايا للاقتصاص • اسحب المنتصف للتحريك</p>
+          <p className="text-[11px] text-slate-400">
+            {loaded ? "اسحب الزوايا للاقتصاص • اسحب المنتصف للتحريك" : "جارٍ تحميل الصورة…"}
+          </p>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onCancel}>إلغاء</Button>
-            <Button onClick={applyCrop} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+            <Button onClick={applyCrop} disabled={!loaded} className="gap-1.5 bg-emerald-600 hover:bg-emerald-700">
               <Check className="h-4 w-4" /> حفظ
             </Button>
           </div>

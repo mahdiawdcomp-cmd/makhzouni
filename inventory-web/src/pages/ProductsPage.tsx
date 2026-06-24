@@ -64,7 +64,7 @@ const emptyForm: ProductFormState = {
   storageLocation: "",
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
+function readFileAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
@@ -73,17 +73,51 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-async function compressProductImage(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file)
+/**
+ * Return a source the crop editor can safely draw to canvas: data URLs are
+ * returned as-is; remote URLs are fetched and converted to a data URL so the
+ * canvas is never "tainted" (which would block cropping/saving). If the fetch
+ * fails (e.g. CORS), the original URL is returned and the editor handles it.
+ */
+async function toEditableSrc(src: string): Promise<string> {
+  if (src.startsWith("data:")) return src
+  try {
+    const res = await fetch(src, { mode: "cors" })
+    const blob = await res.blob()
+    return await readFileAsDataUrl(blob)
+  } catch {
+    return src
+  }
+}
+
+function drawToJpeg(source: CanvasImageSource, w: number, h: number): string {
   const maxSide = 900
-  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+  const scale = Math.min(1, maxSide / Math.max(w, h))
   const canvas = document.createElement("canvas")
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  canvas.width = Math.max(1, Math.round(w * scale))
+  canvas.height = Math.max(1, Math.round(h * scale))
   const ctx = canvas.getContext("2d")
   if (!ctx) throw new Error("Image compression failed")
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
   return canvas.toDataURL("image/jpeg", 0.82)
+}
+
+async function compressProductImage(file: Blob): Promise<string> {
+  // Preferred path: createImageBitmap (fast). Falls back to an <img> decode,
+  // which is more widely supported (older iOS Safari, some Android WebViews).
+  try {
+    const bitmap = await createImageBitmap(file)
+    return drawToJpeg(bitmap, bitmap.width, bitmap.height)
+  } catch {
+    const dataUrl = await readFileAsDataUrl(file)
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image()
+      el.onload = () => resolve(el)
+      el.onerror = reject
+      el.src = dataUrl
+    })
+    return drawToJpeg(img, img.naturalWidth, img.naturalHeight)
+  }
 }
 
 
@@ -1038,7 +1072,7 @@ export function ProductsPage() {
                 {form.imageUrl ? (
                   <button
                     type="button"
-                    onClick={() => setCropSrc(form.imageUrl!)}
+                    onClick={async () => setCropSrc(await toEditableSrc(form.imageUrl!))}
                     className="group relative h-20 w-20 overflow-hidden rounded-xl ring-2 ring-offset-1 ring-indigo-400 cursor-pointer"
                     title="اضغط لتعديل الصورة"
                   >
@@ -1097,7 +1131,7 @@ export function ProductsPage() {
                     {/* Edit existing */}
                     {form.imageUrl && (
                       <Button type="button" variant="outline" className="gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
-                        onClick={() => setCropSrc(form.imageUrl!)}>
+                        onClick={async () => setCropSrc(await toEditableSrc(form.imageUrl!))}>
                         ✂️ تعديل الصورة
                       </Button>
                     )}
@@ -1405,12 +1439,17 @@ export function ProductsPage() {
             onCancel={() => setCropSrc(null)}
             onDone={async (croppedDataUrl) => {
               setCropSrc(null)
-              // compress the cropped result before saving to form
-              const resp = await fetch(croppedDataUrl)
-              const blob = await resp.blob()
-              const file = new File([blob], "cropped.jpg", { type: "image/jpeg" })
-              const imageUrl = await compressProductImage(file)
-              setForm((f) => ({ ...f, imageUrl }))
+              try {
+                // compress the cropped result before saving to form
+                const resp = await fetch(croppedDataUrl)
+                const blob = await resp.blob()
+                const file = new File([blob], "cropped.jpg", { type: "image/jpeg" })
+                const imageUrl = await compressProductImage(file)
+                setForm((f) => ({ ...f, imageUrl }))
+              } catch {
+                // If compression fails for any reason, still keep the cropped image.
+                setForm((f) => ({ ...f, imageUrl: croppedDataUrl }))
+              }
             }}
           />
         )}

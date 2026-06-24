@@ -15,7 +15,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
-import { ImagePreviewModal } from "../components/ImagePreviewModal"
+import { ImageCropModal } from "../components/ImageCropModal"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -112,20 +112,25 @@ export function ProductDetailPage() {
 
   async function onCropDone(croppedDataUrl: string) {
     setCropSrc(null)
-    // Compress after crop
-    const img = new Image()
-    img.src = croppedDataUrl
-    await new Promise<void>((res) => { img.onload = () => res() })
-    const maxSide = 900
-    const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
-    const canvas = document.createElement("canvas")
-    canvas.width = Math.round(img.width * scale)
-    canvas.height = Math.round(img.height * scale)
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-    const compressed = canvas.toDataURL("image/jpeg", 0.82)
-    setEditForm((f) => ({ ...f, imageUrl: compressed }))
+    try {
+      // Compress after crop
+      const img = new Image()
+      img.src = croppedDataUrl
+      await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = rej })
+      const maxSide = 900
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height))
+      const canvas = document.createElement("canvas")
+      canvas.width = Math.max(1, Math.round(img.width * scale))
+      canvas.height = Math.max(1, Math.round(img.height * scale))
+      const ctx = canvas.getContext("2d")
+      if (!ctx) { setEditForm((f) => ({ ...f, imageUrl: croppedDataUrl })); return }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const compressed = canvas.toDataURL("image/jpeg", 0.82)
+      setEditForm((f) => ({ ...f, imageUrl: compressed }))
+    } catch {
+      // Keep the cropped image even if compression fails.
+      setEditForm((f) => ({ ...f, imageUrl: croppedDataUrl }))
+    }
   }
 
   // Delete confirm state
@@ -631,17 +636,17 @@ export function ProductDetailPage() {
             {updateMutation.isPending ? "جار الحفظ..." : "حفظ التعديلات"}
           </Button>
         </form>
-      </ModalForm>
 
-      {/* Delete Confirm Dialog */}
-      {/* Image preview modal */}
-      {cropSrc && (
-        <ImagePreviewModal
-          src={cropSrc}
-          onConfirm={(url) => void onCropDone(url)}
-          onCancel={() => setCropSrc(null)}
-        />
-      )}
+        {/* Image editor — INSIDE the dialog so Radix's modal pointer-events lock
+            doesn't swallow clicks on the crop/save controls. */}
+        {cropSrc && (
+          <ImageCropModal
+            src={cropSrc}
+            onDone={(url) => void onCropDone(url)}
+            onCancel={() => setCropSrc(null)}
+          />
+        )}
+      </ModalForm>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="max-w-sm">
