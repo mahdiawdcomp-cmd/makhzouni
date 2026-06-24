@@ -71,7 +71,7 @@ export const defaultSettings: AppSettings = {
     "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
   themePreset: "classic",
   shopWarehouseId: "",
-  catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
+  catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",

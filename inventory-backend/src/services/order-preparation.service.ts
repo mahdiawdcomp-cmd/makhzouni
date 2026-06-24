@@ -32,7 +32,7 @@ function money(value: number) {
 
 function catalogBaseUrl(settings: Awaited<ReturnType<typeof getSettings>> | null) {
   const configured = settings?.catalogPublicUrl?.trim() || process.env.PUBLIC_CATALOG_URL?.trim();
-  return (configured || "https://inventory-web-six-kohl.vercel.app/catalog").replace(/\/$/, "");
+  return (configured || "https://mahdi.mazbwoni.com/catalog").replace(/\/$/, "");
 }
 
 function catalogUrl(settings: Awaited<ReturnType<typeof getSettings>> | null, urlPath?: string) {

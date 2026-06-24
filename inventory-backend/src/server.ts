@@ -41,7 +41,7 @@ const port = Number(process.env.PORT ?? 5000);
 const allowedOrigins = (
   process.env.ALLOWED_ORIGINS ??
   process.env.ALLOWED_ORIGIN ??
-  "https://inventory-web-six-kohl.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080"
+  "https://mahdi.mazbwoni.com,https://inventory-web-six-kohl.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080"
 )
   .split(",")
   .map((origin) => origin.trim())
