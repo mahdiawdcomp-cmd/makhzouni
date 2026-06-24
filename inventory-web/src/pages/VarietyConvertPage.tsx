@@ -121,7 +121,7 @@ export function VarietyConvertPage() {
       setRows([])
       void qc.invalidateQueries({ queryKey: ["products"] })
     },
-    onError: (e: Error) => toast({ title: e.message ?? "تعذّر التحويل", variant: "destructive" }),
+    onError: (e: any) => toast({ title: "خطأ", description: e.response?.data?.message ?? e.message ?? "تعذّر التحويل", variant: "destructive" }),
   })
 
   const canSubmit = effectiveFrom && targetProductId && rows.length > 0 && !mutation.isPending
