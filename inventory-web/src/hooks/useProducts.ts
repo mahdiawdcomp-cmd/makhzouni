@@ -35,7 +35,18 @@ export function useProducts() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+    // Use the server's authoritative product to replace the placeholder — do NOT
+    // refetch the whole list (it carries every product's base64 image and is huge).
+    onSuccess: (res) => {
+      const created = res?.data
+      if (!created) { void qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }); return }
+      qc.setQueryData<Product[]>(QUERY_KEY, (old) => {
+        const without = (old ?? []).filter((p) => p.id !== "__optimistic__" && p.id !== created.id)
+        return [created, ...without]
+      })
+    },
+    // Mark stale (no immediate refetch) so the next natural navigation reconciles.
+    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }),
   })
 
   const updateMutation = useMutation({
@@ -51,7 +62,15 @@ export function useProducts() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+    // Merge the server's authoritative product into the cache instead of refetching
+    // the entire (image-heavy) list — this is what made add/edit "load forever".
+    onSuccess: (res, vars) => {
+      const updated = res?.data
+      qc.setQueryData<Product[]>(QUERY_KEY, (old) =>
+        old?.map((p) => p.id === vars.id ? (updated ?? p) : p) ?? old
+      )
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }),
   })
 
   const deleteMutation = useMutation({
@@ -65,7 +84,8 @@ export function useProducts() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY }),
+    // Optimistic filter already removed it; avoid refetching the heavy list.
+    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }),
   })
 
   return { productsQuery, createMutation, updateMutation, deleteMutation }
