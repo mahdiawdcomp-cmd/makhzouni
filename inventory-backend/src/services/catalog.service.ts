@@ -49,16 +49,18 @@ function stockOf(product: { openingBalancePcs: number; cartonsAvailable: number;
 }
 
 function piecesFor(unit: Unit, quantity: number, pcsPerCarton: number) {
-  if (unit === Unit.CARTON) return quantity * pcsPerCarton;
-  if (unit === Unit.BOX) return quantity * Math.ceil(pcsPerCarton / 2);
+  const n = Math.max(1, pcsPerCarton);
+  if (unit === Unit.CARTON) return quantity * n;
+  if (unit === Unit.BOX) return quantity * Math.ceil(n / 2);
   if (unit === Unit.DOZEN) return quantity * 12;
   return quantity; // PIECE
 }
 
 function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number) {
   const price = toNumber(salePrice);
-  if (unit === Unit.CARTON) return price * pcsPerCarton;
-  if (unit === Unit.BOX) return price * Math.ceil(pcsPerCarton / 2);
+  const n = Math.max(1, pcsPerCarton);
+  if (unit === Unit.CARTON) return price * n;
+  if (unit === Unit.BOX) return price * Math.ceil(n / 2);
   if (unit === Unit.DOZEN) return price * 12;
   return price; // PIECE
 }

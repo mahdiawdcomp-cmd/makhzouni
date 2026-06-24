@@ -609,6 +609,8 @@ function CatalogShop({
   function renderCard(product: PublicCatalogProduct) {
     const productLines = cart.filter(l => l.product.id === product.id)
     const qtyInCart = productLines.reduce((s, l) => s + l.quantity, 0)
+    // Total pieces already in cart for this product (for stock-ceiling check)
+    const pcsInCart = productLines.reduce((s, l) => s + l.quantity * pcs(product, l.unit), 0)
     // If exactly one unit type in cart → reuse it on "+" without reopening picker
     const cartUnit = productLines.length === 1 ? productLines[0].unit : null
     const firstLine = productLines[0] ?? null
@@ -619,6 +621,7 @@ function CatalogShop({
         allowPrices={allowPrices}
         showStock={showStock}
         qtyInCart={qtyInCart}
+        pcsInCart={pcsInCart}
         cartUnit={cartUnit}
         tk={tk}
         viewMode={viewMode}
@@ -955,7 +958,7 @@ function CatalogShop({
           style={{ background: tk.accent }}>
           <ShoppingCart className="h-5 w-5" />
           <span className="font-bold text-sm">السلة — {cartQty} مادة</span>
-          {allowPrices && <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{money(subtotal)} د.ع</span>}
+          {allowPrices && <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{money(finalTotal)} د.ع{promoResult && <span className="mr-1 opacity-80 line-through text-[9px]">{money(subtotal)}</span>}</span>}
           <ChevronLeft className="h-4 w-4 opacity-70" />
         </button>
       )}
@@ -1120,13 +1123,14 @@ function UnitPickerSheet({
    PRODUCT CARD
 ══════════════════════════════════════════════════════════════════════ */
 function ProductCard({
-  product, allowPrices, showStock, qtyInCart, cartUnit, tk, viewMode, compact,
+  product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, compact,
   onAdd, onRemoveOne, onOpenPicker, onZoom,
 }: {
   product: PublicCatalogProduct
   allowPrices: boolean
   showStock: boolean
   qtyInCart: number
+  pcsInCart: number
   cartUnit: CatalogUnit | null
   tk: ThemeTokens
   viewMode: ViewMode
@@ -1141,7 +1145,12 @@ function ProductCard({
   // Price shown is for PIECE by default (when not in cart) or the cart unit
   const displayUnit = cartUnit ?? "PIECE"
   const displayPrice = linePrice(product, displayUnit)
-  const canAddMore = !outOfStock && (cartUnit ? maxQty(product, cartUnit) > qtyInCart : true)
+  // canAddMore: if single unit type in cart, check that unit's limit; else check total pieces vs stock
+  const canAddMore = !outOfStock && (
+    cartUnit
+      ? maxQty(product, cartUnit) > qtyInCart
+      : pcsInCart < product.currentStock
+  )
 
   // "+ button" logic: if already have one unit type in cart → add same, else open picker
   function handleAddPress() {
@@ -1175,7 +1184,7 @@ function ProductCard({
             <div className="mt-0.5 flex items-center gap-2 flex-wrap">
               {allowPrices && (
                 <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
-                  {money(displayPrice)} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع/قطعة</span>
+                  {money(displayPrice)} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع/{UNIT_LABELS[displayUnit]}</span>
                 </p>
               )}
               {showStock && (
