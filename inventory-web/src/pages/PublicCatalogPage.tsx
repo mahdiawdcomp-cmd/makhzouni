@@ -416,6 +416,7 @@ function CatalogShop({
   const [promoLoading, setPromoLoading] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const themeRef = useRef<HTMLDivElement>(null)
+  const bannerTouchX = useRef<number | null>(null)
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
@@ -843,34 +844,53 @@ function CatalogShop({
                 subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
               }))
         if (slides.length < 2) return null
-        const idx = bannerIndex % slides.length
+        const total = slides.length
+        const idx = ((bannerIndex % total) + total) % total
         const welcomeMsg = design?.welcomeMessage || `مرحباً ${customerName} 👋`
         return (
-          <div className="relative overflow-hidden" style={{ height: "140px" }}>
+          <div
+            className="relative overflow-hidden select-none"
+            style={{ height: "190px" }}
+            onTouchStart={(e) => { bannerTouchX.current = e.touches[0].clientX }}
+            onTouchEnd={(e) => {
+              if (bannerTouchX.current === null) return
+              const delta = bannerTouchX.current - e.changedTouches[0].clientX
+              bannerTouchX.current = null
+              if (delta > 40) setBannerIndex(i => i + 1)
+              else if (delta < -40) setBannerIndex(i => i - 1)
+            }}
+          >
             {slides.map((s, i) => (
               <div key={i} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
                 <img src={s.src} alt={s.title} className="h-full w-full object-cover" />
-                <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.1) 60%, transparent 100%)" }} />
-                {s.title && (
-                  <div className="absolute bottom-3 right-4">
-                    <p className="text-sm font-bold text-white drop-shadow">{s.title}</p>
-                    {s.subtitle && <p className="text-xs font-semibold" style={{ color: "#6ee7b7" }}>{s.subtitle}</p>}
-                  </div>
-                )}
+                <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.15) 55%, transparent 100%)" }} />
+                <div className="absolute bottom-8 right-4 left-4">
+                  {s.title && <p className="text-sm font-extrabold text-white drop-shadow-md leading-snug">{s.title}</p>}
+                  {s.subtitle && <p className="mt-0.5 text-sm font-bold" style={{ color: "#6ee7b7" }}>{s.subtitle}</p>}
+                </div>
               </div>
             ))}
-            {/* welcome overlay */}
-            <div className="absolute top-0 inset-x-0 flex items-center justify-end px-4 pt-2.5">
-              <div className="rounded-xl px-3 py-1.5 text-right" style={{ background: "rgba(0,0,0,0.45)" }}>
-                <p className="text-xs font-semibold text-white">{welcomeMsg}</p>
-              </div>
+            {/* welcome pill */}
+            <div className="absolute right-3 top-3 rounded-full px-3 py-1 text-right" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)" }}>
+              <p className="text-[11px] font-semibold text-white">{welcomeMsg}</p>
             </div>
+            {/* swipe hint arrows */}
+            <button type="button" onClick={() => setBannerIndex(i => i - 1)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full opacity-60 active:opacity-100"
+              style={{ background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-white stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+            </button>
+            <button type="button" onClick={() => setBannerIndex(i => i + 1)}
+              className="absolute left-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full opacity-60 active:opacity-100"
+              style={{ background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
+              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-white stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            </button>
             {/* dots */}
-            <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">
+            <div className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 gap-1.5">
               {slides.map((_, i) => (
                 <button key={i} type="button" onClick={() => setBannerIndex(i)}
-                  className="rounded-full transition-all"
-                  style={{ height: "6px", width: i === idx ? "20px" : "6px", background: i === idx ? "#fff" : "rgba(255,255,255,0.4)" }} />
+                  className="rounded-full transition-all duration-300"
+                  style={{ height: "5px", width: i === idx ? "18px" : "5px", background: i === idx ? "#fff" : "rgba(255,255,255,0.45)" }} />
               ))}
             </div>
           </div>
@@ -882,7 +902,7 @@ function CatalogShop({
 
         {/* Loading skeleton */}
         {productsQuery.isLoading && viewMode === "grid" && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
+          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="overflow-hidden rounded-2xl" style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}` }}>
                 <div className="aspect-square" style={{ background: tk.skeletonBg, opacity: 0.6 }} />
@@ -948,7 +968,7 @@ function CatalogShop({
               {visible.map(p => renderCard(p))}
             </div>
           ) : (
-            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
+            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
               {visible.map(p => renderCard(p))}
             </div>
           )
@@ -1167,56 +1187,61 @@ function ProductCard({
   /* ── List view ── */
   if (viewMode === "list") {
     return (
-      <div className="flex gap-3 overflow-hidden rounded-2xl p-3 transition"
-        style={{ background: tk.cardBg, border: `1px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
+      <div className="flex gap-2.5 overflow-hidden rounded-2xl transition active:scale-[0.99]"
+        style={{
+          background: tk.cardBg,
+          border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}`,
+          boxShadow: qtyInCart > 0 ? `0 0 0 1px ${tk.accent}30` : "0 1px 6px rgba(0,0,0,0.05)",
+          padding: "8px",
+        }}>
+        {/* Square image */}
+        <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
           {product.imageUrl ? (
             <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
           ) : (
-            <div className="flex h-full items-center justify-center"><ImageIcon className="h-7 w-7" style={{ color: tk.subtext, opacity: 0.4 }} /></div>
+            <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
           {qtyInCart > 0 && (
-            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: tk.accent }}>{qtyInCart}</span>
+            <span className="absolute left-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-extrabold text-white ring-1 ring-white/50" style={{ background: tk.accent }}>{qtyInCart}</span>
           )}
-          {product.isOffer && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>}
+          {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>}
+          {outOfStock && <div className="absolute inset-0 bg-white/55 flex items-center justify-center"><span className="text-[8px] font-bold text-red-600">نفد</span></div>}
         </div>
 
+        {/* Info */}
         <div className="flex min-w-0 flex-1 flex-col justify-between">
-          <div>
-            <div className="flex items-start justify-between gap-1">
-              <p className="line-clamp-2 text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
-              {product.isNewArrival && <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
-            </div>
-            <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+          <div className="flex items-start gap-1">
+            <p className="line-clamp-2 flex-1 text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
+            {product.isNewArrival && <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[7px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+          </div>
+          <div className="flex items-center justify-between gap-1 mt-1">
+            <div>
               {allowPrices && (
-                <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
+                <p className="text-sm font-extrabold leading-none" style={{ color: tk.accent }}>
                   {money(displayPrice)} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع/{UNIT_LABELS[displayUnit]}</span>
                 </p>
               )}
-              {showStock && (
-                <span className="text-[10px] font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
-                  {lowStock ? `⚠️ ${product.currentStock} متبقية` : `${money(product.currentStock)} متوفر`}
-                </span>
+              {showStock && !outOfStock && (
+                <p className="text-[9px] mt-0.5" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
+                  {lowStock ? `⚠ ${product.currentStock} متبقية` : `${money(product.currentStock)} متوفر`}
+                </p>
               )}
-              {cartUnit && <span className="rounded-full px-1.5 py-0.5 text-[8px] font-semibold" style={{ background: tk.accentLight, color: tk.accent }}>{UNIT_LABELS[cartUnit]}</span>}
             </div>
-          </div>
-          <div className="mt-2 flex items-center justify-end gap-2">
-            {qtyInCart > 0 && (
-              <div className="flex items-center gap-1.5 rounded-xl px-2 py-1" style={{ background: tk.accentLight }}>
-                <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
-                  <Minus className="h-3 w-3" style={{ color: tk.text }} />
+            <div className="flex items-center gap-1 shrink-0">
+              {qtyInCart > 0 && (
+                <button onClick={onRemoveOne} className="flex h-7 w-7 items-center justify-center rounded-full shadow-sm active:scale-90 transition-transform"
+                  style={{ background: tk.accentLight }}>
+                  <Minus className="h-3.5 w-3.5" style={{ color: tk.accent }} />
                 </button>
-                <span className="min-w-[1.25rem] text-center text-xs font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
-              </div>
-            )}
-            <button
-              disabled={outOfStock || !canAddMore}
-              onClick={handleAddPress}
-              className="flex h-9 w-9 items-center justify-center rounded-xl shadow-sm transition active:scale-90 disabled:opacity-40"
-              style={{ background: tk.accent }}>
-              {outOfStock ? <span className="text-[8px] font-bold text-white">نفد</span> : <Plus className="h-5 w-5 text-white" />}
-            </button>
+              )}
+              <button
+                disabled={outOfStock || !canAddMore}
+                onClick={handleAddPress}
+                className="flex h-9 w-9 items-center justify-center rounded-full shadow-md active:scale-90 transition-transform disabled:opacity-40"
+                style={{ background: tk.accent }}>
+                <Plus className="h-5 w-5 text-white" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1226,39 +1251,43 @@ function ProductCard({
   /* ── Compact grid (4+ per row) ── */
   if (compact) {
     return (
-      <div className="overflow-hidden rounded-xl transition" style={{ background: tk.cardBg, border: `1px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}` }}>
-        <div className="relative aspect-square" style={{ background: tk.catIdle }}>
+      <div className="overflow-hidden rounded-xl transition-transform active:scale-[0.97]"
+        style={{ background: tk.cardBg, border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}` }}>
+        <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
           {product.imageUrl ? (
             <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
           ) : (
-            <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.4 }} /></div>
+            <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
+          {outOfStock && <div className="absolute inset-0 bg-white/55 pointer-events-none" />}
           {qtyInCart > 0 && (
-            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white shadow" style={{ background: tk.accent }}>{qtyInCart}</span>
+            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-extrabold text-white ring-1 ring-white/40 shadow" style={{ background: tk.accent }}>{qtyInCart}</span>
           )}
-          {product.isOffer && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[6px] font-bold text-white">عرض</span>}
-          {product.isNewArrival && !product.isOffer && <span className="absolute right-1 top-1 rounded-full px-1 py-0.5 text-[6px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
-          <div className="absolute inset-x-0 bottom-0 px-1.5 pt-6 pb-1" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }}>
-            <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
-            {allowPrices && <p className="text-[8px] font-semibold" style={{ color: "#6ee7b7" }}>{money(displayPrice)} د.ع</p>}
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-1 px-1.5 py-1.5">
-          {qtyInCart > 0 ? (
-            <div className="flex items-center gap-1">
-              <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg active:scale-90" style={{ background: tk.catIdle }}>
-                <Minus className="h-3 w-3" style={{ color: tk.text }} />
-              </button>
-              <span className="w-5 text-center text-[10px] font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
+          {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1 py-0.5 text-[6px] font-bold text-white">عرض</span>}
+          {product.isNewArrival && !product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full px-1 py-0.5 text-[6px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+          {/* Bottom gradient with price + button */}
+          <div className="absolute inset-x-0 bottom-0 px-1.5 pb-1.5 pt-8" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)" }}>
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
+                {allowPrices && !outOfStock && <p className="text-[8px] font-semibold" style={{ color: "#6ee7b7" }}>{money(displayPrice)} د.ع</p>}
+              </div>
+              <div className="flex items-center gap-0.5 shrink-0 mr-1">
+                {qtyInCart > 0 && (
+                  <button onClick={onRemoveOne} className="flex h-5 w-5 items-center justify-center rounded-full active:scale-90" style={{ background: "rgba(255,255,255,0.85)" }}>
+                    <Minus className="h-2.5 w-2.5" style={{ color: tk.text }} />
+                  </button>
+                )}
+                <button
+                  disabled={outOfStock || !canAddMore}
+                  onClick={handleAddPress}
+                  className="flex h-7 w-7 items-center justify-center rounded-full shadow-md disabled:opacity-40 active:scale-90 transition-transform"
+                  style={{ background: tk.accent }}>
+                  <Plus className="h-4 w-4 text-white" />
+                </button>
+              </div>
             </div>
-          ) : <span />}
-          <button
-            disabled={outOfStock || !canAddMore}
-            onClick={handleAddPress}
-            className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
-            style={{ background: tk.accent }}>
-            <Plus className="h-4 w-4 text-white" />
-          </button>
+          </div>
         </div>
       </div>
     )
@@ -1266,87 +1295,95 @@ function ProductCard({
 
   /* ── Full grid card (2-3 per row) ── */
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl transition"
-      style={{ background: tk.cardBg, border: `1px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-      {/* Image */}
-      <div className="relative aspect-square" style={{ background: tk.catIdle }}>
+    <div className="flex flex-col overflow-hidden rounded-2xl transition-transform active:scale-[0.98]"
+      style={{
+        background: tk.cardBg,
+        border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}`,
+        boxShadow: qtyInCart > 0 ? `0 0 0 1px ${tk.accent}40, 0 4px 16px rgba(0,0,0,0.08)` : "0 2px 8px rgba(0,0,0,0.06)",
+      }}>
+      {/* Image — full square with all controls overlaid */}
+      <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
         {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+          <img src={product.imageUrl} alt={product.name}
+            className="h-full w-full object-cover cursor-zoom-in transition-transform duration-300 hover:scale-105"
+            loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-1">
-            <ImageIcon className="h-8 w-8" style={{ color: tk.subtext, opacity: 0.3 }} />
+          <div className="flex h-full items-center justify-center">
+            <ImageIcon className="h-10 w-10" style={{ color: tk.subtext, opacity: 0.2 }} />
           </div>
         )}
-        <div className="absolute right-2 bottom-2 flex flex-col items-end gap-1">
-          {product.isNewArrival && <span className="rounded-full px-2 py-0.5 text-[9px] font-bold text-white shadow" style={{ background: tk.accent }}>✨ جديد</span>}
-          {product.isOffer && <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">🏷️ عرض</span>}
+
+        {/* Gradient overlay - bottom half only */}
+        <div className="absolute inset-x-0 bottom-0 pointer-events-none"
+          style={{ height: "65%", background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 50%, transparent 100%)" }} />
+
+        {/* Out-of-stock dim */}
+        {outOfStock && <div className="absolute inset-0 bg-white/60 pointer-events-none" />}
+
+        {/* Top-right badges */}
+        <div className="absolute right-1.5 top-1.5 flex flex-col items-end gap-1">
+          {product.category && (
+            <span className="rounded-full px-2 py-0.5 text-[8px] font-bold text-white" style={{ background: "rgba(0,0,0,0.55)" }}>{product.category}</span>
+          )}
+          {product.isNewArrival && <span className="rounded-full px-2 py-0.5 text-[8px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+          {product.isOffer && <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[8px] font-bold text-white">عرض</span>}
         </div>
+
+        {/* Cart qty badge top-left */}
         {qtyInCart > 0 && (
-          <span className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold text-white shadow" style={{ background: tk.accent }}>{qtyInCart}</span>
-        )}
-        {product.category && (
-          <span className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm" style={{ background: "rgba(0,0,0,0.4)" }}>{product.category}</span>
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="flex flex-1 flex-col p-2.5">
-        <p className="line-clamp-2 min-h-[2.4rem] text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
-        <p className="mt-0.5 text-[10px]" style={{ color: tk.subtext }}>{product.itemNumber}</p>
-
-        {product.typeTags && product.typeTags.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {product.typeTags.map(t => (
-              <span key={t} className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: tk.accentLight, color: tk.accent }}>{t}</span>
-            ))}
-          </div>
+          <span className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-extrabold text-white shadow-lg ring-2 ring-white/40"
+            style={{ background: tk.accent }}>{qtyInCart}</span>
         )}
 
-        <div className="mt-2 flex-1">
-          {allowPrices ? (
-            <div>
-              {product.isOffer && product.oldPrice != null && Number(product.oldPrice) > 0 && (
-                <p className="text-[10px] text-gray-400 line-through">{money(Number(product.oldPrice))} د.ع</p>
-              )}
-              <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
-                {money(displayPrice)} <span className="text-[10px] font-medium" style={{ color: tk.subtext }}>د.ع</span>
+        {/* Bottom overlay: price + controls */}
+        <div className="absolute inset-x-0 bottom-0 flex items-end justify-between px-2 pb-2">
+          {/* Price */}
+          <div>
+            {allowPrices && !outOfStock && (
+              <>
+                {product.isOffer && product.oldPrice != null && Number(product.oldPrice) > 0 && (
+                  <p className="text-[9px] text-white/60 line-through leading-none">{money(Number(product.oldPrice))}</p>
+                )}
+                <p className="text-sm font-extrabold text-white leading-none drop-shadow">
+                  {money(displayPrice)}<span className="text-[9px] font-normal text-white/70 mr-0.5">د.ع</span>
+                </p>
+                {cartUnit && cartUnit !== "PIECE" && (
+                  <p className="text-[8px] text-white/70 leading-none mt-0.5">للـ{UNIT_LABELS[cartUnit]}</p>
+                )}
+              </>
+            )}
+            {outOfStock && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold text-white">نفد</span>}
+            {showStock && !outOfStock && (
+              <p className="text-[8px] leading-none mt-0.5" style={{ color: lowStock ? "#fca5a5" : "rgba(255,255,255,0.65)" }}>
+                {lowStock ? `⚠ ${product.currentStock} متبقية` : `${money(product.currentStock)} قطعة`}
               </p>
-              {cartUnit && cartUnit !== "PIECE" && (
-                <p className="text-[9px]" style={{ color: tk.subtext }}>للـ{UNIT_LABELS[cartUnit]} ({pcs(product, cartUnit)} قطعة)</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-xs font-semibold" style={{ color: tk.subtext }}>السعر مخفي</p>
-          )}
-          {showStock && (
-            <p className="mt-0.5 text-[10px] font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
-              {lowStock ? `⚠️ ${product.currentStock} قطعة متبقية!` : `${money(product.currentStock)} متوفر`}
-            </p>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* Add/remove controls */}
-        <div className="mt-2.5 flex items-center justify-between gap-2">
-          {qtyInCart > 0 ? (
-            <div className="flex items-center gap-1.5 rounded-xl px-2 py-1" style={{ background: tk.accentLight }}>
-              <button onClick={onRemoveOne} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
+          {/* +/- controls */}
+          <div className="flex items-center gap-1">
+            {qtyInCart > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRemoveOne() }}
+                className="flex h-7 w-7 items-center justify-center rounded-full shadow-md active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,0.92)" }}>
                 <Minus className="h-3.5 w-3.5" style={{ color: tk.text }} />
               </button>
-              <span className="min-w-[1.5rem] text-center text-sm font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
-            </div>
-          ) : (
-            <span className="text-[9px]" style={{ color: tk.subtext }}>
-              {outOfStock ? "نفد المخزون" : "اضغط + لاختيار الوحدة"}
-            </span>
-          )}
-          <button
-            disabled={outOfStock || !canAddMore}
-            onClick={handleAddPress}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl shadow-md transition active:scale-90 disabled:opacity-40"
-            style={{ background: tk.accent }}>
-            <Plus className="h-5 w-5 text-white" />
-          </button>
+            )}
+            <button
+              disabled={outOfStock || !canAddMore}
+              onClick={(e) => { e.stopPropagation(); handleAddPress() }}
+              className="flex h-9 w-9 items-center justify-center rounded-full shadow-lg active:scale-90 transition-transform disabled:opacity-50"
+              style={{ background: tk.accent }}>
+              <Plus className="h-5 w-5 text-white" />
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Name only — one line, compact */}
+      <div className="px-2 py-1.5">
+        <p className="line-clamp-1 text-[11px] font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
       </div>
     </div>
   )
