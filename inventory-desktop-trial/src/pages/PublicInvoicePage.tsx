@@ -30,6 +30,7 @@ function unitLabel(unit: string) {
   if (unit === "PIECE") return "قطعة"
   if (unit === "CARTON") return "كرتون"
   if (unit === "DOZEN") return "دزينة"
+  if (unit === "BOX") return "علبة"
   return unit
 }
 

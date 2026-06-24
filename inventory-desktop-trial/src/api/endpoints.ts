@@ -1322,3 +1322,24 @@ export async function cancelStockLoss(id: string) {
   const { data } = await api.patch<ApiEnvelope<StockLoss>>(`/stock-losses/${id}/cancel`)
   return data.data!
 }
+
+
+export interface VarietyConvertResult {
+  targetProductId: string
+  targetProductName: string
+  addedPieces: number
+  newCost: number
+  lines: Array<{ productId: string; productName: string; pieces: number }>
+}
+
+export async function convertToVariety(payload: {
+  fromWarehouseId: string
+  targetProductId: string
+  toWarehouseId?: string
+  allowNegative?: boolean
+  notes?: string
+  items: Array<{ productId: string; unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"; quantity: number }>
+}) {
+  const { data } = await api.post<ApiEnvelope<VarietyConvertResult>>("/products/variety-convert", payload)
+  return data.data
+}

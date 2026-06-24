@@ -43,6 +43,7 @@ const UsersPage = lazyPage(() => import("./pages/UsersPage"), "UsersPage")
 const VoucherDetailPage = lazyPage(() => import("./pages/VoucherDetailPage"), "VoucherDetailPage")
 const VouchersPage = lazyPage(() => import("./pages/VouchersPage"), "VouchersPage")
 const TransfersPage = lazyPage(() => import("./pages/TransfersPage"), "TransfersPage")
+const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), "VarietyConvertPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
@@ -85,6 +86,7 @@ const router = createBrowserRouter([
           { path: "inventory", element: s(<ProductsPage />) },
           { path: "inventory/low-stock", element: s(<LowStockPage />) },
           { path: "inventory/transfers", element: s(<TransfersPage />) },
+          { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stocktake", element: s(<StocktakePage />) },
           { path: "inventory/:id", element: s(<ProductDetailPage />) },
           { path: "invoices", element: s(<InvoicesPage />) },

@@ -100,6 +100,7 @@ function money(value: unknown) {
 function unitLabel(unit: string) {
   if (unit === "CARTON") return "كارتون"
   if (unit === "DOZEN") return "درزن"
+  if (unit === "BOX") return "علبة"
   return "قطعة"
 }
 

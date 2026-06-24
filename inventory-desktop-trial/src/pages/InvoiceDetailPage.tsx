@@ -37,6 +37,7 @@ function money(v: number | undefined) { return fmt(v) }
 function unitLabel(unit: string) {
   if (unit === "CARTON") return "كرتونة"
   if (unit === "DOZEN") return "درزن"
+  if (unit === "BOX") return "علبة"
   return "قطعة"
 }
 
