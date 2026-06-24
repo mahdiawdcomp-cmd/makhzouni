@@ -5,8 +5,11 @@ import { api } from "../api/client"
 import {
   CheckCircle2,
   ChevronLeft,
+  Grid,
   ImageIcon,
+  LayoutList,
   Minus,
+  Palette,
   Plus,
   RefreshCw,
   Search,
@@ -30,10 +33,90 @@ import { cn } from "../utils/cn"
 /* ─── Types ─────────────────────────────────────────────────────────── */
 type CatalogUnit = "PIECE" | "DOZEN" | "CARTON"
 type CartLine = { id: string; product: PublicCatalogProduct; unit: CatalogUnit; quantity: number }
+type Theme = "clean" | "warm" | "dark" | "vibrant"
+type SortKey = "default" | "cheap" | "expensive" | "new"
+type ViewMode = "grid" | "list"
 
 const storageKey = "inventory_catalog_access"
+const themeKey = "catalog_theme"
 const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", CARTON: "كارتون" }
 const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "CARTON"]
+
+/* ─── Theme system ───────────────────────────────────────────────────── */
+interface ThemeTokens {
+  bg: string
+  cardBg: string
+  cardBorder: string
+  headerBg: string
+  headerShadow: string
+  text: string
+  subtext: string
+  accent: string
+  accentText: string
+  accentLight: string
+  catActive: string
+  catActiveText: string
+  catIdle: string
+  catIdleText: string
+  inputBg: string
+  inputText: string
+  divider: string
+  skeletonBg: string
+  pillBg: string
+  icon: string
+  name: string
+}
+
+const THEMES: Record<Theme, ThemeTokens> = {
+  clean: {
+    bg: "#f8fafc", cardBg: "#ffffff", cardBorder: "rgba(0,0,0,0.06)",
+    headerBg: "#ffffff", headerShadow: "0 1px 4px rgba(0,0,0,0.07)",
+    text: "#0f172a", subtext: "#64748b",
+    accent: "#059669", accentText: "#ffffff", accentLight: "#d1fae5",
+    catActive: "#059669", catActiveText: "#ffffff",
+    catIdle: "#f1f5f9", catIdleText: "#475569",
+    inputBg: "#f1f5f9", inputText: "#0f172a",
+    divider: "#e2e8f0", skeletonBg: "#e2e8f0", pillBg: "#f0fdf4",
+    icon: "☀️", name: "نظيف",
+  },
+  warm: {
+    bg: "#fffbeb", cardBg: "#fffdf7", cardBorder: "rgba(180,83,9,0.08)",
+    headerBg: "#ffffff", headerShadow: "0 1px 4px rgba(180,83,9,0.08)",
+    text: "#78350f", subtext: "#92400e",
+    accent: "#d97706", accentText: "#ffffff", accentLight: "#fef3c7",
+    catActive: "#d97706", catActiveText: "#ffffff",
+    catIdle: "#fef3c7", catIdleText: "#92400e",
+    inputBg: "#fef3c7", inputText: "#78350f",
+    divider: "#fde68a", skeletonBg: "#fde68a", pillBg: "#fefce8",
+    icon: "🏪", name: "دافئ",
+  },
+  dark: {
+    bg: "#0f172a", cardBg: "#1e293b", cardBorder: "rgba(255,255,255,0.06)",
+    headerBg: "#1e293b", headerShadow: "0 1px 8px rgba(0,0,0,0.4)",
+    text: "#f1f5f9", subtext: "#94a3b8",
+    accent: "#10b981", accentText: "#ffffff", accentLight: "rgba(16,185,129,0.15)",
+    catActive: "#10b981", catActiveText: "#ffffff",
+    catIdle: "#334155", catIdleText: "#94a3b8",
+    inputBg: "#334155", inputText: "#f1f5f9",
+    divider: "#334155", skeletonBg: "#334155", pillBg: "rgba(16,185,129,0.1)",
+    icon: "🌙", name: "فاخر",
+  },
+  vibrant: {
+    bg: "#faf5ff", cardBg: "#ffffff", cardBorder: "rgba(139,92,246,0.1)",
+    headerBg: "#ffffff", headerShadow: "0 1px 4px rgba(139,92,246,0.1)",
+    text: "#2e1065", subtext: "#7c3aed",
+    accent: "#7c3aed", accentText: "#ffffff", accentLight: "#ede9fe",
+    catActive: "#7c3aed", catActiveText: "#ffffff",
+    catIdle: "#ede9fe", catIdleText: "#6d28d9",
+    inputBg: "#ede9fe", inputText: "#2e1065",
+    divider: "#ddd6fe", skeletonBg: "#ddd6fe", pillBg: "#f5f3ff",
+    icon: "🎨", name: "حيوي",
+  },
+}
+
+const SORT_LABELS: Record<SortKey, string> = {
+  default: "الافتراضي", cheap: "الأرخص", expensive: "الأغلى", new: "الجديد أولاً",
+}
 
 /* ─── Helpers ────────────────────────────────────────────────────────── */
 const money = (v: number | null | undefined) =>
@@ -55,20 +138,15 @@ const key = (productId: string, unit: CatalogUnit) => `${productId}:${unit}`
 ══════════════════════════════════════════════════════════════════════ */
 export function PublicCatalogPage() {
   const [searchParams, setSearchParams] = useSearchParams()
-
-  // Single source of truth: URL param first, then localStorage
-  // useState so queryKey stays stable across renders
   const [accessToken, setAccessToken] = useState<string>(
     () => searchParams.get("access") || localStorage.getItem(storageKey) || "",
   )
 
-  // One clean handler — updates state + URL + localStorage atomically
   function handleAccess(token: string) {
     localStorage.setItem(storageKey, token)
     setAccessToken(token)
     setSearchParams({ access: token }, { replace: true })
   }
-
   function clearAccess() {
     localStorage.removeItem(storageKey)
     setAccessToken("")
@@ -83,7 +161,6 @@ export function PublicCatalogPage() {
     staleTime: 5 * 60_000,
   })
 
-  // Token rejected by server — clear it so Gate is shown clean
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (sessionQuery.isError) clearAccess()
@@ -117,7 +194,7 @@ export function PublicCatalogPage() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   GATE (login screen)
+   GATE
 ══════════════════════════════════════════════════════════════════════ */
 type GateStep = "phone" | "otp" | "details" | "check"
 
@@ -130,23 +207,17 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
   const [notes, setNotes] = useState("")
   const [msg, setMsg] = useState("")
 
-  // Check first if already approved → skip OTP entirely
   const sendOtpMut = useMutation({
     mutationFn: async () => {
-      // Fast-path: if the phone is already approved, return the token immediately
       const status = await getCatalogAccessStatus(phone.trim())
       if (status?.approved && status.token) return { skip: true, token: status.token }
-      // Normal path: send OTP
       await sendCatalogOtp(phone.trim())
       return { skip: false, token: null }
     },
     onSuccess: (result) => {
       setMsg("")
-      if (result.skip && result.token) {
-        onAccess(result.token)
-      } else {
-        setStep("otp")
-      }
+      if (result.skip && result.token) onAccess(result.token)
+      else setStep("otp")
     },
     onError: () => setMsg("تعذر إرسال الرمز. تأكد من الرقم وحاول مرة ثانية."),
   })
@@ -179,8 +250,6 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
       </div>
 
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
-
-        {/* Step 1 — أدخل رقمك */}
         {step === "phone" && (
           <div className="space-y-4">
             <div className="text-center">
@@ -201,7 +270,6 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
           </div>
         )}
 
-        {/* Step 2 — أدخل رمز OTP */}
         {step === "otp" && (
           <div className="space-y-4">
             <div className="text-center">
@@ -209,11 +277,8 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
               <p className="mt-1 text-xs text-gray-500">أُرسل إلى {phone} عبر الواتساب</p>
             </div>
             <input
-              type="text"
-              inputMode="numeric"
-              maxLength={6}
-              value={otp}
-              onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+              type="text" inputMode="numeric" maxLength={6}
+              value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
               placeholder="000000"
               className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-2xl font-bold tracking-widest outline-none focus:border-emerald-400 focus:bg-white"
               dir="ltr"
@@ -231,7 +296,6 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
           </div>
         )}
 
-        {/* Step 3 — بيانات الطلب */}
         {step === "details" && (
           <div className="space-y-3">
             <div className="text-center mb-2">
@@ -251,7 +315,6 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
           </div>
         )}
 
-        {/* Step 4 — فحص الموافقة */}
         {step === "check" && (
           <div className="space-y-3">
             <div className="text-center mb-2">
@@ -290,14 +353,8 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
   return (
     <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 focus-within:border-emerald-400 focus-within:bg-white transition">
       <span className="text-base">{icon}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400"
-        dir="rtl"
-      />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder} className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400" dir="rtl" />
     </div>
   )
 }
@@ -317,12 +374,16 @@ function CatalogShop({
     staleTime: 0,
   })
 
-  // Set browser tab title
   useEffect(() => {
     document.title = "كتالوج المنتجات"
     return () => { document.title = "مخزوني" }
   }, [])
 
+  /* ── State ── */
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem(themeKey) as Theme) || "clean")
+  const [sortKey, setSortKey] = useState<SortKey>("default")
+  const [viewMode, setViewMode] = useState<ViewMode>("grid")
+  const [perRow, setPerRow] = useState(2)
   const [search, setSearch] = useState("")
   const [activeSugg, setActiveSugg] = useState(0)
   const [category, setCategory] = useState("all")
@@ -331,47 +392,52 @@ function CatalogShop({
   const [cartOpen, setCartOpen] = useState(false)
   const [notes, setNotes] = useState("")
   const [submitted, setSubmitted] = useState<string | null>(null)
-  const [perRow, setPerRow] = useState(2)
   const [bannerIndex, setBannerIndex] = useState(0)
+  const [showThemePicker, setShowThemePicker] = useState(false)
+  const [zoomedImg, setZoomedImg] = useState<{ src: string; name: string } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const themeRef = useRef<HTMLDivElement>(null)
 
-  // Welcome banner — shown once per session
-  const welcomeKey = "catalog_welcome_seen"
-  const [showWelcome, setShowWelcome] = useState(() => !sessionStorage.getItem(welcomeKey))
-  function dismissWelcome() {
-    sessionStorage.setItem(welcomeKey, "1")
-    setShowWelcome(false)
+  const tk = THEMES[theme]
+
+  function applyTheme(t: Theme) {
+    setTheme(t)
+    localStorage.setItem(themeKey, t)
+    setShowThemePicker(false)
   }
 
-  // Auto-advance banner every 3 seconds
+  // Close theme picker on outside click
   useEffect(() => {
-    const timer = window.setInterval(() => setBannerIndex((i) => i + 1), 3000)
-    return () => window.clearInterval(timer)
+    if (!showThemePicker) return
+    function handler(e: MouseEvent) {
+      if (themeRef.current && !themeRef.current.contains(e.target as Node)) setShowThemePicker(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [showThemePicker])
+
+  // Banner auto-advance
+  useEffect(() => {
+    const t = window.setInterval(() => setBannerIndex((i) => i + 1), 3500)
+    return () => window.clearInterval(t)
   }, [])
 
-  // Load predefined categories for filter panel
+  // Categories
   const catsQuery = useQuery({
     queryKey: ["catalog-categories-public"],
     queryFn: () => api.get("/catalog-categories").then(r => (r.data as { data?: Array<{ name: string; types: string[] }> }).data ?? []).catch(() => []),
     staleTime: 10 * 60_000,
   })
-  const catalogCatsList = useMemo(
-    () => (catsQuery.data ?? []) as Array<{ name: string; types: string[] }>,
-    [catsQuery.data],
-  )
+  const catalogCatsList = useMemo(() => (catsQuery.data ?? []) as Array<{ name: string; types: string[] }>, [catsQuery.data])
 
   const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
-  // Build category list: use categoryTags when available, fall back to category field
+
   const categories = useMemo(() => {
     const catSet = new Set<string>()
     products.forEach(p => {
-      if (p.categoryTags && p.categoryTags.length > 0) {
-        p.categoryTags.forEach(t => catSet.add(t))
-      } else if (p.category) {
-        catSet.add(p.category)
-      }
+      if (p.categoryTags && p.categoryTags.length > 0) p.categoryTags.forEach(t => catSet.add(t))
+      else if (p.category) catSet.add(p.category)
     })
-    // Sort by catalogCatsList order if available, otherwise alphabetically
     const sorted = [...catSet].sort((a, b) => {
       const ai = catalogCatsList.findIndex(c => c.name === a)
       const bi = catalogCatsList.findIndex(c => c.name === b)
@@ -383,13 +449,10 @@ function CatalogShop({
     return sorted
   }, [products, catalogCatsList])
 
-  // Available types for the currently selected category
-  // Uses backend catalog-categories first, then falls back to typeTags on products
   const availableTypes = useMemo(() => {
     if (category === "all") return []
     const catDef = catalogCatsList.find(c => c.name === category)
     if (catDef?.types.length) return catDef.types
-    // Fallback: collect unique typeTags from products that belong to this category
     const typeSet = new Set<string>()
     products.forEach(p => {
       const tags = p.categoryTags ?? []
@@ -401,7 +464,7 @@ function CatalogShop({
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return products.filter((p) => {
+    let result = products.filter((p) => {
       if (p.currentStock <= 0) return false
       if (category !== "all") {
         const tags = p.categoryTags ?? []
@@ -410,27 +473,28 @@ function CatalogShop({
       }
       if (typeFilter !== "all") {
         const tTags = (p.typeTags ?? []).map(t => t.trim())
-        // Products with no type tags are shown in all type filters (unclassified)
         if (tTags.length > 0 && !tTags.includes(typeFilter.trim())) return false
       }
       if (!q) return true
       return [p.name, p.itemNumber, p.category ?? ""].some((s) => s.toLowerCase().includes(q))
     })
-  }, [products, search, category, typeFilter])
+    if (sortKey === "cheap") result = [...result].sort((a, b) => Number(a.salePrice ?? 0) - Number(b.salePrice ?? 0))
+    else if (sortKey === "expensive") result = [...result].sort((a, b) => Number(b.salePrice ?? 0) - Number(a.salePrice ?? 0))
+    else if (sortKey === "new") result = [...result].sort((a, b) => (a.isNewArrival === b.isNewArrival ? 0 : a.isNewArrival ? -1 : 1))
+    return result
+  }, [products, search, category, typeFilter, sortKey])
 
   const suggestions = visible.slice(0, 6)
-  // Merchandising rows shown on the default view (no search, "all" category),
-  // mirroring the retail shop's "new" + "offers" sections.
-  const newArrivals = useMemo(() => products.filter((p) => p.isNewArrival && p.currentStock > 0).slice(0, 12), [products])
-  const offers = useMemo(() => products.filter((p) => p.isOffer && p.currentStock > 0).slice(0, 12), [products])
   const showSections = category === "all" && typeFilter === "all" && !search.trim()
+  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && p.currentStock > 0).slice(0, 12), [products])
+  const offers = useMemo(() => products.filter(p => p.isOffer && p.currentStock > 0).slice(0, 12), [products])
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
 
   const orderMut = useMutation({
     mutationFn: () =>
       submitPublicCatalogOrder(
-        { customerName, phone: customerPhone, notes: notes.trim() || undefined, items: cart.map((l) => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })) },
+        { customerName, phone: customerPhone, notes: notes.trim() || undefined, items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })) },
         accessToken,
       ),
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes("") },
@@ -442,8 +506,8 @@ function CatalogShop({
     setSubmitted(null)
     setCart((prev) => {
       const id = key(product.id, unit)
-      const cur = prev.find((l) => l.id === id)
-      if (cur) return prev.map((l) => l.id === id ? { ...l, quantity: Math.min(l.quantity + 1, max) } : l)
+      const cur = prev.find(l => l.id === id)
+      if (cur) return prev.map(l => l.id === id ? { ...l, quantity: Math.min(l.quantity + 1, max) } : l)
       return [...prev, { id, product, unit, quantity: 1 }]
     })
   }
@@ -461,20 +525,28 @@ function CatalogShop({
 
   function changeUnit(lineId: string, unit: CatalogUnit) {
     setCart((prev) => {
-      const target = prev.find((l) => l.id === lineId)
+      const target = prev.find(l => l.id === lineId)
       if (!target) return prev
       const max = maxQty(target.product, unit)
-      if (max < 1) return prev.filter((l) => l.id !== lineId)
+      if (max < 1) return prev.filter(l => l.id !== lineId)
       const newId = key(target.product.id, unit)
-      const rest = prev.filter((l) => l.id !== lineId)
-      const existing = rest.find((l) => l.id === newId)
-      if (existing) return rest.map((l) => l.id === newId ? { ...l, quantity: Math.min(l.quantity + target.quantity, max) } : l)
+      const rest = prev.filter(l => l.id !== lineId)
+      const existing = rest.find(l => l.id === newId)
+      if (existing) return rest.map(l => l.id === newId ? { ...l, quantity: Math.min(l.quantity + target.quantity, max) } : l)
       return [...rest, { ...target, id: newId, unit, quantity: Math.min(target.quantity, max) }]
     })
   }
 
+  function handleKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (!suggestions.length) return
+    if (e.key === "ArrowDown") { e.preventDefault(); setActiveSugg(v => Math.min(v + 1, suggestions.length - 1)) }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveSugg(v => Math.max(v - 1, 0)) }
+    else if (e.key === "Enter") { e.preventDefault(); add(suggestions[activeSugg] ?? suggestions[0]); setSearch("") }
+    else if (e.key === "Escape") { setSearch(""); setActiveSugg(0) }
+  }
+
   function renderCard(product: PublicCatalogProduct) {
-    const cartLine = cart.find((l) => l.product.id === product.id)
+    const cartLine = cart.find(l => l.product.id === product.id)
     const qtyInCart = cartLine?.quantity ?? 0
     return (
       <ProductCard
@@ -483,106 +555,116 @@ function CatalogShop({
         allowPrices={allowPrices}
         showStock={showStock}
         qtyInCart={qtyInCart}
-        compact={perRow >= 4}
+        tk={tk}
+        viewMode={viewMode}
+        compact={viewMode === "grid" && perRow >= 4}
         onAdd={(unit) => add(product, unit)}
         onRemoveOne={() => cartLine && changeQty(cartLine.id, -1)}
+        onZoom={(src) => setZoomedImg({ src, name: product.name })}
       />
     )
   }
 
-  function handleKey(e: KeyboardEvent<HTMLInputElement>) {
-    if (!suggestions.length) return
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveSugg((v) => Math.min(v + 1, suggestions.length - 1)) }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveSugg((v) => Math.max(v - 1, 0)) }
-    else if (e.key === "Enter") { e.preventDefault(); add(suggestions[activeSugg] ?? suggestions[0]); setSearch("") }
-    else if (e.key === "Escape") { setSearch(""); setActiveSugg(0) }
-  }
-
+  /* ── Render ── */
   return (
-    <div className="min-h-screen bg-gray-50" dir="rtl">
-
-      {/* ── Welcome Banner ── */}
-      {showWelcome && (
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3" dir="rtl">
-          <div className="mx-auto flex max-w-7xl items-start justify-between gap-3">
-            <div className="flex items-start gap-2">
-              <span className="mt-0.5 text-lg">💡</span>
-              <p className="text-sm font-medium text-amber-800">
-                تنبيه: الأسعار المعروضة تتغير حسب الكمية — تواصل معنا لأسعار الجملة والكميات الكبيرة.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={dismissWelcome}
-              className="mt-0.5 shrink-0 rounded-full p-1 text-amber-600 hover:bg-amber-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
+    <div dir="rtl" style={{ background: tk.bg, minHeight: "100vh", transition: "background 0.3s" }}>
 
       {/* ── Sticky Header ── */}
-      <header className="sticky top-0 z-30 bg-white shadow-sm">
-        <div className="mx-auto max-w-7xl px-3 py-3">
-          <div className="flex items-center gap-3">
-            {/* Store / customer */}
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-600">
-              <ShoppingBag className="h-5 w-5 text-white" />
+      <header className="sticky top-0 z-30" style={{ background: tk.headerBg, boxShadow: tk.headerShadow }}>
+        {/* Row 1: logo + search + actions */}
+        <div className="px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            {/* Logo */}
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: tk.accent }}>
+              <ShoppingBag className="h-5 w-5" style={{ color: tk.accentText }} />
             </div>
-            <div className="min-w-0 flex-1">
-              {/* Search */}
-              <div className="relative">
-                <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  ref={searchRef}
-                  value={search}
-                  onChange={(e) => { setSearch(e.target.value); setActiveSugg(0) }}
-                  onKeyDown={handleKey}
-                  placeholder="ابحث عن منتج..."
-                  className="h-9 w-full rounded-xl border-0 bg-gray-100 pr-9 pl-3 text-sm outline-none placeholder:text-gray-400 focus:bg-gray-200 transition"
-                />
-                {/* Autocomplete */}
-                {search.trim() && suggestions.length > 0 && (
-                  <div className="absolute top-full right-0 z-50 mt-1 w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
-                    {suggestions.map((p, i) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={cn("flex w-full items-center gap-3 px-3 py-2.5 text-right text-sm transition", i === activeSugg ? "bg-emerald-50" : "hover:bg-gray-50")}
-                        onMouseEnter={() => setActiveSugg(i)}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => { add(p); setSearch("") }}
-                      >
-                        <MiniThumb product={p} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium text-gray-900">{p.name}</span>
-                          <span className="text-xs text-gray-500">{p.itemNumber}{showStock ? ` · ${money(p.currentStock)} قطعة` : ""}</span>
-                        </span>
-                        {allowPrices && <span className="shrink-0 text-xs font-bold text-emerald-700">{money(p.salePrice)} د.ع</span>}
+
+            {/* Search */}
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2" style={{ color: tk.subtext }} />
+              <input
+                ref={searchRef}
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setActiveSugg(0) }}
+                onKeyDown={handleKey}
+                placeholder="ابحث عن منتج..."
+                className="h-9 w-full rounded-xl border-0 pr-9 pl-3 text-sm outline-none transition placeholder:opacity-60"
+                style={{ background: tk.inputBg, color: tk.inputText }}
+              />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100">
+                  <X className="h-4 w-4" style={{ color: tk.text }} />
+                </button>
+              )}
+              {/* Autocomplete */}
+              {search.trim() && suggestions.length > 0 && (
+                <div className="absolute top-full right-0 z-50 mt-1 w-full overflow-hidden rounded-xl border shadow-xl"
+                  style={{ background: tk.cardBg, borderColor: tk.divider }}>
+                  {suggestions.map((p, i) => (
+                    <button key={p.id} type="button"
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-right text-sm transition"
+                      style={{ background: i === activeSugg ? tk.accentLight : "transparent" }}
+                      onMouseEnter={() => setActiveSugg(i)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { add(p); setSearch("") }}
+                    >
+                      <MiniThumb product={p} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium" style={{ color: tk.text }}>{p.name}</span>
+                        <span className="text-xs" style={{ color: tk.subtext }}>{p.itemNumber}{showStock ? ` · ${money(p.currentStock)} قطعة` : ""}</span>
+                      </span>
+                      {allowPrices && <span className="shrink-0 text-xs font-bold" style={{ color: tk.accent }}>{money(p.salePrice)} د.ع</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Theme picker */}
+            <div className="relative" ref={themeRef}>
+              <button
+                onClick={() => setShowThemePicker(v => !v)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition"
+                style={{ background: showThemePicker ? tk.accentLight : tk.catIdle }}
+                title="تغيير الثيم"
+              >
+                <Palette className="h-4 w-4" style={{ color: tk.accent }} />
+              </button>
+              {showThemePicker && (
+                <div className="absolute top-full left-0 z-50 mt-2 rounded-2xl p-2 shadow-2xl"
+                  style={{ background: tk.cardBg, border: `1px solid ${tk.divider}`, minWidth: "160px" }}>
+                  <p className="mb-1.5 px-1 text-[10px] font-bold" style={{ color: tk.subtext }}>اختر الثيم</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {(Object.keys(THEMES) as Theme[]).map(t => (
+                      <button key={t} onClick={() => applyTheme(t)}
+                        className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-right transition active:scale-95"
+                        style={{ background: theme === t ? tk.accentLight : "transparent", border: `1.5px solid ${theme === t ? tk.accent : "transparent"}` }}>
+                        <span className="text-base leading-none">{THEMES[t].icon}</span>
+                        <span className="text-[11px] font-bold" style={{ color: tk.text }}>{THEMES[t].name}</span>
                       </button>
                     ))}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
-            {/* Refresh button */}
+
+            {/* Refresh */}
             <button
               onClick={() => void productsQuery.refetch()}
               disabled={productsQuery.isFetching}
-              title="تحديث المنتجات"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500 transition active:scale-95 hover:bg-gray-200 disabled:opacity-50"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-50"
+              style={{ background: tk.catIdle }}
             >
-              <RefreshCw className={cn("h-4 w-4", productsQuery.isFetching && "animate-spin")} />
+              <RefreshCw className={cn("h-4 w-4", productsQuery.isFetching && "animate-spin")} style={{ color: tk.subtext }} />
             </button>
-            {/* Cart button */}
-            <button
-              onClick={() => setCartOpen(true)}
-              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-md shadow-emerald-200 transition active:scale-95"
-            >
-              <ShoppingCart className="h-5 w-5" />
+
+            {/* Cart */}
+            <button onClick={() => setCartOpen(true)}
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
+              style={{ background: tk.accent }}>
+              <ShoppingCart className="h-5 w-5" style={{ color: tk.accentText }} />
               {cartQty > 0 && (
-                <span className="absolute -left-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none">
+                <span className="absolute -left-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
                   {cartQty}
                 </span>
               )}
@@ -590,283 +672,398 @@ function CatalogShop({
           </div>
         </div>
 
-        {/* Categories bar */}
-        <div className="overflow-x-auto border-t border-gray-100 scrollbar-hide">
-          <div className="flex gap-2 px-3 py-2">
-            {["all", ...categories].map((cat) => (
-              <button
-                key={cat}
-                onClick={() => { setCategory(cat); setTypeFilter("all") }}
-                className={cn(
-                  "shrink-0 rounded-full px-4 py-1.5 text-xs font-semibold transition-all",
-                  category === cat
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200",
-                )}
-              >
-                {cat === "all" ? "الكل" : cat}
-              </button>
-            ))}
+        {/* Row 2: Category tabs */}
+        {categories.length > 0 && (
+          <div className="overflow-x-auto scrollbar-hide" style={{ borderTop: `1px solid ${tk.divider}` }}>
+            <div className="flex gap-2 px-3 py-2">
+              {["all", ...categories].map((cat) => (
+                <button key={cat} onClick={() => { setCategory(cat); setTypeFilter("all") }}
+                  className="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all active:scale-95"
+                  style={category === cat
+                    ? { background: tk.catActive, color: tk.catActiveText }
+                    : { background: tk.catIdle, color: tk.catIdleText }
+                  }>
+                  {cat === "all" ? "الكل" : cat}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Types bar — only shown when a category is selected and it has types */}
+        {/* Row 3: Sub-types (when category selected) */}
         {availableTypes.length > 0 && (
-          <div className="overflow-x-auto border-t border-gray-100 bg-gray-50 scrollbar-hide">
-            <div className="flex gap-2 px-3 py-1.5">
+          <div className="overflow-x-auto scrollbar-hide" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
+            <div className="flex gap-1.5 px-3 py-1.5">
               {["all", ...availableTypes].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTypeFilter(t)}
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-all",
-                    typeFilter === t
-                      ? "bg-violet-600 text-white shadow-sm"
-                      : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50",
-                  )}
-                >
+                <button key={t} onClick={() => setTypeFilter(t)}
+                  className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition-all"
+                  style={typeFilter === t
+                    ? { background: tk.subtext, color: "#fff" }
+                    : { background: tk.cardBg, color: tk.subtext, border: `1px solid ${tk.divider}` }
+                  }>
                   {t === "all" ? "كل الأنواع" : t}
                 </button>
               ))}
             </div>
           </div>
         )}
+
+        {/* Row 4: Sort + View toggle */}
+        <div className="flex items-center gap-2 px-3 py-2" style={{ borderTop: `1px solid ${tk.divider}` }}>
+          {/* Sort */}
+          <div className="flex flex-1 gap-1 overflow-x-auto scrollbar-hide">
+            {(Object.keys(SORT_LABELS) as SortKey[]).map(sk => (
+              <button key={sk} onClick={() => setSortKey(sk)}
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all"
+                style={sortKey === sk
+                  ? { background: tk.accent, color: tk.accentText }
+                  : { background: tk.catIdle, color: tk.catIdleText }
+                }>
+                {SORT_LABELS[sk]}
+              </button>
+            ))}
+          </div>
+
+          {/* View mode toggle */}
+          <div className="flex shrink-0 rounded-xl overflow-hidden" style={{ border: `1.5px solid ${tk.divider}` }}>
+            <button onClick={() => setViewMode("grid")} className="flex h-7 w-8 items-center justify-center transition"
+              style={{ background: viewMode === "grid" ? tk.accent : "transparent" }}>
+              <Grid className="h-3.5 w-3.5" style={{ color: viewMode === "grid" ? tk.accentText : tk.subtext }} />
+            </button>
+            <button onClick={() => setViewMode("list")} className="flex h-7 w-8 items-center justify-center transition"
+              style={{ background: viewMode === "list" ? tk.accent : "transparent", borderRight: `1px solid ${tk.divider}` }}>
+              <LayoutList className="h-3.5 w-3.5" style={{ color: viewMode === "list" ? tk.accentText : tk.subtext }} />
+            </button>
+          </div>
+
+          {/* Per-row (only in grid mode) */}
+          {viewMode === "grid" && (
+            <div className="flex shrink-0 items-center gap-0.5 rounded-xl overflow-hidden" style={{ border: `1.5px solid ${tk.divider}` }}>
+              {[2, 3, 4].map(n => (
+                <button key={n} onClick={() => setPerRow(n)}
+                  className="flex h-7 w-6 items-center justify-center text-[11px] font-bold transition"
+                  style={{ background: perRow === n ? tk.accent : "transparent", color: perRow === n ? tk.accentText : tk.subtext }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
-      {/* ── Animated banner ── */}
+      {/* ── Hero banner (slideshow) ── */}
       {(() => {
-        const bannerProducts = products.filter((p) => p.imageUrl && p.currentStock > 0).slice(0, 8)
-        if (bannerProducts.length < 2) return null
-        const idx = bannerIndex % bannerProducts.length
+        const bps = products.filter(p => p.imageUrl && p.currentStock > 0).slice(0, 8)
+        if (bps.length < 2) return null
+        const idx = bannerIndex % bps.length
         return (
-          <div className="relative overflow-hidden h-36 sm:h-48">
-            {bannerProducts.map((p, i) => (
-              <div
-                key={p.id}
-                className="absolute inset-0 transition-opacity duration-700"
-                style={{ opacity: i === idx ? 1 : 0 }}
-              >
+          <div className="relative overflow-hidden" style={{ height: "140px" }}>
+            {bps.map((p, i) => (
+              <div key={p.id} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
                 <img src={p.imageUrl!} alt={p.name} className="h-full w-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                <div className="absolute bottom-3 right-3 text-white">
-                  <p className="text-base font-bold drop-shadow">{p.name}</p>
-                  {allowPrices && <p className="text-sm font-semibold text-emerald-300">{money(p.salePrice)} د.ع</p>}
+                <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.1) 60%, transparent 100%)" }} />
+                <div className="absolute bottom-3 right-4">
+                  <p className="text-sm font-bold text-white drop-shadow">{p.name}</p>
+                  {allowPrices && <p className="text-xs font-semibold" style={{ color: "#6ee7b7" }}>{money(p.salePrice)} د.ع</p>}
                 </div>
               </div>
             ))}
-            {/* Dots */}
+            {/* welcome overlay (first slide only) */}
+            {(bannerIndex % bps.length) === 0 && (
+              <div className="absolute inset-0 flex items-center justify-end pr-4" style={{ background: "linear-gradient(to left, rgba(0,0,0,0.5) 0%, transparent 60%)" }}>
+                <div className="text-right">
+                  <p className="text-xs text-white/70">مرحباً</p>
+                  <p className="text-base font-extrabold text-white">{customerName} 👋</p>
+                </div>
+              </div>
+            )}
+            {/* dots */}
             <div className="absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">
-              {bannerProducts.map((_, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => setBannerIndex(i)}
-                  className={cn("h-1.5 rounded-full transition-all", i === idx ? "w-5 bg-white" : "w-1.5 bg-white/50")}
-                />
+              {bps.map((_, i) => (
+                <button key={i} type="button" onClick={() => setBannerIndex(i)}
+                  className="rounded-full transition-all"
+                  style={{ height: "6px", width: i === idx ? "20px" : "6px", background: i === idx ? "#fff" : "rgba(255,255,255,0.4)" }} />
               ))}
             </div>
           </div>
         )
       })()}
 
-      {/* ── Welcome bar ── */}
-      <div className="mx-auto max-w-7xl px-3 pt-3 pb-1">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-gray-500">مرحباً</p>
-            <p className="text-sm font-bold text-gray-900">{customerName} 👋</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {allowPrices && <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[10px] font-semibold text-blue-700">الأسعار ظاهرة</span>}
-            {!showStock && <span className="rounded-full bg-orange-100 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700">الكميات مخفية</span>}
-            {/* Per-row selector */}
-            <div className="flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs">
-              <span className="text-gray-400">السطر:</span>
-              {[2, 3, 4, 5].map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() => setPerRow(n)}
-                  className={cn(
-                    "h-5 w-5 rounded-full text-[11px] font-bold transition-all",
-                    perRow === n ? "bg-emerald-600 text-white" : "text-gray-500 hover:bg-gray-100",
-                  )}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* ── Main content ── */}
+      <main className="mx-auto max-w-7xl px-3 pb-32 pt-3">
 
-      {/* ── Product Grid ── */}
-      <main className="mx-auto max-w-7xl px-3 pb-28 pt-3">
-        {productsQuery.isLoading && (
+        {/* Loading skeleton */}
+        {productsQuery.isLoading && viewMode === "grid" && (
           <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-2xl bg-white">
-                <div className="aspect-square bg-gray-200 rounded-t-2xl" />
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-2xl" style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}` }}>
+                <div className="aspect-square" style={{ background: tk.skeletonBg, opacity: 0.6 }} />
                 <div className="p-3 space-y-2">
-                  <div className="h-3 bg-gray-200 rounded w-3/4" />
-                  <div className="h-3 bg-gray-200 rounded w-1/2" />
+                  <div className="h-3 rounded-full" style={{ background: tk.skeletonBg, width: "70%" }} />
+                  <div className="h-3 rounded-full" style={{ background: tk.skeletonBg, width: "45%" }} />
                 </div>
               </div>
             ))}
           </div>
         )}
 
+        {/* Empty */}
         {!productsQuery.isLoading && visible.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="mb-3 rounded-full bg-gray-100 p-5">
-              <Search className="h-8 w-8 text-gray-400" />
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="mb-4 rounded-full p-5" style={{ background: tk.catIdle }}>
+              <Search className="h-8 w-8" style={{ color: tk.subtext }} />
             </div>
-            <p className="font-semibold text-gray-600">لا توجد منتجات مطابقة</p>
-            <p className="mt-1 text-sm text-gray-400">جرب كلمة بحث مختلفة أو اختر فئة أخرى</p>
+            <p className="font-bold" style={{ color: tk.text }}>لا توجد منتجات مطابقة</p>
+            <p className="mt-1 text-sm" style={{ color: tk.subtext }}>جرب كلمة بحث مختلفة أو فئة أخرى</p>
           </div>
         )}
 
-        {/* ── Merchandising rows (default view only) ── */}
+        {/* Special rows: عروض + جديد */}
         {!productsQuery.isLoading && showSections && (offers.length > 0 || newArrivals.length > 0) && (
           <div className="mb-5 space-y-5">
             {offers.length > 0 && (
               <section>
-                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold text-rose-600">🏷️ العروض</h2>
+                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold" style={{ color: "#e11d48" }}>
+                  🏷️ العروض
+                </h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                  {offers.map((p) => (
-                    <div key={p.id} className="w-40 shrink-0 sm:w-44">{renderCard(p)}</div>
+                  {offers.map(p => (
+                    <div key={p.id} style={{ width: "140px", flexShrink: 0 }}>{renderCard(p)}</div>
                   ))}
                 </div>
               </section>
             )}
             {newArrivals.length > 0 && (
               <section>
-                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold text-emerald-600">✨ وصل حديثاً</h2>
+                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold" style={{ color: tk.accent }}>
+                  ✨ وصل حديثاً
+                </h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                  {newArrivals.map((p) => (
-                    <div key={p.id} className="w-40 shrink-0 sm:w-44">{renderCard(p)}</div>
+                  {newArrivals.map(p => (
+                    <div key={p.id} style={{ width: "140px", flexShrink: 0 }}>{renderCard(p)}</div>
                   ))}
                 </div>
               </section>
             )}
             <div className="flex items-center gap-2 pt-1">
-              <div className="h-px flex-1 bg-gray-200" />
-              <span className="text-xs font-semibold text-gray-400">كل المنتجات</span>
-              <div className="h-px flex-1 bg-gray-200" />
+              <div className="h-px flex-1" style={{ background: tk.divider }} />
+              <span className="text-xs font-semibold" style={{ color: tk.subtext }}>كل المنتجات</span>
+              <div className="h-px flex-1" style={{ background: tk.divider }} />
             </div>
           </div>
         )}
 
-        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
-          {visible.map((product) => renderCard(product))}
-        </div>
+        {/* Products: grid or list */}
+        {!productsQuery.isLoading && visible.length > 0 && (
+          viewMode === "list" ? (
+            <div className="flex flex-col gap-2.5">
+              {visible.map(p => renderCard(p))}
+            </div>
+          ) : (
+            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
+              {visible.map(p => renderCard(p))}
+            </div>
+          )
+        )}
       </main>
 
-      {/* ── Floating Cart Button (mobile) ── */}
+      {/* ── Floating cart button ── */}
       {cartQty > 0 && !cartOpen && (
         <button
           onClick={() => setCartOpen(true)}
-          className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-2xl bg-emerald-600 px-5 py-3.5 text-white shadow-xl shadow-emerald-300 transition active:scale-95"
-        >
+          className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-2xl px-5 py-3.5 text-white shadow-2xl transition active:scale-95"
+          style={{ background: tk.accent }}>
           <ShoppingCart className="h-5 w-5" />
-          <span className="font-bold">السلة — {cartQty} مادة</span>
+          <span className="font-bold text-sm">السلة — {cartQty} مادة</span>
           {allowPrices && <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{money(subtotal)} د.ع</span>}
           <ChevronLeft className="h-4 w-4 opacity-70" />
         </button>
       )}
 
-      {/* ── Cart Overlay ── */}
+      {/* ── Cart overlay ── */}
       {cartOpen && (
         <CartOverlay
-          cart={cart}
-          allowPrices={allowPrices}
-          subtotal={subtotal}
-          notes={notes}
-          onNotes={setNotes}
-          onChangeQty={changeQty}
-          onChangeUnit={changeUnit}
-          onRemove={(id) => setCart((prev) => prev.filter((l) => l.id !== id))}
+          cart={cart} allowPrices={allowPrices} subtotal={subtotal}
+          notes={notes} onNotes={setNotes}
+          onChangeQty={changeQty} onChangeUnit={changeUnit}
+          onRemove={(id) => setCart(prev => prev.filter(l => l.id !== id))}
           onClose={() => setCartOpen(false)}
           onSubmit={() => orderMut.mutate()}
-          isPending={orderMut.isPending}
-          submitted={submitted}
-          isError={orderMut.isError}
+          isPending={orderMut.isPending} submitted={submitted} isError={orderMut.isError}
+          tk={tk}
         />
+      )}
+
+      {/* ── Image lightbox ── */}
+      {zoomedImg && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/95"
+          onClick={() => setZoomedImg(null)}>
+          <button className="absolute right-4 top-4 rounded-full bg-white/10 p-2.5 transition hover:bg-white/20"
+            onClick={() => setZoomedImg(null)}>
+            <X className="h-6 w-6 text-white" />
+          </button>
+          <img src={zoomedImg.src} alt={zoomedImg.name}
+            className="max-h-[80vh] max-w-[90vw] rounded-2xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()} />
+          <p className="mt-4 text-center text-sm font-semibold text-white/80 px-4">{zoomedImg.name}</p>
+        </div>
       )}
     </div>
   )
 }
 
-/* ── Product Card ────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════
+   PRODUCT CARD
+══════════════════════════════════════════════════════════════════════ */
 function ProductCard({
-  product, allowPrices, showStock, qtyInCart, compact = false, onAdd, onRemoveOne,
+  product, allowPrices, showStock, qtyInCart, tk, viewMode, compact,
+  onAdd, onRemoveOne, onZoom,
 }: {
   product: PublicCatalogProduct
   allowPrices: boolean
   showStock: boolean
   qtyInCart: number
-  compact?: boolean
+  tk: ThemeTokens
+  viewMode: ViewMode
+  compact: boolean
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
+  onZoom: (src: string) => void
 }) {
   const [unit, setUnit] = useState<CatalogUnit>("PIECE")
   const max = maxQty(product, unit)
+  const lowStock = product.currentStock > 0 && product.currentStock <= 5
 
-  /* ── Compact card (4-5 per row): image + overlay info + icon button ── */
-  if (compact) {
+  /* ── List view ── */
+  if (viewMode === "list") {
     return (
-      <div className="relative overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
-        {/* Square image */}
-        <div className="relative aspect-square bg-gray-100">
+      <div className="flex gap-3 overflow-hidden rounded-2xl p-3 transition"
+        style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}`, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+        {/* Image */}
+        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
           {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+            <img src={product.imageUrl} alt={product.name}
+              className="h-full w-full cursor-zoom-in object-cover"
+              loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
           ) : (
-            <div className="flex h-full items-center justify-center text-gray-300">
-              <ImageIcon className="h-6 w-6" />
+            <div className="flex h-full items-center justify-center">
+              <ImageIcon className="h-7 w-7" style={{ color: tk.subtext, opacity: 0.4 }} />
             </div>
           )}
-
-          {/* Cart count badge */}
           {qtyInCart > 0 && (
-            <span className="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[9px] font-bold text-white shadow">
+            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white" style={{ background: tk.accent }}>
               {qtyInCart}
             </span>
           )}
-          {/* Offer / New badges */}
-          {product.isOffer && (
-            <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>
-          )}
-          {product.isNewArrival && !product.isOffer && (
-            <span className="absolute right-1 top-1 rounded-full bg-emerald-500 px-1 py-0.5 text-[7px] font-bold text-white">جديد</span>
-          )}
-
-          {/* Dark gradient overlay at bottom with name + price */}
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-1.5 pt-4 pb-1">
-            <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
-            {allowPrices && (
-              <p className="text-[8px] font-semibold text-emerald-300">{money(linePrice(product, unit))} د.ع</p>
-            )}
-          </div>
+          {product.isOffer && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>}
         </div>
 
-        {/* Add/Remove row below image */}
-        <div className="flex items-center justify-center gap-1 py-1 px-1">
+        {/* Info */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex items-start justify-between gap-1">
+            <p className="line-clamp-2 text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
+            {product.isNewArrival && (
+              <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {allowPrices && (
+              <div>
+                {product.isOffer && product.oldPrice != null && product.oldPrice > 0 && (
+                  <p className="text-[9px] text-gray-400 line-through">{money(Number(product.oldPrice) * pcs(product, unit))} د.ع</p>
+                )}
+                <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
+                  {money(linePrice(product, unit))} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع</span>
+                </p>
+              </div>
+            )}
+            {showStock && (
+              <span className="text-[10px] font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
+                {lowStock ? `⚠️ ${product.currentStock} متبقية` : `${money(product.currentStock)} متوفر`}
+              </span>
+            )}
+          </div>
+
+          {/* Unit + qty controls */}
+          <div className="mt-auto flex items-center gap-1.5">
+            {UNITS.filter(u => maxQty(product, u) > 0).map(u => (
+              <button key={u} onClick={() => setUnit(u)}
+                className="rounded-lg px-2 py-0.5 text-[9px] font-bold transition"
+                style={u === unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
+                {UNIT_LABELS[u]}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-1">
+              {qtyInCart > 0 ? (
+                <div className="flex items-center gap-1 rounded-xl p-1" style={{ background: tk.accentLight }}>
+                  <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
+                    <Minus className="h-3 w-3" style={{ color: tk.text }} />
+                  </button>
+                  <span className="w-5 text-center text-xs font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
+                  <button onClick={() => onAdd(unit)} disabled={max < 1}
+                    className="flex h-6 w-6 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
+                    style={{ background: tk.accent }}>
+                    <Plus className="h-3 w-3 text-white" />
+                  </button>
+                </div>
+              ) : (
+                <button disabled={max < 1} onClick={() => onAdd(unit)}
+                  className="rounded-xl px-3 py-1.5 text-[10px] font-bold transition active:scale-95 disabled:opacity-40"
+                  style={{ background: tk.accent, color: tk.accentText }}>
+                  {max < 1 ? "نفد" : "أضف"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /* ── Compact grid (4+ per row) ── */
+  if (compact) {
+    return (
+      <div className="overflow-hidden rounded-xl transition"
+        style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}` }}>
+        <div className="relative aspect-square" style={{ background: tk.catIdle }}>
+          {product.imageUrl ? (
+            <img src={product.imageUrl} alt={product.name}
+              className="h-full w-full cursor-zoom-in object-cover"
+              loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.4 }} />
+            </div>
+          )}
+          {qtyInCart > 0 && (
+            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-bold text-white shadow" style={{ background: tk.accent }}>
+              {qtyInCart}
+            </span>
+          )}
+          {product.isOffer && <span className="absolute right-1 top-1 rounded-full bg-rose-500 px-1 py-0.5 text-[6px] font-bold text-white">عرض</span>}
+          {product.isNewArrival && !product.isOffer && <span className="absolute right-1 top-1 rounded-full px-1 py-0.5 text-[6px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+          {/* Gradient overlay */}
+          <div className="absolute inset-x-0 bottom-0 px-1.5 pt-6 pb-1" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }}>
+            <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
+            {allowPrices && <p className="text-[8px] font-semibold" style={{ color: "#6ee7b7" }}>{money(linePrice(product, unit))} د.ع</p>}
+          </div>
+        </div>
+        <div className="flex items-center justify-center gap-1 px-1 py-1">
           {qtyInCart > 0 ? (
             <>
-              <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-90">
-                <Minus className="h-3 w-3" />
+              <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-lg active:scale-90" style={{ background: tk.catIdle }}>
+                <Minus className="h-3 w-3" style={{ color: tk.text }} />
               </button>
-              <span className="w-5 text-center text-[10px] font-bold text-emerald-700">{qtyInCart}</span>
-              <button onClick={() => onAdd(unit)} disabled={max < 1} className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-600 text-white disabled:opacity-40 active:scale-90">
-                <Plus className="h-3 w-3" />
+              <span className="w-5 text-center text-[10px] font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
+              <button onClick={() => onAdd(unit)} disabled={max < 1} className="flex h-6 w-6 items-center justify-center rounded-lg disabled:opacity-40 active:scale-90" style={{ background: tk.accent }}>
+                <Plus className="h-3 w-3 text-white" />
               </button>
             </>
           ) : (
-            <button
-              disabled={max < 1}
-              onClick={() => onAdd(unit)}
-              className="w-full rounded-lg bg-emerald-600 py-1 text-[9px] font-bold text-white disabled:opacity-40 active:scale-95"
-            >
+            <button disabled={max < 1} onClick={() => onAdd(unit)}
+              className="w-full rounded-lg py-1 text-[9px] font-bold text-white disabled:opacity-40 active:scale-95"
+              style={{ background: tk.accent }}>
               {max < 1 ? "نفد" : "+ سلة"}
             </button>
           )}
@@ -875,103 +1072,110 @@ function ProductCard({
     )
   }
 
-  /* ── Full card (2-3 per row) ───────────────────────────────────────── */
+  /* ── Full grid card (2-3 per row) ── */
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition hover:shadow-md">
+    <div className="flex flex-col overflow-hidden rounded-2xl transition"
+      style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}`, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
       {/* Image */}
-      <div className="relative aspect-square bg-gray-100">
+      <div className="relative aspect-square" style={{ background: tk.catIdle }}>
         {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+          <img src={product.imageUrl} alt={product.name}
+            className="h-full w-full cursor-zoom-in object-cover"
+            loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-1 text-gray-300">
-            <ImageIcon className="h-8 w-8" />
-            <span className="text-[10px]">بدون صورة</span>
+          <div className="flex h-full flex-col items-center justify-center gap-1">
+            <ImageIcon className="h-8 w-8" style={{ color: tk.subtext, opacity: 0.3 }} />
           </div>
         )}
-        {product.category && (
-          <span className="absolute right-2 top-2 rounded-full bg-black/40 px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm">
-            {product.category}
-          </span>
-        )}
+        {/* Badges */}
         <div className="absolute right-2 bottom-2 flex flex-col items-end gap-1">
           {product.isNewArrival && (
-            <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">✨ جديد</span>
+            <span className="rounded-full px-2 py-0.5 text-[9px] font-bold text-white shadow" style={{ background: tk.accent }}>✨ جديد</span>
           )}
           {product.isOffer && (
             <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[9px] font-bold text-white shadow">🏷️ عرض</span>
           )}
         </div>
         {qtyInCart > 0 && (
-          <span className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white shadow">
+          <span className="absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white shadow" style={{ background: tk.accent }}>
             {qtyInCart}
+          </span>
+        )}
+        {product.category && (
+          <span className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[9px] font-semibold text-white backdrop-blur-sm" style={{ background: "rgba(0,0,0,0.4)" }}>
+            {product.category}
           </span>
         )}
       </div>
 
       {/* Info */}
       <div className="flex flex-1 flex-col p-2.5">
-        <p className="line-clamp-2 text-xs font-bold leading-snug text-gray-900 min-h-[2.4rem]">{product.name}</p>
-        <p className="mt-0.5 text-[10px] text-gray-400">{product.itemNumber}</p>
+        <p className="line-clamp-2 min-h-[2.4rem] text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
+        <p className="mt-0.5 text-[10px]" style={{ color: tk.subtext }}>{product.itemNumber}</p>
+
+        {/* Type tags */}
         {product.typeTags && product.typeTags.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
             {product.typeTags.map(t => (
-              <span key={t} className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700">{t}</span>
+              <span key={t} className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold" style={{ background: tk.accentLight, color: tk.accent }}>{t}</span>
             ))}
           </div>
         )}
 
-        <div className="mt-2 flex items-end justify-between gap-1">
-          <div>
-            {allowPrices ? (
-              <div>
-                {product.isOffer && product.oldPrice != null && product.oldPrice > 0 && (
-                  <p className="text-[10px] font-medium text-gray-400 line-through">{money(product.oldPrice * pcs(product, unit))} د.ع</p>
-                )}
-                <p className="text-sm font-extrabold text-emerald-700">{money(linePrice(product, unit))} <span className="text-[10px] font-medium text-gray-500">د.ع</span></p>
-              </div>
-            ) : (
-              <p className="text-xs font-semibold text-gray-400">السعر مخفي</p>
-            )}
-            {showStock && (
-              <p className="text-[10px] text-gray-400">{money(product.currentStock)} {unit === "CARTON" ? "كارتون" : "قطعة"} متوفر</p>
+        {/* Price + stock */}
+        <div className="mt-2">
+          {allowPrices ? (
+            <div>
+              {product.isOffer && product.oldPrice != null && Number(product.oldPrice) > 0 && (
+                <p className="text-[10px] text-gray-400 line-through">{money(Number(product.oldPrice) * pcs(product, unit))} د.ع</p>
+              )}
+              <p className="text-sm font-extrabold" style={{ color: tk.accent }}>
+                {money(linePrice(product, unit))} <span className="text-[10px] font-medium" style={{ color: tk.subtext }}>د.ع</span>
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs font-semibold" style={{ color: tk.subtext }}>السعر مخفي</p>
+          )}
+          {showStock && (
+            <p className="mt-0.5 text-[10px] font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
+              {lowStock ? `⚠️ ${product.currentStock} قطعة متبقية!` : `${money(product.currentStock)} متوفر`}
+            </p>
+          )}
+        </div>
+
+        {/* Unit buttons */}
+        {UNITS.filter(u => maxQty(product, u) > 0).length > 1 && (
+          <div className="mt-2 flex gap-1">
+            {UNITS.map((u) =>
+              maxQty(product, u) > 0 ? (
+                <button key={u} onClick={() => setUnit(u)}
+                  className="flex-1 rounded-lg py-1 text-[9px] font-bold transition"
+                  style={u === unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
+                  {UNIT_LABELS[u]}
+                </button>
+              ) : null
             )}
           </div>
-        </div>
+        )}
 
-        <div className="mt-2 flex gap-1">
-          {UNITS.map((u) => (
-            maxQty(product, u) > 0 ? (
-              <button
-                key={u}
-                onClick={() => setUnit(u)}
-                className={cn(
-                  "flex-1 rounded-lg py-1 text-[9px] font-bold transition",
-                  u === unit ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200",
-                )}
-              >
-                {UNIT_LABELS[u]}
-              </button>
-            ) : null
-          ))}
-        </div>
-
+        {/* Add/remove */}
         <div className="mt-2">
           {qtyInCart > 0 ? (
-            <div className="flex items-center justify-between rounded-xl bg-emerald-50 px-2 py-1">
-              <button onClick={onRemoveOne} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-gray-700 shadow-sm active:scale-90">
-                <Minus className="h-3.5 w-3.5" />
+            <div className="flex items-center justify-between rounded-xl px-2 py-1" style={{ background: tk.accentLight }}>
+              <button onClick={onRemoveOne} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
+                <Minus className="h-3.5 w-3.5" style={{ color: tk.text }} />
               </button>
-              <span className="text-sm font-bold text-emerald-800">{qtyInCart}</span>
-              <button onClick={() => onAdd(unit)} disabled={max < 1} className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm disabled:opacity-40 active:scale-90">
-                <Plus className="h-3.5 w-3.5" />
+              <span className="text-sm font-bold" style={{ color: tk.accent }}>{qtyInCart}</span>
+              <button onClick={() => onAdd(unit)} disabled={max < 1}
+                className="flex h-7 w-7 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
+                style={{ background: tk.accent }}>
+                <Plus className="h-3.5 w-3.5 text-white" />
               </button>
             </div>
           ) : (
-            <button
-              disabled={max < 1}
-              onClick={() => onAdd(unit)}
-              className="w-full rounded-xl bg-emerald-600 py-2 text-xs font-bold text-white shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-            >
+            <button disabled={max < 1} onClick={() => onAdd(unit)}
+              className="w-full rounded-xl py-2 text-xs font-bold transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: tk.accent, color: tk.accentText }}>
               {max < 1 ? "نفد المخزون" : "أضف للسلة"}
             </button>
           )}
@@ -981,111 +1185,85 @@ function ProductCard({
   )
 }
 
-/* ── Cart Overlay (bottom sheet on mobile, sidebar on desktop) ────── */
+/* ══════════════════════════════════════════════════════════════════════
+   CART OVERLAY
+══════════════════════════════════════════════════════════════════════ */
 function CartOverlay({
-  cart, allowPrices, subtotal, notes, onNotes, onChangeQty, onChangeUnit, onRemove, onClose, onSubmit, isPending, submitted, isError,
+  cart, allowPrices, subtotal, notes, onNotes, onChangeQty, onChangeUnit, onRemove,
+  onClose, onSubmit, isPending, submitted, isError, tk,
 }: {
-  cart: CartLine[]
-  allowPrices: boolean
-  subtotal: number
-  notes: string
-  onNotes: (v: string) => void
-  onChangeQty: (id: string, d: number) => void
-  onChangeUnit: (id: string, u: CatalogUnit) => void
-  onRemove: (id: string) => void
-  onClose: () => void
-  onSubmit: () => void
-  isPending: boolean
-  submitted: string | null
-  isError: boolean
+  cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
+  onNotes: (v: string) => void; onChangeQty: (id: string, d: number) => void
+  onChangeUnit: (id: string, u: CatalogUnit) => void; onRemove: (id: string) => void
+  onClose: () => void; onSubmit: () => void; isPending: boolean; submitted: string | null; isError: boolean
+  tk: ThemeTokens
 }) {
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-
-      {/* Drawer */}
-      <div
-        className="fixed inset-x-0 bottom-0 z-50 flex max-h-[90vh] flex-col rounded-t-3xl bg-white shadow-2xl lg:inset-y-0 lg:right-0 lg:left-auto lg:w-[420px] lg:rounded-none"
-        dir="rtl"
-      >
-        {/* Handle */}
+      <div className="fixed inset-x-0 bottom-0 z-50 flex max-h-[92vh] flex-col rounded-t-3xl shadow-2xl lg:inset-y-0 lg:right-0 lg:left-auto lg:w-[420px] lg:rounded-none"
+        style={{ background: tk.cardBg }} dir="rtl">
         <div className="flex justify-center pt-3 pb-1 lg:hidden">
-          <div className="h-1 w-10 rounded-full bg-gray-300" />
+          <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
         </div>
-
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <h2 className="text-base font-extrabold text-gray-900 flex items-center gap-2">
-            <ShoppingCart className="h-5 w-5 text-emerald-600" />
+        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${tk.divider}` }}>
+          <h2 className="flex items-center gap-2 text-base font-extrabold" style={{ color: tk.text }}>
+            <ShoppingCart className="h-5 w-5" style={{ color: tk.accent }} />
             سلة التسوق
             {cart.length > 0 && (
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-700">
+              <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: tk.accentLight, color: tk.accent }}>
                 {cart.reduce((s, l) => s + l.quantity, 0)} مادة
               </span>
             )}
           </h2>
-          <button onClick={onClose} className="rounded-xl p-2 hover:bg-gray-100">
-            <X className="h-5 w-5 text-gray-500" />
+          <button onClick={onClose} className="rounded-xl p-2 transition" style={{ background: tk.catIdle }}>
+            <X className="h-5 w-5" style={{ color: tk.subtext }} />
           </button>
         </div>
 
-        {/* Items */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
           {submitted ? (
             <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-                <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+              <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: tk.accentLight }}>
+                <CheckCircle2 className="h-8 w-8" style={{ color: tk.accent }} />
               </div>
-              <p className="text-lg font-extrabold text-gray-900">تم إرسال الطلب!</p>
-              <p className="text-sm text-gray-500">طلبك ينتظر موافقة الإدارة. سيتم التواصل معك قريباً.</p>
-              <button onClick={onClose} className="mt-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-bold text-white">
+              <p className="text-lg font-extrabold" style={{ color: tk.text }}>تم إرسال الطلب!</p>
+              <p className="text-sm" style={{ color: tk.subtext }}>طلبك ينتظر موافقة الإدارة. سيتم التواصل معك قريباً.</p>
+              <button onClick={onClose} className="mt-2 rounded-xl px-6 py-2.5 text-sm font-bold text-white" style={{ background: tk.accent }}>
                 متابعة التسوق
               </button>
             </div>
           ) : cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-10 text-center">
-              <ShoppingBag className="h-12 w-12 text-gray-200" />
-              <p className="font-semibold text-gray-400">السلة فارغة</p>
-              <button onClick={onClose} className="text-sm text-emerald-600 underline">تصفح المنتجات</button>
+              <ShoppingBag className="h-12 w-12" style={{ color: tk.subtext, opacity: 0.3 }} />
+              <p className="font-semibold" style={{ color: tk.subtext }}>السلة فارغة</p>
+              <button onClick={onClose} className="text-sm font-semibold underline" style={{ color: tk.accent }}>تصفح المنتجات</button>
             </div>
           ) : (
             <div className="space-y-3">
               {cart.map((line) => (
-                <CartItem
-                  key={line.id}
-                  line={line}
-                  allowPrices={allowPrices}
-                  onChangeQty={onChangeQty}
-                  onChangeUnit={onChangeUnit}
-                  onRemove={onRemove}
-                />
+                <CartItem key={line.id} line={line} allowPrices={allowPrices} onChangeQty={onChangeQty} onChangeUnit={onChangeUnit} onRemove={onRemove} tk={tk} />
               ))}
             </div>
           )}
         </div>
 
-        {/* Footer (checkout) */}
         {!submitted && cart.length > 0 && (
-          <div className="border-t border-gray-100 bg-gray-50 px-4 py-4 space-y-3">
-            <input
-              value={notes}
-              onChange={(e) => onNotes(e.target.value)}
+          <div className="space-y-3 px-4 py-4" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
+            <input value={notes} onChange={(e) => onNotes(e.target.value)}
               placeholder="ملاحظات إضافية (اختياري)"
-              className="w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none focus:border-emerald-400 placeholder:text-gray-400"
-            />
+              className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
+              style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
             {allowPrices && (
-              <div className="flex justify-between text-sm font-extrabold text-gray-900">
+              <div className="flex justify-between text-sm font-extrabold" style={{ color: tk.text }}>
                 <span>المجموع</span>
-                <span className="text-emerald-700">{money(subtotal)} د.ع</span>
+                <span style={{ color: tk.accent }}>{money(subtotal)} د.ع</span>
               </div>
             )}
             {isError && <p className="text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
-            <button
-              disabled={isPending}
-              onClick={onSubmit}
-              className="w-full rounded-2xl bg-emerald-600 py-3.5 text-sm font-extrabold text-white shadow-lg shadow-emerald-200 transition active:scale-95 disabled:opacity-50"
-            >
+            <button disabled={isPending} onClick={onSubmit}
+              className="w-full rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition active:scale-95 disabled:opacity-50"
+              style={{ background: tk.accent }}>
               {isPending ? "جاري الإرسال..." : "إرسال الطلب للمراجعة ✓"}
             </button>
           </div>
@@ -1095,59 +1273,53 @@ function CartOverlay({
   )
 }
 
-/* ── Cart Item Row ───────────────────────────────────────────────────── */
+/* ── Cart Item ─────────────────────────────────────────────────────── */
 function CartItem({
-  line, allowPrices, onChangeQty, onChangeUnit, onRemove,
+  line, allowPrices, onChangeQty, onChangeUnit, onRemove, tk,
 }: {
-  line: CartLine
-  allowPrices: boolean
-  onChangeQty: (id: string, d: number) => void
-  onChangeUnit: (id: string, u: CatalogUnit) => void
-  onRemove: (id: string) => void
+  line: CartLine; allowPrices: boolean
+  onChangeQty: (id: string, d: number) => void; onChangeUnit: (id: string, u: CatalogUnit) => void
+  onRemove: (id: string) => void; tk: ThemeTokens
 }) {
   return (
-    <div className="rounded-2xl bg-white p-3 ring-1 ring-gray-100 shadow-sm">
+    <div className="rounded-2xl p-3" style={{ background: tk.bg, border: `1px solid ${tk.cardBorder}` }}>
       <div className="flex gap-3">
         <MiniThumb product={line.product} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="truncate text-sm font-bold text-gray-900">{line.product.name}</p>
-            <button onClick={() => onRemove(line.id)} className="shrink-0 text-gray-300 hover:text-red-500 transition">
-              <Trash2 className="h-4 w-4" />
+            <p className="truncate text-sm font-bold" style={{ color: tk.text }}>{line.product.name}</p>
+            <button onClick={() => onRemove(line.id)} className="shrink-0 transition hover:scale-110">
+              <Trash2 className="h-4 w-4 text-red-400" />
             </button>
           </div>
           {allowPrices && (
-            <p className="text-xs font-semibold text-emerald-700">
-              {money(linePrice(line.product, line.unit))} د.ع × {line.quantity} = {money(linePrice(line.product, line.unit) * line.quantity)} د.ع
+            <p className="text-xs font-semibold" style={{ color: tk.accent }}>
+              {money(linePrice(line.product, line.unit))} × {line.quantity} = {money(linePrice(line.product, line.unit) * line.quantity)} د.ع
             </p>
           )}
         </div>
       </div>
-      {/* Unit + Qty */}
       <div className="mt-2 flex items-center gap-2">
         <div className="flex gap-1 flex-1">
           {UNITS.map((u) =>
             maxQty(line.product, u) > 0 ? (
-              <button
-                key={u}
-                onClick={() => onChangeUnit(line.id, u)}
-                className={cn(
-                  "rounded-lg px-2 py-1 text-[10px] font-semibold transition",
-                  u === line.unit ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-500",
-                )}
-              >
+              <button key={u} onClick={() => onChangeUnit(line.id, u)}
+                className="rounded-lg px-2 py-1 text-[10px] font-semibold transition"
+                style={u === line.unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
                 {UNIT_LABELS[u]}
               </button>
-            ) : null,
+            ) : null
           )}
         </div>
-        <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1">
+        <div className="flex items-center gap-1 rounded-xl p-1" style={{ background: tk.catIdle }}>
           <button onClick={() => onChangeQty(line.id, -1)} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
-            <Minus className="h-3 w-3" />
+            <Minus className="h-3 w-3" style={{ color: tk.text }} />
           </button>
-          <span className="min-w-[1.5rem] text-center text-sm font-bold">{line.quantity}</span>
-          <button onClick={() => onChangeQty(line.id, 1)} disabled={line.quantity >= maxQty(line.product, line.unit)} className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-sm disabled:opacity-40 active:scale-90">
-            <Plus className="h-3 w-3" />
+          <span className="min-w-[1.5rem] text-center text-sm font-bold" style={{ color: tk.text }}>{line.quantity}</span>
+          <button onClick={() => onChangeQty(line.id, 1)} disabled={line.quantity >= maxQty(line.product, line.unit)}
+            className="flex h-6 w-6 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
+            style={{ background: tk.accent }}>
+            <Plus className="h-3 w-3 text-white" />
           </button>
         </div>
       </div>
@@ -1155,7 +1327,7 @@ function CartItem({
   )
 }
 
-/* ── Thumbnail ───────────────────────────────────────────────────────── */
+/* ── Thumbnail ─────────────────────────────────────────────────────── */
 function MiniThumb({ product, size = "sm" }: { product: PublicCatalogProduct; size?: "sm" | "lg" }) {
   const cls = size === "lg" ? "h-14 w-14 rounded-xl" : "h-9 w-9 rounded-lg"
   return product.imageUrl ? (
