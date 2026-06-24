@@ -19,6 +19,7 @@ import {
   restoreProduct,
   updateProduct,
 } from "../services/product.service";
+import { convertToVariety } from "../services/variety.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
 import { hasPermission } from "../middleware/permission.middleware";
@@ -83,6 +84,16 @@ export const addProduct = asyncHandler(async (req, res) => {
     success: true,
     message: "Product created successfully",
     data: product,
+  });
+});
+
+export const convertVariety = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+  const result = await convertToVariety(req.body, user.id);
+  res.status(201).json({
+    success: true,
+    message: "تم تحويل المواد إلى المتنوع",
+    data: result,
   });
 });
 

@@ -655,6 +655,9 @@ export function ProductsPage() {
           <Button variant="outline" asChild>
             <Link to="/inventory/low-stock">المخزون الناقص</Link>
           </Button>
+          <Button variant="outline" asChild>
+            <Link to="/inventory/variety">تحويل إلى متنوع</Link>
+          </Button>
           <Button
             variant="outline"
             onClick={() => exportInventoryCsv(products)}

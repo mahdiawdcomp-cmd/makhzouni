@@ -442,6 +442,25 @@ export const updateProductSchema = z.object({
   ),
 });
 
+export const varietyConvertSchema = z.object({
+  body: z.object({
+    fromWarehouseId: z.string().uuid(),
+    targetProductId: z.string().uuid(),
+    toWarehouseId: z.string().uuid().optional(),
+    allowNegative: z.coerce.boolean().optional(),
+    notes: z.string().trim().max(500).optional(),
+    items: z
+      .array(
+        z.object({
+          productId: z.string().uuid(),
+          unit: z.enum(["PIECE", "DOZEN", "BOX", "CARTON"]),
+          quantity: z.coerce.number().int().positive(),
+        }),
+      )
+      .min(1),
+  }),
+});
+
 export const listInvoicesSchema = z.object({
   query: z.object({
     customerId: z.string().uuid().optional(),

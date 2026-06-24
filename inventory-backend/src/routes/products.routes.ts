@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   addProduct,
   backfillProductQrs,
+  convertVariety,
   editProduct,
   getCartonSheetPdf,
   getDeletedProductsList,
@@ -20,6 +21,7 @@ import {
   idParamSchema,
   listProductsSchema,
   updateProductSchema,
+  varietyConvertSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -35,6 +37,7 @@ router.use(authMiddleware);
 router.get("/", validate(listProductsSchema), getProducts);
 router.post("/", validate(createProductSchema), addProduct);
 router.post("/backfill-qr", backfillProductQrs);
+router.post("/variety-convert", validate(varietyConvertSchema), convertVariety);
 router.get("/deleted", getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);
 router.get("/:id", validate(idParamSchema), getProductDetails);
