@@ -10,33 +10,63 @@ function requestSync() {
   })
 }
 
+// How long the network must be gone before we show the "offline" bar.
+// This prevents flashing the banner on brief WiFi handovers / Railway hiccups.
+const OFFLINE_GRACE_MS = 4_000
+
 export function usePwaStatus() {
-  const [isOnline, setIsOnline] = useState(() => navigator.onLine)
+  const [isOnline, setIsOnline] = useState(true)          // optimistic default
   const [pendingCount, setPendingCount] = useState(0)
   const [needsRefresh, setNeedsRefresh] = useState(false)
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
   const [syncFailures, setSyncFailures] = useState<{ at: number; items: SyncFailure[] } | null>(null)
   const [authBlockedAt, setAuthBlockedAt] = useState<number | null>(null)
   const updateSWRef = useRef<((reloadPage?: boolean) => Promise<void>) | null>(null)
+  const offlineTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const updateSW = registerSW({
       immediate: true,
       onNeedRefresh() {
-        setNeedsRefresh(true)
+        // New SW took over — reload silently if no invoice is open,
+        // otherwise set the flag so the update banner appears.
+        const onInvoice = window.location.pathname === "/invoices/new" ||
+                          window.location.pathname === "/pos"
+        if (!onInvoice) {
+          window.location.reload()
+        } else {
+          setNeedsRefresh(true)
+        }
       },
       onOfflineReady() {
-        console.info("PWA offline cache is ready")
+        // Cache is ready — no need to show anything
       },
     })
     updateSWRef.current = updateSW
 
+    const clearOfflineTimer = () => {
+      if (offlineTimer.current) { clearTimeout(offlineTimer.current); offlineTimer.current = null }
+    }
+
     const onOnline = () => {
+      clearOfflineTimer()
       setIsOnline(true)
       requestSync()
       navigator.serviceWorker.controller?.postMessage({ type: "PWA_QUEUE_COUNT_REQUEST" })
     }
-    const onOffline = () => setIsOnline(false)
+
+    const onOffline = () => {
+      // Wait OFFLINE_GRACE_MS before declaring offline — avoids flicker on
+      // brief network transitions (WiFi roaming, Railway keep-alive drops, etc.)
+      clearOfflineTimer()
+      offlineTimer.current = setTimeout(() => {
+        // Double-check with a real request before showing the banner
+        fetch("/favicon.svg", { cache: "no-store", mode: "no-cors" })
+          .then(() => { /* still online, don't show banner */ })
+          .catch(() => setIsOnline(false))
+      }, OFFLINE_GRACE_MS)
+    }
+
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === "PWA_QUEUE_COUNT") {
         setPendingCount(Number(event.data.count ?? 0))
@@ -63,6 +93,7 @@ export function usePwaStatus() {
       .catch(() => undefined)
 
     return () => {
+      clearOfflineTimer()
       window.removeEventListener("online", onOnline)
       window.removeEventListener("offline", onOffline)
       navigator.serviceWorker.removeEventListener("message", onMessage)

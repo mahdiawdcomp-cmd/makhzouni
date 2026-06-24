@@ -10,6 +10,18 @@ interface State {
   message: string
 }
 
+function isChunkLoadError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const msg = error.message.toLowerCase()
+  return (
+    msg.includes("dynamically imported module") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("loading chunk") ||
+    msg.includes("chunkloaderror") ||
+    error.name === "ChunkLoadError"
+  )
+}
+
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props)
@@ -17,6 +29,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   static getDerivedStateFromError(error: unknown): State {
+    // Chunk load errors (stale JS after SW update) → auto reload immediately
+    if (isChunkLoadError(error)) {
+      window.location.reload()
+      return { hasError: false, message: "" }
+    }
     const message =
       error instanceof Error
         ? error.message
@@ -25,6 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, info: { componentStack?: string }) {
+    if (isChunkLoadError(error)) return
     console.error("[ErrorBoundary]", error, info.componentStack)
   }
 
