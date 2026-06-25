@@ -31,6 +31,7 @@ import javax.inject.Inject
 
 data class InvoiceListUiState(
     val invoices: List<Invoice> = emptyList(),
+    val deletedInvoices: List<Invoice> = emptyList(),
     val query: String = "",
     val filter: String = "all",
     val sortBy: String = "dateDesc",
@@ -94,6 +95,33 @@ class InvoiceListViewModel @Inject constructor(
                 )
             }
             ApiResult.Offline    -> _state.value = _state.value.copy(isLoading = false, error = "لا يوجد اتصال")
+        }
+        loadDeleted()
+    }
+
+    // ── Trash / restore (48h window) ──
+    private suspend fun loadDeleted() {
+        when (val result = repository.recentlyDeletedInvoices()) {
+            is ApiResult.Success -> _state.value = _state.value.copy(deletedInvoices = result.data)
+            else -> Unit
+        }
+    }
+
+    fun restoreInvoice(id: String) {
+        viewModelScope.launch {
+            when (repository.restoreArchivedInvoice(id)) {
+                is ApiResult.Success -> doRefresh(showLoading = false)
+                else -> Unit
+            }
+        }
+    }
+
+    fun permanentDeleteInvoice(id: String) {
+        viewModelScope.launch {
+            when (repository.permanentDeleteInvoice(id)) {
+                is ApiResult.Success -> loadDeleted()
+                else -> Unit
+            }
         }
     }
 

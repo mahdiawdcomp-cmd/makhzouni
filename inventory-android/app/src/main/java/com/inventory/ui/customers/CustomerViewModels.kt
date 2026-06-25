@@ -100,7 +100,9 @@ class CustomerListViewModel @Inject constructor(
 data class CustomerDetailUiState(
     val customer: Customer? = null,
     val lastTransaction: LastTransaction? = null,
-    val rating: String? = null   // "A" | "B" | "C"
+    val rating: String? = null,   // "A" | "B" | "C"
+    val portalEnabled: Boolean = false,
+    val portalBusy: Boolean = false
 )
 
 @HiltViewModel
@@ -111,15 +113,32 @@ class CustomerDetailViewModel @Inject constructor(
     private val customerId: String = checkNotNull(savedStateHandle["customerId"])
     private val lastTransaction = MutableStateFlow<LastTransaction?>(null)
     private val rating = MutableStateFlow<String?>(null)
+    private val portalEnabled = MutableStateFlow(false)
+    private val portalBusy = MutableStateFlow(false)
 
     val state = combine(
         combine(repository.observeCustomer(customerId), lastTransaction) { customer, transaction ->
             CustomerDetailUiState(customer, transaction)
         },
-        rating
-    ) { uiState, ratingValue ->
-        uiState.copy(rating = ratingValue)
+        rating,
+        portalEnabled,
+        portalBusy
+    ) { uiState, ratingValue, portal, busy ->
+        uiState.copy(rating = ratingValue, portalEnabled = portal, portalBusy = busy)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CustomerDetailUiState())
+
+    fun togglePortal() {
+        if (portalBusy.value) return
+        val target = !portalEnabled.value
+        viewModelScope.launch {
+            portalBusy.value = true
+            when (repository.togglePortalLink(customerId, target)) {
+                is ApiResult.Success -> portalEnabled.value = target
+                else -> Unit
+            }
+            portalBusy.value = false
+        }
+    }
 
     init {
         viewModelScope.launch {

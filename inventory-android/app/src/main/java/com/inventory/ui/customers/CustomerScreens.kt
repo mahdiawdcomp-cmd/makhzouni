@@ -336,6 +336,35 @@ fun CustomerDetailScreen(
                     }
                 }
             }
+
+            // ── Customer portal link toggle ───────────────────────────
+            item {
+                SectionCard(title = "رابط بوابة الزبون") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (state.portalEnabled) "الرابط مفعّل" else "الرابط معطّل",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "يتيح للزبون عرض كشف حسابه عبر رابط",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.portalEnabled,
+                            onCheckedChange = { viewModel.togglePortal() },
+                            enabled = !state.portalBusy,
+                        )
+                    }
+                }
+            }
         }
     }
 }

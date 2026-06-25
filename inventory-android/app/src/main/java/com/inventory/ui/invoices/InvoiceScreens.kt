@@ -112,6 +112,46 @@ fun InvoiceListScreen(
                 }
             }
 
+            // â”€â”€ Recently deleted (48h restore window) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            if (state.deletedInvoices.isNotEmpty()) {
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Delete, null, Modifier.size(16.dp), tint = AppColor.Amber600)
+                            Text(
+                                "المحذوفات مؤخراً (${state.deletedInvoices.size}) — استرجاع خلال 48 ساعة",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = AppColor.Amber600,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        state.deletedInvoices.take(5).forEach { inv ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "#${inv.invoiceNumber} · ${inv.customerName}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                TextButton(onClick = { viewModel.restoreInvoice(inv.id) }) {
+                                    Icon(Icons.Default.Restore, null, Modifier.size(15.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("استرجاع", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // â”€â”€ List â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if (state.isLoading) {
                 Box(modifier = Modifier.padding(16.dp)) { SkeletonLoading(rows = 6) }

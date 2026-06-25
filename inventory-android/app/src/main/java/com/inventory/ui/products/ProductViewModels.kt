@@ -33,7 +33,8 @@ data class ProductListUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val hidePrices: Boolean = false,
-    val showPurchasePrice: Boolean = false
+    val showPurchasePrice: Boolean = false,
+    val deletedProducts: List<Product> = emptyList()
 ) {
     val categories: List<String> = products.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
     val filteredProducts: List<Product> = products.filter { product ->
@@ -65,6 +66,7 @@ class ProductListViewModel @Inject constructor(
     private val sortBy = MutableStateFlow("updated")
     private val isLoading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
+    private val deletedProducts = MutableStateFlow<List<Product>>(emptyList())
 
     val state: StateFlow<ProductListUiState> = combine(
         combine(repository.products, query, category, isLoading, error) { products, queryValue, categoryValue, loadingValue, errorValue ->
@@ -72,12 +74,14 @@ class ProductListViewModel @Inject constructor(
         },
         combine(sortBy, sessionManager.role, sessionManager.permissions) { sort, role, perms ->
             Triple(sort, role, perms)
-        }
-    ) { stateValue, (sortValue, role, perms) ->
+        },
+        deletedProducts
+    ) { stateValue, (sortValue, role, perms), deleted ->
         stateValue.copy(
             sortBy = sortValue,
             hidePrices = permissionManager.viewWithoutPrices(role, perms),
-            showPurchasePrice = permissionManager.canViewPurchasePrice(role, perms)
+            showPurchasePrice = permissionManager.canViewPurchasePrice(role, perms),
+            deletedProducts = deleted
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProductListUiState())
 
@@ -105,6 +109,24 @@ class ProductListViewModel @Inject constructor(
                 is ApiResult.Success -> error.value = null
             }
             isLoading.value = false
+            loadDeleted()
+        }
+    }
+
+    // ── Trash / restore (48h window) ──
+    private suspend fun loadDeleted() {
+        when (val result = repository.deletedProducts()) {
+            is ApiResult.Success -> deletedProducts.value = result.data
+            else -> Unit
+        }
+    }
+
+    fun restoreProduct(id: String) {
+        viewModelScope.launch {
+            when (repository.restoreProduct(id)) {
+                is ApiResult.Success -> { repository.refreshProducts(); loadDeleted() }
+                else -> Unit
+            }
         }
     }
 }

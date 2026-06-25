@@ -247,6 +247,46 @@ fun ProductListScreen(
                 }
             }
 
+            // ── Recently deleted (48h restore window) ────────────────
+            if (state.deletedProducts.isNotEmpty()) {
+                Surface(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Delete, null, Modifier.size(16.dp), tint = AppColor.Amber600)
+                            Text(
+                                "المحذوفات مؤخراً (${state.deletedProducts.size}) — استرجاع خلال 48 ساعة",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = AppColor.Amber600,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                        state.deletedProducts.take(5).forEach { product ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    product.name,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                TextButton(onClick = { viewModel.restoreProduct(product.id) }) {
+                                    Icon(Icons.Default.Restore, null, Modifier.size(15.dp))
+                                    Spacer(Modifier.width(3.dp))
+                                    Text("استرجاع", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── List ─────────────────────────────────────────────────
             if (state.filteredProducts.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
