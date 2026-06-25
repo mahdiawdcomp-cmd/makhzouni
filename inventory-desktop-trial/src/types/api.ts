@@ -224,10 +224,11 @@ export interface CatalogOrderPayload {
   phone: string
   address?: string
   notes?: string
+  promoCode?: string
   items: Array<{
     productId: string
     warehouseId?: string
-    unit: "PIECE" | "DOZEN" | "CARTON"
+    unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
     quantity: number
   }>
 }

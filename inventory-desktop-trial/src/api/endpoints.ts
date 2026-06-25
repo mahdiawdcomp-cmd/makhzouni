@@ -166,6 +166,13 @@ export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, acc
   return data
 }
 
+export async function validatePublicPromoCode(code: string, customerId: string) {
+  const { data } = await api.post<ApiEnvelope<{ code: string; type: string; value: number | null; description: string | null }>>(
+    "/public/catalog/validate-promo", { code, customerId }
+  )
+  return data.data!
+}
+
 export async function getAuditLogs(params?: {
   userId?: string
   entity?: string
