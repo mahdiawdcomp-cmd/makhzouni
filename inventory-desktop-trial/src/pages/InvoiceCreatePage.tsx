@@ -985,6 +985,22 @@ export function InvoiceCreatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scanBuffer, productModal, preview, products])
 
+  // ---- Auto-add a product when arriving from the global scanner (/invoices/new?scan=CODE) ----
+  const scanParamAppliedRef = useRef(false)
+  useEffect(() => {
+    if (scanParamAppliedRef.current) return
+    const code = searchParams.get("scan")
+    if (!code) return
+    if (products.length === 0) return // wait until products are loaded
+    scanParamAppliedRef.current = true
+    addProductByCode(code)
+    // Clear the param so a refresh doesn't re-add the same line.
+    const next = new URLSearchParams(searchParams)
+    next.delete("scan")
+    setSearchParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, searchParams])
+
   async function persistInvoice(navigateAfterSave = false, showWhatsAppPrompt = true) {
     if (savedInvoiceId) return savedInvoiceId
     if (!selectedCustomer || items.length === 0 || hasInvalidTotal) return null

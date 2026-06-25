@@ -124,6 +124,12 @@ interface InventoryApi {
     @DELETE("products/{id}")
     suspend fun deleteProduct(@Path("id") id: String): ApiEnvelope<ProductDto>
 
+    @GET("products/deleted")
+    suspend fun getDeletedProducts(): ApiEnvelope<List<ProductDto>>
+
+    @POST("products/{id}/restore")
+    suspend fun restoreProduct(@Path("id") id: String): ApiEnvelope<ProductDto>
+
     @GET("reports/products/movement")
     suspend fun getProductMovement(
         @Query("productId") productId: String,
@@ -167,6 +173,12 @@ interface InventoryApi {
         @Path("id") id: String,
         @Body body: UpsertCustomerRequest
     ): ApiEnvelope<CustomerDto>
+
+    @PATCH("customers/{id}/portal-link")
+    suspend fun toggleCustomerPortalLink(
+        @Path("id") id: String,
+        @Body body: TogglePortalRequest
+    ): ApiEnvelope<Any>
 
     @GET("customers/{id}/transactions")
     suspend fun getCustomerTransactions(
@@ -238,6 +250,15 @@ interface InventoryApi {
 
     @POST("invoices/{id}/reactivate")
     suspend fun reactivateInvoice(@Path("id") id: String): ApiEnvelope<InvoiceDto>
+
+    @GET("invoices/recently-deleted")
+    suspend fun getRecentlyDeletedInvoices(): ApiEnvelope<List<InvoiceDto>>
+
+    @POST("invoices/{id}/restore-archived")
+    suspend fun restoreArchivedInvoice(@Path("id") id: String): ApiEnvelope<InvoiceDto>
+
+    @DELETE("invoices/{id}/permanent")
+    suspend fun permanentDeleteInvoice(@Path("id") id: String): ApiEnvelope<Any>
 
     @GET("quotations")
     suspend fun getQuotations(

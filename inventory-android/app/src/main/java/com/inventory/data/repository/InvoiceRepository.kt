@@ -146,6 +146,35 @@ class InvoiceRepository @Inject constructor(
         ApiResult.Error(error.message ?: "تعذر إرجاع الفاتورة نشطة")
     }
 
+    suspend fun recentlyDeletedInvoices(): ApiResult<List<Invoice>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.getRecentlyDeletedInvoices().data.orEmpty().map { it.toDomain() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل المحذوفات")
+        }
+    }
+
+    suspend fun restoreArchivedInvoice(id: String): ApiResult<Invoice> = try {
+        val invoice = apiClient.api.restoreArchivedInvoice(id).data
+        if (invoice == null) {
+            ApiResult.Error("لم يرجع السيرفر الفاتورة")
+        } else {
+            cacheInvoices(listOf(invoice))
+            ApiResult.Success(invoice.toDomain())
+        }
+    } catch (error: Exception) {
+        ApiResult.Error(error.message ?: "تعذر استرجاع الفاتورة")
+    }
+
+    suspend fun permanentDeleteInvoice(id: String): ApiResult<Unit> = try {
+        apiClient.api.permanentDeleteInvoice(id)
+        invoiceDao.deleteById(id)
+        ApiResult.Success(Unit)
+    } catch (error: Exception) {
+        ApiResult.Error(error.message ?: "تعذر الحذف النهائي")
+    }
+
     private suspend fun cacheInvoices(invoices: List<InvoiceDto>, replace: Boolean = false) {
         if (replace) {
             invoiceDao.replaceAll(invoices.map { it.toEntity() })

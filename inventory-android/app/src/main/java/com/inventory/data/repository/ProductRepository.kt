@@ -135,6 +135,26 @@ class ProductRepository @Inject constructor(
         }
     }
 
+    suspend fun deletedProducts(): ApiResult<List<Product>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.getDeletedProducts().data.orEmpty().map { it.toDomainFull() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل المحذوفات")
+        }
+    }
+
+    suspend fun restoreProduct(id: String): ApiResult<Unit> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val dto = apiClient.api.restoreProduct(id).data
+            if (dto != null) productDao.upsertAll(listOf(dto.toEntity()))
+            ApiResult.Success(Unit)
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر استرجاع المادة")
+        }
+    }
+
     suspend fun fetchById(id: String): ApiResult<Product> {
         if (!networkMonitor.isOnline()) return ApiResult.Offline
         return try {

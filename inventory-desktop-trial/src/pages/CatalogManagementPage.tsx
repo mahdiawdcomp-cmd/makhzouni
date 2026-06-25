@@ -7,11 +7,15 @@ import {
   Eye,
   EyeOff,
   Globe,
+  Image,
   Lock,
   MessageCircle,
+  Palette,
+  Plus,
   Search,
   ShieldOff,
   Tag,
+  Trash2,
   Unlock,
   X,
 } from "lucide-react"
@@ -21,12 +25,17 @@ import "dayjs/locale/ar"
 import {
   broadcastCatalogLink,
   getCatalogCustomers,
+  getCatalogDesign,
   getCustomerTags,
   getCustomersPaged,
+  getProduct,
+  getProducts,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccess,
   sendCatalogLinkToCustomer,
+  updateCatalogDesign,
+  type CatalogDesign,
 } from "../api/endpoints"
 import type { CatalogCustomer } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -399,7 +408,246 @@ function isSentNotOpened(c: CatalogCustomer) {
   return new Date(c.lastViewedAt).getTime() < new Date(c.catalogLinkSentAt).getTime()
 }
 
+/* ── Catalog Design Tab ── */
+const THEME_LABELS = { clean: "☀️ نظيف", warm: "🏪 دافئ", dark: "🌙 فاخر", vibrant: "🎨 حيوي" }
+
+function BannerProductPicker({ onPick }: { onPick: (url: string, name: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState("")
+  const { data, isLoading } = useQuery({
+    queryKey: ["banner-picker-products", search],
+    queryFn: () => getProducts({ search: search || undefined, limit: 30 }),
+    staleTime: 60_000,
+  })
+  const products = useMemo(() => (data ?? []).filter((p) => p.thumbnailUrl || p.imageUrl), [data])
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2 text-xs font-semibold text-slate-500 hover:border-violet-400 hover:text-violet-600 transition-colors">
+        <Image className="h-3.5 w-3.5" /> استعراض صور المنتجات
+      </button>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center gap-2 border-b border-slate-100 p-2">
+        <Search className="h-4 w-4 text-slate-400 shrink-0" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ابحث عن منتج..." className="flex-1 text-sm outline-none" />
+        <button onClick={() => setOpen(false)} className="shrink-0 rounded-lg p-1 hover:bg-slate-100"><X className="h-4 w-4 text-slate-400" /></button>
+      </div>
+      {isLoading && <p className="py-4 text-center text-xs text-slate-400">جاري التحميل...</p>}
+      {!isLoading && products.length === 0 && <p className="py-4 text-center text-xs text-slate-400">لا توجد منتجات بصور</p>}
+      <div className="grid grid-cols-4 gap-1.5 p-2 max-h-48 overflow-y-auto">
+        {products.map((p) => (
+          <button key={p.id} type="button"
+            onClick={async () => {
+              // Grid shows the thumbnail, but the banner needs the full image.
+              let full = p.imageUrl
+              if (!full) {
+                try { full = (await getProduct(p.id))?.imageUrl ?? p.thumbnailUrl ?? "" } catch { full = p.thumbnailUrl ?? "" }
+              }
+              onPick(full ?? "", p.name); setOpen(false)
+            }}
+            className="group overflow-hidden rounded-lg border border-slate-200 hover:border-violet-400 transition-colors"
+            title={p.name}>
+            <div className="aspect-square overflow-hidden">
+              <img src={p.thumbnailUrl ?? p.imageUrl ?? ""} alt={p.name} loading="lazy" className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200" />
+            </div>
+            <p className="truncate px-1 py-0.5 text-[9px] text-slate-500">{p.name}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CatalogDesignTab() {
+  const qc = useQueryClient()
+  const { data, isLoading } = useQuery({ queryKey: ["catalog-design"], queryFn: getCatalogDesign })
+  const [form, setForm] = useState<Partial<CatalogDesign>>({})
+  const [newBannerUrl, setNewBannerUrl] = useState("")
+  const [newBannerTitle, setNewBannerTitle] = useState("")
+
+  const current: CatalogDesign = {
+    primaryColor: null, bgColor: null, defaultTheme: "clean", logoUrl: null,
+    welcomeMessage: null, bannerEnabled: true, bannerImages: [],
+    ...data,
+    ...form,
+  }
+
+  const saveMut = useMutation({
+    mutationFn: () => updateCatalogDesign(current),
+    onSuccess: () => { toast({ title: "تم حفظ تصميم الكتلوك" }); qc.invalidateQueries({ queryKey: ["catalog-design"] }); setForm({}) },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  function patch(key: keyof CatalogDesign, value: unknown) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  function addBanner() {
+    if (!newBannerUrl.trim()) return
+    const images = [...(current.bannerImages ?? []), { url: newBannerUrl.trim(), title: newBannerTitle.trim(), order: current.bannerImages.length }]
+    patch("bannerImages", images)
+    setNewBannerUrl(""); setNewBannerTitle("")
+  }
+
+  function removeBanner(idx: number) {
+    patch("bannerImages", current.bannerImages.filter((_, i) => i !== idx).map((img, i) => ({ ...img, order: i })))
+  }
+
+  if (isLoading) return <div className="py-10 text-center text-sm text-slate-400">جاري التحميل...</div>
+
+  return (
+    <div className="space-y-6">
+      {/* Colors */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Palette className="h-5 w-5 text-violet-600" />الألوان والثيم</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            {(Object.keys(THEME_LABELS) as Array<keyof typeof THEME_LABELS>).map((t) => (
+              <button
+                key={t}
+                onClick={() => patch("defaultTheme", t)}
+                className={cn(
+                  "flex flex-col items-center gap-2 rounded-2xl border-2 p-3 text-sm font-semibold transition",
+                  current.defaultTheme === t ? "border-violet-500 bg-violet-50 text-violet-700" : "border-slate-200 hover:border-violet-300",
+                )}
+              >
+                <span className="text-2xl">{THEME_LABELS[t].split(" ")[0]}</span>
+                <span>{THEME_LABELS[t].split(" ").slice(1).join(" ")}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-slate-600">لون رئيسي مخصص (اختياري — يتجاوز ألوان الثيم)</span>
+              <div className="flex items-center gap-2">
+                <input type="color" value={current.primaryColor ?? "#059669"}
+                  onChange={(e) => patch("primaryColor", e.target.value)}
+                  className="h-9 w-14 cursor-pointer rounded-lg border p-1" />
+                <Input value={current.primaryColor ?? ""} onChange={(e) => patch("primaryColor", e.target.value || null)}
+                  placeholder="#059669" className="flex-1 font-mono text-sm" dir="ltr" />
+                {current.primaryColor && <button onClick={() => patch("primaryColor", null)} className="text-xs text-slate-400 hover:text-red-500">مسح</button>}
+              </div>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-slate-600">لون الخلفية المخصص (اختياري)</span>
+              <div className="flex items-center gap-2">
+                <input type="color" value={current.bgColor ?? "#f8fafc"}
+                  onChange={(e) => patch("bgColor", e.target.value)}
+                  className="h-9 w-14 cursor-pointer rounded-lg border p-1" />
+                <Input value={current.bgColor ?? ""} onChange={(e) => patch("bgColor", e.target.value || null)}
+                  placeholder="#f8fafc" className="flex-1 font-mono text-sm" dir="ltr" />
+                {current.bgColor && <button onClick={() => patch("bgColor", null)} className="text-xs text-slate-400 hover:text-red-500">مسح</button>}
+              </div>
+            </label>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Logo + Welcome */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Image className="h-5 w-5 text-blue-600" />الشعار والرسالة</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">رابط الشعار (URL)</span>
+            <div className="flex items-center gap-2">
+              <Input value={current.logoUrl ?? ""} onChange={(e) => patch("logoUrl", e.target.value || null)}
+                placeholder="https://..." dir="ltr" className="flex-1 text-sm" />
+              {current.logoUrl && <img src={current.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain border" onError={(e) => e.currentTarget.classList.add("hidden")} />}
+            </div>
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">رسالة الترحيب (تظهر للزبون في الكتلوك)</span>
+            <Input value={current.welcomeMessage ?? ""} onChange={(e) => patch("welcomeMessage", e.target.value || null)}
+              placeholder="مرحباً بك في متجرنا — أسعار الجملة المميزة" className="text-sm" />
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* Banner images */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base"><Image className="h-5 w-5 text-emerald-600" />صور البانر المتحرك</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex items-center gap-3">
+            <input type="checkbox" checked={current.bannerEnabled} onChange={(e) => patch("bannerEnabled", e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+            <span className="text-sm font-medium text-slate-700">إظهار البانر المتحرك</span>
+          </label>
+
+          {current.bannerImages.length > 0 && (
+            <div className="space-y-2">
+              {current.bannerImages.map((img, idx) => (
+                <div key={idx} className="flex items-center gap-3 rounded-xl border bg-slate-50 p-2.5">
+                  <img src={img.url} alt="" className="h-12 w-16 rounded-lg object-cover border" onError={(e) => e.currentTarget.src = ""} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-slate-800">{img.title || "(بدون عنوان)"}</p>
+                    <p className="truncate text-xs text-slate-400" dir="ltr">{img.url}</p>
+                  </div>
+                  <button onClick={() => removeBanner(idx)} className="shrink-0 rounded-lg p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="rounded-xl border-2 border-dashed border-violet-200 bg-violet-50/40 p-3 space-y-3">
+            <p className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
+              <Image className="h-3.5 w-3.5" /> إضافة صورة للبانر
+            </p>
+            <div className="flex gap-2 items-start">
+              {newBannerUrl && (
+                <div className="h-14 w-20 shrink-0 overflow-hidden rounded-lg border bg-slate-100">
+                  <img src={newBannerUrl} alt="" className="h-full w-full object-cover"
+                    onError={(e) => { e.currentTarget.style.opacity = "0.3" }} />
+                </div>
+              )}
+              <div className="flex-1 space-y-1.5">
+                <Input
+                  value={newBannerUrl}
+                  onChange={(e) => setNewBannerUrl(e.target.value)}
+                  placeholder="https://... الصق رابط الصورة هنا"
+                  dir="ltr"
+                  className="text-sm font-mono text-xs"
+                />
+                <p className="text-[10px] text-slate-400">
+                  يمكنك نسخ رابط الصورة من منتج موجود أو أي رابط صورة على الانترنت
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Input value={newBannerTitle} onChange={(e) => setNewBannerTitle(e.target.value)} placeholder="عنوان يظهر فوق الصورة (اختياري)" className="flex-1 text-sm" />
+              <Button onClick={addBanner} disabled={!newBannerUrl.trim()} className="shrink-0">
+                <Plus className="h-4 w-4 ml-1" /> إضافة
+              </Button>
+            </div>
+          </div>
+
+          <BannerProductPicker onPick={(url, name) => { setNewBannerUrl(url); setNewBannerTitle(name) }} />
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end">
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending} className="px-8">
+          {saveMut.isPending ? "جاري الحفظ..." : "حفظ التغييرات"}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function CatalogManagementPage() {
+  const [tab, setTab] = useState<"customers" | "design">("customers")
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
 
@@ -436,6 +684,25 @@ export function CatalogManagementPage() {
         <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن للوصول إلى الكاتلوك العام وإظهار الأسعار والكميات</p>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1 w-fit dark:bg-slate-800">
+        {([["customers", "الزبائن والصلاحيات"], ["design", "تصميم الكتلوك"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              "rounded-lg px-4 py-1.5 text-sm font-semibold transition",
+              tab === key ? "bg-white text-slate-900 shadow-sm dark:bg-slate-900 dark:text-white" : "text-slate-500 hover:text-slate-700",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "design" && <CatalogDesignTab />}
+
+      {tab === "customers" && (<>
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         <StatCard
@@ -549,6 +816,7 @@ export function CatalogManagementPage() {
           )}
         </CardContent>
       </Card>
+      </>)}
     </div>
   )
 }

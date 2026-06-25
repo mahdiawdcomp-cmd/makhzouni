@@ -18,6 +18,7 @@ import {
 import {
   cancelVoucher as cancelVoucherApi,
   deleteVoucher as deleteVoucherApi,
+  getCustomerTransactions,
   getVoucher,
   getVouchers,
   restoreVoucher as restoreVoucherApi,
@@ -62,6 +63,11 @@ export function VoucherDetailPage() {
   const partyName = voucher?.customer?.name ?? ""
   usePageTitle(voucher ? `${voucherTypeLabel}${partyName ? ` (${partyName})` : ""}` : "تحميل السند...")
   const listQuery = useQuery({ queryKey: ["vouchers", "all-for-nav"], queryFn: () => getVouchers() })
+  const transactionsQuery = useQuery({
+    queryKey: ["transactions", voucherQuery.data?.customer?.id],
+    queryFn: () => getCustomerTransactions(voucherQuery.data!.customer!.id),
+    enabled: !!voucherQuery.data?.customer?.id,
+  })
   const settingsQuery = useSettings()
   const settings = settingsQuery.data
 
@@ -274,6 +280,7 @@ export function VoucherDetailPage() {
         </Card>
 
         {voucher.customer ? (
+          <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>الزبون</CardTitle>
@@ -287,6 +294,76 @@ export function VoucherDetailPage() {
               </Button>
             </CardContent>
           </Card>
+
+            {/* Account summary for this voucher */}
+            {(() => {
+              const cur = settings?.currency ?? "د.ع"
+              const txs = transactionsQuery.data ?? []
+              const txIndex = txs.findIndex((t) => t.id === voucher.id || t.referenceNumber === voucher.voucherNumber)
+              const thisTx = txIndex >= 0 ? txs[txIndex] : null
+
+              const isReceipt = voucher.type === "RECEIPT"
+              const amt = Number(voucher.amount)
+              const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
+
+              let balanceAfter: number
+              let balanceBefore: number
+
+              if (thisTx) {
+                balanceAfter = thisTx.runningBalance
+                balanceBefore = balanceAfter + (thisTx.credit ?? 0) - (thisTx.debit ?? 0)
+              } else {
+                balanceAfter = currentBalance
+                balanceBefore = isReceipt ? currentBalance + amt : currentBalance - amt
+              }
+
+              const lastTx = thisTx && txIndex > 0 ? txs[txIndex - 1] : null
+
+              return (
+                <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+                  <CardHeader>
+                    <CardTitle className="text-blue-800 dark:text-blue-200">ملخص الحساب</CardTitle>
+                    {!thisTx && transactionsQuery.isSuccess && (
+                      <p className="text-[11px] text-amber-600">الأرقام تقديرية بناءً على الرصيد الحالي</p>
+                    )}
+                  </CardHeader>
+                  <CardContent className="space-y-3 text-sm">
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
+                        <div className="text-[11px] text-slate-500">قبل السند</div>
+                        <div className={`mt-1 text-base font-bold ${balanceBefore > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                          {money(balanceBefore)} {cur}
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/40">
+                        <div className="text-[11px] text-blue-600">مبلغ السند</div>
+                        <div className="mt-1 text-base font-bold text-blue-700 dark:text-blue-300">
+                          {money(amt)} {cur}
+                        </div>
+                      </div>
+                      <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
+                        <div className="text-[11px] text-slate-500">بعد السند</div>
+                        <div className={`mt-1 text-base font-bold ${balanceAfter > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                          {money(balanceAfter)} {cur}
+                        </div>
+                      </div>
+                    </div>
+                    {lastTx ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+                        <span className="text-slate-500">آخر تعامل قبله: </span>
+                        <span className="font-semibold">{lastTx.referenceNumber}</span>
+                        <span className="mx-1 text-slate-400">—</span>
+                        <span>{String(lastTx.date).slice(0, 10)}</span>
+                      </div>
+                    ) : null}
+                    {voucher.cancelledAt ? (
+                      <p className="text-xs text-amber-600">السند معطل — لا يؤثر على الرصيد</p>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              )
+            })()}
+          </div>
         ) : (
           <Card>
             <CardHeader><CardTitle>ملاحظات</CardTitle></CardHeader>

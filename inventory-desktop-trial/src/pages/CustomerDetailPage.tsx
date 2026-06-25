@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Trash2 } from "lucide-react"
+import { ArrowRight, Copy, Link2, Link2Off, MessageCircle, Pencil, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
-import { createCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
+import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
@@ -165,6 +165,23 @@ export function CustomerDetailPage() {
     mutationFn: () => createCustomerPortalLink(id!, 30),
   })
 
+  // Enable/disable the public portal link (separate from the create+share action).
+  const [portalEnabled, setPortalEnabled] = useState(customer?.portalLinkEnabled ?? false)
+  useEffect(() => {
+    setPortalEnabled(customer?.portalLinkEnabled ?? false)
+  }, [customer?.portalLinkEnabled])
+  const togglePortalMutation = useMutation({
+    mutationFn: (enable: boolean) => toggleCustomerPortalLink(id!, enable),
+    onSuccess: (result: unknown) => {
+      const isEnabled = !(result as { revokedAt?: string | null } | null)?.revokedAt
+      setPortalEnabled(isEnabled)
+      toast({ title: isEnabled ? "✓ الرابط مفعّل" : "✓ الرابط معطّل" })
+    },
+    onError: () => {
+      toast({ title: "✗ خطأ في تبديل الرابط", variant: "destructive" })
+    },
+  })
+
   const filteredTransactions = transactions.filter((row) => {
     const date = String(row.date).slice(0, 10)
     return (!from || date >= from) && (!to || date <= to)
@@ -261,6 +278,14 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={createPortalLinkAndShare} disabled={portalMutation.isPending || !customer.phone}>
             {portalMutation.isPending ? <Copy className="h-4 w-4 animate-pulse" /> : <Link2 className="h-4 w-4 text-sky-600" />}
             رابط العميل
+          </Button>
+          <Button
+            variant={portalEnabled ? "default" : "outline"}
+            onClick={() => togglePortalMutation.mutate(!portalEnabled)}
+            disabled={togglePortalMutation.isPending}
+          >
+            {portalEnabled ? <Link2 className="h-4 w-4" /> : <Link2Off className="h-4 w-4 text-slate-400" />}
+            {portalEnabled ? "الرابط مفعّل ✓" : "الرابط معطّل"}
           </Button>
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>

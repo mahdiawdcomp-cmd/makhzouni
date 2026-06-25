@@ -20,3 +20,21 @@ outputs/
 # Python cache
 .claude/skills/**/__pycache__/
 *.pyc
+
+# Secrets — NEVER commit (signing keys, prod env)
+*.pem
+.env.*
+inventory-desktop-trial/src-tauri/update-key.pem
+inventory-desktop-trial/src-tauri/update-key.pem.pub
+
+# Claude Code workflow tooling (machine-specific)
+.mcp.json
+.claude/mcp-tools/
+.claude/memory-keeper/
+.serena/
+.claude/settings.local.json
+
+# Build caches / scratch
+*.tsbuildinfo
+inventory-android/gradle_err.txt
+inventory-android/gradle_out.txt

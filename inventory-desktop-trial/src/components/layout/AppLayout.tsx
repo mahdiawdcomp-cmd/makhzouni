@@ -8,6 +8,7 @@ import { useAuthStore } from "../../store/authStore"
 import { Header } from "./Header"
 import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
+import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
@@ -115,6 +116,8 @@ export function AppLayout() {
   const mainRef = useRef<HTMLElement>(null)
   const { pathname } = useLocation()
   const invoiceDraftOpen = pathname === "/invoices/new"
+  // Global USB/Bluetooth barcode-gun listener — works from any page.
+  useGlobalBarcodeScanner()
 
   function keepInvoiceOpen(event: MouseEvent<HTMLDivElement>) {
     if (!invoiceDraftOpen || event.defaultPrevented || event.button !== 0) return

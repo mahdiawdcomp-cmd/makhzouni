@@ -96,6 +96,9 @@ interface InvoiceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<InvoiceEntity>)
 
+    @Query("DELETE FROM invoices WHERE id = :id")
+    suspend fun deleteById(id: String)
+
     @Query("DELETE FROM invoices")
     suspend fun clearInvoices()
 

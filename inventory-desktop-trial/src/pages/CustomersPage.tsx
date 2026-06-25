@@ -184,10 +184,20 @@ export function CustomersPage() {
               ))}
             </TBody>
           </Table>
-          <div className="flex items-center justify-between">
-            <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
-            <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}</span>
-            <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              {[10, 50, 100].map((n) => (
+                <Button key={n} size="sm" variant={table.getState().pagination.pageSize === n ? "default" : "outline"}
+                  onClick={() => table.setPageSize(n)}>
+                  {n}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
+              <span className="text-sm text-slate-500">صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}</span>
+              <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
+            </div>
           </div>
         </CardContent>
       </Card>

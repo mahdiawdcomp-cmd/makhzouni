@@ -242,6 +242,16 @@ export async function deleteProduct(id: string) {
   return data
 }
 
+export async function getDeletedProducts() {
+  const { data } = await api.get<ApiEnvelope<Product[]>>("/products/deleted")
+  return data.data
+}
+
+export async function restoreProduct(id: string) {
+  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/restore`)
+  return data
+}
+
 // ── Stale products (no movement in N days) ──────────────────────────────────
 export interface StaleProductsResult {
   days: number
@@ -373,6 +383,11 @@ export async function createCustomerPortalLink(id: string, expiresInDays = 30) {
   return data.data
 }
 
+export async function toggleCustomerPortalLink(id: string, enabled: boolean) {
+  const { data } = await api.patch<ApiEnvelope<CustomerPortalLink>>(`/customers/${id}/portal-link`, { enabled })
+  return data.data
+}
+
 export async function getCustomerPortal(token: string) {
   const { data } = await api.get<ApiEnvelope<CustomerPortalResponse>>(`/public/client/${token}`)
   return data.data
@@ -490,6 +505,16 @@ export async function reactivateInvoice(id: string) {
 export async function permanentDeleteInvoice(id: string) {
   const { data } = await api.delete<ApiEnvelope<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/permanent`)
   return data
+}
+
+export async function restoreArchivedInvoice(id: string) {
+  const { data } = await api.post<ApiEnvelope<Invoice>>(`/invoices/${id}/restore-archived`)
+  return data
+}
+
+export async function getRecentlyDeletedInvoices() {
+  const { data } = await api.get<ApiEnvelope<Invoice[]>>("/invoices/recently-deleted")
+  return data.data
 }
 
 export async function getInvoiceAuditTrail(id: string) {
@@ -876,6 +901,26 @@ export async function createTransfer(payload: CreateTransferPayload) {
 export async function getCatalogCustomers() {
   const { data } = await api.get<ApiEnvelope<CatalogCustomer[]>>("/catalog-management")
   return data.data ?? []
+}
+
+export interface CatalogDesign {
+  primaryColor: string | null
+  bgColor: string | null
+  defaultTheme: "clean" | "warm" | "dark" | "vibrant"
+  logoUrl: string | null
+  welcomeMessage: string | null
+  bannerEnabled: boolean
+  bannerImages: Array<{ url: string; title: string; order: number }>
+}
+
+export async function getCatalogDesign() {
+  const { data } = await api.get<ApiEnvelope<CatalogDesign>>("/catalog-management/design")
+  return data.data!
+}
+
+export async function updateCatalogDesign(payload: Partial<CatalogDesign>) {
+  const { data } = await api.put<ApiEnvelope<never>>("/catalog-management/design", payload)
+  return data
 }
 
 export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean }) {

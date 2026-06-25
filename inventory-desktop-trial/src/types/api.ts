@@ -295,6 +295,7 @@ export interface Customer {
   creditLimit?: number | null
   isSupplier?: boolean
   isBoth?: boolean
+  portalLinkEnabled?: boolean
   lastTransactionAt?: string | null
   createdAt?: string
   updatedAt?: string

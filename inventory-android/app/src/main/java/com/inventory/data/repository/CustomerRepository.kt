@@ -10,6 +10,7 @@ import com.inventory.data.remote.dto.CustomerDto
 import com.inventory.data.remote.dto.CustomerRatingDto
 import com.inventory.data.remote.dto.CustomerTransactionDto
 import com.inventory.data.remote.dto.LastTransactionDto
+import com.inventory.data.remote.dto.TogglePortalRequest
 import com.inventory.data.remote.dto.UpsertCustomerRequest
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.CustomerTransaction
@@ -98,6 +99,16 @@ class CustomerRepository @Inject constructor(
             syncRepository.enqueue("CREATE_RECEIPT", "POST", "vouchers", request)
         } else {
             apiClient.api.createVoucher(request)
+        }
+    }
+
+    suspend fun togglePortalLink(customerId: String, enabled: Boolean): ApiResult<Unit> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            apiClient.api.toggleCustomerPortalLink(customerId, TogglePortalRequest(enabled))
+            ApiResult.Success(Unit)
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تبديل الرابط")
         }
     }
 }

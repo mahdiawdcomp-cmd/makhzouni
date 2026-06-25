@@ -373,6 +373,8 @@ data class UpsertCustomerRequest(
     val isSupplier: Boolean = false
 )
 
+data class TogglePortalRequest(val enabled: Boolean)
+
 data class CustomerTransactionDto(
     val id: String,
     val date: String,

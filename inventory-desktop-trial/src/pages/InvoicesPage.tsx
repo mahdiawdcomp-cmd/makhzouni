@@ -9,9 +9,9 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Ban, Eye, Pencil, Plus, Receipt, RotateCcw, ShoppingCart } from "lucide-react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { cancelInvoice } from "../api/endpoints"
+import { Ban, ChevronDown, ChevronUp, Eye, Pencil, Plus, Receipt, RotateCcw, ShoppingCart, Trash2, Undo2 } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { cancelInvoice, getRecentlyDeletedInvoices, permanentDeleteInvoice, restoreArchivedInvoice } from "../api/endpoints"
 import { useInvoices } from "../hooks/useInvoices"
 import type { Invoice, InvoiceType } from "../types/api"
 import { Badge } from "../components/ui/badge"
@@ -83,11 +83,38 @@ export function InvoicesPage() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [cancelId, setCancelId] = useState<string | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [restoreId, setRestoreId] = useState<string | null>(null)
+  const [trashOpen, setTrashOpen] = useState(false)
+
+  const recentlyDeletedQuery = useQuery({
+    queryKey: ["invoices", "recently-deleted"],
+    queryFn: getRecentlyDeletedInvoices,
+    staleTime: 30_000,
+  })
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelInvoice(id),
     onSuccess: () => {
       setCancelId(null)
+      void qc.invalidateQueries({ queryKey: ["invoices"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+    },
+  })
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => restoreArchivedInvoice(id),
+    onSuccess: () => {
+      setRestoreId(null)
+      void qc.invalidateQueries({ queryKey: ["invoices"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => permanentDeleteInvoice(id),
+    onSuccess: () => {
+      setDeleteId(null)
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
@@ -353,21 +380,71 @@ export function InvoicesPage() {
             </TBody>
           </Table>
 
-          <div className="flex items-center justify-between">
-            <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-              السابق
-            </Button>
-            <span className="text-sm text-slate-500">
-              صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}
-            </span>
-            <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-              التالي
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1">
+              {[10, 50, 100].map((n) => (
+                <Button key={n} size="sm" variant={table.getState().pagination.pageSize === n ? "default" : "outline"}
+                  onClick={() => table.setPageSize(n)}>
+                  {n}
+                </Button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+                السابق
+              </Button>
+              <span className="text-sm text-slate-500">
+                صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}
+              </span>
+              <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+                التالي
+              </Button>
+            </div>
           </div>
           </>
           )}
         </CardContent>
       </Card>
+
+      {/* Recently deleted invoices (48h restore window) */}
+      {(recentlyDeletedQuery.data?.length ?? 0) > 0 && (
+        <Card className="border-amber-200 bg-amber-50 dark:bg-amber-950/20">
+          <CardHeader className="py-3 cursor-pointer" onClick={() => setTrashOpen((v) => !v)}>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                <Trash2 className="h-4 w-4" />
+                المحذوفات مؤخراً ({recentlyDeletedQuery.data?.length}) — يمكن الاسترجاع خلال 48 ساعة
+              </CardTitle>
+              {trashOpen ? <ChevronUp className="h-4 w-4 text-amber-600" /> : <ChevronDown className="h-4 w-4 text-amber-600" />}
+            </div>
+          </CardHeader>
+          {trashOpen && (
+            <CardContent className="pt-0 pb-3 space-y-2">
+              {recentlyDeletedQuery.data?.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-900 px-3 py-2 shadow-sm">
+                  <div className="text-sm">
+                    <span className="font-semibold">#{inv.invoiceNumber}</span>
+                    <span className="mx-2 text-slate-400">—</span>
+                    <span className="text-slate-600">{(inv as { customer?: { name?: string } }).customer?.name ?? "—"}</span>
+                    <span className="mx-2 text-slate-400">—</span>
+                    <span className="font-medium">{Number(inv.totalAmount).toLocaleString()} د.ع</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                      onClick={() => setRestoreId(inv.id)}>
+                      <Undo2 className="h-3.5 w-3.5" /> استرجاع
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50"
+                      onClick={() => setDeleteId(inv.id)}>
+                      <Trash2 className="h-3.5 w-3.5" /> حذف نهائي
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       <ConfirmDialog
         open={!!cancelId}
@@ -378,6 +455,25 @@ export function InvoicesPage() {
         loading={cancelMutation.isPending}
         onConfirm={() => { if (cancelId) cancelMutation.mutate(cancelId) }}
         onCancel={() => setCancelId(null)}
+      />
+      <ConfirmDialog
+        open={!!restoreId}
+        title="استرجاع الفاتورة؟"
+        description="سيتم إعادة الفاتورة ويرجع تأثيرها على المخزون والحساب."
+        confirmLabel="استرجاع"
+        loading={restoreMutation.isPending}
+        onConfirm={() => { if (restoreId) restoreMutation.mutate(restoreId) }}
+        onCancel={() => setRestoreId(null)}
+      />
+      <ConfirmDialog
+        open={!!deleteId}
+        title="حذف هذه الفاتورة نهائياً؟"
+        description="سيُحذف من قاعدة البيانات ويرجع المخزون. لا يمكن التراجع عن هذا الإجراء."
+        confirmLabel="حذف نهائي"
+        destructive
+        loading={deleteMutation.isPending}
+        onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId) }}
+        onCancel={() => setDeleteId(null)}
       />
     </div>
   )
