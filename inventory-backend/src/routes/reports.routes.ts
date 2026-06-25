@@ -11,6 +11,7 @@ import {
   inventoryValuationReport,
   productMovementReport,
   profitReport,
+  storeBrainReport,
   salesReport,
   sendDebtReminder,
   topCustomersReport,
@@ -21,6 +22,7 @@ import {
   customerDebtsReportSchema,
   productMovementReportSchema,
   profitReportSchema,
+  storeBrainReportSchema,
   salesReportSchema,
 } from "../utils/schemas";
 
@@ -40,6 +42,7 @@ router.get("/customers/at-risk", atRiskCustomersReport);
 router.get("/customers/ratings", customerRatingsReport);
 router.get("/customers/debt-aging", debtAgingReport);
 router.get("/profit", validate(profitReportSchema), profitReport);
+router.get("/store-brain", validate(storeBrainReportSchema), storeBrainReport);
 router.get("/debt-reminder", debtReminderList);
 router.post("/debt-reminder/send", sendDebtReminder);
 

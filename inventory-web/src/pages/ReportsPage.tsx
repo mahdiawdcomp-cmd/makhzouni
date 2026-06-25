@@ -13,16 +13,17 @@ import {
 import { normalizePhone } from "../utils/whatsapp"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
-import { getProfitReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { getProfitReport, getStoreBrainReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "archive"
+type Tab = "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
+  { id: "store-brain",  label: "عقل المحل",      emoji: "🧠" },
   { id: "sales",        label: "المبيعات",       emoji: "📊" },
   { id: "profits",      label: "الأرباح",         emoji: "💰" },
   { id: "top-customers",label: "أفضل الزبائن",   emoji: "🏆" },
@@ -62,6 +63,7 @@ export function ReportsPage() {
         ))}
       </div>
 
+      {tab === "store-brain"   && <StoreBrainTab />}
       {tab === "sales"         && <SalesTab />}
       {tab === "profits"       && <ProfitsTab />}
       {tab === "top-customers" && <TopCustomersTab />}
@@ -114,6 +116,141 @@ function SalesTab() {
               <Bar dataKey="totalSales" fill="var(--theme-accent, #f59e0b)" name="المبيعات" />
             </BarChart>
           </ResponsiveContainer>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Store Brain Tab («عقل المحل») ───────────────────────────────────────────
+function StoreBrainTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["store-brain"],
+    queryFn: () => getStoreBrainReport(),
+  })
+
+  if (isLoading) return <div className="py-10 text-center text-slate-400">جاري التحميل...</div>
+  if (!data) return <div className="py-10 text-center text-slate-400">لا توجد بيانات</div>
+
+  const c = data.comparison
+  const Trend = ({ pct }: { pct: number }) => (
+    <span className={`text-xs font-semibold ${pct >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+      {pct >= 0 ? "▲" : "▼"} {Math.abs(pct)}% عن الشهر الماضي
+    </span>
+  )
+
+  return (
+    <div className="space-y-5" dir="rtl">
+      {/* Month-over-month hero cards */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-slate-500">صافي الربح (هذا الشهر)</p>
+          <p className={`mt-1 text-2xl font-extrabold ${c.current.netProfit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{fmt(c.current.netProfit)}</p>
+          <Trend pct={c.change.netProfitPct} />
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-slate-500">ربح المبيعات (إجمالي)</p>
+          <p className="mt-1 text-2xl font-extrabold text-amber-600">{fmt(c.current.grossProfit)}</p>
+          <Trend pct={c.change.grossProfitPct} />
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-xs text-slate-500">الإيراد</p>
+          <p className="mt-1 text-2xl font-extrabold text-indigo-600">{fmt(c.current.revenue)}</p>
+          <Trend pct={c.change.revenuePct} />
+        </CardContent></Card>
+      </div>
+
+      {/* Fake stars + Promote */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle className="text-rose-600">⭐ نجوم زائفة — تبيع كثير، ربح قليل</CardTitle></CardHeader>
+          <CardContent>
+            {data.fakeStars.length === 0 ? <p className="text-sm text-slate-400">لا يوجد</p> : (
+              <Table>
+                <THead><TR><TH>المنتج</TH><TH>مبيع (قطعة)</TH><TH>الهامش %</TH><TH>الربح</TH></TR></THead>
+                <TBody>{data.fakeStars.map((p) => (
+                  <TR key={p.id}><TD className="font-medium">{p.name}</TD><TD>{p.qty}</TD><TD className="text-rose-600">{p.margin}%</TD><TD>{fmt(p.profit)}</TD></TR>
+                ))}</TBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-emerald-600">🚀 روّج له — ربح عالٍ، بيع ضعيف</CardTitle></CardHeader>
+          <CardContent>
+            {data.promote.length === 0 ? <p className="text-sm text-slate-400">لا يوجد</p> : (
+              <Table>
+                <THead><TR><TH>المنتج</TH><TH>الهامش %</TH><TH>مبيع (قطعة)</TH><TH>الربح</TH></TR></THead>
+                <TBody>{data.promote.map((p) => (
+                  <TR key={p.id}><TD className="font-medium">{p.name}</TD><TD className="text-emerald-600">{p.margin}%</TD><TD>{p.qty}</TD><TD>{fmt(p.profit)}</TD></TR>
+                ))}</TBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Profit by day of week */}
+      {data.byDayOfWeek.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>الربح حسب يوم الأسبوع</CardTitle></CardHeader>
+          <CardContent className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.byDayOfWeek}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tickFormatter={(v) => fmt(v)} />
+                <Tooltip formatter={(v) => fmt(Number(v))} />
+                <Bar dataKey="profit" fill="#10b981" name="الربح" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* By customer + by employee */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>الربح حسب الزبون</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <THead><TR><TH>الزبون</TH><TH>الربح</TH><TH>الهامش %</TH></TR></THead>
+              <TBody>{data.byCustomer.map((r) => (
+                <TR key={r.id}><TD className="font-medium">{r.name}</TD><TD className={r.profit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(r.profit)}</TD><TD className="text-blue-600">{r.margin}%</TD></TR>
+              ))}</TBody>
+            </Table>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>الربح حسب الموظف</CardTitle></CardHeader>
+          <CardContent>
+            <Table>
+              <THead><TR><TH>الموظف</TH><TH>الربح</TH><TH>الإيراد</TH></TR></THead>
+              <TBody>{data.byEmployee.map((r) => (
+                <TR key={r.id}><TD className="font-medium">{r.name}</TD><TD className="text-emerald-600 font-bold">{fmt(r.profit)}</TD><TD>{fmt(r.revenue)}</TD></TR>
+              ))}</TBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* All products with classification */}
+      <Card>
+        <CardHeader><CardTitle>كل المنتجات — الربح والتصنيف</CardTitle></CardHeader>
+        <CardContent>
+          <Table>
+            <THead><TR><TH>المنتج</TH><TH>مبيع</TH><TH>الإيراد</TH><TH>الربح</TH><TH>الهامش %</TH><TH>تصنيف</TH></TR></THead>
+            <TBody>{data.byProduct.map((p) => (
+              <TR key={p.id}>
+                <TD className="font-medium">{p.name}</TD>
+                <TD>{p.qty}</TD>
+                <TD>{fmt(p.revenue)}</TD>
+                <TD className={p.profit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(p.profit)}</TD>
+                <TD className="text-blue-600">{p.margin}%</TD>
+                <TD>{p.flag === "fake_star" ? <span className="text-rose-600 font-semibold">نجم زائف</span> : p.flag === "promote" ? <span className="text-emerald-600 font-semibold">روّج له</span> : "—"}</TD>
+              </TR>
+            ))}</TBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

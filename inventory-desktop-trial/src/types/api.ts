@@ -142,6 +142,24 @@ export interface ProfitReport {
   topProducts: Array<{ id: string; name: string; revenue: number; cost: number; profit: number; margin: number; qty: number }>
 }
 
+export interface StoreBrainProductRow { id: string; name: string; revenue: number; profit: number; margin: number; qty: number; flag: "fake_star" | "promote" | null }
+export interface StoreBrainRow { id: string; name: string; revenue: number; profit: number; margin: number; qty: number }
+export interface StoreBrainMonth { label: string; netProfit: number; grossProfit: number; revenue: number; margin: number }
+export interface StoreBrainReport {
+  comparison: {
+    current: StoreBrainMonth
+    previous: StoreBrainMonth
+    change: { netProfitPct: number; grossProfitPct: number; revenuePct: number }
+  }
+  range: { from: string; to: string }
+  byProduct: StoreBrainProductRow[]
+  fakeStars: StoreBrainProductRow[]
+  promote: StoreBrainProductRow[]
+  byCustomer: StoreBrainRow[]
+  byEmployee: StoreBrainRow[]
+  byDayOfWeek: Array<{ day: number; name: string; revenue: number; profit: number }>
+}
+
 export interface DebtCustomer {
   id: string
   name: string

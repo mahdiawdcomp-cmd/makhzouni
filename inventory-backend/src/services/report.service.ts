@@ -1132,6 +1132,153 @@ export async function getProfitReport(query: ProfitReportQuery) {
   };
 }
 
+// ── «عقل المحل» — Store Brain (smart profit dashboard) ────────────────────────
+// Gross profit per product/customer/employee/day-of-week (revenue − snapshot COGS),
+// net profit month-over-month, and "fake star" / "promote" classification.
+export interface StoreBrainQuery {
+  from?: string;
+  to?: string;
+}
+
+export async function getStoreBrainReport(query: StoreBrainQuery) {
+  const now = new Date();
+  const curStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const curEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+  // Month-over-month net profit (always calendar months) — reuse getProfitReport.
+  const [curReport, prevReport] = await Promise.all([
+    getProfitReport({ from: iso(curStart), to: iso(curEnd), groupBy: "month" }),
+    getProfitReport({ from: iso(prevStart), to: iso(prevEnd), groupBy: "month" }),
+  ]);
+  const pct = (cur: number, prev: number) =>
+    prev === 0 ? (cur > 0 ? 100 : 0) : Math.round(((cur - prev) / Math.abs(prev)) * 100);
+
+  // Breakdowns over the selected range (default = current month).
+  const from = query.from ?? iso(curStart);
+  const to = query.to ?? iso(curEnd);
+  const df = dateFilter(from, to);
+  const include = {
+    product: true,
+    invoice: {
+      select: {
+        date: true, subtotal: true, totalAmount: true, createdBy: true, customerId: true,
+        creator: { select: { name: true } },
+        customer: { select: { name: true } },
+      },
+    },
+  };
+
+  const [saleItems, returnItems] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: { invoice: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, ...(df ? { date: df } : {}) } },
+      include,
+    }),
+    prisma.invoiceItem.findMany({
+      where: { invoice: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALES_RETURN, ...(df ? { date: df } : {}) } },
+      include,
+    }),
+  ]);
+
+  type Agg = { name: string; revenue: number; cost: number; qty: number };
+  const products = new Map<string, Agg>();
+  const customers = new Map<string, Agg>();
+  const employees = new Map<string, Agg>();
+  const dow = new Map<number, { revenue: number; cost: number }>();
+
+  const accumulate = (items: typeof saleItems, sign: 1 | -1) => {
+    for (const item of items) {
+      const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice) * sign;
+      const cost = itemCostPrice({ ...item, product: item.product }) * sign;
+      const qty = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton) * sign;
+
+      const p = products.get(item.productId) ?? { name: item.productName, revenue: 0, cost: 0, qty: 0 };
+      products.set(item.productId, { name: item.productName, revenue: p.revenue + revenue, cost: p.cost + cost, qty: p.qty + qty });
+
+      const custName = item.invoice.customer?.name ?? "—";
+      const c = customers.get(item.invoice.customerId) ?? { name: custName, revenue: 0, cost: 0, qty: 0 };
+      customers.set(item.invoice.customerId, { name: custName, revenue: c.revenue + revenue, cost: c.cost + cost, qty: c.qty + qty });
+
+      const empName = item.invoice.creator?.name ?? "—";
+      const e = employees.get(item.invoice.createdBy) ?? { name: empName, revenue: 0, cost: 0, qty: 0 };
+      employees.set(item.invoice.createdBy, { name: empName, revenue: e.revenue + revenue, cost: e.cost + cost, qty: e.qty + qty });
+
+      const d = new Date(item.invoice.date).getDay();
+      const day = dow.get(d) ?? { revenue: 0, cost: 0 };
+      dow.set(d, { revenue: day.revenue + revenue, cost: day.cost + cost });
+    }
+  };
+  accumulate(saleItems, 1);
+  accumulate(returnItems, -1);
+
+  const toRow = (id: string, a: Agg) => ({
+    id,
+    name: a.name,
+    revenue: Math.round(a.revenue),
+    profit: Math.round(a.revenue - a.cost),
+    margin: a.revenue > 0 ? Math.round(((a.revenue - a.cost) / a.revenue) * 100) : 0,
+    qty: a.qty,
+  });
+
+  const productRows = Array.from(products.entries()).map(([id, a]) => toRow(id, a));
+
+  // Smart classification via tertiles over products that actually sold.
+  const sold = productRows.filter((r) => r.qty > 0);
+  const qtySorted = sold.map((r) => r.qty).sort((a, b) => a - b);
+  const marginSorted = sold.map((r) => r.margin).sort((a, b) => a - b);
+  const tertile = (arr: number[], frac: number) => (arr.length ? arr[Math.floor((arr.length - 1) * frac)] : 0);
+  const qtyHi = tertile(qtySorted, 2 / 3);
+  const qtyLo = tertile(qtySorted, 1 / 3);
+  const marginHi = tertile(marginSorted, 2 / 3);
+  const marginLo = tertile(marginSorted, 1 / 3);
+  const classify = (r: { qty: number; margin: number }): "fake_star" | "promote" | null => {
+    if (r.qty <= 0) return null;
+    if (r.qty >= qtyHi && r.margin <= marginLo) return "fake_star"; // sells a lot, low margin
+    if (r.margin >= marginHi && r.qty <= qtyLo) return "promote"; // high margin, sells little
+    return null;
+  };
+  const byProduct = productRows
+    .map((r) => ({ ...r, flag: classify(r) }))
+    .sort((a, b) => b.profit - a.profit);
+
+  const dayNames = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+  return {
+    comparison: {
+      current: {
+        label: iso(curStart).slice(0, 7),
+        netProfit: curReport.summary.netProfit,
+        grossProfit: curReport.summary.totalProfit,
+        revenue: curReport.summary.totalRevenue,
+        margin: curReport.summary.avgMargin,
+      },
+      previous: {
+        label: iso(prevStart).slice(0, 7),
+        netProfit: prevReport.summary.netProfit,
+        grossProfit: prevReport.summary.totalProfit,
+        revenue: prevReport.summary.totalRevenue,
+        margin: prevReport.summary.avgMargin,
+      },
+      change: {
+        netProfitPct: pct(curReport.summary.netProfit, prevReport.summary.netProfit),
+        grossProfitPct: pct(curReport.summary.totalProfit, prevReport.summary.totalProfit),
+        revenuePct: pct(curReport.summary.totalRevenue, prevReport.summary.totalRevenue),
+      },
+    },
+    range: { from, to },
+    byProduct: byProduct.slice(0, 50),
+    fakeStars: byProduct.filter((r) => r.flag === "fake_star").slice(0, 10),
+    promote: byProduct.filter((r) => r.flag === "promote").slice(0, 10),
+    byCustomer: Array.from(customers.entries()).map(([id, a]) => toRow(id, a)).sort((a, b) => b.profit - a.profit).slice(0, 15),
+    byEmployee: Array.from(employees.entries()).map(([id, a]) => toRow(id, a)).sort((a, b) => b.profit - a.profit),
+    byDayOfWeek: Array.from(dow.entries())
+      .map(([d, v]) => ({ day: d, name: dayNames[d], revenue: Math.round(v.revenue), profit: Math.round(v.revenue - v.cost) }))
+      .sort((a, b) => a.day - b.day),
+  };
+}
+
 // ── Bulk Debt Reminder ────────────────────────────────────────────────────────
 
 export async function getDebtCustomersForReminder(minDays: number) {

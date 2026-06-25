@@ -655,6 +655,13 @@ export const profitReportSchema = z.object({
   }),
 });
 
+export const storeBrainReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+  }),
+});
+
 export const customerDebtsReportSchema = z.object({
   query: z.object({
     minDays: z.coerce.number().int().min(0).default(0),

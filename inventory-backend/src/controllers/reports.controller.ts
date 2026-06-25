@@ -10,6 +10,7 @@ import {
   getSalesReport,
   getTopCustomersReport,
   getProfitReport,
+  getStoreBrainReport,
   getDebtCustomersForReminder,
   getCustomerRatings,
   getDebtAging,
@@ -94,6 +95,13 @@ export const atRiskCustomersReport = asyncHandler(async (req, res) => {
 export const profitReport = asyncHandler(async (req, res) => {
   const data = await getProfitReport(
     req.validatedQuery as Parameters<typeof getProfitReport>[0]
+  );
+  res.json({ success: true, data });
+});
+
+export const storeBrainReport = asyncHandler(async (req, res) => {
+  const data = await getStoreBrainReport(
+    req.validatedQuery as Parameters<typeof getStoreBrainReport>[0]
   );
   res.json({ success: true, data });
 });

@@ -49,6 +49,7 @@ import type {
   TopCustomer,
   EndOfDayReport,
   ProfitReport,
+  StoreBrainReport,
   DebtCustomer,
   StocktakeSessionSummary,
   StocktakeSessionDetail,
@@ -1042,6 +1043,11 @@ export async function cancelOrderPreparation(id: string) {
 // ── Profit Report ─────────────────────────────────────────────────────────────
 export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
   const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })
+  return data.data!
+}
+
+export async function getStoreBrainReport(params?: { from?: string; to?: string }) {
+  const { data } = await api.get<ApiEnvelope<StoreBrainReport>>("/reports/store-brain", { params })
   return data.data!
 }
 
