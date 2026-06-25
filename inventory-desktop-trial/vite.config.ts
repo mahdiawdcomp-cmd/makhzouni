@@ -47,5 +47,8 @@ export default defineConfig({
     host: true,   // listen on 0.0.0.0 — يخلي الموبايل يوصل عبر IP الشبكة
     port: 1421,
     strictPort: true,
+    // Don't watch the Rust build dir — cargo writes DLLs there during `tauri dev`
+    // and the file watcher would crash with EBUSY on Windows.
+    watch: { ignored: ["**/src-tauri/**"] },
   },
 })
