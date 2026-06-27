@@ -1604,7 +1604,15 @@ export function InvoiceCreatePage() {
                 className="mt-0.5 h-8 text-sm"
                 inputMode="numeric"
                 dir="ltr"
-                value={paidAmount === 0 ? "" : paidAmount.toLocaleString("en-US")}
+                // In CASH mode the paid amount is always the (live) total, so show the
+                // derived effectivePaid and lock the field — otherwise it would keep a
+                // stale number after the quantity/total changes.
+                disabled={paymentMode === "CASH"}
+                value={
+                  paymentMode === "CASH"
+                    ? (effectivePaid === 0 ? "" : effectivePaid.toLocaleString("en-US"))
+                    : (paidAmount === 0 ? "" : paidAmount.toLocaleString("en-US"))
+                }
                 placeholder="0"
                 onFocus={selectAllOnFocus}
                 onChange={(e) => {

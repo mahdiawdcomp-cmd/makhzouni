@@ -29,14 +29,64 @@ const actionOptions = [
   { value: "REACTIVATE", label: "إرجاع نشط" },
 ]
 
-function formatJson(value: unknown) {
-  if (!value) return "-"
-  return JSON.stringify(value, null, 2)
+const entityLabels: Record<string, string> = Object.fromEntries(
+  entityOptions.filter((o) => o.value).map((o) => [o.value, o.label]),
+)
+const actionLabels: Record<string, string> = Object.fromEntries(
+  actionOptions.filter((o) => o.value).map((o) => [o.value, o.label]),
+)
+
+// Human-readable Arabic labels for the most common changed fields. Anything not
+// listed falls back to the raw key (still readable: name, price, …).
+const fieldLabels: Record<string, string> = {
+  name: "الاسم", phone: "الهاتف", address: "العنوان", notes: "ملاحظات",
+  category: "الفئة", status: "الحالة", quantity: "الكمية", unit: "الوحدة",
+  price: "السعر", unitPrice: "سعر الوحدة", salePrice: "سعر البيع",
+  retailPrice: "سعر المفرد", purchasePrice: "سعر الشراء", costPrice: "الكلفة",
+  oldPrice: "السعر القديم", discount: "الخصم", paidAmount: "المدفوع",
+  totalAmount: "الإجمالي", subtotal: "المجموع", currentBalance: "الرصيد الحالي",
+  openingBalance: "الرصيد الافتتاحي", creditLimit: "سقف الدين",
+  minStock: "الحد الأدنى", openingBalancePcs: "الرصيد الافتتاحي (قطع)",
+  cartonsAvailable: "الكراتين المتوفرة", pcsPerCarton: "قطع/كرتون",
+  itemNumber: "رقم المادة", storageLocation: "موقع التخزين",
+  isNewArrival: "وصل حديثاً", isOffer: "عرض", isActive: "مفعّل",
+  isSupplier: "مورّد", deletedAt: "محذوف", date: "التاريخ", type: "النوع",
+  paymentType: "نوع الدفع", expiryDate: "تاريخ الانتهاء",
 }
 
-function metadataPart(value: unknown, key: string) {
-  if (!value || typeof value !== "object" || !(key in value)) return undefined
-  return (value as Record<string, unknown>)[key]
+// Keys that are internal / noisy and should never be shown to the end user.
+const hiddenFields = new Set([
+  "id", "createdAt", "updatedAt", "createdBy", "updatedBy", "deletedBy",
+  "branchId", "customerId", "userId", "tenantId", "qrCode", "cartonQrCode",
+  "imageUrl", "thumbnailUrl", "warehouseStocks", "currentStock",
+])
+
+function fieldLabel(key: string) {
+  return fieldLabels[key] ?? key
+}
+
+function formatVal(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—"
+  if (typeof value === "boolean") return value ? "نعم" : "لا"
+  if (typeof value === "number") return value.toLocaleString("en-US")
+  if (typeof value === "string") {
+    // Hide long blobs (base64 images, tokens) and ISO timestamps tails.
+    if (value.length > 60) return "…"
+    return value.replace("T", " ").slice(0, 19) || "—"
+  }
+  if (Array.isArray(value)) return value.length ? `${value.length} عنصر` : "—"
+  return "(تفاصيل)"
+}
+
+type ChangeMap = Record<string, { before: unknown; after: unknown }>
+
+function readableChanges(metadata: unknown): Array<{ key: string; before: unknown; after: unknown }> {
+  if (!metadata || typeof metadata !== "object" || !("changes" in metadata)) return []
+  const changes = (metadata as { changes?: ChangeMap }).changes
+  if (!changes || typeof changes !== "object") return []
+  return Object.entries(changes)
+    .filter(([key]) => !hiddenFields.has(key))
+    .map(([key, v]) => ({ key, before: v?.before, after: v?.after }))
 }
 
 export function AuditLogsPage() {
@@ -118,28 +168,33 @@ export function AuditLogsPage() {
               </TR>
             </THead>
             <TBody>
-              {(logsQuery.data ?? []).map((log) => (
+              {(logsQuery.data ?? []).map((log) => {
+                const changes = readableChanges(log.metadata)
+                return (
                 <TR key={log.id}>
                   <TD>{String(log.createdAt).slice(0, 19).replace("T", " ")}</TD>
                   <TD>{log.user?.name ?? "-"}</TD>
-                  <TD>{log.action}</TD>
-                  <TD>{log.entity}</TD>
+                  <TD>{actionLabels[log.action] ?? log.action}</TD>
+                  <TD>{entityLabels[log.entity] ?? log.entity}</TD>
                   <TD className="max-w-40 truncate">{log.recordId ?? "-"}</TD>
                   <TD>
-                    <details className="max-w-xl">
-                      <summary className="cursor-pointer text-sm text-slate-600 dark:text-slate-300">عرض</summary>
-                      <pre className="mt-2 max-h-64 overflow-auto rounded-md bg-slate-100 p-3 text-xs dark:bg-slate-900">
-                        {formatJson({
-                          changes: metadataPart(log.metadata, "changes"),
-                          requestBody: metadataPart(log.metadata, "requestBody"),
-                          before: log.before,
-                          after: log.after,
-                        })}
-                      </pre>
-                    </details>
+                    {log.action === "UPDATE" && changes.length > 0 ? (
+                      <ul className="space-y-1 text-xs">
+                        {changes.map((c) => (
+                          <li key={c.key} className="flex flex-wrap items-center gap-1">
+                            <span className="font-semibold text-slate-700 dark:text-slate-200">{fieldLabel(c.key)}:</span>
+                            <span className="text-rose-600 line-through dark:text-rose-400">{formatVal(c.before)}</span>
+                            <span className="text-slate-400">←</span>
+                            <span className="text-emerald-700 dark:text-emerald-400">{formatVal(c.after)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-sm text-slate-400">—</span>
+                    )}
                   </TD>
                 </TR>
-              ))}
+              )})}
             </TBody>
           </Table>
           {!logsQuery.isLoading && (logsQuery.data ?? []).length === 0 ? (
