@@ -4,6 +4,7 @@ import { generateInvoicePdf } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
+import { logger } from "../utils/logger";
 import {
   getWhatsAppStatus,
   restartWhatsApp,
@@ -29,6 +30,9 @@ export const whatsappIncomingWebhook = asyncHandler(async (req, res) => {
         extendedTextMessageData?: { text?: string };
       };
     };
+
+    // Confirm Green API actually reaches us — logs the event type of every hit.
+    logger.info(`[WhatsAppWebhook] received: ${body.typeWebhook ?? "unknown"}`);
 
     if (body.typeWebhook === "incomingMessageReceived") {
       const chatId = body.senderData?.chatId ?? body.senderData?.sender ?? "";

@@ -43,10 +43,13 @@ export async function routeIncomingMessage(rawPhone: string, text: string) {
   if (!phone || !text?.trim()) return;
 
   const settings = await getSettings();
-  if (!settings.whatsappBotEnabled) return;
+  // Visibility log so we can confirm Green API actually reaches the server.
+  logger.info(`[WhatsAppBot] incoming from ${phone}: ${text.slice(0, 80)}`);
 
   const customer = await prisma.customer.findUnique({ where: { phone } });
-  if (customer) {
+
+  // 1) Known customer + customer-service bot enabled → try a command auto-reply.
+  if (customer && settings.whatsappBotEnabled) {
     const reply = await composeCustomerReply(customer, text, settings);
     if (reply) {
       await sendWhatsAppText(phone, reply).catch((err) =>
@@ -54,25 +57,30 @@ export async function routeIncomingMessage(rawPhone: string, text: string) {
       );
       return;
     }
-    // Known customer, but the message matched none of the 4 commands —
-    // log it for a manual reply instead of guessing or staying silent.
-    await logInbound({ phone, name: customer.name, source: "CUSTOMER_UNMATCHED", messageText: text });
-    return;
+    // Matched no rule — fall through to log it for a manual reply.
   }
 
-  // Not a customer — try the prospect group-link auto-reply (separate
-  // feature, keyed off its own keyword list) before falling back.
-  const handledAsProspect = await handleIncomingProspectReply(phone, text).catch(() => false);
-  if (handledAsProspect) return;
+  // 2) Not a customer → try the prospect group-link auto-reply. This has its OWN
+  // toggle (prospectAutoReplyEnabled) and must work even when the bot is off.
+  if (!customer) {
+    const handledAsProspect = await handleIncomingProspectReply(phone, text).catch(() => false);
+    if (handledAsProspect) return;
+  }
 
-  const prospect = await prisma.prospect.findUnique({ where: { phone } });
-  const source: InboundMessageSource = prospect ? "PROSPECT" : "UNKNOWN";
-  const unknownMsg = settings.botUnknownMessage?.trim() || "هلا، استلمنا رسالتك، الإدارة رح ترد عليك قريباً.";
+  // 3) Fallback: always log to the inbox so the owner can reply by hand —
+  // regardless of whether the bot is enabled. Only auto-send the "unknown"
+  // message when the bot is actually enabled.
+  const prospect = customer ? null : await prisma.prospect.findUnique({ where: { phone } });
+  const source: InboundMessageSource = customer ? "CUSTOMER_UNMATCHED" : prospect ? "PROSPECT" : "UNKNOWN";
+  const name = customer?.name ?? prospect?.name ?? null;
 
-  await sendWhatsAppText(phone, unknownMsg).catch((err) =>
-    logger.warn(`[WhatsAppBot] unknown-reply failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`)
-  );
-  await logInbound({ phone, name: prospect?.name ?? null, source, messageText: text });
+  if (settings.whatsappBotEnabled) {
+    const unknownMsg = settings.botUnknownMessage?.trim() || "هلا، استلمنا رسالتك، الإدارة رح ترد عليك قريباً.";
+    await sendWhatsAppText(phone, unknownMsg).catch((err) =>
+      logger.warn(`[WhatsAppBot] unknown-reply failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`)
+    );
+  }
+  await logInbound({ phone, name, source, messageText: text });
 }
 
 // Rules are checked in order; the first keyword match wins. Built-in rule
