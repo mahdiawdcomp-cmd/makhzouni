@@ -74,7 +74,10 @@ export async function routeIncomingMessage(rawPhone: string, text: string) {
   const source: InboundMessageSource = customer ? "CUSTOMER_UNMATCHED" : prospect ? "PROSPECT" : "UNKNOWN";
   const name = customer?.name ?? prospect?.name ?? null;
 
-  if (settings.whatsappBotEnabled) {
+  // Send the generic "wait for admin" reply only on the FIRST contact from this
+  // number — otherwise a chatty sender gets the same message on every message.
+  const priorMessages = await prisma.inboundMessage.count({ where: { phone } });
+  if (settings.whatsappBotEnabled && priorMessages === 0) {
     const unknownMsg = settings.botUnknownMessage?.trim() || "هلا، استلمنا رسالتك، الإدارة رح ترد عليك قريباً.";
     await sendWhatsAppText(phone, unknownMsg).catch((err) =>
       logger.warn(`[WhatsAppBot] unknown-reply failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`)
