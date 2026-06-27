@@ -318,12 +318,11 @@ function CampaignRow({ campaign, onOpen, onEdit, onToggle, onDelete }: {
             className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 active:scale-90" title="تعديل">
             <Pencil className="h-4 w-4" />
           </button>
-          {campaign.status !== "DONE" && (
-            <button onClick={onToggle}
-              className={`flex h-9 w-9 items-center justify-center rounded-xl text-white active:scale-90 ${campaign.status === "RUNNING" ? "bg-amber-500" : "bg-emerald-600"}`}>
-              {campaign.status === "RUNNING" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            </button>
-          )}
+          <button onClick={onToggle}
+            className={`flex h-9 w-9 items-center justify-center rounded-xl text-white active:scale-90 ${campaign.status === "RUNNING" ? "bg-amber-500" : "bg-emerald-600"}`}
+            title={campaign.status === "DONE" ? "إعادة تشغيل (بعد إضافة أرقام جديدة)" : undefined}>
+            {campaign.status === "RUNNING" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          </button>
           <button onClick={onDelete} className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-red-500 active:scale-90">
             <Trash2 className="h-4 w-4" />
           </button>
