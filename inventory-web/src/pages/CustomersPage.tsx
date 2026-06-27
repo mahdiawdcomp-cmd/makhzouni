@@ -18,6 +18,8 @@ import { TagPicker } from "../components/ui/tag-picker"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 
 const emptyCustomer: CustomerPayload = {
   name: "",
@@ -135,6 +137,9 @@ export function CustomersPage() {
         // they actually see what they added.
         setSortBy("createdDesc")
         setPagination((p) => ({ ...p, pageIndex: 0 }))
+      },
+      onError: (error) => {
+        toast({ title: "تعذر حفظ الزبون", description: apiErrorMessage(error), variant: "destructive" })
       },
     })
   }

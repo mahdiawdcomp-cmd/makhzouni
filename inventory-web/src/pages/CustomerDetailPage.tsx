@@ -10,6 +10,7 @@ import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
+import { apiErrorMessage } from "../utils/apiError"
 import { sendWhatsAppMessage } from "../api/endpoints"
 import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -400,6 +401,7 @@ export function CustomerDetailPage() {
         }
         isPending={updateMutation.isPending}
         isError={updateMutation.isError}
+        error={updateMutation.error}
       />
       <ConfirmDialog
         open={deleteOpen}
@@ -575,6 +577,7 @@ function EditCustomerModal({
   onSave,
   isPending,
   isError,
+  error,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -582,6 +585,7 @@ function EditCustomerModal({
   onSave: (payload: Partial<CustomerPayload>) => void
   isPending: boolean
   isError: boolean
+  error?: unknown
 }) {
   const [form, setForm] = useState({
     name: customer.name,
@@ -729,7 +733,7 @@ function EditCustomerModal({
 
         {isError && (
           <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            تعذر حفظ التعديلات. تأكد من المعلومات وحاول مرة أخرى.
+            تعذر حفظ التعديلات: {apiErrorMessage(error)}
           </p>
         )}
 
