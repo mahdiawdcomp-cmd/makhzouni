@@ -8,8 +8,10 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Eye, Plus, Receipt } from "lucide-react"
+import { Eye, Plus, Receipt, Trash2, Undo2 } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCustomers } from "../hooks/useCustomers"
+import { getDeletedCustomers, restoreCustomer } from "../api/endpoints"
 import type { Customer, CustomerPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -49,6 +51,18 @@ export function CustomersPage() {
   const [open, setOpen] = useState(false)
   const [closeConfirm, setCloseConfirm] = useState(false)
   const [form, setForm] = useState<CustomerPayload>(emptyCustomer)
+  const [trashOpen, setTrashOpen] = useState(false)
+  const qc = useQueryClient()
+  const deletedQuery = useQuery({ queryKey: ["customers-deleted"], queryFn: getDeletedCustomers, enabled: trashOpen })
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => restoreCustomer(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customers-deleted"] })
+      qc.invalidateQueries({ queryKey: ["customers"] })
+      toast({ title: "✓ تم استرجاع الزبون" })
+    },
+    onError: (error) => toast({ title: "تعذر الاسترجاع", description: apiErrorMessage(error), variant: "destructive" }),
+  })
   const customers = customersQuery.data ?? []
   const now = Date.now()
 
@@ -151,9 +165,14 @@ export function CustomersPage() {
           <h1 className="text-2xl font-bold">الزبائن والموردين</h1>
           <p className="text-slate-500">كشف الحساب والأرصدة والسندات.</p>
         </div>
-        <Button onClick={() => { setForm({ ...emptyCustomer, isSupplier: isSupplierTab, isBoth: false }); setOpen(true); }}>
-          <Plus className="h-4 w-4" /> {isSupplierTab ? "مورد جديد" : "زبون جديد"}
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setTrashOpen(true)}>
+            <Trash2 className="h-4 w-4" /> الزبائن المحذوفون
+          </Button>
+          <Button onClick={() => { setForm({ ...emptyCustomer, isSupplier: isSupplierTab, isBoth: false }); setOpen(true); }}>
+            <Plus className="h-4 w-4" /> {isSupplierTab ? "مورد جديد" : "زبون جديد"}
+          </Button>
+        </div>
       </div>
       <div className="flex border-b border-slate-200 dark:border-slate-800">
         <button
@@ -281,6 +300,27 @@ export function CustomersPage() {
         onConfirm={() => { setCloseConfirm(false); setForm(emptyCustomer); setOpen(false) }}
         onCancel={() => setCloseConfirm(false)}
       />
+
+      <ModalForm open={trashOpen} onOpenChange={setTrashOpen} title="الزبائن المحذوفون">
+        <div className="space-y-2">
+          <p className="text-sm text-slate-500">
+            الحذف هنا حذف ظاهري — الفواتير والحركات تبقى محفوظة، ورقم الهاتف يبقى محجوز لهذا الزبون حتى تسترجعه أو تحذفه نهائياً.
+          </p>
+          {deletedQuery.isLoading && <p className="text-sm text-slate-400">جار التحميل...</p>}
+          {deletedQuery.data?.length === 0 && <p className="text-sm text-slate-400">لا يوجد زبائن محذوفون</p>}
+          {deletedQuery.data?.map((c) => (
+            <div key={c.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <div>
+                <p className="font-medium">{c.name}</p>
+                <p className="text-xs text-slate-500">{c.phone} · رصيد: {c.currentBalance}</p>
+              </div>
+              <Button variant="outline" disabled={restoreMutation.isPending} onClick={() => restoreMutation.mutate(c.id)}>
+                <Undo2 className="h-4 w-4" /> استرجاع
+              </Button>
+            </div>
+          ))}
+        </div>
+      </ModalForm>
     </div>
   )
 }

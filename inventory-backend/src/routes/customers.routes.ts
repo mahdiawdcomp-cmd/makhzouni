@@ -10,6 +10,7 @@ import {
   getCustomers,
   getCustomerTags,
   getDebts,
+  getDeletedCustomersList,
   getInactiveCustomers,
   getLastTransaction,
   getTransactions,
@@ -20,6 +21,7 @@ import {
   postCustomerTag,
   postSendCatalogLink,
   recalculateBalance,
+  restoreCustomerCtrl,
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { enforcePlanLimit } from "../middleware/tenant.middleware";
@@ -60,6 +62,8 @@ router.delete("/tags", requirePermission("MANAGE_CUSTOMERS"), validate(customerT
 router.post("/broadcast", requirePermission("MANAGE_CUSTOMERS"), validate(customerBroadcastSchema), postCustomerBroadcast);
 router.post("/broadcast-catalog-link", requirePermission("MANAGE_CUSTOMERS"), validate(catalogLinkBroadcastSchema), postCatalogLinkBroadcast);
 router.get("/inactive", validate(inactiveCustomersSchema), getInactiveCustomers);
+router.get("/deleted", requirePermission("MANAGE_CUSTOMERS"), getDeletedCustomersList);
+router.post("/:id/restore", requirePermission("MANAGE_CUSTOMERS"), validate(idParamSchema), restoreCustomerCtrl);
 router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);
 router.post("/", enforcePlanLimit("customer"), validate(createCustomerSchema), addCustomer);

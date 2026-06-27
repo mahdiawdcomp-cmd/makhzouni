@@ -26,6 +26,8 @@ import {
   softDeleteCustomer,
   updateCustomer,
   recalculateCustomerBalance,
+  getDeletedCustomers,
+  restoreCustomer,
 } from "../services/customer.service";
 import { hasPermission } from "../middleware/permission.middleware";
 import { logger } from "../utils/logger";
@@ -147,6 +149,16 @@ export const deleteCustomer = asyncHandler(async (req, res) => {
     message: "Customer deleted successfully",
     data: customer,
   });
+});
+
+export const getDeletedCustomersList = asyncHandler(async (_req, res) => {
+  const data = await getDeletedCustomers();
+  res.json({ success: true, data });
+});
+
+export const restoreCustomerCtrl = asyncHandler(async (req, res) => {
+  const customer = await restoreCustomer(String(req.params.id));
+  res.json({ success: true, message: "تم استرجاع الزبون", data: customer });
 });
 
 export const getTransactions = asyncHandler(async (req, res) => {

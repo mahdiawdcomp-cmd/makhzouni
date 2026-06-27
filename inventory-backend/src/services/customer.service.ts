@@ -269,10 +269,28 @@ export async function getCustomerById(id: string) {
 }
 
 export async function createCustomer(input: CreateCustomerInput, db: Db = prisma) {
+  const phone = normalizePhone(input.phone);
+
+  // Phone is unique even across soft-deleted customers (their history must
+  // stay intact), so a deleted customer's number stays "reserved". Give a
+  // clear, actionable error instead of a raw constraint-violation message.
+  const existing = await db.customer.findUnique({ where: { phone } });
+  if (existing) {
+    if (existing.deletedAt) {
+      throw new AppError(
+        `هذا الرقم يخص زبون محذوف: «${existing.name}» (رصيده ${Number(existing.currentBalance)}). ` +
+          `استرجعه من «الزبائن المحذوفون» بدل إضافة زبون جديد بنفس الرقم.`,
+        409,
+        "PHONE_BELONGS_TO_DELETED_CUSTOMER"
+      );
+    }
+    throw new AppError(`رقم الهاتف مستخدم من زبون آخر: «${existing.name}»`, 409, "PHONE_IN_USE");
+  }
+
   const customer = await db.customer.create({
     data: {
       name: input.name,
-      phone: normalizePhone(input.phone),
+      phone,
       address: input.address,
       notes: input.notes,
       tags: input.tags ?? [],
@@ -325,6 +343,25 @@ export async function softDeleteCustomer(id: string, db: Db = prisma) {
   });
 
   return serializeCustomer(customer);
+}
+
+export async function getDeletedCustomers() {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: { not: null } },
+    orderBy: { deletedAt: "desc" },
+  });
+  return customers.map(serializeCustomer);
+}
+
+export async function restoreCustomer(id: string) {
+  const customer = await prisma.customer.findFirst({ where: { id, deletedAt: { not: null } } });
+  if (!customer) throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
+
+  const restored = await prisma.customer.update({
+    where: { id },
+    data: { deletedAt: null },
+  });
+  return serializeCustomer(restored);
 }
 
 export async function getCustomerTransactions(id: string, filter: TransactionFilter) {

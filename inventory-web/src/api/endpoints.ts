@@ -496,6 +496,16 @@ export async function deleteCustomer(id: string) {
   return data
 }
 
+export async function getDeletedCustomers() {
+  const { data } = await api.get<ApiEnvelope<Customer[]>>("/customers/deleted")
+  return data.data ?? []
+}
+
+export async function restoreCustomer(id: string) {
+  const { data } = await api.post<ApiEnvelope<Customer>>(`/customers/${id}/restore`, {})
+  return data.data
+}
+
 export async function createCustomerPortalLink(id: string, expiresInDays = 30) {
   const { data } = await api.post<ApiEnvelope<CustomerPortalLink>>(`/customers/${id}/portal-link`, { expiresInDays })
   return data.data
