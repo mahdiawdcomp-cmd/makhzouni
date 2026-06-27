@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Trash2 } from "lucide-react"
+import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Send, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
-import { toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
+import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
@@ -220,6 +220,26 @@ export function CustomerDetailPage() {
     await portalMutation.mutateAsync(!portalEnabled)
   }
 
+  // Sending always mints a FRESH link — once a link is revoked or already
+  // sent, its plain token can never be recovered (only its hash is stored),
+  // so there's no "old link" to resend. This also activates the portal.
+  const sendPortalLinkMutation = useMutation({
+    mutationFn: () => createCustomerPortalLink(id!),
+    onSuccess: async (link) => {
+      setPortalEnabled(true)
+      if (!customer?.phone || !link) return
+      const url = `${window.location.origin}${link.urlPath}`
+      const msg = `مرحباً ${customer.name}،\nهذا رابطك الخاص لمتابعة حسابك وفواتيرك في أي وقت:\n${url}`
+      try {
+        await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: msg })
+        toast({ title: "✓ تم إرسال رابط العميل عبر واتساب." })
+      } catch {
+        toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله. تحقق من إعدادات واتساب.", variant: "destructive" })
+      }
+    },
+    onError: () => toast({ title: "✗ تعذر إنشاء الرابط.", variant: "destructive" }),
+  })
+
   const lastLink = lastActivityLink(last)
   const lastTimeStr = last?.date
     ? formatDateTime(last.date)
@@ -283,6 +303,15 @@ export function CustomerDetailPage() {
               <Link2 className="h-4 w-4 text-slate-400" />
             )}
             {portalEnabled ? "رابط العميل مفعّل ✓" : "رابط العميل معطّل"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => sendPortalLinkMutation.mutate()}
+            disabled={sendPortalLinkMutation.isPending || !customer.phone}
+            title="ينشئ رابطاً جديداً ويرسله عبر واتساب"
+          >
+            <Send className={`h-4 w-4 text-sky-600 ${sendPortalLinkMutation.isPending ? "animate-pulse" : ""}`} />
+            إرسال رابط العميل الإلكتروني
           </Button>
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>

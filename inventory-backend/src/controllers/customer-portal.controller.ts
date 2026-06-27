@@ -26,7 +26,7 @@ export const revokePortalLinks = asyncHandler(async (req, res) => {
 });
 
 export const togglePortalLinkController = asyncHandler(async (req, res) => {
-  const result = await togglePortalLink(String(req.params.id));
+  const result = await togglePortalLink(String(req.params.id), Boolean(req.body?.enabled));
   res.json({ success: true, data: result });
 });
 

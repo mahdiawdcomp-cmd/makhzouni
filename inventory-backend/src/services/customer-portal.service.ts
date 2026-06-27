@@ -60,30 +60,27 @@ export async function revokeCustomerPortalLinks(customerId: string) {
   `;
 }
 
-export async function togglePortalLink(customerId: string) {
-  const link = await prisma.customerPortalLink.findFirst({
-    where: { customerId, revokedAt: null },
-    select: { id: true, revokedAt: true },
-  });
-
-  if (!link) {
-    throw new AppError("No active portal link found. Create one first.", 404, "PORTAL_LINK_NOT_FOUND");
+// Enable/disable the customer's portal access. Disabling revokes any active
+// link. Enabling, when no active link exists (never created, or previously
+// revoked — the plain token of a revoked link can never be recovered since
+// only its hash is stored), mints a fresh one so the caller can immediately
+// offer it for sending.
+export async function togglePortalLink(customerId: string, enabled: boolean) {
+  if (!enabled) {
+    await revokeCustomerPortalLinks(customerId);
+    return { enabled: false, revokedAt: new Date(), urlPath: undefined, token: undefined };
   }
 
-  const enabled = !link.revokedAt;
-  await prisma.customerPortalLink.update({
-    where: { id: link.id },
-    data: { revokedAt: enabled ? new Date() : null },
+  const active = await prisma.customerPortalLink.findFirst({
+    where: { customerId, revokedAt: null },
+    select: { id: true },
   });
+  if (active) {
+    return { enabled: true, revokedAt: null, urlPath: undefined, token: undefined };
+  }
 
-  const updatedLink = await prisma.customerPortalLink.findUnique({
-    where: { id: link.id },
-  });
-
-  return {
-    enabled: !updatedLink?.revokedAt,
-    revokedAt: updatedLink?.revokedAt ?? null,
-  };
+  const created = await createCustomerPortalLink(customerId);
+  return { enabled: true, revokedAt: null, urlPath: created.urlPath, token: created.token };
 }
 
 export async function getCustomerPortalByToken(token: string) {
