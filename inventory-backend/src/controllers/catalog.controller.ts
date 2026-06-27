@@ -1,5 +1,6 @@
 import {
   getCatalogAccess,
+  getCatalogProductImage,
   listCatalogProducts,
   lookupCatalogAccess,
   requestCatalogAccess,
@@ -30,6 +31,14 @@ export const getCatalogSession = asyncHandler(async (req, res) => {
 export const getCatalogProducts = asyncHandler(async (req, res) => {
   const products = await listCatalogProducts(String(req.query.access ?? ""));
   res.json({ success: true, data: products });
+});
+
+export const getCatalogProductImageCtrl = asyncHandler(async (req, res) => {
+  const imageUrl = await getCatalogProductImage(
+    String(req.query.access ?? ""),
+    String(req.query.id ?? ""),
+  );
+  res.json({ success: true, data: { imageUrl } });
 });
 
 export const createCatalogOrder = asyncHandler(async (req, res) => {

@@ -367,6 +367,11 @@ export async function listCatalogProducts(token: string) {
   const access = await getCatalogAccess(token);
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
+    // The catalog list never needs the full-resolution image — sending only the
+    // lightweight thumbnail keeps the payload tiny (was 2-3 min to load with all
+    // full images). The full image is fetched on demand when a shopper taps to
+    // zoom (see getCatalogProductImage).
+    omit: { imageUrl: true },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
@@ -377,7 +382,7 @@ export async function listCatalogProducts(token: string) {
         id: product.id,
         itemNumber: product.itemNumber,
         name: product.name,
-        imageUrl: product.imageUrl,
+        thumbnailUrl: product.thumbnailUrl,
         category: product.category,
         categoryTags: product.categoryTags,
         typeTags: product.typeTags,
@@ -393,6 +398,18 @@ export async function listCatalogProducts(token: string) {
       };
     })
     .filter((product) => product.currentStock > 0);
+}
+
+// Fetch the full-resolution image for a single catalog product on demand.
+// Called when a shopper taps the thumbnail to zoom — keeps the list payload
+// lightweight while still serving the full picture when actually needed.
+export async function getCatalogProductImage(token: string, productId: string) {
+  await getCatalogAccess(token); // validates access — throws if token invalid/revoked
+  const product = await prisma.product.findFirst({
+    where: { id: productId, deletedAt: null },
+    select: { imageUrl: true },
+  });
+  return product?.imageUrl ?? null;
 }
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {

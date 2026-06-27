@@ -22,6 +22,7 @@ import {
   getCatalogAccessStatus,
   getCatalogSession,
   getPublicCatalogProducts,
+  getPublicCatalogProductImage,
   requestCatalogAccess,
   sendCatalogOtp,
   verifyCatalogOtp,
@@ -607,6 +608,19 @@ function CatalogShop({
     else if (e.key === "Escape") { setSearch(""); setActiveSugg(0) }
   }
 
+  // Zoom: show the lightweight thumbnail instantly, then fetch the full-res
+  // image in the background and swap it in once it arrives (mirrors the
+  // inventory page so the catalog loads fast and images load on tap).
+  async function openZoom(product: PublicCatalogProduct) {
+    const thumb = product.thumbnailUrl || product.imageUrl
+    if (!thumb) return
+    setZoomedImg({ src: thumb, name: product.name })
+    try {
+      const full = await getPublicCatalogProductImage(accessToken, product.id)
+      if (full) setZoomedImg({ src: full, name: product.name })
+    } catch {}
+  }
+
   function renderCard(product: PublicCatalogProduct) {
     const productLines = cart.filter(l => l.product.id === product.id)
     const qtyInCart = productLines.reduce((s, l) => s + l.quantity, 0)
@@ -630,7 +644,7 @@ function CatalogShop({
         onAdd={(unit) => add(product, unit)}
         onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
         onOpenPicker={() => setPickerProduct(product)}
-        onZoom={(src) => setZoomedImg({ src, name: product.name })}
+        onZoom={() => openZoom(product)}
       />
     )
   }
@@ -839,8 +853,8 @@ function CatalogShop({
         const slides: Array<{ src: string; title: string; subtitle?: string }> =
           adminImgs.length >= 2
             ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
-            : products.filter(p => p.imageUrl && p.currentStock > 0).slice(0, 8).map(p => ({
-                src: p.imageUrl!, title: p.name,
+            : products.filter(p => (p.thumbnailUrl || p.imageUrl) && p.currentStock > 0).slice(0, 8).map(p => ({
+                src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
                 subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
               }))
         if (slides.length < 2) return null
@@ -1058,8 +1072,8 @@ function UnitPickerSheet({
 
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${tk.divider}` }}>
-          {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="h-14 w-14 rounded-xl object-cover border" style={{ borderColor: tk.divider }} />
+          {(product.thumbnailUrl || product.imageUrl) ? (
+            <img src={product.thumbnailUrl || product.imageUrl!} alt={product.name} className="h-14 w-14 rounded-xl object-cover border" style={{ borderColor: tk.divider }} loading="lazy" decoding="async" />
           ) : (
             <div className="flex h-14 w-14 items-center justify-center rounded-xl" style={{ background: tk.catIdle }}>
               <ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.4 }} />
@@ -1164,8 +1178,10 @@ function ProductCard({
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
   onOpenPicker: () => void
-  onZoom: (src: string) => void
+  onZoom: () => void
 }) {
+  // Prefer the lightweight thumbnail; the full-res image is fetched on zoom.
+  const thumbSrc = product.thumbnailUrl || product.imageUrl
   const outOfStock = product.currentStock <= 0
   const lowStock = product.currentStock > 0 && product.currentStock <= 5
   // Price shown is for PIECE by default (when not in cart) or the cart unit
@@ -1196,8 +1212,8 @@ function ProductCard({
         }}>
         {/* Square image */}
         <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
-          {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+          {thumbSrc ? (
+            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" decoding="async" onClick={onZoom} />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
@@ -1254,8 +1270,8 @@ function ProductCard({
       <div className="overflow-hidden rounded-xl transition-transform active:scale-[0.97]"
         style={{ background: tk.cardBg, border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}` }}>
         <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
-          {product.imageUrl ? (
-            <img src={product.imageUrl} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+          {thumbSrc ? (
+            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" decoding="async" onClick={onZoom} />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
@@ -1303,10 +1319,10 @@ function ProductCard({
       }}>
       {/* Image — full square with all controls overlaid */}
       <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
-        {product.imageUrl ? (
-          <img src={product.imageUrl} alt={product.name}
+        {thumbSrc ? (
+          <img src={thumbSrc} alt={product.name}
             className="h-full w-full object-cover cursor-zoom-in transition-transform duration-300 hover:scale-105"
-            loading="lazy" onClick={() => onZoom(product.imageUrl!)} />
+            loading="lazy" decoding="async" onClick={onZoom} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <ImageIcon className="h-10 w-10" style={{ color: tk.subtext, opacity: 0.2 }} />
@@ -1618,8 +1634,9 @@ function CartItem({
 /* ── Thumbnail ─────────────────────────────────────────────────────── */
 function MiniThumb({ product, size = "sm" }: { product: PublicCatalogProduct; size?: "sm" | "lg" }) {
   const cls = size === "lg" ? "h-14 w-14 rounded-xl" : "h-9 w-9 rounded-lg"
-  return product.imageUrl ? (
-    <img src={product.imageUrl} alt="" className={cn("shrink-0 object-cover", cls)} loading="lazy" />
+  const src = product.thumbnailUrl || product.imageUrl
+  return src ? (
+    <img src={src} alt="" className={cn("shrink-0 object-cover", cls)} loading="lazy" decoding="async" />
   ) : (
     <div className={cn("shrink-0 flex items-center justify-center bg-gray-100 text-gray-300", cls)}>
       <ImageIcon className={size === "lg" ? "h-5 w-5" : "h-3.5 w-3.5"} />

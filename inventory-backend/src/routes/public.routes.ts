@@ -3,6 +3,7 @@ import {
   createCatalogAccessRequest,
   createCatalogOrder,
   getCatalogAccessStatus,
+  getCatalogProductImageCtrl,
   getCatalogProducts,
   getCatalogSession,
   validatePromoCtrl,
@@ -82,6 +83,7 @@ router.post("/catalog/access/request", catalogLimiter, validate(catalogAccessReq
 router.get("/catalog/access/status", catalogLimiter, validate(catalogAccessStatusSchema), getCatalogAccessStatus);
 router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogSession);
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
+router.get("/catalog/product-image", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProductImageCtrl);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
 router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
 

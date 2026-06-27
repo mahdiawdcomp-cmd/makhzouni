@@ -162,6 +162,11 @@ export async function getPublicCatalogProducts(access: string) {
   return data.data ?? []
 }
 
+export async function getPublicCatalogProductImage(access: string, id: string) {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/product-image", { params: { access, id } })
+  return data.data?.imageUrl ?? null
+}
+
 export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string) {
   const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access } })
   return data
