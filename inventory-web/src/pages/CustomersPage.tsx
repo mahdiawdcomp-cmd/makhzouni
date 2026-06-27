@@ -128,6 +128,13 @@ export function CustomersPage() {
       onSuccess: () => {
         setOpen(false)
         setForm(emptyCustomer)
+        // The list doesn't auto-jump to page 1 on data changes (that caused a
+        // navigation-freeze bug previously — see autoResetPageIndex below).
+        // So a newly added customer can land off-screen on whatever page/sort
+        // the user was on. Force "newest first" + page 1 just this once so
+        // they actually see what they added.
+        setSortBy("createdDesc")
+        setPagination((p) => ({ ...p, pageIndex: 0 }))
       },
     })
   }
