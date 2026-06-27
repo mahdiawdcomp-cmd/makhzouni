@@ -185,7 +185,7 @@ export async function importRecipients(campaignId: string, entries: RecipientEnt
       name = name ?? existingCustomer.name;
     } else {
       counter++;
-      name = name ?? `new-${String(counter).padStart(4, "0")}`;
+      name = name ?? `costmer-${String(counter).padStart(4, "0")}`;
       await prisma.customer.create({
         data: { name, phone: entry.phone, tags: [NEW_TAG], openingBalance: 0, currentBalance: 0 },
       });
