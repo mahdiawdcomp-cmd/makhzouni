@@ -2,11 +2,11 @@ import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Plus, Play, Pause, Trash2, Clock, Users, CheckCircle2, XCircle,
-  Upload, Image as ImageIcon, UserPlus, DownloadCloud,
+  Upload, Image as ImageIcon, UserPlus, DownloadCloud, Pencil,
 } from "lucide-react"
 import {
   convertProspect, deleteProspect, getProspects, importProspects, importProspectsFromImages,
-  createCampaign, deleteCampaign, getCampaign, getCampaigns, loadCampaignProspects,
+  createCampaign, updateCampaign, deleteCampaign, getCampaign, getCampaigns, loadCampaignProspects,
   setCampaignStatus, deleteCampaignRecipient,
 } from "../api/endpoints"
 import type { Campaign, CampaignPayload, CampaignStatus, Prospect } from "../types/api"
@@ -225,6 +225,7 @@ function SendTab() {
   const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [editTarget, setEditTarget] = useState<Campaign | null>(null)
   const campaignsQuery = useQuery({ queryKey: ["campaigns"], queryFn: getCampaigns, refetchInterval: 15_000 })
   const campaigns = campaignsQuery.data ?? []
 
@@ -240,7 +241,7 @@ function SendTab() {
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <button onClick={() => { setShowForm(true); setSelectedId(null) }}
+        <button onClick={() => { setShowForm(true); setEditTarget(null); setSelectedId(null) }}
           className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow active:scale-95">
           <Plus className="h-4 w-4" /> حملة جديدة
         </button>
@@ -255,12 +256,31 @@ function SendTab() {
           onSaved={() => { setShowForm(false); qc.invalidateQueries({ queryKey: ["campaigns"] }) }} />
       )}
 
+      {editTarget && (
+        <CampaignForm
+          campaignId={editTarget.id}
+          initial={{
+            name: editTarget.name,
+            messages: editTarget.messages,
+            includeCatalogLink: editTarget.includeCatalogLink,
+            minDelaySec: editTarget.minDelaySec,
+            maxDelaySec: editTarget.maxDelaySec,
+            dailyMin: editTarget.dailyMin,
+            dailyMax: editTarget.dailyMax,
+            activeStartHour: editTarget.activeStartHour,
+            activeEndHour: editTarget.activeEndHour,
+          }}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ["campaigns"] }) }} />
+      )}
+
       <div className="space-y-3">
         {campaigns.length === 0 && !campaignsQuery.isLoading && (
           <div className="rounded-xl border border-dashed border-gray-300 py-12 text-center text-gray-400">لا توجد حملات بعد</div>
         )}
         {campaigns.map((c) => (
           <CampaignRow key={c.id} campaign={c} onOpen={() => setSelectedId(c.id)}
+            onEdit={() => { setEditTarget(c); setShowForm(false); setSelectedId(null) }}
             onToggle={() => statusMut.mutate({ id: c.id, status: c.status === "RUNNING" ? "PAUSED" : "RUNNING" })}
             onDelete={() => { if (confirm(`حذف حملة «${c.name}»؟`)) deleteMut.mutate(c.id) }} />
         ))}
@@ -271,8 +291,8 @@ function SendTab() {
   )
 }
 
-function CampaignRow({ campaign, onOpen, onToggle, onDelete }: {
-  campaign: Campaign; onOpen: () => void; onToggle: () => void; onDelete: () => void
+function CampaignRow({ campaign, onOpen, onEdit, onToggle, onDelete }: {
+  campaign: Campaign; onOpen: () => void; onEdit: () => void; onToggle: () => void; onDelete: () => void
 }) {
   const counts = campaign.counts ?? { PENDING: 0, SENT: 0, FAILED: 0, SKIPPED: 0 }
   const total = campaign.total ?? 0
@@ -294,6 +314,10 @@ function CampaignRow({ campaign, onOpen, onToggle, onDelete }: {
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
+          <button onClick={onEdit}
+            className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-600 active:scale-90" title="تعديل">
+            <Pencil className="h-4 w-4" />
+          </button>
           {campaign.status !== "DONE" && (
             <button onClick={onToggle}
               className={`flex h-9 w-9 items-center justify-center rounded-xl text-white active:scale-90 ${campaign.status === "RUNNING" ? "bg-amber-500" : "bg-emerald-600"}`}>
@@ -312,13 +336,15 @@ function CampaignRow({ campaign, onOpen, onToggle, onDelete }: {
   )
 }
 
-function CampaignForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState<CampaignPayload>(emptyForm)
-  const [messagesText, setMessagesText] = useState("")
+function CampaignForm({ onClose, onSaved, initial, campaignId }: {
+  onClose: () => void; onSaved: () => void; initial?: CampaignPayload; campaignId?: string
+}) {
+  const [form, setForm] = useState<CampaignPayload>(initial ?? emptyForm)
+  const [messagesText, setMessagesText] = useState((initial?.messages ?? []).join("\n---\n"))
   const saveMut = useMutation({
     mutationFn: () => {
       const messages = messagesText.split(/\n-{2,}\n/).map((m) => m.trim()).filter(Boolean)
-      return createCampaign({ ...form, messages })
+      return campaignId ? updateCampaign(campaignId, { ...form, messages }) : createCampaign({ ...form, messages })
     },
     onSuccess: onSaved,
   })
@@ -327,7 +353,7 @@ function CampaignForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
   return (
     <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5">
-      <h2 className="mb-4 font-bold text-gray-900">حملة جديدة</h2>
+      <h2 className="mb-4 font-bold text-gray-900">{campaignId ? "تعديل الحملة" : "حملة جديدة"}</h2>
       <div className="space-y-4">
         <div>
           <label className="mb-1 block text-xs font-bold text-gray-600">اسم الحملة</label>
