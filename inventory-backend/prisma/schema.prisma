@@ -126,6 +126,18 @@ enum ProspectStatus {
   CONVERTED
 }
 
+enum InboundMessageSource {
+  CUSTOMER_UNMATCHED
+  PROSPECT
+  UNKNOWN
+}
+
+enum InboundMessageStatus {
+  UNREAD
+  READ
+  REPLIED
+}
+
 enum OrderPreparationStatus {
   PENDING
   CANCELLED
@@ -370,6 +382,25 @@ model Prospect {
 
   @@index([status])
   @@map("prospects")
+}
+
+// WhatsApp messages from numbers the auto-reply bot couldn't fully handle on
+// its own — a known customer asking something outside the 4 fixed commands,
+// a prospect, or a totally unknown number. Shown in a "الرسائل الواردة" inbox
+// so the owner can read and reply by hand from the website.
+model InboundMessage {
+  id          String                @id @default(uuid()) @db.Uuid
+  phone       String
+  name        String?
+  source      InboundMessageSource
+  messageText String                @map("message_text")
+  status      InboundMessageStatus  @default(UNREAD)
+  replyText   String?               @map("reply_text")
+  repliedAt   DateTime?             @map("replied_at")
+  createdAt   DateTime              @default(now()) @map("created_at")
+
+  @@index([status])
+  @@map("inbound_messages")
 }
 
 // Drip marketing campaign — sends a randomized message to a list of recipients

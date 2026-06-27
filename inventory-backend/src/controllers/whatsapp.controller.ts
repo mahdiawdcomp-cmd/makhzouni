@@ -3,7 +3,7 @@ import { getInvoiceById } from "../services/invoice.service";
 import { generateInvoicePdf } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings } from "../services/settings.service";
-import { handleIncomingProspectReply } from "../services/prospect.service";
+import { routeIncomingMessage } from "../services/whatsapp-bot.service";
 import {
   getWhatsAppStatus,
   restartWhatsApp,
@@ -13,8 +13,10 @@ import {
 
 // ── Incoming WhatsApp webhook (Green API) ──────────────────────────────────
 // Configure this URL as the instance's "Incoming webhook" in the Green API
-// console. Used today for one thing: prospects who reply with the trigger
-// keyword get the WhatsApp group invite link sent back automatically.
+// console. Single entry point for every inbound message — routes by sender
+// (known customer command bot, prospect group-link auto-reply, or the
+// generic "wait for admin" message + الرسائل الواردة inbox). See
+// whatsapp-bot.service.ts for the routing logic.
 // Always responds 200 — a missed/failed auto-reply must never make the
 // provider think the webhook endpoint is broken and retry/disable it.
 export const whatsappIncomingWebhook = asyncHandler(async (req, res) => {
@@ -36,7 +38,7 @@ export const whatsappIncomingWebhook = asyncHandler(async (req, res) => {
         body.messageData?.extendedTextMessageData?.text ??
         "";
       if (phone && text) {
-        await handleIncomingProspectReply(phone, text);
+        await routeIncomingMessage(phone, text);
       }
     }
   } catch {

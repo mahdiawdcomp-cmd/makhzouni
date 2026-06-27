@@ -212,6 +212,32 @@ async function runStartupMigrations() {
   } catch (err) {
     logger.warn("[migration] prospects.group_link_sent_at migration warning:", err);
   }
+
+  // Safety net for the inbound-messages inbox. No-op once created.
+  try {
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      CREATE TYPE "InboundMessageSource" AS ENUM ('CUSTOMER_UNMATCHED','PROSPECT','UNKNOWN');
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      CREATE TYPE "InboundMessageStatus" AS ENUM ('UNREAD','READ','REPLIED');
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "inbound_messages" (
+      "id" UUID NOT NULL,
+      "phone" TEXT NOT NULL,
+      "name" TEXT,
+      "source" "InboundMessageSource" NOT NULL,
+      "message_text" TEXT NOT NULL,
+      "status" "InboundMessageStatus" NOT NULL DEFAULT 'UNREAD',
+      "reply_text" TEXT,
+      "replied_at" TIMESTAMP(3),
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "inbound_messages_pkey" PRIMARY KEY ("id")
+    );`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "inbound_messages_status_idx" ON "inbound_messages"("status");`);
+    logger.info("[migration] inbound_messages table ensured");
+  } catch (err) {
+    logger.warn("[migration] inbound_messages startup migration warning:", err);
+  }
 }
 
 void runStartupMigrations();

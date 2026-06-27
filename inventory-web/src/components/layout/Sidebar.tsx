@@ -11,6 +11,7 @@ import {
   FileText,
   Globe,
   Home,
+  Inbox,
   KeyRound,
   Megaphone,
   Plus,
@@ -29,7 +30,7 @@ import {
   Zap,
 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
-import { getApprovals } from "../../api/endpoints"
+import { getApprovals, getInboundMessages } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
 import type { UserPermission } from "../../types/api"
@@ -52,6 +53,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/customers") || path.startsWith("/account")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/catalog-management")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/campaigns")) return "MANAGE_CUSTOMERS"
+  if (path.startsWith("/inbound-messages")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
@@ -99,6 +101,7 @@ const navItems: Item[] = [
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
   { to: "/campaigns", label: "الزبائن الجدد", icon: Send },
+  { to: "/inbound-messages", label: "الرسائل الواردة", icon: Inbox },
   { to: "/account", label: "كشف الحساب", icon: Search },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
@@ -121,6 +124,14 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
     return location.pathname === url.pathname && location.search === url.search
   })()
   const Icon = item.icon
+  const isInbox = item.to === "/inbound-messages"
+  const inboxQuery = useQuery({
+    queryKey: ["inbound-messages-unread-count"],
+    queryFn: () => getInboundMessages({ status: "UNREAD" }),
+    refetchInterval: 20_000,
+    enabled: isInbox,
+  })
+  const unreadCount = inboxQuery.data?.unreadCount ?? 0
 
   return (
     <motion.div
@@ -156,6 +167,11 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
           <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
         )}
         {item.label}
+        {isInbox && unreadCount > 0 && (
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+            {unreadCount}
+          </span>
+        )}
       </NavLink>
     </motion.div>
   )

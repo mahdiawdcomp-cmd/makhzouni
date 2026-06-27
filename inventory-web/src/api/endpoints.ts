@@ -19,6 +19,8 @@ import type {
   CampaignStatus,
   ProspectStatus,
   ProspectListResult,
+  InboundMessage,
+  InboundMessageStatus,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -166,6 +168,22 @@ export async function getCatalogSession(access: string) {
 export async function getPublicCatalogProducts(access: string) {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access } })
   return data.data ?? []
+}
+
+/* ── Inbound WhatsApp messages (الرسائل الواردة) ────────────────────── */
+export async function getInboundMessages(params?: { status?: InboundMessageStatus }) {
+  const { data } = await api.get<ApiEnvelope<{ items: InboundMessage[]; unreadCount: number }>>("/inbound-messages", { params })
+  return data.data
+}
+
+export async function markInboundMessageRead(id: string) {
+  const { data } = await api.patch<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/read`, {})
+  return data.data
+}
+
+export async function replyToInboundMessage(id: string, text: string) {
+  const { data } = await api.post<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/reply`, { text })
+  return data.data
 }
 
 /* ── Prospects (زبائن محتملين) ──────────────────────────────────────── */

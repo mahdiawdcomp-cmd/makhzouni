@@ -789,6 +789,29 @@ export interface AppSettings {
   prospectAutoReplyKeywords?: string[]
   prospectAutoReplyMessage?: string
   prospectAutoReplyEnabled?: boolean
+  // WhatsApp customer-service bot (4 fixed commands for known customers)
+  whatsappBotEnabled?: boolean
+  botUnknownMessage?: string
+  botKeywordsStatement?: string[]
+  botKeywordsBalance?: string[]
+  botKeywordsHowToBuy?: string[]
+  botKeywordsCatalog?: string[]
+  botHowToBuyMessage?: string
+}
+
+export type InboundMessageSource = "CUSTOMER_UNMATCHED" | "PROSPECT" | "UNKNOWN"
+export type InboundMessageStatus = "UNREAD" | "READ" | "REPLIED"
+
+export interface InboundMessage {
+  id: string
+  phone: string
+  name?: string | null
+  source: InboundMessageSource
+  messageText: string
+  status: InboundMessageStatus
+  replyText?: string | null
+  repliedAt?: string | null
+  createdAt: string
 }
 
 export interface MessageTemplate {

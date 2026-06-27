@@ -57,6 +57,18 @@ export interface AppSettings {
   prospectAutoReplyKeywords?: string[];
   prospectAutoReplyMessage?: string;
   prospectAutoReplyEnabled?: boolean;
+  // WhatsApp customer-service bot: known customers asking one of these 4
+  // fixed commands (matched by keyword list) get an automatic, real-data
+  // reply. Everyone else (prospects, unknown numbers, or a known customer
+  // asking something else) gets botUnknownMessage and lands in the
+  // الرسائل الواردة inbox for a manual reply.
+  whatsappBotEnabled?: boolean;
+  botUnknownMessage?: string;
+  botKeywordsStatement?: string[];
+  botKeywordsBalance?: string[];
+  botKeywordsHowToBuy?: string[];
+  botKeywordsCatalog?: string[];
+  botHowToBuyMessage?: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -92,6 +104,13 @@ export const defaultSettings: AppSettings = {
   prospectAutoReplyKeywords: ["تم", "نعم", "اوكي", "ok"],
   prospectAutoReplyMessage: "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}",
   prospectAutoReplyEnabled: false,
+  whatsappBotEnabled: false,
+  botUnknownMessage: "هلا 👋 استلمنا رسالتك، الإدارة رح ترد عليك قريباً.",
+  botKeywordsStatement: ["كشف حساب", "كشف حسابي", "ابعث الكشف", "ارسل الكشف", "كشف"],
+  botKeywordsBalance: ["رصيدي", "كم رصيدي", "شكد رصيدي", "كم علي", "شحالي بالحساب"],
+  botKeywordsHowToBuy: ["كيف اشتري", "شلون اطلب", "كيف الطلب", "شلون اشتري", "طريقة الشراء"],
+  botKeywordsCatalog: ["ارسل لي الكتلوك", "ابعث الكتلوك", "الكاتلوك", "ابعثلي الكتالوج", "رابط الكتلوك"],
+  botHowToBuyMessage: "تكدر تطلب بسهولة 🛍️\nشوف منتجاتنا بالكاتلوج وابعثلنا الأصناف اللي تريدها، ونرتب الباقي وياك.",
 };
 
 const OLD_INVOICE_TEMPLATE =

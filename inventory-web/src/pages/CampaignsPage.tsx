@@ -294,6 +294,96 @@ function AutoReplySettings() {
   )
 }
 
+/* ─── Customer-service bot (fixed commands for known customers) ──────── */
+function CustomerBotSettings() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const [enabled, setEnabled] = useState(false)
+  const [unknownMessage, setUnknownMessage] = useState("")
+  const [howToBuyMessage, setHowToBuyMessage] = useState("")
+  const [kwStatement, setKwStatement] = useState("")
+  const [kwBalance, setKwBalance] = useState("")
+  const [kwHowToBuy, setKwHowToBuy] = useState("")
+  const [kwCatalog, setKwCatalog] = useState("")
+
+  useEffect(() => {
+    const s = settingsQuery.data
+    if (!s) return
+    setEnabled(s.whatsappBotEnabled ?? false)
+    setUnknownMessage(s.botUnknownMessage ?? "")
+    setHowToBuyMessage(s.botHowToBuyMessage ?? "")
+    setKwStatement((s.botKeywordsStatement ?? []).join(", "))
+    setKwBalance((s.botKeywordsBalance ?? []).join(", "))
+    setKwHowToBuy((s.botKeywordsHowToBuy ?? []).join(", "))
+    setKwCatalog((s.botKeywordsCatalog ?? []).join(", "))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsQuery.data])
+
+  const split = (s: string) => s.split(",").map((k) => k.trim()).filter(Boolean)
+
+  const saveMut = useMutation({
+    mutationFn: () => updateSettings({
+      whatsappBotEnabled: enabled,
+      botUnknownMessage: unknownMessage.trim(),
+      botHowToBuyMessage: howToBuyMessage.trim(),
+      botKeywordsStatement: split(kwStatement),
+      botKeywordsBalance: split(kwBalance),
+      botKeywordsHowToBuy: split(kwHowToBuy),
+      botKeywordsCatalog: split(kwCatalog),
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  })
+
+  return (
+    <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-800">
+        🤖 بوت خدمة الزبائن — 4 أوامر ثابتة
+      </div>
+      <p className="mb-3 text-[11px] text-gray-500">
+        لمّا زبون قديم (مسجّل بالنظام) يكتب أي صيغة من كلمات أمر معيّن، يستلم رد تلقائي ببياناته الحقيقية.
+        أي رسالة ثانية (من زبون قديم خارج هذي الأوامر، زبون جديد، أو رقم غير مسجّل) تروح لصفحة «الرسائل الواردة» للرد اليدوي.
+      </p>
+
+      <div className="space-y-3">
+        <KwField label="كشف الحساب — كلمات (افصل بفاصلة)" value={kwStatement} onChange={setKwStatement} />
+        <KwField label="الرصيد — كلمات" value={kwBalance} onChange={setKwBalance} />
+        <KwField label="كيف اشتري — كلمات" value={kwHowToBuy} onChange={setKwHowToBuy} />
+        <div>
+          <label className="mb-1 block text-xs font-bold text-gray-600">نص رد «كيف اشتري»</label>
+          <textarea value={howToBuyMessage} onChange={(e) => setHowToBuyMessage(e.target.value)} rows={2}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" />
+        </div>
+        <KwField label="إرسال الكاتلوك — كلمات" value={kwCatalog} onChange={setKwCatalog} />
+        <div>
+          <label className="mb-1 block text-xs font-bold text-gray-600">رد الرسائل غير المعروفة (زبون جديد / رقم غريب / سؤال خارج الأوامر)</label>
+          <textarea value={unknownMessage} onChange={(e) => setUnknownMessage(e.target.value)} rows={2}
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" />
+        </div>
+      </div>
+
+      <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="h-4 w-4" />
+        تفعيل البوت
+      </label>
+      <button disabled={saveMut.isPending} onClick={() => saveMut.mutate()}
+        className="mt-3 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+        {saveMut.isPending ? "..." : "حفظ"}
+      </button>
+      {saveMut.isSuccess && <span className="mr-2 text-xs text-emerald-700">✓ تم الحفظ</span>}
+    </div>
+  )
+}
+
+function KwField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-bold text-gray-600">{label}</label>
+      <input value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" dir="rtl" />
+    </div>
+  )
+}
+
 function SendTab() {
   const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -324,6 +414,7 @@ function SendTab() {
         ⚠️ عشوائي بالكامل: الرسالة + الوقت + العدد اليومي. استعمل رقم مخصص وابدأ بعدد قليل.
       </div>
 
+      <CustomerBotSettings />
       <AutoReplySettings />
 
       {showForm && (

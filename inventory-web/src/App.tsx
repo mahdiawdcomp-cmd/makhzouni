@@ -47,6 +47,7 @@ const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), 
 const StaleProductsPage = lazyPage(() => import("./pages/StaleProductsPage"), "StaleProductsPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
 const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
+const InboundMessagesPage = lazyPage(() => import("./pages/InboundMessagesPage"), "InboundMessagesPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
@@ -103,6 +104,7 @@ const router = createBrowserRouter([
           { path: "customers", element: s(<CustomersPage />) },
           { path: "customers/broadcast", element: s(<CustomerBroadcastPage />) },
           { path: "campaigns", element: s(<CampaignsPage />) },
+          { path: "inbound-messages", element: s(<InboundMessagesPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: s(<CatalogManagementPage />) },
