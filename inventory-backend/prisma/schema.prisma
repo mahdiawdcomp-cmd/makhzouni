@@ -121,6 +121,11 @@ enum CampaignRecipientStatus {
   SKIPPED
 }
 
+enum ProspectStatus {
+  NEW
+  CONVERTED
+}
+
 enum OrderPreparationStatus {
   PENDING
   CANCELLED
@@ -343,6 +348,25 @@ model Customer {
 
   @@index([branchId])
   @@map("customers")
+}
+
+// Potential / lead customers (زبائن محتملين) imported from contact lists or
+// WhatsApp screenshots. Kept COMPLETELY SEPARATE from real shop customers — a
+// prospect only becomes a Customer when the owner taps "convert" (after a sale).
+model Prospect {
+  id                 String         @id @default(uuid()) @db.Uuid
+  name               String
+  phone              String         @unique
+  address            String?
+  source             String?        // e.g. "vcf", "screenshot", "paste"
+  status             ProspectStatus @default(NEW)
+  convertedCustomerId String?       @map("converted_customer_id") @db.Uuid
+  lastSentAt         DateTime?      @map("last_sent_at")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("prospects")
 }
 
 // Drip marketing campaign — sends a randomized message to a list of recipients

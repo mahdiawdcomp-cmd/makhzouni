@@ -32,6 +32,7 @@ import realtimeRoutes from "./realtime.routes";
 import tenantInfoRoutes from "./tenant-info.routes";
 import stockLossRoutes from "./stock-loss.routes";
 import campaignsRoutes from "./campaigns.routes";
+import prospectsRoutes from "./prospects.routes";
 
 const router = Router();
 
@@ -68,5 +69,6 @@ router.use("/payments", paymentsRoutes);
 router.use("/retail-catalog", retailCatalogRoutes);
 router.use("/stock-losses", stockLossRoutes);
 router.use("/campaigns", campaignsRoutes);
+router.use("/prospects", prospectsRoutes);
 
 export default router;

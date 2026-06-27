@@ -5,7 +5,7 @@ import {
   createCampaign,
   deleteCampaign,
   getCampaign,
-  importRecipients,
+  loadProspectsIntoCampaign,
   listCampaigns,
   removeRecipient,
   setCampaignStatus,
@@ -47,8 +47,8 @@ export const patchCampaignStatus = asyncHandler(async (req, res) => {
 });
 
 export const postCampaignRecipients = asyncHandler(async (req, res) => {
-  const entries = Array.isArray(req.body?.recipients) ? req.body.recipients : [];
-  const data = await importRecipients(String(req.params.id), entries);
+  // Loads NEW prospects (زبائن محتملين) into the campaign as recipients.
+  const data = await loadProspectsIntoCampaign(String(req.params.id));
   res.status(201).json({ success: true, data });
 });
 

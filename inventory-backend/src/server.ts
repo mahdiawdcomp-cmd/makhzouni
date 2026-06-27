@@ -177,6 +177,31 @@ async function runStartupMigrations() {
   } catch (err) {
     logger.warn("[migration] campaigns startup migration warning:", err);
   }
+
+  // Safety net for prospects (زبائن محتملين). No-op once created.
+  try {
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      CREATE TYPE "ProspectStatus" AS ENUM ('NEW','CONVERTED');
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "prospects" (
+      "id" UUID NOT NULL,
+      "name" TEXT NOT NULL,
+      "phone" TEXT NOT NULL,
+      "address" TEXT,
+      "source" TEXT,
+      "status" "ProspectStatus" NOT NULL DEFAULT 'NEW',
+      "converted_customer_id" UUID,
+      "last_sent_at" TIMESTAMP(3),
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "prospects_pkey" PRIMARY KEY ("id")
+    );`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "prospects_phone_key" ON "prospects"("phone");`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "prospects_status_idx" ON "prospects"("status");`);
+    logger.info("[migration] prospects table ensured");
+  } catch (err) {
+    logger.warn("[migration] prospects startup migration warning:", err);
+  }
 }
 
 void runStartupMigrations();

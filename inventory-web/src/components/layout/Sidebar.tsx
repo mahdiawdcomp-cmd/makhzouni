@@ -98,7 +98,7 @@ const navItems: Item[] = [
   { to: "/losses", label: "التلف والخسائر", icon: AlertTriangle },
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
-  { to: "/campaigns", label: "حملات الزبائن الجدد", icon: Send },
+  { to: "/campaigns", label: "الزبائن الجدد", icon: Send },
   { to: "/account", label: "كشف الحساب", icon: Search },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },

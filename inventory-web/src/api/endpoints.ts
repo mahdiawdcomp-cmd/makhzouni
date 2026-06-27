@@ -17,6 +17,8 @@ import type {
   CampaignDetail,
   CampaignPayload,
   CampaignStatus,
+  ProspectStatus,
+  ProspectListResult,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -166,6 +168,32 @@ export async function getPublicCatalogProducts(access: string) {
   return data.data ?? []
 }
 
+/* ── Prospects (زبائن محتملين) ──────────────────────────────────────── */
+export async function getProspects(params?: { status?: ProspectStatus; search?: string }) {
+  const { data } = await api.get<ApiEnvelope<ProspectListResult>>("/prospects", { params })
+  return data.data
+}
+
+export async function importProspects(prospects: Array<{ phone: string; name?: string }>) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects", { prospects })
+  return data.data
+}
+
+export async function importProspectsFromImages(images: string[]) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects/from-images", { images })
+  return data.data
+}
+
+export async function convertProspect(id: string, payload: { name: string; address?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string }>>(`/prospects/${id}/convert`, payload)
+  return data.data
+}
+
+export async function deleteProspect(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/prospects/${id}`)
+  return data.data
+}
+
 /* ── Campaigns (drip marketing) ─────────────────────────────────────── */
 export async function getCampaigns() {
   const { data } = await api.get<ApiEnvelope<Campaign[]>>("/campaigns")
@@ -197,9 +225,9 @@ export async function setCampaignStatus(id: string, status: CampaignStatus) {
   return data.data
 }
 
-export async function addCampaignRecipients(id: string, recipients: Array<{ phone: string; name?: string }>) {
+export async function loadCampaignProspects(id: string) {
   const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>(
-    `/campaigns/${id}/recipients`, { recipients })
+    `/campaigns/${id}/recipients`, {})
   return data.data
 }
 

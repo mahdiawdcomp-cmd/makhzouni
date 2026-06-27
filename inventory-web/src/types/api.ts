@@ -198,6 +198,26 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
   stats?: { filled: number; total: number }
 }
 
+export type ProspectStatus = "NEW" | "CONVERTED"
+
+export interface Prospect {
+  id: string
+  name: string
+  phone: string
+  address?: string | null
+  source?: string | null
+  status: ProspectStatus
+  lastSentAt?: string | null
+  createdAt: string
+}
+
+export interface ProspectListResult {
+  items: Prospect[]
+  total: number
+  newCount: number
+  convertedCount: number
+}
+
 export type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE"
 export type CampaignRecipientStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED"
 

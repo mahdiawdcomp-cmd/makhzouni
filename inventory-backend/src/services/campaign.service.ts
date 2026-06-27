@@ -2,11 +2,8 @@ import { CampaignRecipientStatus, CampaignStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
-import { normalizePhone } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
-
-const NEW_TAG = "new";
 
 function randInt(min: number, max: number) {
   if (max <= min) return min;
@@ -136,68 +133,36 @@ export async function setCampaignStatus(id: string, status: CampaignStatus) {
 
 /* ─── Recipients / new-customer import ───────────────────────────────── */
 
-export interface RecipientEntry {
-  phone: string;
-  name?: string;
-}
-
-// Save imported numbers as real customers tagged "new" (so they integrate with
-// the catalog / customer system) AND enqueue them as campaign recipients.
-export async function importRecipients(campaignId: string, entries: RecipientEntry[]) {
+// Load prospects (زبائن محتملين) into this campaign as recipients. Prospects
+// live in their OWN table — they are NOT shop customers. Only NEW (un-converted)
+// prospects are queued, and phones already in the campaign are skipped.
+export async function loadProspectsIntoCampaign(campaignId: string) {
   await getCampaign(campaignId);
 
-  const seen = new Set<string>();
-  const clean: RecipientEntry[] = [];
-  for (const e of entries) {
-    const phone = normalizePhone(String(e.phone ?? ""));
-    if (!phone || phone.length < 10 || seen.has(phone)) continue;
-    seen.add(phone);
-    clean.push({ phone, name: e.name?.trim() || undefined });
-  }
-  if (clean.length === 0) return { added: 0, duplicates: 0, total: 0 };
+  const prospects = await prisma.prospect.findMany({
+    where: { status: "NEW" },
+    select: { phone: true, name: true },
+  });
+  if (prospects.length === 0) return { added: 0, duplicates: 0, total: 0 };
 
-  // How many auto-named "new-N" customers already exist (for sequential naming).
-  let counter = await prisma.customer.count({ where: { tags: { has: NEW_TAG } } });
+  const existing = await prisma.campaignRecipient.findMany({
+    where: { campaignId },
+    select: { phone: true },
+  });
+  const have = new Set(existing.map((e) => e.phone));
 
   let added = 0;
   let duplicates = 0;
-  for (const entry of clean) {
-    // Skip phones already queued in THIS campaign.
-    const exists = await prisma.campaignRecipient.findFirst({
-      where: { campaignId, phone: entry.phone },
-      select: { id: true },
-    });
-    if (exists) {
+  for (const p of prospects) {
+    if (have.has(p.phone)) {
       duplicates++;
       continue;
     }
-
-    const existingCustomer = await prisma.customer.findUnique({ where: { phone: entry.phone } });
-    let name = entry.name;
-    if (existingCustomer) {
-      // Ensure the "new" tag is present without dropping existing tags.
-      if (!existingCustomer.tags.includes(NEW_TAG)) {
-        await prisma.customer.update({
-          where: { id: existingCustomer.id },
-          data: { tags: { set: [...existingCustomer.tags, NEW_TAG] }, deletedAt: null },
-        });
-      }
-      name = name ?? existingCustomer.name;
-    } else {
-      counter++;
-      name = name ?? `costmer-${String(counter).padStart(4, "0")}`;
-      await prisma.customer.create({
-        data: { name, phone: entry.phone, tags: [NEW_TAG], openingBalance: 0, currentBalance: 0 },
-      });
-    }
-
-    await prisma.campaignRecipient.create({
-      data: { campaignId, phone: entry.phone, name },
-    });
+    await prisma.campaignRecipient.create({ data: { campaignId, phone: p.phone, name: p.name } });
+    have.add(p.phone);
     added++;
   }
-
-  return { added, duplicates, total: clean.length };
+  return { added, duplicates, total: prospects.length };
 }
 
 export async function removeRecipient(campaignId: string, recipientId: string) {
