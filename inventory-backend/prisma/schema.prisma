@@ -107,6 +107,20 @@ enum RetailOrderStatus {
   CANCELLED
 }
 
+enum CampaignStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  DONE
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum OrderPreparationStatus {
   PENDING
   CANCELLED
@@ -329,6 +343,55 @@ model Customer {
 
   @@index([branchId])
   @@map("customers")
+}
+
+// Drip marketing campaign — sends a randomized message to a list of recipients
+// over time (random message variant + random gap + random daily cap) to mimic
+// human behaviour and avoid WhatsApp bans. Recipients are typically new
+// customers (tag "new") imported from screenshots.
+model Campaign {
+  id                 String                @id @default(uuid()) @db.Uuid
+  name               String
+  status             CampaignStatus        @default(DRAFT)
+  // One of these is picked at random for each message sent.
+  messages           String[]              @default([])
+  // Optional product images to attach (first message carries them + catalog link).
+  productIds         String[]              @default([]) @map("product_ids")
+  includeCatalogLink Boolean               @default(true) @map("include_catalog_link")
+  // Randomization windows.
+  minDelaySec        Int                   @default(90)  @map("min_delay_sec")
+  maxDelaySec        Int                   @default(240) @map("max_delay_sec")
+  dailyMin           Int                   @default(20)  @map("daily_min")
+  dailyMax           Int                   @default(50)  @map("daily_max")
+  activeStartHour    Int                   @default(9)   @map("active_start_hour")
+  activeEndHour      Int                   @default(21)  @map("active_end_hour")
+  // Worker bookkeeping (randomized per day).
+  dailyCapToday      Int                   @default(0)   @map("daily_cap_today")
+  sentToday          Int                   @default(0)   @map("sent_today")
+  dayAnchor          DateTime?             @map("day_anchor")
+  lastSentAt         DateTime?             @map("last_sent_at")
+  nextSendAt         DateTime?             @map("next_send_at")
+  recipients         CampaignRecipient[]
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id          String                  @id @default(uuid()) @db.Uuid
+  campaignId  String                  @map("campaign_id") @db.Uuid
+  campaign    Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  phone       String
+  name        String?
+  status      CampaignRecipientStatus @default(PENDING)
+  sentAt      DateTime?               @map("sent_at")
+  error       String?
+  variantUsed String?                 @map("variant_used")
+  createdAt   DateTime                @default(now()) @map("created_at")
+
+  @@index([campaignId, status])
+  @@map("campaign_recipients")
 }
 
 // Canonical list of customer tags, so a tag can be created and managed

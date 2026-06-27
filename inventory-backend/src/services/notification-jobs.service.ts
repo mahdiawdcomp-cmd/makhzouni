@@ -6,6 +6,7 @@ import { getSettings } from "./settings.service";
 import { renderTemplateByType } from "./message-template.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { getDailySummaryData } from "./report.service";
+import { processCampaignsTick } from "./campaign.service";
 
 let jobsStarted = false;
 
@@ -292,6 +293,15 @@ export function startNotificationJobs() {
         console.error("Daily summary job failed", error);
       });
     }
+  });
+
+  // Drip marketing campaigns — tick every minute. Each running campaign sends
+  // at most one message per tick, gated by randomized delay / daily cap / active
+  // hours inside the worker (avoids WhatsApp bans).
+  cron.schedule("* * * * *", () => {
+    processCampaignsTick().catch((error) => {
+      console.error("Campaign tick failed", error);
+    });
   });
 
   // Keep Neon DB alive — ping every 4 minutes to prevent auto-suspend

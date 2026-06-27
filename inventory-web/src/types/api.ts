@@ -198,6 +198,59 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
   stats?: { filled: number; total: number }
 }
 
+export type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE"
+export type CampaignRecipientStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED"
+
+export interface Campaign {
+  id: string
+  name: string
+  status: CampaignStatus
+  messages: string[]
+  productIds: string[]
+  includeCatalogLink: boolean
+  minDelaySec: number
+  maxDelaySec: number
+  dailyMin: number
+  dailyMax: number
+  activeStartHour: number
+  activeEndHour: number
+  sentToday: number
+  dailyCapToday: number
+  lastSentAt?: string | null
+  nextSendAt?: string | null
+  createdAt: string
+  total?: number
+  counts?: Record<CampaignRecipientStatus, number>
+}
+
+export interface CampaignRecipient {
+  id: string
+  phone: string
+  name?: string | null
+  status: CampaignRecipientStatus
+  sentAt?: string | null
+  error?: string | null
+  variantUsed?: string | null
+  createdAt: string
+}
+
+export interface CampaignDetail extends Campaign {
+  recipients: CampaignRecipient[]
+}
+
+export interface CampaignPayload {
+  name: string
+  messages: string[]
+  productIds?: string[]
+  includeCatalogLink?: boolean
+  minDelaySec?: number
+  maxDelaySec?: number
+  dailyMin?: number
+  dailyMax?: number
+  activeStartHour?: number
+  activeEndHour?: number
+}
+
 export interface PublicCatalogProduct {
   id: string
   itemNumber: string

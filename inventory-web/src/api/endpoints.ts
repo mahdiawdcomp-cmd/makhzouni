@@ -13,6 +13,10 @@ import type {
   CatalogAccessRequestPayload,
   CatalogAccessStatus,
   CatalogSession,
+  Campaign,
+  CampaignDetail,
+  CampaignPayload,
+  CampaignStatus,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -160,6 +164,48 @@ export async function getCatalogSession(access: string) {
 export async function getPublicCatalogProducts(access: string) {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access } })
   return data.data ?? []
+}
+
+/* ── Campaigns (drip marketing) ─────────────────────────────────────── */
+export async function getCampaigns() {
+  const { data } = await api.get<ApiEnvelope<Campaign[]>>("/campaigns")
+  return data.data ?? []
+}
+
+export async function getCampaign(id: string) {
+  const { data } = await api.get<ApiEnvelope<CampaignDetail>>(`/campaigns/${id}`)
+  return data.data
+}
+
+export async function createCampaign(payload: CampaignPayload) {
+  const { data } = await api.post<ApiEnvelope<Campaign>>("/campaigns", payload)
+  return data.data
+}
+
+export async function updateCampaign(id: string, payload: CampaignPayload) {
+  const { data } = await api.put<ApiEnvelope<Campaign>>(`/campaigns/${id}`, payload)
+  return data.data
+}
+
+export async function deleteCampaign(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}`)
+  return data.data
+}
+
+export async function setCampaignStatus(id: string, status: CampaignStatus) {
+  const { data } = await api.patch<ApiEnvelope<Campaign>>(`/campaigns/${id}/status`, { status })
+  return data.data
+}
+
+export async function addCampaignRecipients(id: string, recipients: Array<{ phone: string; name?: string }>) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>(
+    `/campaigns/${id}/recipients`, { recipients })
+  return data.data
+}
+
+export async function deleteCampaignRecipient(id: string, recipientId: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}/recipients/${recipientId}`)
+  return data.data
 }
 
 export async function getPublicCatalogProductImage(access: string, id: string) {
