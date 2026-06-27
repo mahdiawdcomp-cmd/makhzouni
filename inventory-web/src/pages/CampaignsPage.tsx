@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Plus, Play, Pause, Trash2, Clock, Users, CheckCircle2, XCircle,
-  Upload, Image as ImageIcon, UserPlus, DownloadCloud, Pencil, MessageSquareReply,
+  Upload, Image as ImageIcon, UserPlus, DownloadCloud, Pencil, MessageSquareReply, Send,
 } from "lucide-react"
 import {
   convertProspect, deleteProspect, getProspects, importProspects, importProspectsFromImages,
   createCampaign, updateCampaign, deleteCampaign, getCampaign, getCampaigns, loadCampaignProspects,
   setCampaignStatus, deleteCampaignRecipient, getSettings, updateSettings,
+  getInboundMessages, markInboundMessageRead, replyToInboundMessage,
 } from "../api/endpoints"
-import type { Campaign, CampaignPayload, CampaignStatus, Prospect } from "../types/api"
+import type { Campaign, CampaignPayload, CampaignStatus, Prospect, BotRule, InboundMessage, InboundMessageStatus } from "../types/api"
 
 /* ─── Shared helpers ──────────────────────────────────────────────────── */
 function parseNumbers(text: string): string[] {
@@ -27,7 +28,9 @@ function fileToDataUrl(file: File): Promise<string> {
 
 /* ══════════════════════════════════════════════════════════════════════ */
 export function CampaignsPage() {
-  const [tab, setTab] = useState<"prospects" | "send">("prospects")
+  const [tab, setTab] = useState<"prospects" | "send" | "inbox">("prospects")
+  const inboxQuery = useQuery({ queryKey: ["inbound-messages-unread-count"], queryFn: () => getInboundMessages({ status: "UNREAD" }), refetchInterval: 20_000 })
+  const unreadCount = inboxQuery.data?.unreadCount ?? 0
   return (
     <div dir="rtl" className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-5">
@@ -40,18 +43,20 @@ export function CampaignsPage() {
       <div className="mb-5 flex gap-2">
         <TabBtn active={tab === "prospects"} onClick={() => setTab("prospects")}>الأرقام (محتملين)</TabBtn>
         <TabBtn active={tab === "send"} onClick={() => setTab("send")}>الإرسال</TabBtn>
+        <TabBtn active={tab === "inbox"} onClick={() => setTab("inbox")} badge={unreadCount}>الرسائل الواردة</TabBtn>
       </div>
 
-      {tab === "prospects" ? <ProspectsTab /> : <SendTab />}
+      {tab === "prospects" ? <ProspectsTab /> : tab === "send" ? <SendTab /> : <InboxTab />}
     </div>
   )
 }
 
-function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function TabBtn({ active, onClick, children, badge }: { active: boolean; onClick: () => void; children: React.ReactNode; badge?: number }) {
   return (
     <button onClick={onClick}
-      className={`rounded-xl px-4 py-2 text-sm font-bold transition ${active ? "bg-emerald-600 text-white shadow" : "bg-gray-100 text-gray-600"}`}>
+      className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-bold transition ${active ? "bg-emerald-600 text-white shadow" : "bg-gray-100 text-gray-600"}`}>
       {children}
+      {!!badge && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{badge}</span>}
     </button>
   )
 }
@@ -294,71 +299,102 @@ function AutoReplySettings() {
   )
 }
 
-/* ─── Customer-service bot (fixed commands for known customers) ──────── */
+/* ─── Customer-service bot — table of editable rules ──────────────────── */
+const BUILTIN_LABEL: Record<string, string> = {
+  STATEMENT: "كشف الحساب (بيانات حقيقية)",
+  BALANCE: "الرصيد (بيانات حقيقية)",
+  CATALOG_LINK: "رابط الكاتلوك (بيانات حقيقية)",
+}
+
+function newRuleId() {
+  return `rule-${Math.random().toString(36).slice(2, 10)}`
+}
+
 function CustomerBotSettings() {
   const qc = useQueryClient()
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const [enabled, setEnabled] = useState(false)
   const [unknownMessage, setUnknownMessage] = useState("")
-  const [howToBuyMessage, setHowToBuyMessage] = useState("")
-  const [kwStatement, setKwStatement] = useState("")
-  const [kwBalance, setKwBalance] = useState("")
-  const [kwHowToBuy, setKwHowToBuy] = useState("")
-  const [kwCatalog, setKwCatalog] = useState("")
+  const [rules, setRules] = useState<BotRule[]>([])
 
   useEffect(() => {
     const s = settingsQuery.data
     if (!s) return
     setEnabled(s.whatsappBotEnabled ?? false)
     setUnknownMessage(s.botUnknownMessage ?? "")
-    setHowToBuyMessage(s.botHowToBuyMessage ?? "")
-    setKwStatement((s.botKeywordsStatement ?? []).join(", "))
-    setKwBalance((s.botKeywordsBalance ?? []).join(", "))
-    setKwHowToBuy((s.botKeywordsHowToBuy ?? []).join(", "))
-    setKwCatalog((s.botKeywordsCatalog ?? []).join(", "))
+    setRules(s.botRules ?? [])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsQuery.data])
-
-  const split = (s: string) => s.split(",").map((k) => k.trim()).filter(Boolean)
 
   const saveMut = useMutation({
     mutationFn: () => updateSettings({
       whatsappBotEnabled: enabled,
       botUnknownMessage: unknownMessage.trim(),
-      botHowToBuyMessage: howToBuyMessage.trim(),
-      botKeywordsStatement: split(kwStatement),
-      botKeywordsBalance: split(kwBalance),
-      botKeywordsHowToBuy: split(kwHowToBuy),
-      botKeywordsCatalog: split(kwCatalog),
+      botRules: rules.map((r) => ({ ...r, replyText: r.replyText?.trim() })),
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   })
 
+  function updateRule(id: string, patch: Partial<BotRule>) {
+    setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
+  }
+  function removeRule(id: string) {
+    setRules((rs) => rs.filter((r) => r.id !== id))
+  }
+  function addRule() {
+    setRules((rs) => [...rs, { id: newRuleId(), keywords: [], replyType: "TEXT", replyText: "" }])
+  }
+
   return (
     <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4">
       <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-800">
-        🤖 بوت خدمة الزبائن — 4 أوامر ثابتة
+        🤖 بوت خدمة الزبائن — جدول الردود
       </div>
       <p className="mb-3 text-[11px] text-gray-500">
-        لمّا زبون قديم (مسجّل بالنظام) يكتب أي صيغة من كلمات أمر معيّن، يستلم رد تلقائي ببياناته الحقيقية.
-        أي رسالة ثانية (من زبون قديم خارج هذي الأوامر، زبون جديد، أو رقم غير مسجّل) تروح لصفحة «الرسائل الواردة» للرد اليدوي.
+        لمّا زبون قديم (مسجّل بالنظام) يكتب أي صيغة من كلمات صف معيّن، يستلم الرد المقابل تلقائياً.
+        أضف أي عدد من الردود (مثلاً: "سلام عليكم" ← "وعليكم السلام"). أي رسالة ما تطابق صف = تروح لتبويب «الرسائل الواردة» للرد اليدوي.
       </p>
 
-      <div className="space-y-3">
-        <KwField label="كشف الحساب — كلمات (افصل بفاصلة)" value={kwStatement} onChange={setKwStatement} />
-        <KwField label="الرصيد — كلمات" value={kwBalance} onChange={setKwBalance} />
-        <KwField label="كيف اشتري — كلمات" value={kwHowToBuy} onChange={setKwHowToBuy} />
-        <div>
-          <label className="mb-1 block text-xs font-bold text-gray-600">نص رد «كيف اشتري»</label>
-          <textarea value={howToBuyMessage} onChange={(e) => setHowToBuyMessage(e.target.value)} rows={2}
-            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" />
-        </div>
-        <KwField label="إرسال الكاتلوك — كلمات" value={kwCatalog} onChange={setKwCatalog} />
-        <div>
-          <label className="mb-1 block text-xs font-bold text-gray-600">رد الرسائل غير المعروفة (زبون جديد / رقم غريب / سؤال خارج الأوامر)</label>
-          <textarea value={unknownMessage} onChange={(e) => setUnknownMessage(e.target.value)} rows={2}
-            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" />
-        </div>
+      <div className="space-y-2">
+        {rules.map((rule) => (
+          <div key={rule.id} className="grid grid-cols-1 gap-2 rounded-xl border border-gray-200 bg-white p-3 sm:grid-cols-[1fr_1fr_auto]">
+            <div>
+              <label className="mb-1 block text-[10px] font-bold text-gray-500">الكلمات (افصل بفاصلة)</label>
+              <input value={rule.keywords.join(", ")}
+                onChange={(e) => updateRule(rule.id, { keywords: e.target.value.split(",").map((k) => k.trim()).filter(Boolean) })}
+                className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-violet-400" dir="rtl" />
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-bold text-gray-500">الرد</label>
+              {rule.builtin ? (
+                <div className="flex h-[34px] items-center rounded-lg bg-violet-50 px-2.5 text-xs font-semibold text-violet-700">
+                  {BUILTIN_LABEL[rule.replyType]}
+                </div>
+              ) : (
+                <input value={rule.replyText ?? ""} onChange={(e) => updateRule(rule.id, { replyText: e.target.value })}
+                  placeholder="نص الرد..."
+                  className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-violet-400" dir="rtl" />
+              )}
+            </div>
+            <div className="flex items-end justify-end">
+              {!rule.builtin && (
+                <button onClick={() => removeRule(rule.id)} className="text-gray-300 hover:text-red-500" title="حذف">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={addRule} className="mt-2 flex items-center gap-1.5 rounded-xl bg-violet-100 px-3 py-1.5 text-xs font-bold text-violet-700">
+        <Plus className="h-3.5 w-3.5" /> إضافة رد جديد
+      </button>
+
+      <div className="mt-4">
+        <label className="mb-1 block text-xs font-bold text-gray-600">رد الرسائل غير المعروفة (زبون جديد / رقم غريب / سؤال خارج الجدول)</label>
+        <textarea value={unknownMessage} onChange={(e) => setUnknownMessage(e.target.value)} rows={2}
+          className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" />
       </div>
 
       <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
@@ -370,16 +406,6 @@ function CustomerBotSettings() {
         {saveMut.isPending ? "..." : "حفظ"}
       </button>
       {saveMut.isSuccess && <span className="mr-2 text-xs text-emerald-700">✓ تم الحفظ</span>}
-    </div>
-  )
-}
-
-function KwField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-bold text-gray-600">{label}</label>
-      <input value={value} onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400" dir="rtl" />
     </div>
   )
 }
@@ -636,6 +662,115 @@ function RecipientBadge({ status }: { status: string }) {
   }
   const s = map[status] ?? map.PENDING
   return <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${s.c}`}>{s.t}</span>
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   INBOX TAB (الرسائل الواردة)
+══════════════════════════════════════════════════════════════════════ */
+const SOURCE_LABEL: Record<string, string> = {
+  CUSTOMER_UNMATCHED: "زبون قديم — سؤال غير معروف",
+  PROSPECT: "زبون جديد (محتمل)",
+  UNKNOWN: "رقم غير مسجل",
+}
+const SOURCE_COLOR: Record<string, string> = {
+  CUSTOMER_UNMATCHED: "bg-blue-100 text-blue-700",
+  PROSPECT: "bg-emerald-100 text-emerald-700",
+  UNKNOWN: "bg-gray-100 text-gray-600",
+}
+
+function InboxTab() {
+  const qc = useQueryClient()
+  const [filter, setFilter] = useState<InboundMessageStatus | "ALL">("ALL")
+  const [openId, setOpenId] = useState<string | null>(null)
+
+  const q = useQuery({
+    queryKey: ["inbound-messages", filter],
+    queryFn: () => getInboundMessages(filter === "ALL" ? undefined : { status: filter }),
+    refetchInterval: 15_000,
+  })
+  const data = q.data
+
+  const readMut = useMutation({
+    mutationFn: (id: string) => markInboundMessageRead(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["inbound-messages"] }),
+  })
+
+  function openMessage(m: InboundMessage) {
+    setOpenId(m.id)
+    if (m.status === "UNREAD") readMut.mutate(m.id)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        {(["ALL", "UNREAD", "READ", "REPLIED"] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={`rounded-xl px-3 py-1.5 text-xs font-bold ${filter === f ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600"}`}>
+            {f === "ALL" ? "الكل" : f === "UNREAD" ? "غير مقروءة" : f === "READ" ? "مقروءة" : "مردود عليها"}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {data?.items.length === 0 && (
+          <div className="rounded-xl border border-dashed border-gray-300 py-12 text-center text-gray-400">لا توجد رسائل</div>
+        )}
+        {data?.items.map((m) => (
+          <button key={m.id} onClick={() => openMessage(m)}
+            className={`block w-full rounded-2xl border p-3 text-right transition ${m.status === "UNREAD" ? "border-emerald-300 bg-emerald-50/40" : "border-gray-200 bg-white"}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {m.status === "UNREAD" && <span className="h-2 w-2 rounded-full bg-rose-500" />}
+                <span className="font-bold text-gray-800" dir="ltr">{m.phone}</span>
+                {m.name && <span className="text-xs text-gray-400">{m.name}</span>}
+              </div>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${SOURCE_COLOR[m.source]}`}>{SOURCE_LABEL[m.source]}</span>
+            </div>
+            <p className="mt-1.5 truncate text-sm text-gray-600">{m.messageText}</p>
+            {m.status === "REPLIED" && (
+              <p className="mt-1 flex items-center gap-1 text-xs text-emerald-600"><CheckCircle2 className="h-3 w-3" /> تم الرد: {m.replyText}</p>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {openId && data && (
+        <ReplyModal message={data.items.find((m) => m.id === openId)!} onClose={() => setOpenId(null)}
+          onSent={() => { setOpenId(null); qc.invalidateQueries({ queryKey: ["inbound-messages"] }) }} />
+      )}
+    </div>
+  )
+}
+
+function ReplyModal({ message, onClose, onSent }: { message: InboundMessage; onClose: () => void; onSent: () => void }) {
+  const [text, setText] = useState("")
+  const mut = useMutation({
+    mutationFn: () => replyToInboundMessage(message.id, text),
+    onSuccess: onSent,
+  })
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" dir="rtl" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <span className="font-mono text-sm text-gray-800" dir="ltr">{message.phone}</span>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${SOURCE_COLOR[message.source]}`}>{SOURCE_LABEL[message.source]}</span>
+        </div>
+        <div className="mb-4 rounded-xl bg-gray-50 p-3 text-sm text-gray-700">{message.messageText}</div>
+        <label className="mb-1 block text-xs font-bold text-gray-600">ردّك</label>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
+          placeholder="اكتب الرد هنا..."
+          className="mb-3 w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+        {mut.isError && <p className="mb-2 text-xs text-red-600">تعذر إرسال الرد — تأكد من إعدادات واتساب.</p>}
+        <div className="flex gap-2">
+          <button disabled={!text.trim() || mut.isPending} onClick={() => mut.mutate()}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white disabled:opacity-50">
+            <Send className="h-4 w-4" /> {mut.isPending ? "..." : "إرسال"}
+          </button>
+          <button onClick={onClose} className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-bold text-gray-600">إغلاق</button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default CampaignsPage

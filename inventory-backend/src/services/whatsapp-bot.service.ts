@@ -75,34 +75,41 @@ export async function routeIncomingMessage(rawPhone: string, text: string) {
   await logInbound({ phone, name: prospect?.name ?? null, source, messageText: text });
 }
 
+// Rules are checked in order; the first keyword match wins. Built-in rule
+// types (STATEMENT/BALANCE/CATALOG_LINK) pull real account data — everything
+// else is a plain owner-written TEXT reply (unlimited custom rules, e.g.
+// "سلام عليكم" -> "وعليكم السلام").
 async function composeCustomerReply(
   customer: { name: string; phone: string; currentBalance: unknown },
   text: string,
   settings: Awaited<ReturnType<typeof getSettings>>
 ): Promise<string | null> {
-  if (matchesAny(text, settings.botKeywordsStatement)) {
-    const tpl =
-      settings.statementTemplate ||
-      "كشف حساب {{customerName}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.";
-    return tpl
-      .replace(/\{\{\s*customerName\s*\}\}/g, customer.name)
-      .replace(/\{\{\s*currentBalance\s*\}\}/g, money(customer.currentBalance as number))
-      .replace(/\{\{\s*currency\s*\}\}/g, settings.currency || "د.ع")
-      .replace(/\{\{\s*storeName\s*\}\}/g, settings.storeName || "")
-      .replace(/\{\{\s*date\s*\}\}/g, new Date().toLocaleDateString("ar-IQ"));
-  }
+  for (const rule of settings.botRules ?? []) {
+    if (!matchesAny(text, rule.keywords)) continue;
 
-  if (matchesAny(text, settings.botKeywordsBalance)) {
-    return `رصيدك الحالي: ${money(customer.currentBalance as number)} ${settings.currency || "د.ع"}`;
-  }
+    if (rule.replyType === "STATEMENT") {
+      const tpl =
+        settings.statementTemplate ||
+        "كشف حساب {{customerName}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.";
+      return tpl
+        .replace(/\{\{\s*customerName\s*\}\}/g, customer.name)
+        .replace(/\{\{\s*currentBalance\s*\}\}/g, money(customer.currentBalance as number))
+        .replace(/\{\{\s*currency\s*\}\}/g, settings.currency || "د.ع")
+        .replace(/\{\{\s*storeName\s*\}\}/g, settings.storeName || "")
+        .replace(/\{\{\s*date\s*\}\}/g, new Date().toLocaleDateString("ar-IQ"));
+    }
 
-  if (matchesAny(text, settings.botKeywordsHowToBuy)) {
-    return settings.botHowToBuyMessage?.trim() || "تكدر تطلب عبر الكاتلوج أو تتواصل وينا مباشرة.";
-  }
+    if (rule.replyType === "BALANCE") {
+      return `رصيدك الحالي: ${money(customer.currentBalance as number)} ${settings.currency || "د.ع"}`;
+    }
 
-  if (matchesAny(text, settings.botKeywordsCatalog)) {
-    const link = settings.catalogPublicUrl?.trim();
-    return link ? `🗂️ هذا رابط الكاتلوج:\n${link}` : "الكاتلوك غير متوفر حالياً.";
+    if (rule.replyType === "CATALOG_LINK") {
+      const link = settings.catalogPublicUrl?.trim();
+      return link ? `🗂️ هذا رابط الكاتلوج:\n${link}` : "الكاتلوك غير متوفر حالياً.";
+    }
+
+    // TEXT
+    if (rule.replyText?.trim()) return rule.replyText.trim();
   }
 
   return null;

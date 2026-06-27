@@ -789,14 +789,20 @@ export interface AppSettings {
   prospectAutoReplyKeywords?: string[]
   prospectAutoReplyMessage?: string
   prospectAutoReplyEnabled?: boolean
-  // WhatsApp customer-service bot (4 fixed commands for known customers)
+  // WhatsApp customer-service bot — owner-editable list of rules
   whatsappBotEnabled?: boolean
   botUnknownMessage?: string
-  botKeywordsStatement?: string[]
-  botKeywordsBalance?: string[]
-  botKeywordsHowToBuy?: string[]
-  botKeywordsCatalog?: string[]
-  botHowToBuyMessage?: string
+  botRules?: BotRule[]
+}
+
+export type BotReplyType = "STATEMENT" | "BALANCE" | "CATALOG_LINK" | "TEXT"
+
+export interface BotRule {
+  id: string
+  keywords: string[]
+  replyType: BotReplyType
+  replyText?: string
+  builtin?: boolean
 }
 
 export type InboundMessageSource = "CUSTOMER_UNMATCHED" | "PROSPECT" | "UNKNOWN"
