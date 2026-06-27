@@ -826,13 +826,27 @@ export function ProductsPage() {
                           : "border-slate-200 dark:border-slate-800"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/inventory/${p.id}`)}
-                    className="flex w-full items-start gap-3 p-3 text-right"
-                  >
-                    <ProductThumb product={p} className="h-16 w-16 shrink-0 rounded-xl" />
-                    <div className="min-w-0 flex-1">
+                  <div className="flex w-full items-start gap-3 p-3 text-right">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const src = p.thumbnailUrl || p.imageUrl
+                        if (!src) return
+                        setLightboxImage({ url: src, title: p.name })
+                        void getProduct(p.id).then((full) => {
+                          if (full?.imageUrl) setLightboxImage({ url: full.imageUrl, title: p.name })
+                        }).catch(() => {})
+                      }}
+                      className="shrink-0 cursor-zoom-in"
+                    >
+                      <ProductThumb product={p} className="h-16 w-16 rounded-xl" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/inventory/${p.id}`)}
+                      className="min-w-0 flex-1 text-right"
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <h3 className="truncate text-base font-bold text-slate-900 dark:text-slate-100">{p.name}</h3>
@@ -856,8 +870,8 @@ export function ProductsPage() {
                           </span>
                         ))}
                       </div>
-                    </div>
-                  </button>
+                    </button>
+                  </div>
 
                   <div className="grid grid-cols-3 border-y border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/60">
                     <div className="p-2.5 text-center">
