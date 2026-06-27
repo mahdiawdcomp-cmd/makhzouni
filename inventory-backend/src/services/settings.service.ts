@@ -50,10 +50,12 @@ export interface AppSettings {
   catalogDesignWelcomeMessage?: string;
   catalogDesignBannerEnabled?: boolean;
   catalogDesignBannerImages?: Array<{ url: string; title: string; order: number }>;
-  // Prospect auto-reply: when a prospect replies with the trigger keyword,
-  // the WhatsApp group invite link is sent back to them automatically.
+  // Prospect auto-reply: when a prospect's reply contains ANY of these
+  // trigger keywords, the configured message (with {{link}} substituted)
+  // is sent back to them automatically.
   prospectGroupInviteLink?: string;
-  prospectAutoReplyKeyword?: string;
+  prospectAutoReplyKeywords?: string[];
+  prospectAutoReplyMessage?: string;
   prospectAutoReplyEnabled?: boolean;
 }
 
@@ -87,7 +89,8 @@ export const defaultSettings: AppSettings = {
   whatsappCloudToken: "",
   whatsappCloudPhoneNumberId: "",
   prospectGroupInviteLink: "",
-  prospectAutoReplyKeyword: "تم",
+  prospectAutoReplyKeywords: ["تم", "نعم", "اوكي", "ok"],
+  prospectAutoReplyMessage: "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}",
   prospectAutoReplyEnabled: false,
 };
 

@@ -221,18 +221,23 @@ const emptyForm: CampaignPayload = {
   minDelaySec: 90, maxDelaySec: 240, dailyMin: 20, dailyMax: 50, activeStartHour: 9, activeEndHour: 21,
 }
 
+const DEFAULT_AUTO_REPLY_MESSAGE = "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}"
+const DEFAULT_AUTO_REPLY_KEYWORDS = "تم, نعم, اوكي, ok"
+
 function AutoReplySettings() {
   const qc = useQueryClient()
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const [link, setLink] = useState("")
-  const [keyword, setKeyword] = useState("تم")
+  const [keywordsText, setKeywordsText] = useState(DEFAULT_AUTO_REPLY_KEYWORDS)
+  const [message, setMessage] = useState(DEFAULT_AUTO_REPLY_MESSAGE)
   const [enabled, setEnabled] = useState(false)
 
   useEffect(() => {
     const s = settingsQuery.data
     if (!s) return
     setLink(s.prospectGroupInviteLink ?? "")
-    setKeyword(s.prospectAutoReplyKeyword ?? "تم")
+    setKeywordsText((s.prospectAutoReplyKeywords ?? []).join(", ") || DEFAULT_AUTO_REPLY_KEYWORDS)
+    setMessage(s.prospectAutoReplyMessage ?? DEFAULT_AUTO_REPLY_MESSAGE)
     setEnabled(s.prospectAutoReplyEnabled ?? false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsQuery.data])
@@ -240,7 +245,8 @@ function AutoReplySettings() {
   const saveMut = useMutation({
     mutationFn: () => updateSettings({
       prospectGroupInviteLink: link.trim(),
-      prospectAutoReplyKeyword: keyword.trim() || "تم",
+      prospectAutoReplyKeywords: keywordsText.split(",").map((k) => k.trim()).filter(Boolean),
+      prospectAutoReplyMessage: message.trim() || DEFAULT_AUTO_REPLY_MESSAGE,
       prospectAutoReplyEnabled: enabled,
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
@@ -252,19 +258,26 @@ function AutoReplySettings() {
         <MessageSquareReply className="h-4 w-4 text-blue-600" /> الرد التلقائي — رابط كروب الواتساب
       </div>
       <p className="mb-3 text-[11px] text-gray-500">
-        لمّا الزبون يردّ برسالة فيها الكلمة المفتاحية، يستلم رابط الكروب تلقائياً (مرة واحدة لكل رقم).
+        لمّا رد الزبون يحتوي إحدى الكلمات بالأسفل، يستلم رسالتك تلقائياً (مرة واحدة لكل رقم).
         يحتاج تفعيل Webhook الوارد من Green API على رابط:
         <code className="mr-1 rounded bg-white px-1 py-0.5 text-[10px]" dir="ltr">/api/public/whatsapp/incoming-webhook</code>
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-3">
         <div>
           <label className="mb-1 block text-xs font-bold text-gray-600">رابط دعوة الكروب</label>
           <input value={link} onChange={(e) => setLink(e.target.value)} dir="ltr" placeholder="https://chat.whatsapp.com/..."
             className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400" />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-bold text-gray-600">الكلمة المفتاحية</label>
-          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="تم"
+          <label className="mb-1 block text-xs font-bold text-gray-600">الكلمات الي إذا كتبها الزبون تفعّل الرد (افصل بفاصلة)</label>
+          <input value={keywordsText} onChange={(e) => setKeywordsText(e.target.value)} placeholder="تم, نعم, اوكي"
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-bold text-gray-600">
+            نص الرد التلقائي — استخدم <code className="rounded bg-white px-1">{"{{link}}"}</code> بمكان الرابط
+          </label>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
             className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400" />
         </div>
       </div>

@@ -154,7 +154,7 @@ export async function clearConvertedProspects() {
   return { deleted: r.count };
 }
 
-/* ─── Auto-reply: prospect writes the trigger keyword → send group link ── */
+/* ─── Auto-reply: prospect writes any trigger keyword → send group link ── */
 // Called from the WhatsApp incoming-message webhook (see whatsapp.controller).
 // Deliberately silent/best-effort: a missed auto-reply should never break the
 // webhook response or surface an error to the WhatsApp provider.
@@ -165,8 +165,12 @@ export async function handleIncomingProspectReply(rawPhone: string, text: string
   const link = settings.prospectGroupInviteLink?.trim();
   if (!link) return false;
 
-  const keyword = (settings.prospectAutoReplyKeyword?.trim() || "تم");
-  if (!text?.trim().toLowerCase().includes(keyword.toLowerCase())) return false;
+  const keywords = (settings.prospectAutoReplyKeywords ?? ["تم"])
+    .map((k) => k.trim().toLowerCase())
+    .filter(Boolean);
+  const normalizedText = text?.trim().toLowerCase() ?? "";
+  const matched = keywords.length === 0 || keywords.some((k) => normalizedText.includes(k));
+  if (!matched) return false;
 
   const phone = normalizePhone(rawPhone);
   if (!phone) return false;
@@ -174,8 +178,11 @@ export async function handleIncomingProspectReply(rawPhone: string, text: string
   const prospect = await prisma.prospect.findUnique({ where: { phone } });
   if (!prospect || prospect.groupLinkSentAt) return false; // never spam twice
 
+  const template = settings.prospectAutoReplyMessage?.trim() || "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}";
+  const message = template.replace(/\{\{\s*link\s*\}\}/gi, link);
+
   try {
-    await sendWhatsAppText(phone, `تمام 👍 هذا رابط كروبنا على الواتساب:\n${link}`);
+    await sendWhatsAppText(phone, message);
     await prisma.prospect.update({ where: { id: prospect.id }, data: { groupLinkSentAt: new Date() } });
     return true;
   } catch (err) {

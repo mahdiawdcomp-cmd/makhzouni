@@ -784,9 +784,10 @@ export interface AppSettings {
   // Retail storefront "designed by" credit (shown in shop footer)
   siteDesignerName?: string
   siteDesignerPhone?: string
-  // Prospect auto-reply: replying with the keyword auto-sends the group link
+  // Prospect auto-reply: replying with any keyword auto-sends the group link
   prospectGroupInviteLink?: string
-  prospectAutoReplyKeyword?: string
+  prospectAutoReplyKeywords?: string[]
+  prospectAutoReplyMessage?: string
   prospectAutoReplyEnabled?: boolean
 }
 
