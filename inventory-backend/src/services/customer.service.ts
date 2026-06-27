@@ -853,25 +853,22 @@ export async function broadcastToCustomers(input: {
   const settings = await getSettings().catch(() => null);
   const catalogLink = settings?.catalogPublicUrl?.trim() || "";
 
+  const finalText = catalogLink ? `${input.message}\n\n🗂️ الكاتلوج: ${catalogLink}` : input.message;
+
   let sent = 0;
   let failed = 0;
   for (const customer of customers) {
     try {
-      if (productImages.length > 0) {
-        for (let idx = 0; idx < productImages.length; idx++) {
-          const { product, image } = productImages[idx];
-          const priceLine = product.retailPrice ? `\n${Number(product.retailPrice)} د.ع` : "";
-          let caption = `📦 ${product.name}${priceLine}`;
-          if (idx === 0) {
-            caption = catalogLink ? `${input.message}\n\n${caption}\n\n🗂️ الكاتلوج: ${catalogLink}` : `${input.message}\n\n${caption}`;
-          }
-          await sendWhatsAppImage(customer.phone, caption, image.buffer, image.mime);
-          await new Promise((r) => setTimeout(r, 400));
-        }
-      } else {
-        const caption = catalogLink ? `${input.message}\n\n🗂️ الكاتلوج: ${catalogLink}` : input.message;
-        await sendWhatsAppText(customer.phone, caption);
+      // Images first (each captioned with the product's WHOLESALE price —
+      // salePrice, not retailPrice which is the مفرد/retail price), then the
+      // typed message is sent on its own as the final, separate message.
+      for (const { product, image } of productImages) {
+        const priceLine = product.salePrice ? `\n${Number(product.salePrice)} د.ع` : "";
+        const caption = `📦 ${product.name}${priceLine}`;
+        await sendWhatsAppImage(customer.phone, caption, image.buffer, image.mime);
+        await new Promise((r) => setTimeout(r, 400));
       }
+      await sendWhatsAppText(customer.phone, finalText);
       sent++;
     } catch (err) {
       failed++;

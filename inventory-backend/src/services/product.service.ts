@@ -57,7 +57,8 @@ function serializeProduct<T extends {
   warehouseStocks?: Array<{ quantityPieces: number; warehouseId?: string }>;
 }>(
   product: T,
-  shopWarehouseId?: string | null
+  shopWarehouseId?: string | null,
+  hidePurchasePrice = false
 ) {
   const warehouseTotal = product.warehouseStocks?.reduce(
     (sum, stock) => sum + stock.quantityPieces,
@@ -68,11 +69,19 @@ function serializeProduct<T extends {
   const shopStock = shopWarehouseId
     ? product.warehouseStocks?.find((s) => s.warehouseId === shopWarehouseId)?.quantityPieces ?? 0
     : undefined;
-  return {
+  const result = {
     ...product,
     currentStock: warehouseTotal ?? stockFrom(product),
     ...(shopStock === undefined ? {} : { shopStock }),
   };
+  // Staff without VIEW_PURCHASE_PRICE must never see cost price — stripped
+  // server-side (not just hidden in the UI) so it can't leak via devtools.
+  if (hidePurchasePrice) {
+    const { purchasePrice, ...rest } = result as typeof result & { purchasePrice?: unknown };
+    void purchasePrice;
+    return rest;
+  }
+  return result;
 }
 
 const productWarehouseInclude = {
@@ -134,6 +143,7 @@ export async function listProducts(query: {
   branchId?: string;
   page?: number;
   limit?: number;
+  hidePurchasePrice?: boolean;
 }) {
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
@@ -165,7 +175,7 @@ export async function listProducts(query: {
       orderBy: { name: "asc" },
     });
     const filtered = rows
-      .map((p) => serializeProduct(p, shopWarehouseId))
+      .map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice))
       .filter((product) => product.currentStock <= product.minStock);
     const total = filtered.length;
     const data = filtered.slice((page - 1) * limit, page * limit);
@@ -193,7 +203,7 @@ export async function listProducts(query: {
     prisma.product.count({ where }),
   ]);
 
-  const data = rows.map((p) => serializeProduct(p, shopWarehouseId));
+  const data = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice));
 
   return {
     data,
@@ -206,7 +216,7 @@ export async function listProducts(query: {
   };
 }
 
-export async function getProductById(id: string, db: Db = prisma) {
+export async function getProductById(id: string, db: Db = prisma, hidePurchasePrice = false) {
   const product = await db.product.findFirst({
     where: { id, deletedAt: null },
     include: productWarehouseInclude,
@@ -217,10 +227,10 @@ export async function getProductById(id: string, db: Db = prisma) {
   }
 
   const shopWarehouseId = await resolveShopWarehouseId(db).catch(() => null);
-  return serializeProduct(product, shopWarehouseId);
+  return serializeProduct(product, shopWarehouseId, hidePurchasePrice);
 }
 
-export async function getProductByQrCode(qrCode: string, db: Db = prisma) {
+export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePurchasePrice = false) {
   const product = await db.product.findFirst({
     where: {
       OR: [{ qrCode }, { cartonQrCode: qrCode }],
@@ -239,7 +249,7 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma) {
   const scannedUnit: "CARTON" | "PIECE" =
     product.cartonQrCode && product.cartonQrCode === code ? "CARTON" : "PIECE";
 
-  return { ...serializeProduct(product), scannedUnit };
+  return { ...serializeProduct(product, undefined, hidePurchasePrice), scannedUnit };
 }
 
 export async function createProduct(

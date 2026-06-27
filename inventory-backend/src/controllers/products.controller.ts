@@ -36,9 +36,10 @@ function requireUser(reqUser: Express.User | undefined) {
 }
 
 export const getProducts = asyncHandler(async (req, res) => {
-  const result = await listProducts(
-    req.validatedQuery as Parameters<typeof listProducts>[0]
-  );
+  const result = await listProducts({
+    ...(req.validatedQuery as Parameters<typeof listProducts>[0]),
+    hidePurchasePrice: !hasPermission(req.user, "VIEW_PURCHASE_PRICE"),
+  });
 
   res.json({
     success: true,
@@ -65,7 +66,11 @@ export const backfillThumbs = asyncHandler(async (_req, res) => {
 });
 
 export const getProductDetails = asyncHandler(async (req, res) => {
-  const product = await getProductById(String(req.params.id));
+  const product = await getProductById(
+    String(req.params.id),
+    undefined,
+    !hasPermission(req.user, "VIEW_PURCHASE_PRICE")
+  );
 
   res.json({
     success: true,
@@ -74,7 +79,11 @@ export const getProductDetails = asyncHandler(async (req, res) => {
 });
 
 export const getProductByQr = asyncHandler(async (req, res) => {
-  const product = await getProductByQrCode(String(req.params.qrCode));
+  const product = await getProductByQrCode(
+    String(req.params.qrCode),
+    undefined,
+    !hasPermission(req.user, "VIEW_PURCHASE_PRICE")
+  );
 
   res.json({
     success: true,

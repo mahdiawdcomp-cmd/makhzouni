@@ -16,6 +16,7 @@ import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
 import { ImageCropModal } from "../components/ImageCropModal"
+import { useAuthStore } from "../store/authStore"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -77,6 +78,9 @@ async function rotateDataUrl(dataUrl: string, degrees: 90 | 180 | 270): Promise<
 export function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  // Backend already strips purchasePrice from the API for staff without this
+  // permission — this just avoids rendering a stale/blank field for them.
+  const canViewPurchasePrice = useAuthStore((s) => s.hasPermission("VIEW_PURCHASE_PRICE"))
   const { productQuery, movementQuery } = useProductDetails(id)
   const { productsQuery, updateMutation } = useProducts()
   const product = productQuery.data
@@ -263,7 +267,7 @@ export function ProductDetailPage() {
                 <div>
                   <InfoRow label="رقم الآيتم (SKU)" value={product.itemNumber} />
                   <InfoRow label="الفئة" value={product.category ?? "—"} />
-                  <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />
+                  {canViewPurchasePrice && <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />}
                   <InfoRow label="سعر الكلفة" value={`${fmt(product.costPrice ?? 0)} د.ع`} />
                   <InfoRow label="سعر البيع (جملة)" value={`${fmt(product.salePrice)} د.ع`} />
                   <InfoRow label="سعر المفرد" value={`${fmt(product.retailPrice ?? 0)} د.ع`} />
@@ -619,9 +623,11 @@ export function ProductDetailPage() {
             <Field label="حد التنبيه">
               <Input type="number" value={editForm.minStock ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, minStock: Number(e.target.value) })} />
             </Field>
-            <Field label="سعر الشراء">
-              <Input type="number" value={editForm.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, purchasePrice: Number(e.target.value) })} />
-            </Field>
+            {canViewPurchasePrice && (
+              <Field label="سعر الشراء">
+                <Input type="number" value={editForm.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, purchasePrice: Number(e.target.value) })} />
+              </Field>
+            )}
             <Field label="سعر الكلفة">
               <Input type="number" value={editForm.costPrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, costPrice: Number(e.target.value) })} />
             </Field>
