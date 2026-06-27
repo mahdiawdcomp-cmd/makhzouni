@@ -709,6 +709,23 @@ export const updateSettingsSchema = z.object({
       seasonalAlerts: z.string().trim().optional(),
       siteDesignerName: z.string().trim().max(120).optional(),
       siteDesignerPhone: z.string().trim().max(40).optional(),
+      prospectGroupInviteLink: z.string().trim().optional(),
+      prospectAutoReplyKeywords: z.array(z.string()).optional(),
+      prospectAutoReplyMessage: z.string().optional(),
+      prospectAutoReplyEnabled: z.boolean().optional(),
+      whatsappBotEnabled: z.boolean().optional(),
+      botUnknownMessage: z.string().optional(),
+      botRules: z
+        .array(
+          z.object({
+            id: z.string(),
+            keywords: z.array(z.string()),
+            replyType: z.enum(["STATEMENT", "BALANCE", "CATALOG_LINK", "TEXT"]),
+            replyText: z.string().optional(),
+            builtin: z.boolean().optional(),
+          })
+        )
+        .optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",
