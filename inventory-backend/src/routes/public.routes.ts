@@ -9,6 +9,7 @@ import {
   validatePromoCtrl,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
+import { whatsappIncomingWebhook } from "../controllers/whatsapp.controller";
 import {
   getClientPortal,
   getClientPortalInvoice,
@@ -51,6 +52,9 @@ import {
 } from "../utils/schemas";
 
 const router = Router();
+
+// Incoming WhatsApp webhook (Green API) — set this URL in the Green API console.
+router.post("/whatsapp/incoming-webhook", whatsappIncomingWebhook);
 
 // OTP verification (strict rate limit on send)
 router.post("/otp/send", otpLimiter, validate(sendOtpSchema), sendOtp);

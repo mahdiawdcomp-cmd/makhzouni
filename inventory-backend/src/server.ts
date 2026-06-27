@@ -202,6 +202,16 @@ async function runStartupMigrations() {
   } catch (err) {
     logger.warn("[migration] prospects startup migration warning:", err);
   }
+
+  // Safety net for prospect group-link auto-reply tracking column.
+  try {
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "prospects" ADD COLUMN IF NOT EXISTS "group_link_sent_at" TIMESTAMP(3)`
+    );
+    logger.info("[migration] prospects.group_link_sent_at column ensured");
+  } catch (err) {
+    logger.warn("[migration] prospects.group_link_sent_at migration warning:", err);
+  }
 }
 
 void runStartupMigrations();

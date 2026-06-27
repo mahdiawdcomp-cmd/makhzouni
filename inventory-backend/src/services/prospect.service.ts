@@ -3,6 +3,9 @@ import { ProspectStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { normalizePhone } from "../utils/phone";
+import { getSettings } from "./settings.service";
+import { sendWhatsAppText } from "./whatsapp.service";
+import { logger } from "../utils/logger";
 
 let _groq: Groq | null = null;
 function getGroq(): Groq {
@@ -149,4 +152,34 @@ export async function deleteProspect(id: string) {
 export async function clearConvertedProspects() {
   const r = await prisma.prospect.deleteMany({ where: { status: ProspectStatus.CONVERTED } });
   return { deleted: r.count };
+}
+
+/* ─── Auto-reply: prospect writes the trigger keyword → send group link ── */
+// Called from the WhatsApp incoming-message webhook (see whatsapp.controller).
+// Deliberately silent/best-effort: a missed auto-reply should never break the
+// webhook response or surface an error to the WhatsApp provider.
+export async function handleIncomingProspectReply(rawPhone: string, text: string): Promise<boolean> {
+  const settings = await getSettings();
+  if (!settings.prospectAutoReplyEnabled) return false;
+
+  const link = settings.prospectGroupInviteLink?.trim();
+  if (!link) return false;
+
+  const keyword = (settings.prospectAutoReplyKeyword?.trim() || "تم");
+  if (!text?.trim().toLowerCase().includes(keyword.toLowerCase())) return false;
+
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return false;
+
+  const prospect = await prisma.prospect.findUnique({ where: { phone } });
+  if (!prospect || prospect.groupLinkSentAt) return false; // never spam twice
+
+  try {
+    await sendWhatsAppText(phone, `تمام 👍 هذا رابط كروبنا على الواتساب:\n${link}`);
+    await prisma.prospect.update({ where: { id: prospect.id }, data: { groupLinkSentAt: new Date() } });
+    return true;
+  } catch (err) {
+    logger.warn(`[ProspectAutoReply] failed to send group link to ${phone}: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
 }

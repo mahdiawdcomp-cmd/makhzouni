@@ -1,13 +1,13 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Plus, Play, Pause, Trash2, Clock, Users, CheckCircle2, XCircle,
-  Upload, Image as ImageIcon, UserPlus, DownloadCloud, Pencil,
+  Upload, Image as ImageIcon, UserPlus, DownloadCloud, Pencil, MessageSquareReply,
 } from "lucide-react"
 import {
   convertProspect, deleteProspect, getProspects, importProspects, importProspectsFromImages,
   createCampaign, updateCampaign, deleteCampaign, getCampaign, getCampaigns, loadCampaignProspects,
-  setCampaignStatus, deleteCampaignRecipient,
+  setCampaignStatus, deleteCampaignRecipient, getSettings, updateSettings,
 } from "../api/endpoints"
 import type { Campaign, CampaignPayload, CampaignStatus, Prospect } from "../types/api"
 
@@ -221,6 +221,66 @@ const emptyForm: CampaignPayload = {
   minDelaySec: 90, maxDelaySec: 240, dailyMin: 20, dailyMax: 50, activeStartHour: 9, activeEndHour: 21,
 }
 
+function AutoReplySettings() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const [link, setLink] = useState("")
+  const [keyword, setKeyword] = useState("تم")
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    const s = settingsQuery.data
+    if (!s) return
+    setLink(s.prospectGroupInviteLink ?? "")
+    setKeyword(s.prospectAutoReplyKeyword ?? "تم")
+    setEnabled(s.prospectAutoReplyEnabled ?? false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsQuery.data])
+
+  const saveMut = useMutation({
+    mutationFn: () => updateSettings({
+      prospectGroupInviteLink: link.trim(),
+      prospectAutoReplyKeyword: keyword.trim() || "تم",
+      prospectAutoReplyEnabled: enabled,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
+  })
+
+  return (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-800">
+        <MessageSquareReply className="h-4 w-4 text-blue-600" /> الرد التلقائي — رابط كروب الواتساب
+      </div>
+      <p className="mb-3 text-[11px] text-gray-500">
+        لمّا الزبون يردّ برسالة فيها الكلمة المفتاحية، يستلم رابط الكروب تلقائياً (مرة واحدة لكل رقم).
+        يحتاج تفعيل Webhook الوارد من Green API على رابط:
+        <code className="mr-1 rounded bg-white px-1 py-0.5 text-[10px]" dir="ltr">/api/public/whatsapp/incoming-webhook</code>
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs font-bold text-gray-600">رابط دعوة الكروب</label>
+          <input value={link} onChange={(e) => setLink(e.target.value)} dir="ltr" placeholder="https://chat.whatsapp.com/..."
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-bold text-gray-600">الكلمة المفتاحية</label>
+          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="تم"
+            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400" />
+        </div>
+      </div>
+      <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="h-4 w-4" />
+        تفعيل الرد التلقائي
+      </label>
+      <button disabled={saveMut.isPending} onClick={() => saveMut.mutate()}
+        className="mt-3 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+        {saveMut.isPending ? "..." : "حفظ"}
+      </button>
+      {saveMut.isSuccess && <span className="mr-2 text-xs text-emerald-700">✓ تم الحفظ</span>}
+    </div>
+  )
+}
+
 function SendTab() {
   const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -250,6 +310,8 @@ function SendTab() {
       <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
         ⚠️ عشوائي بالكامل: الرسالة + الوقت + العدد اليومي. استعمل رقم مخصص وابدأ بعدد قليل.
       </div>
+
+      <AutoReplySettings />
 
       {showForm && (
         <CampaignForm onClose={() => setShowForm(false)}

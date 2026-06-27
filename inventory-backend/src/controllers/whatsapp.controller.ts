@@ -3,12 +3,47 @@ import { getInvoiceById } from "../services/invoice.service";
 import { generateInvoicePdf } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings } from "../services/settings.service";
+import { handleIncomingProspectReply } from "../services/prospect.service";
 import {
   getWhatsAppStatus,
   restartWhatsApp,
   sendWhatsAppPdf,
   sendWhatsAppText,
 } from "../services/whatsapp.service";
+
+// ── Incoming WhatsApp webhook (Green API) ──────────────────────────────────
+// Configure this URL as the instance's "Incoming webhook" in the Green API
+// console. Used today for one thing: prospects who reply with the trigger
+// keyword get the WhatsApp group invite link sent back automatically.
+// Always responds 200 — a missed/failed auto-reply must never make the
+// provider think the webhook endpoint is broken and retry/disable it.
+export const whatsappIncomingWebhook = asyncHandler(async (req, res) => {
+  try {
+    const body = req.body as {
+      typeWebhook?: string;
+      senderData?: { chatId?: string; sender?: string };
+      messageData?: {
+        textMessageData?: { textMessage?: string };
+        extendedTextMessageData?: { text?: string };
+      };
+    };
+
+    if (body.typeWebhook === "incomingMessageReceived") {
+      const chatId = body.senderData?.chatId ?? body.senderData?.sender ?? "";
+      const phone = chatId.replace(/@c\.us$|@g\.us$/i, "");
+      const text =
+        body.messageData?.textMessageData?.textMessage ??
+        body.messageData?.extendedTextMessageData?.text ??
+        "";
+      if (phone && text) {
+        await handleIncomingProspectReply(phone, text);
+      }
+    }
+  } catch {
+    // swallow — webhook must always ack 200
+  }
+  res.json({ success: true });
+});
 
 export const whatsappStatus = asyncHandler(async (_req, res) => {
   res.json({

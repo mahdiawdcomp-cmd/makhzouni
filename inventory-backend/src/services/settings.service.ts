@@ -50,6 +50,11 @@ export interface AppSettings {
   catalogDesignWelcomeMessage?: string;
   catalogDesignBannerEnabled?: boolean;
   catalogDesignBannerImages?: Array<{ url: string; title: string; order: number }>;
+  // Prospect auto-reply: when a prospect replies with the trigger keyword,
+  // the WhatsApp group invite link is sent back to them automatically.
+  prospectGroupInviteLink?: string;
+  prospectAutoReplyKeyword?: string;
+  prospectAutoReplyEnabled?: boolean;
 }
 
 export const defaultSettings: AppSettings = {
@@ -81,6 +86,9 @@ export const defaultSettings: AppSettings = {
   whatsappProvider: "web",
   whatsappCloudToken: "",
   whatsappCloudPhoneNumberId: "",
+  prospectGroupInviteLink: "",
+  prospectAutoReplyKeyword: "تم",
+  prospectAutoReplyEnabled: false,
 };
 
 const OLD_INVOICE_TEMPLATE =
