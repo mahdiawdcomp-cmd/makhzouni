@@ -294,26 +294,32 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.pdf"`);
   doc.pipe(res);
 
-  // QR on the right edge
+  // QR square, vertically centred on the right edge.
   const qrX = widthPt - pad - qrSize;
-  doc.image(pngBuffer, qrX, pad, { width: qrSize, height: qrSize });
+  const qrY = (heightPt - qrSize) / 2;
+  doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
 
-  // Text column fills the rest (right-aligned, RTL). Pure black + bold + larger
-  // so it stays sharp on a thermal printer.
+  // Text column on the left — 3 evenly-spaced rows, right-aligned, black + bold.
   const textX = pad;
   const textW = qrX - pad * 2;
-  doc.font("Arabic").fontSize(9).fillColor("#000000");
-  boldText(doc, product.name, textX, pad + 0.5 * MM, {
-    width: textW, align: "right", height: 9 * MM, ellipsis: true, features: ["rtla"],
+  const colTop = pad;
+  const colH = heightPt - pad * 2;
+  const rowH = colH / 3;
+
+  // Row 1 — product name (Arabic, rtla).
+  doc.font("Arabic").fontSize(8.5).fillColor("#000000");
+  boldText(doc, product.name, textX, colTop + 0.5, {
+    width: textW, align: "right", height: rowH, ellipsis: true, features: ["rtla"],
   });
-  // Item number is Latin/digits — render LTR (no rtla) so it never reverses.
-  doc.font("Arabic").fontSize(8).fillColor("#000000");
-  boldText(doc, product.itemNumber, textX, heightPt - pad - 7 * MM, {
+  // Row 2 — item number, prominent. Latin/digits → LTR (no rtla, never reverses).
+  doc.font("Arabic").fontSize(10).fillColor("#000000");
+  boldText(doc, product.itemNumber, textX, colTop + rowH + 1, {
     width: textW, align: "right",
   });
+  // Row 3 — pieces per carton (number drawn LTR so it never reverses).
   drawNumberArabicLine(
     doc, "Arabic", 7.5, product.pcsPerCarton, "ق/كرتون",
-    textX, heightPt - pad - 3.6 * MM, textW, "right", "#000000", true,
+    textX, colTop + rowH * 2 + 1.5, textW, "right", "#000000", true,
   );
   doc.end();
 });
