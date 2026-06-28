@@ -213,9 +213,17 @@ export function ProductDetailPage() {
     })
   }
 
+  // Default/reliable action: always download (and best-effort preview) the
+  // PDF. DLabel (a separate local helper app for direct thermal-printer
+  // output) is offered as an optional extra via handleDLabelPrint below,
+  // never as the only path — most machines don't have DLabel.exe installed.
   async function handlePieceLabelPrint() {
     if (!product) return
+    await openPdf(productPieceLabelPdf(product.id), `${product.itemNumber}-piece-label.pdf`)
+  }
 
+  async function handleDLabelPrint() {
+    if (!product) return
     try {
       await openPieceLabelInDLabel({
         name: product.name,
@@ -227,10 +235,9 @@ export function ProductDetailPage() {
     } catch (error) {
       toast({
         title: error instanceof Error ? error.message : "تعذر الوصول إلى DLabel",
-        description: "فتحنا ملف PDF بدلًا من ذلك.",
+        description: "هذا يعمل فقط إذا كان برنامج DLabel مثبّتًا على هذا الجهاز.",
         variant: "destructive",
       })
-      await openPdf(productPieceLabelPdf(product.id), `${product.itemNumber}-piece-label.pdf`)
     }
   }
 
@@ -266,7 +273,7 @@ export function ProductDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <RecordNavigator currentId={id} orderedIds={orderedProductIds} onNavigate={(target) => navigate(`/inventory/${target}`)} noun="مادة" />
           <Button variant="outline" onClick={() => void handlePieceLabelPrint()}>
-            <Printer className="h-4 w-4" /> طباعة DLabel
+            <Printer className="h-4 w-4" /> طباعة ملصق القطعة
           </Button>
           <Button variant="outline" onClick={startEdit}>
             <Edit className="h-4 w-4" /> تعديل
@@ -451,10 +458,9 @@ export function ProductDetailPage() {
                 <Button
                   variant="outline"
                   className="flex-1 text-xs"
-                  disabled={!pieceQrUrl}
                   onClick={() => void handlePieceLabelPrint()}
                 >
-                  <Printer className="h-3.5 w-3.5" /> طباعة DLabel
+                  <Printer className="h-3.5 w-3.5" /> طباعة الملصق
                 </Button>
                 {pieceLabelUrl ? (
                   <Button variant="outline" className="flex-1 text-xs" asChild>
@@ -464,6 +470,9 @@ export function ProductDetailPage() {
                   </Button>
                 ) : null}
               </div>
+              <Button variant="ghost" className="w-full text-[11px] text-slate-400" onClick={() => void handleDLabelPrint()}>
+                إرسال إلى DLabel (لمن يستخدم برنامج DLabel المحلي)
+              </Button>
             </CardContent>
           </Card>
 

@@ -19,6 +19,8 @@
     "assets": [
       "node_modules/.prisma/client/*.node",
       "node_modules/@prisma/engines/*.node",
+      "node_modules/@img/sharp-win32-x64/lib/*",
+      "node_modules/@img/sharp-win32-x64/package.json",
       "prisma/schema.prisma",
       "dist/src/migration.sql"
     ],
