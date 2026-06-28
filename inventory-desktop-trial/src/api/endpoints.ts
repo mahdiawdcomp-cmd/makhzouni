@@ -3,6 +3,15 @@ import type {
   ApiEnvelope,
   AppSettings,
   Approval,
+  Campaign,
+  CampaignDetail,
+  CampaignPayload,
+  CampaignStatus,
+  Prospect,
+  ProspectListResult,
+  ProspectStatus,
+  InboundMessage,
+  InboundMessageStatus,
   AuditLog,
   Branch,
   BranchSummary,
@@ -721,6 +730,90 @@ export async function getSettings() {
 export async function updateSettings(payload: Partial<AppSettings>) {
   const { data } = await api.put<ApiEnvelope<AppSettings>>("/settings", payload)
   return data
+}
+
+/* ── Inbound WhatsApp messages (الرسائل الواردة) ────────────────────── */
+export async function getInboundMessages(params?: { status?: InboundMessageStatus }) {
+  const { data } = await api.get<ApiEnvelope<{ items: InboundMessage[]; unreadCount: number }>>("/inbound-messages", { params })
+  return data.data
+}
+
+export async function markInboundMessageRead(id: string) {
+  const { data } = await api.patch<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/read`, {})
+  return data.data
+}
+
+export async function replyToInboundMessage(id: string, text: string) {
+  const { data } = await api.post<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/reply`, { text })
+  return data.data
+}
+
+/* ── Prospects (زبائن محتملين) ──────────────────────────────────────── */
+export async function getProspects(params?: { status?: ProspectStatus; search?: string }) {
+  const { data } = await api.get<ApiEnvelope<ProspectListResult>>("/prospects", { params })
+  return data.data
+}
+
+export async function importProspects(prospects: Array<{ phone: string; name?: string }>) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects", { prospects })
+  return data.data
+}
+
+export async function importProspectsFromImages(images: string[]) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>("/prospects/from-images", { images })
+  return data.data
+}
+
+export async function convertProspect(id: string, payload: { name: string; address?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string }>>(`/prospects/${id}/convert`, payload)
+  return data.data
+}
+
+export async function deleteProspect(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/prospects/${id}`)
+  return data.data
+}
+
+/* ── Campaigns (drip marketing) ─────────────────────────────────────── */
+export async function getCampaigns() {
+  const { data } = await api.get<ApiEnvelope<Campaign[]>>("/campaigns")
+  return data.data ?? []
+}
+
+export async function getCampaign(id: string) {
+  const { data } = await api.get<ApiEnvelope<CampaignDetail>>(`/campaigns/${id}`)
+  return data.data
+}
+
+export async function createCampaign(payload: CampaignPayload) {
+  const { data } = await api.post<ApiEnvelope<Campaign>>("/campaigns", payload)
+  return data.data
+}
+
+export async function updateCampaign(id: string, payload: CampaignPayload) {
+  const { data } = await api.put<ApiEnvelope<Campaign>>(`/campaigns/${id}`, payload)
+  return data.data
+}
+
+export async function deleteCampaign(id: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}`)
+  return data.data
+}
+
+export async function setCampaignStatus(id: string, status: CampaignStatus) {
+  const { data } = await api.patch<ApiEnvelope<Campaign>>(`/campaigns/${id}/status`, { status })
+  return data.data
+}
+
+export async function loadCampaignProspects(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ added: number; duplicates: number; total: number }>>(
+    `/campaigns/${id}/recipients`, {})
+  return data.data
+}
+
+export async function deleteCampaignRecipient(id: string, recipientId: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}/recipients/${recipientId}`)
+  return data.data
 }
 
 export interface LicenseInfo {

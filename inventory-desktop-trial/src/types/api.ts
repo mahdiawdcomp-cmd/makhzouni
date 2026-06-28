@@ -710,6 +710,116 @@ export interface AppSettings {
   // Retail storefront "designed by" credit (shown in shop footer)
   siteDesignerName?: string
   siteDesignerPhone?: string
+  // Prospect auto-reply: replying with any keyword auto-sends the group link
+  prospectGroupInviteLink?: string
+  prospectAutoReplyKeywords?: string[]
+  prospectAutoReplyMessage?: string
+  prospectAutoReplyEnabled?: boolean
+  // WhatsApp customer-service bot — owner-editable list of rules
+  whatsappBotEnabled?: boolean
+  botUnknownMessage?: string
+  botRules?: BotRule[]
+}
+
+export type BotReplyType = "STATEMENT" | "BALANCE" | "CATALOG_LINK" | "TEXT"
+
+export interface BotRule {
+  id: string
+  keywords: string[]
+  replyType: BotReplyType
+  replyText?: string
+  builtin?: boolean
+}
+
+/* ── Prospects (الزبائن المحتملين) ── */
+export type ProspectStatus = "NEW" | "CONVERTED"
+
+export interface Prospect {
+  id: string
+  name: string
+  phone: string
+  address?: string | null
+  source?: string | null
+  status: ProspectStatus
+  lastSentAt?: string | null
+  createdAt: string
+}
+
+export interface ProspectListResult {
+  items: Prospect[]
+  total: number
+  newCount: number
+  convertedCount: number
+}
+
+/* ── Campaigns (الحملات) ── */
+export type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE"
+export type CampaignRecipientStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED"
+
+export interface Campaign {
+  id: string
+  name: string
+  status: CampaignStatus
+  messages: string[]
+  productIds: string[]
+  includeCatalogLink: boolean
+  minDelaySec: number
+  maxDelaySec: number
+  dailyMin: number
+  dailyMax: number
+  activeStartHour: number
+  activeEndHour: number
+  sentToday: number
+  dailyCapToday: number
+  lastSentAt?: string | null
+  nextSendAt?: string | null
+  createdAt: string
+  total?: number
+  counts?: Record<CampaignRecipientStatus, number>
+}
+
+export interface CampaignRecipient {
+  id: string
+  phone: string
+  name?: string | null
+  status: CampaignRecipientStatus
+  sentAt?: string | null
+  error?: string | null
+  variantUsed?: string | null
+  createdAt: string
+}
+
+export interface CampaignDetail extends Campaign {
+  recipients: CampaignRecipient[]
+}
+
+export interface CampaignPayload {
+  name: string
+  messages: string[]
+  productIds?: string[]
+  includeCatalogLink?: boolean
+  minDelaySec?: number
+  maxDelaySec?: number
+  dailyMin?: number
+  dailyMax?: number
+  activeStartHour?: number
+  activeEndHour?: number
+}
+
+/* ── Inbound messages (الرسائل الواردة) ── */
+export type InboundMessageSource = "CUSTOMER_UNMATCHED" | "PROSPECT" | "UNKNOWN"
+export type InboundMessageStatus = "UNREAD" | "READ" | "REPLIED"
+
+export interface InboundMessage {
+  id: string
+  phone: string
+  name?: string | null
+  source: InboundMessageSource
+  messageText: string
+  status: InboundMessageStatus
+  replyText?: string | null
+  repliedAt?: string | null
+  createdAt: string
 }
 
 export interface MessageTemplate {

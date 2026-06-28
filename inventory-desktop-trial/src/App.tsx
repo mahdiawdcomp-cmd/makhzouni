@@ -23,6 +23,7 @@ const PublicInvoicePage = lazyPage(() => import("./pages/PublicInvoicePage"), "P
 const CouponsPage = lazyPage(() => import("./pages/CouponsPage"), "CouponsPage")
 const CustomersPage = lazyPage(() => import("./pages/CustomersPage"), "CustomersPage")
 const CustomerBroadcastPage = lazyPage(() => import("./pages/CustomerBroadcastPage"), "CustomerBroadcastPage")
+const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
 const AccountLookupPage = lazyPage(() => import("./pages/AccountLookupPage"), "AccountLookupPage")
 const DashboardPage = lazyPage(() => import("./pages/DashboardPage"), "DashboardPage")
 const InvoiceDetailPage = lazyPage(() => import("./pages/InvoiceDetailPage"), "InvoiceDetailPage")
@@ -101,6 +102,7 @@ const router = createBrowserRouter([
           { path: "losses", element: s(<LossesPage />) },
           { path: "customers", element: s(<CustomersPage />) },
           { path: "customers/broadcast", element: s(<CustomerBroadcastPage />) },
+          { path: "campaigns", element: s(<CampaignsPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: s(<CatalogManagementPage />) },

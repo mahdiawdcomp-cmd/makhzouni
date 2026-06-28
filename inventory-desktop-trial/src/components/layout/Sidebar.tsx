@@ -19,6 +19,7 @@ import {
   RotateCcw,
   ScanBarcode,
   Search,
+  Send,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -49,6 +50,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/invoices") || path.startsWith("/pos") || path.startsWith("/quotations")) return "MANAGE_INVOICES"
   if (path.startsWith("/vouchers")) return "MANAGE_VOUCHERS"
   if (path.startsWith("/customers") || path.startsWith("/account")) return "MANAGE_CUSTOMERS"
+  if (path.startsWith("/campaigns")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/catalog-management")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
@@ -96,6 +98,7 @@ const navItems: Item[] = [
   { to: "/losses", label: "التلف والخسائر", icon: AlertTriangle },
   { to: "/customers", label: "الزبائن", icon: Users },
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
+  { to: "/campaigns", label: "الزبائن الجدد", icon: Send },
   { to: "/account", label: "كشف الحساب", icon: Search },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
