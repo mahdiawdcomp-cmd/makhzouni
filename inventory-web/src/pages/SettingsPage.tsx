@@ -359,6 +359,24 @@ export function SettingsPage() {
                 {settings.storeLogo ? <img src={settings.storeLogo} alt="logo" className="h-14 w-14 rounded-lg object-cover border border-slate-200" /> : null}
               </div>
             </Field>
+
+            <SectionTitle>قياس ملصقات الباركود (ملم)</SectionTitle>
+            <p className="text-xs text-slate-500">قياس الملصق بطابعة الباركود. غيّره حسب حجم الملصق عندك ثم اطبع بخيار «الحجم الفعلي / 100%».</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="عرض ملصق القطعة (ملم)">
+                <Input type="number" value={settings.labelPieceWidthMm ?? 50} onChange={(e) => upd("labelPieceWidthMm", Number(e.target.value))} />
+              </Field>
+              <Field label="ارتفاع ملصق القطعة (ملم)">
+                <Input type="number" value={settings.labelPieceHeightMm ?? 25} onChange={(e) => upd("labelPieceHeightMm", Number(e.target.value))} />
+              </Field>
+              <Field label="عرض ملصق الكرتون (ملم)">
+                <Input type="number" value={settings.labelCartonWidthMm ?? 100} onChange={(e) => upd("labelCartonWidthMm", Number(e.target.value))} />
+              </Field>
+              <Field label="ارتفاع ملصق الكرتون (ملم)">
+                <Input type="number" value={settings.labelCartonHeightMm ?? 100} onChange={(e) => upd("labelCartonHeightMm", Number(e.target.value))} />
+              </Field>
+            </div>
+
             <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
           </CardContent>
         </Card>

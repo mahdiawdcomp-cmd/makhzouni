@@ -23,11 +23,13 @@ import {
   updateProduct,
   adjustProductStockManual,
   listManualStockAdjustments,
+  ensureCartonQrCode,
 } from "../services/product.service";
 import { convertToVariety } from "../services/variety.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
 import { hasPermission } from "../middleware/permission.middleware";
+import { getSettings } from "../services/settings.service";
 
 function requireUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
@@ -235,11 +237,12 @@ const MM = 2.834645669;
 // Layout: QR square on the right (RTL), product name + item number on the left.
 export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const product = await getProductById(String(req.params.id));
+  const settings = await getSettings().catch(() => null);
   const payload = product.qrCode || product.itemNumber;
   const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 0, width: 400 });
 
-  const widthPt = 50 * MM;
-  const heightPt = 25 * MM;
+  const widthPt = (settings?.labelPieceWidthMm || 50) * MM;
+  const heightPt = (settings?.labelPieceHeightMm || 25) * MM;
   const pad = 1.5 * MM;
   const qrSize = heightPt - pad * 2; // square, full height minus padding
 
@@ -272,33 +275,38 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
 // printing on a label/thermal printer (print at 100%, no scaling).
 export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   const product = await getProductById(String(req.params.id));
-  const payload = product.cartonQrCode || product.qrCode || product.itemNumber;
+  const settings = await getSettings().catch(() => null);
+  // Always encode a dedicated carton code (generate+persist if missing) so a
+  // carton scan is never mistaken for a single piece.
+  const payload = await ensureCartonQrCode(product.id);
   const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 1, width: 600 });
 
-  const sizePt = 100 * MM;
+  const widthPt = (settings?.labelCartonWidthMm || 100) * MM;
+  const heightPt = (settings?.labelCartonHeightMm || 100) * MM;
   const pad = 5 * MM;
-  const qrSize = 62 * MM;
-  const qrX = (sizePt - qrSize) / 2;
+  // QR fills most of the width but leaves room for the 3 caption lines (~26mm).
+  const qrSize = Math.min(widthPt - pad * 2, heightPt - pad * 2 - 26 * MM);
+  const qrX = (widthPt - qrSize) / 2;
   const qrY = pad;
 
-  const doc = new PDFDocument({ size: [sizePt, sizePt], margin: 0 });
+  const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.pdf"`);
   doc.pipe(res);
 
   doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-  let y = qrY + qrSize + 4 * MM;
-  doc.font("Arabic").fontSize(18).fillColor("#0f172a").text(product.name, pad, y, {
-    width: sizePt - pad * 2, align: "center", height: 14 * MM, ellipsis: true, features: ["rtla"],
+  let y = qrY + qrSize + 3 * MM;
+  doc.font("Arabic").fontSize(16).fillColor("#0f172a").text(product.name, pad, y, {
+    width: widthPt - pad * 2, align: "center", height: 12 * MM, ellipsis: true, features: ["rtla"],
   });
-  y += 14 * MM;
-  doc.font("Arabic").fontSize(13).fillColor("#0f172a").text(product.itemNumber, pad, y, {
-    width: sizePt - pad * 2, align: "center", features: ["rtla"],
+  y += 12 * MM;
+  doc.font("Arabic").fontSize(12).fillColor("#0f172a").text(product.itemNumber, pad, y, {
+    width: widthPt - pad * 2, align: "center", features: ["rtla"],
   });
-  y += 6 * MM;
-  doc.font("Arabic").fontSize(11).fillColor("#475569").text(`كرتون · ${product.pcsPerCarton} قطعة`, pad, y, {
-    width: sizePt - pad * 2, align: "center", features: ["rtla"],
+  y += 5.5 * MM;
+  doc.font("Arabic").fontSize(10).fillColor("#475569").text(`كرتون · ${product.pcsPerCarton} قطعة`, pad, y, {
+    width: widthPt - pad * 2, align: "center", features: ["rtla"],
   });
   doc.end();
 });

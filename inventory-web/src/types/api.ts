@@ -793,6 +793,11 @@ export interface AppSettings {
   whatsappBotEnabled?: boolean
   botUnknownMessage?: string
   botRules?: BotRule[]
+  // Barcode label sizes (mm)
+  labelPieceWidthMm?: number
+  labelPieceHeightMm?: number
+  labelCartonWidthMm?: number
+  labelCartonHeightMm?: number
 }
 
 export type BotReplyType = "STATEMENT" | "BALANCE" | "CATALOG_LINK" | "TEXT"

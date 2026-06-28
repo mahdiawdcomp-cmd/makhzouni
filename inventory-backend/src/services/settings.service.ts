@@ -66,6 +66,11 @@ export interface AppSettings {
   whatsappBotEnabled?: boolean;
   botUnknownMessage?: string;
   botRules?: BotRule[];
+  // Barcode label dimensions (mm) for the label/thermal printer.
+  labelPieceWidthMm?: number;
+  labelPieceHeightMm?: number;
+  labelCartonWidthMm?: number;
+  labelCartonHeightMm?: number;
 }
 
 export interface BotRule {
@@ -122,6 +127,10 @@ export const defaultSettings: AppSettings = {
       replyText: "تكدر تطلب بسهولة 🛍️\nشوف منتجاتنا بالكاتلوج وابعثلنا الأصناف اللي تريدها، ونرتب الباقي وياك.",
     },
   ],
+  labelPieceWidthMm: 50,
+  labelPieceHeightMm: 25,
+  labelCartonWidthMm: 100,
+  labelCartonHeightMm: 100,
 };
 
 const OLD_INVOICE_TEMPLATE =

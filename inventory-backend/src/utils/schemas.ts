@@ -715,6 +715,10 @@ export const updateSettingsSchema = z.object({
       prospectAutoReplyEnabled: z.boolean().optional(),
       whatsappBotEnabled: z.boolean().optional(),
       botUnknownMessage: z.string().optional(),
+      labelPieceWidthMm: z.coerce.number().min(10).max(300).optional(),
+      labelPieceHeightMm: z.coerce.number().min(10).max(300).optional(),
+      labelCartonWidthMm: z.coerce.number().min(10).max(300).optional(),
+      labelCartonHeightMm: z.coerce.number().min(10).max(300).optional(),
       botRules: z
         .array(
           z.object({
