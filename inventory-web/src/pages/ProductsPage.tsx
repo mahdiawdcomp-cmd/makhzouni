@@ -13,7 +13,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
+import { Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -26,6 +26,7 @@ import { Badge } from "../components/ui/badge"
 import { useToast } from "../components/ui/use-toast"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
+import { AdjustStockModal } from "../components/AdjustStockModal"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -423,6 +424,7 @@ export function ProductsPage() {
   const [dist, setDist] = useState<Record<string, number>>({})
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
+  const [adjustTarget, setAdjustTarget] = useState<Product | null>(null)
   const [restoreConfirm, setRestoreConfirm] = useState<Product | null>(null)
   const [trashOpen, setTrashOpen] = useState(false)
   const qc = useQueryClient()
@@ -895,12 +897,15 @@ export function ProductsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-5 gap-1 p-2">
+                  <div className="grid grid-cols-6 gap-1 p-2">
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => navigate(`/inventory/${p.id}`)}>
                       <Eye className="h-4 w-4" /> عرض
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => startEdit(p)}>
                       <Edit className="h-4 w-4" /> تعديل
+                    </Button>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => setAdjustTarget(p)}>
+                      <Boxes className="h-4 w-4" /> كمية
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printPiece(p.id)}>
                       <ScanQrCode className="h-4 w-4" /> قطعة
@@ -1051,6 +1056,7 @@ export function ProductsPage() {
                         <div className="flex justify-center gap-1">
                           <Button variant="outline" className="h-7 w-7 p-0" title="عرض" onClick={() => navigate(`/inventory/${p.id}`)}><Eye className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="تعديل" onClick={() => startEdit(p)}><Edit className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0" title="تعديل الكمية" onClick={() => setAdjustTarget(p)}><Boxes className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز القطعة" onClick={() => void printPiece(p.id)}><ScanQrCode className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز الكرتون" onClick={() => void printCarton(p.id)}><Printer className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50" title="حذف" onClick={() => setDeleteConfirm(p)}><Trash2 className="h-3.5 w-3.5" /></Button>
@@ -1549,6 +1555,10 @@ export function ProductsPage() {
         onConfirm={() => { setCloseProductConfirm(false); setForm(emptyForm); setOpen(false) }}
         onCancel={() => setCloseProductConfirm(false)}
       />
+
+      {adjustTarget && (
+        <AdjustStockModal product={adjustTarget} onClose={() => setAdjustTarget(null)} />
+      )}
 
       <ConfirmDialog
         open={!!deleteConfirm}
