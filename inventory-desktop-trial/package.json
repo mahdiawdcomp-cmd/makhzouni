@@ -1,7 +1,7 @@
 {
   "name": "makhzouni-mahdi",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.6",
   "type": "module",
   "scripts": {
     "dev": "vite",

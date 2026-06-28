@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "مخزوني مهدي عوض",
-  "version": "1.0.3",
+  "version": "1.0.6",
   "identifier": "com.mazbwoni.mahdi",
   "build": {
     "frontendDist": "../dist",
