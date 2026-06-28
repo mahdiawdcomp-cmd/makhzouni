@@ -13,6 +13,7 @@ import "./desktop-trial.css"
 import { api } from "./api/client"
 import { idbPersister } from "./lib/offline-store"
 import { UpdateChecker } from "./components/UpdateChecker"
+import { useAuthStore } from "./store/authStore"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,10 +29,21 @@ const queryClient = new QueryClient({
   },
 })
 
-// Load saved server URL (set by login screen or default to remote)
+// The desktop is now a cloud-only client. Migrate any old local-server session
+// (http://localhost:5050) so requests don't hang against a dead local server.
+const CLOUD_API = "https://api.mazbwoni.com/api"
 const savedServer = localStorage.getItem("makhzouni_server_url")
-if (savedServer) {
-  api.defaults.baseURL = savedServer
+if (savedServer && (savedServer.includes("localhost") || savedServer.includes("127.0.0.1"))) {
+  // Old local session — reset to cloud and drop the stale local token so the
+  // user logs into the cloud fresh instead of getting stuck on dead requests.
+  localStorage.setItem("makhzouni_server_url", CLOUD_API)
+  localStorage.removeItem("inventory_token")
+  localStorage.removeItem("inventory_user")
+  localStorage.removeItem("inventory_remember")
+  useAuthStore.setState({ token: null, user: null })
+  api.defaults.baseURL = CLOUD_API
+} else {
+  api.defaults.baseURL = savedServer || CLOUD_API
 }
 
 createRoot(document.getElementById("root")!).render(
