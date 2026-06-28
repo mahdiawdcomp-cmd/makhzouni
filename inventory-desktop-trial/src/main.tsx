@@ -29,13 +29,19 @@ const queryClient = new QueryClient({
   },
 })
 
-// The desktop is now a cloud-only client. Migrate any old local-server session
-// (http://localhost:5050) so requests don't hang against a dead local server.
-const CLOUD_API = "https://api.mazbwoni.com/api"
+// The desktop is a thin client to the real backend (the same one the website
+// proxies to). Migrate any stale saved server URL — old local-server sessions
+// (localhost:5050) AND the wrong api.mazbwoni.com host — so requests don't hang.
+const CLOUD_API = "https://inventory-backend-production-7e85.up.railway.app/api"
 const savedServer = localStorage.getItem("makhzouni_server_url")
-if (savedServer && (savedServer.includes("localhost") || savedServer.includes("127.0.0.1"))) {
-  // Old local session — reset to cloud and drop the stale local token so the
-  // user logs into the cloud fresh instead of getting stuck on dead requests.
+const isStaleServer =
+  !savedServer ||
+  savedServer.includes("localhost") ||
+  savedServer.includes("127.0.0.1") ||
+  savedServer.includes("api.mazbwoni.com")
+if (isStaleServer) {
+  // Reset to the correct backend and drop any stale token so the user logs in
+  // fresh instead of getting stuck on dead/cross-server requests.
   localStorage.setItem("makhzouni_server_url", CLOUD_API)
   localStorage.removeItem("inventory_token")
   localStorage.removeItem("inventory_user")
@@ -43,7 +49,7 @@ if (savedServer && (savedServer.includes("localhost") || savedServer.includes("1
   useAuthStore.setState({ token: null, user: null })
   api.defaults.baseURL = CLOUD_API
 } else {
-  api.defaults.baseURL = savedServer || CLOUD_API
+  api.defaults.baseURL = savedServer
 }
 
 createRoot(document.getElementById("root")!).render(

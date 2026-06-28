@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "مخزوني مهدي عوض",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "identifier": "com.mazbwoni.mahdi",
   "build": {
     "frontendDist": "../dist",
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:5050 https://api.mazbwoni.com https://mahdi.mazbwoni.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:;"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:5050 https://inventory-backend-production-7e85.up.railway.app https://api.mazbwoni.com https://mahdi.mazbwoni.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:;"
     }
   },
   "plugins": {

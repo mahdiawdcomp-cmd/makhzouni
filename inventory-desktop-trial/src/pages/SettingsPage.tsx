@@ -1779,7 +1779,7 @@ function ShortcutsPanel() {
 // ─── Server Connection Panel ─────────────────────────────────────────────────
 
 function ServerConnectionPanel() {
-  const [serverUrl, setServerUrl] = useState(() => localStorage.getItem("makhzouni_server_url") ?? "https://api.mazbwoni.com/api")
+  const [serverUrl, setServerUrl] = useState(() => localStorage.getItem("makhzouni_server_url") ?? "https://inventory-backend-production-7e85.up.railway.app/api")
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [showPass, setShowPass] = useState(false)
@@ -1793,8 +1793,9 @@ function ServerConnectionPanel() {
     setTesting(true)
     setTestResult(null)
     try {
-      const base = serverUrl.replace(/\/+$/, "")
-      const r = await fetch(`${base}/health`, { signal: AbortSignal.timeout(8000) })
+      // /health lives at the server ROOT, not under /api.
+      const root = serverUrl.replace(/\/+$/, "").replace(/\/api$/, "")
+      const r = await fetch(`${root}/health`, { signal: AbortSignal.timeout(8000) })
       if (r.ok) {
         setTestResult({ ok: true, msg: "الاتصال ناجح ✓" })
       } else {
@@ -1821,7 +1822,7 @@ function ServerConnectionPanel() {
     setSavingPass(true)
     try {
       const { default: axios } = await import("axios")
-      const base = localStorage.getItem("makhzouni_server_url") ?? "https://api.mazbwoni.com/api"
+      const base = localStorage.getItem("makhzouni_server_url") ?? "https://inventory-backend-production-7e85.up.railway.app/api"
       await axios.patch(`${base}/users/me/password`, { password: newPass }, {
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -1851,7 +1852,7 @@ function ServerConnectionPanel() {
               value={serverUrl}
               onChange={(e) => { setServerUrl(e.target.value); setTestResult(null) }}
               dir="ltr"
-              placeholder="https://api.mazbwoni.com/api"
+              placeholder="https://inventory-backend-production-7e85.up.railway.app/api"
               className="w-full rounded-lg border px-3 py-2 text-sm font-mono"
               style={{
                 borderColor: "var(--theme-cardBorder)",

@@ -7,7 +7,7 @@ import { api } from "./api/client"
 const SERVER_KEY = "makhzouni_server_url"
 // The desktop app is a thin client to the real cloud backend — same data as the
 // website (mahdi.mazbwoni.com). No local server / no separate local database.
-const CLOUD_API = "https://api.mazbwoni.com/api"
+const CLOUD_API = "https://inventory-backend-production-7e85.up.railway.app/api"
 
 export function DesktopTrialGate({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
@@ -93,7 +93,7 @@ function CloudLoginScreen() {
 // ── Web login screen (non-Tauri) ──────────────────────────────────────────────
 function WebLoginScreen() {
   const [serverUrl, setServerUrl] = useState(
-    () => localStorage.getItem(SERVER_KEY) || "https://api.mazbwoni.com/api"
+    () => localStorage.getItem(SERVER_KEY) || "https://inventory-backend-production-7e85.up.railway.app/api"
   )
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")

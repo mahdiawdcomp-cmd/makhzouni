@@ -49,7 +49,7 @@ export function SyncStatus() {
     setState("syncing")
     setErrorMsg("")
     try {
-      const baseUrl = (api.defaults.baseURL as string) ?? "https://api.mazbwoni.com/api"
+      const baseUrl = (api.defaults.baseURL as string) ?? "https://inventory-backend-production-7e85.up.railway.app/api"
       const result = await flushMutationQueue(baseUrl, token)
       if (result.failed > 0) {
         setState("sync-error")
