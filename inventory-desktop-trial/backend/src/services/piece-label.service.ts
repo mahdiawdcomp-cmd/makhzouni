@@ -1,7 +1,18 @@
+import { readFileSync } from "fs";
+import path from "path";
 import QRCode from "qrcode";
 import sharp from "sharp";
 
 import type { AppSettings } from "./settings.service";
+
+// Labels are rendered as SVG -> PNG via sharp/librsvg, which only has
+// whatever fonts are installed on the host. Embedding the font directly in
+// the SVG (as a base64 data URI) makes the label correct regardless of what
+// font is installed on the host (the desktop sidecar runs on the user's own
+// Windows machine, but this keeps it consistent with the main backend).
+const CAIRO_FONT_BASE64 = readFileSync(path.join(__dirname, "../assets/Cairo.ttf")).toString("base64");
+const FONT_FACE_STYLE = `<style>@font-face{font-family:"Cairo";src:url(data:font/ttf;base64,${CAIRO_FONT_BASE64}) format("truetype");font-weight:200 900;}</style>`;
+const LABEL_FONT_FAMILY = "Cairo, Tahoma, Arial, sans-serif";
 
 export type PieceLabelPayload = {
   itemNumber: string;
@@ -137,7 +148,7 @@ export async function renderPieceLabelPng(
       ${lines
         .map((line, index) => {
           const y = textTop + index * (line.fontSizePx + rowGap) + line.fontSizePx;
-          return `<text x="${widthPx / 2}" y="${y}" text-anchor="middle" font-family="Tahoma, Segoe UI, Arial, sans-serif" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+          return `<text x="${widthPx / 2}" y="${y}" text-anchor="middle" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
         })
         .join("")}
     `;
@@ -161,7 +172,7 @@ export async function renderPieceLabelPng(
       ${lines
         .map((line) => {
           cursorY += line.fontSizePx;
-          const text = `<text x="${textLeft + textWidth}" y="${cursorY}" text-anchor="end" font-family="Tahoma, Segoe UI, Arial, sans-serif" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+          const text = `<text x="${textLeft + textWidth}" y="${cursorY}" text-anchor="end" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
           cursorY += 12;
           return text;
         })
@@ -171,6 +182,7 @@ export async function renderPieceLabelPng(
 
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${widthPx} ${heightPx}">
+      <defs>${FONT_FACE_STYLE}</defs>
       <rect x="0" y="0" width="${widthPx}" height="${heightPx}" rx="16" ry="16" fill="#ffffff" />
       ${body}
     </svg>
@@ -287,7 +299,7 @@ export async function renderCartonLabelPng(
       ${lines
         .map((line, index) => {
           const y = textTop + index * (line.fontSizePx + rowGap) + line.fontSizePx;
-          return `<text x="${widthPx / 2}" y="${y}" text-anchor="middle" font-family="Tahoma, Segoe UI, Arial, sans-serif" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+          return `<text x="${widthPx / 2}" y="${y}" text-anchor="middle" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
         })
         .join("")}
     `;
@@ -311,7 +323,7 @@ export async function renderCartonLabelPng(
       ${lines
         .map((line) => {
           cursorY += line.fontSizePx;
-          const text = `<text x="${textLeft + textWidth}" y="${cursorY}" text-anchor="end" font-family="Tahoma, Segoe UI, Arial, sans-serif" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+          const text = `<text x="${textLeft + textWidth}" y="${cursorY}" text-anchor="end" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
           cursorY += 12;
           return text;
         })
@@ -321,6 +333,7 @@ export async function renderCartonLabelPng(
 
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${widthPx} ${heightPx}">
+      <defs>${FONT_FACE_STYLE}</defs>
       <rect x="0" y="0" width="${widthPx}" height="${heightPx}" rx="16" ry="16" fill="#ffffff" />
       ${body}
     </svg>
