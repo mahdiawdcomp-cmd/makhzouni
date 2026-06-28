@@ -21,6 +21,8 @@ import {
   listProducts,
   restoreProduct,
   updateProduct,
+  adjustProductStockManual,
+  listManualStockAdjustments,
 } from "../services/product.service";
 import { convertToVariety } from "../services/variety.service";
 import { AppError } from "../utils/app-error";
@@ -76,6 +78,22 @@ export const getProductDetails = asyncHandler(async (req, res) => {
     success: true,
     data: product,
   });
+});
+
+export const adjustStock = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+  const body = req.body as { warehouses?: Array<{ warehouseId: string; quantityPieces: number }>; note?: string };
+  const product = await adjustProductStockManual(String(req.params.id), {
+    warehouses: body.warehouses ?? [],
+    note: body.note,
+    user: { id: user.id, name: user.name },
+  });
+  res.json({ success: true, message: "تم تعديل الكمية", data: product });
+});
+
+export const getManualAdjustments = asyncHandler(async (req, res) => {
+  const data = await listManualStockAdjustments(String(req.params.id));
+  res.json({ success: true, data });
 });
 
 export const getProductByQr = asyncHandler(async (req, res) => {

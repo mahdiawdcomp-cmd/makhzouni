@@ -252,6 +252,84 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePu
   return { ...serializeProduct(product, undefined, hidePurchasePrice), scannedUnit };
 }
 
+/* ─── Manual stock adjustment (تعديل الكمية يدوياً) ───────────────────── */
+// Sets exact per-warehouse quantities (0 allowed), and records a StockMovement
+// for each change WITHOUT an invoice/loss/transfer — so it never touches sales
+// or profit, but stays in a clear audit log (who / when / from → to / why).
+export async function adjustProductStockManual(
+  productId: string,
+  input: {
+    warehouses: Array<{ warehouseId: string; quantityPieces: number }>;
+    note?: string;
+    user?: { id?: string; name?: string };
+  }
+) {
+  const entries = (input.warehouses ?? []).filter(
+    (w) => w.warehouseId && Number.isFinite(w.quantityPieces) && w.quantityPieces >= 0
+  );
+  if (entries.length === 0) throw new AppError("لا يوجد تعديل صالح", 400, "NO_ADJUSTMENT");
+
+  await prisma.$transaction(async (tx) => {
+    const existing = await tx.product.findFirst({ where: { id: productId, deletedAt: null }, select: { id: true } });
+    if (!existing) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+
+    for (const e of entries) {
+      await upsertWarehouseStock(tx, { productId, warehouseId: e.warehouseId });
+      const current = await tx.productWarehouseStock.findUnique({
+        where: { productId_warehouseId: { productId, warehouseId: e.warehouseId } },
+        select: { quantityPieces: true },
+      });
+      const before = current?.quantityPieces ?? 0;
+      const after = Math.trunc(e.quantityPieces);
+      if (after === before) continue;
+
+      await tx.productWarehouseStock.update({
+        where: { productId_warehouseId: { productId, warehouseId: e.warehouseId } },
+        data: { quantityPieces: after },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          productId,
+          branchId: e.warehouseId,
+          type: after > before ? "IN" : "OUT",
+          quantity: Math.abs(after - before),
+          balanceBefore: before,
+          balanceAfter: after,
+          userId: input.user?.id ?? null,
+          userName: input.user?.name ?? null,
+          note: input.note?.trim() || "تعديل كمية يدوي",
+        },
+      });
+    }
+
+    await syncProductTotalStock(tx, productId);
+  });
+
+  return getProductById(productId);
+}
+
+// Manual adjustments only = movements with no invoice/loss/transfer link.
+export async function listManualStockAdjustments(productId: string) {
+  const rows = await prisma.stockMovement.findMany({
+    where: { productId, invoiceId: null, lossId: null, transferId: null },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    include: { branch: { select: { name: true } } },
+  });
+  return rows.map((m) => ({
+    id: m.id,
+    type: m.type,
+    quantity: m.quantity,
+    balanceBefore: m.balanceBefore,
+    balanceAfter: m.balanceAfter,
+    warehouseName: m.branch?.name ?? null,
+    userName: m.userName,
+    note: m.note,
+    createdAt: m.createdAt,
+  }));
+}
+
 export async function createProduct(
   input: ProductInput,
   createdBy: string,

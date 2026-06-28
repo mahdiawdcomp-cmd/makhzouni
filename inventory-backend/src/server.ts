@@ -213,6 +213,16 @@ async function runStartupMigrations() {
     logger.warn("[migration] prospects.group_link_sent_at migration warning:", err);
   }
 
+  // Safety net for manual stock-adjustment audit fields. No-op once added.
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stock_movements" ADD COLUMN IF NOT EXISTS "user_id" UUID`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stock_movements" ADD COLUMN IF NOT EXISTS "user_name" TEXT`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stock_movements" ADD COLUMN IF NOT EXISTS "note" TEXT`);
+    logger.info("[migration] stock_movements manual fields ensured");
+  } catch (err) {
+    logger.warn("[migration] stock_movements manual fields warning:", err);
+  }
+
   // Safety net for the inbound-messages inbox. No-op once created.
   try {
     await prisma.$executeRawUnsafe(`DO $$ BEGIN

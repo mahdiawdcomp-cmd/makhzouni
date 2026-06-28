@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
-import { useQuery } from "@tanstack/react-query"
+import { ArrowRight, Boxes, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { getCatalogCategories, productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
+import { getCatalogCategories, productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl, adjustProductStock, getManualStockAdjustments } from "../api/endpoints"
 import { useProductDetails, useProducts } from "../hooks/useProducts"
 import { fmt } from "../utils/fmt"
 import type { CatalogCategory, Product, ProductPayload } from "../types/api"
@@ -139,6 +139,7 @@ export function ProductDetailPage() {
 
   // Delete confirm state
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
 
   // QR piece
   const [pieceQrUrl, setPieceQrUrl] = useState<string | null>(null)
@@ -235,6 +236,9 @@ export function ProductDetailPage() {
           </Button>
           <Button variant="outline" onClick={startEdit}>
             <Edit className="h-4 w-4" /> تعديل
+          </Button>
+          <Button variant="outline" onClick={() => setAdjustOpen(true)}>
+            <Boxes className="h-4 w-4" /> تعديل الكمية
           </Button>
           <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => setDeleteOpen(true)}>
             <Trash2 className="h-4 w-4" /> حذف
@@ -387,6 +391,9 @@ export function ProductDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Manual stock adjustments log (separate from invoices/profit) */}
+          <ManualAdjustmentsLog productId={product.id} />
         </div>
 
         {/* QR Codes — right column */}
@@ -474,6 +481,14 @@ export function ProductDetailPage() {
           </Card>
         </div>
       </div>
+
+      {adjustOpen && (
+        <AdjustStockModal
+          product={product}
+          onClose={() => setAdjustOpen(false)}
+          onSaved={() => { setAdjustOpen(false); void productQuery.refetch() }}
+        />
+      )}
 
       {/* Edit Modal */}
       <ModalForm open={editOpen} onOpenChange={setEditOpen} title="تعديل المنتج">
@@ -669,5 +684,113 @@ export function ProductDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+/* ─── Manual stock adjustment modal ───────────────────────────────────── */
+function AdjustStockModal({ product, onClose, onSaved }: { product: Product; onClose: () => void; onSaved: () => void }) {
+  const stocks = product.warehouseStocks ?? []
+  // If the product has no per-warehouse rows yet, fall back to a single total row.
+  const initialRows = stocks.length > 0
+    ? stocks.map((ws) => ({ warehouseId: ws.warehouseId, name: ws.warehouse.name, current: ws.quantityPieces, value: String(ws.quantityPieces) }))
+    : []
+  const [rows, setRows] = useState(initialRows)
+  const [note, setNote] = useState("")
+  const qc = useQueryClient()
+
+  const mut = useMutation({
+    mutationFn: () => adjustProductStock(product.id, {
+      warehouses: rows.map((r) => ({ warehouseId: r.warehouseId, quantityPieces: Math.max(0, Math.trunc(Number(r.value) || 0)) })),
+      note: note.trim() || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["manual-adjustments", product.id] })
+      qc.invalidateQueries({ queryKey: ["products"] })
+      onSaved()
+    },
+  })
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" dir="rtl" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 font-extrabold text-slate-900 dark:text-slate-100">تعديل الكمية يدوياً</h3>
+        <p className="mb-4 text-xs text-slate-500">
+          غيّر الكمية الفعلية بالمخزن (يُسمح بالصفر). هذا التغيير يُسجّل بسجل خاص ولا يؤثر على الفواتير أو الأرباح.
+        </p>
+        {rows.length === 0 && <p className="text-sm text-amber-600">لا توجد مخازن مرتبطة بهذه المادة.</p>}
+        <div className="space-y-2">
+          {rows.map((r, i) => (
+            <div key={r.warehouseId} className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">{r.name}</div>
+                <div className="text-[11px] text-slate-400">الحالي: {r.current} قطعة</div>
+              </div>
+              <Input
+                type="number" min={0} className="w-28"
+                value={r.value}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setRows((rs) => rs.map((x, j) => j === i ? { ...x, value: e.target.value } : x))}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-bold text-slate-600">السبب (اختياري)</label>
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: جرد / تالف / تصحيح" />
+        </div>
+        {mut.isError && <p className="mt-2 text-xs text-red-600">تعذر حفظ التعديل.</p>}
+        <div className="mt-4 flex gap-2">
+          <Button className="flex-1" disabled={mut.isPending || rows.length === 0} onClick={() => mut.mutate()}>
+            {mut.isPending ? "جار الحفظ..." : "حفظ التعديل"}
+          </Button>
+          <Button variant="outline" onClick={onClose}>إلغاء</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── Manual adjustments log ──────────────────────────────────────────── */
+function ManualAdjustmentsLog({ productId }: { productId: string }) {
+  const q = useQuery({ queryKey: ["manual-adjustments", productId], queryFn: () => getManualStockAdjustments(productId) })
+  const rows = q.data ?? []
+  return (
+    <Card>
+      <CardHeader><CardTitle>سجل تعديلات الكمية اليدوية</CardTitle></CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-500">لا توجد تعديلات يدوية على الكمية.</p>
+        ) : (
+          <Table>
+            <THead>
+              <TR>
+                <TH>التاريخ</TH>
+                <TH>المخزن</TH>
+                <TH>من → إلى</TH>
+                <TH>التغيير</TH>
+                <TH>بواسطة</TH>
+                <TH>السبب</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {rows.map((m) => (
+                <TR key={m.id}>
+                  <TD>{String(m.createdAt).slice(0, 10)}</TD>
+                  <TD>{m.warehouseName ?? "—"}</TD>
+                  <TD className="font-mono text-xs">{m.balanceBefore} → {m.balanceAfter}</TD>
+                  <TD>
+                    <span className={`font-semibold ${m.type === "IN" ? "text-emerald-600" : "text-red-600"}`}>
+                      {m.type === "IN" ? "+" : "−"}{m.quantity}
+                    </span>
+                  </TD>
+                  <TD>{m.userName ?? "—"}</TD>
+                  <TD className="text-xs text-slate-500">{m.note ?? "—"}</TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   )
 }

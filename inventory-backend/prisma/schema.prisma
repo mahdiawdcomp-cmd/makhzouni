@@ -750,6 +750,12 @@ model StockMovement {
   quantity      Int
   balanceBefore Int                @map("balance_before")
   balanceAfter  Int                @map("balance_after")
+  // Set only for manual stock adjustments (no invoice/loss/transfer) — records
+  // who changed the quantity by hand, and an optional reason. Name is frozen at
+  // write time so the log stays readable even if the user is later renamed.
+  userId        String?            @map("user_id") @db.Uuid
+  userName      String?            @map("user_name")
+  note          String?
   createdAt     DateTime           @default(now()) @map("created_at")
 
   @@index([productId])

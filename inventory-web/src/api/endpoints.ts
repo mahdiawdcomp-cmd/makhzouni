@@ -345,6 +345,31 @@ export async function getDeletedProducts() {
   return data.data
 }
 
+export interface ManualStockAdjustment {
+  id: string
+  type: "IN" | "OUT" | "DAMAGE"
+  quantity: number
+  balanceBefore: number
+  balanceAfter: number
+  warehouseName: string | null
+  userName: string | null
+  note: string | null
+  createdAt: string
+}
+
+export async function adjustProductStock(
+  id: string,
+  payload: { warehouses: Array<{ warehouseId: string; quantityPieces: number }>; note?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/adjust-stock`, payload)
+  return data.data
+}
+
+export async function getManualStockAdjustments(id: string) {
+  const { data } = await api.get<ApiEnvelope<ManualStockAdjustment[]>>(`/products/${id}/manual-adjustments`)
+  return data.data ?? []
+}
+
 // ── Stale products (no movement in N days) ──────────────────────────────────
 export interface StaleProductsResult {
   days: number
