@@ -55,7 +55,15 @@ export function useProducts() {
       await qc.cancelQueries({ queryKey: QUERY_KEY })
       const prev = qc.getQueryData<Product[]>(QUERY_KEY)
       qc.setQueryData<Product[]>(QUERY_KEY, (old) =>
-        old?.map((p) => p.id === id ? { ...p, ...payload } as Product : p) ?? old
+        old?.map((p) => {
+          if (p.id !== id) return p
+          const merged = { ...p, ...payload } as Product
+          // When the image changed, the old server thumbnail is now stale — drop
+          // it so the list immediately falls back to the new full image instead
+          // of showing the previous thumbnail until the server thumbnail loads.
+          if (payload.imageUrl !== undefined) merged.thumbnailUrl = null
+          return merged
+        }) ?? old
       )
       return { prev }
     },
