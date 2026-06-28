@@ -439,6 +439,15 @@ export const updateProductSchema = z.object({
   ),
 });
 
+export const dlabelPieceLabelSchema = z.object({
+  body: z.object({
+    name: z.string().trim().min(1),
+    itemNumber: z.string().trim().min(1),
+    qrCode: z.string().trim().min(1),
+    pcsPerCarton: z.coerce.number().int().min(1).default(1),
+  }),
+});
+
 export const listInvoicesSchema = z.object({
   query: z.object({
     customerId: z.string().uuid().optional(),
@@ -680,6 +689,26 @@ export const updateSettingsSchema = z.object({
       seasonalAlerts: z.string().trim().optional(),
       siteDesignerName: z.string().trim().max(120).optional(),
       siteDesignerPhone: z.string().trim().max(40).optional(),
+      labelPieceWidthMm: z.coerce.number().min(10).max(300).optional(),
+      labelPieceHeightMm: z.coerce.number().min(10).max(300).optional(),
+      labelCartonWidthMm: z.coerce.number().min(10).max(300).optional(),
+      labelCartonHeightMm: z.coerce.number().min(10).max(300).optional(),
+      pieceLabelLayout: z.enum(["side-by-side", "stacked", "qr-only"]).optional(),
+      pieceLabelQrPosition: z.enum(["left", "right"]).optional(),
+      pieceLabelShowName: z.boolean().optional(),
+      pieceLabelShowItemNumber: z.boolean().optional(),
+      pieceLabelShowCartonCount: z.boolean().optional(),
+      pieceLabelNameFontSize: z.coerce.number().min(8).max(42).optional(),
+      pieceLabelMetaFontSize: z.coerce.number().min(7).max(32).optional(),
+      pieceLabelPaddingMm: z.coerce.number().min(1).max(10).optional(),
+      cartonLabelLayout: z.enum(["side-by-side", "stacked", "qr-only"]).optional(),
+      cartonLabelQrPosition: z.enum(["left", "right"]).optional(),
+      cartonLabelShowName: z.boolean().optional(),
+      cartonLabelShowItemNumber: z.boolean().optional(),
+      cartonLabelShowPcsPerCarton: z.boolean().optional(),
+      cartonLabelNameFontSize: z.coerce.number().min(8).max(60).optional(),
+      cartonLabelMetaFontSize: z.coerce.number().min(7).max(48).optional(),
+      cartonLabelPaddingMm: z.coerce.number().min(1).max(15).optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

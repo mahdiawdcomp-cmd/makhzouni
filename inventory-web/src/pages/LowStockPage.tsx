@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "react-router-dom"
 import { ArrowRight, Printer, ScanQrCode } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
-import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
+import { productCartonSheetPdf, productPieceLabelPngObjectUrl } from "../api/endpoints"
 import type { Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -50,7 +50,7 @@ export function LowStockPage() {
                   <Button variant="outline" asChild>
                     <Link to={`/inventory/${product.id}`}>عرض التفاصيل</Link>
                   </Button>
-                  <Button variant="outline" onClick={async () => openBlob(await productPieceLabelPdf(product.id))}>
+                  <Button variant="outline" onClick={async () => openBlob(await productPieceLabelPngObjectUrl(product.id))}>
                     <ScanQrCode className="h-4 w-4" /> QR قطعة
                   </Button>
                   <Button variant="outline" onClick={async () => openBlob(await productCartonSheetPdf(product.id))}>

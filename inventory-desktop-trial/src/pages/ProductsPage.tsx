@@ -14,7 +14,7 @@ import {
 } from "@tanstack/react-table"
 import { ArchiveX, Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
-import { productCartonSheetPdf, productPieceLabelPdf } from "../api/endpoints"
+import { productCartonSheetPdf, productPieceLabelPngObjectUrl } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -25,6 +25,7 @@ import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
+import { downloadAndPreviewBlobUrl } from "../utils/download"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -148,8 +149,11 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-async function openBlob(url: string) {
-  window.open(url, "_blank", "noopener,noreferrer")
+async function openBlob(url: string, filename: string) {
+  // window.open(blob, "_blank") is unreliable inside the desktop (Tauri)
+  // webview — download (and best-effort preview) instead, which works on
+  // both web and desktop.
+  downloadAndPreviewBlobUrl(url, filename)
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
@@ -450,10 +454,12 @@ export function ProductsPage() {
   })
 
   async function printPiece(id: string) {
-    await openBlob(await productPieceLabelPdf(id))
+    const itemNumber = products.find((p) => p.id === id)?.itemNumber ?? id
+    await openBlob(await productPieceLabelPngObjectUrl(id), `${itemNumber}-piece-label.png`)
   }
   async function printCarton(id: string) {
-    await openBlob(await productCartonSheetPdf(id))
+    const itemNumber = products.find((p) => p.id === id)?.itemNumber ?? id
+    await openBlob(await productCartonSheetPdf(id), `${itemNumber}-carton-label.pdf`)
   }
 
   const columns = useMemo<ColumnDef<Product>[]>(

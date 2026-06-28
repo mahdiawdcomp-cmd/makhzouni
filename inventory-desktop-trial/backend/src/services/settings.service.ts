@@ -42,6 +42,27 @@ export interface AppSettings {
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
+  // Barcode label settings
+  labelPieceWidthMm?: number;
+  labelPieceHeightMm?: number;
+  labelCartonWidthMm?: number;
+  labelCartonHeightMm?: number;
+  pieceLabelLayout?: "side-by-side" | "stacked" | "qr-only";
+  pieceLabelQrPosition?: "left" | "right";
+  pieceLabelShowName?: boolean;
+  pieceLabelShowItemNumber?: boolean;
+  pieceLabelShowCartonCount?: boolean;
+  pieceLabelNameFontSize?: number;
+  pieceLabelMetaFontSize?: number;
+  pieceLabelPaddingMm?: number;
+  cartonLabelLayout?: "side-by-side" | "stacked" | "qr-only";
+  cartonLabelQrPosition?: "left" | "right";
+  cartonLabelShowName?: boolean;
+  cartonLabelShowItemNumber?: boolean;
+  cartonLabelShowPcsPerCarton?: boolean;
+  cartonLabelNameFontSize?: number;
+  cartonLabelMetaFontSize?: number;
+  cartonLabelPaddingMm?: number;
 }
 
 export const defaultSettings: AppSettings = {
@@ -73,6 +94,26 @@ export const defaultSettings: AppSettings = {
   whatsappProvider: "web",
   whatsappCloudToken: "",
   whatsappCloudPhoneNumberId: "",
+  labelPieceWidthMm: 50,
+  labelPieceHeightMm: 25,
+  labelCartonWidthMm: 100,
+  labelCartonHeightMm: 100,
+  pieceLabelLayout: "side-by-side",
+  pieceLabelQrPosition: "left",
+  pieceLabelShowName: true,
+  pieceLabelShowItemNumber: true,
+  pieceLabelShowCartonCount: true,
+  pieceLabelNameFontSize: 14,
+  pieceLabelMetaFontSize: 10,
+  pieceLabelPaddingMm: 2,
+  cartonLabelLayout: "stacked",
+  cartonLabelQrPosition: "left",
+  cartonLabelShowName: true,
+  cartonLabelShowItemNumber: true,
+  cartonLabelShowPcsPerCarton: true,
+  cartonLabelNameFontSize: 20,
+  cartonLabelMetaFontSize: 14,
+  cartonLabelPaddingMm: 5,
 };
 
 const OLD_INVOICE_TEMPLATE =

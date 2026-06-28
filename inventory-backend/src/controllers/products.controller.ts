@@ -1,9 +1,6 @@
 import { UserRole } from "@prisma/client";
 import QRCode from "qrcode";
 import PDFDocument from "pdfkit";
-import path from "path";
-
-const ARABIC_FONT = path.join(__dirname, "../assets/Cairo.ttf");
 import {
   approvalRequestTypes,
   createPendingApproval,
@@ -25,6 +22,7 @@ import {
   listManualStockAdjustments,
   ensureCartonQrCode,
 } from "../services/product.service";
+import { renderPieceLabelPng, renderCartonLabelPng } from "../services/piece-label.service";
 import { convertToVariety } from "../services/variety.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
@@ -232,142 +230,89 @@ export const getProductQr = asyncHandler(async (req, res) => {
 // 1 mm in PDF points.
 const MM = 2.834645669;
 
-// Faux-bold: overstrike the same text with a tiny x offset (no bold font file).
-function boldText(
-  doc: PDFKit.PDFDocument,
-  str: string,
-  x: number,
-  y: number,
-  opts: PDFKit.Mixins.TextOptions,
-) {
-  doc.text(str, x, y, opts);
-  doc.text(str, x + 0.4, y, { ...opts });
-}
-
-// Render a "<number> <arabic>" line WITHOUT digit reversal. pdfkit has no bidi
-// engine, so a mixed Arabic+digit run with the rtla feature flips the digits
-// (96 -> 69). We draw the Arabic word (rtla) and the number (LTR) as two
-// separate, absolutely-positioned tokens so the number is always correct.
-function drawNumberArabicLine(
-  doc: PDFKit.PDFDocument,
-  font: string,
-  fontSize: number,
-  number: number | string,
-  arabic: string,
-  x: number,
-  y: number,
-  width: number,
-  align: "right" | "center",
-  color: string,
-  bold = false,
-) {
-  const numStr = String(number);
-  doc.font(font).fontSize(fontSize).fillColor(color);
-  const numW = doc.widthOfString(numStr);
-  const arW = doc.widthOfString(arabic);
-  const gap = fontSize * 0.35;
-  const total = numW + gap + arW;
-  const startX = align === "center" ? x + (width - total) / 2 : x + width - total;
-  // RTL reading: Arabic on the left, number on the right.
-  const draw = bold ? boldText : (d: PDFKit.PDFDocument, s: string, px: number, py: number, o: PDFKit.Mixins.TextOptions) => d.text(s, px, py, o);
-  draw(doc, arabic, startX, y, { lineBreak: false, features: ["rtla"] });
-  draw(doc, numStr, startX + arW + gap, y, { lineBreak: false });
-}
-
 // Printable label for a single piece — one sticker sized EXACTLY 50 × 25 mm,
 // for direct printing on a label/thermal printer (print at 100%, no scaling).
 // Layout: QR square on the right (RTL), product name + item number on the left.
 export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const product = await getProductById(String(req.params.id));
   const settings = await getSettings().catch(() => null);
-  const payload = product.qrCode || product.itemNumber;
-  const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 0, width: 400 });
+  const pngBuffer = await renderPieceLabelPng({
+    name: product.name,
+    itemNumber: product.itemNumber,
+    pcsPerCarton: product.pcsPerCarton,
+    qrCode: product.qrCode || product.itemNumber,
+  }, settings);
 
   const widthPt = (settings?.labelPieceWidthMm || 50) * MM;
   const heightPt = (settings?.labelPieceHeightMm || 25) * MM;
-  const pad = 1.5 * MM;
-  const qrSize = heightPt - pad * 2; // square, full height minus padding
-
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
-  doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.pdf"`);
   doc.pipe(res);
 
-  // QR square, vertically centred on the right edge.
-  const qrX = widthPt - pad - qrSize;
-  const qrY = (heightPt - qrSize) / 2;
-  doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-
-  // Text column on the left — 3 evenly-spaced rows, right-aligned, black + bold.
-  const textX = pad;
-  const textW = qrX - pad * 2;
-  const colTop = pad;
-  const colH = heightPt - pad * 2;
-  const rowH = colH / 3;
-
-  // Row 1 — product name (Arabic, rtla).
-  doc.font("Arabic").fontSize(8.5).fillColor("#000000");
-  boldText(doc, product.name, textX, colTop + 0.5, {
-    width: textW, align: "right", height: rowH, ellipsis: true, features: ["rtla"],
-  });
-  // Row 2 — item number, prominent. Latin/digits → LTR (no rtla, never reverses).
-  doc.font("Arabic").fontSize(10).fillColor("#000000");
-  boldText(doc, product.itemNumber, textX, colTop + rowH + 1, {
-    width: textW, align: "right",
-  });
-  // Row 3 — pieces per carton (number drawn LTR so it never reverses).
-  drawNumberArabicLine(
-    doc, "Arabic", 7.5, product.pcsPerCarton, "ق/كرتون",
-    textX, colTop + rowH * 2 + 1.5, textW, "right", "#000000", true,
-  );
+  // The rendered PNG already contains the QR + all label text (per the
+  // settings-driven design), so the PDF is just that image at full bleed.
+  doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
   doc.end();
 });
 
 // Printable carton label — one sticker sized EXACTLY 100 × 100 mm, for direct
 // printing on a label/thermal printer (print at 100%, no scaling).
+export const getPieceLabelPng = asyncHandler(async (req, res) => {
+  const product = await getProductById(String(req.params.id));
+  const settings = await getSettings().catch(() => null);
+  const pngBuffer = await renderPieceLabelPng({
+    name: product.name,
+    itemNumber: product.itemNumber,
+    pcsPerCarton: product.pcsPerCarton,
+    qrCode: product.qrCode || product.itemNumber,
+  }, settings);
+
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.png"`);
+  res.send(pngBuffer);
+});
+
 export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   const product = await getProductById(String(req.params.id));
   const settings = await getSettings().catch(() => null);
   // Always encode a dedicated carton code (generate+persist if missing) so a
   // carton scan is never mistaken for a single piece.
-  const payload = await ensureCartonQrCode(product.id);
-  const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 1, width: 600 });
+  const cartonCode = await ensureCartonQrCode(product.id);
+  const pngBuffer = await renderCartonLabelPng({
+    name: product.name,
+    itemNumber: product.itemNumber,
+    pcsPerCarton: product.pcsPerCarton,
+    qrCode: cartonCode,
+  }, settings);
 
   const widthPt = (settings?.labelCartonWidthMm || 100) * MM;
   const heightPt = (settings?.labelCartonHeightMm || 100) * MM;
-  const pad = 5 * MM;
-  // QR fills most of the width but leaves room for the 3 caption lines (~26mm).
-  const qrSize = Math.min(widthPt - pad * 2, heightPt - pad * 2 - 26 * MM);
-  const qrX = (widthPt - qrSize) / 2;
-  const qrY = pad;
 
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
-  doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.pdf"`);
   doc.pipe(res);
-
-  doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-  const innerW = widthPt - pad * 2;
-  let y = qrY + qrSize + 3 * MM;
-  // Name — big, black, bold.
-  doc.font("Arabic").fontSize(20).fillColor("#000000");
-  boldText(doc, product.name, pad, y, {
-    width: innerW, align: "center", height: 12 * MM, ellipsis: true, features: ["rtla"],
-  });
-  y += 13 * MM;
-  // Item number — Latin/digits → LTR (no rtla), black, bold.
-  doc.font("Arabic").fontSize(15).fillColor("#000000");
-  boldText(doc, product.itemNumber, pad, y, { width: innerW, align: "center" });
-  y += 6.5 * MM;
-  // Carton piece count — number drawn LTR so it never reverses.
-  drawNumberArabicLine(
-    doc, "Arabic", 13, product.pcsPerCarton, "قطعة بالكرتون",
-    pad, y, innerW, "center", "#000000", true,
-  );
+  doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
   doc.end();
 });
+
+
+export const getCartonLabelPng = asyncHandler(async (req, res) => {
+  const product = await getProductById(String(req.params.id));
+  const settings = await getSettings().catch(() => null);
+  const cartonCode = await ensureCartonQrCode(product.id);
+  const pngBuffer = await renderCartonLabelPng({
+    name: product.name,
+    itemNumber: product.itemNumber,
+    pcsPerCarton: product.pcsPerCarton,
+    qrCode: cartonCode,
+  }, settings);
+
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.png"`);
+  res.send(pngBuffer);
+})
 
 // Admin-only utility: generate missing QR codes for legacy products in one shot.
 export const backfillProductQrs = asyncHandler(async (req, res) => {

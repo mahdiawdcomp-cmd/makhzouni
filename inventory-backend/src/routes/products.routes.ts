@@ -9,8 +9,10 @@ import {
   convertVariety,
   editProduct,
   getCartonSheetPdf,
+  getCartonLabelPng,
   getDeletedProductsList,
   getPieceLabelPdf,
+  getPieceLabelPng,
   getProductByQr,
   getProductDetails,
   getProductQr,
@@ -35,7 +37,9 @@ const router = Router();
 // anyone with the code can access the image; auth is enforced on data endpoints.
 router.get("/:id/qr", validate(idParamSchema), getProductQr);
 router.get("/:id/label/piece.pdf", validate(idParamSchema), getPieceLabelPdf);
+router.get("/:id/label/piece.png", validate(idParamSchema), getPieceLabelPng);
 router.get("/:id/label/carton.pdf", validate(idParamSchema), getCartonSheetPdf);
+router.get("/:id/label/carton.png", validate(idParamSchema), getCartonLabelPng);
 
 router.use(authMiddleware);
 

@@ -4,7 +4,8 @@ import { ImageCropModal } from "../components/ImageCropModal"
 import { ArrowRight, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
-import { getCatalogCategories, productCartonSheetPdf, productPieceLabelPdf, productQrObjectUrl } from "../api/endpoints"
+import { getCatalogCategories, productCartonSheetPdf, productCartonLabelPngObjectUrl, productPieceLabelPdf, productPieceLabelPngObjectUrl, productQrObjectUrl, openPieceLabelInDLabel } from "../api/endpoints"
+import { downloadAndPreviewBlobUrl } from "../utils/download"
 import { useProductDetails, useProducts } from "../hooks/useProducts"
 import { fmt } from "../utils/fmt"
 import type { CatalogCategory, Product, ProductPayload } from "../types/api"
@@ -16,6 +17,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
+import { toast } from "../components/ui/use-toast"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -44,9 +46,12 @@ function InfoRow({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-async function openPdf(promise: Promise<string>) {
+async function openPdf(promise: Promise<string>, filename = `label-${Date.now()}.pdf`) {
   const url = await promise
-  window.open(url, "_blank", "noopener,noreferrer")
+  // window.open(blob, "_blank") is unreliable inside the desktop (Tauri)
+  // webview — download (and best-effort preview) instead, which works on
+  // both web and desktop.
+  downloadAndPreviewBlobUrl(url, filename)
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
@@ -137,28 +142,42 @@ export function ProductDetailPage() {
 
   // QR piece
   const [pieceQrUrl, setPieceQrUrl] = useState<string | null>(null)
+  const [pieceLabelUrl, setPieceLabelUrl] = useState<string | null>(null)
   // QR carton
   const [cartonQrUrl, setCartonQrUrl] = useState<string | null>(null)
+  const [cartonLabelUrl, setCartonLabelUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!product?.id) return
     let active = true
     let objPiece: string | null = null
+    let objLabel: string | null = null
     let objCarton: string | null = null
+    let objCartonLabel: string | null = null
 
     void productQrObjectUrl(product.id, "piece").then((url) => {
       objPiece = url
       if (active) setPieceQrUrl(url)
     })
+    void productPieceLabelPngObjectUrl(product.id).then((url) => {
+      objLabel = url
+      if (active) setPieceLabelUrl(url)
+    })
     void productQrObjectUrl(product.id, "carton").then((url) => {
       objCarton = url
       if (active) setCartonQrUrl(url)
     }).catch(() => {/* carton QR might not exist */})
+    void productCartonLabelPngObjectUrl(product.id).then((url) => {
+      objCartonLabel = url
+      if (active) setCartonLabelUrl(url)
+    }).catch(() => {/* carton QR might not exist yet */})
 
     return () => {
       active = false
       if (objPiece)  URL.revokeObjectURL(objPiece)
+      if (objLabel) URL.revokeObjectURL(objLabel)
       if (objCarton) URL.revokeObjectURL(objCarton)
+      if (objCartonLabel) URL.revokeObjectURL(objCartonLabel)
     }
   }, [product?.id])
 
@@ -194,6 +213,27 @@ export function ProductDetailPage() {
     })
   }
 
+  async function handlePieceLabelPrint() {
+    if (!product) return
+
+    try {
+      await openPieceLabelInDLabel({
+        name: product.name,
+        itemNumber: product.itemNumber,
+        qrCode: product.qrCode ?? product.itemNumber,
+        pcsPerCarton: product.pcsPerCarton,
+      })
+      toast({ title: "تم إرسال الملصق إلى DLabel" })
+    } catch (error) {
+      toast({
+        title: error instanceof Error ? error.message : "تعذر الوصول إلى DLabel",
+        description: "فتحنا ملف PDF بدلًا من ذلك.",
+        variant: "destructive",
+      })
+      await openPdf(productPieceLabelPdf(product.id), `${product.itemNumber}-piece-label.pdf`)
+    }
+  }
+
   if (!product) {
     return <div className="py-10 text-center text-slate-500">جار تحميل المنتج...</div>
   }
@@ -225,8 +265,8 @@ export function ProductDetailPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <RecordNavigator currentId={id} orderedIds={orderedProductIds} onNavigate={(target) => navigate(`/inventory/${target}`)} noun="مادة" />
-          <Button variant="outline" onClick={() => void openPdf(productPieceLabelPdf(product.id))}>
-            <Printer className="h-4 w-4" /> طباعة الملصق
+          <Button variant="outline" onClick={() => void handlePieceLabelPrint()}>
+            <Printer className="h-4 w-4" /> طباعة DLabel
           </Button>
           <Button variant="outline" onClick={startEdit}>
             <Edit className="h-4 w-4" /> تعديل
@@ -412,13 +452,13 @@ export function ProductDetailPage() {
                   variant="outline"
                   className="flex-1 text-xs"
                   disabled={!pieceQrUrl}
-                  onClick={() => void openPdf(productPieceLabelPdf(product.id))}
+                  onClick={() => void handlePieceLabelPrint()}
                 >
-                  <Printer className="h-3.5 w-3.5" /> طباعة ملصق
+                  <Printer className="h-3.5 w-3.5" /> طباعة DLabel
                 </Button>
-                {pieceQrUrl ? (
+                {pieceLabelUrl ? (
                   <Button variant="outline" className="flex-1 text-xs" asChild>
-                    <a href={pieceQrUrl} download={`${product.itemNumber}-piece-qr.png`}>
+                    <a href={pieceLabelUrl} download={`${product.itemNumber}-piece-label.png`}>
                       <Download className="h-3.5 w-3.5" /> تحميل
                     </a>
                   </Button>
@@ -452,14 +492,13 @@ export function ProductDetailPage() {
                 <Button
                   variant="outline"
                   className="flex-1 text-xs"
-                  disabled={!product.cartonQrCode}
-                  onClick={() => void openPdf(productCartonSheetPdf(product.id))}
+                  onClick={() => void openPdf(productCartonSheetPdf(product.id), `${product.itemNumber}-carton-label.pdf`)}
                 >
-                  <Printer className="h-3.5 w-3.5" /> A4 (6 ملصقات)
+                  <Printer className="h-3.5 w-3.5" /> طباعة الملصق
                 </Button>
-                {cartonQrUrl ? (
+                {cartonLabelUrl ? (
                   <Button variant="outline" className="flex-1 text-xs" asChild>
-                    <a href={cartonQrUrl} download={`${product.itemNumber}-carton-qr.png`}>
+                    <a href={cartonLabelUrl} download={`${product.itemNumber}-carton-label.png`}>
                       <Download className="h-3.5 w-3.5" /> تحميل
                     </a>
                   </Button>

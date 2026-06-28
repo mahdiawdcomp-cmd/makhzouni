@@ -719,6 +719,27 @@ export interface AppSettings {
   whatsappBotEnabled?: boolean
   botUnknownMessage?: string
   botRules?: BotRule[]
+  // Barcode label sizes and designer
+  labelPieceWidthMm?: number
+  labelPieceHeightMm?: number
+  labelCartonWidthMm?: number
+  labelCartonHeightMm?: number
+  pieceLabelLayout?: "side-by-side" | "stacked" | "qr-only"
+  pieceLabelQrPosition?: "left" | "right"
+  pieceLabelShowName?: boolean
+  pieceLabelShowItemNumber?: boolean
+  pieceLabelShowCartonCount?: boolean
+  pieceLabelNameFontSize?: number
+  pieceLabelMetaFontSize?: number
+  pieceLabelPaddingMm?: number
+  cartonLabelLayout?: "side-by-side" | "stacked" | "qr-only"
+  cartonLabelQrPosition?: "left" | "right"
+  cartonLabelShowName?: boolean
+  cartonLabelShowItemNumber?: boolean
+  cartonLabelShowPcsPerCarton?: boolean
+  cartonLabelNameFontSize?: number
+  cartonLabelMetaFontSize?: number
+  cartonLabelPaddingMm?: number
 }
 
 export type BotReplyType = "STATEMENT" | "BALANCE" | "CATALOG_LINK" | "TEXT"

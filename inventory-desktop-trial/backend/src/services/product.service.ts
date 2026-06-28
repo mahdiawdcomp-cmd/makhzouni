@@ -467,3 +467,23 @@ export async function backfillQrCodes() {
   }
   return { updated };
 }
+
+
+// Guarantees the product has a carton QR code DISTINCT from its piece code,
+// generating and persisting one if missing. Called right before printing a
+// carton label so the label never accidentally encodes the piece code (which
+// would make a carton scan register as a single piece).
+export async function ensureCartonQrCode(productId: string): Promise<string> {
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { qrCode: true, cartonQrCode: true },
+  });
+  if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+
+  if (product.cartonQrCode && product.cartonQrCode !== product.qrCode) {
+    return product.cartonQrCode;
+  }
+  const cartonQrCode = generateCartonQrCode();
+  await prisma.product.update({ where: { id: productId }, data: { cartonQrCode } });
+  return cartonQrCode;
+}

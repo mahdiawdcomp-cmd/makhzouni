@@ -123,6 +123,18 @@ const fallbackSettings: AppSettings = {
   whatsappProvider: "web",
   whatsappCloudToken: "",
   whatsappCloudPhoneNumberId: "",
+  labelPieceWidthMm: 50,
+  labelPieceHeightMm: 25,
+  labelCartonWidthMm: 100,
+  labelCartonHeightMm: 100,
+  pieceLabelLayout: "side-by-side",
+  pieceLabelQrPosition: "left",
+  pieceLabelShowName: true,
+  pieceLabelShowItemNumber: true,
+  pieceLabelShowCartonCount: true,
+  pieceLabelNameFontSize: 14,
+  pieceLabelMetaFontSize: 10,
+  pieceLabelPaddingMm: 2,
 }
 
 function downloadText(filename: string, content: string, type: string) {
@@ -375,6 +387,96 @@ export function SettingsPage() {
               <Field label="ارتفاع ملصق الكرتون (ملم)">
                 <Input type="number" value={settings.labelCartonHeightMm ?? 100} onChange={(e) => upd("labelCartonHeightMm", Number(e.target.value))} />
               </Field>
+            </div>
+
+            <SectionTitle>مصمم ملصق القطعة</SectionTitle>
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="نمط التصميم">
+                    <select className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" value={settings.pieceLabelLayout ?? "side-by-side"} onChange={(e) => upd("pieceLabelLayout", e.target.value as AppSettings["pieceLabelLayout"])}>
+                      <option value="side-by-side">QR ويه النص</option>
+                      <option value="stacked">QR فوق والنص جوة</option>
+                      <option value="qr-only">QR فقط</option>
+                    </select>
+                  </Field>
+                  <Field label="مكان الـ QR">
+                    <select className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" value={settings.pieceLabelQrPosition ?? "left"} onChange={(e) => upd("pieceLabelQrPosition", e.target.value as AppSettings["pieceLabelQrPosition"])}>
+                      <option value="left">يسار</option>
+                      <option value="right">يمين</option>
+                    </select>
+                  </Field>
+                  <Field label="حجم خط اسم المادة">
+                    <Input type="number" value={settings.pieceLabelNameFontSize ?? 14} onChange={(e) => upd("pieceLabelNameFontSize", Number(e.target.value))} />
+                  </Field>
+                  <Field label="حجم خط التفاصيل">
+                    <Input type="number" value={settings.pieceLabelMetaFontSize ?? 10} onChange={(e) => upd("pieceLabelMetaFontSize", Number(e.target.value))} />
+                  </Field>
+                  <Field label="الحاشية الداخلية (ملم)">
+                    <Input type="number" value={settings.pieceLabelPaddingMm ?? 2} onChange={(e) => upd("pieceLabelPaddingMm", Number(e.target.value))} />
+                  </Field>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <input type="checkbox" checked={settings.pieceLabelShowName ?? true} onChange={(e) => upd("pieceLabelShowName", e.target.checked)} />
+                    اسم المادة
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <input type="checkbox" checked={settings.pieceLabelShowItemNumber ?? true} onChange={(e) => upd("pieceLabelShowItemNumber", e.target.checked)} />
+                    رقم الآيتم
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <input type="checkbox" checked={settings.pieceLabelShowCartonCount ?? true} onChange={(e) => upd("pieceLabelShowCartonCount", e.target.checked)} />
+                    تعبئة الكارتون
+                  </label>
+                </div>
+              </div>
+              <PieceLabelPreview settings={settings} />
+            </div>
+
+            <SectionTitle>مصمم ملصق الكرتون</SectionTitle>
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="نمط التصميم">
+                    <select className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" value={settings.cartonLabelLayout ?? "stacked"} onChange={(e) => upd("cartonLabelLayout", e.target.value as AppSettings["cartonLabelLayout"])}>
+                      <option value="side-by-side">QR ويه النص</option>
+                      <option value="stacked">QR فوق والنص جوة</option>
+                      <option value="qr-only">QR فقط</option>
+                    </select>
+                  </Field>
+                  <Field label="مكان الـ QR">
+                    <select className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" value={settings.cartonLabelQrPosition ?? "left"} onChange={(e) => upd("cartonLabelQrPosition", e.target.value as AppSettings["cartonLabelQrPosition"])}>
+                      <option value="left">يسار</option>
+                      <option value="right">يمين</option>
+                    </select>
+                  </Field>
+                  <Field label="حجم خط اسم المادة">
+                    <Input type="number" value={settings.cartonLabelNameFontSize ?? 20} onChange={(e) => upd("cartonLabelNameFontSize", Number(e.target.value))} />
+                  </Field>
+                  <Field label="حجم خط التفاصيل">
+                    <Input type="number" value={settings.cartonLabelMetaFontSize ?? 14} onChange={(e) => upd("cartonLabelMetaFontSize", Number(e.target.value))} />
+                  </Field>
+                  <Field label="الحاشية الداخلية (ملم)">
+                    <Input type="number" value={settings.cartonLabelPaddingMm ?? 5} onChange={(e) => upd("cartonLabelPaddingMm", Number(e.target.value))} />
+                  </Field>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <input type="checkbox" checked={settings.cartonLabelShowName ?? true} onChange={(e) => upd("cartonLabelShowName", e.target.checked)} />
+                    اسم المادة
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <input type="checkbox" checked={settings.cartonLabelShowItemNumber ?? true} onChange={(e) => upd("cartonLabelShowItemNumber", e.target.checked)} />
+                    رقم الآيتم
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <input type="checkbox" checked={settings.cartonLabelShowPcsPerCarton ?? true} onChange={(e) => upd("cartonLabelShowPcsPerCarton", e.target.checked)} />
+                    عدد قطع الكرتون
+                  </label>
+                </div>
+              </div>
+              <CartonLabelPreview settings={settings} />
             </div>
 
             <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
@@ -1302,6 +1404,107 @@ function SeasonalAlertsCard({ raw, onChange, onSave, isPending, saved }: {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="text-base font-semibold">{children}</h2>
+}
+
+function PieceLabelPreview({ settings }: { settings: AppSettings }) {
+  const layout = settings.pieceLabelLayout ?? "side-by-side"
+  const width = Math.max(40, Number(settings.labelPieceWidthMm ?? 50))
+  const height = Math.max(20, Number(settings.labelPieceHeightMm ?? 25))
+  const nameSize = Math.max(12, Number(settings.pieceLabelNameFontSize ?? 14) * 1.12)
+  const metaSize = Math.max(10, Number(settings.pieceLabelMetaFontSize ?? 10) * 1.05)
+  const lines = [
+    (settings.pieceLabelShowName ?? true) ? { text: "اسم المادة كامل", size: nameSize, weight: "font-bold" } : null,
+    (settings.pieceLabelShowItemNumber ?? true) ? { text: "رقم الايتم: 8011-A4", size: metaSize, weight: "font-semibold" } : null,
+    (settings.pieceLabelShowCartonCount ?? true) ? { text: "العدد في الكارتون: 120", size: metaSize, weight: "font-semibold" } : null,
+  ].filter(Boolean) as Array<{ text: string; size: number; weight: string }>
+
+  const qr = (
+    <div className="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-slate-300 bg-[linear-gradient(45deg,#111_25%,transparent_25%,transparent_50%,#111_50%,#111_75%,transparent_75%,transparent)] bg-[length:16px_16px] sm:h-28 sm:w-28">
+      <div className="grid h-8 w-8 place-items-center rounded-md border-[6px] border-white bg-black" />
+    </div>
+  )
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium text-slate-600 dark:text-slate-300">معاينة تقريبية</div>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+        <div className="mx-auto overflow-hidden rounded-2xl border border-slate-300 bg-white p-3 shadow-sm" style={{ aspectRatio: `${width}/${height}` }}>
+          {layout === "qr-only" ? (
+            <div className="flex h-full items-center justify-center">{qr}</div>
+          ) : layout === "stacked" ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-900">
+              {qr}
+              <div className="space-y-1">
+                {lines.map((line) => (
+                  <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={cn("flex h-full items-center gap-3 text-slate-900", settings.pieceLabelQrPosition === "right" ? "flex-row-reverse" : "flex-row")}>
+              {qr}
+              <div className="min-w-0 flex-1 space-y-1 text-right">
+                {lines.map((line) => (
+                  <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+function CartonLabelPreview({ settings }: { settings: AppSettings }) {
+  const layout = settings.cartonLabelLayout ?? "stacked"
+  const width = Math.max(40, Number(settings.labelCartonWidthMm ?? 100))
+  const height = Math.max(40, Number(settings.labelCartonHeightMm ?? 100))
+  const nameSize = Math.max(12, Number(settings.cartonLabelNameFontSize ?? 20) * 1.12)
+  const metaSize = Math.max(10, Number(settings.cartonLabelMetaFontSize ?? 14) * 1.05)
+  const lines = [
+    (settings.cartonLabelShowName ?? true) ? { text: "اسم المادة كامل", size: nameSize, weight: "font-bold" } : null,
+    (settings.cartonLabelShowItemNumber ?? true) ? { text: "رقم الايتم: 8011-A4", size: metaSize, weight: "font-semibold" } : null,
+    (settings.cartonLabelShowPcsPerCarton ?? true) ? { text: "قطعة بالكرتون: 120", size: metaSize, weight: "font-semibold" } : null,
+  ].filter(Boolean) as Array<{ text: string; size: number; weight: string }>
+
+  const qr = (
+    <div className="grid h-24 w-24 shrink-0 place-items-center rounded-xl border border-slate-300 bg-[linear-gradient(45deg,#111_25%,transparent_25%,transparent_50%,#111_50%,#111_75%,transparent_75%,transparent)] bg-[length:16px_16px] sm:h-28 sm:w-28">
+      <div className="grid h-8 w-8 place-items-center rounded-md border-[6px] border-white bg-black" />
+    </div>
+  )
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium text-slate-600 dark:text-slate-300">معاينة تقريبية</div>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+        <div className="mx-auto overflow-hidden rounded-2xl border border-slate-300 bg-white p-3 shadow-sm" style={{ aspectRatio: `${width}/${height}` }}>
+          {layout === "qr-only" ? (
+            <div className="flex h-full items-center justify-center">{qr}</div>
+          ) : layout === "stacked" ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-900">
+              {qr}
+              <div className="space-y-1">
+                {lines.map((line) => (
+                  <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={cn("flex h-full items-center gap-3 text-slate-900", settings.cartonLabelQrPosition === "right" ? "flex-row-reverse" : "flex-row")}>
+              {qr}
+              <div className="min-w-0 flex-1 space-y-1 text-right">
+                {lines.map((line) => (
+                  <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

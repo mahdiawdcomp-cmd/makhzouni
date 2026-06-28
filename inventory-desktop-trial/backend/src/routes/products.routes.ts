@@ -4,6 +4,10 @@ import {
   backfillProductQrs,
   editProduct,
   getCartonSheetPdf,
+  getCartonLabelPng,
+  getPieceLabelPng,
+  openPieceLabelInDLabelCtrl,
+  openPieceLabelInDLabelLinkCtrl,
   getPieceLabelPdf,
   getProductByQr,
   getProductDetails,
@@ -15,6 +19,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
 import {
   createProductSchema,
+  dlabelPieceLabelSchema,
   idParamSchema,
   listProductsSchema,
   updateProductSchema,
@@ -26,7 +31,11 @@ const router = Router();
 // anyone with the code can access the image; auth is enforced on data endpoints.
 router.get("/:id/qr", validate(idParamSchema), getProductQr);
 router.get("/:id/label/piece.pdf", validate(idParamSchema), getPieceLabelPdf);
+router.get("/:id/label/piece.png", validate(idParamSchema), getPieceLabelPng);
 router.get("/:id/label/carton.pdf", validate(idParamSchema), getCartonSheetPdf);
+router.get("/:id/label/carton.png", validate(idParamSchema), getCartonLabelPng);
+router.post("/label/piece/dlabel-open", validate(dlabelPieceLabelSchema), openPieceLabelInDLabelCtrl);
+router.get("/label/piece/dlabel-open-link", openPieceLabelInDLabelLinkCtrl);
 
 router.use(authMiddleware);
 

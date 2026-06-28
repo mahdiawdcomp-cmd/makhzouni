@@ -719,6 +719,22 @@ export const updateSettingsSchema = z.object({
       labelPieceHeightMm: z.coerce.number().min(10).max(300).optional(),
       labelCartonWidthMm: z.coerce.number().min(10).max(300).optional(),
       labelCartonHeightMm: z.coerce.number().min(10).max(300).optional(),
+      pieceLabelLayout: z.enum(["side-by-side", "stacked", "qr-only"]).optional(),
+      pieceLabelQrPosition: z.enum(["left", "right"]).optional(),
+      pieceLabelShowName: z.boolean().optional(),
+      pieceLabelShowItemNumber: z.boolean().optional(),
+      pieceLabelShowCartonCount: z.boolean().optional(),
+      pieceLabelNameFontSize: z.coerce.number().min(8).max(42).optional(),
+      pieceLabelMetaFontSize: z.coerce.number().min(7).max(32).optional(),
+      pieceLabelPaddingMm: z.coerce.number().min(1).max(10).optional(),
+      cartonLabelLayout: z.enum(["side-by-side", "stacked", "qr-only"]).optional(),
+      cartonLabelQrPosition: z.enum(["left", "right"]).optional(),
+      cartonLabelShowName: z.boolean().optional(),
+      cartonLabelShowItemNumber: z.boolean().optional(),
+      cartonLabelShowPcsPerCarton: z.boolean().optional(),
+      cartonLabelNameFontSize: z.coerce.number().min(8).max(60).optional(),
+      cartonLabelMetaFontSize: z.coerce.number().min(7).max(48).optional(),
+      cartonLabelPaddingMm: z.coerce.number().min(1).max(15).optional(),
       botRules: z
         .array(
           z.object({

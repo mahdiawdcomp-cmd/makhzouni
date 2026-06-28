@@ -438,11 +438,71 @@ export async function productPieceLabelPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
+export function productPieceLabelPngUrl(productId: string) {
+  return `${api.defaults.baseURL}/products/${productId}/label/piece.png`
+}
+
+export async function productPieceLabelPngObjectUrl(productId: string) {
+  const { data } = await api.get(`/products/${productId}/label/piece.png`, {
+    responseType: "blob",
+  })
+  return URL.createObjectURL(data as Blob)
+}
+
 export async function productCartonSheetPdf(productId: string) {
   const { data } = await api.get(`/products/${productId}/label/carton.pdf`, {
     responseType: "blob",
   })
   return URL.createObjectURL(data as Blob)
+}
+
+export async function productCartonLabelPngObjectUrl(productId: string) {
+  const { data } = await api.get(`/products/${productId}/label/carton.png`, {
+    responseType: "blob",
+  })
+  return URL.createObjectURL(data as Blob)
+}
+
+export async function openPieceLabelInDLabel(payload: {
+  name: string
+  itemNumber: string
+  qrCode: string
+  pcsPerCarton: number
+}) {
+  const response = await fetch("http://localhost:5050/api/products/label/piece/dlabel-open", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+
+  let data: { message?: string } | null = null
+  try {
+    data = await response.json()
+  } catch {
+    data = null
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message ?? "تعذر الوصول إلى DLabel")
+  }
+
+  return data
+}
+
+export function openPieceLabelInDLabelLink(payload: {
+  name: string
+  itemNumber: string
+  qrCode: string
+  pcsPerCarton: number
+}) {
+  const params = new URLSearchParams({
+    name: payload.name,
+    itemNumber: payload.itemNumber,
+    qrCode: payload.qrCode,
+    pcsPerCarton: String(payload.pcsPerCarton),
+  })
+  const url = `http://localhost:5050/api/products/label/piece/dlabel-open-link?${params.toString()}`
+  window.open(url, "_blank", "noopener,noreferrer,width=520,height=360")
 }
 
 export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[] }) {
