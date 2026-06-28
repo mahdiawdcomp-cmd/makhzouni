@@ -227,93 +227,79 @@ export const getProductQr = asyncHandler(async (req, res) => {
   res.send(image);
 });
 
-// Printable label for a single piece — small ~2×2 cm sticker.
-// Output: PDF sized exactly to the sticker (no page margins, scales perfectly when printed).
+// 1 mm in PDF points.
+const MM = 2.834645669;
+
+// Printable label for a single piece — one sticker sized EXACTLY 50 × 25 mm,
+// for direct printing on a label/thermal printer (print at 100%, no scaling).
+// Layout: QR square on the right (RTL), product name + item number on the left.
 export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const product = await getProductById(String(req.params.id));
   const payload = product.qrCode || product.itemNumber;
   const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 0, width: 400 });
 
-  // 1 cm = 28.3464567 PDF points. Card: 2 cm QR + small caption lines underneath
-  // (item name + item number + pieces-per-carton). Slightly taller to fit them.
-  const cm = 28.3464567;
-  const widthPt = 2 * cm;
-  const heightPt = 3.1 * cm;
-  const qrSize = 1.7 * cm;
+  const widthPt = 50 * MM;
+  const heightPt = 25 * MM;
+  const pad = 1.5 * MM;
+  const qrSize = heightPt - pad * 2; // square, full height minus padding
 
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `inline; filename="piece-${product.itemNumber}.pdf"`,
-  );
+  res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.pdf"`);
   doc.pipe(res);
-  // QR centred horizontally
-  doc.image(pngBuffer, (widthPt - qrSize) / 2, 0.05 * cm, { width: qrSize, height: qrSize });
-  // Caption: product name (Arabic) then item number + pcs-per-carton
-  let captionY = qrSize + 0.1 * cm;
-  doc.font("Arabic").fontSize(5).fillColor("#111").text(product.name, 1, captionY, {
-    width: widthPt - 2,
-    align: "center",
-    height: 0.55 * cm,
-    ellipsis: true,
-    features: ["rtla"],
+
+  // QR on the right edge
+  const qrX = widthPt - pad - qrSize;
+  doc.image(pngBuffer, qrX, pad, { width: qrSize, height: qrSize });
+
+  // Text column fills the rest (right-aligned, RTL)
+  const textX = pad;
+  const textW = qrX - pad * 2;
+  doc.font("Arabic").fontSize(7).fillColor("#0f172a").text(product.name, textX, pad + 0.5 * MM, {
+    width: textW, align: "right", height: 9 * MM, ellipsis: true, features: ["rtla"],
   });
-  captionY += 0.55 * cm;
-  doc.font("Arabic").fontSize(4.5).fillColor("#475569").text(`${product.itemNumber} · ${product.pcsPerCarton} ق/كرتون`, 0, captionY, {
-    width: widthPt,
-    align: "center",
-    features: ["rtla"],
+  doc.font("Arabic").fontSize(6.5).fillColor("#0f172a").text(product.itemNumber, textX, heightPt - pad - 7 * MM, {
+    width: textW, align: "right", features: ["rtla"],
+  });
+  doc.font("Arabic").fontSize(5.5).fillColor("#475569").text(`${product.pcsPerCarton} ق/كرتون`, textX, heightPt - pad - 3.5 * MM, {
+    width: textW, align: "right", features: ["rtla"],
   });
   doc.end();
 });
 
-// Printable carton labels — A4 sheet with a 2×3 grid of large carton QR labels (6 per page).
+// Printable carton label — one sticker sized EXACTLY 100 × 100 mm, for direct
+// printing on a label/thermal printer (print at 100%, no scaling).
 export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   const product = await getProductById(String(req.params.id));
   const payload = product.cartonQrCode || product.qrCode || product.itemNumber;
   const pngBuffer = await QRCode.toBuffer(payload, { type: "png", margin: 1, width: 600 });
 
-  // A4 = 595 × 842 pt. 2 cols × 3 rows = 6 labels.
-  const pageWidth = 595;
-  const pageHeight = 842;
-  const margin = 28; // ~1 cm
-  const gap = 16;
-  const cols = 2;
-  const rows = 3;
-  const cellW = (pageWidth - margin * 2 - gap * (cols - 1)) / cols;
-  const cellH = (pageHeight - margin * 2 - gap * (rows - 1)) / rows;
+  const sizePt = 100 * MM;
+  const pad = 5 * MM;
+  const qrSize = 62 * MM;
+  const qrX = (sizePt - qrSize) / 2;
+  const qrY = pad;
 
-  const doc = new PDFDocument({ size: "A4", margin: 0 });
+  const doc = new PDFDocument({ size: [sizePt, sizePt], margin: 0 });
   doc.registerFont("Arabic", ARABIC_FONT);
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader(
-    "Content-Disposition",
-    `inline; filename="carton-${product.itemNumber}.pdf"`,
-  );
+  res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.pdf"`);
   doc.pipe(res);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x = margin + c * (cellW + gap);
-      const y = margin + r * (cellH + gap);
-      doc.lineWidth(0.5).strokeColor("#cbd5e1").rect(x, y, cellW, cellH).stroke();
-      const qrSize = Math.min(cellW, cellH) - 60;
-      const qrX = x + (cellW - qrSize) / 2;
-      const qrY = y + 16;
-      doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
-      doc
-        .font("Arabic").fontSize(11).fillColor("#0f172a")
-        .text(product.name, x + 8, qrY + qrSize + 6, { width: cellW - 16, align: "center", features: ["rtla"] });
-      doc
-        .font("Arabic").fontSize(9).fillColor("#475569")
-        .text(`${product.itemNumber} · كرتون · ${product.pcsPerCarton} قطعة`, x + 8, qrY + qrSize + 22, {
-          width: cellW - 16,
-          align: "center",
-          features: ["rtla"],
-        });
-    }
-  }
+
+  doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
+  let y = qrY + qrSize + 4 * MM;
+  doc.font("Arabic").fontSize(18).fillColor("#0f172a").text(product.name, pad, y, {
+    width: sizePt - pad * 2, align: "center", height: 14 * MM, ellipsis: true, features: ["rtla"],
+  });
+  y += 14 * MM;
+  doc.font("Arabic").fontSize(13).fillColor("#0f172a").text(product.itemNumber, pad, y, {
+    width: sizePt - pad * 2, align: "center", features: ["rtla"],
+  });
+  y += 6 * MM;
+  doc.font("Arabic").fontSize(11).fillColor("#475569").text(`كرتون · ${product.pcsPerCarton} قطعة`, pad, y, {
+    width: sizePt - pad * 2, align: "center", features: ["rtla"],
+  });
   doc.end();
 });
 
