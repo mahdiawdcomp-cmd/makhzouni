@@ -232,6 +232,48 @@ export const getProductQr = asyncHandler(async (req, res) => {
 // 1 mm in PDF points.
 const MM = 2.834645669;
 
+// Faux-bold: overstrike the same text with a tiny x offset (no bold font file).
+function boldText(
+  doc: PDFKit.PDFDocument,
+  str: string,
+  x: number,
+  y: number,
+  opts: PDFKit.Mixins.TextOptions,
+) {
+  doc.text(str, x, y, opts);
+  doc.text(str, x + 0.4, y, { ...opts });
+}
+
+// Render a "<number> <arabic>" line WITHOUT digit reversal. pdfkit has no bidi
+// engine, so a mixed Arabic+digit run with the rtla feature flips the digits
+// (96 -> 69). We draw the Arabic word (rtla) and the number (LTR) as two
+// separate, absolutely-positioned tokens so the number is always correct.
+function drawNumberArabicLine(
+  doc: PDFKit.PDFDocument,
+  font: string,
+  fontSize: number,
+  number: number | string,
+  arabic: string,
+  x: number,
+  y: number,
+  width: number,
+  align: "right" | "center",
+  color: string,
+  bold = false,
+) {
+  const numStr = String(number);
+  doc.font(font).fontSize(fontSize).fillColor(color);
+  const numW = doc.widthOfString(numStr);
+  const arW = doc.widthOfString(arabic);
+  const gap = fontSize * 0.35;
+  const total = numW + gap + arW;
+  const startX = align === "center" ? x + (width - total) / 2 : x + width - total;
+  // RTL reading: Arabic on the left, number on the right.
+  const draw = bold ? boldText : (d: PDFKit.PDFDocument, s: string, px: number, py: number, o: PDFKit.Mixins.TextOptions) => d.text(s, px, py, o);
+  draw(doc, arabic, startX, y, { lineBreak: false, features: ["rtla"] });
+  draw(doc, numStr, startX + arW + gap, y, { lineBreak: false });
+}
+
 // Printable label for a single piece — one sticker sized EXACTLY 50 × 25 mm,
 // for direct printing on a label/thermal printer (print at 100%, no scaling).
 // Layout: QR square on the right (RTL), product name + item number on the left.
@@ -256,18 +298,23 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const qrX = widthPt - pad - qrSize;
   doc.image(pngBuffer, qrX, pad, { width: qrSize, height: qrSize });
 
-  // Text column fills the rest (right-aligned, RTL)
+  // Text column fills the rest (right-aligned, RTL). Pure black + bold + larger
+  // so it stays sharp on a thermal printer.
   const textX = pad;
   const textW = qrX - pad * 2;
-  doc.font("Arabic").fontSize(7).fillColor("#0f172a").text(product.name, textX, pad + 0.5 * MM, {
+  doc.font("Arabic").fontSize(9).fillColor("#000000");
+  boldText(doc, product.name, textX, pad + 0.5 * MM, {
     width: textW, align: "right", height: 9 * MM, ellipsis: true, features: ["rtla"],
   });
-  doc.font("Arabic").fontSize(6.5).fillColor("#0f172a").text(product.itemNumber, textX, heightPt - pad - 7 * MM, {
-    width: textW, align: "right", features: ["rtla"],
+  // Item number is Latin/digits — render LTR (no rtla) so it never reverses.
+  doc.font("Arabic").fontSize(8).fillColor("#000000");
+  boldText(doc, product.itemNumber, textX, heightPt - pad - 7 * MM, {
+    width: textW, align: "right",
   });
-  doc.font("Arabic").fontSize(5.5).fillColor("#475569").text(`${product.pcsPerCarton} ق/كرتون`, textX, heightPt - pad - 3.5 * MM, {
-    width: textW, align: "right", features: ["rtla"],
-  });
+  drawNumberArabicLine(
+    doc, "Arabic", 7.5, product.pcsPerCarton, "ق/كرتون",
+    textX, heightPt - pad - 3.6 * MM, textW, "right", "#000000", true,
+  );
   doc.end();
 });
 
@@ -296,18 +343,23 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   doc.pipe(res);
 
   doc.image(pngBuffer, qrX, qrY, { width: qrSize, height: qrSize });
+  const innerW = widthPt - pad * 2;
   let y = qrY + qrSize + 3 * MM;
-  doc.font("Arabic").fontSize(16).fillColor("#0f172a").text(product.name, pad, y, {
-    width: widthPt - pad * 2, align: "center", height: 12 * MM, ellipsis: true, features: ["rtla"],
+  // Name — big, black, bold.
+  doc.font("Arabic").fontSize(20).fillColor("#000000");
+  boldText(doc, product.name, pad, y, {
+    width: innerW, align: "center", height: 12 * MM, ellipsis: true, features: ["rtla"],
   });
-  y += 12 * MM;
-  doc.font("Arabic").fontSize(12).fillColor("#0f172a").text(product.itemNumber, pad, y, {
-    width: widthPt - pad * 2, align: "center", features: ["rtla"],
-  });
-  y += 5.5 * MM;
-  doc.font("Arabic").fontSize(10).fillColor("#475569").text(`كرتون · ${product.pcsPerCarton} قطعة`, pad, y, {
-    width: widthPt - pad * 2, align: "center", features: ["rtla"],
-  });
+  y += 13 * MM;
+  // Item number — Latin/digits → LTR (no rtla), black, bold.
+  doc.font("Arabic").fontSize(15).fillColor("#000000");
+  boldText(doc, product.itemNumber, pad, y, { width: innerW, align: "center" });
+  y += 6.5 * MM;
+  // Carton piece count — number drawn LTR so it never reverses.
+  drawNumberArabicLine(
+    doc, "Arabic", 13, product.pcsPerCarton, "قطعة بالكرتون",
+    pad, y, innerW, "center", "#000000", true,
+  );
   doc.end();
 });
 
