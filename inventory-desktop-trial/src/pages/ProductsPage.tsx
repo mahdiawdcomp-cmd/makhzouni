@@ -24,6 +24,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
+import { ImageCropModal } from "../components/ImageCropModal"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -61,6 +62,28 @@ const emptyForm: ProductFormState = {
   minStock: 5,
   branchId: "",
   storageLocation: "",
+}
+
+function readFileAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+// Remote image URLs taint the canvas; fetch them to a data URL first so the
+// crop editor can read pixels.
+async function toEditableSrc(src: string): Promise<string> {
+  if (src.startsWith("data:")) return src
+  try {
+    const res = await fetch(src, { mode: "cors" })
+    const blob = await res.blob()
+    return await readFileAsDataUrl(blob)
+  } catch {
+    return src
+  }
 }
 
 async function compressProductImage(file: File): Promise<string> {
@@ -386,6 +409,7 @@ export function ProductsPage() {
   // The list no longer carries the full imageUrl — only resend it on save if the
   // user actually changed it, otherwise we'd overwrite the full image.
   const [imageDirty, setImageDirty] = useState(false)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
   const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null)
   const products = productsQuery.data ?? []
   const categories = Array.from(new Set(products.map((item) => item.category).filter(Boolean) as string[]))
@@ -1041,30 +1065,24 @@ export function ProductsPage() {
             <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex flex-wrap items-center gap-3">
                 {form.imageUrl ? (
-                  <img src={form.imageUrl} alt={form.name || "صورة المادة"} className="h-20 w-20 rounded-xl object-cover ring-1 ring-slate-200" />
+                  <button
+                    type="button"
+                    onClick={async () => setCropSrc(await toEditableSrc(form.imageUrl!))}
+                    className="group relative h-20 w-20 overflow-hidden rounded-xl ring-2 ring-offset-1 ring-indigo-400 cursor-pointer"
+                    title="اضغط لتعديل الصورة"
+                  >
+                    <img src={form.imageUrl} alt={form.name || "صورة المادة"} className="h-full w-full object-cover" />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                      <span className="text-[10px] font-bold text-white">تعديل</span>
+                    </div>
+                  </button>
                 ) : (
                   <div className="grid h-20 w-20 place-items-center rounded-xl bg-white text-xs font-bold text-slate-400 ring-1 ring-slate-200 dark:bg-slate-950">صورة</div>
                 )}
                 <div className="flex-1 space-y-2">
                   <div className="text-sm font-semibold">صورة المادة</div>
-                  <div className="text-xs text-slate-500">تنضغط تلقائياً بحجم مناسب حتى تبقى واضحة وما تثقل النظام.</div>
+                  <div className="text-xs text-slate-500">بعد الالتقاط تظهر لك شاشة التعديل للاقتصاص والتدوير.</div>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" asChild>
-                      <label className="cursor-pointer">
-                        📁 اختيار صورة
-                        <input
-                          className="hidden"
-                          type="file"
-                          accept="image/*"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0]
-                            if (!file) return
-                            setImageDirty(true); void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
-                            event.target.value = ""
-                          }}
-                        />
-                      </label>
-                    </Button>
                     <Button type="button" variant="outline" asChild>
                       <label className="cursor-pointer">
                         📷 كاميرا
@@ -1073,17 +1091,41 @@ export function ProductsPage() {
                           type="file"
                           accept="image/*"
                           capture="environment"
-                          onChange={(event) => {
+                          onChange={async (event) => {
                             const file = event.target.files?.[0]
                             if (!file) return
-                            setImageDirty(true); void compressProductImage(file).then((imageUrl) => setForm((current) => ({ ...current, imageUrl })))
                             event.target.value = ""
+                            const dataUrl = await readFileAsDataUrl(file)
+                            setCropSrc(dataUrl)
                           }}
                         />
                       </label>
                     </Button>
+                    <Button type="button" variant="outline" asChild>
+                      <label className="cursor-pointer">
+                        📁 اختيار صورة
+                        <input
+                          className="hidden"
+                          type="file"
+                          accept="image/*"
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0]
+                            if (!file) return
+                            event.target.value = ""
+                            const dataUrl = await readFileAsDataUrl(file)
+                            setCropSrc(dataUrl)
+                          }}
+                        />
+                      </label>
+                    </Button>
+                    {form.imageUrl && (
+                      <Button type="button" variant="outline" className="gap-1.5 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                        onClick={async () => setCropSrc(await toEditableSrc(form.imageUrl!))}>
+                        ✂️ تعديل الصورة
+                      </Button>
+                    )}
                     {form.imageUrl ? (
-                      <Button type="button" variant="outline" onClick={() => { setImageDirty(true); setForm({ ...form, imageUrl: null }) }}>حذف الصورة</Button>
+                      <Button type="button" variant="outline" className="text-red-500 hover:bg-red-50 border-red-200" onClick={() => { setImageDirty(true); setForm({ ...form, imageUrl: null }) }}>🗑️ حذف</Button>
                     ) : null}
                   </div>
                 </div>
@@ -1372,6 +1414,28 @@ export function ProductsPage() {
             </Button>
           </div>
         </form>
+
+        {/* Image editor — rendered INSIDE the dialog so the modal pointer-events
+            lock doesn't swallow clicks on the crop/save controls */}
+        {cropSrc && (
+          <ImageCropModal
+            src={cropSrc}
+            onCancel={() => setCropSrc(null)}
+            onDone={async (croppedDataUrl) => {
+              setCropSrc(null)
+              setImageDirty(true)
+              try {
+                const resp = await fetch(croppedDataUrl)
+                const blob = await resp.blob()
+                const file = new File([blob], "cropped.jpg", { type: "image/jpeg" })
+                const imageUrl = await compressProductImage(file)
+                setForm((f) => ({ ...f, imageUrl }))
+              } catch {
+                setForm((f) => ({ ...f, imageUrl: croppedDataUrl }))
+              }
+            }}
+          />
+        )}
       </ModalForm>
 
       {!open ? (
