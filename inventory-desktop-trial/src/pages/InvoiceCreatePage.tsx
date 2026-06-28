@@ -30,6 +30,20 @@ type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
 type InvoiceType = "SALE" | "PURCHASE"
 
+// Read a barcode character from the PHYSICAL key (e.code), not e.key — so a
+// scanner works the same whether the keyboard is set to Arabic or English.
+// (e.key returns Arabic letters / Arabic-Indic digits under an Arabic layout.)
+function scanCharFromCode(e: globalThis.KeyboardEvent): string | null {
+  const code = e.code
+  if (code.startsWith("Digit")) return code.slice(5)          // Digit7 → "7"
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6)         // Numpad7 → "7"
+  if (code.startsWith("Key")) return code.slice(3).toLowerCase() // KeyA → "a"
+  if (code === "Minus" || code === "NumpadSubtract") return "-"
+  // Fallback for layouts that don't report e.code: accept a clean ASCII char.
+  if (e.key.length === 1 && /[a-zA-Z0-9-]/.test(e.key)) return e.key.toLowerCase()
+  return null
+}
+
 interface DraftItem {
   product: Product
   unit: Unit
@@ -235,10 +249,11 @@ export function InvoiceCreatePage() {
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
 
-  // ---- barcode state ----
-  const [scanBuffer, setScanBuffer] = useState("")
+  // ---- barcode scanner (ref-based, keyboard-layout independent) ----
   const scanInputRef = useRef<HTMLInputElement | null>(null)
-  const lastFocusRef = useRef(0)
+  const scanBufRef = useRef("")
+  const scanLastKeyRef = useRef(0)
+  const scanSnapRef = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; val: string } | null>(null)
   const clientRequestIdRef = useRef(crypto.randomUUID())
   const prefillAppliedRef = useRef(false)
   // Order-preparation id from the URL (?fromPrep=...). The page fetches the
@@ -967,26 +982,60 @@ export function InvoiceCreatePage() {
     e.target.select()
   }
 
-  // ---- USB barcode scanner ----
+  // ---- USB barcode scanner (works even while a field is focused) ----
   useEffect(() => {
+    // Undo any characters the gun leaked into a focused field during a burst.
+    function restoreField(el: HTMLInputElement | HTMLTextAreaElement, val: string) {
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
+      setter?.call(el, val)
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+
     function onKey(e: globalThis.KeyboardEvent) {
-      const target = e.target as HTMLElement | null
-      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return
       if (productModal || preview || shopStockAlert) return
+      if (e.ctrlKey || e.altKey || e.metaKey) return
+
       const now = Date.now()
-      if (now - lastFocusRef.current > 100) setScanBuffer("")
-      lastFocusRef.current = now
+      const gap = now - scanLastKeyRef.current
+      scanLastKeyRef.current = now
+      // A slow gap means a human typing, not a scanner gun → fresh buffer.
+      if (gap > 100) { scanBufRef.current = ""; scanSnapRef.current = null }
+
       if (e.key === "Enter") {
-        if (scanBuffer.length >= 3) addProductByCode(scanBuffer)
-        setScanBuffer("")
+        const code = scanBufRef.current.trim()
+        scanBufRef.current = ""
+        // A fast multi-char burst ending in Enter = a real scan.
+        if (code.length >= 3) {
+          e.preventDefault()
+          e.stopPropagation()
+          const snap = scanSnapRef.current
+          scanSnapRef.current = null
+          if (snap) restoreField(snap.el, snap.val)
+          addProductByCode(code)
+        }
         return
       }
-      if (e.key.length === 1) setScanBuffer((b) => b + e.key)
+
+      const ch = scanCharFromCode(e)
+      if (ch) {
+        // At burst start, snapshot the focused field so we can wipe leaked chars.
+        if (scanBufRef.current === "") {
+          const el = document.activeElement as HTMLElement | null
+          if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+            scanSnapRef.current = { el: el as HTMLInputElement, val: (el as HTMLInputElement).value }
+          } else {
+            scanSnapRef.current = null
+          }
+        }
+        scanBufRef.current += ch
+      }
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    // Capture phase so we see keys before the focused input does.
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanBuffer, productModal, preview, products, shopStockAlert])
+  }, [productModal, preview, products, shopStockAlert])
 
   // ---- Auto-add a product when arriving from the global scanner (/invoices/new?scan=CODE) ----
   const scanParamAppliedRef = useRef(false)

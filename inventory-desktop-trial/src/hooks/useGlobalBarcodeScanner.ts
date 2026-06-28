@@ -15,6 +15,18 @@ import { useLocation, useNavigate } from "react-router-dom"
  *  - we're already on /invoices/new or /pos (those pages have their own scanner),
  *  - the keystrokes are too slow to be a scanner (a human typing).
  */
+// Read the barcode char from the PHYSICAL key (e.code) so the gun works the
+// same under an Arabic keyboard layout (where e.key would be Arabic garbage).
+function charFromCode(e: KeyboardEvent): string | null {
+  const code = e.code
+  if (code.startsWith("Digit")) return code.slice(5)
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6)
+  if (code.startsWith("Key")) return code.slice(3).toLowerCase()
+  if (code === "Minus" || code === "NumpadSubtract") return "-"
+  if (e.key.length === 1 && /[a-zA-Z0-9-]/.test(e.key)) return e.key.toLowerCase()
+  return null
+}
+
 export function useGlobalBarcodeScanner() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -55,7 +67,8 @@ export function useGlobalBarcodeScanner() {
         return
       }
 
-      if (e.key.length === 1) bufferRef.current += e.key
+      const ch = charFromCode(e)
+      if (ch) bufferRef.current += ch
     }
 
     window.addEventListener("keydown", onKey)
