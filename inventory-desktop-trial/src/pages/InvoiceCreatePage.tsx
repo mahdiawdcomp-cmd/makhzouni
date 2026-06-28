@@ -169,6 +169,7 @@ export function InvoiceCreatePage() {
   const [quickAddProductPurchasePrice, setQuickAddProductPurchasePrice] = useState("")
   // Alert shown when a sale product has 0 stock in المحل
   const [shopStockAlert, setShopStockAlert] = useState<Product | null>(null)
+  const [shopStockAlertUnit, setShopStockAlertUnit] = useState<Unit>("PIECE")
 
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
@@ -683,15 +684,15 @@ export function InvoiceCreatePage() {
     return undefined
   }
 
-  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string) {
+  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE") {
     const nextIndex = items.length
     setItems((current) => [
       ...current,
       {
         product,
-        unit: "PIECE",
+        unit,
         quantity: 1,
-        unitPrice: unitPriceFor(product, "PIECE"),
+        unitPrice: unitPriceFor(product, unit),
         warehouseId: overrideWarehouseId ?? defaultWarehouseId(product),
         warehouseName: overrideWarehouseName,
       },
@@ -701,17 +702,24 @@ export function InvoiceCreatePage() {
     window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
   }
 
-  function addProduct(product: Product) {
-    // For sales: if المحل has 0 stock but other warehouses have stock → warn first
-    if (!isPurchase) {
-      const shopStock = product.shopStock ?? 0
-      const totalStock = product.currentStock ?? (product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton)
-      const othersHaveStock = (product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
-      if (shopStock === 0 && (totalStock > 0 || othersHaveStock)) {
-        setShopStockAlert(product)
-        return
-      }
+  // For sales: if المحل has 0 stock but other warehouses have stock, prompt the
+  // user to pick a warehouse instead of silently pulling from an empty shop.
+  // Returns true when it opened the picker (caller should stop).
+  function maybePromptWarehouse(product: Product, unit: Unit): boolean {
+    if (isPurchase) return false
+    const shopStock = product.shopStock ?? 0
+    const totalStock = product.currentStock ?? (product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton)
+    const othersHaveStock = (product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
+    if (shopStock === 0 && (totalStock > 0 || othersHaveStock)) {
+      setShopStockAlert(product)
+      setShopStockAlertUnit(unit)
+      return true
     }
+    return false
+  }
+
+  function addProduct(product: Product) {
+    if (maybePromptWarehouse(product, "PIECE")) return
     doAddProduct(product)
   }
 
@@ -863,16 +871,11 @@ export function InvoiceCreatePage() {
       products.find((p) => p.itemNumber.toLowerCase() === c.toLowerCase())
     if (!hit) return
     const isCarton = hit.cartonQrCode?.toLowerCase() === c.toLowerCase()
-    setItems((current) => [
-      ...current,
-      {
-        product: hit,
-        unit: isCarton ? "CARTON" : "PIECE",
-        quantity: 1,
-        unitPrice: unitPriceFor(hit, isCarton ? "CARTON" : "PIECE"),
-        warehouseId: defaultWarehouseId(hit),
-      },
-    ])
+    const unit: Unit = isCarton ? "CARTON" : "PIECE"
+    // Route through the same shop-stock warehouse picker as manual add, so a
+    // scanned item with an empty shop never silently adds from the wrong place.
+    if (maybePromptWarehouse(hit, unit)) return
+    doAddProduct(hit, undefined, undefined, unit)
   }
 
   function updateItem(index: number, patch: Partial<DraftItem>) {
@@ -969,7 +972,7 @@ export function InvoiceCreatePage() {
     function onKey(e: globalThis.KeyboardEvent) {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) return
-      if (productModal || preview) return
+      if (productModal || preview || shopStockAlert) return
       const now = Date.now()
       if (now - lastFocusRef.current > 100) setScanBuffer("")
       lastFocusRef.current = now
@@ -983,7 +986,7 @@ export function InvoiceCreatePage() {
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scanBuffer, productModal, preview, products])
+  }, [scanBuffer, productModal, preview, products, shopStockAlert])
 
   // ---- Auto-add a product when arriving from the global scanner (/invoices/new?scan=CODE) ----
   const scanParamAppliedRef = useRef(false)
@@ -2124,7 +2127,7 @@ export function InvoiceCreatePage() {
                     onClick={() => {
                       const p = shopStockAlert!
                       setShopStockAlert(null)
-                      doAddProduct(p, ws.warehouseId, ws.warehouse.name)
+                      doAddProduct(p, ws.warehouseId, ws.warehouse.name, shopStockAlertUnit)
                     }}
                   >
                     <span>📦 سحب من {ws.warehouse.name}</span>
@@ -2138,7 +2141,7 @@ export function InvoiceCreatePage() {
             <Button variant="outline" className="w-full text-xs" onClick={() => {
               const p = shopStockAlert!
               setShopStockAlert(null)
-              doAddProduct(p)
+              doAddProduct(p, undefined, undefined, shopStockAlertUnit)
             }}>
               إضافة بدون تحديد مخزن
             </Button>
