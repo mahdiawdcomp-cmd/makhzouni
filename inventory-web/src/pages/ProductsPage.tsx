@@ -456,9 +456,11 @@ export function ProductsPage() {
 
   function getMissing(product: Product): string[] {
     const missing: string[] = []
-    if (canViewPurchasePrice && (!product.purchasePrice || product.purchasePrice === 0)) missing.push("purchasePrice")
-    if (!product.salePrice || product.salePrice === 0) missing.push("salePrice")
-    if (!product.category) missing.push("category")
+    // Prices arrive as strings (Prisma Decimal over JSON) — coerce before
+    // comparing, otherwise "0"/"0.00" never counts as missing.
+    if (canViewPurchasePrice && Number(product.purchasePrice) === 0) missing.push("purchasePrice")
+    if (Number(product.salePrice) === 0) missing.push("salePrice")
+    if (!product.category || String(product.category).trim() === "") missing.push("category")
     if (stockOf(product) <= 0 && product.openingBalancePcs === 0 && product.cartonsAvailable === 0) missing.push("stock")
     return missing
   }
