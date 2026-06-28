@@ -51,7 +51,7 @@ describe("createStockLossSchema", () => {
 
   it("rejects an unknown unit", () => {
     assert.throws(() =>
-      createStockLossSchema.parse(body([{ productId: PRODUCT, unit: "BOX", quantity: 1 }]))
+      createStockLossSchema.parse(body([{ productId: PRODUCT, unit: "FOO", quantity: 1 }]))
     );
   });
 

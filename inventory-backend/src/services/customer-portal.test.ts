@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
 
 // Pure logic helpers extracted from customer-portal.service for testing
 
@@ -43,9 +44,9 @@ describe("portal — re-order message", () => {
     const msg = buildReorderMessage("أحمد", "INV-001", [
       { name: "كولا", quantity: 2 },
     ]);
-    expect(msg).toContain("أحمد");
-    expect(msg).toContain("INV-001");
-    expect(msg).toContain("كولا × 2");
+    assert.ok(msg.includes("أحمد"));
+    assert.ok(msg.includes("INV-001"));
+    assert.ok(msg.includes("كولا × 2"));
   });
 
   it("lists multiple items on separate lines", () => {
@@ -54,43 +55,43 @@ describe("portal — re-order message", () => {
       { name: "عصير", quantity: 1 },
     ]);
     const lines = msg.split("\n");
-    expect(lines.some((l) => l.includes("ماء × 3"))).toBe(true);
-    expect(lines.some((l) => l.includes("عصير × 1"))).toBe(true);
+    assert.ok(lines.some((l) => l.includes("ماء × 3")));
+    assert.ok(lines.some((l) => l.includes("عصير × 1")));
   });
 });
 
 describe("portal — inquiry message", () => {
   it("includes customer name and inquiry text", () => {
     const msg = buildInquiryMessage("علي", "متى يصل الطلب؟");
-    expect(msg).toContain("علي");
-    expect(msg).toContain("متى يصل الطلب؟");
+    assert.ok(msg.includes("علي"));
+    assert.ok(msg.includes("متى يصل الطلب؟"));
   });
 });
 
 describe("portal — arrival notification message", () => {
   it("includes product name and store name", () => {
     const msg = buildArrivalMessage("نسكافيه", "مخزن التجزئة");
-    expect(msg).toContain("نسكافيه");
-    expect(msg).toContain("مخزن التجزئة");
+    assert.ok(msg.includes("نسكافيه"));
+    assert.ok(msg.includes("مخزن التجزئة"));
   });
 });
 
 describe("portal — phone normalization", () => {
   it("strips non-digits for WhatsApp URL", () => {
-    expect(normalizePhone("+964 770-123-4567")).toBe("9647701234567");
-    expect(normalizePhone("07701234567")).toBe("07701234567");
+    assert.strictEqual(normalizePhone("+964 770-123-4567"), "9647701234567");
+    assert.strictEqual(normalizePhone("07701234567"), "07701234567");
   });
 });
 
 describe("portal — order status labels", () => {
   it("returns correct Arabic labels", () => {
-    expect(orderStatusLabel("PENDING")).toBe("قيد الانتظار");
-    expect(orderStatusLabel("PREPARED")).toBe("جاهز للاستلام");
-    expect(orderStatusLabel("CANCELLED")).toBe("ملغي");
+    assert.strictEqual(orderStatusLabel("PENDING"), "قيد الانتظار");
+    assert.strictEqual(orderStatusLabel("PREPARED"), "جاهز للاستلام");
+    assert.strictEqual(orderStatusLabel("CANCELLED"), "ملغي");
   });
 
   it("falls back to raw status for unknown values", () => {
-    expect(orderStatusLabel("UNKNOWN_STATUS")).toBe("UNKNOWN_STATUS");
+    assert.strictEqual(orderStatusLabel("UNKNOWN_STATUS"), "UNKNOWN_STATUS");
   });
 });
 
@@ -99,13 +100,13 @@ describe("portal — arrival subscription dedup guard", () => {
     const existing = { id: "abc", productName: "ماء", customerId: "cust1" };
     // Simulate: if existing, return it without creating new
     const result = existing ?? { id: "new", productName: "ماء", customerId: "cust1" };
-    expect(result.id).toBe("abc");
+    assert.strictEqual(result.id, "abc");
   });
 
   it("creates new subscription if none exists", () => {
     const existing = null;
     const newSub = { id: "new", productName: "كولا", customerId: "cust2" };
     const result = existing ?? newSub;
-    expect(result.id).toBe("new");
+    assert.strictEqual(result.id, "new");
   });
 });
