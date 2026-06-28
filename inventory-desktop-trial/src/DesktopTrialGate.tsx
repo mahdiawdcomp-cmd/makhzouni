@@ -4,19 +4,10 @@ import { useAuthStore } from "./store/authStore"
 import axios from "axios"
 import { api } from "./api/client"
 
-const LOCAL_API = "http://localhost:5050/api"
-const LOCAL_CREDS_KEY = "makhzouni_local_creds"
 const SERVER_KEY = "makhzouni_server_url"
-
-const isTauri = Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)
-
-function getLocalCreds(): { username: string; password: string } {
-  try {
-    const saved = localStorage.getItem(LOCAL_CREDS_KEY)
-    if (saved) return JSON.parse(saved)
-  } catch {}
-  return { username: "admin", password: "Password123!" }
-}
+// The desktop app is a thin client to the real cloud backend — same data as the
+// website (mahdi.mazbwoni.com). No local server / no separate local database.
+const CLOUD_API = "https://api.mazbwoni.com/api"
 
 export function DesktopTrialGate({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
@@ -24,84 +15,12 @@ export function DesktopTrialGate({ children }: { children: ReactNode }) {
 
   if (user && token) return <>{children}</>
 
-  // In Tauri: auto-login to local backend, no screen needed
-  if (isTauri) return <AutoLoginScreen />
-
-  // Web mode: show normal login screen
-  return <WebLoginScreen />
+  // Always log in to the cloud (real data). No local-server mode.
+  return <CloudLoginScreen />
 }
 
-// ── Auto-login for Tauri (local mode) ────────────────────────────────────────
-function AutoLoginScreen() {
-  const [status, setStatus] = useState("جاري تشغيل النظام المحلي…")
-  const [error, setError] = useState("")
-  const setSession = useAuthStore((s) => s.setSession)
-
-  useEffect(() => {
-    api.defaults.baseURL = LOCAL_API
-    localStorage.setItem(SERVER_KEY, LOCAL_API)
-    void autoLogin()
-  }, [])
-
-  async function autoLogin(attempt = 0): Promise<void> {
-    // Wait for local backend to be ready (max 30s)
-    if (attempt > 30) {
-      setError("تعذر تشغيل الخادم المحلي. أعد تشغيل البرنامج.")
-      return
-    }
-
-    try {
-      await axios.get(`http://localhost:5050/health`, { timeout: 1000 })
-    } catch {
-      setStatus(`جاري تشغيل النظام المحلي… (${attempt + 1})`)
-      await new Promise((r) => setTimeout(r, 1000))
-      return autoLogin(attempt + 1)
-    }
-
-    // Backend is ready — login
-    setStatus("جاري الدخول…")
-    const creds = getLocalCreds()
-    try {
-      const res = await axios.post<{ token: string; user: unknown }>(
-        `${LOCAL_API}/auth/login`,
-        { username: creds.username, password: creds.password },
-        { timeout: 5000 }
-      )
-      if (!res.data.token || !res.data.user) throw new Error("no token")
-      setSession(res.data.token, res.data.user as Parameters<typeof setSession>[1], true)
-    } catch (err: any) {
-      // If wrong password stored, show error with reset option
-      const msg = err?.response?.data?.message
-      setError(msg ?? "خطأ في تسجيل الدخول المحلي. تحقق من الإعدادات.")
-    }
-  }
-
-  if (error) {
-    return <CloudFallbackScreen localError={error} onRetry={() => { setError(""); void autoLogin(0) }} />
-  }
-
-  return (
-    <main dir="rtl" style={splashStyle}>
-      <div style={cardStyle}>
-        <div style={logoStyle}>
-          <PackageCheck size={40} color="white" />
-        </div>
-        <h1 style={{ color: "white", fontSize: 26, fontWeight: 800, margin: "16px 0 6px" }}>
-          مخزوني مهدي عوض
-        </h1>
-        <p style={{ color: "#64748b", fontSize: 14, margin: "0 0 28px" }}>
-          نظام إدارة المخزون والحسابات
-        </p>
-        <Loader2 size={28} color="#3b82f6" style={{ animation: "spin 1s linear infinite" }} />
-        <p style={{ color: "#475569", fontSize: 13, marginTop: 16 }}>{status}</p>
-      </div>
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
-    </main>
-  )
-}
-
-// ── Cloud fallback when local server fails ────────────────────────────────────
-function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRetry: () => void }) {
+// ── Cloud login (primary) ─────────────────────────────────────────────────────
+function CloudLoginScreen() {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [showPass, setShowPass] = useState(false)
@@ -109,9 +28,13 @@ function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRe
   const [error, setError] = useState("")
   const setSession = useAuthStore((s) => s.setSession)
 
-  const CLOUD_API = "https://api.mazbwoni.com/api"
+  // Point the API at the cloud immediately so every request goes there.
+  useEffect(() => {
+    api.defaults.baseURL = CLOUD_API
+    localStorage.setItem(SERVER_KEY, CLOUD_API)
+  }, [])
 
-  async function handleCloudLogin() {
+  async function handleLogin() {
     if (!username.trim() || !password.trim()) { setError("أدخل اسم المستخدم وكلمة المرور."); return }
     setLoading(true); setError("")
     try {
@@ -125,7 +48,7 @@ function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRe
       api.defaults.baseURL = CLOUD_API
       setSession(res.data.token, res.data.user as Parameters<typeof setSession>[1], true)
     } catch (err: any) {
-      setError(err?.response?.data?.message ?? "تعذر الاتصال بالسيرفر.")
+      setError(err?.response?.data?.message ?? "تعذر الاتصال بالسيرفر — تأكد من الإنترنت.")
     } finally {
       setLoading(false)
     }
@@ -134,15 +57,9 @@ function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRe
   return (
     <main dir="rtl" style={splashStyle}>
       <div style={{ ...cardStyle, gap: 0, padding: "36px 40px", background: "#1e293b", borderRadius: 20, border: "1px solid #334155", width: 380 }}>
-        <PackageCheck size={42} color="#ef4444" style={{ marginBottom: 12 }} />
-        <h2 style={{ color: "white", margin: "0 0 6px", fontSize: 18 }}>تعذّر تشغيل الخادم المحلي</h2>
-        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 24px", textAlign: "center" }}>{localError}</p>
-
-        <div style={{ width: "100%", borderTop: "1px solid #334155", marginBottom: 20 }} />
-
-        <p style={{ color: "#94a3b8", fontSize: 13, margin: "0 0 16px", alignSelf: "flex-start" }}>
-          سجّل دخول بالحساب السحابي بدلاً من ذلك:
-        </p>
+        <div style={logoStyle}><PackageCheck size={34} color="white" /></div>
+        <h1 style={{ color: "white", fontSize: 22, fontWeight: 800, margin: "14px 0 4px" }}>مخزوني مهدي عوض</h1>
+        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 22px" }}>سجّل الدخول بحسابك</p>
 
         {[
           { label: "اسم المستخدم", value: username, set: setUsername, type: "text" },
@@ -153,7 +70,7 @@ function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRe
             <input
               value={value} onChange={(e) => set(e.target.value)}
               type={type} dir="ltr"
-              onKeyDown={(e) => e.key === "Enter" && void handleCloudLogin()}
+              onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
               style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, padding: "9px 12px", color: "white", fontSize: 14, fontFamily: "inherit", outline: "none", width: "100%", boxSizing: "border-box" as const }}
             />
           </label>
@@ -165,11 +82,8 @@ function CloudFallbackScreen({ localError, onRetry }: { localError: string; onRe
 
         {error && <p style={{ color: "#fca5a5", fontSize: 12, margin: "0 0 12px" }}>{error}</p>}
 
-        <button onClick={() => void handleCloudLogin()} disabled={loading} style={{ ...btnStyle, marginBottom: 8 }}>
-          {loading ? "جاري الاتصال…" : "دخول بالحساب السحابي"}
-        </button>
-        <button onClick={onRetry} style={{ ...btnStyle, background: "#1e293b", border: "1px solid #334155", fontSize: 13 }}>
-          إعادة المحاولة (محلي)
+        <button onClick={() => void handleLogin()} disabled={loading} style={btnStyle}>
+          {loading ? "جاري الدخول…" : "دخول"}
         </button>
       </div>
     </main>

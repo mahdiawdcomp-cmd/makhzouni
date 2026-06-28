@@ -42,10 +42,20 @@ import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.data.remote.dto.UserDto
 import com.inventory.data.remote.dto.VoucherDto
 import com.inventory.data.remote.dto.CatalogCustomerDto
+import com.inventory.data.remote.dto.ProfitReportDto
+import com.inventory.data.remote.dto.TopCustomerDto
+import com.inventory.data.remote.dto.EndOfDayReportDto
+import com.inventory.data.remote.dto.StoreBrainReportDto
+import com.inventory.data.remote.dto.StockLossDto
+import com.inventory.data.remote.dto.CreateStockLossRequest
 import com.inventory.data.remote.dto.GrantCatalogAccessRequest
 import com.inventory.data.remote.dto.OrderPreparationDto
 import com.inventory.data.remote.dto.PatchCatalogAccessRequest
 import com.inventory.data.remote.dto.RetailOrderDto
+import com.inventory.data.remote.dto.TogglePortalRequest
+import com.inventory.data.remote.dto.CreateCustomerTagRequest
+import com.inventory.data.remote.dto.RenameCustomerTagRequest
+import com.inventory.data.remote.dto.DeleteCustomerTagRequest
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -187,6 +197,18 @@ interface InventoryApi {
         @Query("to") to: String? = null
     ): ApiEnvelope<CustomerTransactionsEnvelope>
 
+    @GET("customers/tags")
+    suspend fun getCustomerTags(): ApiEnvelope<List<String>>
+
+    @POST("customers/tags")
+    suspend fun createCustomerTag(@Body body: CreateCustomerTagRequest): ApiEnvelope<List<String>>
+
+    @PATCH("customers/tags")
+    suspend fun renameCustomerTag(@Body body: RenameCustomerTagRequest): ApiEnvelope<List<String>>
+
+    @HTTP(method = "DELETE", path = "customers/tags", hasBody = true)
+    suspend fun deleteCustomerTag(@Body body: DeleteCustomerTagRequest): ApiEnvelope<List<String>>
+
     @GET("customers/{id}/last-transaction")
     suspend fun getLastCustomerTransaction(@Path("id") id: String): ApiEnvelope<LastTransactionDto>
 
@@ -201,6 +223,7 @@ interface InventoryApi {
         @Query("type") type: String? = null,
         @Query("page") page: Int? = null,
         @Query("limit") limit: Int? = null,
+        @Query("showCancelled") showCancelled: Boolean? = null,
     ): PagedEnvelope<VoucherDto>
 
     @POST("vouchers")
@@ -211,6 +234,9 @@ interface InventoryApi {
 
     @DELETE("vouchers/{id}")
     suspend fun deleteVoucher(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("vouchers/{id}/restore")
+    suspend fun restoreVoucher(@Path("id") id: String): ApiEnvelope<VoucherDto>
 
     @PUT("vouchers/{id}")
     suspend fun updateVoucher(
@@ -223,6 +249,7 @@ interface InventoryApi {
         @Query("from") from: String? = null,
         @Query("to") to: String? = null,
         @Query("type") type: String? = null,
+        @Query("status") status: String? = null,
         @Query("page") page: Int = 1,
         @Query("limit") limit: Int = 100
     ): PaginationEnvelope<InvoiceDto>
@@ -327,6 +354,47 @@ interface InventoryApi {
         @Query("minDays") minDays: Int = 0,
         @Query("maxDays") maxDays: Int = 999
     ): ApiEnvelope<List<CustomerDebtDto>>
+
+    @GET("reports/profit")
+    suspend fun profitReport(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+        @Query("groupBy") groupBy: String = "day"
+    ): ApiEnvelope<ProfitReportDto>
+
+    @GET("reports/customers/top")
+    suspend fun topCustomersReport(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+        @Query("limit") limit: Int = 20
+    ): ApiEnvelope<List<TopCustomerDto>>
+
+    @GET("reports/end-of-day")
+    suspend fun endOfDayReport(
+        @Query("date") date: String? = null
+    ): ApiEnvelope<EndOfDayReportDto>
+
+    @GET("reports/store-brain")
+    suspend fun storeBrainReport(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null
+    ): ApiEnvelope<StoreBrainReportDto>
+
+    // ── Stock losses ("التلف والخسائر") ──────────────────────────────────────────
+    @GET("stock-losses")
+    suspend fun getStockLosses(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+        @Query("warehouseId") warehouseId: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 50
+    ): PaginationEnvelope<StockLossDto>
+
+    @POST("stock-losses")
+    suspend fun createStockLoss(@Body body: CreateStockLossRequest): ApiEnvelope<StockLossDto>
+
+    @PATCH("stock-losses/{id}/cancel")
+    suspend fun cancelStockLoss(@Path("id") id: String): ApiEnvelope<StockLossDto>
 
     // ── Voice Invoice (2-step) ────────────────────────────────────────────────
     @POST("voice/parse")
