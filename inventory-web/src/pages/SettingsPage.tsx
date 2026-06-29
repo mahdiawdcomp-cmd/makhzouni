@@ -1444,9 +1444,9 @@ function PieceLabelPreview({ settings }: { settings: AppSettings }) {
           {layout === "qr-only" ? (
             <div className="flex h-full items-center justify-center">{qr}</div>
           ) : layout === "stacked" ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-900">
-              {qr}
-              <div className="space-y-1">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-900">
+              <div className="aspect-square min-h-0 w-auto max-w-full flex-1 self-center rounded-xl border border-slate-300 bg-[linear-gradient(45deg,#111_25%,transparent_25%,transparent_50%,#111_50%,#111_75%,transparent_75%,transparent)] bg-[length:16px_16px]" />
+              <div className="shrink-0 space-y-1">
                 {lines.map((line) => (
                   <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
                 ))}
@@ -1495,9 +1495,9 @@ function CartonLabelPreview({ settings }: { settings: AppSettings }) {
           {layout === "qr-only" ? (
             <div className="flex h-full items-center justify-center">{qr}</div>
           ) : layout === "stacked" ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-slate-900">
-              {qr}
-              <div className="space-y-1">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-900">
+              <div className="aspect-square min-h-0 w-auto max-w-full flex-1 self-center rounded-xl border border-slate-300 bg-[linear-gradient(45deg,#111_25%,transparent_25%,transparent_50%,#111_50%,#111_75%,transparent_75%,transparent)] bg-[length:16px_16px]" />
+              <div className="shrink-0 space-y-1">
                 {lines.map((line) => (
                   <div key={line.text} className={line.weight} style={{ fontSize: `${line.size}px` }}>{line.text}</div>
                 ))}

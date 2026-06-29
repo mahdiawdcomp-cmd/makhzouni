@@ -171,18 +171,28 @@ export async function renderPieceLabelPng(
     const qrY = (heightPx - qrSize) / 2;
     body = `<image href="${qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" preserveAspectRatio="xMidYMid meet" />`;
   } else if (resolved.pieceLabelLayout === "stacked") {
-    const qrSize = Math.max(120, Math.min(widthPx - paddingPx * 2, heightPx * 0.52));
-    const qrX = (widthPx - qrSize) / 2;
-    const qrY = paddingPx;
-    const textTop = qrY + qrSize + paddingPx * 0.65;
     const rowGap = Math.max(8, Math.round(heightPx * 0.025));
     const lines = expandWrappedLines(fields, widthPx - paddingPx * 2);
+    const textBlockHeight =
+      lines.reduce((sum, line) => sum + line.fontSizePx, 0) + Math.max(0, lines.length - 1) * rowGap;
+    const gapQrText = lines.length ? Math.round(paddingPx * 0.65) : 0;
+    // QR fills ALL the space the text leaves behind (capped by label width), so a
+    // mostly-empty label shows the biggest possible code instead of a fixed 52%.
+    const availWidth = widthPx - paddingPx * 2;
+    const availHeight = heightPx - paddingPx * 2 - textBlockHeight - gapQrText;
+    const qrSize = Math.max(120, Math.min(availWidth, availHeight));
+    const totalHeight = qrSize + gapQrText + textBlockHeight;
+    const qrY = Math.max(paddingPx, (heightPx - totalHeight) / 2);
+    const qrX = (widthPx - qrSize) / 2;
+    let cursorY = qrY + qrSize + gapQrText;
     body = `
       <image href="${qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" preserveAspectRatio="xMidYMid meet" />
       ${lines
-        .map((line, index) => {
-          const y = textTop + index * (line.fontSizePx + rowGap) + line.fontSizePx;
-          return `<text x="${widthPx / 2}" y="${y}" text-anchor="middle" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+        .map((line) => {
+          cursorY += line.fontSizePx;
+          const text = `<text x="${widthPx / 2}" y="${cursorY}" text-anchor="middle" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+          cursorY += rowGap;
+          return text;
         })
         .join("")}
     `;
@@ -325,18 +335,28 @@ export async function renderCartonLabelPng(
     const qrY = (heightPx - qrSize) / 2;
     body = `<image href="${qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" preserveAspectRatio="xMidYMid meet" />`;
   } else if (resolved.cartonLabelLayout === "stacked") {
-    const qrSize = Math.max(120, Math.min(widthPx - paddingPx * 2, heightPx * 0.52));
-    const qrX = (widthPx - qrSize) / 2;
-    const qrY = paddingPx;
-    const textTop = qrY + qrSize + paddingPx * 0.65;
     const rowGap = Math.max(8, Math.round(heightPx * 0.025));
     const lines = expandWrappedLines(fields, widthPx - paddingPx * 2);
+    const textBlockHeight =
+      lines.reduce((sum, line) => sum + line.fontSizePx, 0) + Math.max(0, lines.length - 1) * rowGap;
+    const gapQrText = lines.length ? Math.round(paddingPx * 0.65) : 0;
+    // QR fills ALL the space the text leaves behind (capped by label width), so a
+    // mostly-empty label shows the biggest possible code instead of a fixed 52%.
+    const availWidth = widthPx - paddingPx * 2;
+    const availHeight = heightPx - paddingPx * 2 - textBlockHeight - gapQrText;
+    const qrSize = Math.max(120, Math.min(availWidth, availHeight));
+    const totalHeight = qrSize + gapQrText + textBlockHeight;
+    const qrY = Math.max(paddingPx, (heightPx - totalHeight) / 2);
+    const qrX = (widthPx - qrSize) / 2;
+    let cursorY = qrY + qrSize + gapQrText;
     body = `
       <image href="${qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" preserveAspectRatio="xMidYMid meet" />
       ${lines
-        .map((line, index) => {
-          const y = textTop + index * (line.fontSizePx + rowGap) + line.fontSizePx;
-          return `<text x="${widthPx / 2}" y="${y}" text-anchor="middle" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+        .map((line) => {
+          cursorY += line.fontSizePx;
+          const text = `<text x="${widthPx / 2}" y="${cursorY}" text-anchor="middle" font-family="${LABEL_FONT_FAMILY}" font-size="${line.fontSizePx}" font-weight="${line.weight}" fill="#111111">${xmlEscape(line.text)}</text>`;
+          cursorY += rowGap;
+          return text;
         })
         .join("")}
     `;
