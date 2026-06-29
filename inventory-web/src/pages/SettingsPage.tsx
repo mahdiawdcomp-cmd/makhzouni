@@ -281,6 +281,11 @@ export function SettingsPage() {
     setSettings((s) => ({ ...s, [key]: value }))
   }
 
+  function updNum<K extends keyof AppSettings>(key: K, raw: string) {
+    const v = Number(raw)
+    if (Number.isFinite(v)) upd(key, v as AppSettings[K])
+  }
+
   function uploadLogo(file: File | undefined) {
     if (!file) return
     const reader = new FileReader()
@@ -383,16 +388,16 @@ export function SettingsPage() {
             <p className="text-xs text-slate-500">قياس الملصق بطابعة الباركود. غيّره حسب حجم الملصق عندك ثم اطبع بخيار «الحجم الفعلي / 100%».</p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="عرض ملصق القطعة (ملم)">
-                <Input type="number" value={settings.labelPieceWidthMm ?? 50} onChange={(e) => upd("labelPieceWidthMm", Number(e.target.value))} />
+                <Input type="number" value={settings.labelPieceWidthMm ?? 50} onChange={(e) => updNum("labelPieceWidthMm", e.target.value)} />
               </Field>
               <Field label="ارتفاع ملصق القطعة (ملم)">
-                <Input type="number" value={settings.labelPieceHeightMm ?? 25} onChange={(e) => upd("labelPieceHeightMm", Number(e.target.value))} />
+                <Input type="number" value={settings.labelPieceHeightMm ?? 25} onChange={(e) => updNum("labelPieceHeightMm", e.target.value)} />
               </Field>
               <Field label="عرض ملصق الكرتون (ملم)">
-                <Input type="number" value={settings.labelCartonWidthMm ?? 100} onChange={(e) => upd("labelCartonWidthMm", Number(e.target.value))} />
+                <Input type="number" value={settings.labelCartonWidthMm ?? 100} onChange={(e) => updNum("labelCartonWidthMm", e.target.value)} />
               </Field>
               <Field label="ارتفاع ملصق الكرتون (ملم)">
-                <Input type="number" value={settings.labelCartonHeightMm ?? 100} onChange={(e) => upd("labelCartonHeightMm", Number(e.target.value))} />
+                <Input type="number" value={settings.labelCartonHeightMm ?? 100} onChange={(e) => updNum("labelCartonHeightMm", e.target.value)} />
               </Field>
             </div>
 
@@ -414,13 +419,13 @@ export function SettingsPage() {
                     </select>
                   </Field>
                   <Field label="حجم خط اسم المادة">
-                    <Input type="number" value={settings.pieceLabelNameFontSize ?? 14} onChange={(e) => upd("pieceLabelNameFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.pieceLabelNameFontSize ?? 14} onChange={(e) => updNum("pieceLabelNameFontSize", e.target.value)} />
                   </Field>
                   <Field label="حجم خط التفاصيل">
-                    <Input type="number" value={settings.pieceLabelMetaFontSize ?? 10} onChange={(e) => upd("pieceLabelMetaFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.pieceLabelMetaFontSize ?? 10} onChange={(e) => updNum("pieceLabelMetaFontSize", e.target.value)} />
                   </Field>
                   <Field label="الحاشية الداخلية (ملم)">
-                    <Input type="number" value={settings.pieceLabelPaddingMm ?? 2} onChange={(e) => upd("pieceLabelPaddingMm", Number(e.target.value))} />
+                    <Input type="number" value={settings.pieceLabelPaddingMm ?? 2} onChange={(e) => updNum("pieceLabelPaddingMm", e.target.value)} />
                   </Field>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -459,13 +464,13 @@ export function SettingsPage() {
                     </select>
                   </Field>
                   <Field label="حجم خط اسم المادة">
-                    <Input type="number" value={settings.cartonLabelNameFontSize ?? 20} onChange={(e) => upd("cartonLabelNameFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.cartonLabelNameFontSize ?? 20} onChange={(e) => updNum("cartonLabelNameFontSize", e.target.value)} />
                   </Field>
                   <Field label="حجم خط التفاصيل">
-                    <Input type="number" value={settings.cartonLabelMetaFontSize ?? 14} onChange={(e) => upd("cartonLabelMetaFontSize", Number(e.target.value))} />
+                    <Input type="number" value={settings.cartonLabelMetaFontSize ?? 14} onChange={(e) => updNum("cartonLabelMetaFontSize", e.target.value)} />
                   </Field>
                   <Field label="الحاشية الداخلية (ملم)">
-                    <Input type="number" value={settings.cartonLabelPaddingMm ?? 5} onChange={(e) => upd("cartonLabelPaddingMm", Number(e.target.value))} />
+                    <Input type="number" value={settings.cartonLabelPaddingMm ?? 5} onChange={(e) => updNum("cartonLabelPaddingMm", e.target.value)} />
                   </Field>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-3">

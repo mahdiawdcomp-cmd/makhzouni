@@ -10,9 +10,11 @@ export function errorHandler(
   _next: NextFunction
 ) {
   if (error instanceof ZodError) {
+    const firstIssue = error.issues[0];
+    const field = firstIssue?.path?.slice(1).join(".");
     return res.status(422).json({
       success: false,
-      message: "Validation failed",
+      message: firstIssue ? `${field ? `${field}: ` : ""}${firstIssue.message}` : "Validation failed",
       errors: error.flatten(),
     });
   }
