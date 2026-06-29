@@ -256,6 +256,36 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePu
 // Sets exact per-warehouse quantities (0 allowed), and records a StockMovement
 // for each change WITHOUT an invoice/loss/transfer — so it never touches sales
 // or profit, but stays in a clear audit log (who / when / from → to / why).
+// Record a single per-warehouse stock change into the movement ledger so the
+// product's "full history" shows creations and manual quantity edits too — not
+// just sales/transfers/losses (those already write their own movements).
+async function recordStockChange(
+  tx: Db,
+  args: {
+    productId: string;
+    warehouseId: string;
+    before: number;
+    after: number;
+    note: string;
+    user?: { id?: string; name?: string };
+  }
+) {
+  if (args.after === args.before) return;
+  await tx.stockMovement.create({
+    data: {
+      productId: args.productId,
+      branchId: args.warehouseId,
+      type: args.after > args.before ? "IN" : "OUT",
+      quantity: Math.abs(args.after - args.before),
+      balanceBefore: args.before,
+      balanceAfter: args.after,
+      userId: args.user?.id ?? null,
+      userName: args.user?.name ?? null,
+      note: args.note,
+    },
+  });
+}
+
 export async function adjustProductStockManual(
   productId: string,
   input: {
@@ -330,10 +360,77 @@ export async function listManualStockAdjustments(productId: string) {
   }));
 }
 
+
+// Full movement ledger for ONE product: creation, manual edits, sales, returns,
+// transfers, and losses — across every warehouse, newest first. Each row carries
+// a `source` tag + human reference so the UI can show "وين راحت/منين جت" exactly.
+export async function listStockHistory(productId: string) {
+  const rows = await prisma.stockMovement.findMany({
+    where: { productId },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+    include: {
+      branch: { select: { name: true } },
+      invoice: { select: { invoiceNumber: true, type: true } },
+      transfer: {
+        select: {
+          transferNumber: true,
+          fromBranch: { select: { name: true } },
+          toBranch: { select: { name: true } },
+        },
+      },
+      loss: { select: { id: true, reason: true } },
+    },
+  });
+
+  return rows.map((m) => {
+    let source:
+      | "create"
+      | "manual"
+      | "sale"
+      | "purchase"
+      | "return"
+      | "transfer"
+      | "loss" = "manual";
+    let reference: string | null = null;
+
+    if (m.invoiceId && m.invoice) {
+      const t = m.invoice.type;
+      source = t === "PURCHASE" ? "purchase" : t === "SALES_RETURN" ? "return" : "sale";
+      reference = m.invoice.invoiceNumber;
+    } else if (m.transferId && m.transfer) {
+      source = "transfer";
+      reference = `${m.transfer.transferNumber} (${m.transfer.fromBranch?.name ?? "?"} ← ${m.transfer.toBranch?.name ?? "?"})`;
+    } else if (m.lossId) {
+      source = "loss";
+      reference = m.loss?.reason ?? null;
+    } else if ((m.note ?? "").includes("إنشاء")) {
+      source = "create";
+    } else {
+      source = "manual";
+    }
+
+    return {
+      id: m.id,
+      type: m.type,
+      quantity: m.quantity,
+      balanceBefore: m.balanceBefore,
+      balanceAfter: m.balanceAfter,
+      warehouseName: m.branch?.name ?? null,
+      userName: m.userName,
+      note: m.note,
+      source,
+      reference,
+      createdAt: m.createdAt,
+    };
+  });
+}
+
 export async function createProduct(
   input: ProductInput,
   createdBy: string,
-  db: Db = prisma
+  db: Db = prisma,
+  user?: { id?: string; name?: string }
 ) {
   // Auto-generate item number / QR codes if not provided.
   const runner = async (tx: Db) => {
@@ -395,6 +492,14 @@ export async function createProduct(
           storageLocation: input.storageLocation,
           minStock: input.minStock ?? 0,
         });
+        await recordStockChange(tx, {
+          productId: product.id,
+          warehouseId: d.warehouseId,
+          before: 0,
+          after: d.pieces,
+          note: "إنشاء المادة",
+          user,
+        });
       }
       await syncProductTotalStock(tx, product.id);
     } else {
@@ -404,6 +509,14 @@ export async function createProduct(
         quantityPieces: totalPieces,
         storageLocation: input.storageLocation,
         minStock: input.minStock ?? 0,
+      });
+      await recordStockChange(tx, {
+        productId: product.id,
+        warehouseId,
+        before: 0,
+        after: totalPieces,
+        note: "إنشاء المادة",
+        user,
       });
     }
 
@@ -422,10 +535,16 @@ export async function createProduct(
 export async function updateProduct(
   id: string,
   input: Partial<ProductInput>,
-  db: Db = prisma
+  db: Db = prisma,
+  user?: { id?: string; name?: string }
 ) {
   const runner = async (tx: Db) => {
   const existing = await getProductById(id, tx);
+  // Snapshot per-warehouse pieces BEFORE the edit so we can log each change.
+  const beforeByWarehouse = new Map<string, number>();
+  for (const s of existing.warehouseStocks ?? []) {
+    beforeByWarehouse.set(s.warehouseId, s.quantityPieces);
+  }
   const data: Prisma.ProductUpdateInput = {};
   if (input.itemNumber !== undefined) data.itemNumber = input.itemNumber;
   if (input.name !== undefined) data.name = input.name;
@@ -489,6 +608,14 @@ export async function updateProduct(
         storageLocation: input.storageLocation,
         minStock: input.minStock ?? 0,
       });
+      await recordStockChange(tx, {
+        productId: id,
+        warehouseId: d.warehouseId,
+        before: beforeByWarehouse.get(d.warehouseId) ?? 0,
+        after: d.pieces,
+        note: "تعديل كمية يدوي",
+        user,
+      });
     }
     await syncProductTotalStock(tx, id);
   } else {
@@ -518,6 +645,16 @@ export async function updateProduct(
         storageLocation: input.storageLocation,
         minStock: input.minStock,
       });
+      if (quantityPieces !== undefined) {
+        await recordStockChange(tx, {
+          productId: id,
+          warehouseId,
+          before: targetPieces,
+          after: quantityPieces,
+          note: "تعديل كمية يدوي",
+          user,
+        });
+      }
       await syncProductTotalStock(tx, id);
     }
   }

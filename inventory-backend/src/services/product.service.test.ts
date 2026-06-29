@@ -155,6 +155,10 @@ function makeTx() {
       upsert: async ({ create }: any) => create,
       aggregate: async () => ({ _sum: { quantityPieces: 120 } }),
     },
+    stockMovement: {
+      create: async ({ data }: any) => ({ id: "mv", ...data }),
+      findMany: async () => [],
+    },
     counter: {
       upsert: async () => ({ key: "product_item_number", value: 1 }),
     },

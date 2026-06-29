@@ -3,6 +3,7 @@ import {
   addProduct,
   adjustStock,
   getManualAdjustments,
+  getStockHistory,
   backfillProductQrs,
   backfillThumbs,
   bulkDelete,
@@ -55,6 +56,7 @@ router.get("/deleted", getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);
 router.get("/:id", validate(idParamSchema), getProductDetails);
 router.get("/:id/manual-adjustments", validate(idParamSchema), getManualAdjustments);
+router.get("/:id/stock-history", validate(idParamSchema), getStockHistory);
 router.post("/:id/adjust-stock", validate(idParamSchema), adjustStock);
 router.put("/:id", validate(updateProductSchema), editProduct);
 router.delete("/:id", validate(idParamSchema), removeProduct);

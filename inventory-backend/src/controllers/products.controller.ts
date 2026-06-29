@@ -20,6 +20,7 @@ import {
   updateProduct,
   adjustProductStockManual,
   listManualStockAdjustments,
+  listStockHistory,
   ensureCartonQrCode,
 } from "../services/product.service";
 import { renderPieceLabelPng, renderCartonLabelPng } from "../services/piece-label.service";
@@ -96,6 +97,11 @@ export const getManualAdjustments = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+export const getStockHistory = asyncHandler(async (req, res) => {
+  const data = await listStockHistory(String(req.params.id));
+  res.json({ success: true, data });
+});
+
 export const getProductByQr = asyncHandler(async (req, res) => {
   const product = await getProductByQrCode(
     String(req.params.qrCode),
@@ -126,7 +132,10 @@ export const addProduct = asyncHandler(async (req, res) => {
     return;
   }
 
-  const product = await createProduct(req.body, user.id);
+  const product = await createProduct(req.body, user.id, undefined, {
+    id: user.id,
+    name: user.name,
+  });
 
   res.status(201).json({
     success: true,
@@ -163,7 +172,10 @@ export const editProduct = asyncHandler(async (req, res) => {
     return;
   }
 
-  const product = await updateProduct(id, req.body);
+  const product = await updateProduct(id, req.body, undefined, {
+    id: user.id,
+    name: user.name,
+  });
 
   res.json({
     success: true,

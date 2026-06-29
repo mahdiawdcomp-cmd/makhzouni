@@ -370,6 +370,34 @@ export async function getManualStockAdjustments(id: string) {
   return data.data ?? []
 }
 
+export type StockMovementSource =
+  | "create"
+  | "manual"
+  | "sale"
+  | "purchase"
+  | "return"
+  | "transfer"
+  | "loss"
+
+export interface StockHistoryEntry {
+  id: string
+  type: "IN" | "OUT" | "DAMAGE"
+  quantity: number
+  balanceBefore: number
+  balanceAfter: number
+  warehouseName: string | null
+  userName: string | null
+  note: string | null
+  source: StockMovementSource
+  reference: string | null
+  createdAt: string
+}
+
+export async function getStockHistory(id: string) {
+  const { data } = await api.get<ApiEnvelope<StockHistoryEntry[]>>(`/products/${id}/stock-history`)
+  return data.data ?? []
+}
+
 // ── Stale products (no movement in N days) ──────────────────────────────────
 export interface StaleProductsResult {
   days: number

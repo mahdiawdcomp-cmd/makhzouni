@@ -4,7 +4,7 @@ import { ImageCropModal } from "../components/ImageCropModal"
 import { ArrowRight, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
-import { getCatalogCategories, productCartonSheetPdf, productCartonSheetPdfUrl, productCartonLabelPngObjectUrl, productCartonLabelPngUrl, productPieceLabelPdf, productPieceLabelPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl, productQrObjectUrl, openPieceLabelInDLabel } from "../api/endpoints"
+import { getCatalogCategories, productCartonSheetPdf, productCartonSheetPdfUrl, productCartonLabelPngObjectUrl, productCartonLabelPngUrl, productPieceLabelPdf, productPieceLabelPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl, productQrObjectUrl, openPieceLabelInDLabel, getStockHistory, type StockMovementSource } from "../api/endpoints"
 import { deliverLabel } from "../utils/download"
 import { useProductDetails, useProducts } from "../hooks/useProducts"
 import { fmt } from "../utils/fmt"
@@ -406,6 +406,9 @@ export function ProductDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Full stock movement ledger: creation, manual edits, sales, transfers, losses */}
+          <StockHistoryLog productId={product.id} />
         </div>
 
         {/* QR Codes — right column */}
@@ -688,5 +691,80 @@ export function ProductDetailPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+/* ─── Full stock movement history ─────────────────────────────────────── */
+const SOURCE_LABELS: Record<StockMovementSource, string> = {
+  create: "إنشاء المادة",
+  manual: "تعديل يدوي",
+  sale: "بيع",
+  purchase: "شراء",
+  return: "إرجاع",
+  transfer: "تحويل",
+  loss: "تلف/خسارة",
+}
+const SOURCE_BADGE: Record<StockMovementSource, string> = {
+  create: "bg-sky-100 text-sky-700",
+  manual: "bg-amber-100 text-amber-700",
+  sale: "bg-red-100 text-red-700",
+  purchase: "bg-emerald-100 text-emerald-700",
+  return: "bg-indigo-100 text-indigo-700",
+  transfer: "bg-violet-100 text-violet-700",
+  loss: "bg-rose-100 text-rose-700",
+}
+
+function StockHistoryLog({ productId }: { productId: string }) {
+  const q = useQuery({ queryKey: ["stock-history", productId], queryFn: () => getStockHistory(productId) })
+  const rows = q.data ?? []
+  return (
+    <Card>
+      <CardHeader><CardTitle>سجل حركة المخزون الكامل</CardTitle></CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="py-6 text-center text-sm text-slate-500">لا توجد حركات على هذه المادة بعد.</p>
+        ) : (
+          <Table>
+            <THead>
+              <TR>
+                <TH>التاريخ والوقت</TH>
+                <TH>الحركة</TH>
+                <TH>المخزن</TH>
+                <TH>من → إلى</TH>
+                <TH>التغيير</TH>
+                <TH>بواسطة</TH>
+                <TH>التفاصيل</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {rows.map((m) => (
+                <TR key={m.id}>
+                  <TD className="whitespace-nowrap text-xs">
+                    {new Date(m.createdAt).toLocaleString("ar-IQ", {
+                      year: "numeric", month: "2-digit", day: "2-digit",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </TD>
+                  <TD>
+                    <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium ${SOURCE_BADGE[m.source]}`}>
+                      {SOURCE_LABELS[m.source]}
+                    </span>
+                  </TD>
+                  <TD>{m.warehouseName ?? "—"}</TD>
+                  <TD className="font-mono text-xs">{m.balanceBefore} → {m.balanceAfter}</TD>
+                  <TD>
+                    <span className={`font-semibold ${m.type === "IN" ? "text-emerald-600" : "text-red-600"}`}>
+                      {m.type === "IN" ? "+" : "−"}{m.quantity}
+                    </span>
+                  </TD>
+                  <TD>{m.userName ?? "—"}</TD>
+                  <TD className="text-xs text-slate-500">{m.reference ?? m.note ?? "—"}</TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   )
 }
