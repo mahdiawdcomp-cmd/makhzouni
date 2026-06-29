@@ -26,7 +26,7 @@ import { Badge } from "../components/ui/badge"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
 import { deliverLabel } from "../utils/download"
-import { useBarcodeScanner } from "../utils/barcode-scan"
+import { useBarcodeScanner, barcodeMatchCandidates } from "../utils/barcode-scan"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -429,7 +429,12 @@ export function ProductsPage() {
       product.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
       product.itemNumber.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
       product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      product.cartonQrCode?.toLowerCase().includes(debouncedQuery.toLowerCase())
+      product.cartonQrCode?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+      // Fallback for an Arabic-keyboard-garbled scan (mobile): de-arabicize codes.
+      barcodeMatchCandidates(debouncedQuery)
+        .filter((c) => c !== debouncedQuery.trim().toLowerCase())
+        .some((c) => [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""]
+          .some((code) => !!code && (code.toLowerCase() === c || (c.length >= 8 && code.toLowerCase().includes(c)))))
     const matchesCategory = category === "all" || product.category === category
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
     const missing = getMissing(product)

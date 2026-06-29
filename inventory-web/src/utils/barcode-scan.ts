@@ -15,6 +15,68 @@ export function scanCharFromCode(e: KeyboardEvent): string | null {
   return null
 }
 
+// Arabic (101) keyboard BASE layer → the Latin char on the same physical key.
+// On mobile browsers the physical-key trick (e.code) isn't available, so a
+// scanner under an Arabic OS layout just dumps these Arabic letters into the
+// field. Mapping them back recovers the original ASCII barcode. Product QR codes
+// are `PCS-<uuid>` / `CTN-<uuid>` where the uuid is only [0-9a-f-] — all on the
+// base layer — so even if the uppercase prefix gets mangled, the uuid survives.
+const AR_TO_LATIN: Record<string, string> = {
+  "ض": "q", "ص": "w", "ث": "e", "ق": "r", "ف": "t", "غ": "y", "ع": "u", "ه": "i", "خ": "o", "ح": "p", "ج": "[", "د": "]",
+  "ش": "a", "س": "s", "ي": "d", "ب": "f", "ل": "g", "ا": "h", "ت": "j", "ن": "k", "م": "l", "ك": ";", "ط": "'",
+  "ئ": "z", "ء": "x", "ؤ": "c", "ر": "v", "ى": "n", "ة": "m", "و": ",", "ز": ".", "ظ": "/",
+  // Arabic-Indic digits, in case the layout emits them instead of ASCII digits.
+  "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4", "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+}
+
+export function deArabicizeLayout(input: string): string {
+  // lam-alef (and its ligatures) sits on the "b" key.
+  const s = input.replace(/لا|ﻻ|ﻷ|ﻵ|ﻹ/g, "b")
+  let out = ""
+  for (const ch of s) out += AR_TO_LATIN[ch] ?? ch
+  return out
+}
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/
+
+// Lowercased candidate strings to try when matching a possibly-Arabic-garbled
+// scan against a product barcode: the raw text, its de-arabicized form, and any
+// uuid embedded in that form (so a mangled `PCS-`/`CTN-` prefix doesn't matter).
+export function barcodeMatchCandidates(raw: string): string[] {
+  const out = new Set<string>()
+  const base = raw.trim().toLowerCase()
+  if (base) out.add(base)
+  const latin = deArabicizeLayout(raw).trim().toLowerCase()
+  if (latin) out.add(latin)
+  const uuid = latin.match(UUID_RE)?.[0]
+  if (uuid) out.add(uuid)
+  return [...out]
+}
+
+type ProductLike = { itemNumber: string; qrCode?: string | null; cartonQrCode?: string | null }
+
+// Find the product a (possibly garbled) scanned code points at, tolerant of an
+// Arabic keyboard layout. Returns whether it matched the CARTON code.
+export function findProductByScan<T extends ProductLike>(
+  products: T[],
+  raw: string,
+): { product: T; isCarton: boolean } | null {
+  const cands = barcodeMatchCandidates(raw)
+  if (!cands.length) return null
+  const hit = (field?: string | null) => {
+    const f = (field ?? "").toLowerCase()
+    if (!f) return false
+    // Exact match for short numeric item numbers; substring only for long
+    // candidates (uuids) so a short query can't accidentally match everything.
+    return cands.some((c) => f === c || (c.length >= 8 && f.includes(c)))
+  }
+  for (const p of products) {
+    if (hit(p.cartonQrCode)) return { product: p, isCarton: true }
+    if (hit(p.qrCode) || hit(p.itemNumber)) return { product: p, isCarton: false }
+  }
+  return null
+}
+
 type ScanOptions = {
   /** Called with the clean ASCII code once a scan burst completes (on Enter). */
   onScan: (code: string) => void

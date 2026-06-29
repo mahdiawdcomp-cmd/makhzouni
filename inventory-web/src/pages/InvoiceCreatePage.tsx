@@ -25,6 +25,7 @@ import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials } from "../utils/financial"
+import { barcodeMatchCandidates, findProductByScan } from "../utils/barcode-scan"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -71,12 +72,18 @@ function effectiveAvailablePcs(item: DraftItem): number {
 function matchesProduct(product: Product, q: string) {
   const needle = q.trim().toLowerCase()
   if (!needle) return true
-  return (
+  if (
     product.name.toLowerCase().includes(needle) ||
     product.itemNumber.toLowerCase().includes(needle) ||
     (product.qrCode?.toLowerCase().includes(needle) ?? false) ||
     (product.cartonQrCode?.toLowerCase().includes(needle) ?? false)
-  )
+  ) return true
+  // Fallback for a scan garbled by an Arabic keyboard layout (mobile browsers,
+  // where reading the physical key isn't possible): de-arabicize and match codes.
+  const codes = [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].map((c) => c.toLowerCase())
+  return barcodeMatchCandidates(q)
+    .filter((c) => c !== needle)
+    .some((c) => codes.some((code) => !!code && (code === c || (c.length >= 8 && code.includes(c)))))
 }
 
 function itemQuantityInPieces(item: DraftItem) {
@@ -879,15 +886,11 @@ export function InvoiceCreatePage() {
   }
 
   function addProductByCode(code: string) {
-    const c = code.trim()
-    if (!c) return
-    const hit =
-      products.find((p) => p.qrCode?.toLowerCase() === c.toLowerCase()) ??
-      products.find((p) => p.cartonQrCode?.toLowerCase() === c.toLowerCase()) ??
-      products.find((p) => p.itemNumber.toLowerCase() === c.toLowerCase())
-    if (!hit) return
-    const isCarton = hit.cartonQrCode?.toLowerCase() === c.toLowerCase()
-    const unit: Unit = isCarton ? "CARTON" : "PIECE"
+    if (!code.trim()) return
+    const found = findProductByScan(products, code)
+    if (!found) return
+    const hit = found.product
+    const unit: Unit = found.isCarton ? "CARTON" : "PIECE"
     // Route through the same shop-stock warehouse picker as manual add, so a
     // scanned item with an empty shop never silently adds from the wrong place.
     if (maybePromptWarehouse(hit, unit)) return

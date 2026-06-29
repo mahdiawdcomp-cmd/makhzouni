@@ -26,7 +26,7 @@ import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
-import { useBarcodeScanner } from "../utils/barcode-scan"
+import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
 
@@ -773,24 +773,19 @@ export function POSPage() {
   }
 
   function addBySearch() {
-    const q = normalize(productQuery)
-    if (!q) return
-    const exact = products.find((p) =>
-      [p.qrCode, p.cartonQrCode, p.itemNumber].some((v) => v && normalize(v) === q),
-    )
-    if (exact) addProduct(exact, productQuery)
+    if (!normalize(productQuery)) return
+    // findProductByScan tolerates an Arabic-keyboard-garbled scan (mobile).
+    const found = findProductByScan(products, productQuery)
+    if (found) addProduct(found.product, found.isCarton ? found.product.cartonQrCode ?? productQuery : productQuery)
     else if (displayedProducts.length > 0) addProduct(displayedProducts[0])
   }
 
-  // Hardware scanner: the code arrives clean (rebuilt from physical keys), so we
-  // match it directly against the barcodes — works under an Arabic keyboard too.
+  // Hardware scanner: works under an Arabic keyboard layout on desktop (physical
+  // keys) AND mobile (de-arabicizing the garbled code).
   function addByCode(code: string) {
-    const q = normalize(code)
-    if (!q) return
-    const exact = products.find((p) =>
-      [p.qrCode, p.cartonQrCode, p.itemNumber].some((v) => v && normalize(v) === q),
-    )
-    if (exact) { addProduct(exact, code); return }
+    if (!normalize(code)) return
+    const found = findProductByScan(products, code)
+    if (found) { addProduct(found.product, found.isCarton ? found.product.cartonQrCode ?? code : code); return }
     setProductQuery(code)
     setMessage("ماكو مادة بهذا الباركود")
     setTimeout(() => barcodeInputRef.current?.focus(), 0)
