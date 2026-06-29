@@ -19,3 +19,16 @@ export function requirePermission(permission: string) {
     return next();
   };
 }
+
+/** Allow access if the user has ANY of the listed permissions (OR logic). ADMINs always pass. */
+export function requireAnyPermission(...permissions: string[]) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return next(new AppError("Authentication is required", 401, "AUTH_REQUIRED"));
+    }
+    if (!permissions.some((p) => hasPermission(req.user, p))) {
+      return next(new AppError("Permission is required", 403, "PERMISSION_REQUIRED"));
+    }
+    return next();
+  };
+}

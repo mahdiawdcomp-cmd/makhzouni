@@ -341,6 +341,12 @@ export function Sidebar() {
 
   function hasPermission(item: Item): boolean {
     if (isAdmin) return true
+    if (isGroup(item) && item.id === "inventory") {
+      return permissions.includes("MANAGE_PRODUCTS") || permissions.includes("VARIETY_CONVERT")
+    }
+    if ("to" in item && item.to === "/inventory/transfers") {
+      return permissions.includes("VARIETY_CONVERT") || permissions.includes("MANAGE_PRODUCTS")
+    }
     const perm = permissionForItem(item)
     return perm === null || permissions.includes(perm)
   }
@@ -374,7 +380,16 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
         {visibleItems.map((item) =>
           isGroup(item) ? (
-            <SideGroup key={item.id} item={item} isOpen={openGroupId === item.id} onToggle={toggleGroup} />
+            <SideGroup
+              key={item.id}
+              item={
+                item.id === "inventory"
+                  ? { ...item, children: item.children.filter((c) => hasPermission(c)) }
+                  : item
+              }
+              isOpen={openGroupId === item.id}
+              onToggle={toggleGroup}
+            />
           ) : "to" in item && item.to === "/pos" ? (
             <button
               key="/pos"
@@ -456,6 +471,9 @@ export function SidebarTopBar() {
   const topItems = navItems.filter((item) => {
     if (!user) return false
     if (isAdmin) return true
+    if (isGroup(item) && item.id === "inventory") {
+      return permissions.includes("MANAGE_PRODUCTS") || permissions.includes("VARIETY_CONVERT")
+    }
     const perm = permissionForItem(item)
     return perm === null || permissions.includes(perm)
   })

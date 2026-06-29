@@ -138,6 +138,13 @@ export async function convertToVariety(
     for (const item of items) {
       const product = sourceMap.get(item.productId)!;
       await ensureLegacyWarehouseStock(tx, product);
+      if ((item.unit === "CARTON" || item.unit === "BOX") && product.pcsPerCarton < 1) {
+        throw new AppError(
+          `تعبئة الكارتون غير صحيحة للمادة "${product.name}" — يجب تحديد عدد القطع في الكارتون أولاً`,
+          422,
+          "VARIETY_BAD_PCS_PER_CARTON",
+        );
+      }
       const pieces = amountInPieces(item.unit, item.quantity, product.pcsPerCarton);
 
       const source = await adjustWarehouseStock(tx, {

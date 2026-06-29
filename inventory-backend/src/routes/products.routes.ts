@@ -22,7 +22,7 @@ import {
   restoreProductCtrl,
 } from "../controllers/products.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { requirePermission } from "../middleware/permission.middleware";
+import { requirePermission, requireAnyPermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   createProductSchema,
@@ -48,7 +48,7 @@ router.get("/", validate(listProductsSchema), getProducts);
 router.post("/", validate(createProductSchema), addProduct);
 router.post("/backfill-qr", backfillProductQrs);
 router.post("/backfill-thumbnails", backfillThumbs);
-router.post("/variety-convert", requirePermission("VARIETY_CONVERT"), validate(varietyConvertSchema), convertVariety);
+router.post("/variety-convert", requireAnyPermission("VARIETY_CONVERT", "MANAGE_PRODUCTS"), validate(varietyConvertSchema), convertVariety);
 router.get("/stale", getStale);
 router.post("/bulk-delete", bulkDelete);
 router.get("/deleted", getDeletedProductsList);
