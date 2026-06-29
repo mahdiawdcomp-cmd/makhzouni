@@ -125,6 +125,16 @@ function itemCostPrice(item: {
   return baseCost * item.quantity;
 }
 
+// Accounting unit cost for valuing ON-HAND or DAMAGED stock: costPrice first
+// (the weighted-average accounting cost), falling back to purchasePrice (which
+// now means "last purchase price"). Same rule as inventory valuation /
+// branch.service.ts. NOTE: sale-profit costing uses itemCostPrice() instead,
+// which prefers the frozen invoiceItem.costPrice snapshot — do not mix them.
+export function accountingUnitCost(product: { costPrice: DecimalLike; purchasePrice: DecimalLike }) {
+  const cost = toNumber(product.costPrice);
+  return cost > 0 ? cost : toNumber(product.purchasePrice);
+}
+
 function calculateProfit(items: Awaited<ReturnType<typeof getInvoiceItemsForProfit>>) {
   return roundMoney(items.reduce((sum, item) => {
     const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
@@ -1100,7 +1110,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
         },
       },
       include: {
-        product: { select: { purchasePrice: true, pcsPerCarton: true } },
+        product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true } },
       },
     }),
     prisma.paymentVoucher.findMany({
@@ -1116,7 +1126,8 @@ export async function getProfitReport(query: ProfitReportQuery) {
   const lossesTotal = Math.round(
     lossItems.reduce((s, item) => {
       const pcs = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
-      return s + pcs * toNumber(item.product.purchasePrice);
+      // Value damaged goods at the accounting cost (costPrice → purchasePrice).
+      return s + pcs * accountingUnitCost(item.product);
     }, 0),
   );
   const expensesTotal = Math.round(
