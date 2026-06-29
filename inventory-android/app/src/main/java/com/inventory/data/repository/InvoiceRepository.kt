@@ -175,6 +175,16 @@ class InvoiceRepository @Inject constructor(
         ApiResult.Error(error.message ?: "تعذر الحذف النهائي")
     }
 
+    suspend fun cancelledInvoices(): ApiResult<List<Invoice>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val remote = apiClient.api.getInvoices(status = "CANCELLED", limit = 200).data
+            ApiResult.Success(remote.map { it.toDomain() })
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل الفواتير الملغاة")
+        }
+    }
+
     private suspend fun cacheInvoices(invoices: List<InvoiceDto>, replace: Boolean = false) {
         if (replace) {
             invoiceDao.replaceAll(invoices.map { it.toEntity() })

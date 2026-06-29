@@ -565,6 +565,11 @@ fun CustomerFormScreen(viewModel: CustomerFormViewModel, onDone: () -> Unit) {
                     }
                 }
             }
+            item {
+                SectionCard(title = "تصنيفات الزبون") {
+                    TagPicker(state.availableTags, state.tags, onToggle = viewModel::toggleTag, onAddNew = viewModel::addNewTag)
+                }
+            }
             if (state.error != null) {
                 item {
                     Surface(shape = RoundedCornerShape(10.dp), color = AppColor.Red50) {
@@ -914,5 +919,42 @@ private fun BalanceChip(label: String, value: Double) {
     ) {
         Text(label, color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
         Text("${"%.0f".format(value)} د.ع", color = Color.White, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+@Composable
+private fun TagPicker(availableTags: List<String>, selected: List<String>, onToggle: (String) -> Unit, onAddNew: (String) -> Unit) {
+    var newTag by remember { mutableStateOf("") }
+    val allTags = remember(availableTags, selected) { (availableTags + selected).distinct().sorted() }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (allTags.isEmpty()) {
+            Text("لا يوجد تصنيفات بعد، أضف واحداً بالأسفل", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                allTags.forEach { tag ->
+                    val isSelected = selected.contains(tag)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onToggle(tag) },
+                        leadingIcon = { Icon(if (isSelected) Icons.Default.Check else Icons.Default.LocalOffer, null, modifier = Modifier.size(16.dp)) },
+                        label = { Text(tag) }
+                    )
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = newTag,
+                onValueChange = { newTag = it },
+                placeholder = { Text("تصنيف جديد...") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp)
+            )
+            IconButton(onClick = { onAddNew(newTag); newTag = "" }, enabled = newTag.isNotBlank()) {
+                Icon(Icons.Default.Add, "إضافة")
+            }
+        }
     }
 }

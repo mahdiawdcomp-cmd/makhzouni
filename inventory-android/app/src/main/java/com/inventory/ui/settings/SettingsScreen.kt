@@ -50,8 +50,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.inventory.ui.common.AppScreen
+import com.inventory.ui.common.ProductImage
 import com.inventory.ui.common.SectionCard
 import com.inventory.ui.theme.AppColor
 
@@ -121,7 +121,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     titleAction = { Icon(Icons.Default.Storefront, null, tint = MaterialTheme.colorScheme.primary) }
                 ) {
                     settings.storeLogoUri?.let {
-                        AsyncImage(
+                        ProductImage(
                             model = it,
                             contentDescription = null,
                             modifier = Modifier

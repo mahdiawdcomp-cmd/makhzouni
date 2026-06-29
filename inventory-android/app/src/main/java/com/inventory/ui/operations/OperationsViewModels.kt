@@ -15,6 +15,9 @@ import com.inventory.data.remote.dto.CreateQuotationRequest
 import com.inventory.data.remote.dto.CreateTransferItemRequest
 import com.inventory.data.remote.dto.CreateTransferRequest
 import com.inventory.data.remote.dto.QuotationDto
+import com.inventory.data.remote.dto.StockLossDto
+import com.inventory.data.remote.dto.CreateStockLossRequest
+import com.inventory.data.remote.dto.CreateStockLossItemRequest
 import com.inventory.data.remote.dto.TransferDto
 import com.inventory.data.repository.CustomerRepository
 import com.inventory.data.repository.InvoiceRepository
@@ -232,6 +235,7 @@ data class AdminOperationsState(
     val quotations: List<QuotationDto> = emptyList(),
     val transfers: List<TransferDto> = emptyList(),
     val auditLogs: List<AuditLogDto> = emptyList(),
+    val stockLosses: List<StockLossDto> = emptyList(),
     val products: List<Product> = emptyList(),
     val loading: Boolean = false,
     val message: String? = null,
@@ -305,14 +309,16 @@ class AdminOperationsViewModel @Inject constructor(
             val quotations = operationsRepository.quotations()
             val transfers = operationsRepository.transfers()
             val logs = operationsRepository.auditLogs(_state.value.auditEntity, _state.value.auditAction)
+            val losses = operationsRepository.stockLosses()
             _state.value = _state.value.copy(
                 branches = (branches as? ApiResult.Success)?.data ?: _state.value.branches,
                 coupons = (coupons as? ApiResult.Success)?.data ?: _state.value.coupons,
                 quotations = (quotations as? ApiResult.Success)?.data ?: _state.value.quotations,
                 transfers = (transfers as? ApiResult.Success)?.data ?: _state.value.transfers,
                 auditLogs = (logs as? ApiResult.Success)?.data ?: _state.value.auditLogs,
+                stockLosses = (losses as? ApiResult.Success)?.data ?: _state.value.stockLosses,
                 loading = false,
-                message = listOf(branches, coupons, transfers, logs).filterIsInstance<ApiResult.Error>().firstOrNull()?.message
+                message = listOf(branches, coupons, transfers, logs, losses).filterIsInstance<ApiResult.Error>().firstOrNull()?.message
             )
         }
     }
@@ -433,6 +439,37 @@ class AdminOperationsViewModel @Inject constructor(
             )
             when (val result = operationsRepository.createTransfer(request)) {
                 is ApiResult.Success -> refreshAll()
+                is ApiResult.Error -> _state.value = _state.value.copy(message = result.message)
+                ApiResult.Offline -> _state.value = _state.value.copy(message = "لا يوجد اتصال")
+            }
+        }
+    }
+
+    fun createStockLoss(date: String, warehouseId: String, reason: String, notes: String, items: List<Triple<String, String, Double>>) {
+        viewModelScope.launch {
+            if (warehouseId.isBlank() || items.isEmpty() || items.any { it.third <= 0 }) {
+                _state.value = _state.value.copy(message = "أكمل معلومات سجل التلف")
+                return@launch
+            }
+            val request = CreateStockLossRequest(
+                date = date,
+                warehouseId = warehouseId,
+                reason = reason,
+                notes = notes.takeIf { it.isNotBlank() },
+                items = items.map { (productId, unit, qty) -> CreateStockLossItemRequest(productId, unit, qty) }
+            )
+            when (val result = operationsRepository.createStockLoss(request)) {
+                is ApiResult.Success -> { refreshAll(); productRepository.refreshProducts() }
+                is ApiResult.Error -> _state.value = _state.value.copy(message = result.message)
+                ApiResult.Offline -> _state.value = _state.value.copy(message = "لا يوجد اتصال")
+            }
+        }
+    }
+
+    fun cancelStockLoss(id: String) {
+        viewModelScope.launch {
+            when (val result = operationsRepository.cancelStockLoss(id)) {
+                is ApiResult.Success -> { refreshAll(); productRepository.refreshProducts() }
                 is ApiResult.Error -> _state.value = _state.value.copy(message = result.message)
                 ApiResult.Offline -> _state.value = _state.value.copy(message = "لا يوجد اتصال")
             }

@@ -29,7 +29,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.inventory.domain.model.Invoice
 import com.inventory.ui.common.*
 import com.inventory.ui.theme.AppColor
@@ -505,7 +504,7 @@ fun InvoiceCreateScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
                                     if (!product.thumbnailUrl.isNullOrBlank() || !product.imageUrl.isNullOrBlank()) {
-                                        AsyncImage(
+                                        ProductImage(
                                             model = product.thumbnailUrl ?: product.imageUrl,
                                             contentDescription = product.name,
                                             modifier = Modifier.size(38.dp).clip(RoundedCornerShape(9.dp)),
@@ -734,7 +733,7 @@ private fun InvoiceItemRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (!item.product.thumbnailUrl.isNullOrBlank() || !item.product.imageUrl.isNullOrBlank()) {
-                AsyncImage(
+                ProductImage(
                     model = item.product.thumbnailUrl ?: item.product.imageUrl,
                     contentDescription = item.product.name,
                     modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)),

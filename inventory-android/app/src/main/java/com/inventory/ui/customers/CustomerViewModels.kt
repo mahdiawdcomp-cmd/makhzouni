@@ -214,6 +214,8 @@ data class CustomerFormUiState(
     val notes: String = "",
     val openingBalance: String = "0",
     val isSupplier: Boolean = false,
+    val tags: List<String> = emptyList(),
+    val availableTags: List<String> = emptyList(),
     val error: String? = null,
     val saved: Boolean = false,
     val isSaving: Boolean = false
@@ -226,6 +228,13 @@ class CustomerFormViewModel @Inject constructor(
     private val _state = MutableStateFlow(CustomerFormUiState())
     val state = _state.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            val result = repository.customerTags()
+            if (result is ApiResult.Success) _state.value = _state.value.copy(availableTags = result.data)
+        }
+    }
+
     fun update(field: String, value: String) {
         _state.value = when (field) {
             "name" -> _state.value.copy(name = value)
@@ -236,6 +245,21 @@ class CustomerFormViewModel @Inject constructor(
             "isSupplier" -> _state.value.copy(isSupplier = value.toBoolean())
             else -> _state.value
         }.copy(error = null)
+    }
+
+    fun toggleTag(tag: String) {
+        val current = _state.value.tags
+        _state.value = _state.value.copy(tags = if (current.contains(tag)) current - tag else current + tag)
+    }
+
+    fun addNewTag(name: String) {
+        val clean = name.trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            val result = repository.createCustomerTag(clean)
+            val tags = (result as? ApiResult.Success)?.data ?: (_state.value.availableTags + clean)
+            _state.value = _state.value.copy(availableTags = tags, tags = if (_state.value.tags.contains(clean)) _state.value.tags else _state.value.tags + clean)
+        }
     }
 
     fun save() {
@@ -260,7 +284,8 @@ class CustomerFormViewModel @Inject constructor(
                         address = current.address.takeUnless { it.isBlank() },
                         notes = current.notes.takeUnless { it.isBlank() },
                         openingBalance = current.openingBalance.toDouble(),
-                        isSupplier = current.isSupplier
+                        isSupplier = current.isSupplier,
+                        tags = current.tags
                     )
                 )
                 _state.value = _state.value.copy(saved = true)

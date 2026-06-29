@@ -82,6 +82,29 @@ class VoucherRepository @Inject constructor(
             }
         }
     }
+
+    suspend fun restoreVoucher(id: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.restoreVoucher(id)
+                if (response.success) Result.success(Unit)
+                else Result.failure(Exception(response.message ?: "Failed to restore voucher"))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun cancelledVouchers(): Result<List<Voucher>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = api.getVouchers(showCancelled = true, limit = 200)
+                Result.success((response.data ?: emptyList()).filter { it.cancelledAt != null }.map { it.toDomain() })
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
 }
 
 private fun VoucherDto.toDomain() = Voucher(
@@ -93,5 +116,6 @@ private fun VoucherDto.toDomain() = Voucher(
     type = type,
     date = date.take(10),
     notes = notes,
-    description = description
+    description = description,
+    cancelledAt = cancelledAt
 )

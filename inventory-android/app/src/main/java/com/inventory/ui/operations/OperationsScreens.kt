@@ -30,8 +30,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AssignmentReturn
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.History
@@ -71,6 +73,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -89,6 +92,7 @@ import com.inventory.data.remote.dto.AuditLogDto
 import com.inventory.data.remote.dto.BranchDto
 import com.inventory.data.remote.dto.CouponDto
 import com.inventory.data.remote.dto.QuotationDto
+import com.inventory.data.remote.dto.StockLossDto
 import com.inventory.data.remote.dto.TransferDto
 import com.inventory.domain.model.Product
 import com.inventory.ui.common.AppScreen
@@ -122,6 +126,7 @@ fun OperationsHubScreen(
     onVouchers: () -> Unit = {},
     onOcrInvoice: () -> Unit = {},
     onRetailOrders: () -> Unit = {},
+    onLosses: () -> Unit = {},
     isAdmin: Boolean = true,
     permissions: List<String> = emptyList(),
 ) {
@@ -142,6 +147,7 @@ fun OperationsHubScreen(
         }
         if (canSettings) {
             add(HubItem("التحويلات", "نقل مواد بين المخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers))
+            add(HubItem("التلف والخسائر", "تسجيل وإلغاء الهالك", Icons.Default.BrokenImage, AppColor.Red600, onLosses))
             add(HubItem("المخازن", "المحل والمخازن", Icons.Default.Warehouse, AppColor.Amber600, onBranches))
             add(HubItem("الكوبونات", "خصومات وعروض", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons))
             add(HubItem("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
@@ -665,6 +671,36 @@ fun TransfersScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
 }
 
 @Composable
+fun LossesScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
+    val state by viewModel.state.collectAsState()
+    var showAdd by remember { mutableStateOf(false) }
+    var cancelTarget by remember { mutableStateOf<StockLossDto?>(null) }
+
+    AdminListScreen("التلف والخسائر", onBack, viewModel::refreshAll, "تسجيل خسارة", { showAdd = true }) {
+        items(state.stockLosses, key = { it.id }) { LossCard(it, onCancel = { cancelTarget = it }) }
+    }
+
+    if (showAdd) {
+        LossDialog(state.branches, state.products, { showAdd = false }) { date, warehouseId, reason, notes, items ->
+            showAdd = false
+            viewModel.createStockLoss(date, warehouseId, reason, notes, items)
+        }
+    }
+
+    cancelTarget?.let { loss ->
+        AlertDialog(
+            onDismissRequest = { cancelTarget = null },
+            title = { Text("إلغاء سجل التلف") },
+            text = { Text("سيتم إرجاع الكمية المسجلة إلى المخزن. هل تريد المتابعة؟") },
+            confirmButton = {
+                Button(onClick = { viewModel.cancelStockLoss(loss.id); cancelTarget = null }) { Text("تأكيد") }
+            },
+            dismissButton = { TextButton(onClick = { cancelTarget = null }) { Text("رجوع") } }
+        )
+    }
+}
+
+@Composable
 fun AuditLogsScreen(viewModel: AdminOperationsViewModel, onBack: () -> Unit) {
     val state by viewModel.state.collectAsState()
     AppScreen(title = "سجل التدقيق", onBack = onBack, actions = { IconButton(onClick = viewModel::refreshAll) { Icon(Icons.Default.Refresh, "تحديث") } }) { padding ->
@@ -736,6 +772,35 @@ private fun CouponCard(coupon: CouponDto) {
 @Composable
 private fun TransferCard(transfer: TransferDto) {
     InfoCard(Icons.Default.SwapHoriz, transfer.transferNumber, "${transfer.fromBranch?.name ?: transfer.fromBranchId} -> ${transfer.toBranch?.name ?: transfer.toBranchId}", "${transfer.items.size} مادة")
+}
+
+@Composable
+private fun LossCard(loss: StockLossDto, onCancel: () -> Unit) {
+    val cancelled = loss.cancelledAt != null
+    Card(colors = CardDefaults.cardColors(containerColor = if (cancelled) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(Icons.Default.BrokenImage, null, tint = AppColor.Red600)
+                Column(Modifier.weight(1f)) {
+                    Text(loss.lossNumber, fontWeight = FontWeight.Bold)
+                    Text("${loss.warehouse?.name ?: loss.warehouseId} | ${lossReasonLabel(loss.reason)}", color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                StatusBadge(if (cancelled) "ملغى" else "مسجل", if (cancelled) StatusType.NEUTRAL else StatusType.ERROR)
+            }
+            SummaryRow("عدد المواد", "${loss.items.size}")
+            if (!cancelled) {
+                TextButton(onClick = onCancel) { Text("إلغاء وإرجاع المخزون", color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+}
+
+private fun lossReasonLabel(reason: String) = when (reason) {
+    "DAMAGE" -> "تلف"
+    "EXPIRY" -> "انتهاء صلاحية"
+    "THEFT" -> "سرقة / فقدان"
+    "DEFECT" -> "عطل في المنتج"
+    else -> "أخرى"
 }
 
 @Composable
@@ -860,6 +925,58 @@ private fun TransferDialog(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "CARTON" to "كارتون").forEach { (key, label) ->
                 FilterChip(selected = unit == key, onClick = { unit = key }, label = { Text(label) })
+            }
+        }
+        DialogField("ملاحظات", notes) { notes = it }
+    }
+}
+
+@Composable
+private fun LossDialog(
+    branches: List<BranchDto>,
+    products: List<Product>,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String, String, List<Triple<String, String, Double>>) -> Unit
+) {
+    var date by remember { mutableStateOf(java.time.LocalDate.now().toString()) }
+    var warehouseId by remember { mutableStateOf("") }
+    var reason by remember { mutableStateOf("DAMAGE") }
+    var notes by remember { mutableStateOf("") }
+    var productId by remember { mutableStateOf("") }
+    var qty by remember { mutableStateOf("1") }
+    var unit by remember { mutableStateOf("PIECE") }
+    val items = remember { mutableStateListOf<Triple<String, String, Double>>() }
+
+    SimpleDialog("تسجيل خسارة", onDismiss, { onSave(date, warehouseId, reason, notes, items.toList()) }) {
+        DialogField("التاريخ", date) { date = it }
+        SelectField("المخزن", branches.map { it.id to it.name }, warehouseId) { warehouseId = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            listOf("DAMAGE" to "تلف", "EXPIRY" to "انتهاء صلاحية", "THEFT" to "سرقة", "DEFECT" to "عطل", "OTHER" to "أخرى").forEach { (key, label) ->
+                FilterChip(selected = reason == key, onClick = { reason = key }, label = { Text(label) })
+            }
+        }
+        HorizontalDivider()
+        Text("إضافة مادة", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        SelectField("المادة", products.map { it.id to it.name }, productId) { productId = it }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            DialogField("الكمية", qty) { qty = it.filter { c -> c.isDigit() || c == '.' } }
+            listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "CARTON" to "كارتون").forEach { (key, label) ->
+                FilterChip(selected = unit == key, onClick = { unit = key }, label = { Text(label) })
+            }
+        }
+        TextButton(onClick = {
+            val quantity = qty.toDoubleOrNull()
+            if (productId.isNotBlank() && quantity != null && quantity > 0) {
+                items.add(Triple(productId, unit, quantity))
+                productId = ""
+                qty = "1"
+            }
+        }) { Text("+ إضافة للقائمة") }
+        items.forEachIndexed { index, (pid, u, q) ->
+            val name = products.firstOrNull { it.id == pid }?.name ?: pid
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("$name — $q ${if (u == "CARTON") "كارتون" else if (u == "DOZEN") "درزن" else "قطعة"}", modifier = Modifier.weight(1f))
+                IconButton(onClick = { items.removeAt(index) }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
             }
         }
         DialogField("ملاحظات", notes) { notes = it }

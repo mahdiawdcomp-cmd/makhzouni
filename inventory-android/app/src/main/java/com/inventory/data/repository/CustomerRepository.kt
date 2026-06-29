@@ -5,11 +5,14 @@ import com.inventory.data.local.CustomerEntity
 import com.inventory.data.remote.ApiClient
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.NetworkMonitor
+import com.inventory.data.remote.dto.CreateCustomerTagRequest
 import com.inventory.data.remote.dto.CreateVoucherRequest
 import com.inventory.data.remote.dto.CustomerDto
 import com.inventory.data.remote.dto.CustomerRatingDto
 import com.inventory.data.remote.dto.CustomerTransactionDto
+import com.inventory.data.remote.dto.DeleteCustomerTagRequest
 import com.inventory.data.remote.dto.LastTransactionDto
+import com.inventory.data.remote.dto.RenameCustomerTagRequest
 import com.inventory.data.remote.dto.TogglePortalRequest
 import com.inventory.data.remote.dto.UpsertCustomerRequest
 import com.inventory.domain.model.Customer
@@ -99,6 +102,42 @@ class CustomerRepository @Inject constructor(
             syncRepository.enqueue("CREATE_RECEIPT", "POST", "vouchers", request)
         } else {
             apiClient.api.createVoucher(request)
+        }
+    }
+
+    suspend fun customerTags(): ApiResult<List<String>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.getCustomerTags().data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل التاكات")
+        }
+    }
+
+    suspend fun createCustomerTag(name: String): ApiResult<List<String>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.createCustomerTag(CreateCustomerTagRequest(name)).data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر إضافة التاك")
+        }
+    }
+
+    suspend fun renameCustomerTag(oldName: String, newName: String): ApiResult<List<String>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.renameCustomerTag(RenameCustomerTagRequest(oldName, newName)).data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تعديل التاك")
+        }
+    }
+
+    suspend fun deleteCustomerTag(name: String): ApiResult<List<String>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.deleteCustomerTag(DeleteCustomerTagRequest(name)).data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر حذف التاك")
         }
     }
 

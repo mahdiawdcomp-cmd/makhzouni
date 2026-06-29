@@ -104,7 +104,8 @@ data class Customer(
     val currentBalance: Double,
     val isSupplier: Boolean,
     val lastTransactionAt: String?,
-    val updatedAt: String?
+    val updatedAt: String?,
+    val tags: List<String> = emptyList()
 )
 
 data class CustomerTransaction(
@@ -169,7 +170,8 @@ data class Voucher(
     val type: String,
     val date: String,
     val notes: String?,
-    val description: String?
+    val description: String?,
+    val cancelledAt: String? = null
 )
 
 data class DashboardReport(

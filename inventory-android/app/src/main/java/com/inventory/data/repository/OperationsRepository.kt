@@ -12,6 +12,8 @@ import com.inventory.data.remote.dto.CreateQuotationRequest
 import com.inventory.data.remote.dto.CreateTransferRequest
 import com.inventory.data.remote.dto.InvoiceDto
 import com.inventory.data.remote.dto.QuotationDto
+import com.inventory.data.remote.dto.StockLossDto
+import com.inventory.data.remote.dto.CreateStockLossRequest
 import com.inventory.data.remote.dto.TransferDto
 import com.inventory.data.remote.dto.UpdateQuotationStatusRequest
 import javax.inject.Inject
@@ -66,6 +68,18 @@ class OperationsRepository @Inject constructor(
         onlineCall("تعذر تحميل سجل التدقيق") {
             apiClient.api.getAuditLogs(entity = entity, action = action).data
         }
+
+    suspend fun stockLosses(): ApiResult<List<StockLossDto>> = onlineCall("تعذر تحميل سجلات التلف") {
+        apiClient.api.getStockLosses(limit = 200).data
+    }
+
+    suspend fun createStockLoss(request: CreateStockLossRequest): ApiResult<StockLossDto> = onlineCall("تعذر حفظ سجل التلف") {
+        apiClient.api.createStockLoss(request).data ?: error("لم يرجع السيرفر السجل")
+    }
+
+    suspend fun cancelStockLoss(id: String): ApiResult<StockLossDto> = onlineCall("تعذر إلغاء السجل") {
+        apiClient.api.cancelStockLoss(id).data ?: error("لم يرجع السيرفر السجل")
+    }
 
     private suspend fun <T> onlineCall(message: String, block: suspend () -> T): ApiResult<T> {
         if (!networkMonitor.isOnline()) return ApiResult.Offline

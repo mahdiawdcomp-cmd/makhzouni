@@ -331,10 +331,11 @@ private fun ProductListItem(product: Product, hidePrices: Boolean = false, onCli
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (!product.thumbnailUrl.isNullOrBlank() || !product.imageUrl.isNullOrBlank()) {
-                AsyncImage(
+                ProductImage(
                     model = product.thumbnailUrl ?: product.imageUrl,
                     contentDescription = product.name,
-                    modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))
+                    modifier = Modifier.size(46.dp).clip(RoundedCornerShape(10.dp)),
+                    zoomable = true,
                 )
             } else {
                 IconAvatar(
@@ -844,7 +845,7 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             if (!state.imageUrl.isNullOrBlank() || !state.thumbnailUrl.isNullOrBlank()) {
-                                AsyncImage(
+                                ProductImage(
                                     model = state.imageUrl ?: state.thumbnailUrl,
                                     contentDescription = state.name,
                                     modifier = Modifier.size(76.dp).clip(RoundedCornerShape(14.dp)),

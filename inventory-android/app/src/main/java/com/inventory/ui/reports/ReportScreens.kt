@@ -31,6 +31,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.github.mikephil.charting.charts.BarChart
 import com.github.mikephil.charting.charts.LineChart
 import com.github.mikephil.charting.data.BarData
@@ -52,7 +54,10 @@ import com.github.mikephil.charting.data.BarEntry
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import com.inventory.data.remote.dto.StoreBrainProductRowDto
+import com.inventory.domain.model.Invoice
 import com.inventory.domain.model.SalesPoint
+import com.inventory.domain.model.Voucher
 import com.inventory.ui.common.AppScreen
 import com.inventory.ui.common.EmptyState
 import com.inventory.ui.common.SectionCard
@@ -171,7 +176,7 @@ private fun StatCard(title: String, value: String, color: Color, modifier: Modif
 fun ReportsScreen(viewModel: ReportsViewModel) {
     val state by viewModel.state.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("المبيعات", "المخزون", "الديون الذكية")
+    val tabs = listOf("عقل المحل", "المبيعات", "الأرباح", "أفضل الزبائن", "نهاية اليوم", "المخزون", "الديون الذكية", "الأرشيف")
 
     AppScreen(title = "التقارير") { padding ->
         Column(
@@ -191,9 +196,14 @@ fun ReportsScreen(viewModel: ReportsViewModel) {
                 }
             }
             when (tab) {
-                0 -> SalesReportTab(state, viewModel)
-                1 -> InventoryReportTab(state)
-                2 -> DebtReportTab(state, viewModel)
+                0 -> StoreBrainTab(viewModel = hiltViewModel())
+                1 -> SalesReportTab(state, viewModel)
+                2 -> ProfitReportTab(viewModel = hiltViewModel())
+                3 -> TopCustomersTab(viewModel = hiltViewModel())
+                4 -> EndOfDayTab(viewModel = hiltViewModel())
+                5 -> InventoryReportTab(state)
+                6 -> DebtReportTab(state, viewModel)
+                7 -> ArchiveTab(viewModel = hiltViewModel())
             }
         }
     }
@@ -387,4 +397,286 @@ fun SalesBarChart(points: List<SalesPoint>, modifier: Modifier = Modifier) {
         })
         chart.invalidate()
     })
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  PROFIT REPORT TAB ("الأرباح")
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun ProfitReportTab(viewModel: ProfitReportViewModel) {
+    val state by viewModel.state.collectAsState()
+    val report = state.report
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            SectionCard(title = "الفترة الزمنية") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                    OutlinedTextField(state.from, viewModel::setFrom, Modifier.weight(1f), label = { Text("من") }, singleLine = true, shape = RoundedCornerShape(10.dp))
+                    OutlinedTextField(state.to,   viewModel::setTo,   Modifier.weight(1f), label = { Text("إلى") }, singleLine = true, shape = RoundedCornerShape(10.dp))
+                    Button(onClick = viewModel::refresh) { Text("عرض") }
+                }
+            }
+        }
+        if (report != null) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatCard("الإيرادات", report.summary.totalRevenue.formatMoney(), AppColor.Blue600, Modifier.weight(1f))
+                    StatCard("صافي الربح", report.summary.netProfit.formatMoney(), AppColor.Green600, Modifier.weight(1f))
+                }
+            }
+            item {
+                SectionCard(title = "ملخص") {
+                    SummaryRow("التكلفة", report.summary.totalCost.formatMoney())
+                    SummaryRow("الهالك", report.summary.lossesTotal.formatMoney(), valueColor = AppColor.Red600)
+                    SummaryRow("المصاريف", report.summary.expensesTotal.formatMoney(), valueColor = AppColor.Red600)
+                    SummaryRow("متوسط الهامش", "${report.summary.avgMargin.formatMoney(1)}%", bold = true)
+                }
+            }
+            if (report.topProducts.isNotEmpty()) {
+                item {
+                    Text("أفضل المنتجات ربحاً", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                }
+                items(report.topProducts) { p ->
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(p.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Text(p.profit.formatMoney(), style = MaterialTheme.typography.labelMedium, color = AppColor.Green600, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (state.error != null) EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error)
+                    else if (state.loading) CircularProgressIndicator()
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  TOP CUSTOMERS TAB ("أفضل الزبائن")
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun TopCustomersTab(viewModel: TopCustomersViewModel) {
+    val state by viewModel.state.collectAsState()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        if (state.customers.isNotEmpty()) {
+            items(state.customers) { c ->
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(c.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text("${c.invoiceCount} فاتورة", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        SummaryRow("إجمالي المشتريات", c.totalPurchases.formatMoney(), valueColor = AppColor.Blue600, bold = true)
+                        SummaryRow("المدفوع", c.totalPaid.formatMoney(), valueColor = AppColor.Green600)
+                        SummaryRow("الرصيد الحالي", c.currentBalance.formatMoney(), valueColor = if (c.currentBalance > 0) AppColor.Red600 else AppColor.Green600)
+                    }
+                }
+            }
+        } else {
+            item {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (state.error != null) EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error)
+                    else if (state.loading) CircularProgressIndicator()
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  END OF DAY TAB ("نهاية اليوم")
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun EndOfDayTab(viewModel: EndOfDayViewModel) {
+    val state by viewModel.state.collectAsState()
+    val report = state.report
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            SectionCard(title = "اليوم") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                    OutlinedTextField(state.date, viewModel::setDate, Modifier.weight(1f), label = { Text("التاريخ (YYYY-MM-DD)") }, singleLine = true, shape = RoundedCornerShape(10.dp))
+                    Button(onClick = viewModel::refresh) { Text("عرض") }
+                }
+            }
+        }
+        if (report != null) {
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StatCard("المبيعات", report.sales.total.formatMoney(), AppColor.Green600, Modifier.weight(1f))
+                    StatCard("المقبوضات", report.receipts.total.formatMoney(), AppColor.Blue600, Modifier.weight(1f))
+                }
+            }
+            item {
+                SectionCard(title = "ملخص اليوم") {
+                    SummaryRow("عدد الفواتير", report.sales.count.toString())
+                    SummaryRow("المشتريات", report.purchases.total.formatMoney(), valueColor = AppColor.Amber600)
+                    SummaryRow("المدفوعات", report.payments.total.formatMoney(), valueColor = AppColor.Red600)
+                    SummaryRow("المصاريف", report.expenses.total.formatMoney(), valueColor = AppColor.Red600)
+                }
+            }
+            if (report.invoices.isNotEmpty()) {
+                item { Text("الفواتير", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) }
+                items(report.invoices) { inv ->
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column {
+                                Text(inv.invoiceNumber, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(inv.customerName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Text(inv.total.formatMoney(), style = MaterialTheme.typography.labelMedium, color = AppColor.Green600, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (state.error != null) EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error)
+                    else if (state.loading) CircularProgressIndicator()
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  STORE BRAIN TAB ("عقل المحل")
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun StoreBrainTab(viewModel: StoreBrainViewModel) {
+    val state by viewModel.state.collectAsState()
+    val report = state.report
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (report != null) {
+            item {
+                val cur = report.comparison.current
+                val prev = report.comparison.previous
+                SectionCard(title = "مقارنة الشهر الحالي بالسابق") {
+                    SummaryRow("صافي الربح الآن", cur.netProfit.formatMoney(), valueColor = AppColor.Green600, bold = true)
+                    SummaryRow("صافي الربح السابق", prev.netProfit.formatMoney())
+                    SummaryRow("نسبة التغير", "${report.comparison.change.netProfitPct.formatMoney(1)}%", valueColor = if (report.comparison.change.netProfitPct >= 0) AppColor.Green600 else AppColor.Red600, bold = true)
+                }
+            }
+            if (report.fakeStars.isNotEmpty()) {
+                item { Text("نجوم وهمية (مبيعات عالية، ربح منخفض)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = AppColor.Amber600) }
+                items(report.fakeStars) { p -> StoreBrainProductRow(p) }
+            }
+            if (report.promote.isNotEmpty()) {
+                item { Text("منتجات يُنصح بالترويج لها", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = AppColor.Green600) }
+                items(report.promote) { p -> StoreBrainProductRow(p) }
+            }
+            if (report.byDayOfWeek.isNotEmpty()) {
+                item { Text("الأداء حسب يوم الأسبوع", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) }
+                items(report.byDayOfWeek) { d ->
+                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+                        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(d.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(d.profit.formatMoney(), style = MaterialTheme.typography.labelMedium, color = AppColor.Green600, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    if (state.error != null) EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error)
+                    else if (state.loading) CircularProgressIndicator()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoreBrainProductRow(p: StoreBrainProductRowDto) {
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(p.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(p.revenue.formatMoney(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("هامش ${p.margin.formatMoney(1)}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  ARCHIVE TAB ("الأرشيف") — cancelled invoices & vouchers
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun ArchiveTab(viewModel: ArchiveViewModel) {
+    val state by viewModel.state.collectAsState()
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(16.dp, 12.dp, 16.dp, 0.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = state.subTab == ArchiveSubTab.INVOICES, onClick = { viewModel.setSubTab(ArchiveSubTab.INVOICES) }, label = { Text("الفواتير الملغاة") })
+            FilterChip(selected = state.subTab == ArchiveSubTab.VOUCHERS, onClick = { viewModel.setSubTab(ArchiveSubTab.VOUCHERS) }, label = { Text("السندات الملغاة") })
+        }
+        if (state.loading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else if (state.error != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { EmptyState(Icons.Default.ErrorOutline, "خطأ في التحميل", state.error) }
+        } else if (state.subTab == ArchiveSubTab.INVOICES) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(state.invoices) { inv -> ArchivedInvoiceRow(inv) }
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(state.vouchers) { v -> ArchivedVoucherRow(v, onRestore = { viewModel.restoreVoucher(v.id) }) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArchivedInvoiceRow(inv: Invoice) {
+    Surface(shape = RoundedCornerShape(12.dp), color = AppColor.Red50, shadowElevation = 1.dp) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(inv.invoiceNumber, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(inv.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(inv.customerName, style = MaterialTheme.typography.bodySmall)
+            SummaryRow("المبلغ", inv.totalAmount.formatMoney(), valueColor = AppColor.Red600, bold = true)
+        }
+    }
+}
+
+@Composable
+private fun ArchivedVoucherRow(v: Voucher, onRestore: () -> Unit) {
+    Surface(shape = RoundedCornerShape(12.dp), color = AppColor.Red50, shadowElevation = 1.dp) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(v.voucherNumber, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(v.date, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(v.customerName ?: "-", style = MaterialTheme.typography.bodySmall)
+            SummaryRow("المبلغ", v.amount.formatMoney(), valueColor = AppColor.Red600, bold = true)
+            TextButton(onClick = onRestore) { Text("استرجاع السند") }
+        }
+    }
 }

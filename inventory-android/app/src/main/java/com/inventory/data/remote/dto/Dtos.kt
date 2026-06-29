@@ -361,7 +361,8 @@ data class CustomerDto(
     val isSupplier: Boolean = false,
     val lastTransactionAt: String? = null,
     val createdAt: String? = null,
-    val updatedAt: String? = null
+    val updatedAt: String? = null,
+    val tags: List<String> = emptyList()
 )
 
 data class UpsertCustomerRequest(
@@ -370,8 +371,13 @@ data class UpsertCustomerRequest(
     val address: String? = null,
     val notes: String? = null,
     val openingBalance: Double = 0.0,
-    val isSupplier: Boolean = false
+    val isSupplier: Boolean = false,
+    val tags: List<String> = emptyList()
 )
+
+data class CreateCustomerTagRequest(val name: String)
+data class RenameCustomerTagRequest(val oldName: String, val newName: String)
+data class DeleteCustomerTagRequest(val name: String)
 
 data class TogglePortalRequest(val enabled: Boolean)
 
@@ -704,6 +710,175 @@ data class CustomerDebtDto(
     val currentBalance: Double,
     val lastTransactionAt: String? = null,
     val debtAgeDays: Int = 0
+)
+
+// ── Profit report ("الأرباح") ─────────────────────────────────────────────────
+data class ProfitSummaryDto(
+    val totalRevenue: Double = 0.0,
+    val totalCost: Double = 0.0,
+    val totalProfit: Double = 0.0,
+    val lossesTotal: Double = 0.0,
+    val expensesTotal: Double = 0.0,
+    val netProfit: Double = 0.0,
+    val avgMargin: Double = 0.0
+)
+
+data class ProfitPeriodDto(
+    val period: String = "",
+    val revenue: Double = 0.0,
+    val cost: Double = 0.0,
+    val profit: Double = 0.0,
+    val margin: Double = 0.0
+)
+
+data class ProfitTopProductDto(
+    val id: String,
+    val name: String,
+    val revenue: Double = 0.0,
+    val cost: Double = 0.0,
+    val profit: Double = 0.0,
+    val margin: Double = 0.0,
+    val qty: Double = 0.0
+)
+
+data class ProfitReportDto(
+    val summary: ProfitSummaryDto = ProfitSummaryDto(),
+    val periods: List<ProfitPeriodDto> = emptyList(),
+    val topProducts: List<ProfitTopProductDto> = emptyList()
+)
+
+// ── Top customers ("أفضل الزبائن") ────────────────────────────────────────────
+data class TopCustomerDto(
+    val customerId: String,
+    val name: String,
+    val phone: String? = null,
+    val currentBalance: Double = 0.0,
+    val totalPurchases: Double = 0.0,
+    val totalPaid: Double = 0.0,
+    val invoiceCount: Int = 0
+)
+
+// ── End of day report ("نهاية اليوم") ─────────────────────────────────────────
+data class EndOfDayBucketDto(
+    val count: Int = 0,
+    val total: Double = 0.0,
+    val collected: Double = 0.0
+)
+
+data class EndOfDayInvoiceRowDto(
+    val id: String? = null,
+    val invoiceNumber: String = "",
+    val customerName: String = "",
+    val total: Double = 0.0,
+    val paid: Double = 0.0
+)
+
+data class EndOfDayReportDto(
+    val date: String = "",
+    val sales: EndOfDayBucketDto = EndOfDayBucketDto(),
+    val purchases: EndOfDayBucketDto = EndOfDayBucketDto(),
+    val receipts: EndOfDayBucketDto = EndOfDayBucketDto(),
+    val payments: EndOfDayBucketDto = EndOfDayBucketDto(),
+    val expenses: EndOfDayBucketDto = EndOfDayBucketDto(),
+    val invoices: List<EndOfDayInvoiceRowDto> = emptyList()
+)
+
+// ── Store Brain "عقل المحل" ────────────────────────────────────────────────────
+data class StoreBrainProductRowDto(
+    val id: String,
+    val name: String,
+    val revenue: Double = 0.0,
+    val profit: Double = 0.0,
+    val margin: Double = 0.0,
+    val qty: Double = 0.0,
+    val flag: String? = null // "fake_star" | "promote" | null
+)
+
+data class StoreBrainRowDto(
+    val id: String,
+    val name: String,
+    val revenue: Double = 0.0,
+    val profit: Double = 0.0,
+    val margin: Double = 0.0,
+    val qty: Double = 0.0
+)
+
+data class StoreBrainMonthDto(
+    val label: String = "",
+    val netProfit: Double = 0.0,
+    val grossProfit: Double = 0.0,
+    val revenue: Double = 0.0,
+    val margin: Double = 0.0
+)
+
+data class StoreBrainChangeDto(
+    val netProfitPct: Double = 0.0,
+    val grossProfitPct: Double = 0.0,
+    val revenuePct: Double = 0.0
+)
+
+data class StoreBrainComparisonDto(
+    val current: StoreBrainMonthDto = StoreBrainMonthDto(),
+    val previous: StoreBrainMonthDto = StoreBrainMonthDto(),
+    val change: StoreBrainChangeDto = StoreBrainChangeDto()
+)
+
+data class StoreBrainDayOfWeekDto(
+    val day: Int = 0,
+    val name: String = "",
+    val revenue: Double = 0.0,
+    val profit: Double = 0.0
+)
+
+data class StoreBrainReportDto(
+    val comparison: StoreBrainComparisonDto = StoreBrainComparisonDto(),
+    val byProduct: List<StoreBrainProductRowDto> = emptyList(),
+    val fakeStars: List<StoreBrainProductRowDto> = emptyList(),
+    val promote: List<StoreBrainProductRowDto> = emptyList(),
+    val byCustomer: List<StoreBrainRowDto> = emptyList(),
+    val byEmployee: List<StoreBrainRowDto> = emptyList(),
+    val byDayOfWeek: List<StoreBrainDayOfWeekDto> = emptyList()
+)
+
+// ── Stock losses ("التلف والخسائر") ───────────────────────────────────────────
+data class StockLossItemDto(
+    val id: String = "",
+    val lossId: String = "",
+    val productId: String,
+    val productName: String = "",
+    val unit: String = "PIECE",
+    val quantity: Double = 0.0,
+    val product: ProductNameDto? = null
+)
+
+data class ProductNameDto(val id: String? = null, val name: String? = null, val pcsPerCarton: Int = 1)
+
+data class StockLossDto(
+    val id: String,
+    val lossNumber: String = "",
+    val date: String = "",
+    val warehouseId: String,
+    val warehouse: BranchNameDto? = null,
+    val reason: String = "DAMAGE",
+    val notes: String? = null,
+    val cancelledAt: String? = null,
+    val createdAt: String? = null,
+    val creator: UserNameDto? = null,
+    val items: List<StockLossItemDto> = emptyList()
+)
+
+data class CreateStockLossItemRequest(
+    val productId: String,
+    val unit: String,
+    val quantity: Double
+)
+
+data class CreateStockLossRequest(
+    val date: String,
+    val warehouseId: String,
+    val reason: String,
+    val notes: String? = null,
+    val items: List<CreateStockLossItemRequest>
 )
 
 // ── Catalog Management DTOs ───────────────────────────────────────────────────

@@ -62,6 +62,7 @@ import com.inventory.ui.notifications.NotificationScreen
 import com.inventory.ui.operations.AuditLogsScreen
 import com.inventory.ui.operations.BranchesScreen
 import com.inventory.ui.operations.CouponsScreen
+import com.inventory.ui.operations.LossesScreen
 import com.inventory.ui.operations.OperationsHubScreen
 import com.inventory.ui.operations.RetailOrdersScreen
 import com.inventory.ui.operations.QuotationsScreen
@@ -448,6 +449,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onVouchers = { navController.navigate(Routes.Vouchers) },
                         onOcrInvoice = { navController.navigate(Routes.OcrInvoice) },
                         onRetailOrders = { navController.navigate(Routes.RetailOrders) },
+                        onLosses = { navController.navigate(Routes.Losses) },
                         isAdmin = shellState.isAdmin,
                         permissions = shellState.permissions
                     )
@@ -495,6 +497,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     SalesOperationScreen("QUOTATION", "عرض سعر", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                 }
                 composable(Routes.Transfers) { TransfersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.Losses) { LossesScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.Branches) {
                     BranchesScreen(
                         viewModel = hiltViewModel(),
