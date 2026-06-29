@@ -312,6 +312,18 @@ export async function productPieceLabelPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
+export function productPieceLabelPdfUrl(productId: string) {
+  return `${api.defaults.baseURL}/products/${productId}/label/piece.pdf`
+}
+
+export function productCartonSheetPdfUrl(productId: string) {
+  return `${api.defaults.baseURL}/products/${productId}/label/carton.pdf`
+}
+
+export function productCartonLabelPngUrl(productId: string) {
+  return `${api.defaults.baseURL}/products/${productId}/label/carton.png`
+}
+
 export function productPieceLabelPngUrl(productId: string) {
   return `${api.defaults.baseURL}/products/${productId}/label/piece.png`
 }

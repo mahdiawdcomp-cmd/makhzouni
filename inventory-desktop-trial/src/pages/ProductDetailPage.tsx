@@ -4,8 +4,8 @@ import { ImageCropModal } from "../components/ImageCropModal"
 import { ArrowRight, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
-import { getCatalogCategories, productCartonSheetPdf, productCartonLabelPngObjectUrl, productPieceLabelPdf, productPieceLabelPngObjectUrl, productQrObjectUrl, openPieceLabelInDLabel } from "../api/endpoints"
-import { downloadAndPreviewBlobUrl } from "../utils/download"
+import { getCatalogCategories, productCartonSheetPdf, productCartonSheetPdfUrl, productCartonLabelPngObjectUrl, productCartonLabelPngUrl, productPieceLabelPdf, productPieceLabelPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl, productQrObjectUrl, openPieceLabelInDLabel } from "../api/endpoints"
+import { deliverLabel } from "../utils/download"
 import { useProductDetails, useProducts } from "../hooks/useProducts"
 import { fmt } from "../utils/fmt"
 import type { CatalogCategory, Product, ProductPayload } from "../types/api"
@@ -44,15 +44,6 @@ function InfoRow({ label, value }: { label: string; value: string | number }) {
       <span className="font-semibold text-right">{value}</span>
     </div>
   )
-}
-
-async function openPdf(promise: Promise<string>, filename = `label-${Date.now()}.pdf`) {
-  const url = await promise
-  // window.open(blob, "_blank") is unreliable inside the desktop (Tauri)
-  // webview — download (and best-effort preview) instead, which works on
-  // both web and desktop.
-  downloadAndPreviewBlobUrl(url, filename)
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 const emptyEditForm: ProductPayload = {
@@ -140,44 +131,30 @@ export function ProductDetailPage() {
   // Delete confirm state
   const [deleteOpen, setDeleteOpen] = useState(false)
 
-  // QR piece
+  // QR preview images (the actual print/download is fetched fresh on click
+  // via deliverLabel — see the buttons below).
   const [pieceQrUrl, setPieceQrUrl] = useState<string | null>(null)
-  const [pieceLabelUrl, setPieceLabelUrl] = useState<string | null>(null)
-  // QR carton
   const [cartonQrUrl, setCartonQrUrl] = useState<string | null>(null)
-  const [cartonLabelUrl, setCartonLabelUrl] = useState<string | null>(null)
 
   useEffect(() => {
     if (!product?.id) return
     let active = true
     let objPiece: string | null = null
-    let objLabel: string | null = null
     let objCarton: string | null = null
-    let objCartonLabel: string | null = null
 
     void productQrObjectUrl(product.id, "piece").then((url) => {
       objPiece = url
       if (active) setPieceQrUrl(url)
     })
-    void productPieceLabelPngObjectUrl(product.id).then((url) => {
-      objLabel = url
-      if (active) setPieceLabelUrl(url)
-    })
     void productQrObjectUrl(product.id, "carton").then((url) => {
       objCarton = url
       if (active) setCartonQrUrl(url)
     }).catch(() => {/* carton QR might not exist */})
-    void productCartonLabelPngObjectUrl(product.id).then((url) => {
-      objCartonLabel = url
-      if (active) setCartonLabelUrl(url)
-    }).catch(() => {/* carton QR might not exist yet */})
 
     return () => {
       active = false
       if (objPiece)  URL.revokeObjectURL(objPiece)
-      if (objLabel) URL.revokeObjectURL(objLabel)
       if (objCarton) URL.revokeObjectURL(objCarton)
-      if (objCartonLabel) URL.revokeObjectURL(objCartonLabel)
     }
   }, [product?.id])
 
@@ -219,7 +196,7 @@ export function ProductDetailPage() {
   // never as the only path — most machines don't have DLabel.exe installed.
   async function handlePieceLabelPrint() {
     if (!product) return
-    await openPdf(productPieceLabelPdf(product.id), `${product.itemNumber}-piece-label.pdf`)
+    await deliverLabel(productPieceLabelPdfUrl(product.id), () => productPieceLabelPdf(product.id), `${product.itemNumber}-piece-label.pdf`)
   }
 
   async function handleDLabelPrint() {
@@ -462,13 +439,13 @@ export function ProductDetailPage() {
                 >
                   <Printer className="h-3.5 w-3.5" /> طباعة الملصق
                 </Button>
-                {pieceLabelUrl ? (
-                  <Button variant="outline" className="flex-1 text-xs" asChild>
-                    <a href={pieceLabelUrl} download={`${product.itemNumber}-piece-label.png`}>
-                      <Download className="h-3.5 w-3.5" /> تحميل
-                    </a>
-                  </Button>
-                ) : null}
+                <Button
+                  variant="outline"
+                  className="flex-1 text-xs"
+                  onClick={() => void deliverLabel(productPieceLabelPngUrl(product.id), () => productPieceLabelPngObjectUrl(product.id), `${product.itemNumber}-piece-label.png`)}
+                >
+                  <Download className="h-3.5 w-3.5" /> تحميل
+                </Button>
               </div>
               <Button variant="ghost" className="w-full text-[11px] text-slate-400" onClick={() => void handleDLabelPrint()}>
                 إرسال إلى DLabel (لمن يستخدم برنامج DLabel المحلي)
@@ -501,17 +478,17 @@ export function ProductDetailPage() {
                 <Button
                   variant="outline"
                   className="flex-1 text-xs"
-                  onClick={() => void openPdf(productCartonSheetPdf(product.id), `${product.itemNumber}-carton-label.pdf`)}
+                  onClick={() => void deliverLabel(productCartonSheetPdfUrl(product.id), () => productCartonSheetPdf(product.id), `${product.itemNumber}-carton-label.pdf`)}
                 >
                   <Printer className="h-3.5 w-3.5" /> طباعة الملصق
                 </Button>
-                {cartonLabelUrl ? (
-                  <Button variant="outline" className="flex-1 text-xs" asChild>
-                    <a href={cartonLabelUrl} download={`${product.itemNumber}-carton-label.png`}>
-                      <Download className="h-3.5 w-3.5" /> تحميل
-                    </a>
-                  </Button>
-                ) : null}
+                <Button
+                  variant="outline"
+                  className="flex-1 text-xs"
+                  onClick={() => void deliverLabel(productCartonLabelPngUrl(product.id), () => productCartonLabelPngObjectUrl(product.id), `${product.itemNumber}-carton-label.png`)}
+                >
+                  <Download className="h-3.5 w-3.5" /> تحميل
+                </Button>
               </div>
             </CardContent>
           </Card>

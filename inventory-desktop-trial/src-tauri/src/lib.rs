@@ -1,12 +1,22 @@
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
 
+// Open a URL (label PNG/PDF, etc.) in the user's default browser/app.
+// The in-webview `<a download>` / window.open approach does nothing inside
+// the Tauri WebView2, so label print/download silently failed on desktop.
+// Routing through the OS shell is the reliable cross-platform path.
+#[tauri::command]
+fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+  app.shell().open(url, None).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_shell::init())
+    .invoke_handler(tauri::generate_handler![open_external])
     .setup(|app| {
       // Resolve paths for the local backend
       let resource_dir = app.path().resource_dir().unwrap_or_default();

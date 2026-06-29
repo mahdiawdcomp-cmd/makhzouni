@@ -1,12 +1,16 @@
-// Reliable cross-platform "open/download a blob URL" helper.
+import { invoke } from "@tauri-apps/api/core"
+
+// True when running inside the Tauri desktop webview.
+export function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+}
+
+// Reliable cross-platform "open/download a blob URL" helper for the WEB build.
 //
 // `window.open(blobUrl, "_blank")` is unreliable inside the Tauri desktop
-// webview (WebView2 has no real browser-tab concept and frequently no-ops a
-// blob: navigation to a new window), which is why printing/downloading
-// barcode labels appeared completely broken on desktop. Triggering a
-// synthetic <a download> click instead works identically in a normal
-// browser tab AND inside Tauri, since it's a native save action, not a
-// window-open.
+// webview, and even a synthetic <a download> click does nothing there — so
+// desktop uses openExternalUrl() instead (see deliverLabel below). In a
+// normal browser tab the <a download> click works perfectly.
 export function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement("a")
   a.href = url
@@ -16,10 +20,6 @@ export function downloadBlobUrl(url: string, filename: string) {
   a.remove()
 }
 
-// Best-effort: download the file (always works) and, when running in a
-// normal browser tab (not Tauri), also try to open it in a new tab so the
-// user sees a print-ready preview immediately. Failure to open is silent —
-// the download already succeeded either way.
 export function downloadAndPreviewBlobUrl(url: string, filename: string) {
   downloadBlobUrl(url, filename)
   try {
@@ -27,4 +27,26 @@ export function downloadAndPreviewBlobUrl(url: string, filename: string) {
   } catch {
     // ignore — desktop webview commonly can't open a new window for blob:
   }
+}
+
+// Open an absolute URL in the OS default browser/app via the Rust shell.
+// Used on desktop where in-webview download/preview is a no-op.
+export async function openExternalUrl(url: string) {
+  await invoke("open_external", { url })
+}
+
+// Deliver a label (print or download): on desktop, open the public absolute
+// URL in the system browser (reliable, shows correct Arabic, user can
+// print/save from there); on web, download the fetched blob with a proper
+// filename (and best-effort preview).
+export async function deliverLabel(
+  absoluteUrl: string,
+  blobUrl: () => Promise<string>,
+  filename: string,
+) {
+  if (isTauri()) {
+    await openExternalUrl(absoluteUrl)
+    return
+  }
+  downloadAndPreviewBlobUrl(await blobUrl(), filename)
 }
