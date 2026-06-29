@@ -1262,12 +1262,16 @@ export function ProductsPage() {
                 <p className="text-[11px] text-slate-500">أدخل القطع المفردة والكراتين الموجودة حالياً.</p>
               </div>
             </div>
-            <Field label="رصيد افتتاحي (قطع مفرّدة)" hint="عدد القطع المنفصلة الموجودة بالمخزن الآن">
-              <Input type="number" value={form.openingBalancePcs ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, openingBalancePcs: Number(event.target.value) })} />
-            </Field>
-            <Field label="الكراتين المتوفرة" hint="عدد الكراتين الكاملة بالمخزن">
-              <Input type="number" value={form.cartonsAvailable ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, cartonsAvailable: Number(event.target.value) })} />
-            </Field>
+            {!(editing && branches.filter((b) => b.isActive).length > 1) && (
+              <>
+                <Field label="رصيد افتتاحي (قطع مفرّدة)" hint="عدد القطع المنفصلة الموجودة بالمخزن الآن">
+                  <Input type="number" value={form.openingBalancePcs ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, openingBalancePcs: Number(event.target.value) })} />
+                </Field>
+                <Field label="الكراتين المتوفرة" hint="عدد الكراتين الكاملة بالمخزن">
+                  <Input type="number" value={form.cartonsAvailable ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, cartonsAvailable: Number(event.target.value) })} />
+                </Field>
+              </>
+            )}
             <Field label="عدد القطع داخل الكرتون" hint="مثلاً 24 = الكرتون يحوي 24 قطعة">
               <Input type="number" min={1} value={form.pcsPerCarton ?? 1} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, pcsPerCarton: Number(event.target.value) })} />
             </Field>
@@ -1370,29 +1374,45 @@ export function ProductsPage() {
 
           {/* Edit mode: editable per-warehouse distribution */}
           {editing && branches.filter((b) => b.isActive).length > 1 && (() => {
+            const ppc = Math.max(1, Number(form.pcsPerCarton) || 1)
             const distSum = Object.values(dist).reduce((s, v) => s + (Number(v) || 0), 0)
+            const totalCartons = Math.floor(distSum / ppc)
             return (
-              <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-2 dark:border-sky-800 dark:bg-sky-950/20">
+              <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-3 space-y-3 dark:border-sky-800 dark:bg-sky-950/20">
                 <p className="text-xs font-semibold text-sky-700 dark:text-sky-400">
-                  توزيع المخزون على المخازن — عدّل الكمية في كل مخزن مباشرة
+                  كمية كل مخزن — عدّل الكراتين والقطع المفردة لكل مخزن
                 </p>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {branches.filter((b) => b.isActive).map((b) => (
-                    <label key={b.id} className="text-xs">
-                      <span className="mb-1 block text-slate-500">{b.name}</span>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={dist[b.id] ?? 0}
-                        onFocus={selectAllOnFocus}
-                        onChange={(e) => setDist({ ...dist, [b.id]: Number(e.target.value) })}
-                        placeholder="0"
-                      />
-                    </label>
-                  ))}
+                <div className="space-y-2">
+                  {branches.filter((b) => b.isActive).map((b) => {
+                    const pieces = Number(dist[b.id] ?? 0)
+                    const cartons = Math.floor(pieces / ppc)
+                    const loose = pieces - cartons * ppc
+                    const setQty = (cc: number, l: number) =>
+                      setDist({ ...dist, [b.id]: Math.max(0, cc) * ppc + Math.max(0, l) })
+                    return (
+                      <div key={b.id} className="rounded-lg border border-sky-100 bg-white/60 p-2 dark:border-sky-900 dark:bg-slate-900/40">
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{b.name}</span>
+                          <span className="text-[11px] text-slate-500">= {pieces} قطعة</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="block text-[11px] text-slate-500">
+                            كراتين
+                            <Input type="number" min={0} value={cartons} onFocus={selectAllOnFocus}
+                              onChange={(e) => setQty(Number(e.target.value) || 0, loose)} />
+                          </label>
+                          <label className="block text-[11px] text-slate-500">
+                            قطع مفردة
+                            <Input type="number" min={0} value={loose} onFocus={selectAllOnFocus}
+                              onChange={(e) => setQty(cartons, Number(e.target.value) || 0)} />
+                          </label>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
                 <p className="text-xs text-sky-700 dark:text-sky-400 font-semibold">
-                  المجموع الكلي: {distSum} قطعة
+                  المجموع الكلي: {distSum} قطعة ({totalCartons} كرتون + {distSum - totalCartons * ppc} قطعة)
                 </p>
               </div>
             )

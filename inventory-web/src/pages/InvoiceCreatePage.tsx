@@ -2171,7 +2171,7 @@ export function InvoiceCreatePage() {
             <p className="text-slate-700 dark:text-slate-300">
               <strong>{shopStockAlert?.name}</strong> — المحل فاضي.
             </p>
-            <p className="text-xs text-slate-500">اسحب مباشرة من أحد المخازن — يُكتب تحت المادة بالفاتورة وين جابها الموظف:</p>
+            <p className="text-xs text-slate-500">اختر مخزن — تنحوّل الكمية منه إلى المحل تلقائياً ثم تنباع. يبقى أثر التحويل بالحركة:</p>
             <div className="flex flex-col gap-2">
               {(shopStockAlert?.warehouseStocks ?? [])
                 .filter((ws) => ws.quantityPieces > 0)
@@ -2185,7 +2185,7 @@ export function InvoiceCreatePage() {
                       doAddProduct(p, ws.warehouseId, ws.warehouse.name, shopStockAlertUnit)
                     }}
                   >
-                    <span>📦 سحب من {ws.warehouse.name}</span>
+                    <span>🔄 تحويل من {ws.warehouse.name} ← المحل</span>
                     <span className="opacity-70 text-xs">{ws.quantityPieces} قطعة</span>
                   </Button>
                 ))}

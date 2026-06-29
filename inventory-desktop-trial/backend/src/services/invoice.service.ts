@@ -23,6 +23,7 @@ import {
   resolveWarehouseId,
   syncProductTotalStock,
 } from "./warehouse-stock.service";
+import { executeTransferWithin } from "./transfer.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -314,7 +315,8 @@ async function applyStockMovement(
   invoiceId: string,
   item: InvoiceItemInput,
   invoiceType: InvoiceType,
-  branchId?: string | null
+  branchId?: string | null,
+  createdBy = "system"
 ) {
   const product = await tx.product.findUnique({
     where: { id: item.productId },
@@ -325,21 +327,55 @@ async function applyStockMovement(
   }
 
   await ensureLegacyWarehouseStock(tx, product);
-  // Sales default to المحل warehouse. If the invoice line explicitly names a
-  // different warehouse (direct-pull from a depot), honour it — this lets the
-  // seller pull stock from wherever it physically is without a formal transfer.
   const isSale = invoiceType === InvoiceType.SALE;
-  const warehouseId = isSale
-    ? (item.warehouseId
-        ? await resolveWarehouseId(tx, item.warehouseId)
-        : await resolveShopWarehouseId(tx))
-    : await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);
-  // Pre-check stock so the user gets a clear Arabic message instead of a generic DB error.
   // When the seller explicitly opted in (allowNegativeStock), we skip the block and let
   // the line go negative — the deficit is settled automatically when stock next arrives.
   const allowNegativeSale = isSale && Boolean(item.allowNegativeStock);
+
+  // Sales always come out of المحل. If the line names a different warehouse (the
+  // seller pulled from a depot), AUTO-TRANSFER that quantity من المخزن → المحل
+  // first — recorded as a real transfer — then deduct the sale from المحل. So a
+  // depot pull leaves a proper transfer trail instead of a silent depot sale.
+  let warehouseId: string;
+  if (isSale) {
+    const shopId = await resolveShopWarehouseId(tx);
+    const requestedId = item.warehouseId ? await resolveWarehouseId(tx, item.warehouseId) : shopId;
+    if (requestedId !== shopId) {
+      if (!allowNegativeSale) {
+        const depotStock = await tx.productWarehouseStock.findUnique({
+          where: { productId_warehouseId: { productId: product.id, warehouseId: requestedId } },
+          select: { quantityPieces: true },
+        });
+        const available = Number(depotStock?.quantityPieces ?? 0);
+        if (quantityInPieces > available) {
+          const wh = await tx.branch.findUnique({ where: { id: requestedId }, select: { name: true } });
+          throw new AppError(
+            `${wh?.name ?? "المخزن"} يحتوي فقط على ${available} قطعة من "${product.name}".`,
+            409,
+            "INSUFFICIENT_SHOP_STOCK"
+          );
+        }
+      }
+      await executeTransferWithin(
+        tx,
+        {
+          fromBranchId: requestedId,
+          toBranchId: shopId,
+          items: [{ productId: product.id, unit: item.unit, quantity: item.quantity }],
+          notes: "تحويل تلقائي للبيع",
+        },
+        createdBy,
+        allowNegativeSale
+      );
+    }
+    warehouseId = shopId;
+  } else {
+    warehouseId = await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
+  }
+
+  // Pre-check المحل stock so the user gets a clear Arabic message instead of a generic DB error.
   if (isSale && !allowNegativeSale) {
     const whStock = await tx.productWarehouseStock.findUnique({
       where: { productId_warehouseId: { productId: product.id, warehouseId } },
@@ -473,7 +509,8 @@ async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {
         unitPrice: toNumber(item.unitPrice),
       },
       invoice.type,
-      invoice.branchId
+      invoice.branchId,
+      invoice.createdBy ?? "system"
     );
   }
 }
@@ -602,7 +639,7 @@ async function createInvoiceInTransaction(
   }> = [];
 
   for (const item of input.items) {
-    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId);
+    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy);
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
 
     if (pricedItem.wentNegative) {

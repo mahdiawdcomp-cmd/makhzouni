@@ -1299,7 +1299,7 @@ export function POSPage() {
               <div className="mb-3 flex items-start justify-between gap-2">
                 <div>
                   <h3 className="font-bold text-slate-800 dark:text-slate-100">{p.name}</h3>
-                  <p className="text-xs text-rose-600 mt-0.5">نفد من المحل — المخزون موجود في مخازن أخرى</p>
+                  <p className="text-xs text-rose-600 mt-0.5">نفد من المحل — تنحوّل الكمية من مخزن آخر إلى المحل ثم تنباع</p>
                 </div>
                 <button type="button" onClick={() => setShopStockAlert(null)} className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-slate-800">
                   <X className="h-4 w-4 text-slate-500" />
@@ -1313,7 +1313,7 @@ export function POSPage() {
                     className="flex w-full items-center justify-between rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-right font-semibold text-sky-800 transition hover:bg-sky-100 dark:border-sky-700 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-900/60"
                     onClick={() => { doAddProduct(p, productQuery, ws.warehouseId); setShopStockAlert(null) }}
                   >
-                    <span>📦 سحب من {ws.warehouse?.name ?? ws.warehouseId}</span>
+                    <span>🔄 تحويل من {ws.warehouse?.name ?? ws.warehouseId} ← المحل</span>
                     <span className="text-sm text-sky-600 dark:text-sky-400">{ws.quantityPieces} قطعة</span>
                   </button>
                 ))}
