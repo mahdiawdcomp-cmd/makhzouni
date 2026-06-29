@@ -549,7 +549,27 @@ export function ProductsPage() {
     [navigate],
   )
 
-  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 })
+  const [pagination, setPagination] = useState<{ pageIndex: number; pageSize: number }>(() => {
+    // Restore the page the user was on so returning from a product detail
+    // doesn't jump back to page 1.
+    try {
+      const saved = sessionStorage.getItem("products-pagination")
+      if (saved) {
+        const p = JSON.parse(saved) as { pageIndex?: number; pageSize?: number }
+        if (typeof p.pageIndex === "number" && typeof p.pageSize === "number") {
+          return { pageIndex: p.pageIndex, pageSize: p.pageSize }
+        }
+      }
+    } catch { /* ignore malformed storage */ }
+    return { pageIndex: 0, pageSize: 10 }
+  })
+
+  // Persist the current page across navigation so returning from a product
+  // detail lands on the same page. Scroll position within the page is restored
+  // globally by AppLayout's per-route scroll memory.
+  useEffect(() => {
+    sessionStorage.setItem("products-pagination", JSON.stringify(pagination))
+  }, [pagination])
 
   const table = useReactTable({
     data: sortedProducts,

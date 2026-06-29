@@ -137,8 +137,26 @@ export function AppLayout() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Per-route scroll memory: remember where the user was on each route so that
+  // returning to it (e.g. back from a product/invoice detail) restores the same
+  // scroll position instead of always jumping to the top.
+  const scrollPositions = useRef<Record<string, number>>({})
   useEffect(() => {
-    mainRef.current?.scrollTo(0, 0)
+    const el = mainRef.current
+    if (!el) return
+    const onScroll = () => { scrollPositions.current[pathname] = el.scrollTop }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => el.removeEventListener("scroll", onScroll)
+  }, [pathname])
+
+  useEffect(() => {
+    const el = mainRef.current
+    if (!el) return
+    const saved = scrollPositions.current[pathname] ?? 0
+    // Wait a frame so the destination route has rendered (container has its full
+    // height) before restoring — otherwise scrollTo would clamp to a short page.
+    const raf = requestAnimationFrame(() => el.scrollTo(0, saved))
+    return () => cancelAnimationFrame(raf)
   }, [pathname])
 
   useEffect(() => {
