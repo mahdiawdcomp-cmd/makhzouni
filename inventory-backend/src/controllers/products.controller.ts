@@ -224,6 +224,7 @@ export const getProductQr = asyncHandler(async (req, res) => {
   });
 
   res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
   res.send(image);
 });
 
@@ -247,6 +248,7 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const heightPt = (settings?.labelPieceHeightMm || 25) * MM;
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.pdf"`);
   doc.pipe(res);
 
@@ -269,6 +271,7 @@ export const getPieceLabelPng = asyncHandler(async (req, res) => {
   }, settings);
 
   res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.png"`);
   res.send(pngBuffer);
 });
@@ -291,6 +294,7 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
 
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.pdf"`);
   doc.pipe(res);
   doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
@@ -310,6 +314,7 @@ export const getCartonLabelPng = asyncHandler(async (req, res) => {
   }, settings);
 
   res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store");
   res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.png"`);
   res.send(pngBuffer);
 })
