@@ -32,6 +32,11 @@ RUN apt-get update \
      libxfixes3 libxrandr2 libgbm1 libasound2 libpango-1.0-0 \
      libcairo2 libx11-6 libx11-xcb1 libxcb1 libxext6 libxss1 \
      fonts-liberation wget \
+     # fontconfig + an Arabic-capable font so SVG->PNG label rendering
+     # (sharp/librsvg) can actually draw Arabic text. librsvg does NOT honor
+     # @font-face fonts embedded in the SVG, so the font MUST be installed in
+     # the OS font path and registered with fontconfig.
+     fontconfig fonts-noto-core \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
@@ -41,6 +46,13 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+
+# Install the bundled Cairo font system-wide so labels render Arabic on the
+# Linux runtime (no Arabic font ships with the base image).
+RUN mkdir -p /usr/share/fonts/truetype/cairo \
+  && cp /app/dist/src/assets/Cairo.ttf /usr/share/fonts/truetype/cairo/Cairo.ttf \
+  && fc-cache -f \
+  && fc-list | grep -i cairo || true
 
 EXPOSE 5000
 
