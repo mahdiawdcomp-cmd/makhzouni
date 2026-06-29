@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "backup:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-local.ps1",
-    "backup:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backup.ps1"
+    "backup:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backup.ps1",
+    "backup:online": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-online.ps1",
+    "backup:online:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backup-online.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

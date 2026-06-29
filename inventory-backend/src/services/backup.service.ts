@@ -6,6 +6,18 @@ export interface BackupData {
   exportedAt: string;
   storeName: string;
   counts: Record<string, number>;
+  /** Notes about completeness so a restore tool knows what is/ isn't full. */
+  meta: {
+    /** StockMovement is exported in full (no cap) so stock can be reconstructed. */
+    stockMovementsComplete: boolean;
+    /** Soft-deleted products/customers ARE included (referenced by old invoices). */
+    includesSoftDeleted: boolean;
+    /** AuditLog is capped (history only, not needed for restore). */
+    auditLogsLimited: boolean;
+    auditLogsLimit: number;
+    auditLogsExported: number;
+    auditLogsTotal: number;
+  };
   users: unknown[];
   products: unknown[];
   customers: unknown[];
@@ -21,7 +33,17 @@ export interface BackupData {
   auditLogs: unknown[];
 }
 
-/** Exports every table (excluding password hashes, last 2000 audit logs). */
+/** AuditLog is history-only and can grow huge; cap it but record the cap in meta. */
+const AUDIT_LOG_LIMIT = 2000;
+
+/**
+ * Exports every table for a complete, restorable backup.
+ * - passwordHash excluded (security).
+ * - products/customers: ALL rows including soft-deleted (old invoices reference them).
+ * - stockMovements: FULL (no cap) so stock ledger can be reconstructed.
+ * - auditLogs: capped to the most recent AUDIT_LOG_LIMIT (history only; not needed
+ *   to restore state) — the cap and totals are reported in meta.
+ */
 export async function generateFullBackup(): Promise<BackupData> {
   const settings = await getSettings();
 
@@ -39,6 +61,7 @@ export async function generateFullBackup(): Promise<BackupData> {
     stockMovements,
     transfers,
     auditLogs,
+    auditLogsTotal,
   ] = await Promise.all([
     prisma.user.findMany({
       select: {
@@ -47,8 +70,8 @@ export async function generateFullBackup(): Promise<BackupData> {
         // passwordHash intentionally excluded
       },
     }),
-    prisma.product.findMany({ where: { deletedAt: null } }),
-    prisma.customer.findMany({ where: { deletedAt: null } }),
+    prisma.product.findMany(),   // include soft-deleted for restore integrity
+    prisma.customer.findMany(),  // include soft-deleted for restore integrity
     prisma.invoice.findMany({
       include: { items: true },
       orderBy: { createdAt: "desc" },
@@ -62,16 +85,17 @@ export async function generateFullBackup(): Promise<BackupData> {
     prisma.coupon.findMany(),
     prisma.messageTemplate.findMany(),
     prisma.setting.findMany(),
-    prisma.stockMovement.findMany({ orderBy: { createdAt: "desc" }, take: 5000 }),
+    prisma.stockMovement.findMany({ orderBy: { createdAt: "desc" } }), // FULL
     prisma.inventoryTransfer.findMany({
       include: { items: true },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 2000 }),
+    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: AUDIT_LOG_LIMIT }),
+    prisma.auditLog.count(),
   ]);
 
   return {
-    version: "2.0",
+    version: "2.1",
     exportedAt: new Date().toISOString(),
     storeName: settings.storeName,
     counts: {
@@ -85,6 +109,15 @@ export async function generateFullBackup(): Promise<BackupData> {
       coupons: coupons.length,
       stockMovements: stockMovements.length,
       transfers: transfers.length,
+      auditLogs: auditLogs.length,
+    },
+    meta: {
+      stockMovementsComplete: true,
+      includesSoftDeleted: true,
+      auditLogsLimited: auditLogsTotal > auditLogs.length,
+      auditLogsLimit: AUDIT_LOG_LIMIT,
+      auditLogsExported: auditLogs.length,
+      auditLogsTotal,
     },
     users,
     products,
