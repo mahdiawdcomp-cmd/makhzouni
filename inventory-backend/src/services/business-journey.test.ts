@@ -116,6 +116,10 @@ const tx: any = {
     findUnique: async ({ where }: any) => (where.id === product.id ? { ...product } : null),
     findMany: async ({ where }: any) =>
       (where.id.in as string[]).filter((id) => id === product.id).map(() => ({ ...product })),
+    update: async ({ where, data }: any) => {
+      if (where.id === product.id) Object.assign(product, data);
+      return { ...product };
+    },
   },
 
   branch: {
@@ -180,6 +184,14 @@ const tx: any = {
       const { productId, warehouseId } = where.productId_warehouseId;
       const q = stock.get(skey(productId, warehouseId));
       return q === undefined ? null : { quantityPieces: q };
+    },
+    // WAC needs the product's total pieces across all warehouses before a purchase.
+    aggregate: async ({ where }: any) => {
+      const pid = where.productId;
+      const sum = [...stock.entries()]
+        .filter(([k]) => k.startsWith(`${pid}:`))
+        .reduce((s, [, v]) => s + v, 0);
+      return { _sum: { quantityPieces: sum } };
     },
   },
 
@@ -303,5 +315,62 @@ describe("end-to-end business journey (real services, shared in-memory DB)", () 
     // المحل 140 + مخزن 20 = 160 = 100 start − 10 sold + 60 bought + 10 sale-cancelled
     assert.equal(totalStock(), 160, "every stock movement accounted for");
     assert.equal(stockOf(SHOP) + stockOf(DEPOT), 160);
+  });
+});
+
+// ── Weighted-Average Cost on PURCHASE ─────────────────────────────────────────
+// Reuses the same faithful in-memory harness above. Verifies the exact example
+// the operator asked for: 10 pcs @ cost 200, then buy 10 pcs @ 300 → costPrice
+// must become the weighted average 250, and purchasePrice the latest unit cost 300.
+describe("purchase weighted-average cost", () => {
+  let createInvoice: Function;
+
+  before(async () => {
+    ({ createInvoice } = await import("./invoice.service"));
+    // Reset the shared product + stock to a clean 10-pcs-at-200 starting point.
+    stock.clear();
+    stock.set(skey(PROD, SHOP), 10);
+    product.pcsPerCarton = 12;
+    product.costPrice = 200;
+    product.purchasePrice = 200;
+    product.salePrice = 1000;
+  });
+
+  it("buying 10 pcs @ 300 averages costPrice to 250 and sets purchasePrice to 300", async () => {
+    await createInvoice(
+      {
+        customerId: CUST,
+        type: InvoiceType.PURCHASE,
+        discount: 0,
+        tax: 0,
+        paidAmount: 0,
+        items: [{ productId: PROD, unit: Unit.PIECE, quantity: 10, unitPrice: 300 }],
+      },
+      "user-1",
+      tx
+    );
+    // (10×200 + 10×300) / 20 = 250
+    assert.equal(Number(product.costPrice), 250, "weighted-average cost");
+    // latest purchase unit cost (per piece)
+    assert.equal(Number(product.purchasePrice), 300, "purchasePrice = last purchase price");
+    assert.equal(totalStock(), 20, "10 existing + 10 bought");
+  });
+
+  it("a SECOND purchase keeps averaging against the new running cost", async () => {
+    // Now: 20 pcs @ 250. Buy 20 more @ 350 → (20×250 + 20×350)/40 = 300.
+    await createInvoice(
+      {
+        customerId: CUST,
+        type: InvoiceType.PURCHASE,
+        discount: 0,
+        tax: 0,
+        paidAmount: 0,
+        items: [{ productId: PROD, unit: Unit.PIECE, quantity: 20, unitPrice: 350 }],
+      },
+      "user-1",
+      tx
+    );
+    assert.equal(Number(product.costPrice), 300, "(20×250 + 20×350)/40 = 300");
+    assert.equal(Number(product.purchasePrice), 350, "purchasePrice = last purchase price");
   });
 });

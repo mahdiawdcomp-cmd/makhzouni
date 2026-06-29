@@ -396,6 +396,19 @@ async function applyStockMovement(
       );
     }
   }
+
+  // PURCHASE only: snapshot the product's TOTAL pieces across all warehouses
+  // BEFORE this purchase line lands, so the weighted-average cost blends the old
+  // stock (at old cost) with the newly-purchased stock (at the new unit cost).
+  let purchaseQtyBefore = 0;
+  if (invoiceType === InvoiceType.PURCHASE) {
+    const agg = await tx.productWarehouseStock.aggregate({
+      where: { productId: product.id },
+      _sum: { quantityPieces: true },
+    });
+    purchaseQtyBefore = Number(agg._sum.quantityPieces ?? 0);
+  }
+
   const movement = await adjustWarehouseStock(tx, {
     productId: product.id,
     warehouseId,
@@ -425,6 +438,34 @@ async function applyStockMovement(
   const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : product.salePrice;
   const unitPrice =
     item.unitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton);
+
+  // PURCHASE only: roll the product cost forward by Weighted-Average Cost (WAC),
+  // and record the latest purchase unit cost into purchasePrice. The SALE path is
+  // untouched: sale profit reads costPrice through the report layer (current value),
+  // while OLD sale invoices keep their own frozen invoiceItem.costPrice snapshot.
+  // Variety products have no special handling here — their cost is only ever
+  // re-averaged by convertToVariety, a path that never runs through purchases.
+  if (invoiceType === InvoiceType.PURCHASE && quantityInPieces > 0) {
+    const currentCost =
+      toNumber(product.costPrice) > 0
+        ? toNumber(product.costPrice)
+        : toNumber(product.purchasePrice);
+    // Per-piece cost of this purchase line, unit-agnostic (carton/dozen/piece).
+    const newUnitCostPerPiece = (unitPrice * item.quantity) / quantityInPieces;
+    const currentQty = purchaseQtyBefore;
+    const denom = currentQty + quantityInPieces;
+    const newCostPrice =
+      denom > 0
+        ? roundMoney((currentQty * currentCost + quantityInPieces * newUnitCostPerPiece) / denom)
+        : currentCost;
+    await tx.product.update({
+      where: { id: product.id },
+      data: {
+        costPrice: newCostPrice,
+        purchasePrice: roundMoney(newUnitCostPerPiece),
+      },
+    });
+  }
 
   return {
     product,
