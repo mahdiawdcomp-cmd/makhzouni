@@ -376,6 +376,7 @@ private fun InvoiceItemEntity.toDomain() = InvoiceItem(
 fun List<InvoiceItem>.toCreateItems() = map {
     CreateInvoiceItemRequest(
         productId = it.productId,
+        warehouseId = it.warehouseId,
         unit = it.unit,
         quantity = it.quantity,
         unitPrice = it.unitPrice,
