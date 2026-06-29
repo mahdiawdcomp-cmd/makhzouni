@@ -203,6 +203,7 @@ export interface PublicCatalogProduct {
   itemNumber: string
   name: string
   imageUrl?: string | null
+  thumbnailUrl?: string | null
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]
