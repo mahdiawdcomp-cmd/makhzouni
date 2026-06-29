@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "tauri": "tauri",
-    "backup:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-local.ps1"
+    "backup:local": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-local.ps1",
+    "backup:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-backup.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
