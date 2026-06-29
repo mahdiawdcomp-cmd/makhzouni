@@ -26,6 +26,7 @@ import { Badge } from "../components/ui/badge"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
 import { deliverLabel } from "../utils/download"
+import { useBarcodeScanner } from "../utils/barcode-scan"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -369,6 +370,9 @@ export function ProductsPage() {
   const branchName = (branchId?: string | null) =>
     branchId ? branches.find((branch) => branch.id === branchId)?.name ?? "مخزن غير معروف" : "المخزن الرئيسي"
   const [query, setQuery] = useState("")
+  // Hardware barcode gun: a scan fills the search with the clean ASCII code
+  // (rebuilt from physical keys), so it works under an Arabic keyboard too.
+  useBarcodeScanner({ onScan: (code) => setQuery(code) })
   const debouncedQuery = useDebounce(query, 250)
   const [category, setCategory] = useState("all")
   const [lowOnly, setLowOnly] = useState(false)
@@ -424,7 +428,8 @@ export function ProductsPage() {
       debouncedQuery.trim() === "" ||
       product.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
       product.itemNumber.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase())
+      product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+      product.cartonQrCode?.toLowerCase().includes(debouncedQuery.toLowerCase())
     const matchesCategory = category === "all" || product.category === category
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
     const missing = getMissing(product)

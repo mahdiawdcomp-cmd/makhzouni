@@ -26,6 +26,7 @@ import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
+import { useBarcodeScanner } from "../utils/barcode-scan"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
 
@@ -781,6 +782,20 @@ export function POSPage() {
     else if (displayedProducts.length > 0) addProduct(displayedProducts[0])
   }
 
+  // Hardware scanner: the code arrives clean (rebuilt from physical keys), so we
+  // match it directly against the barcodes — works under an Arabic keyboard too.
+  function addByCode(code: string) {
+    const q = normalize(code)
+    if (!q) return
+    const exact = products.find((p) =>
+      [p.qrCode, p.cartonQrCode, p.itemNumber].some((v) => v && normalize(v) === q),
+    )
+    if (exact) { addProduct(exact, code); return }
+    setProductQuery(code)
+    setMessage("ماكو مادة بهذا الباركود")
+    setTimeout(() => barcodeInputRef.current?.focus(), 0)
+  }
+
   function adjustQty(lineId: string, delta: number) {
     setItems((prev) =>
       prev
@@ -880,6 +895,10 @@ export function POSPage() {
       setTimeout(() => document.body.removeChild(iframe), 2000)
     }
   }
+
+  // Hardware barcode gun — layout-independent, works while the search box is
+  // focused. Disabled while a panel/modal owns the screen.
+  useBarcodeScanner({ onScan: addByCode, enabled: activePanel === null && !shopStockAlert })
 
   useEffect(() => {
     function onKey(event: globalThis.KeyboardEvent) {

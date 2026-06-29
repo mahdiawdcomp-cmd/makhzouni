@@ -28,6 +28,7 @@ import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager
 import { ImageCropModal } from "../components/ImageCropModal"
 import { AdjustStockModal } from "../components/AdjustStockModal"
 import { downloadAndPreviewBlobUrl } from "../utils/download"
+import { useBarcodeScanner } from "../utils/barcode-scan"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -474,7 +475,8 @@ export function ProductsPage() {
       debouncedQuery.trim() === "" ||
       product.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
       product.itemNumber.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase())
+      product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+      product.cartonQrCode?.toLowerCase().includes(debouncedQuery.toLowerCase())
     const matchesCategory = category === "all" || product.category === category
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
     const missing = getMissing(product)
@@ -570,6 +572,16 @@ export function ProductsPage() {
   useEffect(() => {
     sessionStorage.setItem("products-pagination", JSON.stringify(pagination))
   }, [pagination])
+
+  // Hardware barcode gun: a scan fills the search with the clean ASCII code
+  // (rebuilt from physical keys, so it works under an Arabic keyboard) and jumps
+  // to page 1 so the matching item shows up immediately.
+  useBarcodeScanner({
+    onScan: (code) => {
+      setQuery(code)
+      setPagination((p) => ({ ...p, pageIndex: 0 }))
+    },
+  })
 
   const table = useReactTable({
     data: sortedProducts,
