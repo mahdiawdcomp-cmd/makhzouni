@@ -38,6 +38,7 @@ import {
   getPublicRetailCategories,
   getPublicRetailOrdersByPhone,
   getPublicRetailOrdersByToken,
+  getPublicRetailOrderStatus,
   getPublicStoreInfo,
   previewPublicRetailCoupon,
   retailAiChat,
@@ -1179,8 +1180,12 @@ function OrdersView({ orders, currency, goCatalog }: { orders: SavedOrder[]; cur
 }
 
 function OrderStatusCard({ order, currency }: { order: SavedOrder; currency: string }) {
-  // Locally-saved orders are always freshly submitted (PENDING).
-  // Real-time status updates require the private orders link (token-based flow).
+  const statusQuery = useQuery({
+    queryKey: ["public-retail-order", order.id],
+    queryFn: () => getPublicRetailOrderStatus(order.id),
+    refetchInterval: 30_000,
+  })
+  const status = statusQuery.data?.status ?? "PENDING"
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">
@@ -1188,7 +1193,7 @@ function OrderStatusCard({ order, currency }: { order: SavedOrder; currency: str
         <span className="text-sm font-extrabold">{money(order.total)} {currency}</span>
       </div>
       <div className="mt-1 text-[11px] text-slate-400">{new Date(order.createdAt).toLocaleString("en-GB")}</div>
-      <div className="mt-3">{statusBlock("PENDING")}</div>
+      <div className="mt-3">{statusBlock(status)}</div>
     </div>
   )
 }

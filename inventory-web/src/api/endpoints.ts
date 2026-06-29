@@ -1654,3 +1654,49 @@ export async function cancelStockLoss(id: string) {
   const { data } = await api.patch<ApiEnvelope<StockLoss>>(`/stock-losses/${id}/cancel`)
   return data.data!
 }
+
+// ── Voice Invoice ─────────────────────────────────────────────────────────────
+
+export interface VoiceParsedPlan {
+  type: "confirm" | "clarify" | "answer" | "cancel"
+  reply: string
+  plan?: {
+    operation: "INVOICE" | "VOUCHER"
+    customerId: string
+    customerName: string
+    items?: Array<{
+      productId: string
+      productName: string
+      quantity: number
+      unit: string
+      unitPrice: number
+      totalPrice: number
+      warehouseId?: string
+    }>
+    totalAmount?: number
+    paymentType?: string
+    paidAmount?: number
+    amount?: number
+    voucherType?: string
+  }
+  missing?: string[]
+  suggestions?: Record<string, string[]>
+}
+
+export interface VoiceChatMessage {
+  role: "user" | "assistant"
+  content: string
+}
+
+export async function voiceParse(payload: {
+  command: string
+  history?: VoiceChatMessage[]
+}) {
+  const { data } = await api.post<ApiEnvelope<VoiceParsedPlan>>("/voice/parse", payload)
+  return data.data!
+}
+
+export async function voiceExecute(plan: VoiceParsedPlan["plan"]) {
+  const { data } = await api.post<ApiEnvelope<{ invoiceId?: string; invoiceNumber?: string; voucherId?: string }>>("/voice/execute", { plan })
+  return data.data!
+}

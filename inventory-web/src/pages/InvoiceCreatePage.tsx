@@ -30,6 +30,20 @@ type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
 type InvoiceType = "SALE" | "PURCHASE"
 
+// Read a barcode character from the PHYSICAL key (e.code), not e.key — so a
+// scanner works the same whether the keyboard is set to Arabic or English.
+// (e.key returns Arabic letters / Arabic-Indic digits under an Arabic layout.)
+function scanCharFromCode(e: globalThis.KeyboardEvent): string | null {
+  const code = e.code
+  if (code.startsWith("Digit")) return code.slice(5)          // Digit7 → "7"
+  if (/^Numpad[0-9]$/.test(code)) return code.slice(6)         // Numpad7 → "7"
+  if (code.startsWith("Key")) return code.slice(3).toLowerCase() // KeyA → "a"
+  if (code === "Minus" || code === "NumpadSubtract") return "-"
+  // Fallback for layouts that don't report e.code: accept a clean ASCII char.
+  if (e.key.length === 1 && /[a-zA-Z0-9-]/.test(e.key)) return e.key.toLowerCase()
+  return null
+}
+
 interface DraftItem {
   product: Product
   unit: Unit
@@ -170,7 +184,6 @@ export function InvoiceCreatePage() {
   const [quickAddProductPurchasePrice, setQuickAddProductPurchasePrice] = useState("")
   // Alert shown when a sale product has 0 stock in المحل
   const [shopStockAlert, setShopStockAlert] = useState<Product | null>(null)
-  // The unit the alerted product should be added with (a scanned carton keeps CARTON)
   const [shopStockAlertUnit, setShopStockAlertUnit] = useState<Unit>("PIECE")
 
   // ---- items state ----
@@ -237,12 +250,10 @@ export function InvoiceCreatePage() {
   // ---- OCR state ----
   const [ocrOpen, setOcrOpen] = useState(false)
 
-  // ---- barcode state ----
+  // ---- barcode scanner (ref-based, keyboard-layout independent) ----
   const scanInputRef = useRef<HTMLInputElement | null>(null)
-  // Timing-based scanner capture: a barcode gun types very fast and ends with Enter.
   const scanBufRef = useRef("")
   const scanLastKeyRef = useRef(0)
-  // Snapshot of a focused field at burst start so we can wipe any chars the gun leaked into it.
   const scanSnapRef = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; val: string } | null>(null)
   const clientRequestIdRef = useRef(crypto.randomUUID())
   const prefillAppliedRef = useRef(false)
@@ -707,23 +718,23 @@ export function InvoiceCreatePage() {
     window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
   }
 
-  // Sale + المحل empty but stock exists elsewhere → let the user pick the source
-  // warehouse instead of silently driving المحل negative. Returns true if it took over.
+  // For sales: if المحل has 0 stock but other warehouses have stock, prompt the
+  // user to pick a warehouse instead of silently pulling from an empty shop.
+  // Returns true when it opened the picker (caller should stop).
   function maybePromptWarehouse(product: Product, unit: Unit): boolean {
     if (isPurchase) return false
     const shopStock = product.shopStock ?? 0
     const totalStock = product.currentStock ?? (product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton)
     const othersHaveStock = (product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
     if (shopStock === 0 && (totalStock > 0 || othersHaveStock)) {
-      setShopStockAlertUnit(unit)
       setShopStockAlert(product)
+      setShopStockAlertUnit(unit)
       return true
     }
     return false
   }
 
   function addProduct(product: Product) {
-    // For sales: if المحل has 0 stock but other warehouses have stock → warn first
     if (maybePromptWarehouse(product, "PIECE")) return
     doAddProduct(product)
   }
@@ -877,8 +888,8 @@ export function InvoiceCreatePage() {
     if (!hit) return
     const isCarton = hit.cartonQrCode?.toLowerCase() === c.toLowerCase()
     const unit: Unit = isCarton ? "CARTON" : "PIECE"
-    // Same shop-empty guard as manual add: offer the warehouse picker instead of
-    // silently driving المحل negative.
+    // Route through the same shop-stock warehouse picker as manual add, so a
+    // scanned item with an empty shop never silently adds from the wrong place.
     if (maybePromptWarehouse(hit, unit)) return
     doAddProduct(hit, undefined, undefined, unit)
   }
@@ -948,18 +959,6 @@ export function InvoiceCreatePage() {
       setProductHighlight((i) => Math.max(i - 1, 0))
     } else if (e.key === "Enter") {
       e.preventDefault()
-      // If what was typed/scanned exactly matches a barcode, add via the
-      // carton-aware path so a scanned carton barcode is added as CARTON, not PIECE.
-      const c = productQuery.trim().toLowerCase()
-      const exactByCode = c
-        ? products.find((p) => p.qrCode?.toLowerCase() === c || p.cartonQrCode?.toLowerCase() === c)
-        : undefined
-      if (exactByCode) {
-        addProductByCode(productQuery.trim())
-        setProductQuery("")
-        setProductModal(false)
-        return
-      }
       addProduct(productSuggestions[productHighlight])
     }
   }
@@ -984,13 +983,9 @@ export function InvoiceCreatePage() {
     e.target.select()
   }
 
-  // ---- USB barcode scanner (timing-based) ----
-  // A barcode gun types its code very fast (<100ms between keys) and ends with
-  // Enter. We capture that burst even while a field is focused, so the user can
-  // keep scanning into the SAME invoice without clicking «add product» first.
-  // Any chars the gun briefly typed into a focused field are wiped on Enter.
+  // ---- USB barcode scanner (works even while a field is focused) ----
   useEffect(() => {
-    // Set a React-controlled input's value back to `val` (used to undo a leak).
+    // Undo any characters the gun leaked into a focused field during a burst.
     function restoreField(el: HTMLInputElement | HTMLTextAreaElement, val: string) {
       const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
       const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
@@ -999,25 +994,20 @@ export function InvoiceCreatePage() {
     }
 
     function onKey(e: globalThis.KeyboardEvent) {
-      // The product-search modal has its own carton-aware Enter handler; the
-      // warehouse picker must be answered before the next scan.
       if (productModal || preview || shopStockAlert) return
       if (e.ctrlKey || e.altKey || e.metaKey) return
 
       const now = Date.now()
       const gap = now - scanLastKeyRef.current
       scanLastKeyRef.current = now
-      // A slow gap means a human, not a gun → start a fresh buffer.
-      if (gap > 100) {
-        scanBufRef.current = ""
-        scanSnapRef.current = null
-      }
+      // A slow gap means a human typing, not a scanner gun → fresh buffer.
+      if (gap > 100) { scanBufRef.current = ""; scanSnapRef.current = null }
 
       if (e.key === "Enter") {
         const code = scanBufRef.current.trim()
         scanBufRef.current = ""
-        // Long burst = a real scan (our barcodes are long PCS-/CTN- codes).
-        if (code.length >= 4) {
+        // A fast multi-char burst ending in Enter = a real scan.
+        if (code.length >= 3) {
           e.preventDefault()
           e.stopPropagation()
           const snap = scanSnapRef.current
@@ -1028,9 +1018,9 @@ export function InvoiceCreatePage() {
         return
       }
 
-      if (e.key.length === 1) {
-        // At burst start, snapshot the focused field (its value is still clean
-        // because keydown fires before the character is inserted).
+      const ch = scanCharFromCode(e)
+      if (ch) {
+        // At burst start, snapshot the focused field so we can wipe leaked chars.
         if (scanBufRef.current === "") {
           const el = document.activeElement as HTMLElement | null
           if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
@@ -1039,9 +1029,10 @@ export function InvoiceCreatePage() {
             scanSnapRef.current = null
           }
         }
-        scanBufRef.current += e.key
+        scanBufRef.current += ch
       }
     }
+    // Capture phase so we see keys before the focused input does.
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1162,14 +1153,6 @@ export function InvoiceCreatePage() {
   }
 
   // Ctrl+S → save invoice from anywhere on this page
-  // Auto-focus customer field when the page first loads (new invoice)
-  useEffect(() => {
-    if (!savedInvoiceId) {
-      window.setTimeout(() => customerInputRef.current?.focus(), 100)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -1544,7 +1527,6 @@ export function InvoiceCreatePage() {
                         >
                           <option value="PIECE">قطعة</option>
                           <option value="DOZEN">درزن</option>
-                          <option value="BOX">علبة</option>
                           <option value="CARTON">كرتونة</option>
                         </select>
                       </TD>

@@ -64,9 +64,9 @@ export function VoucherDetailPage() {
   usePageTitle(voucher ? `${voucherTypeLabel}${partyName ? ` (${partyName})` : ""}` : "تحميل السند...")
   const listQuery = useQuery({ queryKey: ["vouchers", "all-for-nav"], queryFn: () => getVouchers() })
   const transactionsQuery = useQuery({
-    queryKey: ["transactions", voucherQuery.data?.customer?.id],
-    queryFn: () => getCustomerTransactions(voucherQuery.data!.customer!.id),
-    enabled: !!voucherQuery.data?.customer?.id,
+    queryKey: ["transactions", voucher?.customer?.id],
+    queryFn: () => getCustomerTransactions(voucher!.customer!.id),
+    enabled: !!voucher?.customer?.id,
   })
   const settingsQuery = useSettings()
   const settings = settingsQuery.data
@@ -91,6 +91,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["customers"] })
       void qc.invalidateQueries({ queryKey: ["customer"] })
     },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر تعطيل السند", variant: "destructive" }),
   })
 
   const restoreMutation = useMutation({
@@ -100,6 +101,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["customers"] })
       void qc.invalidateQueries({ queryKey: ["customer"] })
     },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر استعادة السند", variant: "destructive" }),
   })
   const [editAmountDisplay, setEditAmountDisplay] = useState("")
   const [editNotes, setEditNotes] = useState("")
@@ -136,6 +138,7 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["transactions"] })
       navigate(-1)
     },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر حذف السند", variant: "destructive" }),
   })
 
   function openEdit() {
@@ -281,27 +284,28 @@ export function VoucherDetailPage() {
 
         {voucher.customer ? (
           <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>الزبون</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <Row label="الاسم" value={voucher.customer.name} />
-              <Row label="الهاتف" value={voucher.customer.phone ?? "-"} />
-              <Row label="الرصيد الحالي" value={money(voucher.customer.currentBalance) + " " + (settings?.currency ?? "د.ع")} strong />
-              <Button asChild variant="outline" className="mt-2">
-                <Link to={`/customers/${voucher.customer.id}`}>عرض كشف الزبون</Link>
-              </Button>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader><CardTitle>الزبون</CardTitle></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <Row label="الاسم" value={voucher.customer.name} />
+                <Row label="الهاتف" value={voucher.customer.phone ?? "-"} />
+                <Row label="الرصيد الحالي" value={money(voucher.customer.currentBalance) + " " + (settings?.currency ?? "د.ع")} strong />
+                <Button asChild variant="outline" className="mt-2">
+                  <Link to={`/customers/${voucher.customer.id}`}>عرض كشف الزبون</Link>
+                </Button>
+              </CardContent>
+            </Card>
 
             {/* Account summary for this voucher */}
             {(() => {
               const cur = settings?.currency ?? "د.ع"
               const txs = transactionsQuery.data ?? []
+              // Match by voucher id (most reliable) OR by voucherNumber as referenceNumber
               const txIndex = txs.findIndex((t) => t.id === voucher.id || t.referenceNumber === voucher.voucherNumber)
               const thisTx = txIndex >= 0 ? txs[txIndex] : null
 
+              // Fallback when ledger data not yet loaded or not found:
+              // estimate from current balance using voucher effect direction
               const isReceipt = voucher.type === "RECEIPT"
               const amt = Number(voucher.amount)
               const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
@@ -310,9 +314,13 @@ export function VoucherDetailPage() {
               let balanceBefore: number
 
               if (thisTx) {
+                // Exact: balance before = runningBalance reversed by this transaction
+                // credit (RECEIPT) reduces debt: runningBalance decreased → reverse: add credit back
+                // debit  (PAYMENT) increases debt: runningBalance increased → reverse: subtract debit
                 balanceAfter = thisTx.runningBalance
                 balanceBefore = balanceAfter + (thisTx.credit ?? 0) - (thisTx.debit ?? 0)
               } else {
+                // Approximate (only exact if this was the last transaction)
                 balanceAfter = currentBalance
                 balanceBefore = isReceipt ? currentBalance + amt : currentBalance - amt
               }

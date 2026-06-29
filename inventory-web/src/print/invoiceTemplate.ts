@@ -4,7 +4,7 @@
 // self-contained HTML document (with @page sizing) used for BOTH the live
 // designer preview (iframe srcDoc) and the actual print (hidden iframe).
 
-export type PaperSize = "80mm" | "a4"
+export type PaperSize = "58mm" | "80mm" | "a4"
 
 export interface InvoiceTemplate {
   paper: PaperSize
@@ -22,7 +22,7 @@ export interface InvoiceTemplate {
 }
 
 export const DEFAULT_TEMPLATE: InvoiceTemplate = {
-  paper: "80mm",
+  paper: "58mm",
   accent: "#4f46e5",
   fontScale: 1,
   title: "فاتورة بيع",
@@ -62,6 +62,8 @@ export interface PrintInvoice {
   lines: PrintLine[]
   notes?: string
   previousBalance?: number
+  paidAmount?: number
+  remainingAmount?: number
 }
 
 export interface PrintStore {
@@ -104,11 +106,13 @@ export function renderInvoiceHTML(
   const subtotal = inv.lines.reduce((a, l) => a + l.qty * l.price, 0)
   const prev = inv.previousBalance ?? 0
   const grand = subtotal + prev
-  const is80 = t.paper === "80mm"
-  const base = (is80 ? 12 : 13) * t.fontScale
+  const isThermal = t.paper === "80mm" || t.paper === "58mm"
+  const thermalWidth = t.paper === "58mm" ? "58mm" : "80mm"
+  const is80 = isThermal  // keep variable name for all thermal-width branches
+  const base = (isThermal ? 11 : 13) * t.fontScale
 
-  const pageCss = is80
-    ? `@page { size: 80mm auto; margin: 0; } body { width: 80mm; }`
+  const pageCss = isThermal
+    ? `@page { size: ${thermalWidth} auto; margin: 0; } body { width: ${thermalWidth}; }`
     : `@page { size: A4; margin: 12mm; }`
 
   const logo =
@@ -143,6 +147,8 @@ export function renderInvoiceHTML(
        </div>`
     : ""
 
+  const paid = inv.paidAmount ?? 0
+  const remaining = inv.remainingAmount ?? 0
   const totals = `
     <div style="margin-top:8px;font-size:${base}px">
       <div style="display:flex;justify-content:space-between;padding:2px 0">
@@ -158,6 +164,12 @@ export function renderInvoiceHTML(
       <div style="display:flex;justify-content:space-between;padding:6px 4px;margin-top:4px;background:${t.accent};color:#fff;border-radius:6px;font-size:${base + 2}px">
         <span>المطلوب الكلّي</span><b>${money(grand, cur)}</b>
       </div>
+      ${paid > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 4px;margin-top:3px;background:#dcfce7;color:#166534;border-radius:6px">
+        <span>المدفوع</span><b>${money(paid, cur)}</b>
+      </div>` : ""}
+      ${remaining > 0 ? `<div style="display:flex;justify-content:space-between;padding:3px 4px;margin-top:3px;background:#fee2e2;color:#991b1b;border-radius:6px">
+        <span>المتبقي</span><b>${money(remaining, cur)}</b>
+      </div>` : ""}
     </div>`
 
   const stamp =
@@ -177,7 +189,7 @@ export function renderInvoiceHTML(
   ${pageCss}
   * { box-sizing: border-box; }
   body { margin:0; font-family:"Cairo","Segoe UI",Tahoma,sans-serif; color:#0f172a; font-size:${base}px; background:#fff; }
-  .wrap { padding:${is80 ? "6mm 4mm" : "0"}; max-width:${is80 ? "80mm" : "100%"}; margin:0 auto; }
+  .wrap { padding:${isThermal ? "5mm 3mm" : "0"}; max-width:${isThermal ? thermalWidth : "100%"}; margin:0 auto; }
   table { width:100%; border-collapse:collapse; margin-top:6px; font-size:${base - 1}px; }
   th { background:${t.accent}11; color:${t.accent}; padding:${is80 ? "4px 2px" : "8px"}; text-align:center; border-bottom:2px solid ${t.accent}; }
   th:nth-child(2){ text-align:right; }

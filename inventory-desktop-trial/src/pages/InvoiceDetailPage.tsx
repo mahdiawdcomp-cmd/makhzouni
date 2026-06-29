@@ -46,7 +46,7 @@ const DEFAULT_INVOICE_TEMPLATE =
 
 interface EditItem {
   productId: string; productName: string
-  unit: "PIECE" | "DOZEN" | "CARTON"; quantity: number; unitPrice: number
+  unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"; quantity: number; unitPrice: number
   warehouseId?: string; warehouseName?: string
   notes?: string
 }
@@ -121,6 +121,8 @@ export function InvoiceDetailPage() {
         qty: it.quantity,
         price: it.unitPrice,
         notes: it.notes ?? "",
+        itemNumber: (it as any).product?.itemNumber ?? undefined,
+        pcsPerCarton: (it as any).product?.pcsPerCarton ?? undefined,
       })),
       notes: invoice.notes ?? "",
       subtotal: invoice.subtotal,
@@ -252,7 +254,7 @@ export function InvoiceDetailPage() {
       const wsName = wsId ? product?.warehouseStocks?.find((ws) => ws.warehouseId === wsId)?.warehouse?.name : undefined
       return {
         productId: it.productId, productName: it.productName ?? it.productId,
-        unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "CARTON",
+        unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "BOX" | "CARTON",
         quantity: it.quantity, unitPrice: Number(it.unitPrice),
         warehouseId: wsId, warehouseName: wsName,
         notes: it.notes ?? "",
@@ -324,6 +326,8 @@ export function InvoiceDetailPage() {
         qty: item.quantity,
         price: item.unitPrice,
         notes: item.notes ?? "",
+        itemNumber: (item as any).product?.itemNumber ?? undefined,
+        pcsPerCarton: (item as any).product?.pcsPerCarton ?? undefined,
       })),
       notes: invoice.notes ?? "",
       subtotal: invoice.subtotal,
@@ -591,8 +595,8 @@ export function InvoiceDetailPage() {
                     </TD>
                     <TD>
                       <select className="h-8 rounded border bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-950" value={it.unit}
-                        onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, unit: e.target.value as "PIECE" | "DOZEN" | "CARTON" } : x))}>
-                        <option value="PIECE">قطعة</option><option value="DOZEN">درزن</option><option value="CARTON">كرتونة</option>
+                        onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, unit: e.target.value as "PIECE" | "DOZEN" | "BOX" | "CARTON" } : x))}>
+                        <option value="PIECE">قطعة</option><option value="DOZEN">درزن</option><option value="BOX">علبة</option><option value="CARTON">كرتونة</option>
                       </select>
                     </TD>
                     <TD><Input type="number" className="w-20 h-8 text-sm" value={it.quantity} onFocus={(e) => e.target.select()}

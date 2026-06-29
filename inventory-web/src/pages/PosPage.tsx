@@ -9,6 +9,7 @@ import {
   Minus,
   Package,
   Plus,
+  Printer,
   Search,
   Settings2,
   Star,
@@ -18,13 +19,15 @@ import {
   X,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { createInvoice, getCustomers, getProducts } from "../api/endpoints"
+import { createInvoice, getCustomers, getProducts, getSettings } from "../api/endpoints"
 import { Input } from "../components/ui/input"
 import type { Customer, Product } from "../types/api"
 import { fmt } from "../utils/fmt"
 import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
+import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
+import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
 
 // ── Quick panel config types ──────────────────────────────────────
 interface CategoryPanel {
@@ -643,6 +646,7 @@ export function POSPage() {
   const [items, setItems] = useState<PosItem[]>([])
   const [paid, setPaid] = useState("")
   const [message, setMessage] = useState("")
+  const [lastReceipt, setLastReceipt] = useState<{ inv: PrintInvoice; store: PrintStore } | null>(null)
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
   const [posConfig, setPosConfig] = useState<PosConfig>(loadConfig)
   const [activePanel, setActivePanel] = useState<string | null>(null)
@@ -671,6 +675,7 @@ export function POSPage() {
     queryKey: ["products", "pos"],
     queryFn: () => getProducts({ limit: 300 }),
   })
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettings, staleTime: 60_000 })
 
   const customerSuggestions = useMemo(() => {
     const q = normalize(customerQuery)
@@ -817,6 +822,34 @@ export function POSPage() {
       })
       updateConfig({ ...posConfigRef.current, salesCounts: newCounts })
 
+      const inv = response.data
+      if (inv) {
+        setLastReceipt({
+          inv: {
+            number: inv.invoiceNumber,
+            date: inv.date,
+            customerName: inv.customer?.name ?? inv.customerId,
+            customerPhone: inv.customer?.phone,
+            lines: itemsRef.current.map((it) => ({
+              name: it.name,
+              qty: it.quantity,
+              price: it.unitPrice,
+            })),
+            paidAmount: inv.paidAmount,
+            remainingAmount: inv.remainingAmount,
+            previousBalance: inv.previousBalance,
+            notes: inv.notes ?? undefined,
+          },
+          store: {
+            storeName: settings?.storeName ?? "المحل",
+            storeLogo: settings?.storeLogo ?? undefined,
+            storePhone: settings?.storePhone ?? undefined,
+            storeAddress: settings?.storeAddress ?? undefined,
+            currency: settings?.currency ?? "د.ع",
+          },
+        })
+      }
+
       setMessage(`✓ فاتورة ${response.data?.invoiceNumber ?? ""} — تم الحفظ`)
       setItems([])
       setPaid("")
@@ -831,6 +864,22 @@ export function POSPage() {
       clientRequestIdRef.current = crypto.randomUUID()
     },
   })
+
+  function printReceipt(data: { inv: PrintInvoice; store: PrintStore }) {
+    const tmpl = parseTemplate(settings?.invoiceTemplate)
+    const html = renderInvoiceHTML(tmpl, data.inv, data.store)
+    const iframe = document.createElement("iframe")
+    iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:0"
+    document.body.appendChild(iframe)
+    iframe.contentDocument?.open()
+    iframe.contentDocument?.write(html)
+    iframe.contentDocument?.close()
+    iframe.onload = () => {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      setTimeout(() => document.body.removeChild(iframe), 2000)
+    }
+  }
 
   useEffect(() => {
     function onKey(event: globalThis.KeyboardEvent) {
@@ -1201,8 +1250,20 @@ export function POSPage() {
             <p className="text-center text-[10px] text-slate-400">Ctrl+S حفظ | F8 المبلغ | Esc خروج</p>
 
             {message && (
-              <div className="rounded-md bg-emerald-50 p-2 text-center text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                {message}
+              <div className="space-y-2">
+                <div className="rounded-md bg-emerald-50 p-2 text-center text-sm font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                  {message}
+                </div>
+                {lastReceipt && (
+                  <button
+                    type="button"
+                    onClick={() => printReceipt(lastReceipt)}
+                    className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 active:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                  >
+                    <Printer className="h-4 w-4" />
+                    طباعة الإيصال
+                  </button>
+                )}
               </div>
             )}
             {saveMutation.isError && (

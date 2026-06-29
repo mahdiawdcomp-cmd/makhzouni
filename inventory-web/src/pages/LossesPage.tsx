@@ -24,6 +24,7 @@ const REASONS: Record<LossReason, string> = {
 function unitLabel(u: string) {
   if (u === "CARTON") return "كرتونة"
   if (u === "DOZEN") return "درزن"
+  if (u === "BOX") return "علبة"
   return "قطعة"
 }
 

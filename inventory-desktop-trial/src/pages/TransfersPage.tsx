@@ -1,7 +1,8 @@
 import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
-import { ArrowRightLeft, ChevronLeft, ChevronRight, Eye, Plus, Search, X } from "lucide-react"
+import { ArchiveX, ArrowRightLeft, ChevronLeft, ChevronRight, Eye, Plus, Search, X } from "lucide-react"
+import { Link } from "react-router-dom"
 
 import { getTransfers, createTransfer, getBranches, getProducts, createBranch } from "../api/endpoints"
 import type { InventoryTransfer } from "../api/endpoints"
@@ -160,9 +161,14 @@ export function TransfersPage() {
           <h1 className="text-2xl font-bold">التحويلات المخزنية</h1>
           <p className="text-slate-500">نقل المواد بين الفروع والمخازن.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)}>
-          <Plus className="h-4 w-4" /> تحويل جديد
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" asChild>
+            <Link to="/inventory/stale"><ArchiveX className="h-4 w-4" /> المواد الراكدة</Link>
+          </Button>
+          <Button onClick={() => setIsCreateOpen(true)}>
+            <Plus className="h-4 w-4" /> تحويل جديد
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}

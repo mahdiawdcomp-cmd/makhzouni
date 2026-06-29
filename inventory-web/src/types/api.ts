@@ -542,7 +542,7 @@ export interface InvoiceItem {
   productName?: string
   warehouseId?: string
   warehouseName?: string | null
-  unit: "PIECE" | "DOZEN" | "CARTON"
+  unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
   quantity: number
   unitPrice: number
   totalPrice: number
@@ -556,7 +556,7 @@ export interface StockLossItem {
   lossId: string
   productId: string
   productName: string
-  unit: "PIECE" | "DOZEN" | "CARTON"
+  unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
   quantity: number
   product?: { id: string; name: string; pcsPerCarton: number }
 }

@@ -33,15 +33,19 @@ export function VouchersPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [cancelVoucherId, setCancelVoucherId] = useState<string | null>(null)
   const [deleteVoucherId, setDeleteVoucherId] = useState<string | null>(null)
+
+  const [cancelError, setCancelError] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelVoucher(id),
     onSuccess: () => {
       setCancelVoucherId(null)
+      setCancelError(null)
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
     },
+    onError: (e) => setCancelError(e instanceof Error ? e.message : "تعذر تعطيل السند"),
   })
 
   const deleteMutation = useMutation({
@@ -481,12 +485,12 @@ export function VouchersPage() {
       <ConfirmDialog
         open={!!cancelVoucherId}
         title="تعطيل هذا السند؟"
-        description="سيتم إلغاء تأثيره على حساب الزبون. يمكن استعادته لاحقاً من صفحة التفاصيل."
+        description={cancelError ?? "سيتم إلغاء تأثيره على حساب الزبون. يمكن استعادته لاحقاً من صفحة التفاصيل."}
         confirmLabel="تعطيل"
         destructive
         loading={cancelMutation.isPending}
         onConfirm={() => { if (cancelVoucherId) cancelMutation.mutate(cancelVoucherId) }}
-        onCancel={() => setCancelVoucherId(null)}
+        onCancel={() => { setCancelVoucherId(null); setCancelError(null) }}
       />
       <ConfirmDialog
         open={!!deleteVoucherId}

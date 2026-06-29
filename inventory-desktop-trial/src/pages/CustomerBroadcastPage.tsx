@@ -157,7 +157,7 @@ export function CustomerBroadcastPage() {
     })
   }
 
-  const productsWithoutImage = useMemo(() => selectedProducts.filter((p) => !p.imageUrl).length, [selectedProducts])
+  const productsWithoutImage = useMemo(() => selectedProducts.filter((p) => !(p.thumbnailUrl || p.imageUrl)).length, [selectedProducts])
 
   const canSend = selectedTags.length > 0 && selectedProducts.length > 0 && message.trim().length > 0 && recipientCount > 0
 
@@ -221,7 +221,7 @@ export function CustomerBroadcastPage() {
               <div className="flex flex-wrap gap-2">
                 {selectedProducts.map((p) => (
                   <span key={p.id} className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">
-                    {p.imageUrl ? <img src={p.imageUrl} alt="" className="h-4 w-4 rounded-full object-cover" /> : null}
+                    {(p.thumbnailUrl || p.imageUrl) ? <img src={p.thumbnailUrl || p.imageUrl || ""} alt="" loading="lazy" className="h-4 w-4 rounded-full object-cover" /> : null}
                     {p.name}
                     <button type="button" onClick={() => toggleProduct(p)}><X className="h-3 w-3" /></button>
                   </span>
@@ -244,8 +244,8 @@ export function CustomerBroadcastPage() {
                     onClick={() => toggleProduct(p)}
                     className={"w-full flex items-center gap-2 px-3 py-2 text-right text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 " + (checked ? "bg-indigo-50 dark:bg-indigo-950/20" : "")}
                   >
-                    {p.imageUrl ? (
-                      <img src={p.imageUrl} alt="" className="h-8 w-8 rounded object-cover ring-1 ring-slate-200" />
+                    {(p.thumbnailUrl || p.imageUrl) ? (
+                      <img src={p.thumbnailUrl || p.imageUrl || ""} alt="" loading="lazy" decoding="async" className="h-8 w-8 rounded object-cover ring-1 ring-slate-200" />
                     ) : (
                       <span className="flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-400 dark:bg-slate-800"><Package className="h-4 w-4" /></span>
                     )}

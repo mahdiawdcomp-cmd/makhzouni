@@ -36,9 +36,9 @@ import {
   getPublicReferralInfo,
   getPublicRetailCatalog,
   getPublicRetailCategories,
-  getPublicRetailOrderStatus,
   getPublicRetailOrdersByPhone,
   getPublicRetailOrdersByToken,
+  getPublicRetailOrderStatus,
   getPublicStoreInfo,
   previewPublicRetailCoupon,
   retailAiChat,
@@ -1148,7 +1148,10 @@ function OrdersView({ orders, currency, goCatalog }: { orders: SavedOrder[]; cur
       </div>
 
       {lookupPhone && byPhoneQuery.isLoading && <div className="py-6 text-center text-sm text-slate-400">جاري البحث...</div>}
-      {lookupPhone && !byPhoneQuery.isLoading && phoneOrders.length === 0 && (
+      {lookupPhone && byPhoneQuery.isError && (
+        <div className="py-6 text-center text-sm text-slate-400">البحث برقم الهاتف غير متاح — استخدم رابط طلباتي المحفوظ أعلاه.</div>
+      )}
+      {lookupPhone && !byPhoneQuery.isLoading && !byPhoneQuery.isError && phoneOrders.length === 0 && (
         <div className="py-6 text-center text-sm text-slate-400">لا توجد طلبات لهذا الرقم.</div>
       )}
 
@@ -1183,7 +1186,6 @@ function OrderStatusCard({ order, currency }: { order: SavedOrder; currency: str
     refetchInterval: 30_000,
   })
   const status = statusQuery.data?.status ?? "PENDING"
-
   return (
     <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between">

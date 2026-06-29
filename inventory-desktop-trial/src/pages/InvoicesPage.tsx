@@ -93,19 +93,20 @@ export function InvoicesPage() {
     staleTime: 30_000,
   })
 
-  const cancelMutation = useMutation({
-    mutationFn: (id: string) => cancelInvoice(id),
-    onSuccess: () => {
-      setCancelId(null)
-      void qc.invalidateQueries({ queryKey: ["invoices"] })
-      void qc.invalidateQueries({ queryKey: ["customers"] })
-    },
-  })
-
   const restoreMutation = useMutation({
     mutationFn: (id: string) => restoreArchivedInvoice(id),
     onSuccess: () => {
       setRestoreId(null)
+      void qc.invalidateQueries({ queryKey: ["invoices"] })
+      void qc.invalidateQueries({ queryKey: ["customers"] })
+    },
+    onError: (err: Error) => { alert(err.message) },
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => cancelInvoice(id),
+    onSuccess: () => {
+      setCancelId(null)
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
@@ -234,6 +235,15 @@ export function InvoicesPage() {
                 <Ban className="h-4 w-4" />
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              title="حذف نهائي"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50"
+              onClick={() => setDeleteId(row.original.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
         ),
       },
@@ -241,12 +251,16 @@ export function InvoicesPage() {
     [],
   )
 
+  const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 })
+
   const table = useReactTable({
     data: filtered,
     columns,
     autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    state: { pagination },
+    onPaginationChange: setPagination,
   })
 
   return (
@@ -383,22 +397,18 @@ export function InvoicesPage() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-1">
               {[10, 50, 100].map((n) => (
-                <Button key={n} size="sm" variant={table.getState().pagination.pageSize === n ? "default" : "outline"}
-                  onClick={() => table.setPageSize(n)}>
+                <Button key={n} size="sm" variant={pagination.pageSize === n ? "default" : "outline"}
+                  onClick={() => setPagination({ pageIndex: 0, pageSize: n })}>
                   {n}
                 </Button>
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
-                السابق
-              </Button>
+              <Button variant="outline" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>السابق</Button>
               <span className="text-sm text-slate-500">
                 صفحة {table.getState().pagination.pageIndex + 1} من {table.getPageCount() || 1}
               </span>
-              <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
-                التالي
-              </Button>
+              <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
             </div>
           </div>
           </>
@@ -429,16 +439,10 @@ export function InvoicesPage() {
                     <span className="mx-2 text-slate-400">—</span>
                     <span className="font-medium">{Number(inv.totalAmount).toLocaleString()} د.ع</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" variant="outline" className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                      onClick={() => setRestoreId(inv.id)}>
-                      <Undo2 className="h-3.5 w-3.5" /> استرجاع
-                    </Button>
-                    <Button size="sm" variant="outline" className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50"
-                      onClick={() => setDeleteId(inv.id)}>
-                      <Trash2 className="h-3.5 w-3.5" /> حذف نهائي
-                    </Button>
-                  </div>
+                  <Button size="sm" variant="outline" className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                    onClick={() => setRestoreId(inv.id)}>
+                    <Undo2 className="h-3.5 w-3.5" /> استرجاع
+                  </Button>
                 </div>
               ))}
             </CardContent>
@@ -457,15 +461,6 @@ export function InvoicesPage() {
         onCancel={() => setCancelId(null)}
       />
       <ConfirmDialog
-        open={!!restoreId}
-        title="استرجاع الفاتورة؟"
-        description="سيتم إعادة الفاتورة ويرجع تأثيرها على المخزون والحساب."
-        confirmLabel="استرجاع"
-        loading={restoreMutation.isPending}
-        onConfirm={() => { if (restoreId) restoreMutation.mutate(restoreId) }}
-        onCancel={() => setRestoreId(null)}
-      />
-      <ConfirmDialog
         open={!!deleteId}
         title="حذف هذه الفاتورة نهائياً؟"
         description="سيُحذف من قاعدة البيانات ويرجع المخزون. لا يمكن التراجع عن هذا الإجراء."
@@ -474,6 +469,15 @@ export function InvoicesPage() {
         loading={deleteMutation.isPending}
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId) }}
         onCancel={() => setDeleteId(null)}
+      />
+      <ConfirmDialog
+        open={!!restoreId}
+        title="استرجاع الفاتورة؟"
+        description="سيتم إعادة الفاتورة ويرجع تأثيرها على المخزون والحساب."
+        confirmLabel="استرجاع"
+        loading={restoreMutation.isPending}
+        onConfirm={() => { if (restoreId) restoreMutation.mutate(restoreId) }}
+        onCancel={() => setRestoreId(null)}
       />
     </div>
   )

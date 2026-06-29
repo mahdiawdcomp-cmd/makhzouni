@@ -129,6 +129,7 @@ export function InvoiceCreatePage() {
   const uid = userId ?? "anon"
   const permissions = useAuthStore((s) => s.user?.permissions ?? [])
   const hidePrice = !isPurchase && permissions.includes("VIEW_WITHOUT_PRICES" as never)
+  const canViewPurchasePrice = useAuthStore((s) => s.hasPermission("VIEW_PURCHASE_PRICE"))
 
   // ── Tab ID from URL ──────────────────────────────────────────────────────────
   const urlTid = searchParams.get("tid")
@@ -1424,7 +1425,9 @@ export function InvoiceCreatePage() {
                 {useRetailPrice ? "مفرد" : "جملة"}
               </button>
             )}
-            <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showPurchase ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowPurchase((v) => !v)}>شراء</button>
+            {canViewPurchasePrice && (
+              <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showPurchase ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowPurchase((v) => !v)}>شراء</button>
+            )}
             <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showStock ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowStock((v) => !v)}>كمية</button>
           </div>
           {/* Label on the left side */}
