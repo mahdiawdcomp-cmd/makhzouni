@@ -199,13 +199,34 @@ function describe(log: {
     }
   }
 
+  // Variety convert / open-carton — yellow warning for manager awareness
+  if (log.entity === "variety-convert" && log.action === "CREATE") {
+    const targetName = pickString(after, "targetProductName") ?? "متنوع";
+    const pieces = pickNumber(after, "addedPieces") ?? 0;
+    const meta = safeJson(log.metadata);
+    const fromName = pickString(meta, "fromWarehouseName") ?? "مخزن";
+    const toName = pickString(meta, "toWarehouseName") ?? "مخزن";
+    const sameWarehouse = meta?.sameWarehouse === true;
+    return {
+      id: log.id,
+      createdAt: log.createdAt,
+      severity: "warning",
+      icon: "Boxes",
+      title: sameWarehouse ? "فتح كارتون للمتنوع" : "تحويل إلى متنوع",
+      message: sameWarehouse
+        ? `${actorName} فتح كارتون في ${fromName} → ${pieces} قطعة أُضيفت إلى "${targetName}"`
+        : `${actorName} حوّل ${pieces} قطعة من ${fromName} إلى ${toName} → "${targetName}"`,
+      actor: log.user ?? undefined,
+    };
+  }
+
   return null;
 }
 
 export async function getRecentNotifications(limit = 30) {
   const [logs, catalogOrders] = await Promise.all([
     prisma.auditLog.findMany({
-      where: { entity: { in: ["invoices", "vouchers", "products", "customers"] } },
+      where: { entity: { in: ["invoices", "vouchers", "products", "customers", "variety-convert"] } },
       include: { user: { select: { id: true, name: true, role: true } } },
       orderBy: { createdAt: "desc" },
       take: limit * 2,

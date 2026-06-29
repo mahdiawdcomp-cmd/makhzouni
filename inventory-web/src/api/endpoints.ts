@@ -1052,7 +1052,7 @@ export async function restartWhatsApp() {
 export interface TransferItemPayload {
   productId: string
   quantity: number
-  unit: "PIECE" | "DOZEN" | "CARTON"
+  unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"
 }
 
 export interface CreateTransferPayload {

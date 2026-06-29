@@ -137,7 +137,7 @@ export const addProduct = asyncHandler(async (req, res) => {
 
 export const convertVariety = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
-  const result = await convertToVariety(req.body, user.id);
+  const result = await convertToVariety(req.body, user.id, user.name);
   res.status(201).json({
     success: true,
     message: "تم تحويل المواد إلى المتنوع",

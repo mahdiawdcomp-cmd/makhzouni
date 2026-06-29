@@ -29,6 +29,8 @@ const userPermissionSchema = z.enum([
   "MANAGE_TRANSFERS",
   // Stocktake / inventory-count permissions
   "INVENTORY_MANAGE",
+  // Transfer-only staff: restricted to the transfers/variety-convert page, no prices
+  "VARIETY_CONVERT",
 ]);
 
 const auditEntitySchema = z.enum([
@@ -43,6 +45,7 @@ const auditEntitySchema = z.enum([
   "settings",
   "coupons",
   "quotations",
+  "variety-convert",
 ]);
 
 const auditActionSchema = z.enum(["CREATE", "UPDATE", "DELETE", "REACTIVATE"]);

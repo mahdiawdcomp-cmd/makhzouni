@@ -8,6 +8,7 @@ import {
   resolveShopWarehouseId,
   syncProductTotalStock,
 } from "./warehouse-stock.service";
+import { asAuditJson, createAuditLog } from "./audit-log.service";
 
 export interface VarietyConvertItem {
   productId: string;
@@ -18,7 +19,7 @@ export interface VarietyConvertItem {
 export interface VarietyConvertInput {
   fromWarehouseId: string;
   targetProductId: string;
-  toWarehouseId?: string; // defaults to المحل
+  toWarehouseId?: string; // defaults to المحل; may equal fromWarehouseId (open-carton case)
   items: VarietyConvertItem[];
   allowNegative?: boolean;
   notes?: string;
@@ -34,12 +35,25 @@ function round2(n: number) {
 }
 
 /**
- * Convert many named items from a (big) warehouse into a single generic
- * "variety" product in the shop. The named items are deducted from the source
- * warehouse; the SUM of their pieces is added to the target product in the shop.
- * The target's cost is recomputed as a weighted average so profit stays accurate.
+ * Convert many named items from a warehouse into a single generic "variety"
+ * product.  Supports two modes:
+ *
+ *  1. Cross-warehouse:  fromWarehouseId ≠ toWarehouseId
+ *     — items are deducted from the source, added to the destination.
+ *
+ *  2. Same-warehouse (open-carton):  fromWarehouseId === toWarehouseId
+ *     — the named items are consumed IN the same warehouse and their pieces
+ *       are added to the variety product IN that same warehouse.
+ *       (A worker opened a carton on the shop floor.)
+ *
+ * The target product's costPrice is updated as a weighted average so profit
+ * calculations stay accurate.
  */
-export async function convertToVariety(input: VarietyConvertInput, createdBy: string) {
+export async function convertToVariety(
+  input: VarietyConvertInput,
+  createdBy: string,
+  actorName?: string,
+) {
   if (!input.items?.length) {
     throw new AppError("لا توجد مواد للتحويل", 400, "VARIETY_NO_ITEMS");
   }
@@ -47,16 +61,18 @@ export async function convertToVariety(input: VarietyConvertInput, createdBy: st
   return prisma.$transaction(async (tx) => {
     const toWarehouseId = input.toWarehouseId?.trim() || (await resolveShopWarehouseId(tx));
 
-    if (input.fromWarehouseId === toWarehouseId) {
-      throw new AppError("مخزن المصدر والمحل لا يمكن أن يكونا نفس المخزن", 400, "VARIETY_SAME_WAREHOUSE");
-    }
-
+    // Collect all unique warehouse IDs to validate in one query.
+    const warehouseIds = [...new Set([input.fromWarehouseId, toWarehouseId])];
     const warehouses = await tx.branch.findMany({
-      where: { id: { in: [input.fromWarehouseId, toWarehouseId] }, isActive: true },
-      select: { id: true },
+      where: { id: { in: warehouseIds }, isActive: true },
+      select: { id: true, name: true },
     });
-    if (warehouses.length !== 2) {
-      throw new AppError("المخزن غير موجود أو غير مفعّل", 404, "WAREHOUSE_NOT_FOUND");
+    const warehouseMap = new Map(warehouses.map((w) => [w.id, w.name]));
+    if (!warehouseMap.has(input.fromWarehouseId)) {
+      throw new AppError("مخزن المصدر غير موجود أو غير مفعّل", 404, "WAREHOUSE_NOT_FOUND");
+    }
+    if (!warehouseMap.has(toWarehouseId)) {
+      throw new AppError("مخزن الوجهة غير موجود أو غير مفعّل", 404, "WAREHOUSE_NOT_FOUND");
     }
 
     // Group duplicate (product, unit) lines.
@@ -132,7 +148,7 @@ export async function convertToVariety(input: VarietyConvertInput, createdBy: st
       await syncProductTotalStock(tx, product.id);
     }
 
-    // Add the combined pieces to the variety product in the shop.
+    // Add the combined pieces to the variety product in the destination warehouse.
     const dest = await adjustWarehouseStock(tx, {
       productId: target.id,
       warehouseId: toWarehouseId,
@@ -160,6 +176,35 @@ export async function convertToVariety(input: VarietyConvertInput, createdBy: st
       data: { costPrice: newCost },
     });
     await syncProductTotalStock(tx, target.id);
+
+    // Audit log — powers the "recent notifications" feed for the manager.
+    await tx.auditLog.create({
+      data: {
+        userId: createdBy,
+        action: "CREATE",
+        entity: "variety-convert",
+        recordId: target.id,
+        before: Prisma.JsonNull,
+        after: asAuditJson({
+          targetProductId: target.id,
+          targetProductName: target.name,
+          addedPieces: totalPieces,
+          newCost,
+        }) as Prisma.InputJsonValue,
+        metadata: asAuditJson({
+          fromWarehouseId: input.fromWarehouseId,
+          fromWarehouseName: warehouseMap.get(input.fromWarehouseId) ?? "",
+          toWarehouseId,
+          toWarehouseName: warehouseMap.get(toWarehouseId) ?? "",
+          sameWarehouse: input.fromWarehouseId === toWarehouseId,
+          lines,
+          notes: input.notes ?? null,
+          actorName: actorName ?? "",
+        }) as Prisma.InputJsonValue,
+        ipAddress: null,
+        userAgent: null,
+      },
+    });
 
     return {
       targetProductId: target.id,

@@ -16,6 +16,8 @@ export type UserPermission =
   | "ACCESS_POS"
   | "REQUEST_TRANSFER"
   | "MANAGE_TRANSFERS"
+  | "INVENTORY_MANAGE"
+  | "VARIETY_CONVERT"
 
 export interface ApiEnvelope<T> {
   success: boolean
