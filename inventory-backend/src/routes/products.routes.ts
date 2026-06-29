@@ -48,7 +48,7 @@ router.get("/", validate(listProductsSchema), getProducts);
 router.post("/", validate(createProductSchema), addProduct);
 router.post("/backfill-qr", backfillProductQrs);
 router.post("/backfill-thumbnails", backfillThumbs);
-router.post("/variety-convert", requirePermission("REQUEST_TRANSFER"), validate(varietyConvertSchema), convertVariety);
+router.post("/variety-convert", requirePermission("VARIETY_CONVERT"), validate(varietyConvertSchema), convertVariety);
 router.get("/stale", getStale);
 router.post("/bulk-delete", bulkDelete);
 router.get("/deleted", getDeletedProductsList);

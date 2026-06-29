@@ -114,9 +114,26 @@ export async function convertToVariety(
     }
     const sourceMap = new Map(sources.map((p) => [p.id, p]));
 
+    // Tag validation: if the target has typeTags, every source item must share at least one.
+    const targetTags: string[] = [...(target.typeTags ?? []), ...(target.categoryTags ?? [])];
+    if (targetTags.length > 0) {
+      for (const item of items) {
+        const src = sourceMap.get(item.productId)!;
+        const srcTags: string[] = [...(src.typeTags ?? []), ...(src.categoryTags ?? [])];
+        const hasMatch = targetTags.some((t) => srcTags.includes(t));
+        if (!hasMatch) {
+          throw new AppError(
+            `المادة "${src.name}" لا تحمل تاغاً مناسباً للمتنوع "${target.name}"`,
+            422,
+            "VARIETY_TAG_MISMATCH",
+          );
+        }
+      }
+    }
+
     let totalPieces = 0;
     let totalCost = 0;
-    const lines: Array<{ productId: string; productName: string; pieces: number }> = [];
+    const lines: Array<{ productId: string; productName: string; unit: string; quantity: number; pieces: number }> = [];
 
     for (const item of items) {
       const product = sourceMap.get(item.productId)!;
@@ -144,7 +161,7 @@ export async function convertToVariety(
       const costPerPiece = toNumber(product.costPrice) || toNumber(product.purchasePrice);
       totalPieces += pieces;
       totalCost += pieces * costPerPiece;
-      lines.push({ productId: product.id, productName: product.name, pieces });
+      lines.push({ productId: product.id, productName: product.name, unit: item.unit, quantity: item.quantity, pieces });
       await syncProductTotalStock(tx, product.id);
     }
 
