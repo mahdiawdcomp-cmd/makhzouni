@@ -194,6 +194,7 @@ export function SettingsPage() {
   const branchesQuery = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const customersQuery = useQuery({ queryKey: ["customers", "backup"], queryFn: () => getCustomers() })
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState("")
   const [backupMsg, setBackupMsg] = useState("")
   const [summaryMsg, setSummaryMsg] = useState("")
   const [downloadMsg, setDownloadMsg] = useState("")
@@ -207,10 +208,16 @@ export function SettingsPage() {
 
   const saveSettings = useMutation({
     mutationFn: updateSettings,
+    onMutate: () => setSaveError(""),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] })
       setSaved(true)
+      setSaveError("")
       setTimeout(() => setSaved(false), 2000)
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setSaveError(msg || "✗ فشل حفظ الإعدادات")
     },
   })
 
@@ -479,7 +486,7 @@ export function SettingsPage() {
               <CartonLabelPreview settings={settings} />
             </div>
 
-            <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+            <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
           </CardContent>
         </Card>
       )}
@@ -718,7 +725,7 @@ export function SettingsPage() {
                   <Input type="number" value={settings.inactiveCustomerDays} onChange={(e) => upd("inactiveCustomerDays", Number(e.target.value))} />
                 </Field>
               </div>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -756,7 +763,7 @@ export function SettingsPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+                <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
                 <Button
                   variant="outline"
                   onClick={() => { setSummaryMsg(""); dailySummaryMutation.mutate(); }}
@@ -856,7 +863,7 @@ export function SettingsPage() {
                   </span>
                 )}
               </div>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -886,7 +893,7 @@ export function SettingsPage() {
                   </span>
                 )}
               </div>
-              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
             </CardContent>
           </Card>
 
@@ -1516,13 +1523,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   )
 }
 
-function SaveRow({ onSave, isPending, saved }: { onSave: () => void; isPending: boolean; saved: boolean }) {
+function SaveRow({ onSave, isPending, saved, error }: { onSave: () => void; isPending: boolean; saved: boolean; error?: string }) {
   return (
     <div className="flex items-center gap-3 pt-1">
       <Button onClick={onSave} disabled={isPending}>
         <Save className="h-4 w-4" /> حفظ التغييرات
       </Button>
       {saved ? <span className="text-sm text-emerald-600">✓ تم الحفظ</span> : null}
+      {error ? <span className="text-sm text-red-600">{error}</span> : null}
     </div>
   )
 }
