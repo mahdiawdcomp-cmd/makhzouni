@@ -1420,9 +1420,9 @@ function PieceLabelPreview({ settings }: { settings: AppSettings }) {
   const nameSize = Math.max(12, Number(settings.pieceLabelNameFontSize ?? 14) * 1.12)
   const metaSize = Math.max(10, Number(settings.pieceLabelMetaFontSize ?? 10) * 1.05)
   const lines = [
-    (settings.pieceLabelShowName ?? true) ? { text: "اسم المادة كامل", size: nameSize, weight: "font-bold" } : null,
-    (settings.pieceLabelShowItemNumber ?? true) ? { text: "رقم الايتم: 8011-A4", size: metaSize, weight: "font-semibold" } : null,
-    (settings.pieceLabelShowCartonCount ?? true) ? { text: "العدد في الكارتون: 120", size: metaSize, weight: "font-semibold" } : null,
+    (settings.pieceLabelShowName ?? true) ? { text: "اسم المادة كامل اذا كان طويل جدا ينزل سطر جديد تلقائيا", size: nameSize, weight: "font-bold" } : null,
+    (settings.pieceLabelShowItemNumber ?? true) ? { text: "8011-A4", size: metaSize, weight: "font-semibold" } : null,
+    (settings.pieceLabelShowCartonCount ?? true) ? { text: "120", size: metaSize, weight: "font-semibold" } : null,
   ].filter(Boolean) as Array<{ text: string; size: number; weight: string }>
 
   const qr = (
@@ -1471,9 +1471,9 @@ function CartonLabelPreview({ settings }: { settings: AppSettings }) {
   const nameSize = Math.max(12, Number(settings.cartonLabelNameFontSize ?? 20) * 1.12)
   const metaSize = Math.max(10, Number(settings.cartonLabelMetaFontSize ?? 14) * 1.05)
   const lines = [
-    (settings.cartonLabelShowName ?? true) ? { text: "اسم المادة كامل", size: nameSize, weight: "font-bold" } : null,
-    (settings.cartonLabelShowItemNumber ?? true) ? { text: "رقم الايتم: 8011-A4", size: metaSize, weight: "font-semibold" } : null,
-    (settings.cartonLabelShowPcsPerCarton ?? true) ? { text: "قطعة بالكرتون: 120", size: metaSize, weight: "font-semibold" } : null,
+    (settings.cartonLabelShowName ?? true) ? { text: "اسم المادة كامل اذا كان طويل جدا ينزل سطر جديد تلقائيا", size: nameSize, weight: "font-bold" } : null,
+    (settings.cartonLabelShowItemNumber ?? true) ? { text: "8011-A4", size: metaSize, weight: "font-semibold" } : null,
+    (settings.cartonLabelShowPcsPerCarton ?? true) ? { text: "120", size: metaSize, weight: "font-semibold" } : null,
   ].filter(Boolean) as Array<{ text: string; size: number; weight: string }>
 
   const qr = (

@@ -80,7 +80,38 @@ type TextLine = {
   text: string;
   fontSizePx: number;
   weight: 600 | 700;
+  wrap?: boolean;
 };
+
+function wrapLabelText(text: string, fontSizePx: number, maxWidthPx: number): string[] {
+  const charWidthPx = fontSizePx * 0.58;
+  const maxChars = Math.max(3, Math.floor(maxWidthPx / charWidthPx));
+  if (text.length <= maxChars) return [text];
+  const words = text.split(/\s+/).filter(Boolean);
+  const wrapped: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > maxChars && current) {
+      wrapped.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) wrapped.push(current);
+  return wrapped.length ? wrapped : [text];
+}
+
+function expandWrappedLines(fields: TextLine[], maxWidthPx: number): TextLine[] {
+  return fields.flatMap((field) =>
+    (field.wrap ? wrapLabelText(field.text, field.fontSizePx, maxWidthPx) : [field.text]).map((text) => ({
+      text,
+      fontSizePx: field.fontSizePx,
+      weight: field.weight,
+    })),
+  );
+}
 
 function buildTextLines(
   payload: PieceLabelPayload,
@@ -90,15 +121,16 @@ function buildTextLines(
 
   if (settings.pieceLabelShowName) {
     lines.push({
-      text: clampText(payload.name, 26),
+      text: clampText(payload.name, 60),
       fontSizePx: Math.round(settings.pieceLabelNameFontSize * 3.2),
       weight: 700,
+      wrap: true,
     });
   }
 
   if (settings.pieceLabelShowItemNumber) {
     lines.push({
-      text: `رقم الايتم: ${clampText(payload.itemNumber, 30)}`,
+      text: clampText(payload.itemNumber, 30),
       fontSizePx: Math.round(settings.pieceLabelMetaFontSize * 3),
       weight: 600,
     });
@@ -106,7 +138,7 @@ function buildTextLines(
 
   if (settings.pieceLabelShowCartonCount) {
     lines.push({
-      text: `العدد في الكارتون: ${payload.pcsPerCarton}`,
+      text: String(payload.pcsPerCarton),
       fontSizePx: Math.round(settings.pieceLabelMetaFontSize * 3),
       weight: 600,
     });
@@ -123,8 +155,8 @@ export async function renderPieceLabelPng(
   const widthPx = Math.max(240, Math.round(resolved.labelPieceWidthMm * PX_PER_MM));
   const heightPx = Math.max(180, Math.round(resolved.labelPieceHeightMm * PX_PER_MM));
   const paddingPx = Math.round(resolved.pieceLabelPaddingMm * PX_PER_MM);
-  const lines = buildTextLines(payload, resolved);
-  const qrOnly = resolved.pieceLabelLayout === "qr-only" || lines.length === 0;
+  const fields = buildTextLines(payload, resolved);
+  const qrOnly = resolved.pieceLabelLayout === "qr-only" || fields.length === 0;
   const qrDataUrl = await QRCode.toDataURL(payload.qrCode, {
     margin: 0,
     width: 900,
@@ -144,6 +176,7 @@ export async function renderPieceLabelPng(
     const qrY = paddingPx;
     const textTop = qrY + qrSize + paddingPx * 0.65;
     const rowGap = Math.max(8, Math.round(heightPx * 0.025));
+    const lines = expandWrappedLines(fields, widthPx - paddingPx * 2);
     body = `
       <image href="${qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" preserveAspectRatio="xMidYMid meet" />
       ${lines
@@ -165,6 +198,7 @@ export async function renderPieceLabelPng(
       ? paddingPx
       : qrX + qrSize + paddingPx;
     const textWidth = Math.max(80, textRight - textLeft);
+    const lines = expandWrappedLines(fields, textWidth);
     const contentHeight = lines.reduce((sum, line) => sum + line.fontSizePx, 0) + Math.max(0, lines.length - 1) * 12;
     let cursorY = (heightPx - contentHeight) / 2;
 
@@ -241,21 +275,22 @@ function buildCartonTextLines(
 
   if (settings.cartonLabelShowName) {
     lines.push({
-      text: clampText(payload.name, 26),
+      text: clampText(payload.name, 60),
       fontSizePx: Math.round(settings.cartonLabelNameFontSize * 3.2),
       weight: 700,
+      wrap: true,
     });
   }
   if (settings.cartonLabelShowItemNumber) {
     lines.push({
-      text: `رقم الايتم: ${clampText(payload.itemNumber, 30)}`,
+      text: clampText(payload.itemNumber, 30),
       fontSizePx: Math.round(settings.cartonLabelMetaFontSize * 3),
       weight: 600,
     });
   }
   if (settings.cartonLabelShowPcsPerCarton) {
     lines.push({
-      text: `قطعة بالكرتون: ${payload.pcsPerCarton}`,
+      text: String(payload.pcsPerCarton),
       fontSizePx: Math.round(settings.cartonLabelMetaFontSize * 3),
       weight: 600,
     });
@@ -274,8 +309,8 @@ export async function renderCartonLabelPng(
   const widthPx = Math.max(240, Math.round(resolved.labelCartonWidthMm * PX_PER_MM));
   const heightPx = Math.max(240, Math.round(resolved.labelCartonHeightMm * PX_PER_MM));
   const paddingPx = Math.round(resolved.cartonLabelPaddingMm * PX_PER_MM);
-  const lines = buildCartonTextLines(payload, resolved);
-  const qrOnly = resolved.cartonLabelLayout === "qr-only" || lines.length === 0;
+  const fields = buildCartonTextLines(payload, resolved);
+  const qrOnly = resolved.cartonLabelLayout === "qr-only" || fields.length === 0;
   const qrDataUrl = await QRCode.toDataURL(payload.qrCode, {
     margin: 0,
     width: 900,
@@ -295,6 +330,7 @@ export async function renderCartonLabelPng(
     const qrY = paddingPx;
     const textTop = qrY + qrSize + paddingPx * 0.65;
     const rowGap = Math.max(8, Math.round(heightPx * 0.025));
+    const lines = expandWrappedLines(fields, widthPx - paddingPx * 2);
     body = `
       <image href="${qrDataUrl}" x="${qrX}" y="${qrY}" width="${qrSize}" height="${qrSize}" preserveAspectRatio="xMidYMid meet" />
       ${lines
@@ -316,6 +352,7 @@ export async function renderCartonLabelPng(
       ? paddingPx
       : qrX + qrSize + paddingPx;
     const textWidth = Math.max(80, textRight - textLeft);
+    const lines = expandWrappedLines(fields, textWidth);
     const contentHeight = lines.reduce((sum, line) => sum + line.fontSizePx, 0) + Math.max(0, lines.length - 1) * 12;
     let cursorY = (heightPx - contentHeight) / 2;
 
