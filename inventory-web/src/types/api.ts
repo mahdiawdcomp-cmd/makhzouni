@@ -708,6 +708,7 @@ export interface InventoryValuation {
     category: string
     currentStock: number
     purchasePrice: number
+    costPrice?: number
     salePrice: number
     purchaseValue: number
     saleValue: number

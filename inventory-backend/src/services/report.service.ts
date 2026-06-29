@@ -507,7 +507,13 @@ export async function getInventoryValuationReport() {
 
   const rows = products.map((product) => {
     const quantity = currentStock(product);
-    const purchaseValue = quantity * toNumber(product.purchasePrice);
+    // Inventory is valued at the accounting cost: costPrice first, falling back
+    // to purchasePrice when no cost is set. Same rule as branch.service.ts so
+    // both stock-valuation views agree. purchasePrice now means "last purchase
+    // price" and is kept only for display, not for the valuation math.
+    const unitCost =
+      toNumber(product.costPrice) > 0 ? toNumber(product.costPrice) : toNumber(product.purchasePrice);
+    const purchaseValue = quantity * unitCost;
     const saleValue = quantity * toNumber(product.salePrice);
 
     return {
@@ -517,6 +523,7 @@ export async function getInventoryValuationReport() {
       category: product.category,
       currentStock: quantity,
       purchasePrice: toNumber(product.purchasePrice),
+      costPrice: unitCost,
       salePrice: toNumber(product.salePrice),
       purchaseValue,
       saleValue,
