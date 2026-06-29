@@ -113,6 +113,12 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
         },
       });
 
+      // Freeze the accounting cost at loss time: costPrice first (weighted-average
+      // accounting cost), falling back to purchasePrice (last purchase price) only
+      // when no cost is set. Mirrors the sale-invoice cost snapshot.
+      const costNum = Number(product.costPrice ?? 0);
+      const snapshotCost = costNum > 0 ? costNum : Number(product.purchasePrice ?? 0);
+
       await (tx as typeof prisma).stockLossItem.create({
         data: {
           lossId: loss.id,
@@ -120,7 +126,7 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
           productName: product.name,
           unit: item.unit,
           quantity: item.quantity,
-          costPrice: product.purchasePrice ?? 0,
+          costPrice: snapshotCost,
         },
       });
     }

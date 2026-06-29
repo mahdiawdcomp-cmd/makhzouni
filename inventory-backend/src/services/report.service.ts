@@ -1126,8 +1126,12 @@ export async function getProfitReport(query: ProfitReportQuery) {
   const lossesTotal = Math.round(
     lossItems.reduce((s, item) => {
       const pcs = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
-      // Value damaged goods at the accounting cost (costPrice → purchasePrice).
-      return s + pcs * accountingUnitCost(item.product);
+      // Prefer the frozen snapshot stockLossItem.costPrice (cost at loss time);
+      // fall back to the live accounting cost (costPrice → purchasePrice) only
+      // when the snapshot is missing/zero. Same freeze model as sale invoices.
+      const snapshot = toNumber(item.costPrice);
+      const unitCost = snapshot > 0 ? snapshot : accountingUnitCost(item.product);
+      return s + pcs * unitCost;
     }, 0),
   );
   const expensesTotal = Math.round(
