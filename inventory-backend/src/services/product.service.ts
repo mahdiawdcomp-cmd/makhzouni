@@ -147,16 +147,26 @@ export async function listProducts(query: {
 }) {
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
+  // Smart multi-term search: every whitespace-separated token must match at
+  // least one field (AND across tokens, OR across fields). So "بيبسي 0.5"
+  // matches a product whose name has both, and "AWD-700" still matches the code.
+  const searchTokens = (query.search ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
   const where: Prisma.ProductWhereInput = {
     deletedAt: null,
-    ...(query.search
+    ...(searchTokens.length
       ? {
-          OR: [
-            { name: { contains: query.search, mode: "insensitive" } },
-            { itemNumber: { contains: query.search, mode: "insensitive" } },
-            { qrCode: { contains: query.search, mode: "insensitive" } },
-            { cartonQrCode: { contains: query.search, mode: "insensitive" } },
-          ],
+          AND: searchTokens.map((token) => ({
+            OR: [
+              { name: { contains: token, mode: "insensitive" as const } },
+              { itemNumber: { contains: token, mode: "insensitive" as const } },
+              { qrCode: { contains: token, mode: "insensitive" as const } },
+              { cartonQrCode: { contains: token, mode: "insensitive" as const } },
+              { category: { contains: token, mode: "insensitive" as const } },
+            ],
+          })),
         }
       : {}),
     ...(query.category ? { category: query.category } : {}),

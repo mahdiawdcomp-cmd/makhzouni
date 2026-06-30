@@ -25,7 +25,8 @@ import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials } from "../utils/financial"
-import { barcodeMatchCandidates, findProductByScan } from "../utils/barcode-scan"
+import { findProductByScan } from "../utils/barcode-scan"
+import { matchProduct, matchCustomer } from "../utils/search"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -69,21 +70,10 @@ function effectiveAvailablePcs(item: DraftItem): number {
   return item.product.shopStock ?? stocks.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces ?? 0
 }
 
+// Thin wrapper over the shared smart matcher (utils/search) so invoice search
+// behaves identically to inventory/POS/customers.
 function matchesProduct(product: Product, q: string) {
-  const needle = q.trim().toLowerCase()
-  if (!needle) return true
-  if (
-    product.name.toLowerCase().includes(needle) ||
-    product.itemNumber.toLowerCase().includes(needle) ||
-    (product.qrCode?.toLowerCase().includes(needle) ?? false) ||
-    (product.cartonQrCode?.toLowerCase().includes(needle) ?? false)
-  ) return true
-  // Fallback for a scan garbled by an Arabic keyboard layout (mobile browsers,
-  // where reading the physical key isn't possible): de-arabicize and match codes.
-  const codes = [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].map((c) => c.toLowerCase())
-  return barcodeMatchCandidates(q)
-    .filter((c) => c !== needle)
-    .some((c) => codes.some((code) => !!code && (code === c || (c.length >= 8 && code.includes(c)))))
+  return matchProduct(product, q)
 }
 
 function itemQuantityInPieces(item: DraftItem) {
@@ -291,7 +281,7 @@ export function InvoiceCreatePage() {
   const customerSuggestions = useMemo(
     () =>
       customers
-        .filter((c) => c.name.includes(customerQuery) || c.phone.includes(customerQuery))
+        .filter((c) => matchCustomer(c, customerQuery))
         .slice(0, 8),
     [customers, customerQuery],
   )

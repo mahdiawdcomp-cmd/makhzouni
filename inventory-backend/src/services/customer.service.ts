@@ -228,12 +228,24 @@ export async function listCustomers(query: ListCustomersQuery) {
     ...(query.tags && query.tags.length > 0 ? { tags: { hasSome: query.tags } } : {}),
   };
 
-  if (query.search) {
-    where.OR = [
-      { name: { contains: query.search, mode: "insensitive" } },
-      { phone: { contains: query.search, mode: "insensitive" } },
-      { address: { contains: query.search, mode: "insensitive" } },
-    ];
+  // Smart multi-term search: every token must match name/phone/address (AND
+  // across tokens). Phone tokens also match after stripping separators so
+  // "0770 123" finds "07701234567". Pushed into AND so it never clobbers the
+  // isSupplier OR above.
+  const searchTokens = (query.search ?? "").trim().split(/\s+/).filter(Boolean);
+  if (searchTokens.length) {
+    where.AND = searchTokens.map((token) => {
+      const digits = token.replace(/\D/g, "");
+      const or: Prisma.CustomerWhereInput[] = [
+        { name: { contains: token, mode: "insensitive" } },
+        { phone: { contains: token, mode: "insensitive" } },
+        { address: { contains: token, mode: "insensitive" } },
+      ];
+      if (digits && digits !== token) {
+        or.push({ phone: { contains: digits, mode: "insensitive" } });
+      }
+      return { OR: or };
+    });
   }
 
   if (query.hasDebt !== undefined) {
