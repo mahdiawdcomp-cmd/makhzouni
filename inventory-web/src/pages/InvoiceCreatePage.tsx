@@ -1376,7 +1376,13 @@ export function InvoiceCreatePage() {
                 setWalkInLoading(true)
                 try {
                   const c = await getWalkInCustomer()
-                  if (c) { setSelectedCustomer(c); setCustomerQuery(c.name) }
+                  if (c) {
+                    setSelectedCustomer(c)
+                    setCustomerQuery(c.name)
+                    // A walk-in (الزبون النقدي) sale is paid on the spot — default
+                    // the payment to cash so the user doesn't have to switch it.
+                    setPaymentMode("CASH")
+                  }
                 } catch { /* ignore */ }
                 setWalkInLoading(false)
               }}
