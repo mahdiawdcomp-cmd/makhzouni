@@ -67,7 +67,7 @@ export function StaleProductsPage() {
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <ArchiveX className="h-6 w-6" /> المواد الراكدة
           </h1>
-          <p className="text-sm text-slate-500">المواد التي لم تتحرك (بيع/تحويل/حركة مخزن) منذ مدة — احذفها أو أبقِها.</p>
+          <p className="text-sm text-slate-500">المواد التي كميتها صفر ولم تتحرك (بيع/شراء/تحويل/تعديل/تالف) منذ المدة المحددة — احذفها أو أبقِها.</p>
         </div>
         <Button variant="outline" asChild>
           <Link to="/inventory"><ArrowLeft className="h-4 w-4" /> المخزن</Link>

@@ -809,17 +809,20 @@ export async function getStaleProducts(days = 60) {
   });
 
   const stale = products
-    .filter((p) => {
-      const lastMovement = p.stockMovements[0]?.createdAt;
-      // Stale = either never moved, or last movement is older than the cutoff.
-      return !lastMovement || lastMovement < cutoff;
-    })
     .map((p) => {
       const { stockMovements, ...rest } = p;
       return {
         ...serializeProduct(rest, shopWarehouseId),
         lastMovementAt: stockMovements[0]?.createdAt ?? null,
       };
+    })
+    // "مادة مصفّرة" = BOTH the total stock is zero AND no stock movement (sale,
+    // purchase, transfer, manual adjust, loss) in the window. A product that
+    // still has stock is never listed even if it's been idle.
+    .filter((p) => {
+      const noStock = (p.currentStock ?? 0) <= 0;
+      const idle = !p.lastMovementAt || p.lastMovementAt < cutoff;
+      return noStock && idle;
     });
 
   return { days, cutoff, count: stale.length, data: stale };
