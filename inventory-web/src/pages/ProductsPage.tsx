@@ -28,7 +28,8 @@ import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager
 import { ImageCropModal } from "../components/ImageCropModal"
 import { AdjustStockModal } from "../components/AdjustStockModal"
 import { downloadAndPreviewBlobUrl } from "../utils/download"
-import { useBarcodeScanner, barcodeMatchCandidates } from "../utils/barcode-scan"
+import { useBarcodeScanner } from "../utils/barcode-scan"
+import { matchProduct } from "../utils/search"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -472,17 +473,9 @@ export function ProductsPage() {
   }
 
   const filtered = products.filter((product) => {
-    const matchesSearch =
-      debouncedQuery.trim() === "" ||
-      product.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      product.itemNumber.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      product.qrCode?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      product.cartonQrCode?.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
-      // Fallback for an Arabic-keyboard-garbled scan (mobile): de-arabicize codes.
-      barcodeMatchCandidates(debouncedQuery)
-        .filter((c) => c !== debouncedQuery.trim().toLowerCase())
-        .some((c) => [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""]
-          .some((code) => !!code && (code.toLowerCase() === c || (c.length >= 8 && code.toLowerCase().includes(c)))))
+    // Arabic-aware shared matcher (normalizes أ/إ/آ→ا, ة/ه, ى/ي; multi-term;
+    // keeps the garbled-scan barcode fallback).
+    const matchesSearch = matchProduct(product, debouncedQuery)
     const matchesCategory = category === "all" || product.category === category
     const matchesWarehouse =
       warehouseFilter === "all" ||

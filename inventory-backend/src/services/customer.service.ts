@@ -4,6 +4,7 @@ import { AppError } from "../utils/app-error";
 import { calculateCustomerBalance } from "../utils/financial";
 import { logger } from "../utils/logger";
 import { normalizePhone } from "../utils/phone";
+import { scoreCustomer } from "../utils/arabic-search";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 
@@ -228,28 +229,28 @@ export async function listCustomers(query: ListCustomersQuery) {
     ...(query.tags && query.tags.length > 0 ? { tags: { hasSome: query.tags } } : {}),
   };
 
-  // Smart multi-term search: every token must match name/phone/address (AND
-  // across tokens). Phone tokens also match after stripping separators so
-  // "0770 123" finds "07701234567". Pushed into AND so it never clobbers the
-  // isSupplier OR above.
-  const searchTokens = (query.search ?? "").trim().split(/\s+/).filter(Boolean);
-  if (searchTokens.length) {
-    where.AND = searchTokens.map((token) => {
-      const digits = token.replace(/\D/g, "");
-      const or: Prisma.CustomerWhereInput[] = [
-        { name: { contains: token, mode: "insensitive" } },
-        { phone: { contains: token, mode: "insensitive" } },
-        { address: { contains: token, mode: "insensitive" } },
-      ];
-      if (digits && digits !== token) {
-        or.push({ phone: { contains: digits, mode: "insensitive" } });
-      }
-      return { OR: or };
-    });
-  }
-
   if (query.hasDebt !== undefined) {
     where.currentBalance = query.hasDebt ? { gt: 0 } : { lte: 0 };
+  }
+
+  const hasSearch = (query.search ?? "").trim().length > 0;
+
+  // Search is Arabic-aware (أ/إ/آ→ا, ة/ه, ى/ي) + relevance-ranked + phone
+  // matched on digits only, so it's evaluated in memory rather than via a plain
+  // Prisma `contains`. Benefits web/desktop AND Android (same endpoint).
+  if (hasSearch) {
+    const all = await prisma.customer.findMany({ where, orderBy: [{ name: "asc" }] });
+    const ranked = all
+      .map((customer) => ({ customer, score: scoreCustomer(customer, query.search!) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.customer.name.localeCompare(b.customer.name, "ar"))
+      .map((x) => x.customer);
+    const total = ranked.length;
+    const skip = (query.page - 1) * query.limit;
+    return {
+      data: ranked.slice(skip, skip + query.limit).map(serializeCustomer),
+      pagination: { total, page: query.page, limit: query.limit, pages: Math.ceil(total / query.limit) },
+    };
   }
 
   const skip = (query.page - 1) * query.limit;

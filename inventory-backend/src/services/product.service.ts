@@ -11,6 +11,7 @@ import {
 } from "./warehouse-stock.service";
 import { validateDistribution } from "../utils/warehouse-math";
 import { makeThumbnail } from "../utils/thumbnail";
+import { scoreProduct } from "../utils/arabic-search";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -167,28 +168,12 @@ export async function listProducts(query: {
 }) {
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
-  // Smart multi-term search: every whitespace-separated token must match at
-  // least one field (AND across tokens, OR across fields). So "بيبسي 0.5"
-  // matches a product whose name has both, and "AWD-700" still matches the code.
-  const searchTokens = (query.search ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  const hasSearch = (query.search ?? "").trim().length > 0;
+  // Search/lowStock filters are evaluated in memory (Arabic normalization +
+  // relevance ranking can't be expressed in a plain Prisma `contains`), so the
+  // DB query only carries the structural filters.
   const where: Prisma.ProductWhereInput = {
     deletedAt: null,
-    ...(searchTokens.length
-      ? {
-          AND: searchTokens.map((token) => ({
-            OR: [
-              { name: { contains: token, mode: "insensitive" as const } },
-              { itemNumber: { contains: token, mode: "insensitive" as const } },
-              { qrCode: { contains: token, mode: "insensitive" as const } },
-              { cartonQrCode: { contains: token, mode: "insensitive" as const } },
-              { category: { contains: token, mode: "insensitive" as const } },
-            ],
-          })),
-        }
-      : {}),
     ...(query.category ? { category: query.category } : {}),
     ...(query.branchId
       ? { warehouseStocks: { some: { warehouseId: query.branchId } } }
@@ -197,27 +182,32 @@ export async function listProducts(query: {
 
   const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
 
-  if (query.lowStock) {
+  if (hasSearch || query.lowStock) {
     const rows = await prisma.product.findMany({
       where,
       include: productWarehouseInclude,
       omit: { imageUrl: true }, // list never needs the full image — thumbnailUrl is enough
       orderBy: { name: "asc" },
     });
-    const filtered = rows
-      .map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice))
-      .filter((product) => product.currentStock <= product.minStock);
-    const total = filtered.length;
-    const data = filtered.slice((page - 1) * limit, page * limit);
-
+    let list = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice));
+    if (query.lowStock) {
+      list = list.filter((product) => product.currentStock <= product.minStock);
+    }
+    if (hasSearch) {
+      // Arabic-aware, multi-term, relevance-ranked (exact code → prefix →
+      // phrase → all tokens → some tokens → fuzzy). Benefits web/desktop AND
+      // Android since they all call this endpoint.
+      list = list
+        .map((product) => ({ product, score: scoreProduct(product, query.search!) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name, "ar"))
+        .map((x) => x.product);
+    }
+    const total = list.length;
+    const data = list.slice((page - 1) * limit, page * limit);
     return {
       data,
-      pagination: {
-        total,
-        page,
-        limit,
-        pages: Math.ceil(total / limit),
-      },
+      pagination: { total, page, limit, pages: Math.ceil(total / limit) },
     };
   }
 

@@ -1,7 +1,7 @@
-// Shared, smart entity matchers used across pages so search behaviour is
-// identical everywhere (invoices, POS, inventory, customers) instead of each
-// page re-implementing its own filter. Mirrors the backend smart search:
-// whitespace-separated tokens are AND-ed, each token matches any field.
+// Shared, Arabic-aware entity matchers + ranking used across pages so search
+// behaviour is identical everywhere (invoices, POS, inventory, customers) and
+// matches the backend (utils/arabic-search). Normalization folds أ/إ/آ→ا,
+// ة/ه, ى/ي, strips tashkeel/tatweel, normalizes digits, collapses whitespace.
 import { barcodeMatchCandidates } from "./barcode-scan"
 
 type SearchableProduct = {
@@ -18,49 +18,113 @@ type SearchableCustomer = {
   address?: string | null
 }
 
-function tokens(q: string): string[] {
-  return q.trim().toLowerCase().split(/\s+/).filter(Boolean)
+export function normalizeArabic(input: string): string {
+  if (!input) return ""
+  return input
+    .toLowerCase()
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[ً-ْٰ]/g, "")
+    .replace(/ـ/g, "")
+    .replace(/[آأإٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+  if (!needle) return true
+  let i = 0
+  for (let j = 0; j < haystack.length && i < needle.length; j++) {
+    if (haystack[j] === needle[i]) i++
+  }
+  return i === needle.length
 }
 
 /**
- * Smart product match: every token must hit name / itemNumber / qrCode /
- * cartonQrCode / category. Also tolerates an Arabic-keyboard-garbled scan by
- * matching de-arabicized barcode candidates against the codes.
+ * Relevance score for a product (0 = no match). Mirrors the backend tiers:
+ * 6 exact code · 5 code prefix · 4 whole phrase · 3 all tokens · 2 some · 1 fuzzy.
+ * Also keeps the Arabic-keyboard-garbled barcode fallback for raw scans.
  */
-export function matchProduct(product: SearchableProduct, q: string): boolean {
-  const ts = tokens(q)
-  if (!ts.length) return true
-  const fields = [
-    product.name,
-    product.itemNumber,
-    product.qrCode ?? "",
-    product.cartonQrCode ?? "",
-    product.category ?? "",
-  ].map((f) => f.toLowerCase())
-  const codes = [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].map((c) => c.toLowerCase())
+export function scoreProduct(product: SearchableProduct, q: string): number {
+  const full = normalizeArabic(q)
+  if (!full) return 1
+  const ts = full.split(" ").filter(Boolean)
 
-  return ts.every((token) => {
-    if (fields.some((f) => f.includes(token))) return true
-    // Per-token barcode fallback (de-arabicize a scanned code).
-    return barcodeMatchCandidates(token)
-      .filter((c) => c !== token)
-      .some((c) => codes.some((code) => !!code && (code === c || (c.length >= 8 && code.includes(c)))))
-  })
+  const name = normalizeArabic(product.name)
+  const category = normalizeArabic(product.category ?? "")
+  const codes = [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""]
+    .map((c) => normalizeArabic(c))
+    .filter(Boolean)
+
+  if (codes.some((c) => c === full)) return 6
+  if (codes.some((c) => c.startsWith(full) || full.startsWith(c))) return 5
+  if (name.includes(full)) return 4
+
+  const haystacks = [name, category, ...codes]
+  const hits = ts.filter((t) => haystacks.some((h) => h.includes(t))).length
+  if (hits === ts.length) return 3
+  if (hits > 0) return 2
+  if (ts.every((t) => isSubsequence(t, name))) return 1
+
+  // Last-ditch: an Arabic-keyboard-garbled scan (raw codes only).
+  const rawCodes = [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].map((c) => c.toLowerCase())
+  const matchedScan = barcodeMatchCandidates(q)
+    .filter((c) => c !== q.trim().toLowerCase())
+    .some((c) => rawCodes.some((code) => !!code && (code === c || (c.length >= 8 && code.includes(c)))))
+  return matchedScan ? 5 : 0
 }
 
-/** Smart customer match: tokens AND-ed across name / phone / address. Phone
- *  tokens also match after stripping non-digits ("0770 123" → "07701234567"). */
-export function matchCustomer(customer: SearchableCustomer, q: string): boolean {
-  const ts = tokens(q)
-  if (!ts.length) return true
-  const name = customer.name.toLowerCase()
-  const phone = (customer.phone ?? "").toLowerCase()
-  const address = (customer.address ?? "").toLowerCase()
-  const phoneDigits = phone.replace(/\D/g, "")
+export function matchProduct(product: SearchableProduct, q: string): boolean {
+  if (!q.trim()) return true
+  return scoreProduct(product, q) > 0
+}
 
-  return ts.every((token) => {
-    if (name.includes(token) || phone.includes(token) || address.includes(token)) return true
-    const digits = token.replace(/\D/g, "")
-    return !!digits && phoneDigits.includes(digits)
-  })
+/** Sort a product list by descending relevance to the query (stable on name). */
+export function sortProductsByRelevance<T extends SearchableProduct>(products: T[], q: string): T[] {
+  if (!q.trim()) return products
+  return products
+    .map((product) => ({ product, score: scoreProduct(product, q) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name, "ar"))
+    .map((x) => x.product)
+}
+
+export function scoreCustomer(customer: SearchableCustomer, q: string): number {
+  const full = normalizeArabic(q)
+  if (!full) return 1
+  const ts = full.split(" ").filter(Boolean)
+
+  const name = normalizeArabic(customer.name)
+  const address = normalizeArabic(customer.address ?? "")
+  const phone = (customer.phone ?? "").replace(/\D/g, "")
+  const queryDigits = full.replace(/\D/g, "")
+
+  if (queryDigits && phone === queryDigits) return 6
+  if (queryDigits && phone.startsWith(queryDigits)) return 5
+  if (name.includes(full)) return 4
+
+  const hits = ts.filter(
+    (t) => name.includes(t) || address.includes(t) || (!!t.replace(/\D/g, "") && phone.includes(t.replace(/\D/g, ""))),
+  ).length
+  if (hits === ts.length) return 3
+  if (hits > 0) return 2
+  if (ts.every((t) => isSubsequence(t, name))) return 1
+  return 0
+}
+
+export function matchCustomer(customer: SearchableCustomer, q: string): boolean {
+  if (!q.trim()) return true
+  return scoreCustomer(customer, q) > 0
+}
+
+/** Sort a customer list by descending relevance to the query. */
+export function sortCustomersByRelevance<T extends SearchableCustomer>(customers: T[], q: string): T[] {
+  if (!q.trim()) return customers
+  return customers
+    .map((customer) => ({ customer, score: scoreCustomer(customer, q) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.customer.name.localeCompare(b.customer.name, "ar"))
+    .map((x) => x.customer)
 }

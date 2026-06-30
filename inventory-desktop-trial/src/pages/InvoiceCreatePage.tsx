@@ -26,7 +26,7 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
-import { matchProduct, matchCustomer } from "../utils/search"
+import { sortProductsByRelevance, sortCustomersByRelevance } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
@@ -71,11 +71,6 @@ function effectiveAvailablePcs(item: DraftItem): number {
   return item.product.shopStock ?? stocks.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces ?? 0
 }
 
-// Thin wrapper over the shared smart matcher (utils/search) so invoice search
-// behaves identically to inventory/POS/customers.
-function matchesProduct(product: Product, q: string) {
-  return matchProduct(product, q)
-}
 
 // The walk-in (الزبون النقدي) customer carries a sentinel phone of all zeros.
 // A "real" phone is non-empty and not the placeholder, so we never offer to
@@ -290,14 +285,11 @@ export function InvoiceCreatePage() {
 
   // All customers are eligible for any invoice type (supplier = customer, no distinction)
   const customerSuggestions = useMemo(
-    () =>
-      customers
-        .filter((c) => matchCustomer(c, customerQuery))
-        .slice(0, 8),
+    () => sortCustomersByRelevance(customers, customerQuery).slice(0, 8),
     [customers, customerQuery],
   )
   const productSuggestions = useMemo(
-    () => products.filter((p) => matchesProduct(p, productQuery)),
+    () => sortProductsByRelevance(products, productQuery),
     [products, productQuery],
   )
 
