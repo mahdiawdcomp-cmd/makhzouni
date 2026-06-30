@@ -27,6 +27,7 @@ import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoi
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
 import { matchProduct, matchCustomer } from "../utils/search"
+import { CameraScanModal } from "../components/CameraScanModal"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -186,6 +187,7 @@ export function InvoiceCreatePage() {
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
   const [productModal, setProductModal] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const [productQuery, setProductQuery] = useState("")
   const [productHighlight, setProductHighlight] = useState(0)
   const [showPurchase, setShowPurchase] = useState(false)
@@ -1814,13 +1816,22 @@ export function InvoiceCreatePage() {
       <Dialog open={productModal} onOpenChange={setProductModal}>
         <DialogContent className="max-w-2xl">
           <DialogHeader><DialogTitle>اختيار صنف</DialogTitle></DialogHeader>
-          <Input
-            ref={productSearchRef}
-            placeholder="بحث بالاسم أو رقم الصنف أو الباركود"
-            value={productQuery}
-            onChange={(event) => { setProductQuery(event.target.value); setProductHighlight(0) }}
-            onKeyDown={handleProductSearchKey}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              ref={productSearchRef}
+              className="flex-1"
+              placeholder="بحث بالاسم أو رقم الصنف أو الباركود"
+              value={productQuery}
+              onChange={(event) => { setProductQuery(event.target.value); setProductHighlight(0) }}
+              onKeyDown={handleProductSearchKey}
+            />
+            <button
+              type="button"
+              title="مسح بالكاميرا"
+              onClick={() => setCameraOpen(true)}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-lg hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950"
+            >📷</button>
+          </div>
           <div ref={productListRef} className="max-h-80 overflow-auto">
             {productSuggestions.map((product, idx) => (
               <button
@@ -1853,6 +1864,17 @@ export function InvoiceCreatePage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {cameraOpen && (
+        <CameraScanModal
+          title="مسح صنف بالكاميرا"
+          onDetect={(code) => {
+            setCameraOpen(false)
+            addProductByCode(code)
+          }}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
 
       {/* Full customer-add modal */}
       <Dialog open={quickAddCustomerOpen} onOpenChange={setQuickAddCustomerOpen}>
