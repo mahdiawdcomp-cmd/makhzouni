@@ -77,6 +77,15 @@ function matchesProduct(product: Product, q: string) {
   return matchProduct(product, q)
 }
 
+// The walk-in (الزبون النقدي) customer carries a sentinel phone of all zeros.
+// A "real" phone is non-empty and not the placeholder, so we never offer to
+// send a WhatsApp invoice to a walk-in.
+function hasRealPhone(phone?: string | null): boolean {
+  if (!phone) return false
+  const digits = phone.replace(/\D/g, "")
+  return digits.length > 0 && !/^0+$/.test(digits)
+}
+
 function itemQuantityInPieces(item: DraftItem) {
   if (item.unit === "CARTON") return item.quantity * item.product.pcsPerCarton
   if (item.unit === "DOZEN") return item.quantity * 12
@@ -1101,8 +1110,9 @@ export function InvoiceCreatePage() {
           void queryClient.invalidateQueries({ queryKey: ["order-preparations"] })
         } catch { /* don't block the invoice if completing the prep fails */ }
       }
-      if (showWhatsAppPrompt && !isPurchase && selectedCustomer?.phone) setWhatsappPromptId(id)
-      if (navigateAfterSave && !(!isPurchase && selectedCustomer?.phone)) navigate(`/invoices/${id}`)
+      const customerHasPhone = hasRealPhone(selectedCustomer?.phone)
+      if (showWhatsAppPrompt && !isPurchase && customerHasPhone) setWhatsappPromptId(id)
+      if (navigateAfterSave && !(!isPurchase && customerHasPhone)) navigate(`/invoices/${id}`)
       }
       return id
     } catch (error) {

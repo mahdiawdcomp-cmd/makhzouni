@@ -146,6 +146,11 @@ const linePrice = (product: PublicCatalogProduct, unit: CatalogUnit) =>
 const maxQty = (product: PublicCatalogProduct, unit: CatalogUnit) =>
   Math.floor(product.currentStock / pcs(product, unit))
 
+// Carton-only catalog: a product is sellable only if it has at least one full
+// carton. Products with pcsPerCarton ≤ 0 (or no carton size) never qualify.
+const hasFullCarton = (product: PublicCatalogProduct) =>
+  product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton
+
 const key = (productId: string, unit: CatalogUnit) => `${productId}:${unit}`
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -504,7 +509,7 @@ function CatalogShop({
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     let result = products.filter((p) => {
-      if (p.currentStock <= 0) return false
+      if (!hasFullCarton(p)) return false
       if (category !== "all") {
         const tags = p.categoryTags ?? []
         const inCat = tags.length > 0 ? tags.includes(category) : p.category === category
@@ -525,8 +530,8 @@ function CatalogShop({
 
   const suggestions = visible.slice(0, 6)
   const showSections = category === "all" && typeFilter === "all" && !search.trim()
-  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && p.currentStock > 0).slice(0, 12), [products])
-  const offers = useMemo(() => products.filter(p => p.isOffer && p.currentStock > 0).slice(0, 12), [products])
+  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && hasFullCarton(p)).slice(0, 12), [products])
+  const offers = useMemo(() => products.filter(p => p.isOffer && hasFullCarton(p)).slice(0, 12), [products])
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
@@ -852,7 +857,7 @@ function CatalogShop({
         const slides: Array<{ src: string; title: string; subtitle?: string }> =
           adminImgs.length >= 2
             ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
-            : products.filter(p => (p.thumbnailUrl || p.imageUrl) && p.currentStock > 0).slice(0, 8).map(p => ({
+            : products.filter(p => (p.thumbnailUrl || p.imageUrl) && hasFullCarton(p)).slice(0, 8).map(p => ({
                 src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
                 subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
               }))

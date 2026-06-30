@@ -17,7 +17,13 @@ export function CameraScanModal({
   title?: string
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Detect BarcodeDetector support up-front (lazy initial state) so we never
+  // call setState synchronously inside the effect.
+  const [error, setError] = useState<string | null>(() =>
+    typeof window !== "undefined" && !(window as { BarcodeDetector?: unknown }).BarcodeDetector
+      ? "هذا المتصفح لا يدعم مسح الباركود بالكاميرا. استخدم قارئ باركود أو متصفح حديث."
+      : null,
+  )
   const detectedRef = useRef(false)
 
   useEffect(() => {
@@ -27,10 +33,7 @@ export function CameraScanModal({
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Detector = (window as any).BarcodeDetector
-    if (!Detector) {
-      setError("هذا المتصفح لا يدعم مسح الباركود بالكاميرا. استخدم قارئ باركود أو متصفح حديث.")
-      return
-    }
+    if (!Detector) return
     const detector = new Detector({
       formats: ["qr_code", "ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "itf"],
     })
@@ -84,7 +87,6 @@ export function CameraScanModal({
           <p className="py-6 text-center text-sm text-amber-600">{error}</p>
         ) : (
           <div className="relative overflow-hidden rounded-xl bg-black">
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
             <video ref={videoRef} className="h-64 w-full object-cover" muted playsInline />
             <div className="pointer-events-none absolute inset-8 rounded-lg border-2 border-emerald-400/80" />
           </div>
