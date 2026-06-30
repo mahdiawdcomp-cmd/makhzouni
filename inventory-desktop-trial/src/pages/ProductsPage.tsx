@@ -26,8 +26,9 @@ import { Badge } from "../components/ui/badge"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
 import { deliverLabel } from "../utils/download"
-import { useBarcodeScanner } from "../utils/barcode-scan"
+import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { matchProduct } from "../utils/search"
+import { CameraScanModal } from "../components/CameraScanModal"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -377,6 +378,9 @@ export function ProductsPage() {
   const debouncedQuery = useDebounce(query, 250)
   const [category, setCategory] = useState("all")
   const [warehouseFilter, setWarehouseFilter] = useState<string>("all")
+  // Camera scan target: "search" opens the matching product card; "qrCode"/
+  // "cartonQrCode" fill the form field. null = scanner closed.
+  const [scanTarget, setScanTarget] = useState<null | "search" | "qrCode" | "cartonQrCode">(null)
   const [lowOnly, setLowOnly] = useState(false)
   const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "stock" | "category">("all")
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
@@ -698,7 +702,15 @@ export function ProductsPage() {
         </CardHeader>
         <CardContent className="space-y-4 p-3 md:p-5">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_180px_180px_220px]">
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالاسم أو رقم الآيتم أو الباركود" />
+            <div className="flex items-center gap-2">
+              <Input className="flex-1" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالاسم أو رقم الآيتم أو الباركود" />
+              <button
+                type="button"
+                title="مسح بالكاميرا"
+                onClick={() => setScanTarget("search")}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-lg hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950"
+              >📷</button>
+            </div>
             <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">كل الفئات</option>
               {categories.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -1437,10 +1449,16 @@ export function ProductsPage() {
             </div>
             <div className="grid grid-cols-2 gap-2 sm:gap-3">
               <Field label="باركود القطعة" hint={editing ? "" : "اتركه فارغاً للتوليد التلقائي"}>
-                <Input placeholder="تلقائي" value={form.qrCode ?? ""} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
+                <div className="flex items-center gap-2">
+                  <Input className="flex-1" placeholder="تلقائي" value={form.qrCode ?? ""} onChange={(event) => setForm({ ...form, qrCode: event.target.value })} />
+                  <button type="button" title="مسح بالكاميرا" onClick={() => setScanTarget("qrCode")} className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-lg hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950">📷</button>
+                </div>
               </Field>
               <Field label="باركود الكرتون" hint={editing ? "" : "اتركه فارغاً للتوليد التلقائي"}>
-                <Input placeholder="تلقائي" value={form.cartonQrCode ?? ""} onChange={(event) => setForm({ ...form, cartonQrCode: event.target.value })} />
+                <div className="flex items-center gap-2">
+                  <Input className="flex-1" placeholder="تلقائي" value={form.cartonQrCode ?? ""} onChange={(event) => setForm({ ...form, cartonQrCode: event.target.value })} />
+                  <button type="button" title="مسح بالكاميرا" onClick={() => setScanTarget("cartonQrCode")} className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-lg hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950">📷</button>
+                </div>
               </Field>
             </div>
           </div>
@@ -1485,6 +1503,24 @@ export function ProductsPage() {
           إضافة منتج
         </Button>
       ) : null}
+
+      {scanTarget && (
+        <CameraScanModal
+          title={scanTarget === "search" ? "مسح مادة بالكاميرا" : "مسح الباركود"}
+          onDetect={(code) => {
+            const target = scanTarget
+            setScanTarget(null)
+            if (target === "search") {
+              setQuery(code)
+              const found = findProductByScan(products, code)
+              if (found) startEdit(found.product)
+            } else {
+              setForm((f) => ({ ...f, [target]: code }))
+            }
+          }}
+          onClose={() => setScanTarget(null)}
+        />
+      )}
 
       <ConfirmDialog
         open={closeProductConfirm}
