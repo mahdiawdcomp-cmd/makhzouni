@@ -115,6 +115,26 @@ async function nextItemNumber(db: Db): Promise<string> {
   return candidate;
 }
 
+// Friendly duplicate-itemNumber guard. itemNumber is globally unique (the DB
+// constraint ignores deletedAt), so a clash can be an active OR a soft-deleted
+// product — we say which, instead of surfacing a raw P2002.
+async function assertItemNumberAvailable(db: Db, itemNumber: string, excludeId?: string) {
+  const trimmed = itemNumber.trim();
+  if (!trimmed) return;
+  const clash = await db.product.findUnique({
+    where: { itemNumber: trimmed },
+    select: { id: true, name: true, deletedAt: true },
+  });
+  if (clash && clash.id !== excludeId) {
+    const where = clash.deletedAt ? "محذوفة" : "موجودة";
+    throw new AppError(
+      `رقم الآيتم «${trimmed}» مستخدم مسبقاً لمادة ${where}: «${clash.name}». اختر رقماً آخر.`,
+      409,
+      "ITEM_NUMBER_IN_USE"
+    );
+  }
+}
+
 function generateQrCode() {
   return `PCS-${randomUUID()}`;
 }
@@ -445,6 +465,10 @@ export async function createProduct(
   // Auto-generate item number / QR codes if not provided.
   const runner = async (tx: Db) => {
     const itemNumber = input.itemNumber?.trim() || (await nextItemNumber(tx));
+    // User-supplied number: fail early with a clear Arabic message instead of P2002.
+    if (input.itemNumber?.trim()) {
+      await assertItemNumberAvailable(tx, itemNumber);
+    }
     const { qrCode, cartonQrCode } = normalizeQrCodes(input);
 
     const warehouseId = await resolveWarehouseId(tx, input.branchId);
@@ -568,7 +592,10 @@ export async function updateProduct(
     beforeByWarehouse.set(s.warehouseId, s.quantityPieces);
   }
   const data: Prisma.ProductUpdateInput = {};
-  if (input.itemNumber !== undefined) data.itemNumber = input.itemNumber;
+  if (input.itemNumber !== undefined) {
+    await assertItemNumberAvailable(tx, input.itemNumber, id);
+    data.itemNumber = input.itemNumber;
+  }
   if (input.name !== undefined) data.name = input.name;
   if (input.qrCode !== undefined || input.cartonQrCode !== undefined) {
     const nextQrCode = input.qrCode !== undefined ? input.qrCode : existing.qrCode;
