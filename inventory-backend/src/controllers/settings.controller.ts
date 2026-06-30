@@ -1,7 +1,7 @@
 import { asyncHandler } from "../utils/async-handler";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { runWeeklyBackup, runDailySummaryJob } from "../services/notification-jobs.service";
-import { generateFullBackup, sendBackupToTelegram } from "../services/backup.service";
+import { generateFullBackup, generateChangesSince, sendBackupToTelegram } from "../services/backup.service";
 import {
   wipeOperationalData,
   mergeWarehouses,
@@ -54,6 +54,36 @@ export const downloadBackup = asyncHandler(async (req, res) => {
   const json = JSON.stringify(backup, null, 2);
   const date = new Date().toISOString().slice(0, 10);
   const filename = `makhzouni-backup-${date}.json`;
+
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Length", Buffer.byteLength(json, "utf-8"));
+  res.send(json);
+});
+
+/** GET /api/settings/backup/changes?since=ISO — streams ONLY records changed
+ *  after `since` as a JSON file. For the experimental incremental backup system.
+ *  Same auth as downloadBackup (admin JWT OR ?secret=BACKUP_SECRET).
+ */
+export const downloadChanges = asyncHandler(async (req, res) => {
+  const querySecret = String(req.query.secret ?? "");
+  const envSecret = process.env.BACKUP_SECRET ?? "";
+  if (querySecret && envSecret && querySecret !== envSecret) {
+    res.status(401).json({ success: false, message: "Invalid backup secret" });
+    return;
+  }
+
+  const sinceRaw = String(req.query.since ?? "");
+  const since = new Date(sinceRaw);
+  if (!sinceRaw || Number.isNaN(since.getTime())) {
+    res.status(400).json({ success: false, message: "Query param 'since' must be a valid ISO date" });
+    return;
+  }
+
+  const changes = await generateChangesSince(since);
+  const json = JSON.stringify(changes, null, 2);
+  const date = new Date().toISOString().slice(0, 10);
+  const filename = `makhzouni-changes-${date}.json`;
 
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

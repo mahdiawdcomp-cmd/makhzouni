@@ -5,6 +5,7 @@ import {
   triggerManualBackup,
   triggerDailySummary,
   downloadBackup,
+  downloadChanges,
   sendTelegramBackup,
   wipeOperational,
   mergeWarehousesHandler,
@@ -30,6 +31,7 @@ const router = Router();
 // Secret-based download (no login needed — for auto-download scripts)
 // Must be registered BEFORE authMiddleware
 router.get("/backup/download", backupLimiter, downloadBackup);
+router.get("/backup/changes", backupLimiter, downloadChanges);
 
 router.use(authMiddleware);
 

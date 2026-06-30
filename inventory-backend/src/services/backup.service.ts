@@ -135,6 +135,155 @@ export async function generateFullBackup(): Promise<BackupData> {
   };
 }
 
+export interface ChangesData {
+  version: string;
+  type: "changes";
+  since: string;
+  generatedAt: string;
+  storeName: string;
+  counts: Record<string, number>;
+  /** IDs soft-deleted after `since`, per table, so a restore knows to remove them. */
+  deletedIds: Record<string, string[]>;
+  users: unknown[];
+  products: unknown[];
+  customers: unknown[];
+  invoices: unknown[];
+  vouchers: unknown[];
+  quotations: unknown[];
+  branches: unknown[];
+  coupons: unknown[];
+  messageTemplates: unknown[];
+  settings: unknown[];
+  stockMovements: unknown[];
+  transfers: unknown[];
+  auditLogs: unknown[];
+}
+
+/**
+ * Exports ONLY records changed/created/deleted after `since` — for the
+ * experimental incremental backup system. Read-only; does NOT touch the
+ * full-backup path. Filter strategy per table:
+ *  - has updatedAt + deletedAt (Product, Customer): updatedAt > since OR deletedAt > since
+ *  - has updatedAt only (User, Branch, Setting, Transfer, Quotation, StockLoss,
+ *    Coupon, MessageTemplate): updatedAt > since
+ *  - append-only / createdAt only (Invoice, PaymentVoucher, StockMovement,
+ *    AuditLog): createdAt > since
+ *  - child tables: included via parent's `include` (no independent filter).
+ */
+export async function generateChangesSince(since: Date): Promise<ChangesData> {
+  const settings = await getSettings();
+
+  const [
+    users,
+    products,
+    customers,
+    invoices,
+    vouchers,
+    quotations,
+    branches,
+    coupons,
+    messageTemplates,
+    settingsRows,
+    stockMovements,
+    transfers,
+    auditLogs,
+    deletedProducts,
+    deletedCustomers,
+  ] = await Promise.all([
+    prisma.user.findMany({
+      where: { updatedAt: { gt: since } },
+      select: {
+        id: true, name: true, username: true, role: true,
+        permissions: true, isActive: true, createdAt: true,
+        // passwordHash intentionally excluded
+      },
+    }),
+    prisma.product.findMany({
+      where: { OR: [{ updatedAt: { gt: since } }, { deletedAt: { gt: since } }] },
+    }),
+    prisma.customer.findMany({
+      where: { OR: [{ updatedAt: { gt: since } }, { deletedAt: { gt: since } }] },
+    }),
+    prisma.invoice.findMany({
+      where: { createdAt: { gt: since } },
+      include: { items: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.paymentVoucher.findMany({
+      where: { createdAt: { gt: since } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.quotation.findMany({
+      where: { updatedAt: { gt: since } },
+      include: { items: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.branch.findMany({ where: { updatedAt: { gt: since } } }),
+    prisma.coupon.findMany({ where: { updatedAt: { gt: since } } }),
+    prisma.messageTemplate.findMany({ where: { updatedAt: { gt: since } } }),
+    prisma.setting.findMany({ where: { updatedAt: { gt: since } } }),
+    prisma.stockMovement.findMany({
+      where: { createdAt: { gt: since } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.inventoryTransfer.findMany({
+      where: { updatedAt: { gt: since } },
+      include: { items: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.auditLog.findMany({
+      where: { createdAt: { gt: since } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.product.findMany({
+      where: { deletedAt: { gt: since } },
+      select: { id: true },
+    }),
+    prisma.customer.findMany({
+      where: { deletedAt: { gt: since } },
+      select: { id: true },
+    }),
+  ]);
+
+  return {
+    version: "2.1",
+    type: "changes",
+    since: since.toISOString(),
+    generatedAt: new Date().toISOString(),
+    storeName: settings.storeName,
+    counts: {
+      users: users.length,
+      products: products.length,
+      customers: customers.length,
+      invoices: invoices.length,
+      vouchers: vouchers.length,
+      quotations: quotations.length,
+      branches: branches.length,
+      coupons: coupons.length,
+      stockMovements: stockMovements.length,
+      transfers: transfers.length,
+      auditLogs: auditLogs.length,
+    },
+    deletedIds: {
+      products: deletedProducts.map((p) => p.id),
+      customers: deletedCustomers.map((c) => c.id),
+    },
+    users,
+    products,
+    customers,
+    invoices,
+    vouchers,
+    quotations,
+    branches,
+    coupons,
+    messageTemplates,
+    settings: settingsRows,
+    stockMovements,
+    transfers,
+    auditLogs,
+  };
+}
+
 /** Sends a backup JSON file to a Telegram chat via Bot API. */
 export async function sendBackupToTelegram(
   botToken: string,
