@@ -48,7 +48,9 @@ const UNIT_DESC: Record<CatalogUnit, (pcsPerCarton: number) => string> = {
   BOX: (n) => `${Math.ceil(n / 2)} قطعة — نصف كارتون`,
   CARTON: (n) => `${n} قطعة`,
 }
-const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
+// Wholesale catalog sells by the carton only — pieces/dozens/boxes are hidden
+// so customers can't order loose units from the جملة storefront.
+const UNITS: CatalogUnit[] = ["CARTON"]
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
 interface ThemeTokens {
@@ -563,7 +565,7 @@ function CatalogShop({
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
-  function add(product: PublicCatalogProduct, unit: CatalogUnit = "PIECE") {
+  function add(product: PublicCatalogProduct, unit: CatalogUnit = "CARTON") {
     const max = maxQty(product, unit)
     if (max < 1) return
     setSubmitted(null)
@@ -701,7 +703,7 @@ function CatalogShop({
                       <MiniThumb product={p} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium" style={{ color: tk.text }}>{p.name}</span>
-                        <span className="text-xs" style={{ color: tk.subtext }}>{p.itemNumber}{showStock ? ` · ${money(p.currentStock)} قطعة` : ""}</span>
+                        <span className="text-xs" style={{ color: tk.subtext }}>{p.itemNumber}{showStock ? ` · ${money(Math.floor(p.currentStock / Math.max(1, p.pcsPerCarton)))} كارتون` : ""}</span>
                       </span>
                       {allowPrices && <span className="shrink-0 text-xs font-bold" style={{ color: tk.accent }}>{money(p.salePrice)} د.ع</span>}
                     </button>
@@ -1079,11 +1081,13 @@ function UnitPickerSheet({
           <div className="min-w-0 flex-1">
             <p className="line-clamp-2 text-sm font-bold" style={{ color: tk.text }}>{product.name}</p>
             <p className="text-xs" style={{ color: tk.subtext }}>{product.itemNumber}</p>
-            {showStock && (
-              <p className="text-xs font-semibold" style={{ color: product.currentStock <= 5 ? "#ef4444" : tk.subtext }}>
-                {product.currentStock <= 5 ? `⚠️ ${product.currentStock} قطعة متبقية` : `${money(product.currentStock)} قطعة متوفرة`}
+            {showStock && (() => {
+              const cartonsAvail = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton))
+              return (
+              <p className="text-xs font-semibold" style={{ color: cartonsAvail <= 2 ? "#ef4444" : tk.subtext }}>
+                {cartonsAvail <= 2 ? `⚠️ ${cartonsAvail} كارتون متبقي` : `${money(cartonsAvail)} كارتون متوفر`}
               </p>
-            )}
+              )})()}
           </div>
           <button onClick={onClose} className="shrink-0 rounded-xl p-2" style={{ background: tk.catIdle }}>
             <X className="h-5 w-5" style={{ color: tk.subtext }} />
@@ -1180,8 +1184,8 @@ function ProductCard({
 }) {
   const outOfStock = product.currentStock <= 0
   const lowStock = product.currentStock > 0 && product.currentStock <= 5
-  // Price shown is for PIECE by default (when not in cart) or the cart unit
-  const displayUnit = cartUnit ?? "PIECE"
+  // Price shown is per CARTON by default (when not in cart) or the cart unit
+  const displayUnit = cartUnit ?? "CARTON"
   const displayPrice = linePrice(product, displayUnit)
   // canAddMore: if single unit type in cart, check that unit's limit; else check total pieces vs stock
   const canAddMore = !outOfStock && (
@@ -1235,7 +1239,7 @@ function ProductCard({
               )}
               {showStock && !outOfStock && (
                 <p className="text-[9px] mt-0.5" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
-                  {lowStock ? `⚠ ${product.currentStock} متبقية` : `${money(product.currentStock)} متوفر`}
+                  {(() => { const c = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)); return lowStock ? `⚠ ${c} كرتون متبقي` : `${money(c)} كرتون متوفر` })()}
                 </p>
               )}
             </div>
@@ -1367,7 +1371,7 @@ function ProductCard({
             {outOfStock && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold text-white">نفد</span>}
             {showStock && !outOfStock && (
               <p className="text-[8px] leading-none mt-0.5" style={{ color: lowStock ? "#fca5a5" : "rgba(255,255,255,0.65)" }}>
-                {lowStock ? `⚠ ${product.currentStock} متبقية` : `${money(product.currentStock)} قطعة`}
+                {(() => { const c = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)); return lowStock ? `⚠ ${c} كرتون متبقي` : `${money(c)} كرتون` })()}
               </p>
             )}
           </div>
