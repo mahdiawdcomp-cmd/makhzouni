@@ -5,10 +5,13 @@ import com.inventory.data.local.ProductEntity
 import com.inventory.data.remote.ApiClient
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.NetworkMonitor
+import com.inventory.data.remote.dto.AdjustStockRequest
+import com.inventory.data.remote.dto.AdjustStockWarehouse
 import com.inventory.data.remote.dto.BranchDto
 import com.inventory.data.remote.dto.CatalogCategoryDto
 import com.inventory.data.remote.dto.ProductDto
 import com.inventory.data.remote.dto.ProductMovementDto
+import com.inventory.data.remote.dto.StockHistoryEntryDto
 import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.domain.model.CatalogCategory
 import com.inventory.domain.model.Product
@@ -152,6 +155,34 @@ class ProductRepository @Inject constructor(
             ApiResult.Success(Unit)
         } catch (error: Exception) {
             ApiResult.Error(error.message ?: "تعذر استرجاع المادة")
+        }
+    }
+
+    /** Manual per-warehouse stock adjustment (records an audit movement). */
+    suspend fun adjustStock(
+        id: String,
+        warehouses: List<AdjustStockWarehouse>,
+        note: String? = null,
+    ): ApiResult<Product> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            val dto = apiClient.api.adjustStock(id, AdjustStockRequest(warehouses, note)).data
+                ?: return ApiResult.Error("تعذر تعديل الكمية")
+            val entity = dto.toEntity()
+            productDao.upsertAll(listOf(entity))
+            ApiResult.Success(entity.toDomain())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تعديل الكمية")
+        }
+    }
+
+    /** Unified stock-movement ledger for one product (most recent first). */
+    suspend fun stockHistory(id: String): ApiResult<List<StockHistoryEntryDto>> {
+        if (!networkMonitor.isOnline()) return ApiResult.Offline
+        return try {
+            ApiResult.Success(apiClient.api.getStockHistory(id).data.orEmpty())
+        } catch (error: Exception) {
+            ApiResult.Error(error.message ?: "تعذر تحميل سجل الحركة")
         }
     }
 

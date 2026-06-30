@@ -306,6 +306,32 @@ data class UpsertProductRequest(
     val warehouseDistribution: List<WarehouseDistributionItem>? = null,
 )
 
+// Manual per-warehouse stock adjustment (matches POST products/{id}/adjust-stock).
+data class AdjustStockRequest(
+    val warehouses: List<AdjustStockWarehouse>,
+    val note: String? = null,
+)
+
+data class AdjustStockWarehouse(
+    val warehouseId: String,
+    val quantityPieces: Int,
+)
+
+// One row of the unified stock-movement ledger (GET products/{id}/stock-history).
+data class StockHistoryEntryDto(
+    val id: String,
+    val type: String,
+    val quantity: Int,
+    val balanceBefore: Int,
+    val balanceAfter: Int,
+    val warehouseName: String? = null,
+    val userName: String? = null,
+    val note: String? = null,
+    val source: String,
+    val reference: String? = null,
+    val createdAt: String,
+)
+
 data class BranchDto(
     val id: String,
     val name: String,

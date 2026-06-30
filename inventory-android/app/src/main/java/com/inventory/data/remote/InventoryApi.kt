@@ -140,6 +140,15 @@ interface InventoryApi {
     @POST("products/{id}/restore")
     suspend fun restoreProduct(@Path("id") id: String): ApiEnvelope<ProductDto>
 
+    @POST("products/{id}/adjust-stock")
+    suspend fun adjustStock(
+        @Path("id") id: String,
+        @Body body: AdjustStockRequest
+    ): ApiEnvelope<ProductDto>
+
+    @GET("products/{id}/stock-history")
+    suspend fun getStockHistory(@Path("id") id: String): ApiEnvelope<List<StockHistoryEntryDto>>
+
     @GET("reports/products/movement")
     suspend fun getProductMovement(
         @Query("productId") productId: String,
