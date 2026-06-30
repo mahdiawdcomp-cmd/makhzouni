@@ -503,6 +503,18 @@ export async function createProduct(
       }
       await syncProductTotalStock(tx, product.id);
     } else {
+      // No distribution given. With opening stock AND more than one warehouse, we
+      // can't guess where it lives unless the caller explicitly named a branch.
+      if (totalPieces > 0 && !input.branchId) {
+        const activeCount = await tx.branch.count({ where: { isActive: true } });
+        if (activeCount > 1) {
+          throw new AppError(
+            "وزّع الكمية على المخازن أو حدّد المخزن قبل الحفظ (لا يمكن إضافة كمية بدون تحديد المخزن).",
+            400,
+            "WAREHOUSE_REQUIRED_FOR_QUANTITY"
+          );
+        }
+      }
       await upsertWarehouseStock(tx, {
         productId: product.id,
         warehouseId,
@@ -624,37 +636,74 @@ export async function updateProduct(
     const warehouseMetadataWasEdited =
       input.storageLocation !== undefined || input.minStock !== undefined;
 
-    if (input.branchId !== undefined || quantityWasEdited || warehouseMetadataWasEdited) {
-      const warehouseId = await resolveWarehouseId(tx, input.branchId ?? product.branchId);
-      const pcsPerCarton = input.pcsPerCarton ?? product.pcsPerCarton;
-      const targetStock = existing.warehouseStocks?.find(
-        (stock: any) => stock.warehouseId === warehouseId
-      );
-      const targetPieces = targetStock?.quantityPieces ?? 0;
-      const targetCartons = targetPieces >= 0 ? Math.floor(targetPieces / pcsPerCarton) : 0;
-      const targetLoosePieces = targetPieces - targetCartons * pcsPerCarton;
-      const quantityPieces = quantityWasEdited
-        ? (input.openingBalancePcs ?? targetLoosePieces) +
-          (input.cartonsAvailable ?? targetCartons) * pcsPerCarton
-        : undefined;
+    // How many warehouses can hold stock right now. Bare quantity edits (no
+    // explicit per-warehouse distribution) are only unambiguous when there is a
+    // single warehouse — otherwise writing the GLOBAL total onto one guessed
+    // warehouse is exactly what corrupted sibling depots (e.g. شارع العباس).
+    const activeWarehouses = await tx.branch.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+    const pcsPerCarton = input.pcsPerCarton ?? product.pcsPerCarton;
 
+    if (quantityWasEdited) {
+      const currentTotalPieces =
+        existing.openingBalancePcs + existing.cartonsAvailable * existing.pcsPerCarton;
+      const requestedTotalPieces =
+        (input.openingBalancePcs ?? existing.openingBalancePcs) +
+        (input.cartonsAvailable ?? existing.cartonsAvailable) * pcsPerCarton;
+
+      if (activeWarehouses.length > 1) {
+        // Multi-warehouse shop: a bare quantity field cannot say WHICH warehouse
+        // changed. If the total actually changed, reject and force the caller to
+        // send `warehouseDistribution` (or use the per-warehouse adjust-stock
+        // endpoint). If it's unchanged (a plain re-save of a non-stock field),
+        // ignore it silently so normal edits don't break.
+        if (requestedTotalPieces !== currentTotalPieces) {
+          throw new AppError(
+            "حدّد المخزن ووزّع الكمية على المخازن عند تغيير الكمية (لا يمكن تعديل الكمية بدون تحديد المخزن).",
+            400,
+            "WAREHOUSE_REQUIRED_FOR_QUANTITY"
+          );
+        }
+      } else {
+        // Single warehouse: global total == that warehouse, so it's unambiguous.
+        const warehouseId = await resolveWarehouseId(tx, product.branchId);
+        const targetPieces =
+          existing.warehouseStocks?.find((stock: any) => stock.warehouseId === warehouseId)
+            ?.quantityPieces ?? 0;
+        await upsertWarehouseStock(tx, {
+          productId: id,
+          warehouseId,
+          quantityPieces: requestedTotalPieces,
+          storageLocation: input.storageLocation,
+          minStock: input.minStock,
+        });
+        if (requestedTotalPieces !== targetPieces) {
+          await recordStockChange(tx, {
+            productId: id,
+            warehouseId,
+            before: targetPieces,
+            after: requestedTotalPieces,
+            note: "تعديل كمية يدوي",
+            user,
+          });
+        }
+        await syncProductTotalStock(tx, id);
+      }
+    }
+
+    // Warehouse metadata (storage location / min stock) or an explicit branch
+    // move — never touches quantity, so it's safe to apply to the resolved
+    // warehouse regardless of warehouse count.
+    if (warehouseMetadataWasEdited || input.branchId !== undefined) {
+      const warehouseId = await resolveWarehouseId(tx, input.branchId ?? product.branchId);
       await upsertWarehouseStock(tx, {
         productId: id,
         warehouseId,
-        quantityPieces,
         storageLocation: input.storageLocation,
         minStock: input.minStock,
       });
-      if (quantityPieces !== undefined) {
-        await recordStockChange(tx, {
-          productId: id,
-          warehouseId,
-          before: targetPieces,
-          after: quantityPieces,
-          note: "تعديل كمية يدوي",
-          user,
-        });
-      }
       await syncProductTotalStock(tx, id);
     }
   }

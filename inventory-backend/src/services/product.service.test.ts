@@ -149,6 +149,14 @@ function makeTx() {
         return null;
       },
       create: async ({ data }: any) => ({ id: "auto-wh", ...data }),
+      count: async ({ where }: any = {}) => {
+        let n = 0;
+        for (const [, b] of branches) {
+          if (where?.isActive !== undefined && b.isActive !== where.isActive) continue;
+          n++;
+        }
+        return n;
+      },
     },
     productWarehouseStock: {
       count: async () => productStore?.warehouseStocks?.length ?? 0,
@@ -365,9 +373,9 @@ describe("product.service", () => {
   //  createProduct
   // ──────────────────────────────────────────────────────────────────────────
   describe("createProduct", () => {
-    it("يكتمل بنجاح ويُعيد المنتج عند عدم وجود توزيع", async () => {
+    it("يكتمل بنجاح ويُعيد المنتج عند عدم وجود توزيع (مع تحديد المخزن)", async () => {
       const result = await createProduct(
-        { name: "مادة جديدة", openingBalancePcs: 50, pcsPerCarton: 1 },
+        { name: "مادة جديدة", openingBalancePcs: 50, pcsPerCarton: 1, branchId: SHOP_ID },
         "user-1"
       );
 
@@ -377,6 +385,16 @@ describe("product.service", () => {
       assert.equal(result.openingBalancePcs, 50, "openingBalancePcs محفوظ");
       // مسار else لا يستدعي syncProductTotalStock (فقط upsertWarehouseStock مباشرةً)
       assert.equal(syncStockSpy.calls.length, 0, "لا sync في مسار المخزن الافتراضي");
+    });
+
+    it("يرمي WAREHOUSE_REQUIRED_FOR_QUANTITY عند إضافة كمية بدون تحديد مخزن (مخازن متعددة)", async () => {
+      await assert.rejects(
+        () => createProduct(
+          { name: "كمية بلا مخزن", openingBalancePcs: 50, pcsPerCarton: 1 },
+          "user-1"
+        ),
+        (err: any) => err.code === "WAREHOUSE_REQUIRED_FOR_QUANTITY"
+      );
     });
 
     it("يوزّع المخزون عبر المخازن حسب warehouseDistribution", async () => {

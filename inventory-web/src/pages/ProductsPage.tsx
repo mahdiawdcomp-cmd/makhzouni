@@ -418,6 +418,7 @@ export function ProductsPage() {
   const [query, setQuery] = useState("")
   const debouncedQuery = useDebounce(query, 250)
   const [category, setCategory] = useState("all")
+  const [warehouseFilter, setWarehouseFilter] = useState<string>("all")
   const [lowOnly, setLowOnly] = useState(false)
   const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "stock" | "category">("all")
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
@@ -483,13 +484,18 @@ export function ProductsPage() {
         .some((c) => [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""]
           .some((code) => !!code && (code.toLowerCase() === c || (c.length >= 8 && code.toLowerCase().includes(c)))))
     const matchesCategory = category === "all" || product.category === category
+    const matchesWarehouse =
+      warehouseFilter === "all" ||
+      (product.warehouseStocks ?? []).some(
+        (ws) => ws.warehouseId === warehouseFilter && ws.quantityPieces > 0,
+      )
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
     const missing = getMissing(product)
     const matchesMissing =
       missingFilter === "all" ? true :
       missingFilter === "any" ? missing.length > 0 :
       missing.includes(missingFilter)
-    return matchesSearch && matchesCategory && matchesLow && matchesMissing
+    return matchesSearch && matchesCategory && matchesWarehouse && matchesLow && matchesMissing
   })
 
   const sortedProducts = [...filtered].sort((a, b) => {
@@ -784,11 +790,21 @@ export function ProductsPage() {
           <CardTitle>جدول المنتجات</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 p-3 md:p-5">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_200px_220px]">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_180px_180px_220px]">
             <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="بحث بالاسم أو رقم الآيتم أو الباركود" />
             <select className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950" value={category} onChange={(event) => setCategory(event.target.value)}>
               <option value="all">كل الفئات</option>
               {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <select
+              className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
+              value={warehouseFilter}
+              onChange={(event) => setWarehouseFilter(event.target.value)}
+            >
+              <option value="all">كل المخازن</option>
+              {branches.filter((b) => b.isActive).map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
             </select>
             <select
               className="h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
