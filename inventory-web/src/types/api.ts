@@ -542,6 +542,7 @@ export interface InvoiceItem {
   invoiceId?: string
   productId: string
   productName?: string
+  itemNumber?: string | null
   warehouseId?: string
   warehouseName?: string | null
   unit: "PIECE" | "DOZEN" | "BOX" | "CARTON"

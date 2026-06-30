@@ -344,7 +344,10 @@ export async function deleteRetailCoupon(id: string) {
 
 export async function listPublicRetailItems() {
   const items = await prisma.retailCatalogItem.findMany({
-    where: { isActive: true },
+    // Hide items whose underlying product was soft-deleted (e.g. zeroed/stale
+    // products removed from المواد). Soft-delete keeps stock, so we must filter
+    // on the relation here rather than relying on currentStock alone.
+    where: { isActive: true, product: { deletedAt: null } },
     include: {
       product: {
         select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },

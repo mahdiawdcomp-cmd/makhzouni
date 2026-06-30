@@ -703,6 +703,7 @@ async function createInvoiceInTransaction(
         productId: pricedItem.product.id,
         warehouseId: pricedItem.warehouseId,
         productName: pricedItem.product.name,
+        itemNumber: pricedItem.product.itemNumber,
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: pricedItem.unitPrice,

@@ -223,6 +223,21 @@ async function runStartupMigrations() {
     logger.warn("[migration] stock_movements manual fields warning:", err);
   }
 
+  // Safety net for the invoice-item itemNumber snapshot. Adds the column and
+  // backfills it from the linked product so OLD invoices keep showing the item
+  // number even after the product is soft-deleted. No-op once added/backfilled.
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "invoice_items" ADD COLUMN IF NOT EXISTS "item_number" TEXT`);
+    await prisma.$executeRawUnsafe(`
+      UPDATE "invoice_items" ii
+      SET "item_number" = p."item_number"
+      FROM "products" p
+      WHERE ii."product_id" = p."id" AND ii."item_number" IS NULL`);
+    logger.info("[migration] invoice_items.item_number ensured + backfilled");
+  } catch (err) {
+    logger.warn("[migration] invoice_items.item_number warning:", err);
+  }
+
   // Safety net for the inbound-messages inbox. No-op once created.
   try {
     await prisma.$executeRawUnsafe(`DO $$ BEGIN

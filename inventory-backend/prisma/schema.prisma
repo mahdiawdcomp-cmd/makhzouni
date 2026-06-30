@@ -557,6 +557,9 @@ model InvoiceItem {
   warehouseId String? @map("warehouse_id") @db.Uuid
   warehouse   Branch? @relation("InvoiceItemWarehouse", fields: [warehouseId], references: [id])
   productName String  @map("product_name")
+  // Snapshot of the product's item number at sale time, so old invoices still
+  // show it after the product is soft-deleted. Nullable for legacy rows.
+  itemNumber  String? @map("item_number")
   unit        Unit
   quantity    Int
   unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
