@@ -204,12 +204,15 @@ $script:StagingDir = Join-Path $BackupDir (".staging-$BackupId")
 New-Item -ItemType Directory -Path $script:StagingDir -Force | Out-Null
 $jsonStaged  = Join-Path $script:StagingDir 'data.json'
 
+# lean=1 asks the server to strip base64 images from audit-log snapshots
+# (export only; DB untouched). Only THIS experimental script uses it — the
+# official MakhzouniOnlineBackup never passes lean, so it stays unchanged.
 if ($doFull) {
-  $uri = "$ApiBase/download?secret=$escSecret"
+  $uri = "$ApiBase/download?secret=$escSecret&lean=1"
 } else {
   $sinceIso = $state.lastSuccessfulBackupTime
   if ([string]::IsNullOrWhiteSpace($sinceIso)) { Fail-Backup "No 'since' cursor in state for incremental." }
-  $uri = "$ApiBase/changes?since=$([uri]::EscapeDataString($sinceIso))&secret=$escSecret"
+  $uri = "$ApiBase/changes?since=$([uri]::EscapeDataString($sinceIso))&secret=$escSecret&lean=1"
   Write-Log "Incremental since: $sinceIso"
 }
 Invoke-Download -Uri $uri -OutFile $jsonStaged

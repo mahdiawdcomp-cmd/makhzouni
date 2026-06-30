@@ -50,7 +50,10 @@ export const downloadBackup = asyncHandler(async (req, res) => {
     return;
   }
 
-  const backup = await generateFullBackup();
+  // lean=1 strips base64 images from audit-log snapshots (export only).
+  // Default (no flag) preserves the exact previous behaviour.
+  const lean = String(req.query.lean ?? "") === "1";
+  const backup = await generateFullBackup(lean);
   const json = JSON.stringify(backup, null, 2);
   const date = new Date().toISOString().slice(0, 10);
   const filename = `makhzouni-backup-${date}.json`;
@@ -80,7 +83,8 @@ export const downloadChanges = asyncHandler(async (req, res) => {
     return;
   }
 
-  const changes = await generateChangesSince(since);
+  const lean = String(req.query.lean ?? "") === "1";
+  const changes = await generateChangesSince(since, lean);
   const json = JSON.stringify(changes, null, 2);
   const date = new Date().toISOString().slice(0, 10);
   const filename = `makhzouni-changes-${date}.json`;

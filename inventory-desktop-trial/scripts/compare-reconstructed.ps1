@@ -110,6 +110,39 @@ foreach ($t in $Loose) {
 $sha.Dispose()
 Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 
+# ── Lean-specific checks on the reconstructed auditLogs ─────────────────────
+$recAudit = @(); if ($null -ne $rec.auditLogs) { $recAudit = @($rec.auditLogs) }
+$liveAudit = @(); if ($null -ne $live.auditLogs) { $liveAudit = @($live.auditLogs) }
+
+# (1) rows not lost: reconstructed must not have dropped audit rows vs live.
+#     (a few extra in either side is normal drift; a big drop means damage.)
+if ($recAudit.Count -lt ($liveAudit.Count * 0.5)) {
+  Write-Host "[auditLogs] ROW LOSS: reconstructed=$($recAudit.Count) live=$($liveAudit.Count)" -ForegroundColor Red
+  $mismatch = $true
+} else {
+  Write-Host "[auditLogs] rows preserved (reconstructed=$($recAudit.Count) live=$($liveAudit.Count))" -ForegroundColor Green
+}
+
+# (2) no base64 left inside before/after/metadata of reconstructed auditLogs.
+$leakFound = 0
+foreach ($log in $recAudit) {
+  foreach ($f in @('before','after','metadata')) {
+    $p = $log.PSObject.Properties[$f]
+    if ($null -eq $p -or $null -eq $p.Value) { continue }
+    $blob = $p.Value | ConvertTo-Json -Depth 30 -Compress
+    if ($blob -match 'data:image/' -or [regex]::IsMatch($blob, '"(imageUrl|thumbnailUrl)"\s*:\s*"[^"]{256,}"')) {
+      $leakFound++
+      if ($leakFound -le 5) { Write-Host "    base64 leak in audit id=$($log.id) field=$f" -ForegroundColor Yellow }
+    }
+  }
+}
+if ($leakFound -gt 0) {
+  Write-Host "[auditLogs] BASE64 LEAK: $leakFound record(s) still contain base64 images" -ForegroundColor Red
+  $mismatch = $true
+} else {
+  Write-Host "[auditLogs] no base64 in before/after/metadata (strip confirmed)" -ForegroundColor Green
+}
+
 if ($mismatch) { Write-Host "COMPARE: MISMATCH" -ForegroundColor Red; exit 1 }
 Write-Host "COMPARE: MATCH" -ForegroundColor Green
 exit 0
