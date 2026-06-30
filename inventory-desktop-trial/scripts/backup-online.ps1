@@ -26,7 +26,7 @@ param(
   [string]$ApiUrl = 'https://api.mazbwoni.com/api/settings/backup/download',
   [string]$AppDataDir = (Join-Path $env:APPDATA 'com.mazbwoni.mahdi'),
   [int]$RetentionCount = 10,
-  [int]$TimeoutSec = 120
+  [int]$TimeoutSec = 1800
 )
 
 $ErrorActionPreference = 'Stop'
@@ -111,11 +111,26 @@ New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 $jsonStaged = Join-Path $StagingDir $JsonFileName
 $requestUri = "$ApiUrl`?secret=$([uri]::EscapeDataString($secret))"
 try {
-  # -SkipHttpErrorCheck not on Win PowerShell 5.1; rely on throw + catch.
-  Invoke-WebRequest -Uri $requestUri -OutFile $jsonStaged -TimeoutSec $TimeoutSec -UseBasicParsing | Out-Null
+  # WebClient streams directly to disk (no in-memory buffer for the full response),
+  # which avoids Railway's HTTP idle/streaming timeout on large responses.
+  # First do a HEAD-equivalent probe via a tiny GET to surface 401/404 fast.
+  $probe = [System.Net.HttpWebRequest]::Create($requestUri)
+  $probe.Method = 'GET'; $probe.Timeout = 30000
+  try {
+    $probeResp = $probe.GetResponse()
+    $probeResp.Close()
+  } catch [System.Net.WebException] {
+    $code = $null
+    try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+    if ($code -and $code -ne 200) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
+    # If probe itself fails for other reasons fall through to WebClient attempt
+  }
+  $wc = New-Object System.Net.WebClient
+  $wc.Headers.Add('User-Agent', 'MakhzouniBackup/1.0')
+  $wc.DownloadFile($requestUri, $jsonStaged)
 } catch {
   $code = $null
-  try { $code = $_.Exception.Response.StatusCode.value__ } catch { }
+  try { $code = [int]$_.Exception.InnerException.Response.StatusCode } catch { }
   if ($code) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
   else { Fail-Backup "Download failed (network/timeout): $($_.Exception.Message)" }
 }
@@ -126,7 +141,13 @@ $jsonInfo = Get-Item $jsonStaged
 if ($jsonInfo.Length -le 0) { Fail-Backup "Downloaded file is empty (0 bytes)." }
 if ($jsonInfo.Length -lt 1024) { Fail-Backup "Downloaded file too small ($($jsonInfo.Length) bytes) — likely an error page, not a backup." }
 
-$raw = Get-Content $jsonStaged -Raw -Encoding UTF8
+# Read via StreamReader to avoid loading 380 MB into string twice.
+try {
+  $sr = New-Object System.IO.StreamReader($jsonStaged, [System.Text.Encoding]::UTF8)
+  try { $raw = $sr.ReadToEnd() } finally { $sr.Dispose() }
+} catch {
+  Fail-Backup "Failed to read downloaded file: $($_.Exception.Message)"
+}
 try {
   $data = $raw | ConvertFrom-Json
 } catch {
