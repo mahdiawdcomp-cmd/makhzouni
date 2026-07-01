@@ -57,6 +57,11 @@ export const downloadBackup = asyncHandler(async (req, res) => {
   const json = JSON.stringify(backup, null, 2);
   const date = new Date().toISOString().slice(0, 10);
   const filename = `makhzouni-backup-${date}.json`;
+  const sizeKb = (Buffer.byteLength(json, "utf-8") / 1024).toFixed(0);
+
+  console.log(
+    `[backup] full export — lean=${lean} size=${sizeKb}KB auditLogs=${backup.meta.auditLogsExported}/${backup.meta.auditLogsTotal} base64Stripped=${lean}`,
+  );
 
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

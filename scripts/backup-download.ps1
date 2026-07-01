@@ -1,7 +1,7 @@
 # makhzouni — Auto Backup Downloader
 # ─────────────────────────────────────────────────────────────────
 # الإعدادات: عدّل هذين السطرين فقط
-$BackupSecret = "ضع_BACKUP_SECRET_هنا"
+$BackupSecret = "adminا"
 $SaveFolder   = "C:\Backups\makhzouni"
 # ─────────────────────────────────────────────────────────────────
 
@@ -17,8 +17,11 @@ if (-not (Test-Path $SaveFolder)) {
 Write-Host "جاري تحميل النسخة الاحتياطية..." -ForegroundColor Cyan
 
 try {
+    # lean=1: strips old base64 image payloads out of audit-log snapshots only
+    # (the actual product/customer/invoice/stock data is unaffected — nothing
+    # needed for restore is removed). Cuts daily download size significantly.
     Invoke-WebRequest `
-        -Uri "$ApiUrl`?secret=$BackupSecret" `
+        -Uri "$ApiUrl`?secret=$BackupSecret&lean=1" `
         -OutFile $OutFile `
         -UseBasicParsing
 

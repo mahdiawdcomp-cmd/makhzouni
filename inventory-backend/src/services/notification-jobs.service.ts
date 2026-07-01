@@ -304,16 +304,45 @@ export function startNotificationJobs() {
     });
   });
 
-  // Keep Neon DB alive — ping every 4 minutes to prevent auto-suspend
-  cron.schedule("*/4 * * * *", () => {
-    prisma.$queryRaw`SELECT 1`.catch(() => {/* silent */});
-  });
+  // Neon DB keep-alive REMOVED (2026-07-01): the database has been migrated to
+  // Railway Postgres, which has no Neon-style auto-suspend to work around. This
+  // cron was pinging every 4 minutes for nothing — pure wasted CPU/memory churn.
+  // Do not re-add unless the DB provider changes back to something with auto-suspend.
 
-  // Keep Railway container alive — HTTP self-ping every 3 minutes.
-  // Railway sleeps the container after ~15 min of no HTTP traffic even if DB queries are running.
+  // Keep Railway container alive — HTTP self-ping, but only during configured
+  // active hours. Outside that window we let Railway sleep the container, which
+  // is the single biggest lever on the Memory usage bill (a sleeping container
+  // isn't billed for RAM). Configurable via env so ops can tune it without a
+  // redeploy of code:
+  //   KEEP_ALIVE_ENABLED     "true"/"false"        default: true
+  //   KEEP_ALIVE_START_HOUR  0-23                  default: 8
+  //   KEEP_ALIVE_END_HOUR    1-24 (24 = midnight)   default: 24
+  //   KEEP_ALIVE_TIMEZONE    IANA tz name           default: Asia/Baghdad
   cron.schedule("*/3 * * * *", () => {
+    if (!isKeepAliveWindowActive()) return;
     const base = process.env.BACKEND_PUBLIC_URL?.trim() ?? "https://api.mazbwoni.com";
     fetch(`${base}/health`, { signal: AbortSignal.timeout(10_000) })
       .catch(() => {/* silent — just keeping the process warm */});
   });
+}
+
+/** Whether the Railway self-ping should fire right now, per KEEP_ALIVE_* env config. */
+function isKeepAliveWindowActive(): boolean {
+  const enabled = (process.env.KEEP_ALIVE_ENABLED ?? "true").trim().toLowerCase() !== "false";
+  if (!enabled) return false;
+
+  const startHour = Number(process.env.KEEP_ALIVE_START_HOUR ?? 8);
+  const endHour = Number(process.env.KEEP_ALIVE_END_HOUR ?? 24);
+  const timezone = process.env.KEEP_ALIVE_TIMEZONE?.trim() || "Asia/Baghdad";
+
+  if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return true; // malformed env → don't silently go dark
+
+  const hourStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: timezone }).format(new Date());
+  const currentHour = Number(hourStr) % 24; // Intl can return "24" for midnight depending on locale
+
+  if (startHour <= endHour) {
+    return currentHour >= startHour && currentHour < endHour;
+  }
+  // Window wraps past midnight (e.g. start=20, end=6)
+  return currentHour >= startHour || currentHour < endHour;
 }
