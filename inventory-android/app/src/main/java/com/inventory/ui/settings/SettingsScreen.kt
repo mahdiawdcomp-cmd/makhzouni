@@ -30,7 +30,12 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenu
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -55,6 +60,7 @@ import com.inventory.ui.common.ProductImage
 import com.inventory.ui.common.SectionCard
 import com.inventory.ui.theme.AppColor
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel) {
     val state by viewModel.state.collectAsState()
@@ -142,6 +148,61 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                         CompactField(settings.currency, { value -> viewModel.update { it.copy(currency = value) } }, "العملة", Modifier.weight(0.7f))
                     }
                     CompactField(settings.storeAddress, { value -> viewModel.update { it.copy(storeAddress = value) } }, "العنوان")
+                }
+            }
+
+            item {
+                SectionCard(
+                    title = "مخزن المحل الافتراضي للبيع",
+                    titleAction = { Icon(Icons.Default.Storefront, null, tint = MaterialTheme.colorScheme.primary) }
+                ) {
+                    val branches by viewModel.branches.collectAsState()
+                    val shopWarehouseId by viewModel.shopWarehouseId.collectAsState()
+                    val shopWarehouseSaving by viewModel.shopWarehouseSaving.collectAsState()
+                    val shopWarehouseMessage by viewModel.shopWarehouseMessage.collectAsState()
+                    var expanded by remember { mutableStateOf(false) }
+                    val selectedName = branches.firstOrNull { it.id == shopWarehouseId }?.name
+
+                    Text(
+                        text = "هذا هو المخزن الذي يُستخدم تلقائياً للبيع والخصم من المخزون.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+                        OutlinedTextField(
+                            value = selectedName ?: "",
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = !shopWarehouseSaving,
+                            placeholder = { Text("اختر مخزن المحل") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                        )
+                        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            branches.forEach { branch ->
+                                DropdownMenuItem(
+                                    text = { Text(branch.name) },
+                                    onClick = {
+                                        expanded = false
+                                        viewModel.saveShopWarehouseId(branch.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (shopWarehouseId.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        StatusStrip(text = "⚠ مخزن المحل غير محدد — حدده لتفعيل البيع/الخصم التلقائي بشكل صحيح", ok = false)
+                    }
+
+                    shopWarehouseMessage?.let {
+                        Spacer(Modifier.height(8.dp))
+                        StatusStrip(text = it, ok = it.startsWith("✓"))
+                    }
                 }
             }
 

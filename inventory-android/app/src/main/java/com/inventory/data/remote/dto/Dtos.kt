@@ -351,6 +351,16 @@ data class BranchRequest(
     val isActive: Boolean = true
 )
 
+/** GET /settings response — only the fields this app currently reads are declared; Gson ignores the rest. */
+data class AppSettingsDto(
+    val shopWarehouseId: String? = null
+)
+
+/** PUT /settings body — a partial update; the backend only touches the keys present here. */
+data class UpdateAppSettingsRequest(
+    val shopWarehouseId: String
+)
+
 data class ProductMovementDto(
     val date: String,
     val movementType: String? = null,

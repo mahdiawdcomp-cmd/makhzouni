@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.InventoryApi
+import com.inventory.data.remote.dto.BranchDto
 import com.inventory.data.remote.dto.LicenseStatusDto
 import com.inventory.data.repository.DEFAULT_API_BASE_URL
 import com.inventory.data.repository.SettingsRepository
@@ -12,6 +13,8 @@ import com.inventory.data.repository.StoreSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -53,7 +56,63 @@ class SettingsViewModel @Inject constructor(
         SettingsUiState(settings, connection, backup, license)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
-    init { loadLicenseStatus() }
+    // ── مخزن المحل الافتراضي للبيع — backend-shared setting (GET/PUT /settings), separate from
+    // the local per-device StoreSettings above. Own small state so it doesn't need to join the
+    // combine() above (already at its practical arity limit).
+    private val _branches = MutableStateFlow<List<BranchDto>>(emptyList())
+    val branches: StateFlow<List<BranchDto>> = _branches.asStateFlow()
+
+    private val _shopWarehouseId = MutableStateFlow<String?>(null)
+    val shopWarehouseId: StateFlow<String?> = _shopWarehouseId.asStateFlow()
+
+    private val _shopWarehouseLoading = MutableStateFlow(false)
+    val shopWarehouseLoading: StateFlow<Boolean> = _shopWarehouseLoading.asStateFlow()
+
+    private val _shopWarehouseSaving = MutableStateFlow(false)
+    val shopWarehouseSaving: StateFlow<Boolean> = _shopWarehouseSaving.asStateFlow()
+
+    private val _shopWarehouseMessage = MutableStateFlow<String?>(null)
+    val shopWarehouseMessage: StateFlow<String?> = _shopWarehouseMessage.asStateFlow()
+
+    init {
+        loadLicenseStatus()
+        loadShopWarehouseSettings()
+    }
+
+    fun loadShopWarehouseSettings() {
+        viewModelScope.launch {
+            _shopWarehouseLoading.value = true
+            when (val result = repository.loadBranches()) {
+                is ApiResult.Success -> _branches.value = result.data
+                is ApiResult.Error -> _shopWarehouseMessage.value = "✗ ${result.message}"
+                else -> Unit
+            }
+            when (val result = repository.getShopWarehouseId()) {
+                is ApiResult.Success -> _shopWarehouseId.value = result.data
+                is ApiResult.Error -> _shopWarehouseMessage.value = "✗ ${result.message}"
+                else -> Unit
+            }
+            _shopWarehouseLoading.value = false
+        }
+    }
+
+    /** warehouseId == "" clears the setting (no default warehouse configured). */
+    fun saveShopWarehouseId(warehouseId: String) {
+        viewModelScope.launch {
+            _shopWarehouseSaving.value = true
+            _shopWarehouseMessage.value = null
+            when (val result = repository.updateShopWarehouseId(warehouseId)) {
+                is ApiResult.Success -> {
+                    _shopWarehouseId.value = result.data
+                    _shopWarehouseMessage.value = "✓ تم حفظ مخزن المحل الافتراضي"
+                }
+                is ApiResult.Error -> _shopWarehouseMessage.value = "✗ ${result.message}"
+                ApiResult.Offline -> _shopWarehouseMessage.value = "✗ لا يوجد اتصال بالإنترنت"
+                else -> _shopWarehouseMessage.value = "✗ فشل الحفظ"
+            }
+            _shopWarehouseSaving.value = false
+        }
+    }
 
     fun update(transform: (StoreSettings) -> StoreSettings) {
         viewModelScope.launch { repository.save(transform(state.value.settings)) }

@@ -4,6 +4,8 @@ import com.inventory.data.remote.dto.ApiEnvelope
 import com.inventory.data.remote.dto.AgentChatRequest
 import com.inventory.data.remote.dto.AgentChatResponse
 import com.inventory.data.remote.dto.ApprovalDto
+import com.inventory.data.remote.dto.AppSettingsDto
+import com.inventory.data.remote.dto.UpdateAppSettingsRequest
 import com.inventory.data.remote.dto.BranchDto
 import com.inventory.data.remote.dto.BranchRequest
 import com.inventory.data.remote.dto.CouponDto
@@ -170,6 +172,12 @@ interface InventoryApi {
         @Path("id") id: String,
         @Body body: BranchRequest
     ): ApiEnvelope<BranchDto>
+
+    @GET("settings")
+    suspend fun getAppSettings(): ApiEnvelope<AppSettingsDto>
+
+    @PUT("settings")
+    suspend fun updateAppSettings(@Body body: UpdateAppSettingsRequest): ApiEnvelope<AppSettingsDto>
 
     @GET("customers")
     suspend fun getCustomers(
