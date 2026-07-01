@@ -18,6 +18,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -203,6 +204,29 @@ fun ProductListScreen(
                                     selected = state.category == cat,
                                     onClick = { viewModel.onCategoryChange(cat) },
                                     label = { Text(cat, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                    shape = RoundedCornerShape(8.dp),
+                                )
+                            }
+                        }
+                    }
+                    // ── Warehouse filter (default = all warehouses) ──
+                    if (state.warehouses.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            FilterChip(
+                                selected = state.warehouseId == null,
+                                onClick = { viewModel.onWarehouseChange(null) },
+                                label = { Text("كل المخازن") },
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                            state.warehouses.forEach { wh ->
+                                FilterChip(
+                                    selected = state.warehouseId == wh.id,
+                                    onClick = { viewModel.onWarehouseChange(wh.id) },
+                                    label = { Text(wh.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                     shape = RoundedCornerShape(8.dp),
                                 )
                             }
@@ -394,6 +418,8 @@ fun ProductDetailScreen(
     val context = LocalContext.current
     val cur = product
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showAdjustDialog by remember { mutableStateOf(false) }
+    var showHistoryDialog by remember { mutableStateOf(false) }
 
     if (cur == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -644,9 +670,211 @@ fun ProductDetailScreen(
                 }
             }
 
+            // ── Stock tools: adjust quantity + full ledger ──
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { showAdjustDialog = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
+                        Icon(Icons.Default.Edit, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("تعديل الكمية", style = MaterialTheme.typography.labelLarge)
+                    }
+                    OutlinedButton(
+                        onClick = { showHistoryDialog = true; viewModel.loadStockHistory() },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Timeline, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("سجل الحركة", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
+
+    if (showAdjustDialog) {
+        AdjustStockDialog(
+            product = cur,
+            viewModel = viewModel,
+            onDismiss = { showAdjustDialog = false; viewModel.clearAdjustError() },
+        )
+    }
+    if (showHistoryDialog) {
+        StockHistoryDialog(viewModel = viewModel, onDismiss = { showHistoryDialog = false })
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  ADJUST STOCK DIALOG — per-warehouse, carton+pieces, replace/add
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun AdjustStockDialog(
+    product: com.inventory.domain.model.Product,
+    viewModel: ProductDetailViewModel,
+    onDismiss: () -> Unit,
+) {
+    val pcsPerCarton = product.pcsPerCarton.coerceAtLeast(1)
+    val error by viewModel.adjustError.collectAsState()
+    val saving by viewModel.adjustSaving.collectAsState()
+    // "replace" = the entered amount becomes the new total; "add" = added on top of the old.
+    var addMode by remember { mutableStateOf(false) }
+    // warehouseId -> (cartons, pieces) as raw strings
+    val inputs = remember { mutableStateMapOf<String, Pair<String, String>>() }
+
+    fun newTotalFor(ws: com.inventory.domain.model.WarehouseStock): Int? {
+        val (c, p) = inputs[ws.warehouseId] ?: ("" to "")
+        if (c.isBlank() && p.isBlank()) return null // untouched → keep old
+        val entered = (c.toIntOrNull() ?: 0) * pcsPerCarton + (p.toIntOrNull() ?: 0)
+        return if (addMode) ws.quantityPieces + entered else entered
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("تعديل الكمية", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("القطع بالكرتونة: $pcsPerCarton", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Mode toggle: استبدال / إضافة
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(selected = !addMode, onClick = { addMode = false }, label = { Text("استبدال") }, shape = RoundedCornerShape(8.dp))
+                    FilterChip(selected = addMode, onClick = { addMode = true }, label = { Text("إضافة") }, shape = RoundedCornerShape(8.dp))
+                }
+                if (product.warehouseStocks.isEmpty()) {
+                    Text("لا توجد مخازن لهذه المادة", color = AppColor.Red600, style = MaterialTheme.typography.bodySmall)
+                }
+                product.warehouseStocks.forEach { ws ->
+                    val (c, p) = inputs[ws.warehouseId] ?: ("" to "")
+                    val newTotal = newTotalFor(ws)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(ws.warehouseName, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                            Text("الحالي: ${ws.quantityPieces} ق", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = c,
+                                onValueChange = { inputs[ws.warehouseId] = it.filter { ch -> ch.isDigit() } to p },
+                                label = { Text("كرتون") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                            OutlinedTextField(
+                                value = p,
+                                onValueChange = { inputs[ws.warehouseId] = c to it.filter { ch -> ch.isDigit() } },
+                                label = { Text("قطع") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                        if (newTotal != null) {
+                            Text("الجديد: $newTotal ق", style = MaterialTheme.typography.labelMedium, color = AppColor.Green600, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                if (error != null) {
+                    Text(error!!, color = AppColor.Red600, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !saving,
+                onClick = {
+                    // Build explicit distribution: every warehouse with an entered value.
+                    val warehouses = product.warehouseStocks.mapNotNull { ws ->
+                        val total = newTotalFor(ws) ?: return@mapNotNull null
+                        com.inventory.data.remote.dto.AdjustStockWarehouse(
+                            warehouseId = ws.warehouseId,
+                            quantityPieces = total.coerceAtLeast(0)
+                        )
+                    }
+                    viewModel.adjustStock(warehouses, note = null, onDone = onDismiss)
+                }
+            ) { Text(if (saving) "جارٍ الحفظ..." else "حفظ") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text("إلغاء") } }
+    )
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  STOCK HISTORY DIALOG — unified movement ledger
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+@Composable
+private fun StockHistoryDialog(viewModel: ProductDetailViewModel, onDismiss: () -> Unit) {
+    val rows by viewModel.stockHistory.collectAsState()
+    val loading by viewModel.historyLoading.collectAsState()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("سجل حركة المخزون", fontWeight = FontWeight.Bold) },
+        text = {
+            when {
+                loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                rows.isEmpty() -> Text("لا توجد حركات مسجلة", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    rows.forEach { row ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(stockMovementLabel(row.type), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    (if (row.quantity >= 0) "+" else "") + "${row.quantity} ق",
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (row.quantity >= 0) AppColor.Green600 else AppColor.Red600,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            Text("${row.balanceBefore} ← ${row.balanceAfter} ق", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            row.warehouseName?.takeIf { it.isNotBlank() }?.let {
+                                Text("المخزن: $it", style = MaterialTheme.typography.labelSmall, color = AppColor.Blue600)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(row.createdAt.take(16).replace("T", " "), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                row.userName?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("إغلاق") } }
+    )
+}
+
+private fun stockMovementLabel(type: String): String = when (type.uppercase()) {
+    "IN", "PURCHASE", "STOCK_IN"       -> "إدخال"
+    "OUT", "SALE", "STOCK_OUT"          -> "إخراج / بيع"
+    "ADJUST", "ADJUSTMENT"              -> "تعديل يدوي"
+    "TRANSFER", "TRANSFER_IN", "TRANSFER_OUT" -> "نقل"
+    "RETURN"                            -> "إرجاع"
+    "LOSS", "DAMAGE"                    -> "تلف / خسارة"
+    else                                -> type
 }
 
 @Composable

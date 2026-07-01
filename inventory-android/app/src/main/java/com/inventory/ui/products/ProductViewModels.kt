@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
+import com.inventory.data.remote.dto.AdjustStockWarehouse
+import com.inventory.data.remote.dto.StockHistoryEntryDto
 import com.inventory.data.remote.dto.UpsertProductRequest
 import com.inventory.data.remote.dto.WarehouseDistributionItem
 import com.inventory.data.repository.ProductRepository
@@ -29,6 +31,7 @@ data class ProductListUiState(
     val products: List<Product> = emptyList(),
     val query: String = "",
     val category: String? = null,
+    val warehouseId: String? = null,
     val sortBy: String = "updated",
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -37,12 +40,21 @@ data class ProductListUiState(
     val deletedProducts: List<Product> = emptyList()
 ) {
     val categories: List<String> = products.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
+    // Warehouses that actually appear on the loaded products (id + name), for the filter chips.
+    val warehouses: List<BranchItem> = products
+        .flatMap { it.warehouseStocks }
+        .distinctBy { it.warehouseId }
+        .map { BranchItem(it.warehouseId, it.warehouseName) }
+        .sortedBy { it.name }
     val filteredProducts: List<Product> = products.filter { product ->
         val matchesQuery = query.isBlank() ||
             product.name.contains(query, ignoreCase = true) ||
             product.itemNumber.contains(query, ignoreCase = true)
         val matchesCategory = category == null || product.category == category
-        matchesQuery && matchesCategory
+        // "كل المخازن" = null → show all; otherwise only products with stock in it.
+        val matchesWarehouse = warehouseId == null ||
+            product.warehouseStocks.any { it.warehouseId == warehouseId && it.quantityPieces > 0 }
+        matchesQuery && matchesCategory && matchesWarehouse
     }.let { rows ->
         when (sortBy) {
             "name" -> rows.sortedBy { it.name }
@@ -63,6 +75,7 @@ class ProductListViewModel @Inject constructor(
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val category = MutableStateFlow<String?>(null)
+    private val warehouseId = MutableStateFlow<String?>(null)
     private val sortBy = MutableStateFlow("updated")
     private val isLoading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
@@ -72,18 +85,31 @@ class ProductListViewModel @Inject constructor(
         combine(repository.products, query, category, isLoading, error) { products, queryValue, categoryValue, loadingValue, errorValue ->
             ProductListUiState(products, queryValue, categoryValue, isLoading = loadingValue, error = errorValue)
         },
-        combine(sortBy, sessionManager.role, sessionManager.permissions) { sort, role, perms ->
-            Triple(sort, role, perms)
+        combine(sortBy, sessionManager.role, sessionManager.permissions, warehouseId) { sort, role, perms, wid ->
+            MetaState(
+                sort = sort,
+                warehouseId = wid,
+                hidePrices = permissionManager.viewWithoutPrices(role, perms),
+                showPurchasePrice = permissionManager.canViewPurchasePrice(role, perms),
+            )
         },
         deletedProducts
-    ) { stateValue, (sortValue, role, perms), deleted ->
+    ) { stateValue, meta, deleted ->
         stateValue.copy(
-            sortBy = sortValue,
-            hidePrices = permissionManager.viewWithoutPrices(role, perms),
-            showPurchasePrice = permissionManager.canViewPurchasePrice(role, perms),
+            sortBy = meta.sort,
+            warehouseId = meta.warehouseId,
+            hidePrices = meta.hidePrices,
+            showPurchasePrice = meta.showPurchasePrice,
             deletedProducts = deleted
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProductListUiState())
+
+    private data class MetaState(
+        val sort: String,
+        val warehouseId: String?,
+        val hidePrices: Boolean,
+        val showPurchasePrice: Boolean,
+    )
 
     init {
         refresh()
@@ -98,6 +124,7 @@ class ProductListViewModel @Inject constructor(
 
     fun onQueryChange(value: String) { query.value = value }
     fun onCategoryChange(value: String?) { category.value = value }
+    fun onWarehouseChange(value: String?) { warehouseId.value = value }
     fun onSortChange(value: String) { sortBy.value = value }
 
     fun refresh() {
@@ -199,6 +226,53 @@ class ProductDetailViewModel @Inject constructor(
     }
 
     fun clearDeleteError() { _deleteError.value = null }
+
+    // ── Manual per-warehouse stock adjustment ──
+    private val _adjustError = MutableStateFlow<String?>(null)
+    val adjustError: StateFlow<String?> = _adjustError.asStateFlow()
+    private val _adjustSaving = MutableStateFlow(false)
+    val adjustSaving: StateFlow<Boolean> = _adjustSaving.asStateFlow()
+
+    /** Send an explicit per-warehouse distribution (new total pieces per warehouse). */
+    fun adjustStock(warehouses: List<AdjustStockWarehouse>, note: String?, onDone: () -> Unit) {
+        if (warehouses.isEmpty()) { _adjustError.value = "حدد مخزناً واحداً على الأقل"; return }
+        viewModelScope.launch {
+            _adjustSaving.value = true
+            when (val result = repository.adjustStock(productId, warehouses, note)) {
+                is ApiResult.Success -> {
+                    _adjustError.value = null
+                    // Re-fetch full product to refresh warehouseStocks after adjustment
+                    when (val full = repository.fetchById(productId)) {
+                        is ApiResult.Success -> _product.value = full.data
+                        else -> _product.value = result.data
+                    }
+                    onDone()
+                }
+                is ApiResult.Error -> _adjustError.value = result.message
+                ApiResult.Offline  -> _adjustError.value = "لا يوجد اتصال بالإنترنت"
+            }
+            _adjustSaving.value = false
+        }
+    }
+
+    fun clearAdjustError() { _adjustError.value = null }
+
+    // ── Full stock-movement ledger ──
+    private val _stockHistory = MutableStateFlow<List<StockHistoryEntryDto>>(emptyList())
+    val stockHistory: StateFlow<List<StockHistoryEntryDto>> = _stockHistory.asStateFlow()
+    private val _historyLoading = MutableStateFlow(false)
+    val historyLoading: StateFlow<Boolean> = _historyLoading.asStateFlow()
+
+    fun loadStockHistory() {
+        viewModelScope.launch {
+            _historyLoading.value = true
+            when (val result = repository.stockHistory(productId)) {
+                is ApiResult.Success -> _stockHistory.value = result.data
+                else -> Unit
+            }
+            _historyLoading.value = false
+        }
+    }
 }
 
 data class BranchItem(val id: String, val name: String)
