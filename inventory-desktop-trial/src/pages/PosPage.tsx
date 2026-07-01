@@ -27,6 +27,7 @@ import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
+import { sortProductsByRelevance } from "../utils/search"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
 
@@ -98,11 +99,6 @@ type PosItem = {
 
 function normalize(v: string | undefined | null) {
   return String(v ?? "").trim().toLowerCase()
-}
-function productMatches(p: Product, query: string) {
-  const q = normalize(query)
-  if (!q) return true
-  return [p.name, p.itemNumber, p.qrCode ?? "", p.cartonQrCode ?? ""].some((v) => normalize(v).includes(q))
 }
 function detectUnit(p: Product, code: string): PosUnit {
   if (code && p.cartonQrCode && normalize(code) === normalize(p.cartonQrCode)) return "CARTON"
@@ -714,7 +710,8 @@ export function POSPage() {
     }
 
     if (productQuery) {
-      base = base.filter((p) => productMatches(p, productQuery))
+      // Arabic-aware, multi-term, relevance-ranked (shared with invoice/inventory).
+      base = sortProductsByRelevance(base, productQuery)
     }
 
     return base.slice(0, 100)
