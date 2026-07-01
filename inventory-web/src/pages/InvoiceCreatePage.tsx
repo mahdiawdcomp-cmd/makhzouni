@@ -191,6 +191,9 @@ export function InvoiceCreatePage() {
   const [items, setItems] = useState<DraftItem[]>([])
   const [productModal, setProductModal] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
+  // ---- Mobile Smart Invoice Preview: show a product card before adding it as a line ----
+  const [scanPreview, setScanPreview] = useState<{ product: Product; unit: Unit; qty: number } | null>(null)
+  const [isMobile, setIsMobile] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches)
   const [productQuery, setProductQuery] = useState("")
   const [productHighlight, setProductHighlight] = useState(0)
   const [showPurchase, setShowPurchase] = useState(false)
@@ -208,6 +211,14 @@ export function InvoiceCreatePage() {
   const [whatsappPromptId, setWhatsappPromptId] = useState<string | null>(null)
   const [whatsappSending, setWhatsappSending] = useState(false)
   const [walkInLoading, setWalkInLoading] = useState(false)
+
+  // Track mobile viewport (drives the Smart Invoice Preview bottom-sheet behavior)
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)")
+    const handler = () => setIsMobile(mq.matches)
+    mq.addEventListener("change", handler)
+    return () => mq.removeEventListener("change", handler)
+  }, [])
 
   // Reset all form state when the active tab changes (so tabs are truly isolated)
   const prevTidRef = useRef<string | null>(null)
@@ -699,14 +710,14 @@ export function InvoiceCreatePage() {
     return undefined
   }
 
-  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE") {
+  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE", qty = 1) {
     const nextIndex = items.length
     setItems((current) => [
       ...current,
       {
         product,
         unit,
-        quantity: 1,
+        quantity: Math.max(1, qty),
         unitPrice: unitPriceFor(product, unit),
         warehouseId: overrideWarehouseId ?? defaultWarehouseId(product),
         warehouseName: overrideWarehouseName,
@@ -715,6 +726,33 @@ export function InvoiceCreatePage() {
     setProductModal(false)
     setProductQuery("")
     window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
+  }
+
+  // ---- Smart Invoice Preview: look up a scanned/selected product and show its card ----
+  function openScanPreview(product: Product, unit: Unit = "PIECE") {
+    setProductModal(false)
+    setScanPreview({ product, unit, qty: 1 })
+  }
+
+  function openScanPreviewByCode(code: string) {
+    if (!code.trim()) return
+    const found = findProductByScan(products, code)
+    if (!found) {
+      toast({ title: "المادة غير موجودة", description: `لا توجد مادة بهذا الباركود: ${code}`, variant: "destructive" })
+      return
+    }
+    openScanPreview(found.product, found.isCarton ? "CARTON" : "PIECE")
+  }
+
+  // Confirm from the preview card → add the line exactly like the manual/scan path
+  // (keeps the same shop-stock warehouse guard so a scan never pulls from an empty shop).
+  function addFromPreview() {
+    if (!scanPreview) return
+    const { product, unit, qty } = scanPreview
+    const q = Math.max(1, qty || 1)
+    setScanPreview(null)
+    if (maybePromptWarehouse(product, unit)) return
+    doAddProduct(product, undefined, undefined, unit, q)
   }
 
   // For sales: if المحل has 0 stock but other warehouses have stock, prompt the
@@ -989,7 +1027,7 @@ export function InvoiceCreatePage() {
     }
 
     function onKey(e: globalThis.KeyboardEvent) {
-      if (productModal || preview || shopStockAlert) return
+      if (productModal || preview || shopStockAlert || scanPreview) return
       if (e.ctrlKey || e.altKey || e.metaKey) return
 
       const now = Date.now()
@@ -1031,7 +1069,7 @@ export function InvoiceCreatePage() {
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productModal, preview, products, shopStockAlert])
+  }, [productModal, preview, products, shopStockAlert, scanPreview])
 
   // ---- Auto-add a product when arriving from the global scanner (/invoices/new?scan=CODE) ----
   const scanParamAppliedRef = useRef(false)
@@ -1417,6 +1455,14 @@ export function InvoiceCreatePage() {
           <div className="flex gap-1">
             <button type="button" className="inline-flex h-7 items-center gap-1 rounded bg-emerald-600 px-2.5 text-[11px] font-semibold text-white hover:bg-emerald-700" onClick={() => { setProductModal(true); window.setTimeout(() => productSearchRef.current?.focus(), 50) }}>
               <Plus className="h-3.5 w-3.5" /> أضف
+            </button>
+            <button
+              type="button"
+              title="قراءة باركود بالكاميرا"
+              className="inline-flex h-7 items-center gap-1 rounded border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              onClick={() => setCameraOpen(true)}
+            >
+              <Camera className="h-3.5 w-3.5" /> 📷 باركود
             </button>
             {!isPurchase && (
               <button
@@ -1841,7 +1887,7 @@ export function InvoiceCreatePage() {
                 type="button"
                 className={`flex w-full items-center justify-between gap-3 border-b p-3 text-right text-sm ${idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"} dark:border-slate-800`}
                 onMouseEnter={() => setProductHighlight(idx)}
-                onClick={() => addProduct(product)}
+                onClick={() => { if (isMobile) openScanPreview(product, "PIECE"); else addProduct(product) }}
               >
                 <span className="flex items-center gap-2 font-medium"><ProductThumb product={product} />{product.name}</span>
                 <span className="text-slate-500">{product.itemNumber}</span>
@@ -1871,11 +1917,116 @@ export function InvoiceCreatePage() {
           title="مسح صنف بالكاميرا"
           onDetect={(code) => {
             setCameraOpen(false)
-            addProductByCode(code)
+            // Camera scan always shows the preview card first (the "هاي بيش؟" flow)
+            // so the clerk can check the price before committing a line.
+            openScanPreviewByCode(code)
           }}
           onClose={() => setCameraOpen(false)}
         />
       )}
+
+      {/* ── Smart Invoice Preview: bottom-sheet (mobile) / centered card ── */}
+      {scanPreview && (() => {
+        const p = scanPreview.product
+        const img = p.thumbnailUrl || p.imageUrl
+        const totalStock = p.currentStock ?? (p.openingBalancePcs + p.cartonsAvailable * p.pcsPerCarton)
+        const shopStock = p.shopStock ?? p.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
+        const unitPrice = unitPriceFor(p, scanPreview.unit)
+        return (
+          <div
+            className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center"
+            onClick={() => setScanPreview(null)}
+          >
+            <div
+              className="w-full max-w-md rounded-t-2xl bg-white p-4 shadow-2xl dark:bg-slate-900 sm:rounded-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div className="flex min-w-0 gap-3">
+                  {img ? (
+                    <img src={img} alt={p.name} className="h-16 w-16 shrink-0 rounded-lg border object-cover dark:border-slate-700" />
+                  ) : (
+                    <div className="grid h-16 w-16 shrink-0 place-items-center rounded-lg border bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800">
+                      <ShoppingCart className="h-7 w-7" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-bold text-[color:var(--theme-textPrimary)]">{p.name}</p>
+                    <p className="text-xs text-slate-500">رقم الصنف: {p.itemNumber || "—"}</p>
+                    {p.qrCode ? <p className="text-xs text-slate-500">باركود: {p.qrCode}</p> : null}
+                  </div>
+                </div>
+                <button type="button" onClick={() => setScanPreview(null)} className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Price + stock grid */}
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-lg bg-emerald-50 px-3 py-2 dark:bg-emerald-950/30">
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400">سعر {scanPreview.unit === "CARTON" ? "الكرتونة" : "القطعة"}</p>
+                  <p className="text-lg font-extrabold text-emerald-700 dark:text-emerald-300">{fmt(unitPrice)}</p>
+                </div>
+                <div className="rounded-lg bg-sky-50 px-3 py-2 dark:bg-sky-950/30">
+                  <p className="text-[11px] text-sky-700 dark:text-sky-400">المتوفر</p>
+                  <p className="text-lg font-extrabold text-sky-700 dark:text-sky-300">{totalStock} قطعة</p>
+                  {shopStock !== undefined ? <p className="text-[11px] text-slate-500">المحل: {shopStock} قطعة</p> : null}
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">القطع بالكرتونة: {p.pcsPerCarton}</p>
+
+              {/* Per-warehouse breakdown (if any) */}
+              {p.warehouseStocks && p.warehouseStocks.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {p.warehouseStocks.map((ws) => (
+                    <span key={ws.warehouseId} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                      {ws.warehouse.name}: {ws.quantityPieces}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Unit toggle + quick qty */}
+              <div className="mt-3 flex items-center gap-2">
+                {p.pcsPerCarton > 1 && (
+                  <div className="flex overflow-hidden rounded-lg border dark:border-slate-700">
+                    {(["PIECE", "CARTON"] as Unit[]).map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => setScanPreview((s) => (s ? { ...s, unit: u } : s))}
+                        className={cn("px-3 py-1.5 text-xs font-semibold", scanPreview.unit === u ? "bg-emerald-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300")}
+                      >
+                        {u === "CARTON" ? "كارتون" : "قطعة"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-500">العدد</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    className="h-9 w-20 text-center"
+                    value={scanPreview.qty}
+                    onFocus={selectAllOnFocus}
+                    onChange={(e) => setScanPreview((s) => (s ? { ...s, qty: Math.max(1, Number(e.target.value) || 1) } : s))}
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-4 flex gap-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setScanPreview(null)}>إلغاء</Button>
+                <Button type="button" className="flex-[2] bg-emerald-600 hover:bg-emerald-700" onClick={addFromPreview}>
+                  <Plus className="h-4 w-4" /> إضافة للفاتورة
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Full customer-add modal */}
       <Dialog open={quickAddCustomerOpen} onOpenChange={setQuickAddCustomerOpen}>
