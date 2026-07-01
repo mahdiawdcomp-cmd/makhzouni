@@ -6,6 +6,8 @@ import com.inventory.data.remote.dto.AgentChatResponse
 import com.inventory.data.remote.dto.ApprovalDto
 import com.inventory.data.remote.dto.AppSettingsDto
 import com.inventory.data.remote.dto.UpdateAppSettingsRequest
+import com.inventory.data.remote.dto.AdjustStockRequest
+import com.inventory.data.remote.dto.StockHistoryEntryDto
 import com.inventory.data.remote.dto.BranchDto
 import com.inventory.data.remote.dto.BranchRequest
 import com.inventory.data.remote.dto.CouponDto
