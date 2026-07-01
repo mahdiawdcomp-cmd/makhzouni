@@ -312,12 +312,15 @@ export function startNotificationJobs() {
   // Keep Railway container alive — HTTP self-ping, but only during configured
   // active hours. Outside that window we let Railway sleep the container, which
   // is the single biggest lever on the Memory usage bill (a sleeping container
-  // isn't billed for RAM). Configurable via env so ops can tune it without a
-  // redeploy of code:
-  //   KEEP_ALIVE_ENABLED     "true"/"false"        default: true
-  //   KEEP_ALIVE_START_HOUR  0-23                  default: 8
-  //   KEEP_ALIVE_END_HOUR    1-24 (24 = midnight)   default: 24
-  //   KEEP_ALIVE_TIMEZONE    IANA tz name           default: Asia/Baghdad
+  // isn't billed for RAM). This only stops the self-ping cron — it never blocks
+  // real incoming requests, which still wake Railway's container normally.
+  // Configurable via env so ops can tune it without a redeploy of code:
+  //   KEEP_ALIVE_ENABLED     "true"/"false"   default: true
+  //   KEEP_ALIVE_START_TIME  "HH:MM"          default: 07:30
+  //   KEEP_ALIVE_END_TIME    "HH:MM"          default: 01:00 (wraps past midnight)
+  //   KEEP_ALIVE_TIMEZONE    IANA tz name     default: Asia/Baghdad
+  //   KEEP_ALIVE_START_HOUR / KEEP_ALIVE_END_HOUR — legacy whole-hour form, still
+  //   honored as a fallback when the *_TIME vars above aren't set.
   cron.schedule("*/3 * * * *", () => {
     if (!isKeepAliveWindowActive()) return;
     const base = process.env.BACKEND_PUBLIC_URL?.trim() ?? "https://api.mazbwoni.com";
@@ -326,23 +329,63 @@ export function startNotificationJobs() {
   });
 }
 
+/** Parses "HH:MM" (0-23 : 0-59) into minutes-since-midnight, or undefined if malformed. */
+function parseTimeToMinutes(value: string): number | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return undefined;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return undefined;
+  return hours * 60 + minutes;
+}
+
+/**
+ * Resolves the configured keep-alive window as minutes-since-midnight.
+ * Prefers KEEP_ALIVE_START_TIME/END_TIME ("HH:MM"); falls back to the legacy
+ * KEEP_ALIVE_START_HOUR/END_HOUR (whole hours) so existing Railway configs
+ * keep working; otherwise defaults to 07:30–01:00. Returns null on malformed
+ * env input so the caller can fail open (stay awake) rather than go dark.
+ */
+function resolveKeepAliveWindowMinutes(): { startMin: number; endMin: number } | null {
+  const startTimeRaw = process.env.KEEP_ALIVE_START_TIME?.trim();
+  const endTimeRaw = process.env.KEEP_ALIVE_END_TIME?.trim();
+  if (startTimeRaw || endTimeRaw) {
+    const startMin = parseTimeToMinutes(startTimeRaw ?? "07:30");
+    const endMin = parseTimeToMinutes(endTimeRaw ?? "01:00");
+    if (startMin === undefined || endMin === undefined) return null; // malformed → fail open
+    return { startMin, endMin };
+  }
+
+  const startHourRaw = process.env.KEEP_ALIVE_START_HOUR;
+  const endHourRaw = process.env.KEEP_ALIVE_END_HOUR;
+  if (startHourRaw !== undefined || endHourRaw !== undefined) {
+    const startHour = Number(startHourRaw ?? 8);
+    const endHour = Number(endHourRaw ?? 24);
+    if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return null; // malformed → fail open
+    return { startMin: startHour * 60, endMin: endHour * 60 };
+  }
+
+  return { startMin: 7 * 60 + 30, endMin: 1 * 60 }; // default: 07:30–01:00
+}
+
 /** Whether the Railway self-ping should fire right now, per KEEP_ALIVE_* env config. */
 function isKeepAliveWindowActive(): boolean {
   const enabled = (process.env.KEEP_ALIVE_ENABLED ?? "true").trim().toLowerCase() !== "false";
   if (!enabled) return false;
 
-  const startHour = Number(process.env.KEEP_ALIVE_START_HOUR ?? 8);
-  const endHour = Number(process.env.KEEP_ALIVE_END_HOUR ?? 24);
+  const window = resolveKeepAliveWindowMinutes();
+  if (!window) return true; // malformed env → don't silently go dark
+
   const timezone = process.env.KEEP_ALIVE_TIMEZONE?.trim() || "Asia/Baghdad";
+  const parts = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: timezone }).formatToParts(new Date());
+  const hourPart = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minutePart = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const currentMin = (hourPart % 24) * 60 + minutePart; // Intl can return "24" for midnight depending on locale
 
-  if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) return true; // malformed env → don't silently go dark
-
-  const hourStr = new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: timezone }).format(new Date());
-  const currentHour = Number(hourStr) % 24; // Intl can return "24" for midnight depending on locale
-
-  if (startHour <= endHour) {
-    return currentHour >= startHour && currentHour < endHour;
+  const { startMin, endMin } = window;
+  if (startMin <= endMin) {
+    return currentMin >= startMin && currentMin < endMin;
   }
-  // Window wraps past midnight (e.g. start=20, end=6)
-  return currentHour >= startHour || currentHour < endHour;
+  // Window wraps past midnight (e.g. 07:30 → 01:00)
+  return currentMin >= startMin || currentMin < endMin;
 }
