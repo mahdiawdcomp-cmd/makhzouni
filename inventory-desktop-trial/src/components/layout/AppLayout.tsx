@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { AlertTriangle, Menu, Moon, Sun, X, Zap } from "lucide-react"
+import { AlertTriangle, Eye, Menu, Moon, Sun, X, Zap } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
+import { useDesktopDisabled, useTenantConfig } from "../../hooks/useTenantConfig"
 import { Header } from "./Header"
 import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
@@ -67,6 +68,38 @@ function LicenseBanner() {
       <button type="button" onClick={() => setDismissed(true)} className="opacity-60 hover:opacity-100">
         <X className="h-4 w-4" />
       </button>
+    </div>
+  )
+}
+
+/**
+ * Batch 4 — visual-only. Two distinct reasons, same visual treatment:
+ * platforms.desktopEnabled=false (desktop-specific) takes priority over a
+ * plain expired/suspended subscription. Standalone mode (mahdi today) never
+ * renders this. The backend does NOT block requests yet (Batch 3
+ * report-only) — this only disables buttons in the UI (see useReadOnly()).
+ */
+function ReadOnlySaasBanner() {
+  const { data: tenant } = useTenantConfig()
+  const desktopDisabled = useDesktopDisabled()
+  if (!tenant || tenant.mode !== "saas") return null
+  if (!desktopDisabled && !tenant.readOnly) return null
+
+  const label = desktopDisabled
+    ? "نسخة سطح المكتب غير مفعلة لهذا الزبون — النظام يعمل بوضع المشاهدة فقط."
+    : "الاشتراك منتهي أو موقوف — النظام يعمل بوضع المشاهدة فقط."
+
+  return (
+    <div
+      className="flex items-center gap-2 px-4 py-2 text-sm font-medium"
+      style={{
+        background: "rgba(239,68,68,0.12)",
+        borderBottom: "1px solid rgba(239,68,68,0.25)",
+        color: "#ef4444",
+      }}
+    >
+      <Eye className="h-4 w-4 shrink-0" />
+      <span>{label}</span>
     </div>
   )
 }
@@ -249,6 +282,9 @@ export function AppLayout() {
 
         {/* License banner (admin only, when expiring/expired) */}
         <LicenseBanner />
+
+        {/* SaaS entitlements banner (Batch 4, visual only — no-op in standalone) */}
+        <ReadOnlySaasBanner />
 
         {/* System health strip (only when a subsystem is warn/down) */}
         <SystemHealthBar />

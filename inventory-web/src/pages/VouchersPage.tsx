@@ -13,6 +13,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
 import { formatDate, formatDateTime, localDateStr } from "../utils/date"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 type Type = Voucher["type"]
 type FilterType = "ALL" | Type
@@ -28,6 +29,7 @@ const filterChipIdle =
 
 export function VouchersPage() {
   usePageTitle("السندات")
+  const readOnly = useReadOnly()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -167,6 +169,7 @@ export function VouchersPage() {
   const vouchers = useMemo(() => vouchersQuery.data ?? [], [vouchersQuery.data])
 
   const canSubmit =
+    !readOnly &&
     Number(amount.replace(/,/g, "")) > 0 &&
     (type === "EXPENSE" ? description.trim().length > 0 : !!customerId) &&
     !createMutation.isPending
@@ -287,9 +290,10 @@ export function VouchersPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            title="تعطيل السند"
+                            title={readOnly ? READ_ONLY_MESSAGE : "تعطيل السند"}
                             className="border-amber-300 text-amber-700 hover:bg-amber-50"
                             onClick={() => setCancelVoucherId(voucher.id)}
+                            disabled={readOnly}
                           >
                             <Ban className="h-4 w-4" />
                           </Button>
@@ -297,9 +301,10 @@ export function VouchersPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          title="حذف نهائي"
+                          title={readOnly ? READ_ONLY_MESSAGE : "حذف نهائي"}
                           className="border-rose-300 text-rose-700 hover:bg-rose-50"
                           onClick={() => setDeleteVoucherId(voucher.id)}
+                          disabled={readOnly}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -456,7 +461,7 @@ export function VouchersPage() {
             </div>
             <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات اختيارية" />
 
-            <Button className="w-full" onClick={() => createMutation.mutate()} disabled={!canSubmit}>
+            <Button className="w-full" onClick={() => createMutation.mutate()} disabled={!canSubmit} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
               {createMutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
               حفظ السند
             </Button>

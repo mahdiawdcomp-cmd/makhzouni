@@ -29,6 +29,7 @@ import {
 } from "../api/endpoints"
 import type { Voucher } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
+import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
@@ -54,6 +55,8 @@ const DEFAULT_TEMPLATE =
 
 export function VoucherDetailPage() {
   const { id } = useParams()
+  const readOnly = useReadOnly()
+  const whatsappVouchersEnabled = useFeatureEnabled("whatsappVouchers")
   const navigate = useNavigate()
   const qc = useQueryClient()
   const voucherQuery = useQuery({ queryKey: ["vouchers", id], queryFn: () => getVoucher(id!), enabled: !!id })
@@ -206,8 +209,8 @@ export function VoucherDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <RecordNavigator currentId={id} orderedIds={sorted.map((row) => row.id)} onNavigate={(target) => navigate(`/vouchers/${target}`)} noun="سند" tone="dark" />
 
-            {voucher.type !== "EXPENSE" ? (
-              <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={() => void sendWhatsApp()} disabled={waSending}>
+            {voucher.type !== "EXPENSE" && whatsappVouchersEnabled ? (
+              <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={() => void sendWhatsApp()} disabled={readOnly || waSending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
                 <MessageCircle className="h-4 w-4 text-emerald-600" /> {waSending ? "جاري الإرسال..." : "واتساب"}
               </Button>
             ) : null}
@@ -253,7 +256,8 @@ export function VoucherDetailPage() {
                 variant="outline"
                 className="bg-white/95 hover:bg-white border-amber-300 text-amber-700"
                 onClick={() => setConfirmCancel(true)}
-                disabled={cancelMutation.isPending}
+                disabled={readOnly || cancelMutation.isPending}
+                title={readOnly ? READ_ONLY_MESSAGE : undefined}
               >
                 <Ban className="h-4 w-4" /> تعطيل
               </Button>
@@ -261,7 +265,8 @@ export function VoucherDetailPage() {
             <Button
               variant="destructive"
               onClick={() => setConfirmDelete(true)}
-              disabled={deleteMutation.isPending}
+              disabled={readOnly || deleteMutation.isPending}
+              title={readOnly ? READ_ONLY_MESSAGE : undefined}
             >
               <Trash2 className="h-4 w-4" /> حذف نهائي
             </Button>

@@ -22,6 +22,7 @@ import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 const emptyCustomer: CustomerPayload = {
   name: "",
@@ -42,6 +43,7 @@ function dateValue(value?: string | null) {
 
 export function CustomersPage() {
   usePageTitle("الزبائن")
+  const readOnly = useReadOnly()
   const navigate = useNavigate()
   const [isSupplierTab, setIsSupplierTab] = useState(false)
   const { customersQuery, createMutation } = useCustomers(isSupplierTab)
@@ -169,7 +171,7 @@ export function CustomersPage() {
           <Button variant="outline" onClick={() => setTrashOpen(true)}>
             <Trash2 className="h-4 w-4" /> الزبائن المحذوفون
           </Button>
-          <Button onClick={() => { setForm({ ...emptyCustomer, isSupplier: isSupplierTab, isBoth: false }); setOpen(true); }}>
+          <Button onClick={() => { setForm({ ...emptyCustomer, isSupplier: isSupplierTab, isBoth: false }); setOpen(true); }} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
             <Plus className="h-4 w-4" /> {isSupplierTab ? "مورد جديد" : "زبون جديد"}
           </Button>
         </div>
@@ -288,7 +290,7 @@ export function CustomersPage() {
               })}
             </div>
           </div>
-          <Button className="w-full" type="submit">حفظ</Button>
+          <Button className="w-full" type="submit" disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>حفظ</Button>
         </form>
       </ModalForm>
 

@@ -32,6 +32,7 @@ import { useQuery } from "@tanstack/react-query"
 import { getApprovals } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
+import { useTenantConfig } from "../../hooks/useTenantConfig"
 import type { UserPermission } from "../../types/api"
 import { cn } from "../../utils/cn"
 
@@ -56,6 +57,36 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
   return null
+}
+
+/**
+ * Batch 4 — maps a nav item to the Batch-1 feature key that gates it, or
+ * null if it's part of the always-on base version. Pure lookup, no hooks.
+ */
+function featureKeyForItem(item: Item): string | null {
+  const path = "basePath" in item ? item.basePath : item.to.split("?")[0]
+  if (path === "/catalog-management") return "catalogWholesale"
+  if (path === "/retail-catalog") return "retailShop"
+  if (path === "/campaigns") return "whatsappCampaigns"
+  if (path === "/quotations") return "quotations"
+  if (path === "/invoices/returns") return "salesReturns"
+  if (path === "/pos") return "pos"
+  if (path === "/inventory/transfers") return "transfers"
+  return null
+}
+
+/**
+ * Batch 4 — visual-only. Standalone (no mode / mode="standalone", e.g. mahdi
+ * today) always allows everything. SaaS tenants with no entitlements
+ * configured yet (empty features[]) are also unrestricted, matching the
+ * backend's hasFeature() default.
+ */
+function isFeatureAllowed(item: Item, mode: string | undefined, features: string[] | undefined): boolean {
+  if (!mode || mode === "standalone") return true
+  const key = featureKeyForItem(item)
+  if (!key) return true
+  if (!features || features.length === 0) return true
+  return features.includes(key)
 }
 
 const navItems: Item[] = [
@@ -321,6 +352,9 @@ export function Sidebar() {
   const location = useLocation()
   const settingsQuery = useSettings()
   const settings = settingsQuery.data
+  const tenantQuery = useTenantConfig()
+  const tenantMode = tenantQuery.data?.mode
+  const tenantFeatures = tenantQuery.data?.entitlementFeatures
 
   // Track which group is open — only one at a time
   const defaultOpen = navItems.find(
@@ -352,7 +386,11 @@ export function Sidebar() {
     return perm === null || permissions.includes(perm)
   }
 
-  const visibleItems = navItems.filter(hasPermission)
+  function hasFeature(item: Item): boolean {
+    return isFeatureAllowed(item, tenantMode, tenantFeatures)
+  }
+
+  const visibleItems = navItems.filter((item) => hasPermission(item) && hasFeature(item))
 
   return (
     <aside
@@ -384,9 +422,14 @@ export function Sidebar() {
             <SideGroup
               key={item.id}
               item={
-                item.id === "inventory"
-                  ? { ...item, children: item.children.filter((c) => hasPermission(c)) }
-                  : item
+                // Batch 4: feature filter applies to every group's children;
+                // permission filter keeps its original scope (inventory only).
+                {
+                  ...item,
+                  children: item.children.filter(
+                    (c) => hasFeature(c) && (item.id !== "inventory" || hasPermission(c))
+                  ),
+                }
               }
               isOpen={openGroupId === item.id}
               onToggle={toggleGroup}
@@ -468,9 +511,13 @@ export function SidebarTopBar() {
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === "ADMIN"
   const permissions = user?.permissions ?? []
+  const tenantQuery = useTenantConfig()
+  const tenantMode = tenantQuery.data?.mode
+  const tenantFeatures = tenantQuery.data?.entitlementFeatures
 
   const topItems = navItems.filter((item) => {
     if (!user) return false
+    if (!isFeatureAllowed(item, tenantMode, tenantFeatures)) return false
     if (isAdmin) return true
     if (isGroup(item) && item.id === "inventory") {
       return permissions.includes("MANAGE_PRODUCTS") || permissions.includes("VARIETY_CONVERT")

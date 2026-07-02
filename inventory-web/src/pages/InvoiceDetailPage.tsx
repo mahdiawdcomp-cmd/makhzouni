@@ -32,6 +32,7 @@ import { toast } from "../components/ui/use-toast"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
+import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 
 function money(v: number | undefined) { return fmt(v) }
 
@@ -83,6 +84,8 @@ function mergeInvoiceItems(items: InvoiceItem[]): InvoiceItem[] {
 
 export function InvoiceDetailPage() {
   const { id } = useParams()
+  const readOnly = useReadOnly()
+  const whatsappInvoicesEnabled = useFeatureEnabled("whatsappInvoices")
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const invoiceQuery = useInvoice(id)
@@ -386,7 +389,11 @@ export function InvoiceDetailPage() {
         {/* Navigation */}
         <RecordNavigator currentId={id} orderedIds={sorted.map((row) => row.id)} onNavigate={(target) => navigate(`/invoices/${target}`)} noun="فاتورة" />
         <div className="mr-auto flex flex-wrap gap-1.5">
-          <Button variant="outline" size="sm" onClick={openWaPreview}><MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> واتساب</Button>
+          {whatsappInvoicesEnabled && (
+            <Button variant="outline" size="sm" onClick={openWaPreview} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
+              <MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> واتساب
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => printWithDesign("80mm")}><Printer className="h-3.5 w-3.5" /> طباعة حرارية</Button>
           <Button variant="outline" size="sm" onClick={() => printWithDesign("a4")}><FileDown className="h-3.5 w-3.5" /> طباعة A4</Button>
           <Button variant="outline" size="sm" onClick={() => void downloadA4Pdf()} disabled={pdfDownloading}><FileDown className="h-3.5 w-3.5" /> {pdfDownloading ? "جاري التحميل..." : "تحميل PDF"}</Button>

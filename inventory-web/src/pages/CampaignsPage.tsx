@@ -11,6 +11,7 @@ import {
   getInboundMessages, markInboundMessageRead, replyToInboundMessage,
 } from "../api/endpoints"
 import type { Campaign, CampaignPayload, CampaignStatus, Prospect, BotRule, InboundMessage, InboundMessageStatus } from "../types/api"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 /* ─── Shared helpers ──────────────────────────────────────────────────── */
 function parseNumbers(text: string): string[] {
@@ -411,6 +412,7 @@ function CustomerBotSettings() {
 }
 
 function SendTab() {
+  const readOnly = useReadOnly()
   const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -431,7 +433,9 @@ function SendTab() {
     <div className="space-y-4">
       <div className="flex justify-end">
         <button onClick={() => { setShowForm(true); setEditTarget(null); setSelectedId(null) }}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow active:scale-95">
+          disabled={readOnly}
+          title={readOnly ? READ_ONLY_MESSAGE : undefined}
+          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow active:scale-95 disabled:opacity-50">
           <Plus className="h-4 w-4" /> حملة جديدة
         </button>
       </div>
@@ -533,6 +537,7 @@ function CampaignRow({ campaign, onOpen, onEdit, onToggle, onDelete }: {
 function CampaignForm({ onClose, onSaved, initial, campaignId }: {
   onClose: () => void; onSaved: () => void; initial?: CampaignPayload; campaignId?: string
 }) {
+  const readOnly = useReadOnly()
   const [form, setForm] = useState<CampaignPayload>(initial ?? emptyForm)
   const [messagesText, setMessagesText] = useState((initial?.messages ?? []).join("\n---\n"))
   const saveMut = useMutation({
@@ -577,7 +582,8 @@ function CampaignForm({ onClose, onSaved, initial, campaignId }: {
         </div>
         {saveMut.isError && <p className="text-xs text-red-600">تعذر الحفظ — تأكد من الاسم ووجود رسالة.</p>}
         <div className="flex gap-2">
-          <button disabled={saveMut.isPending || !form.name.trim()} onClick={() => saveMut.mutate()}
+          <button disabled={readOnly || saveMut.isPending || !form.name.trim()} onClick={() => saveMut.mutate()}
+            title={readOnly ? READ_ONLY_MESSAGE : undefined}
             className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">
             {saveMut.isPending ? "..." : "حفظ"}
           </button>

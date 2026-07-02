@@ -12,6 +12,7 @@ import { useProducts } from "../hooks/useProducts"
 import { useAuthStore } from "../store/authStore"
 import { useUiStore } from "../store/uiStore"
 import { useUnsavedWarning } from "../hooks/useUnsavedWarning"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 import type { Customer, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 
@@ -125,6 +126,7 @@ export function InvoiceCreatePage() {
   const invoiceType: InvoiceType = (searchParams.get("type") === "PURCHASE" ? "PURCHASE" : "SALE")
   const isPurchase = invoiceType === "PURCHASE"
   usePageTitle(isPurchase ? "فاتورة شراء جديدة" : "فاتورة بيع جديدة")
+  const readOnly = useReadOnly()
 
   const userId = useAuthStore((s) => s.user?.id)
   const uid = userId ?? "anon"
@@ -1771,7 +1773,7 @@ export function InvoiceCreatePage() {
         {/* Action buttons */}
         <div className="mt-2 flex flex-wrap gap-1.5 border-t border-amber-100 pt-2 dark:border-amber-900/50">
           <Button size="sm" className="h-8 text-xs" onClick={() => setPreview(true)}>معاينة</Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={readOnly || !selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
             {createMutation.isPending ? "..." : "حفظ"}
           </Button>
           <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
@@ -2228,7 +2230,7 @@ export function InvoiceCreatePage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={save} disabled={hasInvalidTotal || createMutation.isPending}>حفظ وانتقل للفاتورة</Button>
+            <Button onClick={save} disabled={readOnly || hasInvalidTotal || createMutation.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>حفظ وانتقل للفاتورة</Button>
             <Button variant="outline" onClick={() => window.print()}><Printer className="h-4 w-4" /> طباعة</Button>
           </div>
         </DialogContent>

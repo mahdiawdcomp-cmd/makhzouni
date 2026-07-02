@@ -5,6 +5,7 @@ import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
 import { PosLayout } from "./components/layout/PosLayout"
+import { FeatureGate } from "./components/FeatureGate"
 
 // Pages are code-split: each becomes its own chunk loaded on first navigation,
 // instead of shipping every page in the initial bundle.
@@ -67,12 +68,18 @@ function PageLoader() {
 // Wrap a route element in a Suspense boundary so the chunk can load lazily.
 const s = (el: ReactNode) => <Suspense fallback={<PageLoader />}>{el}</Suspense>
 
+// Batch 4 — gate a route element behind a Batch-1 feature key. Standalone
+// mode (mahdi today) always passes through; SaaS tenants without the feature
+// see LockedFeaturePage instead. Visual only, wraps AFTER Suspense.
+const f = (featureKey: string, label: string, el: ReactNode) =>
+  s(<FeatureGate featureKey={featureKey} label={label}>{el}</FeatureGate>)
+
 const router = createBrowserRouter([
   // ── Public routes ──
   { path: "/login", element: s(<LoginPage />) },
   { path: "/display", element: s(<DisplayPage />) },
   { path: "/catalog", element: s(<PublicCatalogPage />) },
-  { path: "/shop", element: s(<RetailShopPage />) },
+  { path: "/shop", element: f("retailShop", "متجر المفرد", <RetailShopPage />) },
   { path: "/client/:token", element: s(<ClientPortalPage />) },
   { path: "/client/:token/invoice/:invoiceId", element: s(<PublicInvoicePage />) },
   { path: "/stocktake/:token", element: s(<PublicStocktakePage />) },
@@ -88,26 +95,26 @@ const router = createBrowserRouter([
           { index: true, element: s(<DashboardPage />) },
           { path: "inventory", element: s(<ProductsPage />) },
           { path: "inventory/low-stock", element: s(<LowStockPage />) },
-          { path: "inventory/transfers", element: s(<TransfersPage />) },
+          { path: "inventory/transfers", element: f("transfers", "التحويلات بين المخازن", <TransfersPage />) },
           { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stale", element: s(<StaleProductsPage />) },
-          { path: "inventory/stocktake", element: s(<StocktakePage />) },
+          { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
           { path: "inventory/:id", element: s(<ProductDetailPage />) },
           { path: "invoices", element: s(<InvoicesPage />) },
           { path: "invoices/new", element: s(<InvoiceCreatePage />) },
-          { path: "invoices/returns", element: s(<SalesReturnsPage />) },
+          { path: "invoices/returns", element: f("salesReturns", "مرتجعات البيع", <SalesReturnsPage />) },
           { path: "invoices/:id", element: s(<InvoiceDetailPage />) },
-          { path: "quotations", element: s(<QuotationsPage />) },
+          { path: "quotations", element: f("quotations", "عروض الأسعار", <QuotationsPage />) },
           { path: "vouchers", element: s(<VouchersPage />) },
           { path: "vouchers/:id", element: s(<VoucherDetailPage />) },
           { path: "losses", element: s(<LossesPage />) },
           { path: "customers", element: s(<CustomersPage />) },
           { path: "customers/broadcast", element: s(<CustomerBroadcastPage />) },
-          { path: "campaigns", element: s(<CampaignsPage />) },
+          { path: "campaigns", element: f("whatsappCampaigns", "الحملات", <CampaignsPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
-          { path: "catalog-management", element: s(<CatalogManagementPage />) },
-          { path: "retail-catalog", element: s(<RetailCatalogPage />) },
+          { path: "catalog-management", element: f("catalogWholesale", "كتلوگ الجملة", <CatalogManagementPage />) },
+          { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
           { path: "reports", element: s(<ReportsPage />) },
           { path: "settings", element: s(<SettingsPage />) },
           { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
@@ -116,7 +123,7 @@ const router = createBrowserRouter([
             children: [
               { path: "users", element: s(<UsersPage />) },
               { path: "approvals", element: s(<ApprovalsPage />) },
-              { path: "audit-logs", element: s(<AuditLogsPage />) },
+              { path: "audit-logs", element: f("auditLog", "سجل التدقيق", <AuditLogsPage />) },
               { path: "error-logs", element: s(<AnalyzedErrorsPage />) },
               { path: "branches", element: s(<BranchesPage />) },
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
@@ -130,7 +137,7 @@ const router = createBrowserRouter([
       // POS: fullscreen cashier mode — no sidebar / header
       {
         element: <PosLayout />,
-        children: [{ path: "pos", element: s(<POSPage />) }],
+        children: [{ path: "pos", element: f("pos", "نقطة البيع", <POSPage />) }],
       },
     ],
   },

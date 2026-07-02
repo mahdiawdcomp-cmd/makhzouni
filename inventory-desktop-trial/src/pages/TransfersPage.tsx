@@ -17,6 +17,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 import { fmt } from "../utils/fmt"
 import { usePageTitle } from "../hooks/usePageTitle"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 function unitLabel(u: string) {
   if (u === "CARTON") return "كرتونة"
@@ -121,6 +122,7 @@ const PAGE_SIZE = 20
 
 export function TransfersPage() {
   usePageTitle("التحويلات")
+  const readOnly = useReadOnly()
   const queryClient = useQueryClient()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [selected, setSelected] = useState<InventoryTransfer | null>(null)
@@ -165,7 +167,7 @@ export function TransfersPage() {
           <Button variant="outline" asChild>
             <Link to="/inventory/stale"><ArchiveX className="h-4 w-4" /> المواد الراكدة</Link>
           </Button>
-          <Button onClick={() => setIsCreateOpen(true)}>
+          <Button onClick={() => setIsCreateOpen(true)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
             <Plus className="h-4 w-4" /> تحويل جديد
           </Button>
         </div>

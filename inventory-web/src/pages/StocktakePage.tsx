@@ -15,6 +15,7 @@ import type { StocktakeSessionDetail, StocktakeSessionSummary } from "../types/a
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 const PUBLIC_BASE = `${window.location.origin}/stocktake`
 
@@ -27,6 +28,7 @@ function statusLabel(s: string) {
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export function StocktakePage() {
+  const readOnly = useReadOnly()
   const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
@@ -82,7 +84,7 @@ export function StocktakePage() {
           <h1 className="text-2xl font-bold">الجرد الدوري</h1>
           <p className="text-slate-500">أنشئ جلسة جرد، أرسل الرابط للعمال، راجع الفروقات.</p>
         </div>
-        <Button onClick={() => setShowNew(true)}>
+        <Button onClick={() => setShowNew(true)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
           <Plus className="h-4 w-4" /> جلسة جرد جديدة
         </Button>
       </div>
@@ -265,6 +267,7 @@ function SessionView({
   onClose: () => void
   closing: boolean
 }) {
+  const readOnly = useReadOnly()
   const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
   const [copied, setCopied] = useState(false)
   const qc = useQueryClient()
@@ -356,7 +359,7 @@ function SessionView({
               </p>
             </div>
           )}
-          <Button onClick={onClose} disabled={closing} variant="outline">
+          <Button onClick={onClose} disabled={readOnly || closing} title={readOnly ? READ_ONLY_MESSAGE : undefined} variant="outline">
             <CheckCircle2 className="h-4 w-4" />
             {closing ? "جاري الإغلاق..." : "إغلاق الجلسة وتأكيد الجرد"}
           </Button>

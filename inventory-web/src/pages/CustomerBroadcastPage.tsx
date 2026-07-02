@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
 import type { Product } from "../types/api"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 const MAX_PRODUCTS = 10
 
@@ -107,6 +108,7 @@ function TagManager() {
 
 export function CustomerBroadcastPage() {
   usePageTitle("إرسال - زبائن الجملة")
+  const readOnly = useReadOnly()
 
   const tagsQuery = useQuery({ queryKey: ["customer-tags"], queryFn: getCustomerTags })
   const tags = tagsQuery.data ?? []
@@ -273,7 +275,7 @@ export function CustomerBroadcastPage() {
             onChange={(e) => setMessage(e.target.value)}
             placeholder="مثال: وصلت بضاعة جديدة بالجملة! استخدم كود JUMLA10 لخصم 10% 🎁"
           />
-          <Button className="w-full" disabled={!canSend || sendMutation.isPending} onClick={() => setConfirmOpen(true)}>
+          <Button className="w-full" disabled={readOnly || !canSend || sendMutation.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined} onClick={() => setConfirmOpen(true)}>
             <Send className="h-4 w-4" /> إرسال الآن
           </Button>
           <p className="text-center text-[11px] text-slate-400">ملاحظة: على WhatsApp Cloud API قد لا تصل الرسائل الدعائية للزبائن خارج نافذة ٢٤ ساعة من آخر تواصل.</p>

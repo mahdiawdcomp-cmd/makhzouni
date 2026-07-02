@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react"
 import { Outlet, useLocation, Link, Navigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
-import { AlertTriangle, Menu, Moon, Sun, X, Zap } from "lucide-react"
+import { AlertTriangle, Eye, Menu, Moon, Sun, X, Zap } from "lucide-react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { getLicenseStatus, getMe } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
+import { useTenantConfig } from "../../hooks/useTenantConfig"
 import { Header } from "./Header"
 import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
@@ -67,6 +68,52 @@ function LicenseBanner() {
       <button type="button" onClick={() => setDismissed(true)} className="opacity-60 hover:opacity-100">
         <X className="h-4 w-4" />
       </button>
+    </div>
+  )
+}
+
+/**
+ * Batch 4 — visual-only. Shown when the SaaS backend's /api/tenant-info
+ * reports readOnly=true (expired/suspended subscription or trial). Standalone
+ * mode (mahdi today) never renders this. The backend does NOT block requests
+ * yet (Batch 3 report-only) — this only disables buttons in the UI.
+ */
+function ReadOnlySaasBanner() {
+  const { data: tenant } = useTenantConfig()
+  if (!tenant || tenant.mode !== "saas" || !tenant.readOnly) return null
+
+  return (
+    <div
+      className="flex items-center gap-2 px-4 py-2 text-sm font-medium"
+      style={{
+        background: "rgba(239,68,68,0.12)",
+        borderBottom: "1px solid rgba(239,68,68,0.25)",
+        color: "#ef4444",
+      }}
+    >
+      <Eye className="h-4 w-4 shrink-0" />
+      <span>الاشتراك منتهي أو موقوف — النظام يعمل بوضع المشاهدة فقط.</span>
+    </div>
+  )
+}
+
+/** Batch 4 — informational only when the web platform is disabled for this SaaS tenant. */
+function WebDisabledBanner() {
+  const { data: tenant } = useTenantConfig()
+  if (!tenant || tenant.mode !== "saas") return null
+  if (tenant.platforms?.webEnabled !== false) return null
+
+  return (
+    <div
+      className="flex items-center gap-2 px-4 py-2 text-sm font-medium"
+      style={{
+        background: "rgba(245,158,11,0.12)",
+        borderBottom: "1px solid rgba(245,158,11,0.25)",
+        color: "#f59e0b",
+      }}
+    >
+      <AlertTriangle className="h-4 w-4 shrink-0" />
+      <span>الوصول عبر الويب غير مفعل لهذا الحساب. تواصل مع الدعم لتفعيله.</span>
     </div>
   )
 }
@@ -266,6 +313,10 @@ export function AppLayout() {
 
         {/* License banner (admin only, when expiring/expired) */}
         <LicenseBanner />
+
+        {/* SaaS entitlements banners (Batch 4, visual only — no-op in standalone) */}
+        <ReadOnlySaasBanner />
+        <WebDisabledBanner />
 
         {/* System health strip (only when a subsystem is warn/down) */}
         <SystemHealthBar />

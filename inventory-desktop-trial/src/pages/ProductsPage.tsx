@@ -29,6 +29,7 @@ import { deliverLabel } from "../utils/download"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { matchProduct } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
+import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -353,6 +354,7 @@ function moneyForExport(value: number | string | undefined | null) {
 
 export function ProductsPage() {
   usePageTitle("المخزن")
+  const readOnly = useReadOnly()
   const navigate = useNavigate()
 
   // Handle Esc key for lightbox
@@ -493,7 +495,7 @@ export function ProductsPage() {
             <Button variant="outline" className="h-8 px-2" title="عرض" onClick={() => navigate(`/inventory/${row.original.id}`)}>
               <Eye className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="h-8 px-2" title="تعديل" onClick={() => startEdit(row.original)}>
+            <Button variant="outline" className="h-8 px-2" title={readOnly ? READ_ONLY_MESSAGE : "تعديل"} disabled={readOnly} onClick={() => startEdit(row.original)}>
               <Edit className="h-4 w-4" />
             </Button>
             <Button variant="outline" className="h-8 px-2" title="طباعة رمز القطعة (2×2 سم)" onClick={() => void printPiece(row.original.id)}>
@@ -502,14 +504,14 @@ export function ProductsPage() {
             <Button variant="outline" className="h-8 px-2" title="طباعة رمز الكرتون (A4، 6 لاصقات)" onClick={() => void printCarton(row.original.id)}>
               <Printer className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" title="حذف" onClick={() => setDeleteConfirm(row.original)}>
+            <Button variant="outline" className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" title={readOnly ? READ_ONLY_MESSAGE : "حذف"} disabled={readOnly} onClick={() => setDeleteConfirm(row.original)}>
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         ),
       },
     ],
-    [navigate],
+    [navigate, readOnly],
   )
 
   const table = useReactTable({
@@ -647,7 +649,7 @@ export function ProductsPage() {
           <h1 className="text-2xl font-bold">المخزن</h1>
           <p className="text-slate-500">إدارة المنتجات والرموز والمخزون.</p>
         </div>
-        <Button className="h-12 w-full text-base shadow-lg md:hidden" onClick={startCreate}>
+        <Button className="h-12 w-full text-base shadow-lg md:hidden" onClick={startCreate} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
           <Plus className="h-5 w-5" />
           إضافة منتج جديد
         </Button>
@@ -687,7 +689,7 @@ export function ProductsPage() {
           <Button variant="outline" onClick={() => setShowCategories((v) => !v)}>
             <FolderTree className="h-4 w-4" /> {showCategories ? "إخفاء الفئات" : "إدارة الفئات"}
           </Button>
-          <Button className="hidden md:inline-flex" onClick={startCreate}>
+          <Button className="hidden md:inline-flex" onClick={startCreate} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
             <Plus className="h-4 w-4" />
             منتج جديد
           </Button>
@@ -865,7 +867,7 @@ export function ProductsPage() {
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => navigate(`/inventory/${p.id}`)}>
                       <Eye className="h-4 w-4" /> عرض
                     </Button>
-                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => startEdit(p)}>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => startEdit(p)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
                       <Edit className="h-4 w-4" /> تعديل
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printPiece(p.id)}>
@@ -874,7 +876,7 @@ export function ProductsPage() {
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printCarton(p.id)}>
                       <Printer className="h-4 w-4" /> كرتون
                     </Button>
-                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px] text-rose-600" onClick={() => setDeleteConfirm(p)}>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px] text-rose-600" onClick={() => setDeleteConfirm(p)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
                       <Trash2 className="h-4 w-4" /> حذف
                     </Button>
                   </div>
@@ -1014,10 +1016,10 @@ export function ProductsPage() {
                       <td className="py-2 px-3 text-center">
                         <div className="flex justify-center gap-1">
                           <Button variant="outline" className="h-7 w-7 p-0" title="عرض" onClick={() => navigate(`/inventory/${p.id}`)}><Eye className="h-3.5 w-3.5" /></Button>
-                          <Button variant="outline" className="h-7 w-7 p-0" title="تعديل" onClick={() => startEdit(p)}><Edit className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0" title={readOnly ? READ_ONLY_MESSAGE : "تعديل"} disabled={readOnly} onClick={() => startEdit(p)}><Edit className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز القطعة" onClick={() => void printPiece(p.id)}><ScanQrCode className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز الكرتون" onClick={() => void printCarton(p.id)}><Printer className="h-3.5 w-3.5" /></Button>
-                          <Button variant="outline" className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50" title="حذف" onClick={() => setDeleteConfirm(p)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50" title={readOnly ? READ_ONLY_MESSAGE : "حذف"} disabled={readOnly} onClick={() => setDeleteConfirm(p)}><Trash2 className="h-3.5 w-3.5" /></Button>
                         </div>
                       </td>
                     </tr>
@@ -1464,7 +1466,7 @@ export function ProductsPage() {
           </div>
 
           <div className="sticky bottom-0 z-20 -mx-4 border-t border-slate-200 bg-white/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-800 dark:bg-slate-950/95 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
-            <Button className="h-12 w-full text-base" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+            <Button className="h-12 w-full text-base" type="submit" disabled={readOnly || createMutation.isPending || updateMutation.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
               {createMutation.isPending || updateMutation.isPending ? "جارٍ الحفظ..." : editing ? "تحديث المنتج" : "حفظ المنتج"}
             </Button>
           </div>
@@ -1498,6 +1500,8 @@ export function ProductsPage() {
           onClick={startCreate}
           className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 h-14 rounded-full px-6 text-base shadow-2xl md:hidden"
           aria-label="إضافة منتج جديد"
+          disabled={readOnly}
+          title={readOnly ? READ_ONLY_MESSAGE : undefined}
         >
           <Plus className="h-5 w-5" />
           إضافة منتج
