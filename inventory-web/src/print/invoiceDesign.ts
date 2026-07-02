@@ -318,11 +318,23 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   cols.push("المجموع", "الملاحظات")
   const nameColIdx = hasItemNum ? 2 : 1
   const colWidths = cols.map((_, i) => {
-    if (i === 0) return "6%"
-    if (hasItemNum && i === 1) return "13%"
-    if (i === nameColIdx) return hasItemNum ? "27%" : "34%"
-    if (i === cols.length - 1) return "15%"
-    return hasItemNum ? "10%" : "11%"
+    if (hasItemNum) {
+      if (i === 0) return "4.5%"
+      if (i === 1) return "12%"
+      if (i === nameColIdx) return "38%"
+      if (i === 3) return "8%"
+      if (i === 4) return "7%"
+      if (i === 5) return "9%"
+      if (i === 6) return "10.5%"
+      return "11%"
+    }
+    if (i === 0) return "5%"
+    if (i === nameColIdx) return "44%"
+    if (i === 2) return "9%"
+    if (i === 3) return "8%"
+    if (i === 4) return "10%"
+    if (i === 5) return "12%"
+    return "12%"
   })
   const colgroup = `<colgroup>${colWidths.map((w) => `<col style="width:${w}" />`).join("")}</colgroup>`
   const head = `<thead><tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === nameColIdx ? "right" : "center"};font-size:${fs}px;line-height:1.25">${c}</th>`).join("")}</tr></thead>`
@@ -414,7 +426,7 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     let prevBottom = itemsEl.y + itemsEl.h
     const footerHTML = footerEls.map((el) => {
       const rawGap = el.y - prevBottom
-      const gap = is80 ? Math.max(4, rawGap) : Math.max(8, Math.min(rawGap, 24))
+      const gap = is80 ? Math.max(4, rawGap) : 6
       prevBottom = el.y + el.h
       const s = [
         `margin-top:${gap}px`,
@@ -429,7 +441,7 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
         `justify-content:${el.align === "center" ? "center" : el.align === "left" ? "flex-start" : "flex-end"}`,
         "break-inside:avoid", "page-break-inside:avoid",
       ]
-      if (el.bg) s.push(`background:${el.bg}`, "padding:0 4px")
+      if (el.bg) s.push(`background:${el.bg}`, "padding:0 8px")
       if (el.borderColor) s.push(`border:1px solid ${el.borderColor}`)
       if (el.radius) s.push(`border-radius:${el.radius}px`)
       return `<div class="avoid-break" style="${s.join(";")}">${elInnerHTML(el, inv, store)}</div>`
@@ -447,7 +459,7 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     </style></head><body><div class="paper">
       ${headerHTML}
       <div class="invoice-flow" style="padding-top:${itemsEl.y}px">
-        <div style="margin-right:${itemsEl.x}px;width:${itemsEl.w}px;font-size:${itemsEl.fontSize || 12}px">${itemsTableHTML(itemsEl, inv, store)}</div>
+        <div style="margin-right:${is80 ? itemsEl.x : Math.max(24, Math.min(itemsEl.x, 28))}px;width:${is80 ? itemsEl.w : Math.min(design.width - 48, Math.max(itemsEl.w, design.width - 48))}px;font-size:${itemsEl.fontSize || 12}px">${itemsTableHTML(itemsEl, inv, store)}</div>
         ${footerHTML}
       </div>
     </div></body></html>`
