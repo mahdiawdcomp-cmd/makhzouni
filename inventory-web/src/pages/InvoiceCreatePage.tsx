@@ -191,6 +191,7 @@ export function InvoiceCreatePage() {
 
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
+  const [preparedRows, setPreparedRows] = useState<Record<number, boolean>>({})
   const [productModal, setProductModal] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   // ---- Mobile Smart Invoice Preview: show a product card before adding it as a line ----
@@ -953,6 +954,15 @@ export function InvoiceCreatePage() {
 
   function removeItem(index: number) {
     setItems((current) => current.filter((_, i) => i !== index))
+    setPreparedRows((current) => {
+      const next: Record<number, boolean> = {}
+      Object.entries(current).forEach(([key, value]) => {
+        const rowIndex = Number(key)
+        if (rowIndex < index) next[rowIndex] = value
+        if (rowIndex > index) next[rowIndex - 1] = value
+      })
+      return next
+    })
   }
 
   // ---- keyboard handlers ----
@@ -1490,6 +1500,7 @@ export function InvoiceCreatePage() {
             <Table>
               <THead>
                 <TR>
+                  <TH className="w-10 text-center">جهز</TH>
                   <TH>المادة</TH>
                   <TH>المخزن</TH>
                   <TH>الوحدة</TH>
@@ -1520,6 +1531,16 @@ export function InvoiceCreatePage() {
                   return (
                     <Fragment key={index}>
                     <TR>
+                      <TD className="text-center">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-emerald-600"
+                          checked={Boolean(preparedRows[index])}
+                          title="تم تجهيز المادة"
+                          aria-label={`تم تجهيز ${item.product.name}`}
+                          onChange={(event) => setPreparedRows((current) => ({ ...current, [index]: event.target.checked }))}
+                        />
+                      </TD>
                       <TD>
                         <div className="flex items-center gap-2 min-w-[140px]">
                           <ProductThumb product={item.product} />
@@ -1633,7 +1654,7 @@ export function InvoiceCreatePage() {
                     </TR>
                     {canSplit && (
                       <TR>
-                        <TD colSpan={hidePrice ? 5 : 7} className="p-0 pb-1">
+                        <TD colSpan={hidePrice ? 6 : 8} className="p-0 pb-1">
                           <div className="mx-2 flex items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-700/50 dark:bg-sky-950/30">
                             <div className="text-[12px] text-sky-800 dark:text-sky-300">
                               ⚡ <strong>المحل عنده {shopPcs} قطعة فقط</strong> — الكمية المطلوبة {lineQtyPcs} قطعة. هل تريد التقسيم على مخازن؟
@@ -2378,4 +2399,3 @@ export function InvoiceCreatePage() {
     </div>
   )
 }
-
