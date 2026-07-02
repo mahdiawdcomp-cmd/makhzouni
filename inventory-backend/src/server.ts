@@ -34,7 +34,7 @@ import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger, setLoggerErrorSink } from "./utils/logger";
 import { recordError } from "./services/error-log.service";
 import { realtimeHeartbeat } from "./services/realtime.service";
-import { requireActiveSubscription } from "./middleware/tenant.middleware";
+import { requireActiveSubscription, reportOnlyEntitlementsMiddleware } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
 import prisma from "./config/database";
 
@@ -102,6 +102,9 @@ if (process.env.TENANT_ID) {
     requireActiveSubscription(req, res, next);
   });
 }
+// Batch 3 — report-only entitlements check. Never blocks; only logs when a
+// mapped route is hit without its required feature (see tenant.middleware.ts).
+app.use("/api", reportOnlyEntitlementsMiddleware);
 app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {
   next(new AppError("Route not found", 404, "ROUTE_NOT_FOUND"));
