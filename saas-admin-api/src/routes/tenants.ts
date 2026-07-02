@@ -3,10 +3,73 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireAdminAuth } from "../middleware/admin-auth";
 import { generateSerialCode } from "../services/serial.service";
+import { FEATURE_KEYS } from "../entitlements";
 import prisma from "../prisma";
 
 const router = Router();
 router.use(requireAdminAuth);
+
+// ── Batch 1: license / entitlements field schemas (additive) ──
+const featureKeySchema = z.enum(FEATURE_KEYS as [string, ...string[]]);
+
+const limitsSchema = z.object({
+  maxAndroidDevices: z.number().int().nonnegative().nullable().optional(),
+  whatsappMonthlyLimit: z.number().int().nonnegative().nullable().optional(),
+  whatsappLimitEnabled: z.boolean().optional(),
+}).strip();
+
+const platformsSchema = z.object({
+  webEnabled: z.boolean().optional(),
+  androidEnabled: z.boolean().optional(),
+  desktopEnabled: z.boolean().optional(),
+  desktopWhiteLabelEnabled: z.boolean().optional(),
+  offlineLifetimeEnabled: z.boolean().optional(),
+}).strip();
+
+const brandingSchema = z.object({
+  storeName: z.string().trim().max(120).nullable().optional(),
+  logoUrl: z.string().trim().max(500).nullable().optional(),
+  primaryColor: z.string().trim().max(32).nullable().optional(),
+  appName: z.string().trim().max(120).nullable().optional(),
+}).strip();
+
+const installerArtifactsSchema = z.object({
+  androidApkUrl: z.string().trim().max(500).nullable().optional(),
+  desktopInstallerUrl: z.string().trim().max(500).nullable().optional(),
+  desktopVersion: z.string().trim().max(60).nullable().optional(),
+  androidVersion: z.string().trim().max(60).nullable().optional(),
+  buildStatus: z.string().trim().max(60).nullable().optional(),
+  lastBuildAt: z.string().trim().max(60).nullable().optional(),
+}).strip();
+
+const licenseFieldsSchema = z.object({
+  licenseType: z.enum(["SAAS", "DESKTOP_OFFLINE_LIFETIME", "TRIAL"]).optional(),
+  activatedAt: z.string().datetime().nullable().optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+  trialEndsAt: z.string().datetime().nullable().optional(),
+  features: z.array(featureKeySchema).optional(),
+  limits: limitsSchema.nullable().optional(),
+  platforms: platformsSchema.nullable().optional(),
+  branding: brandingSchema.nullable().optional(),
+  internalNotes: z.string().trim().max(5000).nullable().optional(),
+  installerArtifacts: installerArtifactsSchema.nullable().optional(),
+});
+
+/** Convert the license zod payload into a Prisma-ready data object. */
+function licenseToPrisma(data: z.infer<typeof licenseFieldsSchema>) {
+  const out: Record<string, unknown> = {};
+  if (data.licenseType !== undefined) out.licenseType = data.licenseType;
+  if (data.activatedAt !== undefined) out.activatedAt = data.activatedAt ? new Date(data.activatedAt) : null;
+  if (data.expiresAt !== undefined) out.expiresAt = data.expiresAt ? new Date(data.expiresAt) : null;
+  if (data.trialEndsAt !== undefined) out.trialEndsAt = data.trialEndsAt ? new Date(data.trialEndsAt) : null;
+  if (data.features !== undefined) out.features = data.features;
+  if (data.limits !== undefined) out.limits = data.limits ?? Prisma.JsonNull;
+  if (data.platforms !== undefined) out.platforms = data.platforms ?? Prisma.JsonNull;
+  if (data.branding !== undefined) out.branding = data.branding ?? Prisma.JsonNull;
+  if (data.internalNotes !== undefined) out.internalNotes = data.internalNotes || null;
+  if (data.installerArtifacts !== undefined) out.installerArtifacts = data.installerArtifacts ?? Prisma.JsonNull;
+  return out;
+}
 
 const featureSchema = z.enum([
   "ANDROID",
@@ -47,7 +110,7 @@ const createTenantSchema = z.object({
   customDomain: z.string().trim().max(253).optional(),
   notes: z.string().trim().max(2000).optional(),
   subscription: subscriptionSchema,
-});
+}).merge(licenseFieldsSchema);
 
 const tenantInclude = {
   subscriptions: { orderBy: { createdAt: "desc" as const } },
@@ -120,6 +183,7 @@ router.post("/", async (req: Request, res: Response) => {
         backendUrl: data.backendUrl.replace(/\/+$/, ""),
         customDomain: data.customDomain || null,
         notes: data.notes || null,
+        ...licenseToPrisma(data),
         subscriptions: {
           create: {
             ...data.subscription,
@@ -195,7 +259,7 @@ const updateTenantSchema = z.object({
   provisioningStatus: z.enum(["PENDING", "READY", "ERROR"]).optional(),
   provisioningError: z.string().nullable().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
-});
+}).merge(licenseFieldsSchema);
 
 router.patch("/:id", async (req: Request, res: Response) => {
   const id = param(req, "id");
@@ -205,12 +269,23 @@ router.patch("/:id", async (req: Request, res: Response) => {
     return;
   }
   try {
+    // Separate license/entitlement fields — they need Date/JsonNull conversion
+    // and must not be spread raw into the Prisma update.
+    const {
+      licenseType, activatedAt, expiresAt, trialEndsAt, features,
+      limits, platforms, branding, internalNotes, installerArtifacts,
+      ...plain
+    } = parsed.data;
     const tenant = await prisma.tenant.update({
       where: { id },
       data: {
-        ...parsed.data,
-        email: parsed.data.email || null,
-        backendUrl: parsed.data.backendUrl?.replace(/\/+$/, ""),
+        ...plain,
+        email: plain.email === undefined ? undefined : (plain.email || null),
+        backendUrl: plain.backendUrl?.replace(/\/+$/, ""),
+        ...licenseToPrisma({
+          licenseType, activatedAt, expiresAt, trialEndsAt, features,
+          limits, platforms, branding, internalNotes, installerArtifacts,
+        }),
       },
       include: tenantInclude,
     });

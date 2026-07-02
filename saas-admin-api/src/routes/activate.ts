@@ -66,8 +66,9 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  // Check expiry
-  if (sub.expiresAt && new Date(sub.expiresAt) < new Date()) {
+  // Check expiry — prefer tenant-level expiry, fall back to legacy subscription.
+  const effectiveExpiry = tenant.expiresAt ?? sub.expiresAt ?? null;
+  if (effectiveExpiry && new Date(effectiveExpiry) < new Date()) {
     res.status(403).json({ error: "Subscription has expired. Please renew." });
     return;
   }
@@ -85,6 +86,16 @@ router.post("/", async (req: Request, res: Response) => {
     tenantId: tenant.id,
     tenantName: tenant.name,
     backendUrl: tenant.backendUrl,
+    // ── Batch 1: entitlements model (new, clearly-named top-level fields) ──
+    licenseType: tenant.licenseType,
+    activatedAt: tenant.activatedAt,
+    expiresAt: effectiveExpiry,
+    trialEndsAt: tenant.trialEndsAt,
+    features: tenant.features ?? [],
+    limits: tenant.limits ?? null,
+    platforms: tenant.platforms ?? null,
+    branding: tenant.branding ?? null,
+    // ── Legacy compatibility: keep the old `subscription` block untouched ──
     subscription: {
       plan: sub.plan,
       expiresAt: sub.expiresAt,

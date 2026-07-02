@@ -26,7 +26,9 @@ router.get("/", async (req: Request, res: Response) => {
   }
 
   const sub = tenant.subscriptions[0];
-  const isExpired = sub?.expiresAt ? new Date(sub.expiresAt) < new Date() : false;
+  // Prefer the new tenant-level expiry; fall back to the legacy subscription one.
+  const effectiveExpiry = tenant.expiresAt ?? sub?.expiresAt ?? null;
+  const isExpired = effectiveExpiry ? new Date(effectiveExpiry) < new Date() : false;
 
   res.json({
     tenantId: tenant.id,
@@ -35,6 +37,16 @@ router.get("/", async (req: Request, res: Response) => {
     frontendUrl: tenant.frontendUrl,
     backendUrl: tenant.backendUrl,
     status: isExpired ? "EXPIRED" : tenant.status,
+    // ── Batch 1: entitlements model (new, clearly-named top-level fields) ──
+    licenseType: tenant.licenseType,
+    activatedAt: tenant.activatedAt,
+    expiresAt: effectiveExpiry,
+    trialEndsAt: tenant.trialEndsAt,
+    features: tenant.features ?? [],
+    limits: tenant.limits ?? null,
+    platforms: tenant.platforms ?? null,
+    branding: tenant.branding ?? null,
+    // ── Legacy compatibility: keep the old `subscription` block untouched ──
     subscription: sub
       ? {
           plan: sub.plan,

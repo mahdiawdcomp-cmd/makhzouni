@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, X } from "lucide-react";
-import { DOMAIN_ROOT, getErrorMessage, tenantsApi, type FeatureKey, type Plan } from "../api/client";
+import { DOMAIN_ROOT, getErrorMessage, tenantsApi, type FeatureKey, type LicenseType, type Plan } from "../api/client";
+import { LICENSE_TYPES, LICENSE_TYPE_LABELS } from "../entitlements";
 
 const FEATURES: Array<{ key: FeatureKey; label: string }> = [
   { key: "ANDROID", label: "تطبيق أندرويد" }, { key: "CATALOG", label: "كتالوج العملاء" },
@@ -22,6 +23,7 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
     maxUsers: "3", maxWarehouses: "1", maxAndroidDevices: "1",
     maxInvoices: "", maxCustomers: "", notes: "",
     features: ["POS", "RETURNS", "QUOTATIONS", "AUDIT_LOG"] as FeatureKey[],
+    licenseType: "SAAS" as LicenseType, trialEndsAt: "", internalNotes: "",
   });
   const set = (key: string, value: unknown) => setForm((current) => ({ ...current, [key]: value }));
   const toggleFeature = (key: FeatureKey) => set("features", form.features.includes(key)
@@ -35,6 +37,11 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
         name: form.name, ownerName: form.ownerName || undefined, phone: form.phone || undefined,
         email: form.email || undefined, subdomain: form.subdomain, backendUrl: form.backendUrl,
         notes: form.notes || undefined,
+        // ── Batch 1: license / entitlements (tenant-level) ──
+        licenseType: form.licenseType,
+        expiresAt: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
+        trialEndsAt: form.trialEndsAt ? new Date(`${form.trialEndsAt}T23:59:59`).toISOString() : null,
+        internalNotes: form.internalNotes || undefined,
         subscription: {
           plan: form.plan,
           expiresAt: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
@@ -81,8 +88,10 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
           ) : (
             <>
               <div className="form-grid">
-                <label>الباقة<select value={form.plan} onChange={(e) => set("plan", e.target.value)}><option value="TRIAL">تجريبية</option><option value="BASIC">أساسية</option><option value="PRO">احترافية</option><option value="FULL">كاملة</option></select></label>
+                <label>نوع النسخة<select value={form.licenseType} onChange={(e) => set("licenseType", e.target.value)}>{LICENSE_TYPES.map((t) => <option key={t} value={t}>{LICENSE_TYPE_LABELS[t]}</option>)}</select></label>
                 <label>تاريخ الانتهاء<input type="date" value={form.expiresAt} onChange={(e) => set("expiresAt", e.target.value)} /></label>
+                <label>انتهاء التجربة<input type="date" value={form.trialEndsAt} onChange={(e) => set("trialEndsAt", e.target.value)} /></label>
+                <label>الباقة (قديمة)<select value={form.plan} onChange={(e) => set("plan", e.target.value)}><option value="TRIAL">تجريبية</option><option value="BASIC">أساسية</option><option value="PRO">احترافية</option><option value="FULL">كاملة</option></select></label>
                 <label>سعر الاشتراك<input type="number" min="0" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="د.ع" /></label>
                 <label>دورة الدفع<select value={form.billingCycle} onChange={(e) => set("billingCycle", e.target.value)}><option value="MONTHLY">شهري</option><option value="YEARLY">سنوي</option><option value="CUSTOM">مخصص</option></select></label>
                 <label>عدد المستخدمين<input type="number" min="1" value={form.maxUsers} onChange={(e) => set("maxUsers", e.target.value)} /></label>
@@ -93,6 +102,7 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
               <label>المزايا</label>
               <div className="feature-grid">{FEATURES.map((feature) => <button type="button" key={feature.key} className={form.features.includes(feature.key) ? "feature selected" : "feature"} onClick={() => toggleFeature(feature.key)}><Check size={15} />{feature.label}</button>)}</div>
               <label>ملاحظات<textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} /></label>
+              <label>ملاحظات داخلية (للسوبر أدمن فقط)<textarea value={form.internalNotes} onChange={(e) => set("internalNotes", e.target.value)} rows={2} /></label>
             </>
           )}
           {error && <div className="alert error">{error}</div>}

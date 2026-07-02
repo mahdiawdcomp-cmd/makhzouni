@@ -24,6 +24,12 @@ enum ProvisioningStatus {
   ERROR
 }
 
+enum LicenseType {
+  SAAS
+  DESKTOP_OFFLINE_LIFETIME
+  TRIAL
+}
+
 model Tenant {
   id                 String             @id @default(uuid()) @db.Uuid
   name               String
@@ -38,6 +44,25 @@ model Tenant {
   provisioningStatus ProvisioningStatus @default(PENDING) @map("provisioning_status")
   provisioningError  String?            @map("provisioning_error")
   notes              String?
+
+  // ── Batch 1: license / entitlements model (additive, all nullable/default) ──
+  licenseType        LicenseType        @default(SAAS) @map("license_type")
+  activatedAt        DateTime?          @map("activated_at")
+  expiresAt          DateTime?          @map("expires_at")
+  trialEndsAt        DateTime?          @map("trial_ends_at")
+  // Optional feature keys enabled on top of the always-on base version.
+  features           String[]           @default([])
+  // { maxAndroidDevices, whatsappMonthlyLimit, whatsappLimitEnabled }
+  limits             Json?
+  // { webEnabled, androidEnabled, desktopEnabled, desktopWhiteLabelEnabled, offlineLifetimeEnabled }
+  platforms          Json?
+  // { storeName, logoUrl, primaryColor, appName }
+  branding           Json?
+  // Super-admin only notes; never returned by public endpoints.
+  internalNotes      String?            @map("internal_notes")
+  // { androidApkUrl, desktopInstallerUrl, desktopVersion, androidVersion, buildStatus, lastBuildAt }
+  installerArtifacts Json?              @map("installer_artifacts")
+
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 

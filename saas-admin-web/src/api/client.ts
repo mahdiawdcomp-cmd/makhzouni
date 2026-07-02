@@ -65,6 +65,39 @@ export interface AdminAuditLog {
   createdAt: string;
 }
 
+// ── Batch 1: license / entitlements model ──
+export type LicenseType = "SAAS" | "DESKTOP_OFFLINE_LIFETIME" | "TRIAL";
+
+export interface TenantLimits {
+  maxAndroidDevices?: number | null;
+  whatsappMonthlyLimit?: number | null;
+  whatsappLimitEnabled?: boolean;
+}
+
+export interface TenantPlatforms {
+  webEnabled?: boolean;
+  androidEnabled?: boolean;
+  desktopEnabled?: boolean;
+  desktopWhiteLabelEnabled?: boolean;
+  offlineLifetimeEnabled?: boolean;
+}
+
+export interface TenantBranding {
+  storeName?: string | null;
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+  appName?: string | null;
+}
+
+export interface InstallerArtifacts {
+  androidApkUrl?: string | null;
+  desktopInstallerUrl?: string | null;
+  desktopVersion?: string | null;
+  androidVersion?: string | null;
+  buildStatus?: string | null;
+  lastBuildAt?: string | null;
+}
+
 export interface Tenant {
   id: string;
   name: string;
@@ -79,6 +112,17 @@ export interface Tenant {
   provisioningStatus: ProvisioningStatus;
   provisioningError: string | null;
   notes: string | null;
+  // ── Batch 1: license / entitlements fields ──
+  licenseType: LicenseType;
+  activatedAt: string | null;
+  expiresAt: string | null;
+  trialEndsAt: string | null;
+  features: string[];
+  limits: TenantLimits | null;
+  platforms: TenantPlatforms | null;
+  branding: TenantBranding | null;
+  internalNotes: string | null;
+  installerArtifacts: InstallerArtifacts | null;
   createdAt: string;
   updatedAt: string;
   subscriptions: Subscription[];
