@@ -430,21 +430,22 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
       prevBottom = el.y + el.h
       const compactHeight = is80
         ? el.h
-        : Math.min(Math.max(el.h, 22), el.field === "grandTotal" ? 36 : 30)
+        : el.field === "grandTotal" ? 30 : 24
+      const compactWidth = is80 ? el.w : Math.min(el.w, el.field === "grandTotal" ? 300 : 282)
       const s = [
-        `margin-top:${gap}px`,
+        `margin-top:${is80 ? gap : 3}px`,
         `margin-right:${el.x}px`,
-        `width:${el.w}px`,
-        `min-height:${compactHeight}px`,
-        `font-size:${el.fontSize || 13}px`,
+        `width:${compactWidth}px`,
+        `height:${compactHeight}px`,
+        `font-size:${is80 ? el.fontSize || 13 : Math.min(el.fontSize || 13, el.field === "grandTotal" ? 16 : 13)}px`,
         el.bold ? "font-weight:800" : "font-weight:500",
         `color:${el.color || "#0f172a"}`,
         `text-align:${el.align || "right"}`,
-        "display:flex", "align-items:center",
+        "display:flex", "align-items:center", "line-height:1.15",
         `justify-content:${el.align === "center" ? "center" : el.align === "left" ? "flex-start" : "flex-end"}`,
         "break-inside:avoid", "page-break-inside:avoid",
       ]
-      if (el.bg) s.push(`background:${el.bg}`, "padding:0 8px")
+      if (el.bg) s.push(`background:${el.bg}`, `padding:0 ${is80 ? 4 : 6}px`)
       if (el.borderColor) s.push(`border:1px solid ${el.borderColor}`)
       if (el.radius) s.push(`border-radius:${el.radius}px`)
       return `<div class="avoid-break" style="${s.join(";")}">${elInnerHTML(el, inv, store)}</div>`
