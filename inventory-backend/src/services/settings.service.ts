@@ -174,6 +174,7 @@ export async function getSettings(): Promise<AppSettings> {
   const values = { ...defaultSettings } as Record<string, unknown>;
 
   for (const row of rows) {
+    if (row.key.startsWith("_")) continue; // internal keys (e.g. _backupStatus) — not app settings
     values[row.key] = row.value;
   }
 

@@ -2,10 +2,11 @@ import { NextFunction, Request, Response } from "express";
 import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { AppError } from "../utils/app-error";
+import { recordError } from "../services/error-log.service";
 
 export function errorHandler(
   error: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction
 ) {
@@ -64,6 +65,15 @@ export function errorHandler(
   }
 
   console.error(error);
+
+  // Unexpected 500s land in ErrorLog so they surface on /error-logs.
+  // Fire-and-forget — recordError never throws.
+  void recordError({
+    source: "API",
+    code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null,
+    message: error instanceof Error ? error.message : String(error),
+    context: { method: req.method, path: req.originalUrl?.slice(0, 300) },
+  });
 
   return res.status(500).json({
     success: false,

@@ -825,7 +825,16 @@ export interface SystemHealth {
   whatsapp: { level: HealthLevel; provider: string; state: string | null; detail: string | null }
   campaigns: { level: HealthLevel; running: number; failed24h: number }
   cron: { level: HealthLevel; lastCampaignTickAt: string | null; ageSec: number | null }
-  backup: { level: HealthLevel; tracked: boolean; detail: string }
+  backup: {
+    level: HealthLevel
+    tracked: boolean
+    detail: string
+    lastSuccessAt: string | null
+    lastAttemptAt: string | null
+    lastOk: boolean | null
+    lastError: string | null
+    sizeBytes: number | null
+  }
 }
 
 export type ErrorLogSource = "CAMPAIGN" | "WHATSAPP" | "CRON" | "BACKUP" | "DATABASE" | "API" | "OTHER"

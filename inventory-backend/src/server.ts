@@ -31,7 +31,8 @@ import { initializeWhatsApp } from "./services/whatsapp.service";
 import { getSettings } from "./services/settings.service";
 import { backfillThumbnails } from "./services/product.service";
 import { apiLimiter } from "./middleware/rate-limit.middleware";
-import { logger } from "./utils/logger";
+import { logger, setLoggerErrorSink } from "./utils/logger";
+import { recordError } from "./services/error-log.service";
 import { realtimeHeartbeat } from "./services/realtime.service";
 import { requireActiveSubscription } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
@@ -107,12 +108,25 @@ app.use((_req, _res, next) => {
 });
 app.use(errorHandler);
 
+// Forward logger.error(...) calls into ErrorLog so they surface on /error-logs.
+// recordError never throws and dedups by (source, code, message).
+setLoggerErrorSink((message) => {
+  void recordError({ source: "OTHER", code: "LOGGER_ERROR", message });
+});
+
 // Prevent WhatsApp/Puppeteer crashes from killing the whole server
 process.on("uncaughtException", (err) => {
   console.error("[uncaughtException] Server kept alive:", err.message);
+  void recordError({ source: "OTHER", code: "UNCAUGHT_EXCEPTION", level: "CRITICAL", message: err.message });
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection] Server kept alive:", reason);
+  void recordError({
+    source: "OTHER",
+    code: "UNHANDLED_REJECTION",
+    level: "CRITICAL",
+    message: reason instanceof Error ? reason.message : String(reason),
+  });
 });
 
 async function runStartupMigrations() {

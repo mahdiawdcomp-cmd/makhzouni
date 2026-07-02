@@ -2,6 +2,7 @@ import prisma from "../config/database";
 import { CampaignRecipientStatus, CampaignStatus } from "@prisma/client";
 import { getWhatsAppStatus, getGreenApiStateCached } from "./whatsapp.service";
 import { getLastCampaignTickAt } from "./campaign-heartbeat";
+import { getBackupStatus } from "./backup-status.service";
 
 // System Health Bar backing data. Cached so the bar (polled every 30-60s by
 // every logged-in client) never hammers the DB or Green API. All queries here
@@ -15,7 +16,16 @@ export type SystemHealth = {
   whatsapp: { level: HealthLevel; provider: string; state: string | null; detail: string | null };
   campaigns: { level: HealthLevel; running: number; failed24h: number };
   cron: { level: HealthLevel; lastCampaignTickAt: string | null; ageSec: number | null };
-  backup: { level: HealthLevel; tracked: boolean; detail: string };
+  backup: {
+    level: HealthLevel;
+    tracked: boolean;
+    detail: string;
+    lastSuccessAt: string | null;
+    lastAttemptAt: string | null;
+    lastOk: boolean | null;
+    lastError: string | null;
+    sizeBytes: number | null;
+  };
 };
 
 let _cache: { at: number; data: SystemHealth } | null = null;
@@ -105,14 +115,59 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   }
 
   // ── Backup ────────────────────────────────────────────────────────────────
-  // Backups run as a standalone PowerShell task on the shop PC (Phase 2), not
-  // from this server, so there's no reliable timestamp here. Surface as "not
-  // tracked" rather than doing a heavy query. Left as a hook for later.
-  const backup: SystemHealth["backup"] = {
+  // The shop-PC scripts download their backups THROUGH this server
+  // (/settings/backup/download + /changes), so every attempt is recorded by
+  // backup-status.service. Healthy = a successful backup in the last 26h
+  // (daily task runs at 03:00 Asia/Baghdad + slack).
+  let backup: SystemHealth["backup"] = {
     level: "unknown",
     tracked: false,
-    detail: "النسخ الاحتياطي يعمل خارج السيرفر — لا يُتتبع هنا",
+    detail: "لم يُسجَّل أي نسخ احتياطي بعد",
+    lastSuccessAt: null,
+    lastAttemptAt: null,
+    lastOk: null,
+    lastError: null,
+    sizeBytes: null,
   };
+  try {
+    const st = await getBackupStatus();
+    if (st.lastAttemptAt) {
+      const successAgeH = st.lastSuccessAt
+        ? (now - new Date(st.lastSuccessAt).getTime()) / 3_600_000
+        : Infinity;
+      const sizeMb = st.lastSuccessSizeBytes != null
+        ? `${(st.lastSuccessSizeBytes / 1024 / 1024).toFixed(1)}MB`
+        : null;
+      const lastSuccessLabel = st.lastSuccessAt
+        ? `آخر نسخة ناجحة ${new Date(st.lastSuccessAt).toLocaleString("ar-IQ", { timeZone: "Asia/Baghdad" })}${sizeMb ? ` (${sizeMb})` : ""}`
+        : "لا توجد نسخة ناجحة";
+
+      let level: HealthLevel;
+      let detail: string;
+      if (st.lastOk === false) {
+        level = "down";
+        detail = `فشلت آخر محاولة: ${st.lastError ?? "خطأ غير معروف"} — ${lastSuccessLabel}`;
+      } else if (successAgeH > 26) {
+        level = "warn";
+        detail = `${lastSuccessLabel} — مضى أكثر من ${Math.floor(successAgeH)} ساعة`;
+      } else {
+        level = "ok";
+        detail = lastSuccessLabel;
+      }
+      backup = {
+        level,
+        tracked: true,
+        detail,
+        lastSuccessAt: st.lastSuccessAt,
+        lastAttemptAt: st.lastAttemptAt,
+        lastOk: st.lastOk,
+        lastError: st.lastError,
+        sizeBytes: st.lastSuccessSizeBytes,
+      };
+    }
+  } catch {
+    // keep the "unknown" default
+  }
 
   const data: SystemHealth = {
     checkedAt: new Date(now).toISOString(),

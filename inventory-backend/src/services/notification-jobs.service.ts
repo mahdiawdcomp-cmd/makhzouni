@@ -7,7 +7,17 @@ import { renderTemplateByType } from "./message-template.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { getDailySummaryData } from "./report.service";
 import { processCampaignsTick } from "./campaign.service";
-import { cleanupOldErrorLogs } from "./error-log.service";
+import { cleanupOldErrorLogs, recordError } from "./error-log.service";
+
+/** Cron catch helper: keep the console.error AND surface the failure on /error-logs. */
+function reportCronFailure(job: string, error: unknown) {
+  console.error(`${job} failed`, error);
+  void recordError({
+    source: "CRON",
+    code: job,
+    message: error instanceof Error ? error.message : String(error),
+  });
+}
 
 let jobsStarted = false;
 
@@ -268,20 +278,20 @@ export function startNotificationJobs() {
 
   cron.schedule("0 10 * * *", () => {
     runDebtReminderJob().catch((error) => {
-      console.error("Debt reminder job failed", error);
+      reportCronFailure("DEBT_REMINDER", error);
     });
   });
 
   cron.schedule("0 9 * * *", () => {
     runInactiveCustomerJob().catch((error) => {
-      console.error("Inactive customer job failed", error);
+      reportCronFailure("INACTIVE_CUSTOMER", error);
     });
   });
 
   // Daily backup — every day at 02:00
   cron.schedule("0 2 * * *", () => {
     runWeeklyBackup().catch((error) => {
-      console.error("Daily backup failed:", error);
+      reportCronFailure("DAILY_BACKUP", error);
     });
   });
 
@@ -291,7 +301,7 @@ export function startNotificationJobs() {
     const targetHour = settings?.dailySummaryHour ?? 21;
     if (new Date().getHours() === targetHour) {
       runDailySummaryJob().catch((error) => {
-        console.error("Daily summary job failed", error);
+        reportCronFailure("DAILY_SUMMARY", error);
       });
     }
   });
@@ -301,7 +311,7 @@ export function startNotificationJobs() {
   // hours inside the worker (avoids WhatsApp bans).
   cron.schedule("* * * * *", () => {
     processCampaignsTick().catch((error) => {
-      console.error("Campaign tick failed", error);
+      reportCronFailure("CAMPAIGN_TICK", error);
     });
   });
 
@@ -309,7 +319,7 @@ export function startNotificationJobs() {
   cron.schedule("15 3 * * *", () => {
     cleanupOldErrorLogs()
       .then((n) => { if (n > 0) console.log(`[ErrorLog] cleaned ${n} old rows`); })
-      .catch((error) => console.error("ErrorLog cleanup failed", error));
+      .catch((error) => reportCronFailure("ERRORLOG_CLEANUP", error));
   });
 
   // Neon DB keep-alive REMOVED (2026-07-01): the database has been migrated to
