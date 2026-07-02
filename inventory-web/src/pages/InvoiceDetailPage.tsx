@@ -22,7 +22,7 @@ import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
-import { parseDesigns, renderDesignHTML, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
+import { downloadDesignPDF, parseDesigns, renderDesignHTML, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
 import type { InvoiceItem, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -33,6 +33,11 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
 
 function money(v: number | undefined) { return fmt(v) }
+
+function invoicePdfFilename(invoiceNumber: string) {
+  const safeNumber = String(invoiceNumber || "invoice").replace(/[\\/:*?"<>|]+/g, "_")
+  return `invoice-${safeNumber}.pdf`
+}
 
 function unitLabel(unit: string) {
   if (unit === "CARTON") return "كرتونة"
@@ -94,6 +99,7 @@ export function InvoiceDetailPage() {
   const settings = settingsQuery.data
   const { productsQuery } = useProducts()
   const allProducts = productsQuery.data ?? []
+  const [pdfDownloading, setPdfDownloading] = useState(false)
 
   // Navigation within same type
   const listQuery = useInvoices({ limit: 1000 })
@@ -144,6 +150,19 @@ export function InvoiceDetailPage() {
       currency: settings?.currency || "د.ع",
     }
     printHTML(renderDesignHTML(design, printInv, store))
+  }
+
+  async function downloadA4Pdf() {
+    if (!invoice) return
+    setPdfDownloading(true)
+    try {
+      await downloadDesignPDF(a4PreviewHtml, invoicePdfFilename(invoice.invoiceNumber))
+      toast({ title: "تم تحميل ملف PDF." })
+    } catch {
+      toast({ title: "تعذر تحميل PDF. جرّب الطباعة إلى PDF.", variant: "destructive" })
+    } finally {
+      setPdfDownloading(false)
+    }
   }
 
   // WhatsApp preview
@@ -367,6 +386,7 @@ export function InvoiceDetailPage() {
           <Button variant="outline" size="sm" onClick={openWaPreview}><MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> واتساب</Button>
           <Button variant="outline" size="sm" onClick={() => printWithDesign("80mm")}><Printer className="h-3.5 w-3.5" /> طباعة حرارية</Button>
           <Button variant="outline" size="sm" onClick={() => printWithDesign("a4")}><FileDown className="h-3.5 w-3.5" /> طباعة A4</Button>
+          <Button variant="outline" size="sm" onClick={() => void downloadA4Pdf()} disabled={pdfDownloading}><FileDown className="h-3.5 w-3.5" /> {pdfDownloading ? "جاري التحميل..." : "تحميل PDF"}</Button>
           {invoice.status === "ACTIVE" ? (
             <>
               <Button variant="outline" size="sm" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>

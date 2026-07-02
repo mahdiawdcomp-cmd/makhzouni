@@ -84,7 +84,7 @@ export const newId = () => `el_${Date.now().toString(36)}_${_idc++}`
 
 // ── Data shapes ──────────────────────────────────────────────────────────────
 
-export interface PrintLine { name: string; unit?: string; qty: number; price: number; notes?: string }
+export interface PrintLine { name: string; unit?: string; qty: number; price: number; notes?: string; itemNumber?: string; pcsPerCarton?: number }
 export interface PrintInvoice {
   number: string; date: string; customerName: string; customerPhone?: string
   lines: PrintLine[]; notes?: string
@@ -209,6 +209,42 @@ export function printHTML(html: string) {
   iframe.srcdoc = html
 }
 
+export async function downloadDesignPDF(html: string, filename: string) {
+  const mod = await import("html2pdf.js")
+  const html2pdf = (mod as { default?: any }).default ?? mod
+  const iframe = document.createElement("iframe")
+  iframe.style.cssText = "position:fixed;width:0;height:0;border:0;left:-9999px;top:0"
+  document.body.appendChild(iframe)
+  const doc = iframe.contentDocument || iframe.contentWindow?.document
+  if (!doc) {
+    iframe.remove()
+    throw new Error("Unable to prepare invoice PDF")
+  }
+  doc.open()
+  doc.write(html)
+  doc.close()
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  const paper = (doc.querySelector(".paper") || doc.body) as HTMLElement
+  await html2pdf()
+    .set({
+      filename,
+      margin: 0,
+      image: { type: "jpeg", quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        windowWidth: paper.scrollWidth,
+        windowHeight: paper.scrollHeight,
+      },
+      jsPDF: { unit: "pt", format: "a4", orientation: "portrait" },
+      pagebreak: { mode: ["css", "legacy"], avoid: ["tr", ".avoid-break"] },
+    })
+    .from(paper)
+    .save()
+  iframe.remove()
+}
+
 export function parseDesign(json?: string | null, paper: PaperSize = "80mm"): Design {
   if (json) {
     try {
@@ -278,24 +314,59 @@ export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore):
 const esc = (s: string) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string))
 
+function itemNameFontSize(name: string, base: number): number {
+  const len = Array.from(String(name ?? "")).length
+  if (len > 70) return Math.max(base - 2, 9)
+  if (len > 42) return Math.max(base - 1, 9)
+  return base
+}
+
 function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const cur = store.currency || "د.ع"
   const accent = el.accent || "#4f46e5"
   const fs = el.fontSize || 12
-  const cols = ["#", "الصنف", "الوحدة"]
+  const fsSm = Math.max(fs - 2, 9)
+  const hasItemNum = inv.lines.some((l) => l.itemNumber)
+  const cols = ["#"]
+  if (hasItemNum) cols.push("رقم الايتم")
+  cols.push("الصنف", "الوحدة")
   if (el.showQty) cols.push("الكمية")
   if (el.showPrice) cols.push("السعر")
   cols.push("المجموع", "الملاحظات")
-  const head = `<tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</th>`).join("")}</tr>`
+  const nameColIdx = hasItemNum ? 2 : 1
+  const colWidths = cols.map((_, i) => {
+    if (i === 0) return "6%"
+    if (hasItemNum && i === 1) return "13%"
+    if (i === nameColIdx) return hasItemNum ? "27%" : "34%"
+    if (i === cols.length - 1) return "15%"
+    return hasItemNum ? "10%" : "11%"
+  })
+  const colgroup = `<colgroup>${colWidths.map((w) => `<col style="width:${w}" />`).join("")}</colgroup>`
+  const head = `<thead><tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === nameColIdx ? "right" : "center"};font-size:${fs}px;line-height:1.25">${c}</th>`).join("")}</tr></thead>`
+
+  const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
+  const td = (content: string, right = false, extra = "") =>
+    `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:${right ? "right" : "center"};font-size:${fs}px;line-height:1.25;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;${extra}">${content}</td>`
+
   const body = inv.lines.map((l, idx) => {
-    const cells = [`${idx + 1}`, esc(l.name), esc(l.unit || "—")]
-    if (el.showQty) cells.push(`${l.qty}`)
-    if (el.showPrice) cells.push(money(l.price, cur))
-    cells.push(money(l.qty * l.price, cur))
-    cells.push(esc(l.notes || ""))
-    return `<tr>${cells.map((c, i) => `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:${i === 1 ? "right" : "center"};font-size:${fs}px">${c}</td>`).join("")}</tr>`
+    const cells: string[] = [td(`${idx + 1}`)]
+    if (hasItemNum) cells.push(td(`<span style="color:#6366f1;font-weight:700">${esc(l.itemNumber || "—")}</span>`))
+    const pcsHtml = l.pcsPerCarton && l.pcsPerCarton > 1
+      ? ` <span style="font-size:${fsSm}px;color:#94a3b8">(${l.pcsPerCarton} ق/ك)</span>`
+      : ""
+    const nameFs = itemNameFontSize(l.name, fs)
+    const nameHtml = `<span title="${esc(l.name)}" style="display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:${nameFs}px;line-height:1.25">${esc(l.name)}${pcsHtml}</span>`
+    cells.push(td(nameHtml, true, "white-space:nowrap"))
+    cells.push(td(esc(l.unit || "—")))
+    if (el.showQty) cells.push(td(`${l.qty}`))
+    if (el.showPrice) cells.push(td(numFmt(l.price)))
+    cells.push(td(numFmt(l.qty * l.price)))
+    cells.push(td(esc(l.notes || "")))
+    return `<tr>${cells.join("")}</tr>`
   }).join("")
-  return `<table style="width:100%;border-collapse:collapse">${head}${body}</table>`
+  const totalCols = cols.length
+  const curRow = `<tfoot><tr><td colspan="${totalCols}" style="padding:2px 4px;font-size:${fsSm}px;color:#94a3b8;text-align:center">الأسعار والمجاميع بـ ${cur}</td></tr></tfoot>`
+  return `<table class="invoice-items-table" style="width:100%;border-collapse:collapse;table-layout:fixed">${colgroup}${head}<tbody>${body}</tbody>${curRow}</table>`
 }
 
 function elInnerHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
@@ -345,22 +416,22 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     : `@page { size:A4; margin:0 }`
 
   const itemsEl = design.elements.find((el) => el.type === "items")
-  // Flow layout only for 80mm thermal (variable-height paper). A4 always uses absolute.
-  const useFlowLayout = is80 && !!itemsEl && design.elements.some((el) => el.followItems)
+  const useFlowLayout = !!itemsEl && (design.paper === "a4" || design.elements.some((el) => el.followItems))
 
   if (useFlowLayout && itemsEl) {
-    // Dynamic layout: header elements stay absolute, items+footer flow after items.y
-    const headerEls = design.elements.filter((el) => !el.followItems && el.type !== "items")
-    const footerEls = [...design.elements.filter((el) => el.followItems)].sort((a, b) => a.y - b.y)
+    const itemsBottom = itemsEl.y + itemsEl.h
+    const flowsAfterItems = (el: El) => el.type !== "items" && (el.followItems || (!is80 && el.y >= itemsBottom - 4))
+    const headerEls = design.elements.filter((el) => !flowsAfterItems(el) && el.type !== "items")
+    const footerEls = [...design.elements.filter(flowsAfterItems)].sort((a, b) => a.y - b.y)
 
-    // All non-followItems elements remain absolutely positioned within the paper
     const headerHTML = headerEls
       .map((el) => `<div style="${elBoxStyle(el)}">${elInnerHTML(el, inv, store)}</div>`)
       .join("")
 
     let prevBottom = itemsEl.y + itemsEl.h
     const footerHTML = footerEls.map((el) => {
-      const gap = Math.max(4, el.y - prevBottom)
+      const rawGap = el.y - prevBottom
+      const gap = is80 ? Math.max(4, rawGap) : Math.max(8, Math.min(rawGap, 24))
       prevBottom = el.y + el.h
       const s = [
         `margin-top:${gap}px`,
@@ -373,18 +444,23 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
         `text-align:${el.align || "right"}`,
         "display:flex", "align-items:center",
         `justify-content:${el.align === "center" ? "center" : el.align === "left" ? "flex-start" : "flex-end"}`,
+        "break-inside:avoid", "page-break-inside:avoid",
       ]
       if (el.bg) s.push(`background:${el.bg}`, "padding:0 4px")
       if (el.borderColor) s.push(`border:1px solid ${el.borderColor}`)
       if (el.radius) s.push(`border-radius:${el.radius}px`)
-      return `<div style="${s.join(";")}">${elInnerHTML(el, inv, store)}</div>`
+      return `<div class="avoid-break" style="${s.join(";")}">${elInnerHTML(el, inv, store)}</div>`
     }).join("")
 
     return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><style>
       ${pageCss}
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:"Cairo","Segoe UI",Tahoma,sans-serif;background:#fff}
-      .paper{position:relative;width:${design.width}px;min-height:${design.height}px;height:auto;background:#fff}
+      .paper{position:relative;width:${design.width}px;min-height:${design.height}px;height:auto;background:#fff;overflow:visible;padding-bottom:${is80 ? 8 : 24}px}
+      .invoice-items-table{page-break-inside:auto}
+      .invoice-items-table thead{display:table-header-group}
+      .invoice-items-table tfoot{display:table-row-group}
+      .invoice-items-table tr{break-inside:avoid;page-break-inside:avoid}
     </style></head><body><div class="paper">
       ${headerHTML}
       <div style="margin-top:${itemsEl.y}px">
@@ -402,6 +478,6 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     ${pageCss}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:"Cairo","Segoe UI",Tahoma,sans-serif;background:#fff}
-    .paper{position:relative;width:${design.width}px;height:${is80 ? "auto" : design.height + "px"};min-height:${design.height}px;background:#fff;overflow:hidden}
+    .paper{position:relative;width:${design.width}px;height:${is80 ? "auto" : design.height + "px"};min-height:${design.height}px;background:#fff;overflow:visible}
   </style></head><body><div class="paper">${bodyEls}</div></body></html>`
 }
