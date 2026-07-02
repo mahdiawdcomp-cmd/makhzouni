@@ -427,11 +427,14 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
       const rawGap = el.y - prevBottom
       const gap = is80 ? Math.max(4, rawGap) : 6
       prevBottom = el.y + el.h
+      const compactHeight = is80
+        ? el.h
+        : Math.min(Math.max(el.h, 22), el.field === "grandTotal" ? 36 : 30)
       const s = [
         `margin-top:${gap}px`,
         `margin-right:${el.x}px`,
         `width:${el.w}px`,
-        `min-height:${el.h}px`,
+        `min-height:${compactHeight}px`,
         `font-size:${el.fontSize || 13}px`,
         el.bold ? "font-weight:800" : "font-weight:500",
         `color:${el.color || "#0f172a"}`,

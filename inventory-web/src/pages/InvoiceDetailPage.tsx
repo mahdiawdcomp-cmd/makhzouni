@@ -16,13 +16,14 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getInvoiceAuditTrail, invoicePdfObjectUrl, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
-import { downloadDesignPDF, parseDesigns, renderDesignHTML, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
+import { parseDesigns, renderDesignHTML, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
+import { downloadBlobUrl } from "../utils/download"
 import type { InvoiceItem, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -156,10 +157,12 @@ export function InvoiceDetailPage() {
     if (!invoice) return
     setPdfDownloading(true)
     try {
-      await downloadDesignPDF(a4PreviewHtml, invoicePdfFilename(invoice.invoiceNumber))
-      toast({ title: "تم فتح نافذة حفظ PDF." })
+      const url = await invoicePdfObjectUrl(invoice.id)
+      downloadBlobUrl(url, invoicePdfFilename(invoice.invoiceNumber))
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      toast({ title: "تم تحميل ملف PDF." })
     } catch {
-      toast({ title: "تعذر فتح نافذة PDF. جرّب طباعة A4.", variant: "destructive" })
+      toast({ title: "تعذر تحميل PDF. جرّب طباعة A4.", variant: "destructive" })
     } finally {
       setPdfDownloading(false)
     }
