@@ -159,6 +159,13 @@ export const tenantsApi = {
   checkBackend: (id: string) => api.post<{ ok: boolean; latencyMs?: number }>(`/tenants/${id}/check-backend`),
 };
 
+// ── Batch 2 UI: readiness checklist reuses the existing public tenant-config
+// endpoint (no new API route) to verify it resolves correctly for a subdomain.
+export const publicApi = {
+  checkTenantConfig: (subdomain: string) =>
+    api.get<{ status: string; licenseType: LicenseType; features: string[] }>("/tenant-config", { params: { subdomain } }),
+};
+
 export function getErrorMessage(error: unknown): string {
   if (!axios.isAxiosError(error)) return "حدث خطأ غير متوقع";
   const code = error.response?.data?.error;
