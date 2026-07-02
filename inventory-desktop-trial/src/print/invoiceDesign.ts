@@ -210,39 +210,21 @@ export function printHTML(html: string) {
 }
 
 export async function downloadDesignPDF(html: string, filename: string) {
-  const mod = await import("html2pdf.js")
-  const html2pdf = (mod as { default?: any }).default ?? mod
   const iframe = document.createElement("iframe")
   iframe.style.cssText = "position:fixed;width:0;height:0;border:0;left:-9999px;top:0"
   document.body.appendChild(iframe)
-  const doc = iframe.contentDocument || iframe.contentWindow?.document
-  if (!doc) {
-    iframe.remove()
-    throw new Error("Unable to prepare invoice PDF")
-  }
-  doc.open()
-  doc.write(html)
-  doc.close()
-  await new Promise((resolve) => setTimeout(resolve, 250))
-  const paper = (doc.querySelector(".paper") || doc.body) as HTMLElement
-  await html2pdf()
-    .set({
-      filename,
-      margin: 0,
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        windowWidth: paper.scrollWidth,
-        windowHeight: paper.scrollHeight,
-      },
-      jsPDF: { unit: "pt", format: "a4", orientation: "portrait" },
-      pagebreak: { mode: ["css", "legacy"], avoid: ["tr", ".avoid-break"] },
-    })
-    .from(paper)
-    .save()
-  iframe.remove()
+  const titledHtml = html.replace("<head>", `<head><title>${filename}</title>`)
+  await new Promise<void>((resolve) => {
+    iframe.onload = () => {
+      iframe.contentWindow?.focus()
+      iframe.contentWindow?.print()
+      setTimeout(() => {
+        iframe.remove()
+        resolve()
+      }, 1500)
+    }
+    iframe.srcdoc = titledHtml
+  })
 }
 
 export function parseDesign(json?: string | null, paper: PaperSize = "80mm"): Design {
@@ -463,7 +445,7 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
       .invoice-items-table tr{break-inside:avoid;page-break-inside:avoid}
     </style></head><body><div class="paper">
       ${headerHTML}
-      <div style="margin-top:${itemsEl.y}px">
+      <div class="invoice-flow" style="padding-top:${itemsEl.y}px">
         <div style="margin-right:${itemsEl.x}px;width:${itemsEl.w}px;font-size:${itemsEl.fontSize || 12}px">${itemsTableHTML(itemsEl, inv, store)}</div>
         ${footerHTML}
       </div>

@@ -157,9 +157,9 @@ export function InvoiceDetailPage() {
     setPdfDownloading(true)
     try {
       await downloadDesignPDF(a4PreviewHtml, invoicePdfFilename(invoice.invoiceNumber))
-      toast({ title: "تم تحميل ملف PDF." })
+      toast({ title: "تم فتح نافذة حفظ PDF." })
     } catch {
-      toast({ title: "تعذر تحميل PDF. جرّب الطباعة إلى PDF.", variant: "destructive" })
+      toast({ title: "تعذر فتح نافذة PDF. جرّب طباعة A4.", variant: "destructive" })
     } finally {
       setPdfDownloading(false)
     }

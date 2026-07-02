@@ -44,7 +44,6 @@
     "date-fns": "^4.4.0",
     "dayjs": "^1.11.21",
     "framer-motion": "^12.40.0",
-    "html2pdf.js": "^0.14.0",
     "idb-keyval": "^6.2.5",
     "lucide-react": "^1.17.0",
     "react": "^19.2.6",
