@@ -51,6 +51,11 @@ async function apiSubmit(token: string) {
   return data
 }
 
+async function apiClose(token: string) {
+  const { data } = await api.post(`/stocktake/public/${token}/close`)
+  return data
+}
+
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export function PublicStocktakePage() {
@@ -112,12 +117,18 @@ function WorkerInterface({
   const qc = useQueryClient()
   const [mode, setMode] = useState<Mode>("scan")
   const [submitted, setSubmitted] = useState(session.status === "SUBMITTED")
+  const [closed, setClosed] = useState(false)
   const [scanMsg, setScanMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [category, setCategory] = useState<string>("all")
 
   const submitMut = useMutation({
     mutationFn: () => apiSubmit(token),
     onSuccess: () => setSubmitted(true),
+  })
+
+  const closeMut = useMutation({
+    mutationFn: () => apiClose(token),
+    onSuccess: () => setClosed(true),
   })
 
   const categories = ["all", ...Array.from(new Set(session.items.map((i) => i.category ?? "غير مصنّف"))).sort()]
@@ -127,6 +138,17 @@ function WorkerInterface({
 
   const filled = session.items.filter((i) => i.actualQty !== null).length
 
+  if (closed)
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4" dir="rtl">
+        <div className="rounded-2xl bg-white p-8 shadow text-center max-w-sm w-full">
+          <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
+          <p className="font-bold text-xl">تم إغلاق الجرد</p>
+          <p className="text-slate-500 text-sm mt-2">لا يمكن إجراء تعديلات بعد الإغلاق.</p>
+        </div>
+      </div>
+    )
+
   if (submitted)
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4" dir="rtl">
@@ -134,6 +156,17 @@ function WorkerInterface({
           <CheckCircle2 className="h-14 w-14 text-emerald-500 mx-auto mb-4" />
           <p className="font-bold text-2xl text-emerald-700">تم رفع الجرد!</p>
           <p className="text-slate-500 text-sm mt-2">سيراجع المسؤول النتائج وسيتواصل معك عند الحاجة.</p>
+          <button
+            type="button"
+            disabled={closeMut.isPending}
+            onClick={() => {
+              if (confirm("إغلاق الجرد نهائياً؟ لن يقبل الرابط أي تعديلات بعد الإغلاق."))
+                closeMut.mutate()
+            }}
+            className="mt-5 w-full rounded-xl bg-slate-900 py-3 text-sm font-bold text-white disabled:opacity-50"
+          >
+            {closeMut.isPending ? "جاري الإغلاق..." : "🔒 إغلاق الجرد"}
+          </button>
         </div>
       </div>
     )

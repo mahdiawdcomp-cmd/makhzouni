@@ -26,10 +26,11 @@ import {
   requestCatalogAccess,
   sendCatalogOtp,
   verifyCatalogOtp,
+  verifyCatalogAccess,
   submitPublicCatalogOrder,
   validatePublicPromoCode,
 } from "../api/endpoints"
-import type { PublicCatalogProduct } from "../types/api"
+import type { CatalogStockFilter, PublicCatalogProduct } from "../types/api"
 import { cn } from "../utils/cn"
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -201,16 +202,111 @@ export function PublicCatalogPage() {
 
   if (!sessionQuery.data) return <CatalogGate onAccess={handleAccess} />
 
-  const { customer, allowPrices, showStock } = sessionQuery.data
+  const { customer, allowPrices, showStock, stockFilter, needsOtp } = sessionQuery.data
+
+  // 6-month re-verification: the link is still valid, we just need a fresh OTP.
+  // No new admin approval and no new link — same token continues afterwards.
+  if (needsOtp)
+    return (
+      <ReVerifyGate
+        accessToken={accessToken}
+        phone={customer.phone}
+        onVerified={() => sessionQuery.refetch()}
+      />
+    )
+
   return (
     <CatalogShop
       accessToken={accessToken}
       allowPrices={allowPrices}
       showStock={showStock ?? true}
+      stockFilter={stockFilter ?? "FULL_CARTON_ONLY"}
       customerId={customer.id}
       customerName={customer.name}
       customerPhone={customer.phone}
     />
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   RE-VERIFY GATE (existing link, OTP older than ~6 months)
+══════════════════════════════════════════════════════════════════════ */
+function ReVerifyGate({
+  accessToken, phone, onVerified,
+}: {
+  accessToken: string; phone: string; onVerified: () => void
+}) {
+  const [otp, setOtp] = useState("")
+  const [sent, setSent] = useState(false)
+  const [msg, setMsg] = useState("")
+
+  const sendMut = useMutation({
+    mutationFn: () => sendCatalogOtp(phone),
+    onSuccess: () => { setMsg(""); setSent(true) },
+    onError: () => setMsg("تعذر إرسال الرمز. حاول مرة ثانية."),
+  })
+
+  const verifyMut = useMutation({
+    mutationFn: async () => {
+      await verifyCatalogOtp(phone, otp.trim())
+      await verifyCatalogAccess(accessToken)
+    },
+    onSuccess: () => onVerified(),
+    onError: () => setMsg("الرمز غير صحيح أو انتهت صلاحيته."),
+  })
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8" dir="rtl">
+      <div className="mb-6 flex flex-col items-center gap-2">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
+          <ShoppingBag className="h-8 w-8 text-white" />
+        </div>
+        <h1 className="text-xl font-extrabold text-gray-900">تأكيد رقم الهاتف</h1>
+        <p className="text-sm text-gray-500">مرّت فترة طويلة — نحتاج تأكيد سريع عبر الواتساب</p>
+      </div>
+
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100 space-y-4">
+        {!sent ? (
+          <>
+            <p className="text-center text-sm text-gray-600">
+              سنرسل رمز تحقق إلى <span className="font-bold" dir="ltr">{phone}</span>
+            </p>
+            <button
+              disabled={sendMut.isPending}
+              onClick={() => sendMut.mutate()}
+              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sendMut.isPending ? "جاري الإرسال..." : "إرسال رمز التحقق"}
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-center text-sm text-gray-600">أُرسل الرمز إلى {phone} عبر الواتساب</p>
+            <input
+              type="text" inputMode="numeric" maxLength={6}
+              value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+              placeholder="000000"
+              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-2xl font-bold tracking-widest outline-none focus:border-emerald-400 focus:bg-white"
+              dir="ltr"
+            />
+            <button
+              disabled={otp.length < 4 || verifyMut.isPending}
+              onClick={() => verifyMut.mutate()}
+              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {verifyMut.isPending ? "جاري التحقق..." : "تحقق ودخول"}
+            </button>
+            <button onClick={() => sendMut.mutate()} disabled={sendMut.isPending} className="w-full text-center text-xs text-emerald-600 hover:underline">
+              إعادة إرسال الرمز
+            </button>
+          </>
+        )}
+
+        {msg && (
+          <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{msg}</div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -384,11 +480,16 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
    SHOP
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
-  accessToken, allowPrices, showStock, customerId, customerName, customerPhone,
+  accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
 }: {
-  accessToken: string; allowPrices: boolean; showStock: boolean
+  accessToken: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter
   customerId: string; customerName: string; customerPhone: string
 }) {
+  // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
+  // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
+  // Ordering is still carton-only either way.
+  const canDisplay = (p: PublicCatalogProduct) =>
+    stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
   const productsQuery = useQuery({
     queryKey: ["public-catalog-products", accessToken],
     queryFn: () => getPublicCatalogProducts(accessToken),
@@ -509,7 +610,7 @@ function CatalogShop({
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     let result = products.filter((p) => {
-      if (!hasFullCarton(p)) return false
+      if (!canDisplay(p)) return false
       if (category !== "all") {
         const tags = p.categoryTags ?? []
         const inCat = tags.length > 0 ? tags.includes(category) : p.category === category
@@ -526,12 +627,15 @@ function CatalogShop({
     else if (sortKey === "expensive") result = [...result].sort((a, b) => Number(b.salePrice ?? 0) - Number(a.salePrice ?? 0))
     else if (sortKey === "new") result = [...result].sort((a, b) => (a.isNewArrival === b.isNewArrival ? 0 : a.isNewArrival ? -1 : 1))
     return result
-  }, [products, search, category, typeFilter, sortKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, search, category, typeFilter, sortKey, stockFilter])
 
   const suggestions = visible.slice(0, 6)
   const showSections = category === "all" && typeFilter === "all" && !search.trim()
-  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && hasFullCarton(p)).slice(0, 12), [products])
-  const offers = useMemo(() => products.filter(p => p.isOffer && hasFullCarton(p)).slice(0, 12), [products])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const offers = useMemo(() => products.filter(p => p.isOffer && canDisplay(p)).slice(0, 12), [products, stockFilter])
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
@@ -857,7 +961,7 @@ function CatalogShop({
         const slides: Array<{ src: string; title: string; subtitle?: string }> =
           adminImgs.length >= 2
             ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
-            : products.filter(p => (p.thumbnailUrl || p.imageUrl) && hasFullCarton(p)).slice(0, 8).map(p => ({
+            : products.filter(p => (p.thumbnailUrl || p.imageUrl) && canDisplay(p)).slice(0, 8).map(p => ({
                 src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
                 subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
               }))

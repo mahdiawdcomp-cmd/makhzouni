@@ -1,4 +1,4 @@
-import { PromoCodeType } from "@prisma/client";
+import { CatalogStockFilter, PromoCodeType } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
@@ -26,10 +26,12 @@ export const grantCatalogAccess = asyncHandler(async (req, res) => {
   if (!req.user) throw new AppError("Authentication required", 401, "AUTH_REQUIRED");
 
   const customerId = String(req.params.id);
-  const { allowPrices = false, showStock = true } = req.body as {
+  const { allowPrices = false, showStock = true, stockFilter } = req.body as {
     allowPrices?: boolean;
     showStock?: boolean;
+    stockFilter?: CatalogStockFilter;
   };
+  const resolvedStockFilter = parseStockFilter(stockFilter) ?? CatalogStockFilter.FULL_CARTON_ONLY;
 
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, deletedAt: null },
@@ -37,7 +39,7 @@ export const grantCatalogAccess = asyncHandler(async (req, res) => {
   });
   if (!customer) throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
 
-  const link = await createCatalogAccessLink(customerId, allowPrices, showStock);
+  const link = await createCatalogAccessLink(customerId, allowPrices, showStock, resolvedStockFilter);
   res.status(201).json({
     success: true,
     message: "Catalog access granted",
@@ -47,17 +49,30 @@ export const grantCatalogAccess = asyncHandler(async (req, res) => {
       urlPath: link.urlPath,
       allowPrices: link.allowPrices,
       showStock: link.showStock,
+      stockFilter: link.stockFilter,
     },
   });
 });
+
+function parseStockFilter(value: unknown): CatalogStockFilter | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === CatalogStockFilter.ALL_PRODUCTS || value === CatalogStockFilter.FULL_CARTON_ONLY) {
+    return value;
+  }
+  throw new AppError("Invalid stockFilter value", 400, "INVALID_STOCK_FILTER");
+}
 
 export const patchCatalogAccess = asyncHandler(async (req, res) => {
   if (!req.user) throw new AppError("Authentication required", 401, "AUTH_REQUIRED");
 
   const customerId = String(req.params.id);
-  const patch = req.body as { allowPrices?: boolean; showStock?: boolean };
+  const body = req.body as { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter };
 
-  const updated = await updateCatalogAccessLink(customerId, patch);
+  const updated = await updateCatalogAccessLink(customerId, {
+    allowPrices: body.allowPrices,
+    showStock: body.showStock,
+    stockFilter: parseStockFilter(body.stockFilter),
+  });
   res.json({ success: true, message: "Catalog access updated", data: updated });
 });
 

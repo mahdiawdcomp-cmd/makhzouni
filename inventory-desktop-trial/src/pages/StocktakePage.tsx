@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CheckCircle2, ChevronRight, ClipboardList, Copy, ExternalLink, Plus, Check, X } from "lucide-react"
+import { Archive, CheckCircle2, ChevronRight, ClipboardList, Copy, ExternalLink, Plus, Check, X } from "lucide-react"
 import {
   approveStocktakeItem,
+  archiveStocktakeSession,
   closeStocktakeSession,
   createStocktakeSession,
   getStocktakeSession,
@@ -55,6 +56,14 @@ export function StocktakePage() {
     },
   })
 
+  const archiveMut = useMutation({
+    mutationFn: (id: string) => archiveStocktakeSession(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
+      setSelectedId(null)
+    },
+  })
+
   if (selectedId && sessionQ.data) {
     return (
       <SessionView
@@ -102,7 +111,15 @@ export function StocktakePage() {
           ) : (
             <div className="space-y-2">
               {(listQ.data ?? []).map((s) => (
-                <SessionRow key={s.id} session={s} onClick={() => setSelectedId(s.id)} />
+                <SessionRow
+                  key={s.id}
+                  session={s}
+                  onClick={() => setSelectedId(s.id)}
+                  onArchive={() => {
+                    if (confirm("أرشفة هذه الجلسة؟ ستختفي من القائمة ولن تتأثر الكميات أو سجل الحركة."))
+                      archiveMut.mutate(s.id)
+                  }}
+                />
               ))}
             </div>
           )}
@@ -171,9 +188,11 @@ function NewSessionCard({
 function SessionRow({
   session,
   onClick,
+  onArchive,
 }: {
   session: StocktakeSessionSummary
   onClick: () => void
+  onArchive: () => void
 }) {
   const st = statusLabel(session.status)
   const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
@@ -195,6 +214,14 @@ function SessionRow({
             {session.creator.name} · {session.itemCount} منتج
             {session.notes ? ` · ${session.notes}` : ""}
           </p>
+        </button>
+        <button
+          type="button"
+          title="أرشفة الجلسة (إخفاء فقط — لا يرجع الكميات)"
+          onClick={onArchive}
+          className="text-slate-400 hover:text-red-600 transition mr-2"
+        >
+          <Archive className="h-4 w-4" />
         </button>
         <ChevronRight className="h-4 w-4 text-slate-400 mr-2" />
       </div>

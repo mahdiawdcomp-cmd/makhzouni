@@ -1,4 +1,5 @@
 import {
+  confirmCatalogVerification,
   getCatalogAccess,
   getCatalogProductImage,
   listCatalogProducts,
@@ -24,7 +25,14 @@ export const getCatalogAccessStatus = asyncHandler(async (req, res) => {
 });
 
 export const getCatalogSession = asyncHandler(async (req, res) => {
-  const result = await getCatalogAccess(String(req.query.access ?? ""));
+  // requireVerified:false so a stale session still returns needsOtp + the
+  // customer's phone, letting the frontend run the OTP re-verification flow.
+  const result = await getCatalogAccess(String(req.query.access ?? ""), { requireVerified: false });
+  res.json({ success: true, data: result });
+});
+
+export const verifyCatalogAccessCtrl = asyncHandler(async (req, res) => {
+  const result = await confirmCatalogVerification(String(req.query.access ?? ""));
   res.json({ success: true, data: result });
 });
 

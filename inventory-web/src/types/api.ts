@@ -307,10 +307,15 @@ export interface CatalogAccessStatus {
   allowPrices?: boolean
 }
 
+export type CatalogStockFilter = "ALL_PRODUCTS" | "FULL_CARTON_ONLY"
+
 export interface CatalogSession {
   customer: Pick<Customer, "id" | "name" | "phone">
   allowPrices: boolean
   showStock: boolean
+  stockFilter?: CatalogStockFilter
+  // true when the access link needs a fresh OTP (never verified, or older than ~6 months)
+  needsOtp?: boolean
 }
 
 export interface CatalogOrderPayload {
@@ -957,6 +962,7 @@ export interface CatalogCustomer {
   hasAccess: boolean
   allowPrices: boolean
   showStock: boolean
+  stockFilter?: CatalogStockFilter
   token: string | null
   lastViewedAt: string | null
   createdAt: string | null

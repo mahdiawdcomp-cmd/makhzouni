@@ -1,9 +1,10 @@
-import { PromoCodeType, Unit } from "@prisma/client";
+import { CatalogStockFilter, PromoCodeType, Unit } from "@prisma/client";
 import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { isVerified } from "./otp.service";
+import { totalStock } from "../utils/product-stock";
 import {
   notifyCatalogAccessRequested,
   notifyCatalogOrderSubmitted,
@@ -36,16 +37,23 @@ type CatalogAccessRow = {
   customer_id: string;
   allow_prices: boolean;
   show_stock: boolean;
+  catalog_stock_filter: CatalogStockFilter;
   revoked_at: Date | null;
+  last_verified_at: Date | null;
 };
+
+// A shopper must re-verify by OTP when the last successful verification is
+// missing or older than this window. The access token itself never expires.
+const VERIFY_WINDOW_MS = 183 * 24 * 60 * 60 * 1000; // ~6 months
+
+function isVerificationFresh(lastVerifiedAt: Date | null) {
+  if (!lastVerifiedAt) return false;
+  return Date.now() - lastVerifiedAt.getTime() < VERIFY_WINDOW_MS;
+}
 
 function toNumber(value: unknown) {
   if (value === null || value === undefined) return 0;
   return Number(value);
-}
-
-function stockOf(product: { openingBalancePcs: number; cartonsAvailable: number; pcsPerCarton: number }) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
 }
 
 function piecesFor(unit: Unit, quantity: number, pcsPerCarton: number) {
@@ -99,6 +107,7 @@ export async function createCatalogAccessLink(
   customerId: string,
   allowPrices: boolean,
   showStock = true,
+  stockFilter: CatalogStockFilter = CatalogStockFilter.FULL_CARTON_ONLY,
 ) {
   await prisma.$executeRaw`
     UPDATE "catalog_access_links"
@@ -109,8 +118,8 @@ export async function createCatalogAccessLink(
   const token = makeToken();
   const tokenHash = hashToken(token);
   await prisma.$executeRaw`
-    INSERT INTO "catalog_access_links" ("token", "token_hash", "customer_id", "allow_prices", "show_stock")
-    VALUES (${token}, ${tokenHash}, ${customerId}::uuid, ${allowPrices}, ${showStock})
+    INSERT INTO "catalog_access_links" ("token", "token_hash", "customer_id", "allow_prices", "show_stock", "catalog_stock_filter")
+    VALUES (${token}, ${tokenHash}, ${customerId}::uuid, ${allowPrices}, ${showStock}, ${stockFilter}::"CatalogStockFilter")
   `;
 
   return {
@@ -118,15 +127,16 @@ export async function createCatalogAccessLink(
     urlPath: `/catalog?access=${token}`,
     allowPrices,
     showStock,
+    stockFilter,
   };
 }
 
 export async function updateCatalogAccessLink(
   customerId: string,
-  patch: { allowPrices?: boolean; showStock?: boolean },
+  patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter },
 ) {
   const rows = await prisma.$queryRaw<CatalogAccessRow[]>`
-    SELECT "id", "token", "customer_id", "allow_prices", "show_stock", "revoked_at"
+    SELECT "id", "token", "customer_id", "allow_prices", "show_stock", "catalog_stock_filter", "revoked_at", "last_verified_at"
     FROM "catalog_access_links"
     WHERE "customer_id" = ${customerId}::uuid AND "revoked_at" IS NULL
     ORDER BY "created_at" DESC LIMIT 1
@@ -136,14 +146,15 @@ export async function updateCatalogAccessLink(
 
   const newAllowPrices = patch.allowPrices ?? link.allow_prices;
   const newShowStock = patch.showStock ?? link.show_stock;
+  const newStockFilter = patch.stockFilter ?? link.catalog_stock_filter;
 
   await prisma.$executeRaw`
     UPDATE "catalog_access_links"
-    SET "allow_prices" = ${newAllowPrices}, "show_stock" = ${newShowStock}
+    SET "allow_prices" = ${newAllowPrices}, "show_stock" = ${newShowStock}, "catalog_stock_filter" = ${newStockFilter}::"CatalogStockFilter"
     WHERE "id" = ${link.id}::uuid
   `;
 
-  return { allowPrices: newAllowPrices, showStock: newShowStock, token: link.token };
+  return { allowPrices: newAllowPrices, showStock: newShowStock, stockFilter: newStockFilter, token: link.token };
 }
 
 export async function revokeCatalogAccess(customerId: string) {
@@ -161,6 +172,7 @@ export type CatalogCustomerRow = {
   hasAccess: boolean;
   allowPrices: boolean;
   showStock: boolean;
+  stockFilter: CatalogStockFilter;
   token: string | null;
   lastViewedAt: Date | null;
   createdAt: Date | null;
@@ -185,6 +197,7 @@ export async function listCustomersWithCatalogStatus(opts?: {
       token: string | null;
       allow_prices: boolean | null;
       show_stock: boolean | null;
+      catalog_stock_filter: CatalogStockFilter | null;
       last_viewed_at: Date | null;
       link_created_at: Date | null;
       catalog_link_sent_at: Date | null;
@@ -195,6 +208,7 @@ export async function listCustomersWithCatalogStatus(opts?: {
         cal.token,
         cal.allow_prices,
         cal.show_stock,
+        cal.catalog_stock_filter,
         cal.last_viewed_at,
         cal.created_at AS link_created_at
       FROM customers c
@@ -222,6 +236,7 @@ export async function listCustomersWithCatalogStatus(opts?: {
       hasAccess: row.token !== null,
       allowPrices: row.allow_prices ?? false,
       showStock: row.show_stock ?? true,
+      stockFilter: row.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY,
       token: row.token,
       lastViewedAt: row.last_viewed_at,
       createdAt: row.link_created_at,
@@ -315,10 +330,11 @@ export async function lookupCatalogAccess(phone: string) {
   };
 }
 
-export async function getCatalogAccess(token: string) {
+export async function getCatalogAccess(token: string, opts?: { requireVerified?: boolean }) {
+  const requireVerified = opts?.requireVerified ?? true;
   const tokenHash = hashToken(token);
   const rows = await prisma.$queryRaw<CatalogAccessRow[]>`
-    SELECT "id", "token", "customer_id", "allow_prices", "show_stock", "revoked_at"
+    SELECT "id", "token", "customer_id", "allow_prices", "show_stock", "catalog_stock_filter", "revoked_at", "last_verified_at"
     FROM "catalog_access_links"
     WHERE "token_hash" = ${tokenHash}
     LIMIT 1
@@ -327,6 +343,14 @@ export async function getCatalogAccess(token: string) {
 
   if (!link || link.revoked_at) {
     throw new AppError("Catalog access is invalid", 404, "CATALOG_ACCESS_INVALID");
+  }
+
+  // OTP re-verification window: the token stays valid forever, but browsing
+  // requires a successful OTP within the last ~6 months. Legacy links
+  // (last_verified_at NULL) simply prompt for OTP once on next open.
+  const needsOtp = !isVerificationFresh(link.last_verified_at);
+  if (requireVerified && needsOtp) {
+    throw new AppError("يرجى تأكيد رقم الهاتف برمز OTP للمتابعة", 403, "CATALOG_OTP_REQUIRED");
   }
 
   await prisma.$executeRaw`
@@ -359,8 +383,30 @@ export async function getCatalogAccess(token: string) {
     customer,
     allowPrices: link.allow_prices,
     showStock: link.show_stock,
+    stockFilter: link.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY,
+    needsOtp,
     catalogDesign,
   };
+}
+
+// Called after the shopper passes OTP for an existing (possibly stale) access
+// link: stamps last_verified_at so the 6-month window restarts. No new admin
+// approval and no new link — the same token keeps working.
+export async function confirmCatalogVerification(token: string) {
+  const session = await getCatalogAccess(token, { requireVerified: false });
+
+  if (!isVerified(normalizePhone(session.customer.phone))) {
+    throw new AppError("رقم الهاتف غير مُتحقق منه. أرسل رمز OTP أولاً.", 403, "PHONE_NOT_VERIFIED");
+  }
+
+  const tokenHash = hashToken(token);
+  await prisma.$executeRaw`
+    UPDATE "catalog_access_links"
+    SET "last_verified_at" = NOW()
+    WHERE "token_hash" = ${tokenHash} AND "revoked_at" IS NULL
+  `;
+
+  return getCatalogAccess(token);
 }
 
 export async function listCatalogProducts(token: string) {
@@ -372,12 +418,15 @@ export async function listCatalogProducts(token: string) {
     // full images). The full image is fetched on demand when a shopper taps to
     // zoom (see getCatalogProductImage).
     omit: { imageUrl: true },
+    include: { warehouseStocks: { select: { quantityPieces: true } } },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
+  const fullCartonOnly = access.stockFilter === CatalogStockFilter.FULL_CARTON_ONLY;
+
   return products
     .map((product) => {
-      const stock = stockOf(product);
+      const stock = totalStock(product);
       return {
         id: product.id,
         itemNumber: product.itemNumber,
@@ -397,7 +446,11 @@ export async function listCatalogProducts(token: string) {
         showStock: access.showStock,
       };
     })
-    .filter((product) => product.currentStock > 0);
+    .filter((product) =>
+      fullCartonOnly
+        ? product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton
+        : product.currentStock > 0,
+    );
 }
 
 // Fetch the full-resolution image for a single catalog product on demand.
@@ -414,9 +467,19 @@ export async function getCatalogProductImage(token: string, productId: string) {
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {
   const access = await getCatalogAccess(token);
+
+  // Wholesale catalog sells by full carton only — enforce server-side, never
+  // trust the client UI to hide the other units.
+  for (const item of input.items) {
+    if (item.unit !== Unit.CARTON) {
+      throw new AppError("البيع في كتلوك الجملة بالكارتون فقط", 400, "CATALOG_CARTON_ONLY");
+    }
+  }
+
   const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
   const products = await prisma.product.findMany({
     where: { id: { in: uniqueProductIds }, deletedAt: null },
+    include: { warehouseStocks: { select: { quantityPieces: true } } },
   });
   const productById = new Map(products.map((product) => [product.id, product]));
   const requestedPiecesByProduct = new Map<string, number>();
@@ -434,7 +497,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
   }
 
   for (const product of products) {
-    if ((requestedPiecesByProduct.get(product.id) ?? 0) > stockOf(product)) {
+    if ((requestedPiecesByProduct.get(product.id) ?? 0) > totalStock(product)) {
       throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
     }
   }
@@ -445,7 +508,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
     }
 
-    const available = stockOf(product);
+    const available = totalStock(product);
     if (available <= 0) {
       throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
     }

@@ -1,6 +1,8 @@
 import { asyncHandler } from "../utils/async-handler";
 import {
   approveStocktakeItem,
+  archiveStocktakeSession,
+  closePublicStocktake,
   closeStocktakeSession,
   createStocktakeSession,
   getPublicSession,
@@ -33,7 +35,12 @@ export const getSession = asyncHandler(async (req, res) => {
 });
 
 export const closeSession = asyncHandler(async (req, res) => {
-  const data = await closeStocktakeSession(String(req.params.id));
+  const data = await closeStocktakeSession(String(req.params.id), String(req.user!.id));
+  res.json({ success: true, data });
+});
+
+export const archiveSession = asyncHandler(async (req, res) => {
+  const data = await archiveStocktakeSession(String(req.params.id));
   res.json({ success: true, data });
 });
 
@@ -103,5 +110,10 @@ export const publicSetQty = asyncHandler(async (req, res) => {
 
 export const publicSubmit = asyncHandler(async (req, res) => {
   const data = await submitPublicStocktake(String(req.params.token));
+  res.json({ success: true, data });
+});
+
+export const publicClose = asyncHandler(async (req, res) => {
+  const data = await closePublicStocktake(String(req.params.token));
   res.json({ success: true, data });
 });

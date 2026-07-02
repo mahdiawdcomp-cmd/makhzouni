@@ -42,7 +42,7 @@ import {
   type CatalogDesign,
   type PromoCode,
 } from "../api/endpoints"
-import type { CatalogCustomer } from "../types/api"
+import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -111,10 +111,11 @@ function GrantDialog({
 }) {
   const [allowPrices, setAllowPrices] = useState(false)
   const [showStock, setShowStock] = useState(true)
+  const [stockFilter, setStockFilter] = useState<CatalogStockFilter>("FULL_CARTON_ONLY")
   const qc = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: () => grantCatalogAccess(customer.id, { allowPrices, showStock }),
+    mutationFn: () => grantCatalogAccess(customer.id, { allowPrices, showStock, stockFilter }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["catalog-customers"] })
       onClose()
@@ -160,6 +161,22 @@ function GrantDialog({
               className="h-4 w-4 accent-emerald-600"
             />
           </label>
+
+          <div className="rounded-lg border p-3">
+            <p className="mb-2 flex items-center gap-2 font-medium">
+              <BookOpen className="h-4 w-4 text-violet-600" />
+              المواد المعروضة
+            </p>
+            <select
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value as CatalogStockFilter)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="FULL_CARTON_ONLY">كارتون كامل فقط (الافتراضي)</option>
+              <option value="ALL_PRODUCTS">كل المواد المتوفرة حتى لو أقل من كارتون</option>
+            </select>
+            <p className="mt-1.5 text-[11px] text-slate-400">البيع يبقى بالكارتون فقط — هذا الخيار يتحكم بالعرض فقط.</p>
+          </div>
         </div>
 
         {mutation.isError && (
@@ -202,7 +219,7 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
   })
 
   const patchMut = useMutation({
-    mutationFn: (patch: { allowPrices?: boolean; showStock?: boolean }) =>
+    mutationFn: (patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter }) =>
       patchCatalogAccess(customer.id, patch),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog-customers"] }),
   })
@@ -284,6 +301,23 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
             iconOff={<EyeOff className="h-3 w-3" />}
             disabled={!customer.hasAccess || isLoading}
             onClick={() => patchMut.mutate({ showStock: !customer.showStock })}
+          />
+        </td>
+
+        {/* فلتر العرض: كل المواد / كارتون كامل فقط */}
+        <td className="px-4 py-3">
+          <ToggleChip
+            on={customer.hasAccess && customer.stockFilter === "ALL_PRODUCTS"}
+            labelOn="كل المواد"
+            labelOff="كارتون كامل"
+            iconOn={<BookOpen className="h-3 w-3" />}
+            iconOff={<BookOpen className="h-3 w-3 opacity-40" />}
+            disabled={!customer.hasAccess || isLoading}
+            onClick={() =>
+              patchMut.mutate({
+                stockFilter: customer.stockFilter === "ALL_PRODUCTS" ? "FULL_CARTON_ONLY" : "ALL_PRODUCTS",
+              })
+            }
           />
         </td>
 
@@ -1054,6 +1088,7 @@ export function CatalogManagementPage() {
                   <th className="px-4 py-3 text-right">الحالة</th>
                   <th className="px-4 py-3 text-right">الأسعار</th>
                   <th className="px-4 py-3 text-right">الكمية</th>
+                  <th className="px-4 py-3 text-right">العرض</th>
                   <th className="px-4 py-3 text-right">آخر زيارة</th>
                   <th className="px-4 py-3 text-right">رابط الكتلوج (واتساب)</th>
                   <th className="px-4 py-3 text-right">إجراءات</th>
@@ -1062,11 +1097,11 @@ export function CatalogManagementPage() {
               <tbody className="bg-white">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td>
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-slate-400">لا توجد نتائج</td>
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">لا توجد نتائج</td>
                   </tr>
                 ) : (
                   filtered.map((customer) => (

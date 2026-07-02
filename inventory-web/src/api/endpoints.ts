@@ -8,6 +8,7 @@ import type {
   BranchSummary,
   BranchPayload,
   CatalogCustomer,
+  CatalogStockFilter,
   OrderPreparation,
   CatalogOrderPayload,
   CatalogAccessRequestPayload,
@@ -162,6 +163,13 @@ export async function getCatalogAccessStatus(phone: string) {
 
 export async function getCatalogSession(access: string) {
   const { data } = await api.get<ApiEnvelope<CatalogSession>>("/public/catalog/session", { params: { access } })
+  return data.data
+}
+
+// After a successful OTP for an existing link (6-month re-verification): stamps
+// the link as verified again — same token, no new admin approval.
+export async function verifyCatalogAccess(access: string) {
+  const { data } = await api.post<ApiEnvelope<CatalogSession>>("/public/catalog/access/verify", undefined, { params: { access } })
   return data.data
 }
 
@@ -1144,16 +1152,16 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
   return { rows: data.data ?? [], total: data.total ?? 0 }
 }
 
-export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean }) {
-  const { data } = await api.post<ApiEnvelope<{ token: string; urlPath: string; allowPrices: boolean; showStock: boolean }>>(
+export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean; stockFilter?: CatalogStockFilter }) {
+  const { data } = await api.post<ApiEnvelope<{ token: string; urlPath: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter }>>(
     `/catalog-management/${customerId}/grant`,
     opts,
   )
   return data.data!
 }
 
-export async function patchCatalogAccess(customerId: string, patch: { allowPrices?: boolean; showStock?: boolean }) {
-  const { data } = await api.patch<ApiEnvelope<{ allowPrices: boolean; showStock: boolean; token: string }>>(
+export async function patchCatalogAccess(customerId: string, patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter }) {
+  const { data } = await api.patch<ApiEnvelope<{ allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter; token: string }>>(
     `/catalog-management/${customerId}`,
     patch,
   )
@@ -1311,6 +1319,11 @@ export async function submitStocktakeSession(id: string) {
 export async function closeStocktakeSession(id: string) {
   const { data } = await api.post<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${id}/close`)
   return data.data!
+}
+
+export async function archiveStocktakeSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${id}/archive`)
+  return data.data
 }
 
 export async function approveStocktakeItem(sessionId: string, itemId: string) {

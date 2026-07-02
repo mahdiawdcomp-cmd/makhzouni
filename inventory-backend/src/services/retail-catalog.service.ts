@@ -6,6 +6,7 @@ import { logger } from "../utils/logger";
 import { createInvoice } from "./invoice.service";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
+import { totalStock } from "../utils/product-stock";
 
 // Fixed identity for the auto-generated wholesale customer that owns all
 // retail-catalog sales. The real buyer's details go in the invoice notes.
@@ -16,6 +17,7 @@ type ProductStock = {
   openingBalancePcs: number;
   cartonsAvailable: number;
   pcsPerCarton: number;
+  warehouseStocks?: Array<{ quantityPieces: number }>;
 };
 
 type RetailOrderItemInput = {
@@ -42,8 +44,11 @@ function toNumber(value: unknown) {
   return Number(value);
 }
 
+// Unified stock source: sum across all warehouses (ProductWarehouseStock);
+// legacy Product fields are only a fallback for products that predate the
+// warehouse-stock system and have no rows yet.
 function stockOf(product: ProductStock) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
+  return totalStock(product);
 }
 
 // #4 Stock reservation (no extra table): every open retail order (PENDING or
@@ -138,7 +143,7 @@ export async function listRetailItems() {
   const items = await prisma.retailCatalogItem.findMany({
     include: {
       product: {
-        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+        select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, warehouseStocks: { select: { quantityPieces: true } } },
       },
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
@@ -179,7 +184,7 @@ function retailSubCategories(input: RetailItemFields) {
 
 const itemInclude = {
   product: {
-    select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+    select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, warehouseStocks: { select: { quantityPieces: true } } },
   },
 } as const;
 
@@ -350,7 +355,7 @@ export async function listPublicRetailItems() {
     where: { isActive: true, product: { deletedAt: null } },
     include: {
       product: {
-        select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+        select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, warehouseStocks: { select: { quantityPieces: true } } },
       },
     },
     orderBy: [{ featured: "desc" }, { sortOrder: "asc" }, { createdAt: "desc" }],
@@ -510,7 +515,7 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
     where: { id: { in: retailItemIds }, isActive: true },
     include: {
       product: {
-        select: { id: true, name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true },
+        select: { id: true, name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, warehouseStocks: { select: { quantityPieces: true } } },
       },
     },
   });

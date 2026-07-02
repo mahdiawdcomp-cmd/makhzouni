@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { Prisma, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
+import { Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { resolveWarehouseId } from "./warehouse-stock.service";
@@ -57,6 +57,7 @@ export async function createStocktakeSession(
 
 export async function listStocktakeSessions() {
   const sessions = await prisma.stocktakeSession.findMany({
+    where: { archivedAt: null },
     orderBy: { createdAt: "desc" },
     include: {
       creator: { select: { id: true, name: true } },
@@ -137,17 +138,51 @@ export async function getStocktakeSession(id: string) {
   };
 }
 
-export async function closeStocktakeSession(sessionId: string) {
+export async function closeStocktakeSession(sessionId: string, closedBy?: string) {
   const session = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
 
   await prisma.stocktakeSession.update({
     where: { id: sessionId },
-    data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date() },
+    data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date(), closedBy: closedBy ?? null },
   });
 
   return getStocktakeSession(sessionId);
+}
+
+// ─── Admin: Archive session (soft-delete) ────────────────────────────────────
+// Hides the session from the admin list. Never reverts approved quantities and
+// never deletes StockMovement rows.
+export async function archiveStocktakeSession(sessionId: string) {
+  const session = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } });
+  if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.archivedAt) throw new AppError("الجلسة مؤرشفة بالفعل", 400, "ALREADY_ARCHIVED");
+
+  await prisma.stocktakeSession.update({
+    where: { id: sessionId },
+    data: { archivedAt: new Date() },
+  });
+
+  return { success: true };
+}
+
+// ─── Public (worker): Close session via token ────────────────────────────────
+export async function closePublicStocktake(token: string) {
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { publicToken: token },
+    select: { id: true, status: true },
+  });
+  if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
+  if (session.status === StocktakeSessionStatus.CLOSED)
+    throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+
+  await prisma.stocktakeSession.update({
+    where: { id: session.id },
+    data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date(), closedBy: "PUBLIC_WORKER" },
+  });
+
+  return { success: true };
 }
 
 // ─── Admin: Update a single item quantity ────────────────────────────────────
@@ -397,14 +432,37 @@ export async function approveStocktakeItem(
     const delta = item.actualQty - (item.systemQty ?? 0);
 
     // Update warehouse stock
-    await tx.productWarehouseStock.update({
+    const updatedStock = await tx.productWarehouseStock.update({
       where: { productId_warehouseId: { productId: item.productId, warehouseId: item.session.branchId! } },
       data: { quantityPieces: { increment: delta } },
+      select: { quantityPieces: true },
     });
 
     // Sync total product stock to canonical warehouse representation (don't touch legacy fields)
     // This ensures the next approval doesn't double-count. Rely on warehouse stock table only.
     // (Do not write to openingBalancePcs or cartonsAvailable — they are legacy)
+
+    // Record the adjustment in the unified stock-movement ledger so stocktake
+    // corrections show up in سجل حركة المخزون like every other stock change.
+    if (delta !== 0) {
+      const approver = await tx.user.findUnique({
+        where: { id: approvingUserId },
+        select: { name: true },
+      });
+      await tx.stockMovement.create({
+        data: {
+          productId: item.productId,
+          branchId: item.session.branchId,
+          type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
+          quantity: Math.abs(delta),
+          balanceBefore: updatedStock.quantityPieces - delta,
+          balanceAfter: updatedStock.quantityPieces,
+          userId: approvingUserId,
+          userName: approver?.name ?? null,
+          note: "تسوية جرد دوري (موافقة فرق الجرد)",
+        },
+      });
+    }
 
     // Mark item approved — condition on PENDING closes the race window atomically
     const updated = await tx.stocktakeItem.updateMany({

@@ -7,6 +7,7 @@ import {
   getCatalogProducts,
   getCatalogSession,
   validatePromoCtrl,
+  verifyCatalogAccessCtrl,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import { whatsappIncomingWebhook } from "../controllers/whatsapp.controller";
@@ -86,6 +87,8 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
 router.post("/catalog/access/request", catalogLimiter, validate(catalogAccessRequestSchema), createCatalogAccessRequest);
 router.get("/catalog/access/status", catalogLimiter, validate(catalogAccessStatusSchema), getCatalogAccessStatus);
 router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogSession);
+// Re-verify an existing access link after OTP (6-month window) — same token, no new admin approval
+router.post("/catalog/access/verify", catalogLimiter, validate(catalogAccessQuerySchema), verifyCatalogAccessCtrl);
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
 router.get("/catalog/product-image", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProductImageCtrl);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);

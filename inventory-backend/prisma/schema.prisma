@@ -87,6 +87,11 @@ enum LossReason {
   OTHER
 }
 
+enum CatalogStockFilter {
+  ALL_PRODUCTS
+  FULL_CARTON_ONLY
+}
+
 enum StocktakeSessionStatus {
   OPEN
   SUBMITTED
@@ -487,9 +492,16 @@ model CatalogAccessLink {
   customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   allowPrices  Boolean   @default(false) @map("allow_prices")
   showStock    Boolean   @default(true) @map("show_stock")
+  // Display filter per customer: FULL_CARTON_ONLY hides products with less than
+  // one full carton in stock (the historical behavior); ALL_PRODUCTS shows every
+  // in-stock product. Ordering stays carton-only regardless of this flag.
+  catalogStockFilter CatalogStockFilter @default(FULL_CARTON_ONLY) @map("catalog_stock_filter")
   revokedAt    DateTime? @map("revoked_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   lastViewedAt DateTime? @map("last_viewed_at")
+  // Last successful OTP verification for this link. NULL or older than 6 months
+  // means the shopper must re-verify by OTP; the token itself never expires.
+  lastVerifiedAt DateTime? @map("last_verified_at")
 
   @@index([customerId])
   @@map("catalog_access_links")
@@ -971,6 +983,12 @@ model StocktakeSession {
   items       StocktakeItem[]
   createdAt   DateTime               @default(now()) @map("created_at")
   closedAt    DateTime?              @map("closed_at")
+  // Who closed the session: an admin user id, or "PUBLIC_WORKER" when closed
+  // from the public worker link.
+  closedBy    String?                @map("closed_by")
+  // Soft-delete: archived sessions are hidden from the admin list. Approved
+  // quantities and StockMovement rows are never reverted by archiving.
+  archivedAt  DateTime?              @map("archived_at")
 
   @@index([branchId])
   @@index([createdBy])

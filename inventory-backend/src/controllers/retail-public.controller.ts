@@ -13,6 +13,7 @@ import {
   submitRetailOrder,
 } from "../services/retail-catalog.service";
 import { retailAiChat } from "../services/retail-ai.service";
+import { totalStock } from "../utils/product-stock";
 
 export const getPublicRetailCategories = asyncHandler(async (_req, res) => {
   res.json({ success: true, data: await listPublicRetailCategories() });
@@ -102,7 +103,7 @@ export const postPublicRetailAiChat = asyncHandler(async (req, res) => {
   const items = result.productIds.length
     ? await prisma.retailCatalogItem.findMany({
         where: { id: { in: result.productIds }, isActive: true },
-        include: { product: { select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true } } },
+        include: { product: { select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, warehouseStocks: { select: { quantityPieces: true } } } } },
       })
     : [];
 
@@ -110,9 +111,7 @@ export const postPublicRetailAiChat = asyncHandler(async (req, res) => {
     .map((id) => items.find((i) => i.id === id))
     .filter(Boolean)
     .map((item) => {
-      const stock = item!.product
-        ? item!.product.openingBalancePcs + item!.product.cartonsAvailable * item!.product.pcsPerCarton
-        : 0;
+      const stock = item!.product ? totalStock(item!.product) : 0;
       return {
         id: item!.id,
         title: item!.title || item!.product?.name || "",
