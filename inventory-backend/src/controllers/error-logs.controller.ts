@@ -1,7 +1,13 @@
 import { ErrorLogSource } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { listErrorLogs, resolveErrorLog } from "../services/error-log.service";
-import { analyzeErrorLog, isAiEnabled } from "../services/error-analysis.service";
+import {
+  analyzeErrorLog,
+  analyzeHealthComponent,
+  isAiEnabled,
+  isHealthComponent,
+} from "../services/error-analysis.service";
+import { AppError } from "../utils/app-error";
 
 export const getErrorLogs = asyncHandler(async (req, res) => {
   const sourceRaw = typeof req.query.source === "string" ? req.query.source.toUpperCase() : undefined;
@@ -18,5 +24,14 @@ export const patchResolveErrorLog = asyncHandler(async (req, res) => {
 
 export const postAnalyzeErrorLog = asyncHandler(async (req, res) => {
   const data = await analyzeErrorLog(String(req.params.id));
+  res.json({ success: true, data });
+});
+
+export const postAnalyzeHealth = asyncHandler(async (req, res) => {
+  const component = String(req.body?.component ?? "");
+  if (!isHealthComponent(component)) {
+    throw new AppError("مكوّن غير معروف", 400, "UNKNOWN_HEALTH_COMPONENT");
+  }
+  const data = await analyzeHealthComponent(component);
   res.json({ success: true, data });
 });

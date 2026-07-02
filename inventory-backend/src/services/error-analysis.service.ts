@@ -1,6 +1,8 @@
 import Groq from "groq-sdk";
+import type { ErrorLogSource } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { getSystemHealth } from "./system-health.service";
 
 // AI analysis of a logged system error. Manual only (a button per error) — never
 // runs automatically. Requires GROQ_API_KEY; otherwise the caller gets a clear
@@ -72,19 +74,7 @@ export type ErrorAnalysis = {
   severity: string;
 };
 
-export async function analyzeErrorLog(id: string): Promise<ErrorAnalysis> {
-  const err = await prisma.errorLog.findUnique({ where: { id } });
-  if (!err) throw new AppError("سجل الخطأ غير موجود", 404, "ERROR_LOG_NOT_FOUND");
-
-  const payload = sanitizeValue({
-    source: err.source,
-    level: err.level,
-    code: err.code,
-    message: err.message,
-    count: err.count,
-    context: err.context ?? null,
-  });
-
+async function runGroqAnalysis(payload: unknown): Promise<ErrorAnalysis> {
   const completion = await getGroq().chat.completions.create({
     model: "llama-3.3-70b-versatile",
     temperature: 0.2,
@@ -108,4 +98,60 @@ export async function analyzeErrorLog(id: string): Promise<ErrorAnalysis> {
     suggestedFix: parsed.suggestedFix || "راجع سجلات الخادم للمزيد من التفاصيل.",
     severity: parsed.severity || "medium",
   };
+}
+
+export async function analyzeErrorLog(id: string): Promise<ErrorAnalysis> {
+  const err = await prisma.errorLog.findUnique({ where: { id } });
+  if (!err) throw new AppError("سجل الخطأ غير موجود", 404, "ERROR_LOG_NOT_FOUND");
+
+  const payload = sanitizeValue({
+    source: err.source,
+    level: err.level,
+    code: err.code,
+    message: err.message,
+    count: err.count,
+    context: err.context ?? null,
+  });
+
+  return runGroqAnalysis(payload);
+}
+
+// ── Health-component analysis ────────────────────────────────────────────────
+// Analyzes a warn/down subsystem from the health bar (WhatsApp down, failed
+// campaigns, stale backup...) instead of a single ErrorLog row. Bundles the
+// component's current health snapshot + its 5 most recent open errors, all
+// passed through the same sanitizer before leaving the server.
+
+const HEALTH_COMPONENTS = ["db", "whatsapp", "campaigns", "cron", "backup"] as const;
+export type HealthComponent = (typeof HEALTH_COMPONENTS)[number];
+
+export function isHealthComponent(value: string): value is HealthComponent {
+  return (HEALTH_COMPONENTS as readonly string[]).includes(value);
+}
+
+const COMPONENT_SOURCE: Record<HealthComponent, ErrorLogSource> = {
+  db: "DATABASE",
+  whatsapp: "WHATSAPP",
+  campaigns: "CAMPAIGN",
+  cron: "CRON",
+  backup: "BACKUP",
+};
+
+export async function analyzeHealthComponent(component: HealthComponent): Promise<ErrorAnalysis> {
+  const health = await getSystemHealth();
+  const recentErrors = await prisma.errorLog.findMany({
+    where: { source: COMPONENT_SOURCE[component], resolvedAt: null },
+    orderBy: { lastSeenAt: "desc" },
+    take: 5,
+    select: { code: true, level: true, message: true, count: true, lastSeenAt: true },
+  });
+
+  const payload = sanitizeValue({
+    type: "system-health-component",
+    component,
+    status: health[component],
+    recentOpenErrors: recentErrors,
+  });
+
+  return runGroqAnalysis(payload);
 }

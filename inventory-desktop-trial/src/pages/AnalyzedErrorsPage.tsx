@@ -12,7 +12,7 @@ import {
   Send,
   Timer,
 } from "lucide-react"
-import { analyzeErrorLog, getErrorLogs, getSystemHealth, resolveErrorLog } from "../api/endpoints"
+import { analyzeErrorLog, analyzeHealthComponent, getErrorLogs, getSystemHealth, resolveErrorLog } from "../api/endpoints"
 import type { ErrorAnalysis, ErrorLog, ErrorLogSource, HealthLevel } from "../types/api"
 import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
@@ -41,29 +41,66 @@ const HEALTH_LABELS: Record<HealthLevel, { label: string; color: string }> = {
   unknown: { label: "غير معروف", color: "#94A3B8" },
 }
 
-function HealthCard({ title, level, detail, Icon }: {
+function AiAnalyzeButton({ aiEnabled, analyzing, onClick, compact }: {
+  aiEnabled: boolean
+  analyzing: boolean
+  onClick: () => void
+  compact?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      disabled={!aiEnabled || analyzing}
+      onClick={onClick}
+      title={aiEnabled ? undefined : "أضف GROQ_API_KEY في إعدادات الخادم لتفعيل التحليل"}
+      className={cn(
+        "flex items-center gap-1.5 rounded-lg border font-semibold transition disabled:cursor-not-allowed",
+        compact ? "px-2 py-1 text-[11.5px]" : "px-3 py-1.5 text-[12.5px]",
+        aiEnabled
+          ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 disabled:opacity-60"
+          : "border-white/10 bg-white/5 text-gray-400 opacity-70",
+      )}
+    >
+      {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
+      {aiEnabled ? "تحليل بالذكاء الاصطناعي" : "التحليل بالذكاء غير مفعّل"}
+    </button>
+  )
+}
+
+function HealthCard({ title, level, detail, Icon, aiEnabled, analyzing, analysis, onAnalyze }: {
   title: string
   level: HealthLevel
   detail?: string | null
   Icon: typeof Activity
+  aiEnabled: boolean
+  analyzing: boolean
+  analysis?: ErrorAnalysis
+  onAnalyze: () => void
 }) {
   const h = HEALTH_LABELS[level]
+  const troubled = level === "warn" || level === "down"
   return (
-    <div className="glass flex items-center gap-3 rounded-xl p-3">
-      <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-        style={{ background: `${h.color}1f`, color: h.color }}
-      >
-        <Icon className="h-4.5 w-4.5" />
-      </span>
-      <div className="min-w-0">
-        <div className="text-[13px] font-semibold" style={{ color: "var(--theme-textPrimary)" }}>{title}</div>
-        <div className="flex items-center gap-1.5 text-[12px]" style={{ color: h.color }}>
-          <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: h.color }} />
-          {h.label}
-          {detail ? <span className="truncate opacity-70" style={{ color: "var(--theme-textSecondary)" }}> — {detail}</span> : null}
+    <div className="glass flex flex-col gap-2 rounded-xl p-3">
+      <div className="flex items-center gap-3">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+          style={{ background: `${h.color}1f`, color: h.color }}
+        >
+          <Icon className="h-4.5 w-4.5" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold" style={{ color: "var(--theme-textPrimary)" }}>{title}</div>
+          <div className="flex items-center gap-1.5 text-[12px]" style={{ color: h.color }}>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: h.color }} />
+            {h.label}
+            {detail ? <span className="truncate opacity-70" style={{ color: "var(--theme-textSecondary)" }}> — {detail}</span> : null}
+          </div>
         </div>
       </div>
+      {troubled && !analysis && (
+        <AiAnalyzeButton compact aiEnabled={aiEnabled} analyzing={analyzing} onClick={onAnalyze} />
+      )}
+      {analysis && <AnalysisBox analysis={analysis} />}
     </div>
   )
 }
@@ -87,6 +124,7 @@ export function AnalyzedErrorsPage() {
   const [source, setSource] = useState<ErrorLogSource | "">("")
   const [includeResolved, setIncludeResolved] = useState(false)
   const [analyses, setAnalyses] = useState<Record<string, ErrorAnalysis>>({})
+  const [healthAnalyses, setHealthAnalyses] = useState<Record<string, ErrorAnalysis>>({})
 
   const healthQuery = useQuery({
     queryKey: ["system-health"],
@@ -117,6 +155,14 @@ export function AnalyzedErrorsPage() {
     onError: () => toast({ title: "تعذّر تحليل الخطأ", variant: "destructive" }),
   })
 
+  const analyzeHealthMutation = useMutation({
+    mutationFn: analyzeHealthComponent,
+    onSuccess: (analysis, component) => {
+      if (analysis) setHealthAnalyses((prev) => ({ ...prev, [component]: analysis }))
+    },
+    onError: () => toast({ title: "تعذّر تحليل الحالة", variant: "destructive" }),
+  })
+
   const health = healthQuery.data
   const rows: ErrorLog[] = logsQuery.data?.rows ?? []
   const aiEnabled = logsQuery.data?.aiEnabled ?? false
@@ -143,17 +189,31 @@ export function AnalyzedErrorsPage() {
 
       {/* Health overview */}
       {health && (
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
-          <HealthCard title="قاعدة البيانات" level={health.db.level} Icon={Database}
-            detail={health.db.latencyMs != null ? `${health.db.latencyMs}ms` : null} />
-          <HealthCard title="واتساب" level={health.whatsapp.level} Icon={MessageCircle}
-            detail={health.whatsapp.detail ?? health.whatsapp.provider} />
-          <HealthCard title="الحملات" level={health.campaigns.level} Icon={Send}
-            detail={`جارية: ${health.campaigns.running} — فشل 24س: ${health.campaigns.failed24h}`} />
-          <HealthCard title="المهام المجدولة" level={health.cron.level} Icon={Timer}
-            detail={health.cron.ageSec != null ? `آخر دورة قبل ${Math.round(health.cron.ageSec / 60)} دقيقة` : null} />
-          <HealthCard title="النسخ الاحتياطي" level={health.backup.level} Icon={Activity}
-            detail={health.backup.detail} />
+        <div className="grid grid-cols-1 items-start gap-2.5 sm:grid-cols-2 lg:grid-cols-5">
+          {([
+            { key: "db", title: "قاعدة البيانات", Icon: Database, level: health.db.level,
+              detail: health.db.latencyMs != null ? `${health.db.latencyMs}ms` : null },
+            { key: "whatsapp", title: "واتساب", Icon: MessageCircle, level: health.whatsapp.level,
+              detail: health.whatsapp.detail ?? health.whatsapp.provider },
+            { key: "campaigns", title: "الحملات", Icon: Send, level: health.campaigns.level,
+              detail: `جارية: ${health.campaigns.running} — فشل 24س: ${health.campaigns.failed24h}` },
+            { key: "cron", title: "المهام المجدولة", Icon: Timer, level: health.cron.level,
+              detail: health.cron.ageSec != null ? `آخر دورة قبل ${Math.round(health.cron.ageSec / 60)} دقيقة` : null },
+            { key: "backup", title: "النسخ الاحتياطي", Icon: Activity, level: health.backup.level,
+              detail: health.backup.detail },
+          ] as const).map((c) => (
+            <HealthCard
+              key={c.key}
+              title={c.title}
+              level={c.level}
+              detail={c.detail}
+              Icon={c.Icon}
+              aiEnabled={aiEnabled}
+              analyzing={analyzeHealthMutation.isPending && analyzeHealthMutation.variables === c.key}
+              analysis={healthAnalyses[c.key]}
+              onAnalyze={() => analyzeHealthMutation.mutate(c.key)}
+            />
+          ))}
         </div>
       )}
 
@@ -237,16 +297,12 @@ export function AnalyzedErrorsPage() {
                 {analysis && <AnalysisBox analysis={analysis} />}
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {aiEnabled && !analysis && (
-                    <button
-                      type="button"
-                      disabled={analyzing}
+                  {!analysis && (
+                    <AiAnalyzeButton
+                      aiEnabled={aiEnabled}
+                      analyzing={analyzing}
                       onClick={() => analyzeMutation.mutate(log.id)}
-                      className="flex items-center gap-1.5 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 text-[12.5px] font-semibold text-indigo-400 transition hover:bg-indigo-500/20 disabled:opacity-50"
-                    >
-                      {analyzing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
-                      تحليل بالذكاء الاصطناعي
-                    </button>
+                    />
                   )}
                   {!log.resolvedAt && (
                     <button

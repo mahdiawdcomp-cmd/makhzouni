@@ -287,6 +287,11 @@ export async function analyzeErrorLog(id: string) {
   return data.data
 }
 
+export async function analyzeHealthComponent(component: string) {
+  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>("/error-logs/analyze-health", { component })
+  return data.data
+}
+
 export async function getPublicCatalogProductImage(access: string, id: string) {
   const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/product-image", { params: { access, id } })
   return data.data?.imageUrl ?? null

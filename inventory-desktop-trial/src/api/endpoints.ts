@@ -965,6 +965,11 @@ export async function analyzeErrorLog(id: string) {
   return data.data
 }
 
+export async function analyzeHealthComponent(component: string) {
+  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>("/error-logs/analyze-health", { component })
+  return data.data
+}
+
 export interface LicenseInfo {
   status: "valid" | "expiring" | "expired" | "missing" | "invalid"
   clientName: string | null
