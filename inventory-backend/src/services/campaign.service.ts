@@ -1,9 +1,23 @@
-import { CampaignRecipientStatus, CampaignStatus } from "@prisma/client";
+import { CampaignRecipientStatus, CampaignStatus, ErrorLogLevel, ErrorLogSource } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
+import { markCampaignTick } from "./campaign-heartbeat";
+import { recordError } from "./error-log.service";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
+
+// Retry policy: after the first attempt fails, retry up to MAX_RETRIES more
+// times with an increasing backoff, then mark FAILED permanently.
+const MAX_RETRIES = 3;
+const RETRY_BACKOFF_MS = [5 * 60_000, 15 * 60_000, 30 * 60_000]; // before retry 1, 2, 3
+// A row stuck in SENDING longer than this (e.g. server crashed mid-send) is
+// reclaimed back to PENDING on the next tick.
+const STALE_SENDING_MS = 10 * 60_000;
+
+function backoffFor(retryCount: number): number {
+  return RETRY_BACKOFF_MS[Math.min(retryCount, RETRY_BACKOFF_MS.length - 1)];
+}
 
 function randInt(min: number, max: number) {
   if (max <= min) return min;
@@ -48,9 +62,15 @@ export async function listCampaigns() {
         where: { campaignId: c.id },
         _count: { _all: true },
       });
-      const counts = { PENDING: 0, SENT: 0, FAILED: 0, SKIPPED: 0 };
+      const counts: Record<CampaignRecipientStatus, number> = {
+        PENDING: 0, SENDING: 0, API_ACCEPTED: 0, DELIVERED: 0,
+        FAILED: 0, SKIPPED: 0, UNCONFIRMED: 0, SENT: 0,
+      };
       for (const g of grouped) counts[g.status] = g._count._all;
-      return { ...c, total: c._count.recipients, counts };
+      // "processed" = anything the provider accepted (incl. legacy SENT) — used
+      // for the progress bar so old campaigns still render correctly.
+      const processed = counts.API_ACCEPTED + counts.DELIVERED + counts.SENT;
+      return { ...c, total: c._count.recipients, counts, processed };
     }),
   );
   return withStats;
@@ -176,7 +196,7 @@ export async function removeRecipient(campaignId: string, recipientId: string) {
 async function sendOneMessage(
   campaign: { messages: string[]; productIds: string[]; includeCatalogLink: boolean },
   recipient: { phone: string },
-): Promise<string> {
+): Promise<{ variant: string; messageId?: string }> {
   const message = pickRandom(campaign.messages) ?? "";
 
   const settings = await getSettings().catch(() => null);
@@ -195,6 +215,7 @@ async function sendOneMessage(
           .filter((x): x is { product: typeof x.product; image: { buffer: Buffer; mime: string } } => x.image !== null)
       : [];
 
+  let firstMessageId: string | undefined;
   if (productImages.length > 0) {
     for (let idx = 0; idx < productImages.length; idx++) {
       const { product, image } = productImages[idx];
@@ -205,16 +226,18 @@ async function sendOneMessage(
           ? `${message}\n\n${caption}\n\n🗂️ الكاتلوج: ${catalogLink}`
           : `${message}\n\n${caption}`;
       }
-      await sendWhatsAppImage(recipient.phone, caption, image.buffer, image.mime);
+      const res = await sendWhatsAppImage(recipient.phone, caption, image.buffer, image.mime);
+      if (idx === 0) firstMessageId = res.idMessage;
       // Small pause between multiple images of the same recipient.
       await new Promise((r) => setTimeout(r, 600));
     }
   } else {
     const body = catalogLink ? `${message}\n\n🗂️ الكاتلوج: ${catalogLink}` : message;
-    await sendWhatsAppText(recipient.phone, body);
+    const res = await sendWhatsAppText(recipient.phone, body);
+    firstMessageId = res.idMessage;
   }
 
-  return message;
+  return { variant: message, messageId: firstMessageId };
 }
 
 // Processes a single campaign step. Called by a per-minute cron tick. At most
@@ -244,24 +267,60 @@ async function processCampaign(campaignId: string) {
   if (sentToday >= dailyCapToday) return; // hit today's random cap
   if (campaign.nextSendAt && now < campaign.nextSendAt) return; // still waiting random gap
 
-  const recipient = await prisma.campaignRecipient.findFirst({
-    where: { campaignId: campaign.id, status: CampaignRecipientStatus.PENDING },
-    orderBy: { createdAt: "asc" },
+  // Reclaim rows stuck in SENDING (e.g. server crashed mid-send) back to PENDING.
+  await prisma.campaignRecipient.updateMany({
+    where: {
+      campaignId: campaign.id,
+      status: CampaignRecipientStatus.SENDING,
+      processedAt: { lt: new Date(now.getTime() - STALE_SENDING_MS) },
+    },
+    data: { status: CampaignRecipientStatus.PENDING },
   });
 
-  if (!recipient) {
-    // Nothing left to send — campaign is finished.
+  // Pick the oldest PENDING recipient that is actually due: fresh recipients
+  // (retryCount 0) are always due; retried ones must wait out their backoff.
+  const candidates = await prisma.campaignRecipient.findMany({
+    where: { campaignId: campaign.id, status: CampaignRecipientStatus.PENDING },
+    orderBy: { createdAt: "asc" },
+    take: 25,
+  });
+
+  const recipient = candidates.find((r) => {
+    if (r.retryCount === 0 || !r.retryLastAttemptAt) return true;
+    return now.getTime() >= r.retryLastAttemptAt.getTime() + backoffFor(r.retryCount - 1);
+  });
+
+  if (candidates.length === 0) {
+    // Nothing left at all — campaign is finished.
     await prisma.campaign.update({ where: { id: campaign.id }, data: { status: CampaignStatus.DONE } });
     return;
   }
+  if (!recipient) return; // all remaining are waiting out their retry backoff
+
+  // Claim the row (SENDING) so a crash mid-send is recoverable and no double-send.
+  await prisma.campaignRecipient.update({
+    where: { id: recipient.id },
+    data: { status: CampaignRecipientStatus.SENDING, processedAt: now },
+  });
 
   const nextGapMs = randInt(campaign.minDelaySec, campaign.maxDelaySec) * 1000;
   try {
-    const variant = await sendOneMessage(campaign, recipient);
+    const { variant, messageId } = await sendOneMessage(campaign, recipient);
+    // API_ACCEPTED = provider accepted the request. NOT proof of delivery — that
+    // would require a delivery webhook (would set DELIVERED later).
     await prisma.campaignRecipient.update({
       where: { id: recipient.id },
-      data: { status: CampaignRecipientStatus.SENT, sentAt: now, variantUsed: variant },
+      data: {
+        status: CampaignRecipientStatus.API_ACCEPTED,
+        sentAt: now,
+        variantUsed: variant,
+        messageId: messageId ?? null,
+        providerResponse: messageId ? { idMessage: messageId } : undefined,
+        error: null,
+        failureCode: null,
+      },
     });
+    // Only accepted sends count toward the daily cap — retries/failures do not.
     await prisma.campaign.update({
       where: { id: campaign.id },
       data: {
@@ -272,12 +331,34 @@ async function processCampaign(campaignId: string) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.warn(`[Campaign ${campaign.name}] send failed to ${recipient.phone}: ${msg}`);
+    const code = err instanceof AppError ? err.code : "CAMPAIGN_SEND_FAILED";
+    const attempts = recipient.retryCount + 1; // this attempt just happened
+    const willRetry = attempts <= MAX_RETRIES;
+    logger.warn(`[Campaign ${campaign.name}] send failed to ${recipient.phone} (attempt ${attempts}): ${msg}`);
+
     await prisma.campaignRecipient.update({
       where: { id: recipient.id },
-      data: { status: CampaignRecipientStatus.FAILED, error: msg.slice(0, 500) },
+      data: {
+        // Keep PENDING to retry after backoff; only give up after MAX_RETRIES.
+        status: willRetry ? CampaignRecipientStatus.PENDING : CampaignRecipientStatus.FAILED,
+        retryCount: { increment: 1 },
+        retryLastAttemptAt: now,
+        error: msg.slice(0, 500),
+        failureCode: code,
+      },
     });
-    // Still advance the gap so a persistent failure doesn't hammer the API.
+
+    if (!willRetry) {
+      await recordError({
+        source: ErrorLogSource.CAMPAIGN,
+        level: ErrorLogLevel.ERROR,
+        code,
+        message: `فشل إرسال حملة بعد ${MAX_RETRIES} محاولات`,
+        context: { campaignName: campaign.name, attempts, providerError: msg.slice(0, 300) },
+      });
+    }
+
+    // Advance the gap so a persistent failure doesn't hammer the API.
     await prisma.campaign.update({
       where: { id: campaign.id },
       data: { nextSendAt: new Date(now.getTime() + nextGapMs) },
@@ -289,6 +370,7 @@ let ticking = false;
 export async function processCampaignsTick() {
   if (ticking) return; // never overlap ticks
   ticking = true;
+  markCampaignTick(); // heartbeat for system-health
   try {
     const running = await prisma.campaign.findMany({
       where: { status: CampaignStatus.RUNNING },

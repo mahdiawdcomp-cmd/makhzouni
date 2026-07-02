@@ -486,9 +486,12 @@ function SendTab() {
 function CampaignRow({ campaign, onOpen, onEdit, onToggle, onDelete }: {
   campaign: Campaign; onOpen: () => void; onEdit: () => void; onToggle: () => void; onDelete: () => void
 }) {
-  const counts = campaign.counts ?? { PENDING: 0, SENT: 0, FAILED: 0, SKIPPED: 0 }
+  const counts = campaign.counts ?? {}
   const total = campaign.total ?? 0
-  const pct = total > 0 ? Math.round((counts.SENT / total) * 100) : 0
+  const sentCount = (counts.DELIVERED ?? 0) + (counts.API_ACCEPTED ?? 0) + (counts.SENT ?? 0)
+  const pendingCount = counts.PENDING ?? 0
+  const failedCount = counts.FAILED ?? 0
+  const pct = total > 0 ? Math.round((sentCount / total) * 100) : 0
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -499,9 +502,9 @@ function CampaignRow({ campaign, onOpen, onEdit, onToggle, onDelete }: {
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
             <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {total}</span>
-            <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> {counts.SENT}</span>
-            <span className="flex items-center gap-1 text-gray-400"><Clock className="h-3.5 w-3.5" /> {counts.PENDING}</span>
-            {counts.FAILED > 0 && <span className="flex items-center gap-1 text-red-500"><XCircle className="h-3.5 w-3.5" /> {counts.FAILED}</span>}
+            <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> {sentCount}</span>
+            <span className="flex items-center gap-1 text-gray-400"><Clock className="h-3.5 w-3.5" /> {pendingCount}</span>
+            {failedCount > 0 && <span className="flex items-center gap-1 text-red-500"><XCircle className="h-3.5 w-3.5" /> {failedCount}</span>}
             <span>· اليوم: {campaign.sentToday}/{campaign.dailyCapToday || `${campaign.dailyMin}-${campaign.dailyMax}`}</span>
           </div>
         </button>

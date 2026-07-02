@@ -7,6 +7,10 @@ import type {
   CampaignDetail,
   CampaignPayload,
   CampaignStatus,
+  SystemHealth,
+  ErrorLog,
+  ErrorLogSource,
+  ErrorAnalysis,
   Prospect,
   ProspectListResult,
   ProspectStatus,
@@ -937,6 +941,27 @@ export async function loadCampaignProspects(id: string) {
 
 export async function deleteCampaignRecipient(id: string, recipientId: string) {
   const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}/recipients/${recipientId}`)
+  return data.data
+}
+
+/* ── System health + error logs ─────────────────────────────────────── */
+export async function getSystemHealth() {
+  const { data } = await api.get<ApiEnvelope<SystemHealth>>("/health/system")
+  return data.data
+}
+
+export async function getErrorLogs(params?: { source?: ErrorLogSource; includeResolved?: boolean }) {
+  const { data } = await api.get<ApiEnvelope<ErrorLog[]> & { aiEnabled?: boolean }>("/error-logs", { params })
+  return { rows: data.data ?? [], aiEnabled: Boolean(data.aiEnabled) }
+}
+
+export async function resolveErrorLog(id: string) {
+  const { data } = await api.patch<ApiEnvelope<ErrorLog>>(`/error-logs/${id}/resolve`)
+  return data.data
+}
+
+export async function analyzeErrorLog(id: string) {
+  const { data } = await api.post<ApiEnvelope<ErrorAnalysis>>(`/error-logs/${id}/analyze`)
   return data.data
 }
 

@@ -34,6 +34,8 @@ import stockLossRoutes from "./stock-loss.routes";
 import campaignsRoutes from "./campaigns.routes";
 import prospectsRoutes from "./prospects.routes";
 import inboundMessagesRoutes from "./inbound-messages.routes";
+import healthRoutes from "./health.routes";
+import errorLogsRoutes from "./error-logs.routes";
 
 const router = Router();
 
@@ -72,5 +74,7 @@ router.use("/stock-losses", stockLossRoutes);
 router.use("/campaigns", campaignsRoutes);
 router.use("/prospects", prospectsRoutes);
 router.use("/inbound-messages", inboundMessagesRoutes);
+router.use("/health", healthRoutes);
+router.use("/error-logs", errorLogsRoutes);
 
 export default router;

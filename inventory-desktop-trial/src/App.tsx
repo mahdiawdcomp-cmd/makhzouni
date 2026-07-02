@@ -15,6 +15,7 @@ const lazyPage = <T extends Record<string, unknown>>(
 
 const ApprovalsPage = lazyPage(() => import("./pages/ApprovalsPage"), "ApprovalsPage")
 const AuditLogsPage = lazyPage(() => import("./pages/AuditLogsPage"), "AuditLogsPage")
+const AnalyzedErrorsPage = lazyPage(() => import("./pages/AnalyzedErrorsPage"), "AnalyzedErrorsPage")
 const BranchesPage = lazyPage(() => import("./pages/BranchesPage"), "BranchesPage")
 const WarehouseDetailPage = lazyPage(() => import("./pages/WarehouseDetailPage"), "WarehouseDetailPage")
 const CustomerDetailPage = lazyPage(() => import("./pages/CustomerDetailPage"), "CustomerDetailPage")
@@ -116,6 +117,7 @@ const router = createBrowserRouter([
               { path: "users", element: s(<UsersPage />) },
               { path: "approvals", element: s(<ApprovalsPage />) },
               { path: "audit-logs", element: s(<AuditLogsPage />) },
+              { path: "error-logs", element: s(<AnalyzedErrorsPage />) },
               { path: "branches", element: s(<BranchesPage />) },
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
               { path: "coupons", element: s(<CouponsPage />) },

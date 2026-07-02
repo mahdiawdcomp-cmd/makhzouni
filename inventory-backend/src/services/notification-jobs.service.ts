@@ -7,6 +7,7 @@ import { renderTemplateByType } from "./message-template.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { getDailySummaryData } from "./report.service";
 import { processCampaignsTick } from "./campaign.service";
+import { cleanupOldErrorLogs } from "./error-log.service";
 
 let jobsStarted = false;
 
@@ -302,6 +303,13 @@ export function startNotificationJobs() {
     processCampaignsTick().catch((error) => {
       console.error("Campaign tick failed", error);
     });
+  });
+
+  // ErrorLog retention — daily at 03:15, delete rows older than 90 days.
+  cron.schedule("15 3 * * *", () => {
+    cleanupOldErrorLogs()
+      .then((n) => { if (n > 0) console.log(`[ErrorLog] cleaned ${n} old rows`); })
+      .catch((error) => console.error("ErrorLog cleanup failed", error));
   });
 
   // Neon DB keep-alive REMOVED (2026-07-01): the database has been migrated to

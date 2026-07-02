@@ -99,7 +99,7 @@ function normalizeGreenPhone(phone: string) {
   return `${digits}@c.us`;
 }
 
-async function sendGreenApiText(phone: string, message: string) {
+async function sendGreenApiText(phone: string, message: string): Promise<{ idMessage?: string }> {
   const { baseUrl, token } = greenApiConfig();
   const chatId = normalizeGreenPhone(phone);
   const res = await fetch(`${baseUrl}/sendMessage/${token}`, {
@@ -111,6 +111,8 @@ async function sendGreenApiText(phone: string, message: string) {
     const text = await res.text();
     throw new AppError(`Green API send failed: ${text}`, 502, "GREENAPI_SEND_FAILED");
   }
+  const data = (await res.json().catch(() => null)) as { idMessage?: string } | null;
+  return { idMessage: data?.idMessage };
 }
 
 async function sendGreenApiDocument(phone: string, pdf: Buffer, filename: string, caption: string) {
@@ -129,7 +131,7 @@ async function sendGreenApiDocument(phone: string, pdf: Buffer, filename: string
   }
 }
 
-async function sendGreenApiImage(phone: string, image: Buffer, mime: string, caption: string) {
+async function sendGreenApiImage(phone: string, image: Buffer, mime: string, caption: string): Promise<{ idMessage?: string }> {
   const { baseUrl, token } = greenApiConfig();
   const chatId = normalizeGreenPhone(phone);
   const ext = mime.includes("png") ? "png" : "jpg";
@@ -144,6 +146,44 @@ async function sendGreenApiImage(phone: string, image: Buffer, mime: string, cap
     const text = await res.text();
     throw new AppError(`Green API image send failed: ${text}`, 502, "GREENAPI_IMAGE_FAILED");
   }
+  const data = (await res.json().catch(() => null)) as { idMessage?: string } | null;
+  return { idMessage: data?.idMessage };
+}
+
+// ── Green API instance state (cached) ──────────────────────────────────────────
+// getStateInstance tells us if the WhatsApp instance is actually authorized
+// (logged in) vs disconnected. Cached for 45s so a health bar polling every
+// 30-60s doesn't spend Green API quota or add latency on each hit.
+type GreenState = { stateInstance: string | null; ok: boolean; error: string | null; checkedAt: number };
+let _greenStateCache: GreenState | null = null;
+const GREEN_STATE_TTL_MS = 45_000;
+
+export async function getGreenApiStateCached(): Promise<GreenState> {
+  const now = Date.now();
+  if (_greenStateCache && now - _greenStateCache.checkedAt < GREEN_STATE_TTL_MS) {
+    return _greenStateCache;
+  }
+  let result: GreenState;
+  try {
+    const { baseUrl, token } = greenApiConfig();
+    const res = await fetch(`${baseUrl}/getStateInstance/${token}`, { method: "GET" });
+    if (!res.ok) {
+      result = { stateInstance: null, ok: false, error: `HTTP ${res.status}`, checkedAt: now };
+    } else {
+      const data = (await res.json().catch(() => null)) as { stateInstance?: string } | null;
+      const stateInstance = data?.stateInstance ?? null;
+      result = { stateInstance, ok: stateInstance === "authorized", error: null, checkedAt: now };
+    }
+  } catch (err) {
+    result = {
+      stateInstance: null,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      checkedAt: now,
+    };
+  }
+  _greenStateCache = result;
+  return result;
 }
 
 async function uploadCloudImage(image: Buffer, mime: string) {
@@ -234,7 +274,7 @@ async function parseGraphError(response: Response) {
   }
 }
 
-async function sendCloudMessage(payload: Record<string, unknown>) {
+async function sendCloudMessage(payload: Record<string, unknown>): Promise<string | undefined> {
   const { token, baseUrl } = cloudConfig();
   const response = await fetch(`${baseUrl}/messages`, {
     method: "POST",
@@ -251,6 +291,8 @@ async function sendCloudMessage(payload: Record<string, unknown>) {
       "WHATSAPP_CLOUD_SEND_FAILED",
     );
   }
+  const data = (await response.json().catch(() => null)) as { messages?: Array<{ id?: string }> } | null;
+  return data?.messages?.[0]?.id;
 }
 
 async function uploadCloudMedia(pdf: Buffer, filename: string) {
@@ -509,7 +551,7 @@ export async function restartWhatsApp() {
 }
 
 /** Send a text message. */
-export async function sendWhatsAppText(phone: string, message: string): Promise<{ to: string; message: string }> {
+export async function sendWhatsAppText(phone: string, message: string): Promise<{ to: string; message: string; idMessage?: string }> {
   if (!whatsappEnabled()) {
     throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
   }
@@ -517,18 +559,18 @@ export async function sendWhatsAppText(phone: string, message: string): Promise<
   const prov = provider();
 
   if (prov === "greenapi") {
-    await sendGreenApiText(phone, message);
-    return { to: phone, message };
+    const { idMessage } = await sendGreenApiText(phone, message);
+    return { to: phone, message, idMessage };
   }
 
   if (prov === "cloud") {
     const to = normalizeCloudPhone(phone);
-    await sendCloudMessage({
+    const idMessage = await sendCloudMessage({
       to,
       type: "text",
       text: { preview_url: false, body: message },
     });
-    return { to, message };
+    return { to, message, idMessage };
   }
 
   const to = normalizePhone(phone);
@@ -603,7 +645,7 @@ export async function sendWhatsAppImage(
   message: string,
   image: Buffer,
   mime = "image/jpeg",
-): Promise<{ to: string }> {
+): Promise<{ to: string; idMessage?: string }> {
   if (!whatsappEnabled()) {
     throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
   }
@@ -611,19 +653,19 @@ export async function sendWhatsAppImage(
   const prov = provider();
 
   if (prov === "greenapi") {
-    await sendGreenApiImage(phone, image, mime, message);
-    return { to: phone };
+    const { idMessage } = await sendGreenApiImage(phone, image, mime, message);
+    return { to: phone, idMessage };
   }
 
   if (prov === "cloud") {
     const to = normalizeCloudPhone(phone);
     const mediaId = await uploadCloudImage(image, mime);
-    await sendCloudMessage({
+    const idMessage = await sendCloudMessage({
       to,
       type: "image",
       image: { id: mediaId, caption: message },
     });
-    return { to };
+    return { to, idMessage };
   }
 
   const to = normalizePhone(phone);

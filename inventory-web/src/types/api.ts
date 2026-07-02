@@ -221,7 +221,15 @@ export interface ProspectListResult {
 }
 
 export type CampaignStatus = "DRAFT" | "RUNNING" | "PAUSED" | "DONE"
-export type CampaignRecipientStatus = "PENDING" | "SENT" | "FAILED" | "SKIPPED"
+export type CampaignRecipientStatus =
+  | "PENDING"
+  | "SENDING"
+  | "API_ACCEPTED"
+  | "DELIVERED"
+  | "FAILED"
+  | "SKIPPED"
+  | "UNCONFIRMED"
+  | "SENT" // legacy
 
 export interface Campaign {
   id: string
@@ -242,7 +250,43 @@ export interface Campaign {
   nextSendAt?: string | null
   createdAt: string
   total?: number
-  counts?: Record<CampaignRecipientStatus, number>
+  counts?: Partial<Record<CampaignRecipientStatus, number>>
+  processed?: number
+}
+
+export type HealthLevel = "ok" | "warn" | "down" | "unknown"
+
+export interface SystemHealth {
+  checkedAt: string
+  db: { level: HealthLevel; latencyMs: number | null }
+  whatsapp: { level: HealthLevel; provider: string; state: string | null; detail: string | null }
+  campaigns: { level: HealthLevel; running: number; failed24h: number }
+  cron: { level: HealthLevel; lastCampaignTickAt: string | null; ageSec: number | null }
+  backup: { level: HealthLevel; tracked: boolean; detail: string }
+}
+
+export type ErrorLogSource = "CAMPAIGN" | "WHATSAPP" | "CRON" | "BACKUP" | "DATABASE" | "API" | "OTHER"
+export type ErrorLogLevel = "INFO" | "WARN" | "ERROR" | "CRITICAL"
+
+export interface ErrorLog {
+  id: string
+  source: ErrorLogSource
+  level: ErrorLogLevel
+  code: string | null
+  message: string
+  context: unknown
+  count: number
+  firstSeenAt: string
+  lastSeenAt: string
+  resolvedAt: string | null
+  createdAt: string
+}
+
+export interface ErrorAnalysis {
+  summary: string
+  likelyCause: string
+  suggestedFix: string
+  severity: string
 }
 
 export interface CampaignRecipient {

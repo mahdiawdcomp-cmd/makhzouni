@@ -10,6 +10,7 @@ import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
 import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
 import { PwaStatusBar } from "../PwaStatusBar"
+import { SystemHealthBar } from "../SystemHealthBar"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { OnboardingWizard } from "../OnboardingWizard"
@@ -248,6 +249,9 @@ export function AppLayout() {
 
         {/* License banner (admin only, when expiring/expired) */}
         <LicenseBanner />
+
+        {/* System health strip (only when a subsystem is warn/down) */}
+        <SystemHealthBar />
 
         {/* Desktop header */}
         <div className="hidden lg:block">

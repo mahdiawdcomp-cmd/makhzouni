@@ -121,9 +121,32 @@ enum CampaignStatus {
 
 enum CampaignRecipientStatus {
   PENDING
-  SENT
+  SENDING
+  API_ACCEPTED
+  DELIVERED
   FAILED
   SKIPPED
+  UNCONFIRMED
+  // Legacy: rows created before the delivery-aware statuses existed. New code
+  // never writes SENT — it means only "API accepted", now API_ACCEPTED.
+  SENT
+}
+
+enum ErrorLogSource {
+  CAMPAIGN
+  WHATSAPP
+  CRON
+  BACKUP
+  DATABASE
+  API
+  OTHER
+}
+
+enum ErrorLogLevel {
+  INFO
+  WARN
+  ERROR
+  CRITICAL
 }
 
 enum ProspectStatus {
@@ -451,10 +474,40 @@ model CampaignRecipient {
   sentAt      DateTime?               @map("sent_at")
   error       String?
   variantUsed String?                 @map("variant_used")
+  // Provider tracking + retry bookkeeping (added 2026-07-02).
+  messageId          String?   @map("message_id")          // provider idMessage (Green API) / messages[0].id (Cloud)
+  providerResponse   Json?     @map("provider_response")   // raw provider payload for debugging
+  failureCode        String?   @map("failure_code")        // structured code, e.g. GREENAPI_SEND_FAILED
+  retryCount         Int       @default(0) @map("retry_count")
+  retryLastAttemptAt DateTime? @map("retry_last_attempt_at")
+  processedAt        DateTime? @map("processed_at")         // when the row was last dequeued for sending
   createdAt   DateTime                @default(now()) @map("created_at")
 
   @@index([campaignId, status])
   @@map("campaign_recipients")
+}
+
+// System error log for the "الأخطاء المحللة بالذكاء" admin page. Errors are
+// GROUPED by (source, code, message) while unresolved — count is incremented
+// instead of inserting a new row — so the table never grows without bound.
+// Cleaned up after 90 days by a daily cron.
+model ErrorLog {
+  id          String         @id @default(uuid()) @db.Uuid
+  source      ErrorLogSource
+  level       ErrorLogLevel  @default(ERROR)
+  code        String?
+  message     String
+  context     Json?
+  count       Int            @default(1)
+  firstSeenAt DateTime       @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime       @default(now()) @map("last_seen_at")
+  resolvedAt  DateTime?      @map("resolved_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  @@index([source, resolvedAt])
+  @@index([lastSeenAt])
+  @@index([createdAt])
+  @@map("error_logs")
 }
 
 // Canonical list of customer tags, so a tag can be created and managed
