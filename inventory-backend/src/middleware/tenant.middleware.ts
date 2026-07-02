@@ -218,6 +218,101 @@ export async function reportOnlyEntitlementsMiddleware(req: Request, _res: Respo
   next();
 }
 
+// ── Batch 5: real read-only enforcement (writes blocked on expiry) ──────────
+//
+// Turns the Batch-3 report-only `computeReadOnly()` into actual enforcement,
+// but ONLY blocks state-changing requests — reads/exports/prints/backups still
+// work so an expired tenant can view and export their data. This is a NEW,
+// independent middleware; requireActiveSubscription and enforcePlanLimit are
+// left untouched.
+//
+// Safety guarantees (mirrors the rest of this file):
+//   - Standalone / no TENANT_ID / no Super-Admin cache ⇒ getTenantConfig()
+//     returns null ⇒ readOnlyDecision returns "allow" ⇒ never blocks.
+//   - Super Admin unreachable but a cache exists ⇒ getTenantConfig() returns
+//     the cached config ⇒ read-only is applied from cache (fail-safe read-only,
+//     never a crash). No cache ever ⇒ null ⇒ fail-open.
+//   - Only mode === "saas" (cfg != null) AND computeReadOnly(cfg) === true
+//     reaches the block path.
+
+const READ_ONLY_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Path PREFIXES that stay open even for write methods while read-only.
+ * Matched against `req.path`, which Express strips to be relative to the
+ * `/api` mount (e.g. "/auth/login", not "/api/auth/login") — the same
+ * convention requireActiveSubscription already relies on in server.ts.
+ */
+const READ_ONLY_ALLOWED_PREFIXES: readonly string[] = [
+  "/tenant-info", // subscription state — must always be readable
+  "/public",      // exempt exactly like requireActiveSubscription (WhatsApp
+                  // inbound webhook, OTP/access flows needed just to VIEW)
+  "/health",      // health checks
+  "/auth",        // login/logout/refresh/change-password must never be locked out
+  "/realtime",    // SSE stream (read)
+];
+
+/**
+ * Exact non-GET endpoints that are safe while read-only: creating/exporting a
+ * backup does not mutate business data. There is intentionally NO full-backup
+ * RESTORE endpoint in this backend (backups are external), and destructive
+ * settings endpoints (danger/wipe, danger/merge, PUT /settings) are NOT listed
+ * here, so they fall through to the default block.
+ */
+const READ_ONLY_ALLOWED_EXACT: readonly string[] = [
+  "/settings/backup/run",      // create backup (POST)
+  "/settings/backup/telegram", // export/send backup (POST)
+];
+
+/**
+ * Pure allow/deny for a single request while read-only is active. Exported for
+ * unit tests. `rawPath` may be either mount-relative ("/invoices") or absolute
+ * ("/api/invoices") — a leading "/api" is stripped defensively.
+ */
+export function isAllowedInReadOnly(method: string, rawPath: string): boolean {
+  if (READ_ONLY_SAFE_METHODS.has(method.toUpperCase())) return true;
+  const path = rawPath.replace(/^\/api(?=\/|$)/, "");
+  if (READ_ONLY_ALLOWED_EXACT.includes(path)) return true;
+  return READ_ONLY_ALLOWED_PREFIXES.some((p) => path === p || path.startsWith(p + "/"));
+}
+
+/**
+ * Pure decision combining tenant state + request. Exported for unit tests so
+ * every branch (standalone, active, read-only allow, read-only block) is
+ * testable without mocking modules or the network.
+ */
+export function readOnlyDecision(cfg: TenantConfig | null, method: string, path: string): "allow" | "block" {
+  if (!cfg) return "allow";                    // standalone / unresolved / no cache → fail-open
+  if (!computeReadOnly(cfg)) return "allow";   // active subscription → open
+  return isAllowedInReadOnly(method, path) ? "allow" : "block";
+}
+
+export const READ_ONLY_RESPONSE = {
+  error: "READ_ONLY_MODE",
+  message: "الاشتراك منتهي أو موقوف. النظام يعمل بوضع المشاهدة فقط.",
+  readOnly: true,
+} as const;
+
+/**
+ * Batch 5 — enforces read-only for expired/suspended SaaS tenants. Blocks
+ * business-data writes with 423 Locked (JSON, never HTML), lets reads through.
+ * Never throws; a failure to resolve tenant state fails open.
+ */
+export async function enforceReadOnlyMiddleware(req: Request, res: Response, next: NextFunction) {
+  let cfg: TenantConfig | null = null;
+  try {
+    cfg = await getTenantConfig();
+  } catch (err: any) {
+    // getTenantConfig already swallows fetch errors, but never let an
+    // unexpected throw take the request down — fail open.
+    logger.warn(`[tenant] read-only check could not resolve tenant, failing open: ${err?.message}`);
+    next();
+    return;
+  }
+  if (readOnlyDecision(cfg, req.method, req.path) === "allow") { next(); return; }
+  res.status(423).json(READ_ONLY_RESPONSE);
+}
+
 export function tenantMiddleware(req: Request, res: Response, next: NextFunction) {
   // Attach lazily — don't block requests on the network call
   (req as any).getTenant = () => getTenantConfig();

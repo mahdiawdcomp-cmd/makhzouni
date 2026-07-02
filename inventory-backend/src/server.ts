@@ -34,7 +34,7 @@ import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger, setLoggerErrorSink } from "./utils/logger";
 import { recordError } from "./services/error-log.service";
 import { realtimeHeartbeat } from "./services/realtime.service";
-import { requireActiveSubscription, reportOnlyEntitlementsMiddleware } from "./middleware/tenant.middleware";
+import { requireActiveSubscription, reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
 import prisma from "./config/database";
 
@@ -105,6 +105,10 @@ if (process.env.TENANT_ID) {
 // Batch 3 — report-only entitlements check. Never blocks; only logs when a
 // mapped route is hit without its required feature (see tenant.middleware.ts).
 app.use("/api", reportOnlyEntitlementsMiddleware);
+// Batch 5 — real read-only enforcement for expired/suspended SaaS tenants.
+// Self-guards: no-op in standalone (mahdi), fails open if tenant state is
+// unresolvable. Blocks only business-data writes; reads/exports/backups pass.
+app.use("/api", enforceReadOnlyMiddleware);
 app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {
   next(new AppError("Route not found", 404, "ROUTE_NOT_FOUND"));
