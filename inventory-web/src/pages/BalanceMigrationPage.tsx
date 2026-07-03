@@ -308,6 +308,10 @@ export function BalanceMigrationPage() {
               <p className="rounded bg-amber-50 p-2 text-xs text-amber-700">
                 الصفوف المتخطّاة لن تُطبّق ولن تدخل ضمن المجموع الفعلي.
               </p>
+              <p className="rounded border border-red-200 bg-red-50 p-2 text-xs font-semibold text-red-700">
+                ⚠️ سيتم تعديل «الرصيد الافتتاحي» للزبون مباشرةً — لن يتم إنشاء فاتورة أو سند.
+                رصيد الزبون الحالي يُعاد حسابه تلقائياً من الرصيد الافتتاحي + حركاته.
+              </p>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowFinal(false)} disabled={applying}>رجوع</Button>

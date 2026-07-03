@@ -13,6 +13,11 @@ scripts/LICENSE_PRIVATE_KEY.pem
 
 # Database backups
 _db_backups/
+inventory-backend/backups/
+
+# Real customer data / exports — MUST never enter Git
+contacts_export/
+inventory-web/public/downloads/
 
 # Build outputs
 outputs/

@@ -72,6 +72,8 @@ export const applyOpeningBalances = asyncHandler(async (req, res) => {
           throw new AppError("الزبون غير موجود أو محذوف", 404, "CUSTOMER_NOT_FOUND");
         }
 
+        // Only set the OFFICIAL openingBalance field; currentBalance is then
+        // re-derived by the system's own calculator (never written directly).
         await prisma.customer.update({
           where: { id: customerId },
           data: { openingBalance: amount },
@@ -108,14 +110,25 @@ export const applyOpeningBalances = asyncHandler(async (req, res) => {
         phone = `MIG${String(counter.value).padStart(7, "0")}`;
       }
 
+      // `openingBalance` is the system's OFFICIAL opening-balance field for a
+      // customer (Customer.openingBalance, Decimal). There is no separate
+      // ledger / voucher / adjustment record for opening balances. The live
+      // balance (`currentBalance`) is NEVER meant to be written by hand — it is
+      // DERIVED by recalculateCustomerBalance() → calculateCustomerBalance():
+      //   currentBalance = openingBalance + sales − purchases − returns
+      //                    − receipts + payments
+      // So we only set the official openingBalance here, then let the system's
+      // own calculator compute currentBalance (for a brand-new customer with no
+      // transactions it resolves to openingBalance, but we never assume that —
+      // we use the official path so the number is always the system's own).
       const customer = await prisma.customer.create({
         data: {
           name,
           phone,
           openingBalance: amount,
-          currentBalance: amount,
         },
       });
+      await recalculateCustomerBalance(customer.id);
 
       created++;
       totalApplied += amount;
