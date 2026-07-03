@@ -130,6 +130,27 @@ export interface Tenant {
   auditLogs?: AdminAuditLog[];
 }
 
+// ── Batch 9: Tenant Doctor / Readiness Check (read-only diagnostic) ──
+export type DoctorCheckStatus = "PASS" | "WARNING" | "FAIL";
+
+export interface DoctorCheck {
+  key: string;
+  label: string;
+  status: DoctorCheckStatus;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface DoctorResult {
+  tenantId: string;
+  tenantName: string;
+  overallStatus: "READY" | "WARNING" | "FAIL";
+  score: number;
+  summary: string;
+  checks: DoctorCheck[];
+  recommendedActions: string[];
+}
+
 export interface Summary {
   total: number;
   active: number;
@@ -157,6 +178,7 @@ export const tenantsApi = {
   toggleSerial: (tenantId: string, serialId: string, isActive: boolean) =>
     api.patch<SerialNumber>(`/tenants/${tenantId}/serials/${serialId}`, { isActive }),
   checkBackend: (id: string) => api.post<{ ok: boolean; latencyMs?: number }>(`/tenants/${id}/check-backend`),
+  doctor: (id: string) => api.get<DoctorResult>(`/tenants/${id}/doctor`),
 };
 
 // ── Batch 2 UI: readiness checklist reuses the existing public tenant-config

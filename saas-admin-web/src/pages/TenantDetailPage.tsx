@@ -4,11 +4,11 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronDown, Circle, Clipboard,
   Copy, ExternalLink, Fingerprint, HeartPulse, Power, RotateCcw, Save, Send,
-  Smartphone, Wand2, XCircle,
+  Smartphone, Stethoscope, Wand2, XCircle,
 } from "lucide-react";
 import {
   DOMAIN_ROOT, getErrorMessage, publicApi, tenantsApi,
-  type FeatureKey, type InstallerArtifacts, type LicenseType, type Plan, type SerialType,
+  type DoctorResult, type FeatureKey, type InstallerArtifacts, type LicenseType, type Plan, type SerialType,
 } from "../api/client";
 import { BASE_VERSION_ITEMS, FEATURE_GROUPS, LICENSE_TYPES, LICENSE_TYPE_LABELS, PLATFORM_TOGGLES } from "../entitlements";
 
@@ -58,7 +58,7 @@ export default function TenantDetailPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"overview" | "license" | "installer" | "subscription" | "devices" | "audit">("overview");
+  const [tab, setTab] = useState<"overview" | "license" | "installer" | "subscription" | "devices" | "doctor" | "audit">("overview");
   const [message, setMessage] = useState("");
   const [serial, setSerial] = useState({ type: "ANDROID" as SerialType, label: "" });
   const query = useQuery({ queryKey: ["tenant", id], queryFn: () => tenantsApi.get(id).then((r) => r.data), enabled: !!id });
@@ -77,6 +77,9 @@ export default function TenantDetailPage() {
   const [lastSavedLic, setLastSavedLic] = useState<LicState>(emptyLic);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [configCheck, setConfigCheck] = useState<{ state: "idle" | "loading" | "ok" | "error"; note?: string }>({ state: "idle" });
+  // ── Batch 9: Tenant Doctor — local-only UI state, never persisted ──
+  const [doctorState, setDoctorState] = useState<{ loading: boolean; result: DoctorResult | null; error: string | null }>({ loading: false, result: null, error: null });
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!tenant) return;
@@ -151,6 +154,18 @@ export default function TenantDetailPage() {
       setConfigCheck({ state: "ok", note: `status: ${r.data.status} · licenseType: ${r.data.licenseType}` });
     } catch (error) {
       setConfigCheck({ state: "error", note: getErrorMessage(error) });
+    }
+  };
+
+  const runDoctorCheck = async () => {
+    if (!tenant) return;
+    setDoctorState({ loading: true, result: doctorState.result, error: null });
+    try {
+      const r = await tenantsApi.doctor(tenant.id);
+      setDoctorState({ loading: false, result: r.data, error: null });
+      setLastCheckedAt(new Date());
+    } catch (error) {
+      setDoctorState({ loading: false, result: doctorState.result, error: getErrorMessage(error) });
     }
   };
 
@@ -246,7 +261,7 @@ export default function TenantDetailPage() {
 
       {message && <div className="alert info">{message}</div>}
       <div className="tabs">
-        {[["overview", "بيانات المحل"], ["license", "النسخة والميزات"], ["installer", "ملفات التنصيب"], ["subscription", "الاشتراك والمزايا"], ["devices", "الأجهزة والسيريالات"], ["audit", "سجل التغييرات"]].map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key as typeof tab)}>{label}</button>)}
+        {[["overview", "بيانات المحل"], ["license", "النسخة والميزات"], ["installer", "ملفات التنصيب"], ["subscription", "الاشتراك والمزايا"], ["devices", "الأجهزة والسيريالات"], ["doctor", "فحص الجاهزية"], ["audit", "سجل التغييرات"]].map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key as typeof tab)}>{label}</button>)}
       </div>
 
       {tab === "overview" && <section className="panel">
@@ -393,6 +408,54 @@ export default function TenantDetailPage() {
         <div className="section-heading"><div><h2>الأجهزة والسيريالات</h2><p>ولّد رمزاً مستقلاً لكل جهاز حتى يمكن تعطيله دون التأثير على البقية.</p></div></div>
         <div className="serial-create"><select value={serial.type} onChange={(e) => setSerial({ ...serial, type: e.target.value as SerialType })}><option value="ANDROID">أندرويد</option><option value="WEB">ويب</option></select><input value={serial.label} onChange={(e) => setSerial({ ...serial, label: e.target.value })} placeholder="مثال: جهاز الكاشير" /><button className="primary" onClick={() => run(() => tenantsApi.generateSerial(id, serial), "تم إنشاء السيريال")}><Smartphone size={17} /> إنشاء</button></div>
         <div className="serial-list">{tenant.serialNumbers.map((item) => <div className="serial-row" key={item.id}><div><b dir="ltr">{item.code}</b><span>{item.label || "بدون وصف"} · {item.activatedAt ? "مفعّل على جهاز" : "لم يستخدم بعد"}</span></div><button className="icon-command" title="نسخ" onClick={() => navigator.clipboard.writeText(item.code)}><Clipboard size={17} /></button><button className={item.isActive ? "danger small" : "primary small"} onClick={() => run(() => tenantsApi.toggleSerial(id, item.id, !item.isActive), item.isActive ? "تم تعطيل السيريال" : "تم تفعيل السيريال")}>{item.isActive ? "تعطيل" : "تفعيل"}</button></div>)}</div>
+      </section>}
+
+      {tab === "doctor" && <section className="panel">
+        <div className="section-heading">
+          <div><h2>فحص الجاهزية</h2><p>فحص تشخيصي للقراءة فقط — لا يغيّر أي بيانات في المتجر أو في Super Admin.</p></div>
+          <button className="secondary small" onClick={runDoctorCheck} disabled={doctorState.loading}>
+            <Stethoscope size={15} /> {doctorState.loading ? "...جاري الفحص" : "تشغيل الفحص"}
+          </button>
+        </div>
+
+        {doctorState.error && <div className="alert error">{doctorState.error}</div>}
+
+        {doctorState.result && (() => {
+          const result = doctorState.result;
+          const statusEmoji = result.overallStatus === "READY" ? "✅" : result.overallStatus === "WARNING" ? "⚠️" : "❌";
+          const statusLabel = result.overallStatus === "READY" ? "جاهز" : result.overallStatus === "WARNING" ? "يحتاج مراجعة" : "غير جاهز";
+          return (
+            <>
+              <div className="checklist-card" style={{ marginTop: 8 }}>
+                <div className="section-heading">
+                  <div>
+                    <h2>{statusEmoji} {statusLabel}</h2>
+                    <p>{result.summary}</p>
+                  </div>
+                  <div className="checklist-summary">النتيجة: {result.score}/100</div>
+                </div>
+                <div className="checklist-grid">
+                  {result.checks.map((c) => (
+                    <div key={c.key} className={`checklist-item ${c.status === "PASS" ? "ready" : c.status === "WARNING" ? "warn" : "error"}`}>
+                      {c.status === "PASS" ? <CheckCircle2 size={16} /> : c.status === "WARNING" ? <AlertTriangle size={16} /> : <XCircle size={16} />}
+                      <span className="checklist-label">{c.label}</span>
+                      <span className="checklist-hint">{c.message}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {result.recommendedActions.length > 0 && (
+                <div className="warn-banner" style={{ marginTop: 12 }}>
+                  <div className="warn-banner-title"><AlertTriangle size={15} /> إجراءات مقترحة</div>
+                  <ul>{result.recommendedActions.map((a) => <li key={a}>{a}</li>)}</ul>
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {lastCheckedAt && <div className="detail-subrow" style={{ marginTop: 12 }}><span>آخر فحص: {lastCheckedAt.toLocaleString("ar-IQ")}</span></div>}
       </section>}
 
       {tab === "audit" && <section className="panel">

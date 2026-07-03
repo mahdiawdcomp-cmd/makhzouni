@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAdminAuth } from "../middleware/admin-auth";
 import { generateSerialCode } from "../services/serial.service";
 import { FEATURE_KEYS } from "../entitlements";
+import { buildDoctorReport } from "../services/tenant-doctor";
 import prisma from "../prisma";
 
 const router = Router();
@@ -436,6 +437,31 @@ router.post("/:id/check-backend", async (req: Request, res: Response) => {
     });
     await audit(req, tenant.id, "BACKEND_CHECK_FAILED", { message });
     res.status(502).json({ ok: false, error: message });
+  }
+});
+
+// ── Batch 9: SaaS Tenant Doctor / Readiness Check ──
+// Pure read-only diagnostic: fetches the tenant + its serials from our own DB
+// (no writes), then makes GET-only calls to the tenant's own backendUrl
+// (/health, /api/tenant-info) to compare live state against Super Admin's
+// records. Never writes to the DB, never calls audit(), never calls
+// /api/activate, never sends anything other than GET to the tenant backend.
+router.get("/:id/doctor", async (req: Request, res: Response) => {
+  try {
+    const id = param(req, "id");
+    const tenant = await prisma.tenant.findUnique({
+      where: { id },
+      include: { serialNumbers: true },
+    });
+    if (!tenant) {
+      res.status(404).json({ error: "TENANT_NOT_FOUND" });
+      return;
+    }
+    const report = await buildDoctorReport(tenant);
+    res.json(report);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    res.status(500).json({ error: "DOCTOR_CHECK_FAILED", message });
   }
 });
 
