@@ -34,7 +34,7 @@ import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger, setLoggerErrorSink } from "./utils/logger";
 import { recordError } from "./services/error-log.service";
 import { realtimeHeartbeat } from "./services/realtime.service";
-import { reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware } from "./middleware/tenant.middleware";
+import { reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware, enforceFeatureMiddleware } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
 import prisma from "./config/database";
 
@@ -103,6 +103,14 @@ app.use("/api", reportOnlyEntitlementsMiddleware);
 // READ_ONLY_MODE. Self-guards — no-op in standalone (mahdi), fails open if
 // tenant state can't be resolved (Super Admin down with no cache).
 app.use("/api", enforceReadOnlyMiddleware);
+// Batch 6 — paid-feature entitlement enforcement. MUST run AFTER
+// enforceReadOnlyMiddleware: if a request is both read-only-blocked (expired/
+// suspended subscription) AND missing a feature, the response must be
+// READ_ONLY_MODE (423), not FEATURE_NOT_ENABLED (403) — subscription expiry is
+// the more fundamental reason. Only reaches this middleware if read-only let
+// the request through. Self-guards — no-op in standalone (mahdi), fails open if
+// tenant state can't be resolved. OPTIONS preflight always passes.
+app.use("/api", enforceFeatureMiddleware);
 app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {
   next(new AppError("Route not found", 404, "ROUTE_NOT_FOUND"));

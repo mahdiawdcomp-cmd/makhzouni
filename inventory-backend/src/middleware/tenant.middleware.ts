@@ -191,33 +191,99 @@ export function reportFeatureWouldBlock(featureKey: string, route: string): void
 }
 
 /**
- * Batch 3 — route → required-feature map, report-only. Keys must match
- * saas-admin-api's FEATURE_KEYS (src/entitlements.ts). Adding an entry here
- * does not block anything; it only makes reportFeatureWouldBlock() fire.
+ * Batch 6 — route → required-feature map, now used for BOTH the (fixed)
+ * report-only logger AND real enforcement (enforceFeatureMiddleware).
+ *
+ * Keys must match saas-admin-api's FEATURE_KEYS (src/entitlements.ts).
+ *
+ * IMPORTANT prefix convention (was a bug in Batch 3): both middlewares are
+ * mounted via `app.use("/api", …)`, so Express strips the `/api` mount prefix
+ * and `req.path` is already mount-relative (e.g. "/campaigns", NOT
+ * "/api/campaigns"). The old map baked "/api/" into every prefix, so nothing
+ * ever matched and Batch 3's logging silently never fired. All prefixes here
+ * are mount-relative. `matchFeatureRule` also strips a leading "/api"
+ * defensively, mirroring isAllowedInReadOnly.
+ *
+ * A rule matches by `prefix` (path === prefix OR path startsWith prefix + "/")
+ * OR by an optional `test(path)` predicate — used for the AI error-analysis
+ * endpoints, which are `/error-logs/analyze-health` and `/error-logs/:id/analyze`
+ * (there is NO literal `/error-logs/analyze` path; the plain `/error-logs` list
+ * and `/error-logs/:id/resolve` must NOT be gated).
+ *
+ * Only OPTIONAL/PREMIUM features are listed. Core/basic routes (products,
+ * customers, invoices, vouchers, reports, users, settings, backup, …) are
+ * intentionally absent so they are never gated — see the task spec §3.
  */
-export const ROUTE_FEATURE_MAP: ReadonlyArray<{ prefix: string; featureKey: string }> = [
-  { prefix: "/api/catalog", featureKey: "catalogWholesale" },
-  { prefix: "/api/shop", featureKey: "retailShop" },
-  { prefix: "/api/retail", featureKey: "retailShop" },
-  { prefix: "/api/campaigns", featureKey: "whatsappCampaigns" },
-  { prefix: "/api/stocktake", featureKey: "stocktake" },
-  { prefix: "/api/transfers", featureKey: "transfers" },
-  { prefix: "/api/audit-logs", featureKey: "auditLog" },
-  { prefix: "/api/error-logs/analyze", featureKey: "aiErrorAnalysis" },
-  { prefix: "/api/backup/online", featureKey: "onlineBackup" },
+export interface RouteFeatureRule {
+  featureKey: string;
+  prefix?: string;
+  test?: (path: string) => boolean;
+  /** Human-readable route description, for logs only. */
+  label: string;
+}
+
+export const ROUTE_FEATURE_MAP: ReadonlyArray<RouteFeatureRule> = [
+  { prefix: "/catalog-management", featureKey: "catalogWholesale", label: "/catalog-management" },
+  { prefix: "/retail-catalog", featureKey: "retailShop", label: "/retail-catalog" },
+  { prefix: "/campaigns", featureKey: "whatsappCampaigns", label: "/campaigns" },
+  { prefix: "/transfers", featureKey: "transfers", label: "/transfers" },
+  { prefix: "/audit-logs", featureKey: "auditLog", label: "/audit-logs" },
+  { prefix: "/inbound-messages", featureKey: "whatsappInbox", label: "/inbound-messages" },
+  { prefix: "/quotations", featureKey: "quotations", label: "/quotations" },
+  // stocktake: gate the authenticated management routes, but keep the public
+  // worker QR flow (/stocktake/public/:token/...) reachable — it's token-authed,
+  // not tenant-session-based, and must not be broken by feature gating.
+  {
+    featureKey: "stocktake",
+    label: "/stocktake (excluding /stocktake/public/*)",
+    test: (p) =>
+      (p === "/stocktake" || p.startsWith("/stocktake/")) && !p.startsWith("/stocktake/public"),
+  },
+  // whatsapp send-invoice: exact prefix for /whatsapp/send-invoice/:invoiceId.
+  { prefix: "/whatsapp/send-invoice", featureKey: "whatsappInvoices", label: "/whatsapp/send-invoice" },
+  // whatsapp generic/manual send: exact path only (NOT /status, /restart).
+  { featureKey: "whatsappCampaigns", label: "/whatsapp/send (exact)", test: (p) => p === "/whatsapp/send" },
+  // error-logs AI analysis only — NOT the plain list or /:id/resolve.
+  {
+    featureKey: "aiErrorAnalysis",
+    label: "/error-logs AI analysis",
+    test: (p) => p === "/error-logs/analyze-health" || /^\/error-logs\/[^/]+\/analyze$/.test(p),
+  },
 ];
+
+/** Strip a leading "/api" (defensive) exactly like isAllowedInReadOnly. */
+function stripApiPrefix(rawPath: string): string {
+  return rawPath.replace(/^\/api(?=\/|$)/, "");
+}
+
+/** Returns the first rule matching this (mount-relative) path, or null. */
+export function matchFeatureRule(rawPath: string): RouteFeatureRule | null {
+  const path = stripApiPrefix(rawPath);
+  for (const rule of ROUTE_FEATURE_MAP) {
+    if (rule.test) {
+      if (rule.test(path)) return rule;
+    } else if (rule.prefix && (path === rule.prefix || path.startsWith(rule.prefix + "/"))) {
+      return rule;
+    }
+  }
+  return null;
+}
 
 /**
  * Batch 3 — report-only middleware. For SaaS tenants with entitlements
  * configured, logs when a mapped route is hit without the required feature.
  * ALWAYS calls next() — never blocks, never throws. No-op in standalone mode
  * or for tenants with no entitlements configured yet (features = []).
+ *
+ * Batch 6: now uses the FIXED, mount-relative map so this logging actually
+ * fires. It shares matchFeatureRule with the real enforcement middleware so
+ * the two can never drift apart.
  */
 export async function reportOnlyEntitlementsMiddleware(req: Request, _res: Response, next: NextFunction) {
   const cfg = await getTenantConfig();
   if (!cfg || cfg.entitlementFeatures.length === 0) { next(); return; }
 
-  const match = ROUTE_FEATURE_MAP.find((m) => req.path.startsWith(m.prefix));
+  const match = matchFeatureRule(req.path);
   if (match && !cfg.entitlementFeatures.includes(match.featureKey)) {
     reportFeatureWouldBlock(match.featureKey, req.path);
   }
@@ -317,6 +383,80 @@ export async function enforceReadOnlyMiddleware(req: Request, res: Response, nex
   }
   if (readOnlyDecision(cfg, req.method, req.path) === "allow") { next(); return; }
   res.status(423).json(READ_ONLY_RESPONSE);
+}
+
+// ── Batch 6: real paid-feature entitlement enforcement ──────────────────────
+//
+// Blocks routes that require an entitlement the tenant doesn't have, with
+// 403 FEATURE_NOT_ENABLED (JSON, never HTML). Independent of Batch 5's
+// read-only enforcement and mounted AFTER it in server.ts, so subscription
+// expiry (READ_ONLY_MODE, 423) always takes priority over a missing feature.
+//
+// Safety guarantees (identical to enforceReadOnlyMiddleware):
+//   - Standalone / no TENANT_ID / no Super-Admin cache ⇒ getTenantConfig()
+//     returns null ⇒ featureDecision returns "allow" ⇒ never blocks (mahdi
+//     is 100% unaffected).
+//   - Super Admin unreachable but a cache exists ⇒ getTenantConfig() returns
+//     the cached config ⇒ feature enforcement is applied from cache (fail-safe).
+//   - entitlementFeatures null/undefined ⇒ fail-open (guarded defensively; the
+//     TenantConfig type always sets it to [], but never trust that here).
+//   - OPTIONS (CORS preflight) is never blocked.
+//   - Only OPTIONAL/PREMIUM mapped routes can block; core/basic routes are not
+//     in ROUTE_FEATURE_MAP at all, so they always pass — even when
+//     entitlementFeatures === [] (an explicit empty list still only gates the
+//     mapped premium features).
+
+/**
+ * Pure allow/deny for a single request against the feature map. Exported for
+ * unit tests so every branch is testable without mocking the network.
+ * Returns "allow", or "block:<featureKey>" when the route needs a feature the
+ * tenant lacks.
+ */
+export function featureDecision(
+  cfg: TenantConfig | null,
+  method: string,
+  path: string
+): "allow" | `block:${string}` {
+  if (method.toUpperCase() === "OPTIONS") return "allow"; // CORS preflight
+  if (!cfg) return "allow";                               // standalone / unresolved / no cache → fail-open
+  if (!Array.isArray(cfg.entitlementFeatures)) return "allow"; // defensive fail-open
+  const rule = matchFeatureRule(path);
+  if (!rule) return "allow";                              // core/basic/unmapped route
+  if (cfg.entitlementFeatures.includes(rule.featureKey)) return "allow";
+  return `block:${rule.featureKey}`;
+}
+
+/** Builds the exact FEATURE_NOT_ENABLED response body for a feature key. */
+export function featureNotEnabledResponse(featureKey: string) {
+  return {
+    error: "FEATURE_NOT_ENABLED",
+    message: "هذه الميزة غير مفعلة في نسختك.",
+    feature: featureKey,
+  } as const;
+}
+
+/**
+ * Batch 6 — enforces paid-feature entitlements for SaaS tenants. Returns
+ * 403 FEATURE_NOT_ENABLED (JSON) when a mapped route's feature is missing.
+ * Never throws; a failure to resolve tenant state fails open. Must run AFTER
+ * enforceReadOnlyMiddleware so subscription expiry (423) wins over a missing
+ * feature.
+ */
+export async function enforceFeatureMiddleware(req: Request, res: Response, next: NextFunction) {
+  let cfg: TenantConfig | null = null;
+  try {
+    cfg = await getTenantConfig();
+  } catch (err: any) {
+    // getTenantConfig already swallows fetch errors, but never let an
+    // unexpected throw take the request down — fail open.
+    logger.warn(`[tenant] feature check could not resolve tenant, failing open: ${err?.message}`);
+    next();
+    return;
+  }
+  const decision = featureDecision(cfg, req.method, req.path);
+  if (decision === "allow") { next(); return; }
+  const featureKey = decision.slice("block:".length);
+  res.status(403).json(featureNotEnabledResponse(featureKey));
 }
 
 export function tenantMiddleware(req: Request, res: Response, next: NextFunction) {
