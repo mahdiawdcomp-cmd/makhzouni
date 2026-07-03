@@ -143,8 +143,8 @@ const isSaasOwner = import.meta.env.VITE_IS_SAAS_OWNER === "true"
 const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
   { to: "/error-logs", label: "صحة النظام والأخطاء", Icon: AlertTriangle },
-  // TEMPORARY — remove after the one-off opening-balance migration is done.
-  { to: "/balance-migration", label: "نقل الأرصدة (مؤقت)", Icon: Wallet },
+  // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
+  // Sidebar link removed so the tool can't be reached from the menu.
   ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),
 ]
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react"
 import { useTenantConfig } from "./hooks/useTenantConfig"
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
-import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
+import { createBrowserRouter, Link, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
 import { PosLayout } from "./components/layout/PosLayout"
@@ -56,8 +56,20 @@ const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
-// TEMPORARY one-off opening-balance migration page — remove after migration.
-const BalanceMigrationPage = lazyPage(() => import("./pages/BalanceMigrationPage"), "BalanceMigrationPage")
+// TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
+// The wizard page file (pages/BalanceMigrationPage.tsx) is kept intact but is
+// no longer routed. /balance-migration now shows a disabled notice.
+// const BalanceMigrationPage = lazyPage(() => import("./pages/BalanceMigrationPage"), "BalanceMigrationPage")
+
+function BalanceMigrationDisabled() {
+  return (
+    <div className="mx-auto flex h-[60vh] max-w-md flex-col items-center justify-center gap-3 p-6 text-center" dir="rtl">
+      <h1 className="text-lg font-bold">أداة نقل الأرصدة معطّلة</h1>
+      <p className="text-sm text-muted-foreground">تم تعطيل أداة نقل الأرصدة بعد اكتمال العملية.</p>
+      <Link to="/" className="text-sm text-indigo-600 underline">العودة إلى الرئيسية</Link>
+    </div>
+  )
+}
 
 function PageLoader() {
   return (
@@ -131,7 +143,8 @@ const router = createBrowserRouter([
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
               { path: "coupons", element: s(<CouponsPage />) },
               { path: "super-admin", element: s(<SuperAdminPage />) },
-              { path: "balance-migration", element: s(<BalanceMigrationPage />) },
+              // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
+              { path: "balance-migration", element: <BalanceMigrationDisabled /> },
             ],
           },
         ],
