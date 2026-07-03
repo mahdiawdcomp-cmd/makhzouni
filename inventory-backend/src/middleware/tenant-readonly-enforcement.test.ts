@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  computeReadOnly,
   isAllowedInReadOnly,
   readOnlyDecision,
   READ_ONLY_RESPONSE,
@@ -34,6 +35,11 @@ function saasConfig(overrides: Partial<TenantConfig> = {}): TenantConfig {
 
 const ACTIVE = saasConfig();
 const EXPIRED = saasConfig({ status: "EXPIRED" });
+const SUSPENDED = saasConfig({ status: "SUSPENDED", isSuspended: true });
+// A tenant flagged expired ONLY via the legacy subscription flag (status still
+// ACTIVE, no entitlement/trial dates) — the case the old requireActiveSubscription
+// full-blocked. Batch 5.1 must treat it as read-only, not fully open.
+const LEGACY_EXPIRED = saasConfig({ status: "ACTIVE", isExpired: true });
 
 // ── isAllowedInReadOnly: method + path allow/deny ───────────────────────────
 
@@ -130,9 +136,24 @@ test("9. saas + readOnly=true + destructive/restore-style op → block", () => {
   assert.equal(readOnlyDecision(EXPIRED, "POST", "/invoices/abc/restore-archived"), "block");
 });
 
+test("5. saas suspended + GET customers → allow (no old full-block)", () => {
+  assert.equal(readOnlyDecision(SUSPENDED, "GET", "/customers"), "allow");
+});
+
+test("6. saas suspended + DELETE customer → block (READ_ONLY_MODE, not old 403)", () => {
+  assert.equal(readOnlyDecision(SUSPENDED, "DELETE", "/customers/abc"), "block");
+});
+
 test("10. Super Admin down with no cache (null cfg) → allow (fail-open)", () => {
   assert.equal(readOnlyDecision(null, "POST", "/invoices"), "allow");
   assert.equal(readOnlyDecision(null, "DELETE", "/customers/abc"), "allow");
+});
+
+test("12. Super Admin down but cache says read-only → read-only applied (block writes, allow reads)", () => {
+  // getTenantConfig() returns the cached config when Super Admin is down; here
+  // we assert the decision layer enforces read-only from that cached state.
+  assert.equal(readOnlyDecision(EXPIRED, "POST", "/invoices"), "block");
+  assert.equal(readOnlyDecision(EXPIRED, "GET", "/invoices"), "allow");
 });
 
 test("11. OPTIONS always passes (CORS preflight)", () => {
@@ -153,6 +174,32 @@ test("expired TRIAL → read-only; active TRIAL → open", () => {
   const activeTrial = saasConfig({ licenseType: "TRIAL", trialEndsAt: "2999-01-01T00:00:00.000Z" });
   assert.equal(readOnlyDecision(expiredTrial, "POST", "/invoices"), "block");
   assert.equal(readOnlyDecision(activeTrial, "POST", "/invoices"), "allow");
+});
+
+// ── Batch 5.1: legacy subscription flags now enter read-only (were full-block) ─
+
+test("legacy isExpired flag alone → computeReadOnly true (superset of old block)", () => {
+  assert.equal(computeReadOnly(LEGACY_EXPIRED), true);
+});
+
+test("legacy isSuspended flag → computeReadOnly true", () => {
+  assert.equal(computeReadOnly(SUSPENDED), true);
+});
+
+test("legacy-expired tenant → read-only, not fully open: GET allowed, writes blocked", () => {
+  assert.equal(readOnlyDecision(LEGACY_EXPIRED, "GET", "/invoices"), "allow");
+  assert.equal(readOnlyDecision(LEGACY_EXPIRED, "POST", "/invoices"), "block");
+  assert.equal(readOnlyDecision(LEGACY_EXPIRED, "DELETE", "/customers/abc"), "block");
+});
+
+test("active tenant stays fully open (extension didn't over-trigger)", () => {
+  assert.equal(computeReadOnly(ACTIVE), false);
+  assert.equal(readOnlyDecision(ACTIVE, "POST", "/invoices"), "allow");
+});
+
+test("standalone (null) is never read-only after the extension", () => {
+  assert.equal(computeReadOnly(null), false);
+  assert.equal(readOnlyDecision(null, "POST", "/invoices"), "allow");
 });
 
 // ── response shape ──────────────────────────────────────────────────────────

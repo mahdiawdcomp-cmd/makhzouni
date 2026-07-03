@@ -34,7 +34,7 @@ import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger, setLoggerErrorSink } from "./utils/logger";
 import { recordError } from "./services/error-log.service";
 import { realtimeHeartbeat } from "./services/realtime.service";
-import { requireActiveSubscription, reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware } from "./middleware/tenant.middleware";
+import { reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
 import prisma from "./config/database";
 
@@ -93,21 +93,15 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "inventory-backend" });
 });
 
-// When TENANT_ID is set, block all API calls if subscription is suspended/expired.
-// /api/tenant-info and /api/public are exempt (needed to show the expired page).
-if (process.env.TENANT_ID) {
-  app.use("/api", (req, res, next) => {
-    const exempt = req.path.startsWith("/tenant-info") || req.path.startsWith("/public");
-    if (exempt) return next();
-    requireActiveSubscription(req, res, next);
-  });
-}
 // Batch 3 — report-only entitlements check. Never blocks; only logs when a
 // mapped route is hit without its required feature (see tenant.middleware.ts).
 app.use("/api", reportOnlyEntitlementsMiddleware);
-// Batch 5 — real read-only enforcement for expired/suspended SaaS tenants.
-// Self-guards: no-op in standalone (mahdi), fails open if tenant state is
-// unresolvable. Blocks only business-data writes; reads/exports/backups pass.
+// Batch 5 / 5.1 — read-only enforcement for expired/suspended SaaS tenants.
+// This is the SINGLE gate for subscription state. It replaces the old
+// requireActiveSubscription full-block (which 403'd even GETs): now reads,
+// exports, prints and backups pass while business-data writes return 423
+// READ_ONLY_MODE. Self-guards — no-op in standalone (mahdi), fails open if
+// tenant state can't be resolved (Super Admin down with no cache).
 app.use("/api", enforceReadOnlyMiddleware);
 app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {

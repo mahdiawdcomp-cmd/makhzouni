@@ -145,6 +145,12 @@ export function computeReadOnly(cfg: TenantConfig | null): boolean {
   if (cfg.status === "EXPIRED" || cfg.status === "SUSPENDED") return true;
   if (cfg.entitlementExpiresAt && new Date(cfg.entitlementExpiresAt).getTime() < now) return true;
   if (cfg.licenseType === "TRIAL" && cfg.trialEndsAt && new Date(cfg.trialEndsAt).getTime() < now) return true;
+  // Batch 5.1: also honor the legacy subscription flags. requireActiveSubscription
+  // used to FULL-block (403, even GET) on these; that block is now removed and
+  // enforceReadOnlyMiddleware handles them as read-only instead. Including them
+  // here guarantees every previously-full-blocked tenant still gets locked down
+  // (read-only) rather than falling fully open.
+  if (cfg.isExpired || cfg.isSuspended) return true;
   return false;
 }
 
@@ -319,20 +325,23 @@ export function tenantMiddleware(req: Request, res: Response, next: NextFunction
   next();
 }
 
-/** Block the request if subscription is expired or tenant is suspended. */
+/**
+ * @deprecated Superseded by enforceReadOnlyMiddleware (Batch 5.1) and no longer
+ * mounted in server.ts.
+ *
+ * It used to FULL-block (403 SUBSCRIPTION_SUSPENDED / SUBSCRIPTION_EXPIRED) —
+ * including GET — for expired/suspended SaaS tenants. That defeated the read-only
+ * goal: an expired tenant couldn't even view or export their data. Enforcement
+ * now lives entirely in enforceReadOnlyMiddleware, which allows reads/exports/
+ * backups and blocks only writes (423 READ_ONLY_MODE). computeReadOnly() was
+ * extended to cover the legacy isExpired/isSuspended flags, so the exact same
+ * tenants are still locked down — just as read-only instead of a hard wall.
+ *
+ * Kept as a thin delegator (never a hard 403) so any lingering/future caller
+ * inherits the correct read-only behavior instead of the old landmine.
+ */
 export async function requireActiveSubscription(req: Request, res: Response, next: NextFunction) {
-  const cfg = await getTenantConfig();
-  if (!cfg) { next(); return; } // No TENANT_ID set — skip check
-
-  if (cfg.isSuspended) {
-    res.status(403).json({ error: "SUBSCRIPTION_SUSPENDED", message: "الاشتراك موقوف. يرجى التواصل مع الدعم." });
-    return;
-  }
-  if (cfg.isExpired) {
-    res.status(403).json({ error: "SUBSCRIPTION_EXPIRED", message: "انتهت صلاحية الاشتراك. يرجى التجديد." });
-    return;
-  }
-  next();
+  return enforceReadOnlyMiddleware(req, res, next);
 }
 
 /**
