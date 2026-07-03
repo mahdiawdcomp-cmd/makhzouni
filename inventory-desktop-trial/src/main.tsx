@@ -5,6 +5,7 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import { RealtimeSyncBridge } from "./components/RealtimeSyncBridge"
+import { Toaster } from "./components/ui/toaster"
 import App from "./App"
 import "./index.css"
 import { LanguageProvider } from "./i18n/LanguageProvider"
@@ -69,6 +70,7 @@ createRoot(document.getElementById("root")!).render(
             <RTLProvider>
               <App />
               <UpdateChecker />
+              <Toaster />
             </RTLProvider>
           </LanguageProvider>
         </ThemeProvider>

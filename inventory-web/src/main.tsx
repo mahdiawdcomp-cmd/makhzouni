@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import { RealtimeSyncBridge } from "./components/RealtimeSyncBridge"
+import { Toaster } from "./components/ui/toaster"
 import App from "./App"
 import "./index.css"
 import "virtual:pwa-register"
@@ -48,6 +49,7 @@ async function bootstrap() {
           <LanguageProvider>
             <RTLProvider>
               <App />
+              <Toaster />
             </RTLProvider>
           </LanguageProvider>
         </ThemeProvider>

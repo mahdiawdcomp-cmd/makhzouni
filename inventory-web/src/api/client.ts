@@ -1,4 +1,6 @@
 import axios from "axios"
+import { toast } from "../components/ui/use-toast"
+import { getEntitlementError } from "../utils/apiError"
 
 function cleanApiUrl(value: string | undefined) {
   const cleaned = value
@@ -93,7 +95,23 @@ api.interceptors.response.use(
       if (window.location.pathname !== "/login") {
         window.location.assign("/login") // FIXED
       }
+      return Promise.reject(error)
     }
+
+    // Batch 7 — central safety net: any request that hits the Batch 5/6
+    // subscription/entitlement gates gets a clear Arabic toast here, even if
+    // the calling page has no error handling of its own. Does not log out,
+    // does not reload, does not clear whatever the caller was doing — the
+    // page's own catch/onError (if any) still runs normally afterward.
+    const entitlementError = getEntitlementError(error)
+    if (entitlementError) {
+      toast({
+        title: entitlementError.code === "READ_ONLY_MODE" ? "وضع المشاهدة فقط" : "ميزة غير مفعلة",
+        description: entitlementError.message,
+        variant: "default",
+      })
+    }
+
     return Promise.reject(error)
   },
 )

@@ -53,6 +53,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 
 type Tab = "products" | "categories" | "customers" | "coupons" | "orders"
@@ -927,7 +928,7 @@ function BroadcastDialog({ recipientCount, category, categories, subscribersOnly
       toast({ title: res.message ?? `جارٍ الإرسال إلى ${recipientCount} زبون` })
       onClose()
     },
-    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإرسال", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
   })
 
   async function pickFiles(files: FileList | null) {
@@ -1121,7 +1122,7 @@ function OrdersTab({ currency }: { currency: string }) {
       void qc.invalidateQueries({ queryKey: ["retail-orders"] })
       void qc.invalidateQueries({ queryKey: ["invoices"] })
     },
-    onError: (e) => { setPrepareId(null); toast({ title: e instanceof Error ? e.message : "تعذر التجهيز", variant: "destructive" }) },
+    onError: (e) => { setPrepareId(null); toast({ title: apiErrorMessage(e, "تعذر التجهيز"), variant: "destructive" }) },
   })
 
   const cancelMutation = useMutation({

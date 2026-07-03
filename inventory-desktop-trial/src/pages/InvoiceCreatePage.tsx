@@ -28,6 +28,7 @@ import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoi
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance, sortCustomersByRelevance } from "../utils/search"
+import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
 
 type Unit = "PIECE" | "DOZEN" | "CARTON"
@@ -1187,7 +1188,7 @@ export function InvoiceCreatePage() {
       setCloseTabId(null)
       navigate(destination)
     } catch (error) {
-      setCloseError(error instanceof Error ? error.message : "تعذر حفظ الفاتورة.")
+      setCloseError(apiErrorMessage(error, "تعذر حفظ الفاتورة."))
     } finally {
       setCloseSaving(false)
     }
@@ -1195,7 +1196,7 @@ export function InvoiceCreatePage() {
 
   function save() {
     persistInvoice(true).catch((err) => {
-      toast({ title: err instanceof Error ? err.message : "تعذر حفظ الفاتورة", variant: "destructive" })
+      toast({ title: apiErrorMessage(err, "تعذر حفظ الفاتورة"), variant: "destructive" })
     })
   }
 
@@ -1218,7 +1219,7 @@ export function InvoiceCreatePage() {
       setDiscount(result?.discount ?? 0)
       setCouponMessage(result ? `تم تطبيق ${result.coupon.code}` : "")
     } catch (error) {
-      setCouponMessage(error instanceof Error ? error.message : "تعذر تطبيق الكوبون")
+      setCouponMessage(apiErrorMessage(error, "تعذر تطبيق الكوبون"))
     }
   }
 
@@ -2329,7 +2330,7 @@ export function InvoiceCreatePage() {
                 } catch (err) {
                   toast({
                     title: "فشل إرسال واتساب",
-                    description: err instanceof Error ? err.message : "تحقق من إعدادات واتساب في الإعدادات",
+                    description: apiErrorMessage(err, "تحقق من إعدادات واتساب في الإعدادات"),
                     variant: "destructive",
                   })
                 }

@@ -49,6 +49,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 
 dayjs.extend(relativeTime)
@@ -209,13 +210,13 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
       void qc.invalidateQueries({ queryKey: ["customers"] })
       toast({ title: `تم حذف الزبون ${customer.name}` })
     },
-    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحذف", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحذف"), variant: "destructive" }),
   })
 
   const sendLinkMut = useMutation({
     mutationFn: () => sendCatalogLinkToCustomer(customer.id, promo.trim() || undefined),
     onSuccess: (res) => { toast({ title: res.message ?? "تم إرسال رابط الكتلوج" }); setPromo("") },
-    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإرسال", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
   })
 
   const patchMut = useMutation({
@@ -418,7 +419,7 @@ function BulkCatalogSend() {
       setSelectedTags([]); setPromo("")
       void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
     },
-    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإرسال", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
   })
 
   function toggleTag(tag: string) {
@@ -774,7 +775,7 @@ function PromoCodesTab() {
       setShowForm(false)
       setCode(""); setType("PERCENT"); setValue(""); setCustomerId(""); setExpiresAt(""); setUsageLimit(""); setDescription("")
     },
-    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإنشاء", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإنشاء"), variant: "destructive" }),
   })
 
   const deleteMut = useMutation({

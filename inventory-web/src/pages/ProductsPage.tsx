@@ -24,6 +24,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
 import { useToast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
 import { AdjustStockModal } from "../components/AdjustStockModal"
@@ -1684,7 +1685,7 @@ export function ProductsPage() {
           if (!deleteConfirm) return
           deleteMutation.mutate(deleteConfirm.id, {
             onSuccess: () => setDeleteConfirm(null),
-            onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحذف", variant: "destructive" }),
+            onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحذف"), variant: "destructive" }),
           })
         }}
         onCancel={() => setDeleteConfirm(null)}
