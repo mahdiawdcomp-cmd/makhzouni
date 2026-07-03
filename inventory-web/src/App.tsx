@@ -56,6 +56,8 @@ const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
+// TEMPORARY one-off opening-balance migration page — remove after migration.
+const BalanceMigrationPage = lazyPage(() => import("./pages/BalanceMigrationPage"), "BalanceMigrationPage")
 
 function PageLoader() {
   return (
@@ -129,6 +131,7 @@ const router = createBrowserRouter([
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
               { path: "coupons", element: s(<CouponsPage />) },
               { path: "super-admin", element: s(<SuperAdminPage />) },
+              { path: "balance-migration", element: s(<BalanceMigrationPage />) },
             ],
           },
         ],

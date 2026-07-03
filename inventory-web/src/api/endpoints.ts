@@ -576,6 +576,29 @@ export async function getCustomers(params?: { search?: string; isSupplier?: bool
   return data.data ?? []
 }
 
+// ── One-off opening-balance migration (temporary «نقل الأرصدة» page) ──
+export interface BalanceMigrationEntry {
+  tempId: string
+  action: "create" | "link"
+  name: string
+  phone?: string | null
+  amount: number
+  customerId?: string | null
+}
+
+export interface BalanceMigrationResult {
+  created: number
+  linked: number
+  failed: number
+  totalApplied: number
+  results: Array<{ tempId: string; status: "created" | "linked" | "failed"; customerId?: string; error?: string }>
+}
+
+export async function applyOpeningBalances(entries: BalanceMigrationEntry[]) {
+  const { data } = await api.post<ApiEnvelope<BalanceMigrationResult>>("/balance-migration/apply", { entries })
+  return data.data!
+}
+
 export async function getCustomerTags() {
   const { data } = await api.get<ApiEnvelope<string[]>>("/customers/tags")
   return data.data ?? []
