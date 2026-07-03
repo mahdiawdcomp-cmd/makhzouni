@@ -39,6 +39,7 @@ import com.inventory.data.remote.dto.ReviewApprovalRequest
 import com.inventory.data.remote.dto.SalesReportDto
 import com.inventory.data.remote.dto.TransferDto
 import com.inventory.data.remote.dto.LicenseStatusDto
+import com.inventory.data.remote.dto.TenantInfoDto
 import com.inventory.data.remote.dto.UpdateQuotationStatusRequest
 import com.inventory.data.remote.dto.UpdateUserRequest
 import com.inventory.data.remote.dto.UpsertCustomerRequest
@@ -478,4 +479,8 @@ interface InventoryApi {
     // ── License ───────────────────────────────────────────────────────────────
     @GET("license/status")
     suspend fun getLicenseStatus(): ApiEnvelope<LicenseStatusDto>
+
+    // ── Tenant entitlements ─────────────────────────────────────────────────────
+    @GET("tenant-info")
+    suspend fun getTenantInfo(): TenantInfoDto
 }

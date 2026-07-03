@@ -31,6 +31,7 @@ fun SplashScreen(
     onLoggedIn: () -> Unit,
     onLoginRequired: () -> Unit,
     onSerialRequired: () -> Unit = {},
+    onAndroidDisabled: () -> Unit = {},
 ) {
     val destination by viewModel.destination.collectAsState()
 
@@ -39,6 +40,7 @@ fun SplashScreen(
             is SplashDestination.Dashboard        -> onLoggedIn()
             is SplashDestination.Login            -> onLoginRequired()
             is SplashDestination.SerialActivation -> onSerialRequired()
+            is SplashDestination.AndroidDisabled  -> onAndroidDisabled()
             null                                  -> Unit
         }
     }

@@ -119,8 +119,12 @@ fun DashboardScreen(
     onRetailOrders: () -> Unit = {},
     onOcrInvoice: () -> Unit = {},
     onQuickScan: () -> Unit = {},
+    tenantFeatures: List<String> = emptyList(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    // Entitlement feature gate (fail-open: empty list = entitlements unknown = allow).
+    fun featureOn(key: String) =
+        tenantFeatures.isEmpty() || tenantFeatures.any { it.equals(key, ignoreCase = true) }
     val report = state.report
 
     Scaffold(
@@ -180,12 +184,12 @@ fun DashboardScreen(
 
             item {
                 QuickLaunchCard(
-                    actions = listOf(
-                        MenuAction("مسح سريع", "باركود → فاتورة فوراً", Icons.Default.DocumentScanner, Color(0xFF0369A1), onQuickScan),
-                        MenuAction("فاتورة بيع", "الأكثر استخداماً", Icons.Default.Receipt, AppColor.Green600, onInvoices),
-                        MenuAction("POS سريع", "كاشير وباركود", Icons.Default.PointOfSale, Color(0xFF0F766E), onPos),
-                        MenuAction("مساعد ذكي", "أوامر صوتية وكتابية", Icons.Default.SmartToy, Color(0xFF7C3AED), onAgent),
-                    )
+                    actions = buildList {
+                        add(MenuAction("مسح سريع", "باركود → فاتورة فوراً", Icons.Default.DocumentScanner, Color(0xFF0369A1), onQuickScan))
+                        add(MenuAction("فاتورة بيع", "الأكثر استخداماً", Icons.Default.Receipt, AppColor.Green600, onInvoices))
+                        if (featureOn("pos")) add(MenuAction("POS سريع", "كاشير وباركود", Icons.Default.PointOfSale, Color(0xFF0F766E), onPos))
+                        add(MenuAction("مساعد ذكي", "أوامر صوتية وكتابية", Icons.Default.SmartToy, Color(0xFF7C3AED), onAgent))
+                    }
                 )
             }
 
@@ -196,11 +200,11 @@ fun DashboardScreen(
                         subtitle = "نفس مجموعة المخزن في الويب",
                         icon = Icons.Default.Inventory2,
                         color = Color(0xFF4F46E5),
-                        actions = listOf(
-                            MenuAction("المنتجات", "بحث، إضافة، تعديل، باركود", Icons.Default.Inventory2, Color(0xFF4F46E5), onProducts),
-                            MenuAction("التحويلات", "نقل بين المحل والمخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers),
-                            MenuAction("المخازن", "المحل، العباسية، شارع العباس", Icons.Default.Warehouse, AppColor.Amber600, onBranches),
-                        )
+                        actions = buildList {
+                            add(MenuAction("المنتجات", "بحث، إضافة، تعديل، باركود", Icons.Default.Inventory2, Color(0xFF4F46E5), onProducts))
+                            if (featureOn("transfers")) add(MenuAction("التحويلات", "نقل بين المحل والمخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers))
+                            add(MenuAction("المخازن", "المحل، العباسية، شارع العباس", Icons.Default.Warehouse, AppColor.Amber600, onBranches))
+                        }
                     )
                 }
             }
@@ -212,14 +216,14 @@ fun DashboardScreen(
                         subtitle = "بيع، شراء، مرتجع، عروض، POS",
                         icon = Icons.Default.Description,
                         color = AppColor.Green600,
-                        actions = listOf(
-                            MenuAction("فواتير البيع", "قائمة الفواتير وإنشاء فاتورة", Icons.Default.ReceiptLong, AppColor.Green600, onInvoices),
-                            MenuAction("POS سريع", "نافذة البيع المختصرة", Icons.Default.PointOfSale, Color(0xFF0F766E), onPos),
-                            MenuAction("مرتجع مبيعات", "إرجاع كامل أو جزئي", Icons.Default.AssignmentReturn, AppColor.Red600, onReturns),
-                            MenuAction("عروض الأسعار", "عرض يتحول لفاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations),
-                            MenuAction("فاتورة شراء OCR", "قراءة من صورة", Icons.Default.DocumentScanner, Color(0xFF7C3AED), onOcrInvoice),
-                            MenuAction("الطلبات", "طلبات كتالوك المفرد", Icons.Default.Storefront, Color(0xFF6366F1), onRetailOrders),
-                        )
+                        actions = buildList {
+                            add(MenuAction("فواتير البيع", "قائمة الفواتير وإنشاء فاتورة", Icons.Default.ReceiptLong, AppColor.Green600, onInvoices))
+                            if (featureOn("pos")) add(MenuAction("POS سريع", "نافذة البيع المختصرة", Icons.Default.PointOfSale, Color(0xFF0F766E), onPos))
+                            add(MenuAction("مرتجع مبيعات", "إرجاع كامل أو جزئي", Icons.Default.AssignmentReturn, AppColor.Red600, onReturns))
+                            if (featureOn("quotations")) add(MenuAction("عروض الأسعار", "عرض يتحول لفاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations))
+                            add(MenuAction("فاتورة شراء OCR", "قراءة من صورة", Icons.Default.DocumentScanner, Color(0xFF7C3AED), onOcrInvoice))
+                            if (featureOn("retailShop")) add(MenuAction("الطلبات", "طلبات كتالوك المفرد", Icons.Default.Storefront, Color(0xFF6366F1), onRetailOrders))
+                        }
                     )
                 }
             }
@@ -246,12 +250,12 @@ fun DashboardScreen(
                         subtitle = "حسابات، كشوفات، كتالوك العملاء",
                         icon = Icons.Default.Groups,
                         color = AppColor.Blue600,
-                        actions = listOf(
-                            MenuAction("الزبائن", "قائمة الزبائن والموردين", Icons.Default.Groups, AppColor.Blue600, onCustomers),
-                            MenuAction("كشف الحساب", "فواتير وسندات الزبون", Icons.Default.AccountBalance, AppColor.Purple600, onAccountLookup),
-                            MenuAction("إرسال جماعي", "رسائل زبائن الجملة", Icons.Default.Campaign, AppColor.Amber600, onCustomers),
-                            MenuAction("الكتالوك", "صلاحيات وروابط العملاء", Icons.Default.Storefront, AppColor.Sky500, onCatalogManagement),
-                        )
+                        actions = buildList {
+                            add(MenuAction("الزبائن", "قائمة الزبائن والموردين", Icons.Default.Groups, AppColor.Blue600, onCustomers))
+                            add(MenuAction("كشف الحساب", "فواتير وسندات الزبون", Icons.Default.AccountBalance, AppColor.Purple600, onAccountLookup))
+                            add(MenuAction("إرسال جماعي", "رسائل زبائن الجملة", Icons.Default.Campaign, AppColor.Amber600, onCustomers))
+                            if (featureOn("catalogWholesale")) add(MenuAction("الكتالوك", "صلاحيات وروابط العملاء", Icons.Default.Storefront, AppColor.Sky500, onCatalogManagement))
+                        }
                     )
                 }
             }
@@ -267,7 +271,7 @@ fun DashboardScreen(
                         if (state.canManageUsers) add(MenuAction("المستخدمين", "صلاحيات دقيقة مثل الويب", Icons.Default.People, AppColor.Blue600, onUsers))
                         if (state.canApprove) add(MenuAction("الموافقات", "طلبات حذف وتحويل وكتالوك", Icons.Default.Approval, AppColor.Amber600, onApprovals))
                         if (state.canManageSettings) add(MenuAction("الكوبونات", "خصومات وعروض", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons))
-                        if (state.canManageSettings) add(MenuAction("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
+                        if (state.canManageSettings && featureOn("auditLog")) add(MenuAction("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
                         if (state.canManageSettings) add(MenuAction("الإعدادات", "إعدادات التطبيق والربط", Icons.Default.Settings, AppColor.Gray700, onSettings))
                         add(MenuAction("كل العمليات", "صفحة جامعة لكل الأوامر", Icons.Default.AccountTree, Color(0xFF0F766E), onOperations))
                     }

@@ -10,6 +10,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -66,6 +67,13 @@ class SessionManager @Inject constructor(
     private val serialCodeKey = stringPreferencesKey("activated_serial")
     private val tenantFeaturesKey = stringPreferencesKey("tenant_features")
     private val subscriptionExpiresAtKey = stringPreferencesKey("subscription_expires_at")
+    // ── Entitlements (Batch 8) ──────────────────────────────────────────────────
+    private val readOnlyKey = booleanPreferencesKey("entitlement_read_only")
+    private val androidEnabledKey = booleanPreferencesKey("entitlement_android_enabled")
+    private val licenseTypeKey = stringPreferencesKey("entitlement_license_type")
+    private val trialEndsAtKey = stringPreferencesKey("entitlement_trial_ends_at")
+    private val entitlementExpiresAtKey = stringPreferencesKey("entitlement_expires_at")
+    private val lastEntitlementCheckAtKey = stringPreferencesKey("entitlement_last_check_at")
 
     private val preferencesFlow = context.dataStore.data.catch { emit(emptyPreferences()) }
 
@@ -108,6 +116,18 @@ class SessionManager @Inject constructor(
         it[tenantFeaturesKey]?.split(",")?.filter { f -> f.isNotBlank() }.orEmpty()
     }
     val subscriptionExpiresAt = preferencesFlow.map { it[subscriptionExpiresAtKey] }
+
+    // ── Entitlement flows (Batch 8) ─────────────────────────────────────────────
+    // Fail-open by default: if nothing was ever saved, treat the tenant as writable.
+    val readOnly: Flow<Boolean> = preferencesFlow.map { it[readOnlyKey] ?: false }
+    // Nullable ON PURPOSE: null = "backend never told us" = unknown = fail-open
+    // (treated as enabled). Only an explicit `false` blocks the app. Do NOT default
+    // this to true — callers must distinguish "explicitly disabled" from "unknown".
+    val androidEnabled: Flow<Boolean?> = preferencesFlow.map { it[androidEnabledKey] }
+    val licenseType: Flow<String?> = preferencesFlow.map { it[licenseTypeKey] }
+    val trialEndsAt: Flow<String?> = preferencesFlow.map { it[trialEndsAtKey] }
+    val entitlementExpiresAt: Flow<String?> = preferencesFlow.map { it[entitlementExpiresAtKey] }
+    val lastEntitlementCheckAt: Flow<String?> = preferencesFlow.map { it[lastEntitlementCheckAtKey] }
 
     @Volatile
     private var cachedToken: String? = null
@@ -175,6 +195,32 @@ class SessionManager @Inject constructor(
             it[tenantFeaturesKey] = features.joinToString(",")
             if (expiresAt != null) it[subscriptionExpiresAtKey] = expiresAt
             else it.remove(subscriptionExpiresAtKey)
+        }
+    }
+
+    /**
+     * Persist the latest tenant entitlements fetched from GET /api/tenant-info.
+     * Only touches the entitlement keys (+ the shared tenantFeaturesKey) — never
+     * the serial, base URL, or auth token. A null value REMOVES its key so the
+     * corresponding Flow falls back to its fail-open default.
+     */
+    suspend fun saveEntitlements(
+        features: List<String>,
+        readOnly: Boolean?,
+        androidEnabled: Boolean?,
+        licenseType: String?,
+        trialEndsAt: String?,
+        entitlementExpiresAt: String?,
+        checkedAt: String
+    ) {
+        context.dataStore.edit {
+            it[tenantFeaturesKey] = features.joinToString(",")
+            if (readOnly != null) it[readOnlyKey] = readOnly else it.remove(readOnlyKey)
+            if (androidEnabled != null) it[androidEnabledKey] = androidEnabled else it.remove(androidEnabledKey)
+            if (licenseType != null) it[licenseTypeKey] = licenseType else it.remove(licenseTypeKey)
+            if (trialEndsAt != null) it[trialEndsAtKey] = trialEndsAt else it.remove(trialEndsAtKey)
+            if (entitlementExpiresAt != null) it[entitlementExpiresAtKey] = entitlementExpiresAt else it.remove(entitlementExpiresAtKey)
+            it[lastEntitlementCheckAtKey] = checkedAt
         }
     }
 

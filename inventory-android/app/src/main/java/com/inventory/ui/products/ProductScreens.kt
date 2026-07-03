@@ -1292,7 +1292,7 @@ fun ProductFormScreen(viewModel: ProductFormViewModel, onDone: () -> Unit) {
                 }
             }
             item {
-                Button(onClick = viewModel::save, modifier = Modifier.fillMaxWidth().height(52.dp), enabled = !state.isSaving, shape = RoundedCornerShape(12.dp)) {
+                Button(onClick = viewModel::save, modifier = Modifier.fillMaxWidth().height(52.dp), enabled = !state.isSaving && !state.readOnly, shape = RoundedCornerShape(12.dp)) {
                     if (state.isSaving) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                     else { Icon(Icons.Default.Check, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(state.actionText, fontWeight = FontWeight.SemiBold) }
                 }

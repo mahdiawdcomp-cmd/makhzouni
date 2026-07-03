@@ -23,6 +23,7 @@ import com.inventory.data.repository.CustomerRepository
 import com.inventory.data.repository.InvoiceRepository
 import com.inventory.data.repository.OperationsRepository
 import com.inventory.data.repository.ProductRepository
+import com.inventory.data.repository.SessionManager
 import com.inventory.domain.finance.FinancialInvoiceType
 import com.inventory.domain.finance.calculateInvoiceFinancials
 import com.inventory.domain.finance.roundMoney
@@ -56,7 +57,8 @@ data class SalesOperationState(
     val discount: String = "0",
     val notes: String = "",
     val loading: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    val readOnly: Boolean = false
 ) {
     val customerSuggestions: List<Customer> =
         if (selectedCustomer != null || customerQuery.isBlank()) emptyList()
@@ -81,7 +83,7 @@ data class SalesOperationState(
     val paidAmount = financials.paidAmount
     val remaining = financials.remainingAmount
     val change = financials.overpayment
-    val canSave = selectedCustomer != null && lines.isNotEmpty() && lines.all { it.quantity > 0 } && !loading && total >= 0.0
+    val canSave = selectedCustomer != null && lines.isNotEmpty() && lines.all { it.quantity > 0 } && !loading && total >= 0.0 && !readOnly
 }
 
 @HiltViewModel
@@ -89,7 +91,8 @@ class SalesOperationViewModel @Inject constructor(
     private val invoiceRepository: InvoiceRepository,
     private val operationsRepository: OperationsRepository,
     private val customerRepository: CustomerRepository,
-    private val productRepository: ProductRepository
+    private val productRepository: ProductRepository,
+    sessionManager: SessionManager
 ) : ViewModel() {
     private val _state = MutableStateFlow(SalesOperationState())
     val state = _state.asStateFlow()
@@ -101,6 +104,7 @@ class SalesOperationViewModel @Inject constructor(
             customerRepository.refreshCustomers()
             productRepository.refreshProducts()
         }
+        viewModelScope.launch { sessionManager.readOnly.collect { ro -> _state.value = _state.value.copy(readOnly = ro) } }
     }
 
     fun setMode(mode: String) {
@@ -158,6 +162,10 @@ class SalesOperationViewModel @Inject constructor(
 
     fun save() {
         val s = _state.value
+        if (s.readOnly) {
+            _state.value = s.copy(message = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً.")
+            return
+        }
         val customer = s.selectedCustomer
         val validation = when {
             s.total < 0.0 -> "الخصم أكبر من مجموع المواد"
@@ -240,7 +248,8 @@ data class AdminOperationsState(
     val loading: Boolean = false,
     val message: String? = null,
     val auditEntity: String? = null,
-    val auditAction: String? = null
+    val auditAction: String? = null,
+    val readOnly: Boolean = false
 )
 
 data class WarehouseDetailsState(
@@ -290,15 +299,19 @@ class WarehouseDetailsViewModel @Inject constructor(
 @HiltViewModel
 class AdminOperationsViewModel @Inject constructor(
     private val operationsRepository: OperationsRepository,
-    private val productRepository: ProductRepository
+    private val productRepository: ProductRepository,
+    sessionManager: SessionManager
 ) : ViewModel() {
     private val _state = MutableStateFlow(AdminOperationsState())
     val state = _state.asStateFlow()
 
     init {
         viewModelScope.launch { productRepository.products.collect { _state.value = _state.value.copy(products = it) } }
+        viewModelScope.launch { sessionManager.readOnly.collect { ro -> _state.value = _state.value.copy(readOnly = ro) } }
         refreshAll()
     }
+
+    private val readOnlyMessage = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً."
 
     fun refreshAll() {
         viewModelScope.launch {
@@ -410,6 +423,7 @@ class AdminOperationsViewModel @Inject constructor(
     }
 
     fun createTransfer(from: String, to: String, productId: String, qty: String, unit: String, notes: String) {
+        if (_state.value.readOnly) { _state.value = _state.value.copy(message = readOnlyMessage); return }
         viewModelScope.launch {
             val quantity = qty.toIntOrNull()
             if (from.isBlank() || to.isBlank() || productId.isBlank() || quantity == null || quantity <= 0) {
@@ -446,6 +460,7 @@ class AdminOperationsViewModel @Inject constructor(
     }
 
     fun createStockLoss(date: String, warehouseId: String, reason: String, notes: String, items: List<Triple<String, String, Double>>) {
+        if (_state.value.readOnly) { _state.value = _state.value.copy(message = readOnlyMessage); return }
         viewModelScope.launch {
             if (warehouseId.isBlank() || items.isEmpty() || items.any { it.third <= 0 }) {
                 _state.value = _state.value.copy(message = "أكمل معلومات سجل التلف")

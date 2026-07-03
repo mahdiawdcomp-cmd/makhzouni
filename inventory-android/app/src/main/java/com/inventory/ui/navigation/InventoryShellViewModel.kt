@@ -28,7 +28,11 @@ data class ShellUiState(
     val unreadNotifications: Int = 0,
     val pendingApprovals: Int = 0,
     val isAdmin: Boolean = false,
-    val permissions: List<String> = emptyList()
+    val permissions: List<String> = emptyList(),
+    val readOnly: Boolean = false,
+    val tenantFeatures: List<String> = emptyList(),
+    val blockedSyncCount: Int = 0,
+    val blockedSyncReason: String? = null
 )
 
 @HiltViewModel
@@ -47,20 +51,53 @@ class InventoryShellViewModel @Inject constructor(
         syncRepository.pendingCount
     ) { online, pendingSync -> online to pendingSync }
 
+    private data class RoleState(val role: String?, val permissions: List<String>)
+    private val roleState = combine(
+        sessionManager.role,
+        sessionManager.permissions
+    ) { role, permissions -> RoleState(role, permissions) }
+
+    // Entitlement + blocked-sync flows grouped so the final combine stays ≤5 args.
+    private data class EntitlementState(
+        val readOnly: Boolean,
+        val features: List<String>,
+        val blockedCount: Int,
+        val blockedReason: String?,
+    )
+    private val entitlementState = combine(
+        sessionManager.readOnly,
+        sessionManager.tenantFeatures,
+        syncRepository.blockedCount,
+        syncRepository.blockedReasons
+    ) { readOnly, features, blockedCount, blockedReasons ->
+        EntitlementState(
+            readOnly = readOnly,
+            features = features,
+            blockedCount = blockedCount,
+            // Pick the first stored reason (raw code like READ_ONLY_MODE, or legacy
+            // free text). The UI maps it to an Arabic sentence.
+            blockedReason = blockedReasons.firstOrNull(),
+        )
+    }
+
     val state: StateFlow<ShellUiState> = combine(
         connectionState,
         notificationDao.observeUnreadCount(),
         approvalRepository.pending,
-        sessionManager.role,
-        sessionManager.permissions
-    ) { connection, unread, approvals, role, permissions ->
+        roleState,
+        entitlementState
+    ) { connection, unread, approvals, roles, entitlement ->
         ShellUiState(
             isOnline = connection.first,
             pendingSync = connection.second,
             unreadNotifications = unread,
             pendingApprovals = approvals.size,
-            isAdmin = permissionManager.canManageApprovals(role, permissions),
-            permissions = permissions
+            isAdmin = permissionManager.canManageApprovals(roles.role, roles.permissions),
+            permissions = roles.permissions,
+            readOnly = entitlement.readOnly,
+            tenantFeatures = entitlement.features,
+            blockedSyncCount = entitlement.blockedCount,
+            blockedSyncReason = entitlement.blockedReason
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShellUiState())
 

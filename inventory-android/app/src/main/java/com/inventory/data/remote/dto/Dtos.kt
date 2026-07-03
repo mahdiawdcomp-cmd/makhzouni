@@ -994,3 +994,28 @@ data class LicenseStatusDto(
     val daysLeft: Int? = null,
     val readOnlyMode: Boolean = false
 )
+
+// ── Tenant entitlements (GET /api/tenant-info) ──────────────────────────────────
+data class TenantPlatformsDto(
+    val androidEnabled: Boolean? = null,
+    val desktopEnabled: Boolean? = null,
+    val webEnabled: Boolean? = null,
+)
+
+data class TenantInfoDto(
+    val mode: String? = null,
+    val features: List<String>? = null,
+    val platforms: TenantPlatformsDto? = null,
+    val readOnly: Boolean? = null,
+    val licenseType: String? = null,
+    val trialEndsAt: String? = null,
+    val entitlementExpiresAt: String? = null,
+    val expiresAt: String? = null,
+    val status: String? = null,
+    // Defensive: we don't control the backend and must not read/modify it for this
+    // task, so we don't know for certain whether the response is a flat object or
+    // wrapped as {"success":true,"data":{...}}. This self-referential nullable
+    // field lets the repository do `val payload = dto.data ?: dto` and read fields
+    // off whichever shape actually comes back, without guessing wrong and crashing.
+    val data: TenantInfoDto? = null,
+)

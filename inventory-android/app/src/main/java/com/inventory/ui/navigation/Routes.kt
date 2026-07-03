@@ -3,6 +3,7 @@ package com.inventory.ui.navigation
 object Routes {
     const val Splash = "splash"
     const val SerialActivation = "serial-activation"
+    const val AndroidDisabled = "android-disabled"
     const val Login = "login"
     const val Dashboard = "dashboard"
     const val Users = "users"

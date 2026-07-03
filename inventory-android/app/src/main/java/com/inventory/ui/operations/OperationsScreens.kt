@@ -129,28 +129,36 @@ fun OperationsHubScreen(
     onLosses: () -> Unit = {},
     isAdmin: Boolean = true,
     permissions: List<String> = emptyList(),
+    tenantFeatures: List<String> = emptyList(),
 ) {
     val canInvoice = isAdmin || permissions.contains("MANAGE_INVOICES")
     val canVouchers = isAdmin || permissions.contains("MANAGE_VOUCHERS")
     val canSettings = isAdmin || permissions.contains("MANAGE_SETTINGS")
+    // Entitlement feature gate (case-insensitive). Empty list = show nothing gated
+    // is NOT desired here; instead we hide only when the feature list is present and
+    // lacks the key. But to stay fail-open when entitlements were never fetched, we
+    // treat an ENTIRELY empty feature list as "unknown → allow". Once any feature is
+    // known, membership is enforced per key.
+    fun featureOn(key: String) =
+        tenantFeatures.isEmpty() || tenantFeatures.any { it.equals(key, ignoreCase = true) }
 
     val tiles = buildList {
         if (canInvoice) {
-            add(HubItem("POS سريع", "كاشير مختصر مع باركود", Icons.Default.PointOfSale, AppColor.Green600, onPos))
+            if (featureOn("pos")) add(HubItem("POS سريع", "كاشير مختصر مع باركود", Icons.Default.PointOfSale, AppColor.Green600, onPos))
             add(HubItem("مرتجع مبيعات", "إرجاع كامل أو جزئي", Icons.Default.AssignmentReturn, AppColor.Red600, onReturns))
-            add(HubItem("عروض الأسعار", "عرض يتحول إلى فاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations))
+            if (featureOn("quotations")) add(HubItem("عروض الأسعار", "عرض يتحول إلى فاتورة", Icons.Default.RequestQuote, AppColor.Blue600, onQuotations))
             add(HubItem("فاتورة شراء OCR", "قراءة فاتورة من صورة", Icons.Default.DocumentScanner, Color(0xFF7C3AED), onOcrInvoice))
-            add(HubItem("طلبات المفرد", "طلبات الكتالوج والتجهيز", Icons.Default.Storefront, Color(0xFF6366F1), onRetailOrders))
+            if (featureOn("retailShop")) add(HubItem("طلبات المفرد", "طلبات الكتالوج والتجهيز", Icons.Default.Storefront, Color(0xFF6366F1), onRetailOrders))
         }
         if (canVouchers) {
             add(HubItem("السندات", "قبض، دفع، مصاريف", Icons.Default.ConfirmationNumber, AppColor.Purple600, onVouchers))
         }
         if (canSettings) {
-            add(HubItem("التحويلات", "نقل مواد بين المخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers))
+            if (featureOn("transfers")) add(HubItem("التحويلات", "نقل مواد بين المخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers))
             add(HubItem("التلف والخسائر", "تسجيل وإلغاء الهالك", Icons.Default.BrokenImage, AppColor.Red600, onLosses))
             add(HubItem("المخازن", "المحل والمخازن", Icons.Default.Warehouse, AppColor.Amber600, onBranches))
             add(HubItem("الكوبونات", "خصومات وعروض", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons))
-            add(HubItem("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
+            if (featureOn("auditLog")) add(HubItem("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
         }
     }
 

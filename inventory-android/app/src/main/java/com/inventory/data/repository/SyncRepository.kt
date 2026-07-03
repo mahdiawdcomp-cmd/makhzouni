@@ -26,6 +26,9 @@ class SyncRepository @Inject constructor(
 ) {
     private val gson = Gson()
     val pendingCount: Flow<Int> = dao.observePendingCount()
+    // Operations permanently blocked by tenant entitlements (read-only / disabled feature).
+    val blockedCount: Flow<Int> = dao.observeBlockedCount()
+    val blockedReasons: Flow<List<String>> = dao.observeBlockedReasons()
 
     suspend fun enqueue(
         operationType: String,

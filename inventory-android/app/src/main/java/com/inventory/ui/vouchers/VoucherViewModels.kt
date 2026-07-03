@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.dto.CreateVoucherRequest
 import com.inventory.data.repository.CustomerRepository
+import com.inventory.data.repository.SessionManager
 import com.inventory.data.repository.VoucherRepository
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.Voucher
@@ -28,7 +29,8 @@ data class VoucherFormState(
     val description: String = "",
     val editingVoucherId: String? = null,
     val voucherNumber: String = "",
-    val editLoaded: Boolean = false
+    val editLoaded: Boolean = false,
+    val readOnly: Boolean = false
 ) {
     val isExpense: Boolean get() = type == "EXPENSE"
     val selectedCustomer: Customer? get() = customers.firstOrNull { it.id == selectedCustomerId }
@@ -45,7 +47,8 @@ data class VoucherFormState(
 @HiltViewModel
 class VoucherViewModel @Inject constructor(
     private val voucherRepository: VoucherRepository,
-    private val customerRepository: CustomerRepository
+    private val customerRepository: CustomerRepository,
+    sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(VoucherFormState())
@@ -54,6 +57,7 @@ class VoucherViewModel @Inject constructor(
     init {
         viewModelScope.launch { customerRepository.customers.collect { list -> _state.value = _state.value.copy(customers = list) } }
         viewModelScope.launch { customerRepository.refreshCustomers() }
+        viewModelScope.launch { sessionManager.readOnly.collect { ro -> _state.value = _state.value.copy(readOnly = ro) } }
     }
 
     fun onEvent(event: VoucherEvent) {
@@ -115,6 +119,10 @@ class VoucherViewModel @Inject constructor(
 
     private fun submitVoucher() {
         val s = _state.value
+        if (s.readOnly) {
+            _state.value = s.copy(error = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً.")
+            return
+        }
         val amountDouble = s.amount.toDoubleOrNull()
         val error = when {
             !s.isExpense && s.selectedCustomerId.isBlank() -> "اختر الزبون"

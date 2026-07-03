@@ -16,6 +16,7 @@ import androidx.work.WorkerParameters
 import com.inventory.data.local.NotificationEntity
 import com.inventory.data.remote.ApiClient
 import com.inventory.data.remote.DynamicBaseUrlInterceptor
+import com.inventory.data.remote.EntitlementInterceptor
 import com.inventory.data.remote.JwtInterceptor
 import com.inventory.data.repository.SessionManager
 import com.inventory.di.DatabaseEntryPoint
@@ -35,7 +36,7 @@ class DebtReminderWorker(
 
         return try {
             session.hydrateCache()
-            val api = ApiClient(JwtInterceptor(session), DynamicBaseUrlInterceptor(session)).api
+            val api = ApiClient(JwtInterceptor(session), DynamicBaseUrlInterceptor(session), EntitlementInterceptor()).api
             val debts = api.customerDebtsReport(settings.debtReminderDays).data.orEmpty()
             val database = EntryPointAccessors.fromApplication<DatabaseEntryPoint>(applicationContext).database()
             val notifications = debts.map {
@@ -79,7 +80,7 @@ class InactiveCustomerWorker(
 
         return try {
             session.hydrateCache()
-            val api = ApiClient(JwtInterceptor(session), DynamicBaseUrlInterceptor(session)).api
+            val api = ApiClient(JwtInterceptor(session), DynamicBaseUrlInterceptor(session), EntitlementInterceptor()).api
             val customers = api.getInactiveCustomers(settings.inactiveCustomerDays).data.orEmpty()
             val database = EntryPointAccessors.fromApplication<DatabaseEntryPoint>(applicationContext).database()
             database.notificationDao().upsertAll(customers.map {

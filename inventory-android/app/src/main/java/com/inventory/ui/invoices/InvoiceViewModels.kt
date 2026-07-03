@@ -243,7 +243,8 @@ data class InvoiceCreateUiState(
     val savedInvoiceId: String? = null,
     val editingInvoiceId: String? = null,
     val editLoaded: Boolean = false,
-    val shopStockAlertProduct: Product? = null
+    val shopStockAlertProduct: Product? = null,
+    val readOnly: Boolean = false
 ) {
     val customerSuggestions = if (customerQuery.isBlank() || selectedCustomer != null) {
         emptyList()
@@ -299,6 +300,9 @@ class InvoiceCreateViewModel @Inject constructor(
             sessionManager.permissions.collect { perms ->
                 _state.value = _state.value.copy(hidePrice = perms.contains("VIEW_WITHOUT_PRICES"))
             }
+        }
+        viewModelScope.launch {
+            sessionManager.readOnly.collect { ro -> _state.value = _state.value.copy(readOnly = ro) }
         }
     }
 
@@ -491,6 +495,11 @@ class InvoiceCreateViewModel @Inject constructor(
 
     fun save() {
         val current = _state.value
+        if (current.readOnly) {
+            // Entitlement read-only gate: keep the draft intact, just block persisting.
+            _state.value = current.copy(error = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً.")
+            return
+        }
         val customer = current.selectedCustomer
         val error = when {
             current.items.any { it.quantity <= 0 } -> "أدخل العدد لكل مادة"

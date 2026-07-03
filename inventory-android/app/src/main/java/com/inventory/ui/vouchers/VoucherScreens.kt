@@ -287,7 +287,7 @@ fun VoucherCreateScreen(
                 Button(
                     onClick = { viewModel.onEvent(VoucherEvent.Submit) },
                     modifier = Modifier.fillMaxWidth().height(54.dp),
-                    enabled = !state.isLoading,
+                    enabled = !state.isLoading && !state.readOnly,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = saveColor)
                 ) {

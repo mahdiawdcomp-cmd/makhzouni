@@ -174,6 +174,13 @@ interface PendingSyncOperationDao {
     @Query("SELECT COUNT(*) FROM pending_sync_operations WHERE status IN ('PENDING', 'FAILED')")
     fun observePendingCount(): Flow<Int>
 
+    // ── Entitlement-blocked ops (Batch 8) — no schema change, reuses status+lastError ──
+    @Query("SELECT COUNT(*) FROM pending_sync_operations WHERE status = 'BLOCKED'")
+    fun observeBlockedCount(): Flow<Int>
+
+    @Query("SELECT DISTINCT lastError FROM pending_sync_operations WHERE status = 'BLOCKED' AND lastError IS NOT NULL")
+    fun observeBlockedReasons(): Flow<List<String>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(operation: PendingSyncOperationEntity)
 

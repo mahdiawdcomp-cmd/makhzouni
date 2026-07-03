@@ -10,6 +10,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.inventory.data.repository.SessionManager
+import com.inventory.data.remote.EntitlementErrorMapper
 import com.inventory.data.local.CustomerEntity
 import com.inventory.data.local.InvoiceEntity
 import com.inventory.data.local.InvoiceItemEntity
@@ -73,12 +74,17 @@ class OfflineSyncWorker(
                     if (response.isSuccessful || response.code == 202) {
                         dao.delete(operation.id)
                     } else {
-                        hasRetryableFailure = response.code >= 500 || response.code == 429
+                        val bodyStr = response.body?.string()
+                        val entitlementCode = EntitlementErrorMapper.codeFromBody(bodyStr)
+                        val classification = classifySyncFailure(response.code, entitlementCode, bodyStr)
+                        // OR-accumulate: any retryable op in the batch must trigger a retry,
+                        // not just the last one (fixes a latent reassignment bug).
+                        hasRetryableFailure = hasRetryableFailure || classification.retryable
                         dao.updateStatus(
                             id = operation.id,
-                            status = if (hasRetryableFailure) "FAILED" else "BLOCKED",
+                            status = classification.status,
                             attemptDelta = 1,
-                            lastError = "HTTP ${response.code}: ${response.body?.string()}",
+                            lastError = classification.lastError,
                             updatedAt = Instant.now().toString()
                         )
                     }
@@ -158,6 +164,39 @@ class OfflineSyncWorker(
 }
 
 private data class PagedResponse<T>(val success: Boolean = false, val data: List<T> = emptyList())
+
+/** Outcome of classifying a failed sync operation. */
+data class SyncFailureClassification(
+    val status: String,       // "FAILED" (retry later) or "BLOCKED" (permanent-for-now)
+    val retryable: Boolean,
+    val lastError: String?,
+)
+
+/**
+ * Pure, unit-testable failure classifier for the offline sync worker.
+ *  - 423, OR 403 with a recognized entitlement code -> BLOCKED, not retryable,
+ *    lastError = the entitlement code (423 with an unparseable body still means
+ *    read-only-mode by HTTP semantics, so it defaults to READ_ONLY_MODE).
+ *  - 5xx / 429 -> FAILED (transient), retryable.
+ *  - anything else (incl. 403 with an unrelated body) -> BLOCKED, not retryable,
+ *    lastError = "HTTP <code>: <body>" (unchanged legacy behavior).
+ */
+fun classifySyncFailure(code: Int, entitlementCode: String?, body: String?): SyncFailureClassification {
+    val isEntitlementBlock = code == 423 || (code == 403 && entitlementCode != null)
+    if (isEntitlementBlock) {
+        return SyncFailureClassification(
+            status = "BLOCKED",
+            retryable = false,
+            lastError = entitlementCode ?: EntitlementErrorMapper.READ_ONLY_MODE,
+        )
+    }
+    val retryable = code >= 500 || code == 429
+    return SyncFailureClassification(
+        status = if (retryable) "FAILED" else "BLOCKED",
+        retryable = retryable,
+        lastError = "HTTP $code: $body",
+    )
+}
 
 private fun ProductDto.toEntity() = ProductEntity(
     id = id,

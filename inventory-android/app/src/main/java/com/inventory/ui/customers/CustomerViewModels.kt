@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.remote.dto.UpsertCustomerRequest
 import com.inventory.data.repository.CustomerRepository
+import com.inventory.data.repository.SessionManager
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.CustomerTransaction
 import com.inventory.domain.model.LastTransaction
@@ -218,12 +219,14 @@ data class CustomerFormUiState(
     val availableTags: List<String> = emptyList(),
     val error: String? = null,
     val saved: Boolean = false,
-    val isSaving: Boolean = false
+    val isSaving: Boolean = false,
+    val readOnly: Boolean = false
 )
 
 @HiltViewModel
 class CustomerFormViewModel @Inject constructor(
-    private val repository: CustomerRepository
+    private val repository: CustomerRepository,
+    sessionManager: SessionManager
 ) : ViewModel() {
     private val _state = MutableStateFlow(CustomerFormUiState())
     val state = _state.asStateFlow()
@@ -232,6 +235,9 @@ class CustomerFormViewModel @Inject constructor(
         viewModelScope.launch {
             val result = repository.customerTags()
             if (result is ApiResult.Success) _state.value = _state.value.copy(availableTags = result.data)
+        }
+        viewModelScope.launch {
+            sessionManager.readOnly.collect { ro -> _state.value = _state.value.copy(readOnly = ro) }
         }
     }
 
@@ -264,6 +270,10 @@ class CustomerFormViewModel @Inject constructor(
 
     fun save() {
         val current = _state.value
+        if (current.readOnly) {
+            _state.value = current.copy(error = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً.")
+            return
+        }
         val error = when {
             current.name.isBlank() -> "اسم الزبون مطلوب"
             current.phone.isBlank() -> "رقم الهاتف مطلوب"

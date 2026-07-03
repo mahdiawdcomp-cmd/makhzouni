@@ -581,7 +581,7 @@ fun CustomerFormScreen(viewModel: CustomerFormViewModel, onDone: () -> Unit) {
                 Button(
                     onClick = viewModel::save,
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                    enabled = !state.isSaving,
+                    enabled = !state.isSaving && !state.readOnly,
                     shape = RoundedCornerShape(12.dp),
                 ) {
                     if (state.isSaving) {

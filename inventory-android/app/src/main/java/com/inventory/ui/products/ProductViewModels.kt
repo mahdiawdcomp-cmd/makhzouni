@@ -313,7 +313,8 @@ data class ProductFormUiState(
     val isStaff: Boolean = false,
     val isSaving: Boolean = false,
     val error: String? = null,
-    val saved: Boolean = false
+    val saved: Boolean = false,
+    val readOnly: Boolean = false
 ) {
     val distSum: Int = warehouseDist.values.sumOf { it.toIntOrNull() ?: 0 }
     val enteredTotal: Int = openingBalancePcs.toIntOrNull().orZero() +
@@ -346,6 +347,9 @@ class ProductFormViewModel @Inject constructor(
             sessionManager.role.collect { role ->
                 _state.value = _state.value.copy(isStaff = permissionManager.mustRequestApproval(role))
             }
+        }
+        viewModelScope.launch {
+            sessionManager.readOnly.collect { ro -> _state.value = _state.value.copy(readOnly = ro) }
         }
         // Load catalog categories (searchable dropdowns for category + type selection)
         viewModelScope.launch {
@@ -501,6 +505,10 @@ class ProductFormViewModel @Inject constructor(
 
     fun save() {
         val current = _state.value
+        if (current.readOnly) {
+            _state.value = current.copy(error = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً.")
+            return
+        }
         val validationError = validate(current)
         if (validationError != null) {
             _state.value = current.copy(error = validationError)

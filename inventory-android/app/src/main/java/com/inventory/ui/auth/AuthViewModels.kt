@@ -4,19 +4,37 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.inventory.data.remote.ApiResult
 import com.inventory.data.repository.AuthRepository
+import com.inventory.data.repository.EntitlementsRepository
 import com.inventory.data.repository.SessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 sealed class SplashDestination {
     object SerialActivation : SplashDestination()
+    object AndroidDisabled : SplashDestination()
     object Login : SplashDestination()
     object Dashboard : SplashDestination()
+}
+
+/**
+ * Pure, unit-testable splash routing. Fail-open on entitlements:
+ * `androidEnabled == null` (unknown) or `true` never blocks — only an explicit
+ * `false` routes to [SplashDestination.AndroidDisabled].
+ */
+fun decideSplashDestination(
+    hasSerial: Boolean,
+    androidEnabled: Boolean?,
+    hasSession: Boolean
+): SplashDestination {
+    if (!hasSerial) return SplashDestination.SerialActivation
+    if (androidEnabled == false) return SplashDestination.AndroidDisabled
+    return if (hasSession) SplashDestination.Dashboard else SplashDestination.Login
 }
 
 data class LoginUiState(
@@ -63,7 +81,8 @@ class LoginViewModel @Inject constructor(
 @HiltViewModel
 class SplashViewModel @Inject constructor(
     private val authRepository: AuthRepository,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val entitlementsRepository: EntitlementsRepository
 ) : ViewModel() {
     private val _destination = MutableStateFlow<SplashDestination?>(null)
     val destination: StateFlow<SplashDestination?> = _destination.asStateFlow()
@@ -77,8 +96,16 @@ class SplashViewModel @Inject constructor(
                     _destination.value = SplashDestination.SerialActivation
                     return@launch
                 }
+                // Best-effort entitlement refresh. refresh() already never throws,
+                // but belt-and-braces: even a surprise crash here must not break the
+                // splash flow — we just fall through to whatever is cached.
+                try {
+                    entitlementsRepository.refresh()
+                } catch (_: Exception) { /* keep cached values, fail-open */ }
+
+                val androidEnabled = sessionManager.androidEnabled.first()
                 val hasSession = authRepository.hasRememberedSession()
-                _destination.value = if (hasSession) SplashDestination.Dashboard else SplashDestination.Login
+                _destination.value = decideSplashDestination(hasSerial, androidEnabled, hasSession)
             } catch (e: Exception) {
                 _destination.value = SplashDestination.Login
             }

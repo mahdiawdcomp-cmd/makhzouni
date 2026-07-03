@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.WifiOff
@@ -82,6 +83,7 @@ import com.inventory.ui.catalog.CatalogManagementScreen
 import com.inventory.ui.voice.VoiceInvoiceScreen
 import com.inventory.ui.voice.OcrInvoiceScreen
 import com.inventory.ui.auth.SerialActivationScreen
+import com.inventory.ui.auth.AndroidDisabledScreen
 
 @Composable
 fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) {
@@ -89,31 +91,79 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
     val shellState by shellViewModel.state.collectAsState()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val showShell = currentRoute !in listOf(Routes.Splash, Routes.Login, Routes.SerialActivation, Routes.ProductScanner)
+    val showShell = currentRoute !in listOf(Routes.Splash, Routes.Login, Routes.SerialActivation, Routes.AndroidDisabled, Routes.ProductScanner)
 
     Scaffold(
         topBar = {
-            // Offline banner â€” Zoho amber style
-            AnimatedVisibility(visible = showShell && (!shellState.isOnline || shellState.pendingSync > 0)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFFEF3C7))
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        Icons.Default.WifiOff,
-                        contentDescription = null,
-                        tint = Color(0xFFB45309),
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = if (!shellState.isOnline) "أنت بدون إنترنت - البيانات محلية${if (shellState.pendingSync > 0) " | بانتظار المزامنة: ${shellState.pendingSync}" else ""}" else "بانتظار المزامنة: ${shellState.pendingSync}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF92400E)
-                    )
+            Column {
+                // Offline banner â€” Zoho amber style
+                AnimatedVisibility(visible = showShell && (!shellState.isOnline || shellState.pendingSync > 0)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFEF3C7))
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.WifiOff,
+                            contentDescription = null,
+                            tint = Color(0xFFB45309),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (!shellState.isOnline) "أنت بدون إنترنت - البيانات محلية${if (shellState.pendingSync > 0) " | بانتظار المزامنة: ${shellState.pendingSync}" else ""}" else "بانتظار المزامنة: ${shellState.pendingSync}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF92400E)
+                        )
+                    }
+                }
+                // Read-only mode banner (entitlements) — blue/gray informational style
+                AnimatedVisibility(visible = showShell && shellState.readOnly) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFDBEAFE))
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFF1D4ED8),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "النظام بوضع المشاهدة فقط. لا يمكن الإضافة أو التعديل حالياً.",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF1E3A8A)
+                        )
+                    }
+                }
+                // Blocked pending-sync banner (entitlements) — red-ish warning style
+                AnimatedVisibility(visible = showShell && shellState.blockedSyncCount > 0) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFFEE2E2))
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFFB91C1C),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = blockedSyncBannerText(shellState.blockedSyncReason),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF991B1B)
+                        )
+                    }
                 }
             }
         },
@@ -179,13 +229,22 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         viewModel = hiltViewModel(),
                         onLoggedIn = { navController.navigate(Routes.Dashboard) { popUpTo(Routes.Splash) { inclusive = true } } },
                         onLoginRequired = { navController.navigate(Routes.Login) { popUpTo(Routes.Splash) { inclusive = true } } },
-                        onSerialRequired = { navController.navigate(Routes.SerialActivation) { popUpTo(Routes.Splash) { inclusive = true } } }
+                        onSerialRequired = { navController.navigate(Routes.SerialActivation) { popUpTo(Routes.Splash) { inclusive = true } } },
+                        onAndroidDisabled = { navController.navigate(Routes.AndroidDisabled) { popUpTo(Routes.Splash) { inclusive = true } } }
                     )
                 }
                 composable(Routes.SerialActivation) {
                     SerialActivationScreen(
                         viewModel = hiltViewModel(),
                         onActivated = { navController.navigate(Routes.Login) { popUpTo(Routes.SerialActivation) { inclusive = true } } }
+                    )
+                }
+                composable(Routes.AndroidDisabled) {
+                    AndroidDisabledScreen(
+                        onRetry = {
+                            // Re-run the whole splash + entitlement check.
+                            navController.navigate(Routes.Splash) { popUpTo(Routes.AndroidDisabled) { inclusive = true } }
+                        }
                     )
                 }
                 composable(Routes.Login) {
@@ -222,6 +281,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onRetailOrders = { navController.navigate(Routes.RetailOrders) },
                         onOcrInvoice = { navController.navigate(Routes.OcrInvoice) },
                         onQuickScan = { navController.navigate(Routes.QuickScanInvoice) },
+                        tenantFeatures = shellState.tenantFeatures,
                     )
                 }
                 composable(Routes.Users) { UserManagementScreen(viewModel = hiltViewModel()) }
@@ -431,10 +491,12 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     )
                 }
                 composable(Routes.CatalogManagement) {
-                    CatalogManagementScreen(
-                        viewModel = hiltViewModel(),
-                        onBack = { navController.popBackStack() }
-                    )
+                    FeatureGated(shellState.tenantFeatures, "catalogWholesale") {
+                        CatalogManagementScreen(
+                            viewModel = hiltViewModel(),
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
                 }
                 composable(Routes.Operations) {
                     OperationsHubScreen(
@@ -451,21 +513,24 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onRetailOrders = { navController.navigate(Routes.RetailOrders) },
                         onLosses = { navController.navigate(Routes.Losses) },
                         isAdmin = shellState.isAdmin,
-                        permissions = shellState.permissions
+                        permissions = shellState.permissions,
+                        tenantFeatures = shellState.tenantFeatures
                     )
                 }
                 composable(Routes.Pos) {
-                    val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
-                    val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
-                    val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
-                    LaunchedEffect(scannedProductId, scannedProductUnit) {
-                        if (scannedProductId.isNotBlank()) {
-                            vm.addProductById(scannedProductId, scannedProductUnit)
-                            it.savedStateHandle["scannedProductId"] = ""
-                            it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                    FeatureGated(shellState.tenantFeatures, "pos") {
+                        val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
+                        val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
+                        val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
+                        LaunchedEffect(scannedProductId, scannedProductUnit) {
+                            if (scannedProductId.isNotBlank()) {
+                                vm.addProductById(scannedProductId, scannedProductUnit)
+                                it.savedStateHandle["scannedProductId"] = ""
+                                it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                            }
                         }
+                        SalesOperationScreen("POS", "POS سريع", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                     }
-                    SalesOperationScreen("POS", "POS سريع", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                 }
                 composable(Routes.Returns) {
                     val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
@@ -481,22 +546,30 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     SalesOperationScreen("RETURN", "مرتجع مبيعات", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                 }
                 composable(Routes.Quotations) {
-                    QuotationsScreen(hiltViewModel(), onBack = { navController.popBackStack() }, onCreate = { navController.navigate(Routes.QuotationCreate) })
+                    FeatureGated(shellState.tenantFeatures, "quotations") {
+                        QuotationsScreen(hiltViewModel(), onBack = { navController.popBackStack() }, onCreate = { navController.navigate(Routes.QuotationCreate) })
+                    }
                 }
                 composable(Routes.QuotationCreate) {
-                    val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
-                    val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
-                    val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
-                    LaunchedEffect(scannedProductId, scannedProductUnit) {
-                        if (scannedProductId.isNotBlank()) {
-                            vm.addProductById(scannedProductId, scannedProductUnit)
-                            it.savedStateHandle["scannedProductId"] = ""
-                            it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                    FeatureGated(shellState.tenantFeatures, "quotations") {
+                        val vm: com.inventory.ui.operations.SalesOperationViewModel = hiltViewModel()
+                        val scannedProductId by it.savedStateHandle.getStateFlow("scannedProductId", "").collectAsState()
+                        val scannedProductUnit by it.savedStateHandle.getStateFlow("scannedProductUnit", "PIECE").collectAsState()
+                        LaunchedEffect(scannedProductId, scannedProductUnit) {
+                            if (scannedProductId.isNotBlank()) {
+                                vm.addProductById(scannedProductId, scannedProductUnit)
+                                it.savedStateHandle["scannedProductId"] = ""
+                                it.savedStateHandle["scannedProductUnit"] = "PIECE"
+                            }
                         }
+                        SalesOperationScreen("QUOTATION", "عرض سعر", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                     }
-                    SalesOperationScreen("QUOTATION", "عرض سعر", vm, onBack = { navController.popBackStack() }, onScan = { navController.navigate(Routes.ProductScannerInvoice) })
                 }
-                composable(Routes.Transfers) { TransfersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.Transfers) {
+                    FeatureGated(shellState.tenantFeatures, "transfers") {
+                        TransfersScreen(hiltViewModel(), onBack = { navController.popBackStack() })
+                    }
+                }
                 composable(Routes.Losses) { LossesScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
                 composable(Routes.Branches) {
                     BranchesScreen(
@@ -513,8 +586,16 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     )
                 }
                 composable(Routes.Coupons) { CouponsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
-                composable(Routes.AuditLogs) { AuditLogsScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
-                composable(Routes.RetailOrders) { RetailOrdersScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.AuditLogs) {
+                    FeatureGated(shellState.tenantFeatures, "auditLog") {
+                        AuditLogsScreen(hiltViewModel(), onBack = { navController.popBackStack() })
+                    }
+                }
+                composable(Routes.RetailOrders) {
+                    FeatureGated(shellState.tenantFeatures, "retailShop") {
+                        RetailOrdersScreen(hiltViewModel(), onBack = { navController.popBackStack() })
+                    }
+                }
                 composable(Routes.DashboardReport) { DashboardReportScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Reports) { ReportsScreen(viewModel = hiltViewModel()) }
                 composable(Routes.Settings) { SettingsScreen(viewModel = hiltViewModel()) }
@@ -525,6 +606,55 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onBack = { navController.popBackStack() }
                     )
                 }
+            }
+        }
+    }
+}
+
+/** Maps the stored blocked-op reason (raw entitlement code or legacy free text) to Arabic. */
+internal fun blockedSyncBannerText(reason: String?): String = when (reason) {
+    "READ_ONLY_MODE" -> "توجد عمليات لم تتم مزامنتها لأن النظام بوضع المشاهدة فقط."
+    "FEATURE_NOT_ENABLED" -> "توجد عمليات لم تتم مزامنتها لأن ميزة معينة غير مفعّلة في نسختك."
+    else -> "توجد عمليات لم تتم مزامنتها."
+}
+
+/**
+ * Case-insensitive membership check against the tenant's enabled feature list.
+ * Fail-open: an entirely empty list means entitlements were never fetched
+ * ("unknown"), so we allow rather than lock a legitimate tenant out of a screen.
+ */
+internal fun hasFeature(features: List<String>, feature: String): Boolean =
+    features.isEmpty() || features.any { it.equals(feature, ignoreCase = true) }
+
+/**
+ * Renders a small centered "feature not enabled" message instead of [content]
+ * when the tenant lacks [feature]. Guards a destination screen so a hidden tile
+ * can't be bypassed via deep link / back stack.
+ */
+@Composable
+private fun FeatureGated(
+    features: List<String>,
+    feature: String,
+    content: @Composable () -> Unit
+) {
+    if (hasFeature(features, feature)) {
+        content()
+    } else {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier.padding(32.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF9CA3AF), modifier = Modifier.size(18.dp))
+                Text(
+                    text = "هذه الميزة غير مفعلة في نسختك.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
