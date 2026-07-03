@@ -24,6 +24,8 @@ interface ApplyEntry {
   phone?: string | null;
   amount: number;
   customerId?: string | null;
+  notes?: string | null;
+  oldCode?: string | null;
 }
 
 interface EntryResult {
@@ -121,11 +123,20 @@ export const applyOpeningBalances = asyncHandler(async (req, res) => {
       // own calculator compute currentBalance (for a brand-new customer with no
       // transactions it resolves to openingBalance, but we never assume that —
       // we use the official path so the number is always the system's own).
+      // Preserve the old-system code + notes on the new customer's notes field
+      // (no schema change / migration). Purely informational.
+      const noteParts = [
+        String(entry?.notes ?? "").trim(),
+        entry?.oldCode ? `كود قديم: ${String(entry.oldCode).trim()}` : "",
+      ].filter(Boolean);
+      const notes = noteParts.length ? noteParts.join(" — ") : undefined;
+
       const customer = await prisma.customer.create({
         data: {
           name,
           phone,
           openingBalance: amount,
+          notes,
         },
       });
       await recalculateCustomerBalance(customer.id);

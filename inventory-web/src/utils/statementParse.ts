@@ -9,6 +9,10 @@ export interface ParsedRow {
   name: string
   phone?: string
   amount: number
+  /** Old-system customer code, if the file has one. */
+  oldCode?: string
+  /** Free-text notes from the old statement, if any. */
+  notes?: string
   /** The original text line / cell values — shown so the user can verify. */
   raw: string
 }
@@ -104,10 +108,14 @@ async function parseExcel(file: File): Promise<ParseResult> {
   let nameIdx = -1
   let amountIdx = -1
   let phoneIdx = -1
+  let codeIdx = -1
+  let notesIdx = -1
   let headerRow = -1
-  const isName = (s: string) => /الاسم|اسم|name|الزبون|العميل|account|الحساب/i.test(s)
-  const isAmount = (s: string) => /الرصيد|رصيد|balance|المبلغ|مبلغ|debt|دين/i.test(s)
+  const isName = (s: string) => /old_name|الاسم|اسم|name|الزبون|العميل|account|الحساب/i.test(s)
+  const isAmount = (s: string) => /debit|الرصيد|رصيد|balance|المبلغ|مبلغ|debt|دين|مدين/i.test(s)
   const isPhone = (s: string) => /هاتف|جوال|موبايل|phone|mobile|tel/i.test(s)
+  const isCode = (s: string) => /old_code|الكود|كود|code|رقم قديم|رقم الحساب/i.test(s)
+  const isNotes = (s: string) => /notes|ملاحظات|ملاحظة|بيان/i.test(s)
 
   for (let r = 0; r < Math.min(aoa.length, 10); r++) {
     const cells = (aoa[r] ?? []).map((c) => String(c ?? "").trim())
@@ -117,6 +125,8 @@ async function parseExcel(file: File): Promise<ParseResult> {
       nameIdx = nI
       amountIdx = aI
       phoneIdx = cells.findIndex(isPhone)
+      codeIdx = cells.findIndex(isCode)
+      notesIdx = cells.findIndex(isNotes)
       headerRow = r
       break
     }
@@ -133,11 +143,15 @@ async function parseExcel(file: File): Promise<ParseResult> {
     let name = ""
     let amount: number | null = null
     let phone: string | undefined
+    let oldCode: string | undefined
+    let notes: string | undefined
 
     if (nameIdx !== -1 && amountIdx !== -1) {
       name = cells[nameIdx] ?? ""
       amount = extractAmount(cells[amountIdx] ?? "")
       if (phoneIdx !== -1 && cells[phoneIdx]) phone = cells[phoneIdx]
+      if (codeIdx !== -1 && cells[codeIdx]) oldCode = cells[codeIdx]
+      if (notesIdx !== -1 && cells[notesIdx]) notes = cells[notesIdx]
     } else {
       // No headers: first text cell = name, last numeric cell = amount.
       name = cells.find((c) => c && extractAmount(c) === null) ?? ""
@@ -148,7 +162,7 @@ async function parseExcel(file: File): Promise<ParseResult> {
     }
 
     if (!name || amount === null) continue
-    rows.push({ name, amount, phone, raw })
+    rows.push({ name, amount, phone, oldCode, notes, raw })
   }
   return { rows, totalLines, source: "excel" }
 }

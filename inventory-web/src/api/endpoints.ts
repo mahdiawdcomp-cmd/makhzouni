@@ -584,6 +584,8 @@ export interface BalanceMigrationEntry {
   phone?: string | null
   amount: number
   customerId?: string | null
+  notes?: string | null
+  oldCode?: string | null
 }
 
 export interface BalanceMigrationResult {
