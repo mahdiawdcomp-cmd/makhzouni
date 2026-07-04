@@ -10,6 +10,7 @@ import {
   notifyCatalogOrderSubmitted,
 } from "./order-preparation.service";
 import { getSettings } from "./settings.service";
+import { hasFeature } from "../middleware/tenant.middleware";
 
 type CatalogOrderInput = {
   customerName: string;
@@ -379,11 +380,27 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
     bannerImages: settings.catalogDesignBannerImages ?? [],
   };
 
+  // SaaS entitlement gates — display-time only, the stored per-link values are
+  // never modified. Standalone/no-entitlements tenants always pass (hasFeature
+  // fail-open). Each fallback matches this codebase's own existing default for
+  // an unconfigured link, so a tenant without the paid feature just falls back
+  // to the same baseline every new link already starts from.
+  const [showHidePriceEnabled, showHideStockEnabled, fullCartonFilterEnabled] = await Promise.all([
+    hasFeature("catalogShowHidePrice"),
+    hasFeature("catalogShowHideStock"),
+    hasFeature("catalogFullCartonFilter"),
+  ]);
+  const allowPrices = showHidePriceEnabled ? link.allow_prices : false;
+  const showStock = showHideStockEnabled ? link.show_stock : true;
+  const stockFilter = fullCartonFilterEnabled
+    ? (link.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY)
+    : CatalogStockFilter.FULL_CARTON_ONLY;
+
   return {
     customer,
-    allowPrices: link.allow_prices,
-    showStock: link.show_stock,
-    stockFilter: link.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY,
+    allowPrices,
+    showStock,
+    stockFilter,
     needsOtp,
     catalogDesign,
   };

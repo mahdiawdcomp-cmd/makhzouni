@@ -51,6 +51,7 @@ import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
+import { useFeatureEnabled } from "../hooks/useTenantConfig"
 
 dayjs.extend(relativeTime)
 dayjs.locale("ar")
@@ -114,6 +115,9 @@ function GrantDialog({
   const [showStock, setShowStock] = useState(true)
   const [stockFilter, setStockFilter] = useState<CatalogStockFilter>("FULL_CARTON_ONLY")
   const qc = useQueryClient()
+  const showHidePriceEnabled = useFeatureEnabled("catalogShowHidePrice")
+  const showHideStockEnabled = useFeatureEnabled("catalogShowHideStock")
+  const fullCartonFilterEnabled = useFeatureEnabled("catalogFullCartonFilter")
 
   const mutation = useMutation({
     mutationFn: () => grantCatalogAccess(customer.id, { allowPrices, showStock, stockFilter }),
@@ -145,10 +149,14 @@ function GrantDialog({
             <input
               type="checkbox"
               checked={allowPrices}
+              disabled={!showHidePriceEnabled}
               onChange={(e) => setAllowPrices(e.target.checked)}
               className="h-4 w-4 accent-blue-600"
             />
           </label>
+          {!showHidePriceEnabled && (
+            <p className="text-[11px] text-amber-600">ميزة التحكم بالسعر غير مفعّلة في خطتك.</p>
+          )}
 
           <label className="flex cursor-pointer items-center justify-between rounded-lg border p-3 transition hover:bg-slate-50">
             <div className="flex items-center gap-2">
@@ -158,10 +166,14 @@ function GrantDialog({
             <input
               type="checkbox"
               checked={showStock}
+              disabled={!showHideStockEnabled}
               onChange={(e) => setShowStock(e.target.checked)}
               className="h-4 w-4 accent-emerald-600"
             />
           </label>
+          {!showHideStockEnabled && (
+            <p className="text-[11px] text-amber-600">ميزة التحكم بالمخزون غير مفعّلة في خطتك.</p>
+          )}
 
           <div className="rounded-lg border p-3">
             <p className="mb-2 flex items-center gap-2 font-medium">
@@ -170,13 +182,17 @@ function GrantDialog({
             </p>
             <select
               value={stockFilter}
+              disabled={!fullCartonFilterEnabled}
               onChange={(e) => setStockFilter(e.target.value as CatalogStockFilter)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
             >
               <option value="FULL_CARTON_ONLY">كارتون كامل فقط (الافتراضي)</option>
               <option value="ALL_PRODUCTS">كل المواد المتوفرة حتى لو أقل من كارتون</option>
             </select>
             <p className="mt-1.5 text-[11px] text-slate-400">البيع يبقى بالكارتون فقط — هذا الخيار يتحكم بالعرض فقط.</p>
+            {!fullCartonFilterEnabled && (
+              <p className="mt-1 text-[11px] text-amber-600">ميزة فلتر الكرتون الكامل غير مفعّلة في خطتك.</p>
+            )}
           </div>
         </div>
 
@@ -201,6 +217,9 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
   const [promo, setPromo] = useState("")
   const [confirmDelete, setConfirmDelete] = useState(false)
   const qc = useQueryClient()
+  const showHidePriceEnabled = useFeatureEnabled("catalogShowHidePrice")
+  const showHideStockEnabled = useFeatureEnabled("catalogShowHideStock")
+  const fullCartonFilterEnabled = useFeatureEnabled("catalogFullCartonFilter")
 
   const deleteMut = useMutation({
     mutationFn: () => deleteCustomer(customer.id),
@@ -287,7 +306,7 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
             labelOff="مخفية"
             iconOn={<Tag className="h-3 w-3" />}
             iconOff={<Tag className="h-3 w-3 opacity-40" />}
-            disabled={!customer.hasAccess || isLoading}
+            disabled={!customer.hasAccess || isLoading || !showHidePriceEnabled}
             onClick={() => patchMut.mutate({ allowPrices: !customer.allowPrices })}
           />
         </td>
@@ -300,7 +319,7 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
             labelOff="مخفية"
             iconOn={<Eye className="h-3 w-3" />}
             iconOff={<EyeOff className="h-3 w-3" />}
-            disabled={!customer.hasAccess || isLoading}
+            disabled={!customer.hasAccess || isLoading || !showHideStockEnabled}
             onClick={() => patchMut.mutate({ showStock: !customer.showStock })}
           />
         </td>
@@ -313,7 +332,7 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
             labelOff="كارتون كامل"
             iconOn={<BookOpen className="h-3 w-3" />}
             iconOff={<BookOpen className="h-3 w-3 opacity-40" />}
-            disabled={!customer.hasAccess || isLoading}
+            disabled={!customer.hasAccess || isLoading || !fullCartonFilterEnabled}
             onClick={() =>
               patchMut.mutate({
                 stockFilter: customer.stockFilter === "ALL_PRODUCTS" ? "FULL_CARTON_ONLY" : "ALL_PRODUCTS",
