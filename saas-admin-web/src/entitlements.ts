@@ -124,10 +124,10 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     key: "aiMonitoring",
     title: "الذكاء والمراقبة",
     items: [
-      { key: "systemHealthAdvanced", label: "صحة النظام المتقدمة", description: "مؤشرات صحة تفصيلية للنظام والنسخ الاحتياطي" },
+      { key: "systemHealthAdvanced", label: "صحة النظام المتقدمة", description: "مؤشرات صحة تفصيلية للنظام والنسخ الاحتياطي", hidden: true },
       { key: "aiErrorAnalysis", label: "تحليل الأخطاء بالذكاء", description: "تحليل تلقائي لسجل الأخطاء بالذكاء الاصطناعي" },
-      { key: "campaignProblemAnalysis", label: "تحليل مشاكل الحملات", description: "تشخيص أسباب فشل تسليم رسائل الحملات" },
-      { key: "advancedAlerts", label: "تنبيهات متقدمة", description: "تنبيهات إضافية موسمية وذكية" },
+      { key: "campaignProblemAnalysis", label: "تحليل مشاكل الحملات", description: "تشخيص أسباب فشل تسليم رسائل الحملات", hidden: true },
+      { key: "advancedAlerts", label: "تنبيهات متقدمة", description: "تنبيهات إضافية موسمية وذكية", hidden: true },
     ],
   },
   {

@@ -33,6 +33,12 @@ export type TenantStatusValue = (typeof TENANT_STATUSES)[number];
  * audit: profitReports/advancedPermissions are always-on base behavior
  * (never actually gated), catalogOtp is a hardcoded security check with no
  * on/off toggle, and backupRestore has no cloud restore endpoint to gate.
+ *
+ * Batch 18B: same treatment for systemHealthAdvanced, advancedAlerts, and
+ * campaignProblemAnalysis — kept here for the same backward-compat reason,
+ * hidden in the web UI. Batch 18A audit: none of the three have any
+ * implementation anywhere in the codebase yet (zero references in
+ * inventory-web/inventory-backend).
  */
 export const FEATURE_GROUPS = {
   inventory: [
