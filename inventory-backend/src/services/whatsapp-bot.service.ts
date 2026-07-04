@@ -5,6 +5,7 @@ import { normalizePhone } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { handleIncomingProspectReply } from "./prospect.service";
+import { hasFeature } from "../middleware/tenant.middleware";
 
 function money(v: number | string | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)));
@@ -46,10 +47,19 @@ export async function routeIncomingMessage(rawPhone: string, text: string) {
   // Visibility log so we can confirm Green API actually reaches the server.
   logger.info(`[WhatsAppBot] incoming from ${phone}: ${text.slice(0, 80)}`);
 
+  // SaaS entitlement gate — standalone (no TENANT_ID) and tenants with no
+  // entitlements configured yet always resolve to true (see hasFeature()),
+  // so this only actually blocks a tenant whose Super Admin explicitly
+  // disabled the whatsappBot feature.
+  const botEntitled = await hasFeature("whatsappBot");
+  if (settings.whatsappBotEnabled && !botEntitled) {
+    logger.info("[whatsapp-bot] skipped: feature disabled");
+  }
+
   const customer = await prisma.customer.findUnique({ where: { phone } });
 
   // 1) Known customer + customer-service bot enabled → try a command auto-reply.
-  if (customer && settings.whatsappBotEnabled) {
+  if (customer && settings.whatsappBotEnabled && botEntitled) {
     const reply = await composeCustomerReply(customer, text, settings);
     if (reply) {
       await sendWhatsAppText(phone, reply).catch((err) =>
@@ -77,7 +87,7 @@ export async function routeIncomingMessage(rawPhone: string, text: string) {
   // Send the generic "wait for admin" reply only on the FIRST contact from this
   // number — otherwise a chatty sender gets the same message on every message.
   const priorMessages = await prisma.inboundMessage.count({ where: { phone } });
-  if (settings.whatsappBotEnabled && priorMessages === 0) {
+  if (settings.whatsappBotEnabled && botEntitled && priorMessages === 0) {
     const unknownMsg = settings.botUnknownMessage?.trim() || "هلا، استلمنا رسالتك، الإدارة رح ترد عليك قريباً.";
     await sendWhatsAppText(phone, unknownMsg).catch((err) =>
       logger.warn(`[WhatsAppBot] unknown-reply failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`)
