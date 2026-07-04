@@ -60,6 +60,8 @@ export interface BackupData {
     auditLogsLimit: number;
     auditLogsExported: number;
     auditLogsTotal: number;
+    /** Present only when an optional (non-restore-critical) section was skipped. */
+    warnings?: string[];
   };
   users: unknown[];
   products: unknown[];
@@ -103,8 +105,6 @@ export async function generateFullBackup(lean = false): Promise<BackupData> {
     settingsRows,
     stockMovements,
     transfers,
-    auditLogs,
-    auditLogsTotal,
   ] = await Promise.all([
     prisma.user.findMany({
       select: {
@@ -133,9 +133,27 @@ export async function generateFullBackup(lean = false): Promise<BackupData> {
       include: { items: true },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: AUDIT_LOG_LIMIT }),
-    prisma.auditLog.count(),
   ]);
+
+  // AuditLog is history-only (not needed to restore state) — kept OUT of the
+  // Promise.all above and isolated in its own try/catch so a single corrupt
+  // row (e.g. an unreadable string the Prisma engine can't convert) skips
+  // just this section instead of failing the entire backup with a 500.
+  let auditLogs: unknown[] = [];
+  let auditLogsTotal = 0;
+  let auditLogWarning: string | null = null;
+  try {
+    [auditLogs, auditLogsTotal] = await Promise.all([
+      prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: AUDIT_LOG_LIMIT }),
+      prisma.auditLog.count(),
+    ]);
+  } catch (error) {
+    auditLogWarning = "AUDIT_LOG_SKIPPED";
+    console.warn("[backup] AuditLog skipped during full backup — table read failed", {
+      name: error instanceof Error ? error.name : "UnknownError",
+      code: (error as { code?: string } | undefined)?.code,
+    });
+  }
 
   return {
     version: "2.1",
@@ -161,6 +179,7 @@ export async function generateFullBackup(lean = false): Promise<BackupData> {
       auditLogsLimit: AUDIT_LOG_LIMIT,
       auditLogsExported: auditLogs.length,
       auditLogsTotal,
+      ...(auditLogWarning ? { warnings: [auditLogWarning] } : {}),
     },
     users,
     products,
