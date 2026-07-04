@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react"
 import { useTenantConfig } from "./hooks/useTenantConfig"
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
+import WebPlatformDisabledPage from "./pages/WebPlatformDisabledPage"
 import { createBrowserRouter, Link, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
@@ -166,6 +167,12 @@ export default function App() {
 
   if (tenant?.isSuspended) return <SubscriptionExpiredPage suspended />
   if (tenant?.isExpired)    return <SubscriptionExpiredPage />
+
+  // SaaS tenants with the web platform explicitly disabled get a full block,
+  // not just the informational banner. Standalone (mahdi) and tenants without
+  // a platforms config are never affected (=== false only).
+  if (tenant?.mode === "saas" && tenant.platforms?.webEnabled === false)
+    return <WebPlatformDisabledPage />
 
   return <RouterProvider router={router} />
 }
