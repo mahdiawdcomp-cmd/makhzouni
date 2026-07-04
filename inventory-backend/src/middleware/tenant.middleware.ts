@@ -230,6 +230,12 @@ export const ROUTE_FEATURE_MAP: ReadonlyArray<RouteFeatureRule> = [
   { prefix: "/audit-logs", featureKey: "auditLog", label: "/audit-logs" },
   { prefix: "/inbound-messages", featureKey: "whatsappInbox", label: "/inbound-messages" },
   { prefix: "/quotations", featureKey: "quotations", label: "/quotations" },
+  // dailyClosing: the end-of-day cash-closing report only. Narrow exact prefix
+  // so no other /reports/* endpoint is affected. profitReports is intentionally
+  // NOT gated here — it is still listed under the always-on BASE version, so
+  // gating it would break tenants that were never granted the key (needs a
+  // product decision + entitlements cleanup first).
+  { prefix: "/reports/end-of-day", featureKey: "dailyClosing", label: "/reports/end-of-day" },
   // stocktake: gate the authenticated management routes, but keep the public
   // worker QR flow (/stocktake/public/:token/...) reachable — it's token-authed,
   // not tenant-session-based, and must not be broken by feature gating.
