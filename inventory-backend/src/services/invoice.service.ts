@@ -356,7 +356,7 @@ async function applyStockMovement(
         if (quantityInPieces > available) {
           const wh = await tx.branch.findUnique({ where: { id: requestedId }, select: { name: true } });
           throw new AppError(
-            `${wh?.name ?? "المخزن"} يحتوي فقط على ${available} قطعة من "${product.name}".`,
+            `${wh?.name ?? "المخزن"} يحتوي فقط على ${available} قطعة من "${product.name}". قلّل الكمية أو أضف مخزون للمادة.`,
             409,
             "INSUFFICIENT_SHOP_STOCK"
           );
@@ -390,7 +390,7 @@ async function applyStockMovement(
       const wh = await tx.branch.findUnique({ where: { id: warehouseId }, select: { name: true } });
       const whName = wh?.name ?? "المخزن";
       throw new AppError(
-        `${whName} يحتوي فقط على ${available} قطعة من "${product.name}".`,
+        `${whName} يحتوي فقط على ${available} قطعة من "${product.name}". قلّل الكمية أو أضف مخزون للمادة.`,
         409,
         "INSUFFICIENT_SHOP_STOCK"
       );
@@ -516,6 +516,13 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
     throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
   }
 
+  // Sales always come out of المحل, so reverse them straight back INTO المحل —
+  // even for legacy invoices whose stored line warehouse points at a depot or is
+  // null. Crediting that stale warehouse instead would restock the wrong place
+  // and then trigger a false "نقص مخزون" (409) when the invoice is re-applied.
+  const saleWarehouseId =
+    invoice.type === InvoiceType.SALE ? await resolveShopWarehouseId(tx) : null;
+
   for (const item of invoice.items) {
     const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
     await adjustProductStock(
@@ -523,7 +530,7 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
       item.productId,
       quantityInPieces,
       isStockInflow(invoice.type) ? "OUT" : "IN",
-      item.warehouseId
+      invoice.type === InvoiceType.SALE ? saleWarehouseId : item.warehouseId
     );
   }
 
@@ -548,7 +555,12 @@ async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {
       invoice.id,
       {
         productId: item.productId,
-        warehouseId: item.warehouseId ?? undefined,
+        // Re-applying a SALE always deducts from المحل — drop any stale line
+        // warehouse so it never re-triggers an auto-transfer from an empty depot
+        // (the mirror of the shop-based reversal above). Purchases/returns keep
+        // their own stored warehouse.
+        warehouseId:
+          invoice.type === InvoiceType.SALE ? undefined : (item.warehouseId ?? undefined),
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: toNumber(item.unitPrice),
@@ -993,9 +1005,18 @@ async function updateInvoiceInTransaction(
     await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
 
     // Preserve the original invoice type if the caller didn't explicitly set one.
+    const effectiveType = input.type ?? invoice.type;
+    // A SALE always deducts from المحل. On edit we already reversed the original
+    // shop deduction, so re-deduct straight from المحل and ignore any stale/legacy
+    // line warehouse the frontend echoed back — otherwise recreating the lines
+    // would auto-transfer from an empty depot and raise a false 409.
+    const rebuildItems =
+      effectiveType === InvoiceType.SALE
+        ? input.items.map((it) => ({ ...it, warehouseId: undefined }))
+        : input.items;
     const result = await createInvoiceInTransaction(
       tx,
-      { ...input, type: input.type ?? invoice.type, customerId: invoice.customerId },
+      { ...input, items: rebuildItems, type: effectiveType, customerId: invoice.customerId },
       updatedBy,
       id,
       invoice.invoiceNumber

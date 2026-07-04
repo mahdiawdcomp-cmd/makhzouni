@@ -31,6 +31,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { toast } from "../components/ui/use-toast"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { ErrorExplain } from "../components/ui/error-explain"
 import { RecordNavigator } from "../components/RecordNavigator"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 
@@ -698,7 +699,7 @@ export function InvoiceDetailPage() {
             <Button className="w-full" onClick={() => editMutation.mutate()} disabled={editMutation.isPending || editItems.length === 0 || editTotal < 0}>
               {editMutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin ml-2" /> : null} حفظ التعديلات
             </Button>
-            {editMutation.isError ? <div className="rounded-md bg-red-50 p-2 text-sm text-red-700">{editMutation.error instanceof Error ? editMutation.error.message : "تعذر التعديل"}</div> : null}
+            {editMutation.isError ? <ErrorExplain error={editMutation.error} fallback="تعذر تعديل الفاتورة" /> : null}
           </div>
         </DialogContent>
       </Dialog>
