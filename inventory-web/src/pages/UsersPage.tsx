@@ -33,9 +33,11 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "SELL_WITH_DISCOUNT",  label: "السماح بالخصم",     hint: "يمكنه تطبيق خصومات عند إنشاء الفواتير", group: "sell" },
   { id: "VIEW_PURCHASE_PRICE", label: "عرض سعر الشراء",    hint: "يرى سعر الشراء للمواد", group: "sell" },
   { id: "ACCESS_POS",          label: "نقطة البيع فقط",    hint: "صلاحية استخدام الكاشير المبسط فقط", group: "sell" },
-  // Warehouse transfers
+  // Warehouse transfers / stocktake
   { id: "REQUEST_TRANSFER",    label: "طلب تحويل",          hint: "يدخل صفحة التحويل ويرسل طلب نقل بين المخازن", group: "transfer" },
   { id: "MANAGE_TRANSFERS",    label: "إدارة المخزن (قبول التحويلات)", hint: "يقبل أو يرفض طلبات التحويل بين المخازن", group: "transfer" },
+  { id: "INVENTORY_MANAGE",    label: "جرد المخزون",        hint: "يفتح ويدير جلسات الجرد (الستوكتيك)", group: "transfer" },
+  { id: "VARIETY_CONVERT",     label: "تحويل الصنف",        hint: "صلاحية محدودة لصفحة تحويل الأصناف بدون رؤية الأسعار", group: "transfer" },
 ]
 
 const fullPermissions = allPermissions.map((permission) => permission.id)
@@ -352,6 +354,22 @@ export function UsersPage() {
                 const checked = form.role === "ADMIN" || (form.permissions ?? []).includes(permission.id)
                 return (
                   <label key={permission.id} className="flex gap-3 rounded-md border border-amber-100 bg-amber-50/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+                    <input type="checkbox" checked={checked} disabled={form.role === "ADMIN"} onChange={() => togglePermission(permission.id)} />
+                    <span>
+                      <span className="block font-medium">{permission.label}</span>
+                      <span className="block text-xs text-slate-500">{permission.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="my-3 border-t border-slate-200 dark:border-slate-700" />
+            <div className="mb-2 text-sm font-semibold text-slate-600">صلاحيات المخازن والتحويلات</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {allPermissions.filter((p) => p.group === "transfer").map((permission) => {
+                const checked = form.role === "ADMIN" || (form.permissions ?? []).includes(permission.id)
+                return (
+                  <label key={permission.id} className="flex gap-3 rounded-md border border-sky-100 bg-sky-50/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
                     <input type="checkbox" checked={checked} disabled={form.role === "ADMIN"} onChange={() => togglePermission(permission.id)} />
                     <span>
                       <span className="block font-medium">{permission.label}</span>
