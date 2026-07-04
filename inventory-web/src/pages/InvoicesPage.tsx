@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-table"
 import { Ban, ChevronDown, ChevronUp, Eye, Pencil, Plus, Receipt, RotateCcw, ShoppingCart, Trash2, Undo2 } from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { cancelInvoice, getRecentlyDeletedInvoices, permanentDeleteInvoice, restoreArchivedInvoice } from "../api/endpoints"
+import { cancelInvoice, getBranches, getRecentlyDeletedInvoices, permanentDeleteInvoice, restoreArchivedInvoice } from "../api/endpoints"
 import { useInvoices } from "../hooks/useInvoices"
 import type { Invoice, InvoiceType } from "../types/api"
 import { Badge } from "../components/ui/badge"
@@ -119,23 +119,33 @@ export function InvoicesPage() {
     onError: (err: Error) => { alert(err.message) },
   })
 
+  const [returnWarehouseId, setReturnWarehouseId] = useState("")
+
   const cancelMutation = useMutation({
-    mutationFn: (id: string) => cancelInvoice(id),
+    mutationFn: (id: string) => cancelInvoice(id, returnWarehouseId || undefined),
     onSuccess: () => {
       setCancelId(null)
+      setReturnWarehouseId("")
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => permanentDeleteInvoice(id),
+    mutationFn: (id: string) => permanentDeleteInvoice(id, returnWarehouseId || undefined),
     onSuccess: () => {
       setDeleteId(null)
+      setReturnWarehouseId("")
       void qc.invalidateQueries({ queryKey: ["invoices"] })
       void qc.invalidateQueries({ queryKey: ["customers"] })
     },
   })
+  const { data: warehousesList = [] } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => getBranches({ isActive: true }),
+    enabled: !!cancelId || !!deleteId,
+  })
+
   const urlType = searchParams.get("type")
   const typeFilter: TypeFilter = urlType === "SALE" || urlType === "PURCHASE" || urlType === "SALES_RETURN" ? urlType : "ALL"
   const urlFrom = searchParams.get("from") ?? ""
@@ -255,7 +265,7 @@ export function InvoicesPage() {
             <Button
               variant="outline"
               size="sm"
-              title="حذف نهائي"
+              title="حذف (قابل للاسترجاع 48 ساعة)"
               className="border-rose-300 text-rose-700 hover:bg-rose-50"
               onClick={() => setDeleteId(row.original.id)}
             >
@@ -475,18 +485,26 @@ export function InvoicesPage() {
         destructive
         loading={cancelMutation.isPending}
         onConfirm={() => { if (cancelId) cancelMutation.mutate(cancelId) }}
-        onCancel={() => setCancelId(null)}
-      />
+        onCancel={() => { setCancelId(null); setReturnWarehouseId("") }}
+      >
+        {invoices.find((i) => i.id === cancelId)?.type === "SALE" && (
+          <ReturnWarehouseSelect warehouses={warehousesList} value={returnWarehouseId} onChange={setReturnWarehouseId} />
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={!!deleteId}
-        title="حذف هذه الفاتورة نهائياً؟"
-        description="سيُحذف من قاعدة البيانات ويرجع المخزون. لا يمكن التراجع عن هذا الإجراء."
-        confirmLabel="حذف نهائي"
+        title="حذف هذه الفاتورة؟"
+        description="سيُلغى تأثيرها ويرجع المخزون، وتُخفى من القوائم مع بقائها محفوظة للتدقيق. يمكن استرجاعها خلال 48 ساعة."
+        confirmLabel="حذف"
         destructive
         loading={deleteMutation.isPending}
         onConfirm={() => { if (deleteId) deleteMutation.mutate(deleteId) }}
-        onCancel={() => setDeleteId(null)}
-      />
+        onCancel={() => { setDeleteId(null); setReturnWarehouseId("") }}
+      >
+        {invoices.find((i) => i.id === deleteId)?.type === "SALE" && (
+          <ReturnWarehouseSelect warehouses={warehousesList} value={returnWarehouseId} onChange={setReturnWarehouseId} />
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={!!restoreId}
         title="استرجاع الفاتورة؟"
@@ -496,6 +514,32 @@ export function InvoicesPage() {
         onConfirm={() => { if (restoreId) restoreMutation.mutate(restoreId) }}
         onCancel={() => setRestoreId(null)}
       />
+    </div>
+  )
+}
+
+function ReturnWarehouseSelect({
+  warehouses,
+  value,
+  onChange,
+}: {
+  warehouses: { id: string; name: string }[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div className="mt-3 space-y-1">
+      <label className="text-sm font-medium">إرجاع المواد إلى مخزن:</label>
+      <select
+        className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">المحل (الافتراضي)</option>
+        {warehouses.map((w) => (
+          <option key={w.id} value={w.id}>{w.name}</option>
+        ))}
+      </select>
     </div>
   )
 }

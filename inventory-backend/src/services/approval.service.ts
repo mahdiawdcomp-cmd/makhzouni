@@ -396,7 +396,8 @@ async function executeApprovedRequest(
         data.params && typeof data.params === "object"
           ? String((data.params as Record<string, unknown>).id)
           : "",
-        tx
+        tx,
+        typeof data.returnWarehouseId === "string" ? data.returnWarehouseId : undefined
       );
     case approvalRequestTypes.HARD_DELETE_INVOICE:
       return hardDeleteInvoice(
@@ -404,7 +405,8 @@ async function executeApprovedRequest(
           ? String((data.params as Record<string, unknown>).id)
           : "",
         reviewerId,
-        typeof data.reason === "string" ? data.reason : undefined
+        typeof data.reason === "string" ? data.reason : undefined,
+        typeof data.returnWarehouseId === "string" ? data.returnWarehouseId : undefined
       );
     case approvalRequestTypes.CREATE_VOUCHER:
       return createVoucher(

@@ -136,15 +136,24 @@ export const editInvoice = asyncHandler(async (req, res) => {
 export const deleteInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
+  const returnWarehouseId =
+    typeof req.query.returnWarehouseId === "string" && req.query.returnWarehouseId
+      ? req.query.returnWarehouseId
+      : undefined;
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
     res.status(202).json(
-      await queueInvoiceApproval("CANCEL_INVOICE", { params: { id } }, user.id, user.name)
+      await queueInvoiceApproval(
+        "CANCEL_INVOICE",
+        { params: { id }, returnWarehouseId },
+        user.id,
+        user.name
+      )
     );
     return;
   }
 
-  const invoice = await cancelInvoice(id);
+  const invoice = await cancelInvoice(id, undefined, returnWarehouseId);
 
   res.json({
     success: true,
@@ -156,15 +165,24 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
 export const permanentDeleteInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
+  const returnWarehouseId =
+    typeof req.query.returnWarehouseId === "string" && req.query.returnWarehouseId
+      ? req.query.returnWarehouseId
+      : undefined;
 
   if (user.role === UserRole.STAFF) {
     res.status(202).json(
-      await queueInvoiceApproval("HARD_DELETE_INVOICE", { params: { id } }, user.id, user.name)
+      await queueInvoiceApproval(
+        "HARD_DELETE_INVOICE",
+        { params: { id }, returnWarehouseId },
+        user.id,
+        user.name
+      )
     );
     return;
   }
 
-  const result = await hardDeleteInvoice(id, user.id);
+  const result = await hardDeleteInvoice(id, user.id, undefined, returnWarehouseId);
 
   res.json({
     success: true,

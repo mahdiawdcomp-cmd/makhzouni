@@ -502,7 +502,7 @@ async function adjustProductStock(
   await syncProductTotalStock(tx, productId);
 }
 
-async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
+async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehouseId?: string) {
   const invoice = await tx.invoice.findUnique({
     where: { id: invoiceId },
     include: {
@@ -520,8 +520,18 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
   // even for legacy invoices whose stored line warehouse points at a depot or is
   // null. Crediting that stale warehouse instead would restock the wrong place
   // and then trigger a false "نقص مخزون" (409) when the invoice is re-applied.
-  const saleWarehouseId =
-    invoice.type === InvoiceType.SALE ? await resolveShopWarehouseId(tx) : null;
+  let saleWarehouseId: string | null = null;
+  if (invoice.type === InvoiceType.SALE) {
+    if (returnWarehouseId) {
+      const warehouse = await tx.branch.findUnique({ where: { id: returnWarehouseId } });
+      if (!warehouse) {
+        throw new AppError("المخزن المحدد غير موجود", 400, "WAREHOUSE_NOT_FOUND");
+      }
+      saleWarehouseId = warehouse.id;
+    } else {
+      saleWarehouseId = await resolveShopWarehouseId(tx);
+    }
+  }
 
   for (const item of invoice.items) {
     const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
@@ -1058,7 +1068,7 @@ export async function updateInvoice(
   );
 }
 
-async function cancelInvoiceInTransaction(tx: Db, id: string) {
+async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?: string) {
     const invoice = await tx.invoice.findUnique({ where: { id } });
 
     if (!invoice) {
@@ -1070,7 +1080,7 @@ async function cancelInvoiceInTransaction(tx: Db, id: string) {
     }
 
     await lockCustomer(tx, invoice.customerId);
-    await reverseInvoiceItemsStock(tx, id);
+    await reverseInvoiceItemsStock(tx, id, returnWarehouseId);
 
     const cancelled = await tx.invoice.update({
       where: { id },
@@ -1086,12 +1096,12 @@ async function cancelInvoiceInTransaction(tx: Db, id: string) {
     return serializeInvoice(cancelled);
 }
 
-export async function cancelInvoice(id: string, db?: Db) {
+export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: string) {
   if (db) {
-    return cancelInvoiceInTransaction(db, id);
+    return cancelInvoiceInTransaction(db, id, returnWarehouseId);
   }
 
-  return prisma.$transaction((tx) => cancelInvoiceInTransaction(tx, id));
+  return prisma.$transaction((tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId));
 }
 
 async function reactivateInvoiceInTransaction(tx: Db, id: string) {
@@ -1163,7 +1173,12 @@ export async function restoreArchivedInvoice(id: string) {
 // (items, stock movements, coupon redemptions) are RETAINED for audit. The
 // invoice is reversed (stock + balance) and marked archived so it disappears
 // from lists/reports but can never silently vanish from the books.
-export async function hardDeleteInvoice(id: string, deletedBy?: string, reason?: string) {
+export async function hardDeleteInvoice(
+  id: string,
+  deletedBy?: string,
+  reason?: string,
+  returnWarehouseId?: string
+) {
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUnique({ where: { id } });
     if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
@@ -1174,7 +1189,7 @@ export async function hardDeleteInvoice(id: string, deletedBy?: string, reason?:
     // Reverse stock + flip to CANCELLED so the archived invoice has no
     // accounting effect (all accounting queries already exclude non-ACTIVE).
     if (wasActive) {
-      await reverseInvoiceItemsStock(tx, id);
+      await reverseInvoiceItemsStock(tx, id, returnWarehouseId);
       await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.CANCELLED } });
     }
 

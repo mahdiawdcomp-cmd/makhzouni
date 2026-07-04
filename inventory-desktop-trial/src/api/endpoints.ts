@@ -637,8 +637,10 @@ export async function updateInvoice(id: string, payload: CreateInvoicePayload) {
   return data
 }
 
-export async function cancelInvoice(id: string) {
-  const { data } = await api.delete<ApiEnvelope<Invoice>>(`/invoices/${id}`)
+export async function cancelInvoice(id: string, returnWarehouseId?: string) {
+  const { data } = await api.delete<ApiEnvelope<Invoice>>(`/invoices/${id}`, {
+    params: returnWarehouseId ? { returnWarehouseId } : undefined,
+  })
   return data
 }
 
@@ -647,8 +649,10 @@ export async function reactivateInvoice(id: string) {
   return data
 }
 
-export async function permanentDeleteInvoice(id: string) {
-  const { data } = await api.delete<ApiEnvelope<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/permanent`)
+export async function permanentDeleteInvoice(id: string, returnWarehouseId?: string) {
+  const { data } = await api.delete<ApiEnvelope<{ id: string; invoiceNumber: string }>>(`/invoices/${id}/permanent`, {
+    params: returnWarehouseId ? { returnWarehouseId } : undefined,
+  })
   return data
 }
 

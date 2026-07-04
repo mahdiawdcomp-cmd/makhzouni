@@ -16,7 +16,7 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getInvoiceAuditTrail, invoicePdfObjectUrl, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getBranches, getInvoiceAuditTrail, invoicePdfObjectUrl, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -215,7 +215,7 @@ export function InvoiceDetailPage() {
   }
 
   const cancelMutation = useMutation({
-    mutationFn: () => cancelInvoice(id!),
+    mutationFn: (returnWarehouseId?: string) => cancelInvoice(id!, returnWarehouseId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       void queryClient.invalidateQueries({ queryKey: ["invoices", id] })
@@ -241,9 +241,16 @@ export function InvoiceDetailPage() {
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [confirmReactivate, setConfirmReactivate] = useState(false)
   const [confirmPermanentDelete, setConfirmPermanentDelete] = useState(false)
+  const [returnWarehouseId, setReturnWarehouseId] = useState("")
+
+  const { data: warehouses = [] } = useQuery({
+    queryKey: ["branches"],
+    queryFn: () => getBranches({ isActive: true }),
+    enabled: confirmCancel || confirmPermanentDelete,
+  })
 
   const permanentDeleteMutation = useMutation({
-    mutationFn: () => permanentDeleteInvoice(id!),
+    mutationFn: (returnWarehouseId?: string) => permanentDeleteInvoice(id!, returnWarehouseId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
       navigate("/invoices")
@@ -403,7 +410,7 @@ export function InvoiceDetailPage() {
             onClick={() => setConfirmPermanentDelete(true)}
             disabled={permanentDeleteMutation.isPending}
           >
-            <Trash2 className="h-3.5 w-3.5" /> حذف نهائي
+            <Trash2 className="h-3.5 w-3.5" /> حذف
           </Button>
         </div>
       </div>
@@ -688,7 +695,7 @@ export function InvoiceDetailPage() {
           <DialogContent className="max-w-sm" dir="rtl">
             <DialogHeader>
               <DialogTitle className="text-rose-600">
-                {confirmCancel ? "تعطيل الفاتورة؟" : "حذف الفاتورة نهائياً؟"}
+                {confirmCancel ? "تعطيل الفاتورة؟" : "حذف الفاتورة؟"}
               </DialogTitle>
             </DialogHeader>
             {invoice.type === "SALE" && invoice.items && invoice.items.length > 0 && (
@@ -700,16 +707,29 @@ export function InvoiceDetailPage() {
                       <span className="font-medium">{it.productName}</span>
                       <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
                         +{it.quantity} {it.unit === "CARTON" ? "كرتونة" : it.unit === "DOZEN" ? "درزن" : "قطعة"}
-                        {" → "}
-                        <span className="font-bold">{it.warehouseName ?? "المحل"}</span>
                       </span>
                     </div>
                   ))}
                 </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">إرجاع المواد إلى مخزن:</label>
+                  <select
+                    className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    value={returnWarehouseId}
+                    onChange={(e) => setReturnWarehouseId(e.target.value)}
+                  >
+                    <option value="">المحل (الافتراضي)</option>
+                    {warehouses.map((w) => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+                </div>
               </>
             )}
             {confirmPermanentDelete && (
-              <p className="text-xs text-rose-600">⚠ لا يمكن التراجع عن الحذف النهائي.</p>
+              <p className="text-xs text-rose-600">
+                ⚠ الفاتورة ستُخفى من القوائم وتبقى محفوظة للتدقيق، ويمكن استرجاعها خلال 48 ساعة من «المحذوفة مؤخراً».
+              </p>
             )}
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => { setConfirmCancel(false); setConfirmPermanentDelete(false) }}>تراجع</Button>
@@ -718,13 +738,15 @@ export function InvoiceDetailPage() {
                 className="flex-1"
                 disabled={cancelMutation.isPending || permanentDeleteMutation.isPending}
                 onClick={() => {
-                  if (confirmCancel) { setConfirmCancel(false); cancelMutation.mutate() }
-                  else { setConfirmPermanentDelete(false); permanentDeleteMutation.mutate() }
+                  const wh = returnWarehouseId || undefined
+                  if (confirmCancel) { setConfirmCancel(false); cancelMutation.mutate(wh) }
+                  else { setConfirmPermanentDelete(false); permanentDeleteMutation.mutate(wh) }
+                  setReturnWarehouseId("")
                 }}
               >
                 {cancelMutation.isPending || permanentDeleteMutation.isPending
                   ? "..."
-                  : confirmCancel ? "تعطيل" : "حذف نهائي"}
+                  : confirmCancel ? "تعطيل" : "حذف"}
               </Button>
             </div>
           </DialogContent>

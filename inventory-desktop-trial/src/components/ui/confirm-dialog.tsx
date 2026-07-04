@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { Dialog, DialogContent } from "./dialog"
 import { Button } from "./button"
 
@@ -11,6 +12,7 @@ interface ConfirmDialogProps {
   loading?: boolean
   onConfirm: () => void
   onCancel: () => void
+  children?: ReactNode
 }
 
 export function ConfirmDialog({
@@ -23,12 +25,14 @@ export function ConfirmDialog({
   loading = false,
   onConfirm,
   onCancel,
+  children,
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel() }}>
       <DialogContent className="max-w-sm">
         <p className="text-base font-semibold">{title}</p>
         {description && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{description}</p>}
+        {children}
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onCancel} disabled={loading}>
             {cancelLabel}
