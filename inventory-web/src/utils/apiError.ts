@@ -114,6 +114,14 @@ const ERROR_EXPLANATIONS: Record<string, { cause: string; solution: string }> = 
     cause: "الزبون غير موجود أو حُذف.",
     solution: "اختر زبوناً موجوداً أو أنشئ زبوناً جديداً.",
   },
+  PAID_AMOUNT_EXCEEDS_TOTAL: {
+    cause: "المبلغ المدفوع أكبر من إجمالي الفاتورة.",
+    solution: "اجعل المدفوع مساوياً للإجمالي أو أقل، وسجّل الزيادة كسند قبض منفصل.",
+  },
+  INVALID_INVOICE_TOTAL: {
+    cause: "الخصم أكبر من مجموع الفاتورة، فالإجمالي أصبح سالباً.",
+    solution: "قلّل قيمة الخصم حتى لا يتجاوز مجموع الأصناف.",
+  },
   WAREHOUSE_REQUIRED_FOR_QUANTITY: {
     cause: "المتجر متعدد المخازن، ويجب تحديد المخزن عند تعديل كمية المادة.",
     solution: "حدّد المخزن (أو توزيع الكميات على المخازن) ثم أعد الحفظ.",
