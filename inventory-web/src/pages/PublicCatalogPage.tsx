@@ -43,13 +43,17 @@ type ViewMode = "grid" | "list"
 const storageKey = "inventory_catalog_access"
 const themeKey = "catalog_theme"
 const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", BOX: "علبة", CARTON: "كارتون" }
-const UNIT_DESC: Record<CatalogUnit, (pcsPerCarton: number) => string> = {
+const UNIT_DESC: Record<CatalogUnit, (pcsInUnit: number) => string> = {
   PIECE: () => "قطعة واحدة",
   DOZEN: () => "12 قطعة",
-  BOX: (n) => `${Math.ceil(n / 2)} قطعة — نصف كارتون`,
+  BOX: (n) => `${n} قطعة`,
   CARTON: (n) => `${n} قطعة`,
 }
 const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
+const unitsFor = (product: PublicCatalogProduct): CatalogUnit[] => {
+  const hidden = new Set(product.hiddenUnits ?? [])
+  return UNITS.filter((u) => u === "PIECE" || !hidden.has(u as "DOZEN" | "BOX" | "CARTON"))
+}
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
 interface ThemeTokens {
@@ -134,7 +138,7 @@ const money = (v: number | null | undefined) =>
 const pcs = (product: PublicCatalogProduct, unit: CatalogUnit): number => {
   const n = Math.max(1, product.pcsPerCarton)
   if (unit === "CARTON") return n
-  if (unit === "BOX") return Math.ceil(n / 2)
+  if (unit === "BOX") return product.boxPieces != null && product.boxPieces > 0 ? product.boxPieces : Math.ceil(n / 2)
   if (unit === "DOZEN") return 12
   return 1 // PIECE
 }
@@ -1207,7 +1211,7 @@ function UnitPickerSheet({
         {/* Unit options */}
         <div className="p-4 space-y-2.5 pb-8">
           <p className="text-xs font-semibold mb-3" style={{ color: tk.subtext }}>اختر الوحدة:</p>
-          {UNITS.map((u) => {
+          {unitsFor(product).map((u) => {
             const qty = maxQty(product, u)
             const price = linePrice(product, u)
             const disabled = qty < 1
@@ -1240,7 +1244,7 @@ function UnitPickerSheet({
                     )}
                   </div>
                   <p className="text-xs" style={{ color: tk.subtext }}>
-                    {UNIT_DESC[u](product.pcsPerCarton)}
+                    {UNIT_DESC[u](pcs(product, u))}
                     {!disabled && ` · متوفر: ${qty} ${UNIT_LABELS[u]}`}
                     {disabled && " · غير متوفر"}
                   </p>
@@ -1715,7 +1719,7 @@ function CartItem({
       <div className="mt-2.5 flex items-center justify-between gap-2">
         {/* Unit switcher */}
         <div className="flex gap-1 flex-wrap">
-          {UNITS.map((u) =>
+          {unitsFor(line.product).map((u) =>
             maxQty(line.product, u) > 0 ? (
               <button key={u} onClick={() => onChangeUnit(line.id, u)}
                 className="rounded-lg px-2 py-1 text-[9px] font-bold transition"

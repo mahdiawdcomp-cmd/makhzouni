@@ -311,6 +311,14 @@ model Product {
   isOffer       Boolean   @default(false) @map("is_offer")
   oldPrice      Decimal?  @map("old_price") @db.Decimal(12, 2)
 
+  // Unit configuration. Stock stays piece-based; these only drive
+  // conversion/display. boxPieces null = automatic (half the carton,
+  // rounded up); a value + isBoxPiecesManual means the shop overrode it.
+  // hiddenUnits are soft-deleted units: blocked on NEW invoice lines only.
+  boxPieces          Int?     @map("box_pieces")
+  isBoxPiecesManual  Boolean  @default(false) @map("is_box_pieces_manual")
+  hiddenUnits        Unit[]   @default([]) @map("hidden_units")
+
   @@index([createdBy])
   @@index([branchId])
   @@index([deletedAt])

@@ -202,7 +202,7 @@ export async function getDashboardReport() {
       },
       include: {
         invoice: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.invoiceItem.findMany({
@@ -215,7 +215,7 @@ export async function getDashboardReport() {
       },
       include: {
         invoice: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.invoice.findMany({
@@ -271,7 +271,7 @@ export async function getDashboardReport() {
       quantitySold: 0,
       totalSales: 0,
     };
-    current.quantitySold += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    current.quantitySold += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     current.totalSales += toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
@@ -282,7 +282,7 @@ export async function getDashboardReport() {
       quantitySold: 0,
       totalSales: 0,
     };
-    current.quantitySold -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    current.quantitySold -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     current.totalSales -= toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
@@ -396,7 +396,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
             customer: true,
           },
         },
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.transferItem.findMany({
@@ -498,7 +498,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
     rows,
     totals: {
       quantitySold: items.reduce(
-        (sum, item) => sum + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+        (sum, item) => sum + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces),
         0
       ),
       totalRevenue: items.reduce(
@@ -763,7 +763,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
         productName: true,
         quantity: true,
         unit: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.invoiceItem.findMany({
@@ -779,7 +779,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
         productName: true,
         quantity: true,
         unit: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.customer.findMany({
@@ -823,12 +823,12 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
   const topProductMap = new Map<string, { name: string; quantity: number }>();
   for (const item of topItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
-    cur.quantity += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    cur.quantity += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     topProductMap.set(item.productId, cur);
   }
   for (const item of topReturnItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
-    cur.quantity -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    cur.quantity -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     topProductMap.set(item.productId, cur);
   }
   const topProduct = topProductMap.size > 0
@@ -1068,7 +1068,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
       name: item.productName,
       revenue: existing.revenue + revenue,
       cost: existing.cost + cost,
-      qty: existing.qty + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+      qty: existing.qty + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces),
     });
   }
   for (const item of returnItems) {
@@ -1079,7 +1079,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
       name: item.productName,
       revenue: existing.revenue - revenue,
       cost: existing.cost - cost,
-      qty: existing.qty - amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+      qty: existing.qty - amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces),
     });
   }
 
@@ -1110,7 +1110,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
         },
       },
       include: {
-        product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true } },
+        product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.paymentVoucher.findMany({
@@ -1125,7 +1125,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
 
   const lossesTotal = Math.round(
     lossItems.reduce((s, item) => {
-      const pcs = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+      const pcs = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
       // Prefer the frozen snapshot stockLossItem.costPrice (cost at loss time);
       // fall back to the live accounting cost (costPrice → purchasePrice) only
       // when the snapshot is missing/zero. Same freeze model as sale invoices.
@@ -1214,7 +1214,7 @@ export async function getStoreBrainReport(query: StoreBrainQuery) {
     for (const item of items) {
       const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice) * sign;
       const cost = itemCostPrice({ ...item, product: item.product }) * sign;
-      const qty = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton) * sign;
+      const qty = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces) * sign;
 
       const p = products.get(item.productId) ?? { name: item.productName, revenue: 0, cost: 0, qty: 0 };
       products.set(item.productId, { name: item.productName, revenue: p.revenue + revenue, cost: p.cost + cost, qty: p.qty + qty });

@@ -5,6 +5,7 @@ import { AppError } from "../utils/app-error";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { isVerified } from "./otp.service";
 import { totalStock } from "../utils/product-stock";
+import { effectiveBoxPieces } from "../utils/financial";
 import {
   notifyCatalogAccessRequested,
   notifyCatalogOrderSubmitted,
@@ -57,19 +58,19 @@ function toNumber(value: unknown) {
   return Number(value);
 }
 
-function piecesFor(unit: Unit, quantity: number, pcsPerCarton: number) {
+function piecesFor(unit: Unit, quantity: number, pcsPerCarton: number, boxPieces?: number | null) {
   const n = Math.max(1, pcsPerCarton);
   if (unit === Unit.CARTON) return quantity * n;
-  if (unit === Unit.BOX) return quantity * Math.ceil(n / 2);
+  if (unit === Unit.BOX) return quantity * effectiveBoxPieces(n, boxPieces);
   if (unit === Unit.DOZEN) return quantity * 12;
   return quantity; // PIECE
 }
 
-function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number) {
+function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number, boxPieces?: number | null) {
   const price = toNumber(salePrice);
   const n = Math.max(1, pcsPerCarton);
   if (unit === Unit.CARTON) return price * n;
-  if (unit === Unit.BOX) return price * Math.ceil(n / 2);
+  if (unit === Unit.BOX) return price * effectiveBoxPieces(n, boxPieces);
   if (unit === Unit.DOZEN) return price * 12;
   return price; // PIECE
 }
@@ -463,6 +464,8 @@ export async function listCatalogProducts(token: string) {
         createdAt: product.createdAt,
         salePrice: access.allowPrices ? toNumber(product.salePrice) : null,
         pcsPerCarton: product.pcsPerCarton,
+        boxPieces: product.boxPieces,
+        hiddenUnits: product.hiddenUnits,
         // Always send stock for cart max-quantity logic; showStock controls display only
         currentStock: stock,
         showStock: access.showStock,
@@ -503,7 +506,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
     if (!product) {
       throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
     }
-    const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton);
+    const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(
       product.id,
       (requestedPiecesByProduct.get(product.id) ?? 0) + requestedPieces
@@ -527,7 +530,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
     }
 
-    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton);
+    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
     return {
       productId: product.id,
       productName: product.name,

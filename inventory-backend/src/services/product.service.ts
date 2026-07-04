@@ -30,6 +30,11 @@ type ProductInput = {
   openingBalancePcs?: number;
   cartonsAvailable?: number;
   pcsPerCarton?: number;
+  // Unit config: boxPieces null/absent while !isBoxPiecesManual means
+  // "automatic half carton"; hiddenUnits are blocked on new invoice lines.
+  boxPieces?: number | null;
+  isBoxPiecesManual?: boolean;
+  hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[];
   purchasePrice?: number;
   salePrice?: number;
   retailPrice?: number;
@@ -480,6 +485,9 @@ export async function createProduct(
         openingBalancePcs: input.openingBalancePcs ?? 0,
         cartonsAvailable: input.cartonsAvailable ?? 0,
         pcsPerCarton: input.pcsPerCarton ?? 1,
+        boxPieces: input.isBoxPiecesManual ? input.boxPieces ?? null : null,
+        isBoxPiecesManual: input.isBoxPiecesManual ?? false,
+        hiddenUnits: input.hiddenUnits ?? [],
         purchasePrice: input.purchasePrice ?? 0,
         salePrice: input.salePrice ?? 0,
         retailPrice: input.retailPrice ?? 0,
@@ -607,6 +615,14 @@ export async function updateProduct(
   if (input.openingBalancePcs !== undefined) data.openingBalancePcs = input.openingBalancePcs;
   if (input.cartonsAvailable !== undefined) data.cartonsAvailable = input.cartonsAvailable;
   if (input.pcsPerCarton !== undefined) data.pcsPerCarton = input.pcsPerCarton;
+  if (input.isBoxPiecesManual !== undefined) {
+    data.isBoxPiecesManual = input.isBoxPiecesManual;
+    // Manual off → back to automatic (half the carton); manual on → store the override.
+    data.boxPieces = input.isBoxPiecesManual ? input.boxPieces ?? undefined : null;
+  } else if (input.boxPieces !== undefined) {
+    data.boxPieces = input.boxPieces;
+  }
+  if (input.hiddenUnits !== undefined) data.hiddenUnits = input.hiddenUnits;
   if (input.purchasePrice !== undefined) data.purchasePrice = input.purchasePrice;
   if (input.salePrice !== undefined) data.salePrice = input.salePrice;
   if (input.retailPrice !== undefined) data.retailPrice = input.retailPrice;

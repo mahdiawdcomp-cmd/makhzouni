@@ -145,7 +145,7 @@ export async function convertToVariety(
           "VARIETY_BAD_PCS_PER_CARTON",
         );
       }
-      const pieces = amountInPieces(item.unit, item.quantity, product.pcsPerCarton);
+      const pieces = amountInPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
 
       const source = await adjustWarehouseStock(tx, {
         productId: product.id,

@@ -12,9 +12,21 @@ export function invoiceBalanceSign(type: FinancialInvoiceType): 1 | -1 {
   return type === "SALE" ? 1 : -1;
 }
 
-export function amountInPieces(unit: "PIECE" | "DOZEN" | "BOX" | "CARTON", quantity: number, pcsPerCarton: number): number {
+// Pieces inside one BOX: manual per-product override, or half the carton
+// (rounded up) when no override is set.
+export function effectiveBoxPieces(pcsPerCarton: number, boxPieces?: number | null): number {
+  if (boxPieces != null && boxPieces > 0) return boxPieces;
+  return Math.ceil(Math.max(1, pcsPerCarton) / 2);
+}
+
+export function amountInPieces(
+  unit: "PIECE" | "DOZEN" | "BOX" | "CARTON",
+  quantity: number,
+  pcsPerCarton: number,
+  boxPieces?: number | null
+): number {
   if (unit === "CARTON") return quantity * pcsPerCarton;
-  if (unit === "BOX") return quantity * Math.ceil(pcsPerCarton / 2);
+  if (unit === "BOX") return quantity * effectiveBoxPieces(pcsPerCarton, boxPieces);
   if (unit === "DOZEN") return quantity * 12;
   return quantity;
 }

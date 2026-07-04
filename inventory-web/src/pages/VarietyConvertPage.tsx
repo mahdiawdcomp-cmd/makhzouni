@@ -31,6 +31,7 @@ import { getBranches, convertToVariety, createTransfer } from "../api/endpoints"
 import { useProducts } from "../hooks/useProducts"
 import { useAuthStore } from "../store/authStore"
 import type { Product } from "../types/api"
+import { piecesPerUnit } from "../utils/units"
 import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
@@ -46,19 +47,11 @@ const UNIT_LABEL: Record<Unit, string> = {
 }
 
 function piecesOf(product: Product, unit: Unit, quantity: number): number {
-  const n = Math.max(1, product.pcsPerCarton)
-  if (unit === "CARTON") return quantity * n
-  if (unit === "BOX") return quantity * Math.ceil(n / 2)
-  if (unit === "DOZEN") return quantity * 12
-  return quantity
+  return quantity * piecesPerUnit(unit, product)
 }
 
 function maxUnitsForStock(availablePieces: number, product: Product, unit: Unit): number {
-  const n = Math.max(1, product.pcsPerCarton)
-  if (unit === "CARTON") return Math.floor(availablePieces / n)
-  if (unit === "BOX") return Math.floor(availablePieces / Math.ceil(n / 2))
-  if (unit === "DOZEN") return Math.floor(availablePieces / 12)
-  return availablePieces
+  return Math.floor(availablePieces / piecesPerUnit(unit, product))
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

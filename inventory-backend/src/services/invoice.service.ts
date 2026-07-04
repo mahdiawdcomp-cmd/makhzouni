@@ -11,6 +11,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import {
   amountInPieces,
+  effectiveBoxPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
   invoiceBalanceSign,
@@ -93,15 +94,15 @@ function serializeInvoice(invoice: any) {
   };
 }
 
-function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number) {
-  return amountInPieces(unit, quantity, pcsPerCarton);
+function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number, boxPieces?: number | null) {
+  return amountInPieces(unit, quantity, pcsPerCarton, boxPieces);
 }
 
-function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: number) {
+function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: number, boxPieces?: number | null) {
   const price = toNumber(salePrice);
   const n = Math.max(1, pcsPerCarton);
   if (unit === Unit.CARTON) return roundMoney(price * n);
-  if (unit === Unit.BOX) return roundMoney(price * Math.ceil(n / 2));
+  if (unit === Unit.BOX) return roundMoney(price * effectiveBoxPieces(n, boxPieces));
   if (unit === Unit.DOZEN) return roundMoney(price * 12);
   return roundMoney(price);
 }
@@ -332,7 +333,7 @@ async function applyStockMovement(
 
   await ensureLegacyWarehouseStock(tx, product);
   const isSale = invoiceType === InvoiceType.SALE;
-  const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
+  const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
   const addsStock = isStockInflow(invoiceType);
   // When the seller explicitly opted in (allowNegativeStock), we skip the block and let
   // the line go negative — the deficit is settled automatically when stock next arrives.
@@ -437,7 +438,7 @@ async function applyStockMovement(
   // Default unit price: SALE/SALES_RETURN use sale price; PURCHASE uses purchase price.
   const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : product.salePrice;
   const unitPrice =
-    item.unitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton);
+    item.unitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton, product.boxPieces);
 
   // PURCHASE only: roll the product cost forward by Weighted-Average Cost (WAC),
   // and record the latest purchase unit cost into purchasePrice. The SALE path is
@@ -534,7 +535,7 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
   }
 
   for (const item of invoice.items) {
-    const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     await adjustProductStock(
       tx,
       item.productId,
@@ -614,14 +615,49 @@ async function recalculateInvoiceBalances(tx: Db, invoiceId: string) {
   return serializeInvoice(updated);
 }
 
+const UNIT_LABELS_AR: Record<Unit, string> = {
+  [Unit.PIECE]: "قطعة",
+  [Unit.DOZEN]: "درزن",
+  [Unit.BOX]: "علبة",
+  [Unit.CARTON]: "كرتون",
+};
+
+// Soft-deleted units are blocked on NEW invoice lines only. Lines that already
+// existed on the invoice (edit flow) keep working via allowedUnitPairs, and
+// reactivate/restore never pass through here at all.
+async function assertUnitsNotHidden(
+  tx: Db,
+  items: InvoiceItemInput[],
+  allowedUnitPairs?: Set<string>
+) {
+  for (const item of items) {
+    const unit = item.unit as Unit;
+    if (unit === Unit.PIECE) continue;
+    if (allowedUnitPairs?.has(`${item.productId}:${unit}`)) continue;
+    const product = await tx.product.findUnique({
+      where: { id: item.productId },
+      select: { name: true, hiddenUnits: true },
+    });
+    if (product?.hiddenUnits?.includes(unit)) {
+      throw new AppError(
+        `وحدة «${UNIT_LABELS_AR[unit]}» معطلة للمادة «${product.name}» — اختر وحدة أخرى`,
+        400,
+        "UNIT_HIDDEN"
+      );
+    }
+  }
+}
+
 async function createInvoiceInTransaction(
   tx: Db,
   input: CreateInvoiceInput,
   createdBy: string,
   existingInvoiceId?: string,
-  existingInvoiceNumber?: string
+  existingInvoiceNumber?: string,
+  allowedUnitPairs?: Set<string>
 ) {
   const invoiceType = input.type ?? InvoiceType.SALE;
+  await assertUnitsNotHidden(tx, input.items, allowedUnitPairs);
   const existingInvoice = existingInvoiceId
     ? await tx.invoice.findUnique({ where: { id: existingInvoiceId }, select: { date: true } })
     : null;
@@ -1024,12 +1060,17 @@ async function updateInvoiceInTransaction(
       effectiveType === InvoiceType.SALE
         ? input.items.map((it) => ({ ...it, warehouseId: undefined }))
         : input.items;
+    // Units already on the invoice stay editable even if hidden since then.
+    const preexistingUnitPairs = new Set(
+      invoice.items.map((it) => `${it.productId}:${it.unit}`)
+    );
     const result = await createInvoiceInTransaction(
       tx,
       { ...input, items: rebuildItems, type: effectiveType, customerId: invoice.customerId },
       updatedBy,
       id,
-      invoice.invoiceNumber
+      invoice.invoiceNumber,
+      preexistingUnitPairs
     );
 
     // Restore the display-only previousBalance/finalBalance so the invoice shows the

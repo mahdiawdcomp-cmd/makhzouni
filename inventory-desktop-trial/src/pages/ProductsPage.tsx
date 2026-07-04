@@ -61,6 +61,9 @@ const emptyForm: ProductFormState = {
   openingBalancePcs: 0,
   cartonsAvailable: 0,
   pcsPerCarton: 1,
+  boxPieces: null,
+  isBoxPiecesManual: false,
+  hiddenUnits: [],
   purchasePrice: 0,
   salePrice: 0,
   retailPrice: 0,
@@ -414,6 +417,8 @@ export function ProductsPage() {
 
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
+  // Shows the "carton changed but manual box count kept" warning in the form.
+  const [cartonChangedWhileManualBox, setCartonChangedWhileManualBox] = useState(false)
   // The list no longer carries the full imageUrl — only resend it on save if the
   // user actually changed it, otherwise we'd overwrite the full image.
   const [imageDirty, setImageDirty] = useState(false)
@@ -530,6 +535,7 @@ export function ProductsPage() {
     setImageDirty(false)
     setForm(emptyForm)
     setDist({})
+    setCartonChangedWhileManualBox(false)
     setOpen(true)
   }
 
@@ -571,12 +577,16 @@ export function ProductsPage() {
       openingBalancePcs: product.openingBalancePcs,
       cartonsAvailable: product.cartonsAvailable,
       pcsPerCarton: product.pcsPerCarton,
+      boxPieces: product.boxPieces ?? null,
+      isBoxPiecesManual: product.isBoxPiecesManual ?? false,
+      hiddenUnits: product.hiddenUnits ?? [],
       purchasePrice: product.purchasePrice,
       salePrice: product.salePrice,
       minStock: product.minStock,
       branchId: product.branchId ?? "",
       storageLocation: product.storageLocation ?? "",
     })
+    setCartonChangedWhileManualBox(false)
     setOpen(true)
     // Fetch the full-resolution image in the background and swap it in.
     if (product.id && product.id !== "__optimistic__") {
@@ -1296,7 +1306,80 @@ export function ProductsPage() {
               </>
             )}
             <Field label="عدد القطع داخل الكرتون" hint="مثلاً 24 = الكرتون يحوي 24 قطعة">
-              <Input type="number" min={1} value={form.pcsPerCarton ?? 1} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, pcsPerCarton: Number(event.target.value) })} />
+              <Input type="number" min={1} value={form.pcsPerCarton ?? 1} onFocus={selectAllOnFocus} onChange={(event) => {
+                const next = Number(event.target.value)
+                setForm({ ...form, pcsPerCarton: next })
+                // Manual box counts never change silently when the carton changes.
+                if (form.isBoxPiecesManual) setCartonChangedWhileManualBox(true)
+              }} />
+            </Field>
+            <Field label="عدد قطع العلبة" hint="تلقائياً نصف الكرتون — عدّله فقط إذا علبة هذه المادة مختلفة">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.isBoxPiecesManual
+                    ? form.boxPieces ?? ""
+                    : Math.ceil(Math.max(1, form.pcsPerCarton ?? 1) / 2)}
+                  onFocus={selectAllOnFocus}
+                  onChange={(event) => {
+                    const v = Number(event.target.value)
+                    setForm({ ...form, boxPieces: v > 0 ? v : null, isBoxPiecesManual: true })
+                    setCartonChangedWhileManualBox(false)
+                  }}
+                />
+                {form.isBoxPiecesManual ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-md border border-slate-300 px-2 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+                    onClick={() => { setForm({ ...form, boxPieces: null, isBoxPiecesManual: false }); setCartonChangedWhileManualBox(false) }}
+                  >
+                    رجوع للتلقائي
+                  </button>
+                ) : (
+                  <span className="shrink-0 rounded-md bg-slate-100 px-2 py-1.5 text-[11px] text-slate-500 dark:bg-slate-900 dark:text-slate-400">تلقائي</span>
+                )}
+              </div>
+            </Field>
+            {cartonChangedWhileManualBox && form.isBoxPiecesManual && (
+              <div className="col-span-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+                <p className="font-semibold">⚠ عدد قطع العلبة معدَّل يدوياً ({form.boxPieces}) ولم يتغير بعد تعديل تعبئة الكرتون.</p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-amber-400 px-2 py-1 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900"
+                    onClick={() => setCartonChangedWhileManualBox(false)}
+                  >
+                    إبقاء عدد العلبة الحالي
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-amber-400 px-2 py-1 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900"
+                    onClick={() => { setForm((f) => ({ ...f, boxPieces: null, isBoxPiecesManual: false })); setCartonChangedWhileManualBox(false) }}
+                  >
+                    تحديثها لنصف الكرتون الجديد ({Math.ceil(Math.max(1, form.pcsPerCarton ?? 1) / 2)})
+                  </button>
+                </div>
+              </div>
+            )}
+            <Field label="الوحدات المخفية" hint="الوحدة المخفية لا تظهر بالفواتير الجديدة — الفواتير القديمة لا تتأثر">
+              <div className="flex gap-3 pt-1.5">
+                {([["DOZEN", "درزن"], ["BOX", "علبة"], ["CARTON", "كرتون"]] as const).map(([u, label]) => (
+                  <label key={u} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={(form.hiddenUnits ?? []).includes(u)}
+                      onChange={(e) => setForm({
+                        ...form,
+                        hiddenUnits: e.target.checked
+                          ? [...(form.hiddenUnits ?? []), u]
+                          : (form.hiddenUnits ?? []).filter((x) => x !== u),
+                      })}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
             </Field>
             <Field label="الحد الأدنى للتنبيه" hint="ينبّهك عند نزول المخزون لهذا الرقم">
               <Input type="number" value={form.minStock ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, minStock: Number(event.target.value) })} />

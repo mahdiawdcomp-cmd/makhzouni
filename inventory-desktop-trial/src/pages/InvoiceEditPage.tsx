@@ -13,6 +13,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { ErrorExplain } from "../components/ui/error-explain"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
+import { unitPriceFrom, visibleUnits } from "../utils/units"
 
 type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 
@@ -259,11 +260,29 @@ export function InvoiceEditPage() {
                     <select
                       className="h-8 rounded border bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-950"
                       value={it.unit}
-                      onChange={(e) =>
-                        setItems((p) => p.map((x, j) => (j === i ? { ...x, unit: e.target.value as Unit } : x)))
-                      }
+                      onChange={(e) => {
+                        const nextUnit = e.target.value as Unit
+                        const product = allProducts.find((p) => p.id === it.productId)
+                        setItems((p) => p.map((x, j) => {
+                          if (j !== i) return x
+                          // Re-derive the default price for the new unit (piece price × pieces in unit).
+                          const base = product
+                            ? (invoice?.type === "PURCHASE" ? product.purchasePrice : product.salePrice) ?? 0
+                            : 0
+                          return {
+                            ...x,
+                            unit: nextUnit,
+                            unitPrice: product ? unitPriceFrom(base, nextUnit, product) : x.unitPrice,
+                          }
+                        }))
+                      }}
                     >
-                      {UNIT_LABELS.map(([val, label]) => (
+                      {UNIT_LABELS.filter(([val]) => {
+                        // Hidden units stay selectable only if this line already uses them.
+                        if (val === it.unit) return true
+                        const product = allProducts.find((p) => p.id === it.productId)
+                        return product ? visibleUnits(product).includes(val) : true
+                      }).map(([val, label]) => (
                         <option key={val} value={val}>
                           {label}
                         </option>

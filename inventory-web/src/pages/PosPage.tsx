@@ -28,6 +28,7 @@ import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance } from "../utils/search"
+import { unitPriceFrom } from "../utils/units"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
 
@@ -86,7 +87,7 @@ const PANEL_COLORS = [
 ]
 
 // ── Cart types ────────────────────────────────────────────────────
-type PosUnit = "PIECE" | "DOZEN" | "CARTON"
+type PosUnit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type PosItem = {
   lineId: string
   productId: string
@@ -105,9 +106,7 @@ function detectUnit(p: Product, code: string): PosUnit {
   return "PIECE"
 }
 function priceFor(p: Product, unit: PosUnit) {
-  if (unit === "CARTON") return Number(p.salePrice) * Number(p.pcsPerCarton || 1)
-  if (unit === "DOZEN") return Number(p.salePrice) * 12
-  return Number(p.salePrice)
+  return unitPriceFrom(Number(p.salePrice), unit, p)
 }
 function bestAlternativeWarehouse(p: Product): { id: string; name: string; qty: number } | null {
   const best = (p.warehouseStocks ?? [])

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   amountInPieces,
+  effectiveBoxPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
   roundMoney,
@@ -252,4 +253,29 @@ test("amountInPieces: one carton of 1 pcs/carton is 1 piece", () => {
 
 test("amountInPieces: dozen ignores pcsPerCarton", () => {
   assert.equal(amountInPieces("DOZEN", 3, 999), 36);
+});
+
+// ── BOX + effectiveBoxPieces ────────────────────────────────────────────────
+
+test("BOX defaults to half the carton (rounded up) when no override", () => {
+  assert.equal(amountInPieces("BOX", 1, 240), 120);
+  assert.equal(amountInPieces("BOX", 2, 24), 24);
+  assert.equal(amountInPieces("BOX", 1, 25), 13); // odd carton rounds up
+  assert.equal(amountInPieces("BOX", 1, 240, null), 120); // explicit null = auto
+});
+
+test("BOX uses the manual per-product override when set", () => {
+  assert.equal(amountInPieces("BOX", 1, 240, 80), 80);
+  assert.equal(amountInPieces("BOX", 3, 240, 80), 240);
+  // override ignored for other units
+  assert.equal(amountInPieces("CARTON", 1, 240, 80), 240);
+  assert.equal(amountInPieces("DOZEN", 1, 240, 80), 12);
+  assert.equal(amountInPieces("PIECE", 5, 240, 80), 5);
+});
+
+test("effectiveBoxPieces guards zero/negative overrides", () => {
+  assert.equal(effectiveBoxPieces(240, 0), 120);
+  assert.equal(effectiveBoxPieces(240, -5), 120);
+  assert.equal(effectiveBoxPieces(240, undefined), 120);
+  assert.equal(effectiveBoxPieces(240, 100), 100);
 });

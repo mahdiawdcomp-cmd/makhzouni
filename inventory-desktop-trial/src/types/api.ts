@@ -114,6 +114,10 @@ export interface Product {
   openingBalancePcs: number
   cartonsAvailable: number
   pcsPerCarton: number
+  // Unit config: boxPieces null = automatic (half the carton, rounded up)
+  boxPieces?: number | null
+  isBoxPiecesManual?: boolean
+  hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[]
   purchasePrice: number
   salePrice: number
   retailPrice: number
@@ -215,6 +219,8 @@ export interface PublicCatalogProduct {
   createdAt?: string
   salePrice?: number | null
   pcsPerCarton: number
+  boxPieces?: number | null
+  hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[]
   currentStock: number
   showStock?: boolean
 }
@@ -276,6 +282,9 @@ export interface ProductPayload {
   openingBalancePcs?: number
   cartonsAvailable?: number
   pcsPerCarton?: number
+  boxPieces?: number | null
+  isBoxPiecesManual?: boolean
+  hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[]
   purchasePrice?: number
   salePrice?: number
   retailPrice?: number

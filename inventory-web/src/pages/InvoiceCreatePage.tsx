@@ -30,8 +30,9 @@ import { findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance, sortCustomersByRelevance } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
+import { UNIT_LABELS, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
 
-type Unit = "PIECE" | "DOZEN" | "CARTON"
+type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
 type InvoiceType = "SALE" | "PURCHASE"
 
@@ -83,9 +84,7 @@ function hasRealPhone(phone?: string | null): boolean {
 }
 
 function itemQuantityInPieces(item: DraftItem) {
-  if (item.unit === "CARTON") return item.quantity * item.product.pcsPerCarton
-  if (item.unit === "DOZEN") return item.quantity * 12
-  return item.quantity
+  return unitToPieces(item.unit, item.quantity, item.product)
 }
 
 function ProductThumb({ product }: { product: Product }) {
@@ -343,9 +342,7 @@ export function InvoiceCreatePage() {
     const base = isPurchase
       ? product.purchasePrice
       : (useRetailPrice && product.retailPrice > 0 ? product.retailPrice : product.salePrice)
-    if (unit === "CARTON") return base * product.pcsPerCarton
-    if (unit === "DOZEN") return base * 12
-    return base
+    return base * piecesPerUnit(unit, product)
   }
 
   // Items selling below purchase price — compare in the SAME unit as unitPrice
@@ -354,10 +351,7 @@ export function InvoiceCreatePage() {
     const set = new Set<number>()
     items.forEach((item, i) => {
       const baseCost = Number(item.product.purchasePrice ?? 0)
-      const costInUnit =
-        item.unit === "CARTON" ? baseCost * item.product.pcsPerCarton :
-        item.unit === "DOZEN"  ? baseCost * 12 :
-        baseCost
+      const costInUnit = baseCost * piecesPerUnit(item.unit, item.product)
       if (item.unitPrice < costInUnit) set.add(i)
     })
     return set
@@ -372,12 +366,7 @@ export function InvoiceCreatePage() {
     const consumed: Record<string, number> = {}
     for (const item of items) {
       const pid = item.product.id
-      const pcs =
-        item.unit === "CARTON"
-          ? item.quantity * item.product.pcsPerCarton
-          : item.unit === "DOZEN"
-            ? item.quantity * 12
-            : item.quantity
+      const pcs = unitToPieces(item.unit, item.quantity, item.product)
       consumed[pid] = (consumed[pid] ?? 0) + pcs
     }
     // Second pass: warn once per product whose cumulative consumption exceeds available stock
@@ -463,7 +452,7 @@ export function InvoiceCreatePage() {
     for (const pi of prep.items) {
       const product = products.find((p) => p.id === pi.productId)
       if (!product) continue
-      const unit = (pi.unit === "CARTON" || pi.unit === "DOZEN" ? pi.unit : "PIECE") as Unit
+      const unit = (pi.unit === "CARTON" || pi.unit === "DOZEN" || pi.unit === "BOX" ? pi.unit : "PIECE") as Unit
 
       const allWhs = product.warehouseStocks ?? []
       const activeWhs = allWhs.filter((ws) => ws.quantityPieces > 0)
@@ -483,14 +472,8 @@ export function InvoiceCreatePage() {
         })
       } else {
         // Multiple warehouses — split into one PIECE row per warehouse
-        const piecePrice =
-          unit === "CARTON" ? linePrice / (product.pcsPerCarton || 1)
-          : unit === "DOZEN" ? linePrice / 12
-          : linePrice
-        const totalPcs =
-          unit === "CARTON" ? pi.quantity * product.pcsPerCarton
-          : unit === "DOZEN" ? pi.quantity * 12
-          : pi.quantity
+        const piecePrice = linePrice / piecesPerUnit(unit, product)
+        const totalPcs = unitToPieces(unit, pi.quantity, product)
 
         const shopWh = allWhs.find((ws) => ws.warehouse.name.includes("محل"))
         const shopId = shopWh?.warehouseId
@@ -792,19 +775,13 @@ export function InvoiceCreatePage() {
     const shopPcs = item.product.shopStock
       ?? shopWh?.quantityPieces
       ?? 0
-    const itemPcs =
-      item.unit === "CARTON" ? item.quantity * item.product.pcsPerCarton
-      : item.unit === "DOZEN" ? item.quantity * 12
-      : item.quantity
+    const itemPcs = unitToPieces(item.unit, item.quantity, item.product)
     if (itemPcs <= shopPcs || shopPcs <= 0) return
 
     // The new lines are all in PIECE units, so the (possibly hand-edited) carton/
     // dozen unit price MUST be converted down to a per-piece price — otherwise each
     // piece would be billed at the carton price.
-    const piecePrice =
-      item.unit === "CARTON" ? item.unitPrice / (item.product.pcsPerCarton || 1)
-      : item.unit === "DOZEN" ? item.unitPrice / 12
-      : item.unitPrice
+    const piecePrice = item.unitPrice / piecesPerUnit(item.unit, item.product)
     const roundedPiecePrice = Math.round(piecePrice * 1000) / 1000
 
     // Greedy fill: المحل first, then the other warehouses by stock (most first),
@@ -1599,9 +1576,9 @@ export function InvoiceCreatePage() {
                           onChange={(event) => updateItem(index, { unit: event.target.value as Unit })}
                           onKeyDown={(e) => handleRowKey(e, rowKey, "unit")}
                         >
-                          <option value="PIECE">قطعة</option>
-                          <option value="DOZEN">درزن</option>
-                          <option value="CARTON">كرتونة</option>
+                          {visibleUnits(item.product).map((u) => (
+                            <option key={u} value={u}>{UNIT_LABELS[u]}</option>
+                          ))}
                         </select>
                       </TD>
                       <TD>
