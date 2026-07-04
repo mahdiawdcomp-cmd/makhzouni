@@ -176,7 +176,7 @@ function GrantDialog({
               <option value="FULL_CARTON_ONLY">كارتون كامل فقط (الافتراضي)</option>
               <option value="ALL_PRODUCTS">كل المواد المتوفرة حتى لو أقل من كارتون</option>
             </select>
-            <p className="mt-1.5 text-[11px] text-slate-400">البيع يبقى بالكارتون فقط — هذا الخيار يتحكم بالعرض فقط.</p>
+            <p className="mt-1.5 text-[11px] text-slate-400">هذا الخيار يتحكم بعرض المواد فقط، والبيع متاح بكل الوحدات (قطعة/علبة/درزن/كارتون).</p>
           </div>
         </div>
 

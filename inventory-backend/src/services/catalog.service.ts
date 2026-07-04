@@ -490,14 +490,6 @@ export async function getCatalogProductImage(token: string, productId: string) {
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {
   const access = await getCatalogAccess(token);
 
-  // Wholesale catalog sells by full carton only — enforce server-side, never
-  // trust the client UI to hide the other units.
-  for (const item of input.items) {
-    if (item.unit !== Unit.CARTON) {
-      throw new AppError("البيع في كتلوك الجملة بالكارتون فقط", 400, "CATALOG_CARTON_ONLY");
-    }
-  }
-
   const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
   const products = await prisma.product.findMany({
     where: { id: { in: uniqueProductIds }, deletedAt: null },

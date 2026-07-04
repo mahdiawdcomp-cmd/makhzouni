@@ -49,9 +49,7 @@ const UNIT_DESC: Record<CatalogUnit, (pcsPerCarton: number) => string> = {
   BOX: (n) => `${Math.ceil(n / 2)} قطعة — نصف كارتون`,
   CARTON: (n) => `${n} قطعة`,
 }
-// Wholesale catalog sells by the carton only — pieces/dozens/boxes are hidden
-// so customers can't order loose units from the جملة storefront.
-const UNITS: CatalogUnit[] = ["CARTON"]
+const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
 interface ThemeTokens {
