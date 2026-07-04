@@ -7,10 +7,12 @@ import com.inventory.data.repository.SessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.app.Application
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -65,7 +67,7 @@ class SerialActivationViewModel @Inject constructor(
                     getApplication<Application>().contentResolver,
                     Settings.Secure.ANDROID_ID
                 )
-                val result = callActivateApi(serial, deviceId)
+                val result = withContext(Dispatchers.IO) { callActivateApi(serial, deviceId) }
                 if (result == null) {
                     _state.value = _state.value.copy(isLoading = false, error = "تعذر الاتصال بالخادم. تحقق من الإنترنت.")
                     return@launch

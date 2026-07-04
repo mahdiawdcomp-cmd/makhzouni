@@ -35,7 +35,7 @@ android {
             )
             val debugAdminUrl = localProperties.getProperty(
                 "SUPER_ADMIN_API_URL",
-                "https://saas-admin-api.up.railway.app"
+                "https://admin-api.mazbwoni.com"
             )
             buildConfigField("String", "API_BASE_URL", "\"$debugApiUrl\"")
             buildConfigField("String", "SUPER_ADMIN_API_URL", "\"$debugAdminUrl\"")
@@ -48,7 +48,7 @@ android {
             val releaseAdminUrl =
                 (findProperty("SUPER_ADMIN_API_URL") as String?)
                     ?: localProperties.getProperty("SUPER_ADMIN_API_URL")
-                    ?: "https://saas-admin-api.up.railway.app"
+                    ?: "https://admin-api.mazbwoni.com"
             buildConfigField("String", "API_BASE_URL", "\"$releaseApiUrl\"")
             buildConfigField("String", "SUPER_ADMIN_API_URL", "\"$releaseAdminUrl\"")
             isMinifyEnabled = false
