@@ -48,6 +48,22 @@ function dateValue(value?: string | null) {
   return value ? new Date(value).getTime() || 0 : 0
 }
 
+// Date + time of writing. Prefer createdAt (has the exact time); fall back to
+// the invoice date for older rows. Shows "غير معروف" if neither is usable.
+function dateTimeLabel(inv: Invoice) {
+  const raw = inv.createdAt || inv.date
+  if (!raw) return "غير معروف"
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return "غير معروف"
+  const date = d.toLocaleDateString("en-GB") // dd/mm/yyyy
+  const time = d.toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })
+  return `${date} · ${time}`
+}
+
+function creatorLabel(inv: Invoice) {
+  return inv.creator?.name?.trim() || "غير معروف"
+}
+
 function typeLabel(type: TypeFilter) {
   if (type === "ALL") return "الكل"
   if (type === "SALE") return "فواتير البيع"
@@ -188,7 +204,8 @@ export function InvoicesPage() {
       { id: "type", header: "النوع", cell: ({ row }) => invoiceTypeBadge(row.original.type) },
       { accessorKey: "invoiceNumber", header: "رقم الفاتورة" },
       { id: "customer", header: "الزبون / المورد", cell: ({ row }) => <span className="text-[15px] font-bold">{invoiceParty(row.original)}</span> },
-      { accessorKey: "date", header: "التاريخ", cell: ({ row }) => String(row.original.date).slice(0, 10) },
+      { accessorKey: "date", header: "التاريخ والوقت", cell: ({ row }) => <span className="whitespace-nowrap text-xs">{dateTimeLabel(row.original)}</span> },
+      { id: "creator", header: "الموظف", cell: ({ row }) => <span className="whitespace-nowrap text-xs">{creatorLabel(row.original)}</span> },
       { accessorKey: "totalAmount", header: "الإجمالي", cell: ({ row }) => money(row.original.totalAmount) },
       { accessorKey: "paidAmount", header: "المدفوع", cell: ({ row }) => money(row.original.paidAmount) },
       { accessorKey: "remainingAmount", header: "الباقي", cell: ({ row }) => money(row.original.remainingAmount) },
