@@ -253,7 +253,7 @@ export function InvoiceDetailPage() {
   // Full edit dialog
   const [editOpen, setEditOpen] = useState(false)
   const [editDiscount, setEditDiscount] = useState("")
-  const [editTax, setEditTax] = useState("")
+  const [editTax] = useState("")
   const [editPaid, setEditPaid] = useState("")
   const [editPaymentType, setEditPaymentType] = useState<"CREDIT" | "CASH" | "PARTIAL">("CREDIT")
   const [editNotes, setEditNotes] = useState("")
@@ -266,28 +266,6 @@ export function InvoiceDetailPage() {
       const q = editProductSearch.toLowerCase()
       return !q || p.name.toLowerCase().includes(q) || p.itemNumber.toLowerCase().includes(q)
     }).slice(0, 12), [allProducts, editProductSearch])
-
-  function openEdit() {
-    if (!invoice) return
-    setEditDiscount(String(invoice.discount ?? 0))
-    setEditTax("0")
-    setEditPaid(Number(invoice.paidAmount ?? 0).toLocaleString("en-US"))
-    setEditPaymentType((invoice.paymentType as "CREDIT" | "CASH" | "PARTIAL") ?? "CREDIT")
-    setEditNotes(invoice.notes ?? "")
-    setEditItems((invoice.items ?? []).map((it) => {
-      const wsId = it.warehouseId
-      const product = allProducts.find((p) => p.id === it.productId)
-      const wsName = wsId ? product?.warehouseStocks?.find((ws) => ws.warehouseId === wsId)?.warehouse?.name : undefined
-      return {
-        productId: it.productId, productName: it.productName ?? it.productId,
-        unit: (it.unit ?? "PIECE") as "PIECE" | "DOZEN" | "BOX" | "CARTON",
-        quantity: it.quantity, unitPrice: Number(it.unitPrice),
-        warehouseId: wsId, warehouseName: wsName,
-        notes: it.notes ?? "",
-      }
-    }))
-    setEditOpen(true)
-  }
 
   function addEditProduct(p: Product) {
     const isSale = invoice?.type === "SALE"
@@ -400,7 +378,7 @@ export function InvoiceDetailPage() {
           <Button variant="outline" size="sm" onClick={() => void downloadA4Pdf()} disabled={pdfDownloading}><FileDown className="h-3.5 w-3.5" /> {pdfDownloading ? "جاري التحميل..." : "تحميل PDF"}</Button>
           {invoice.status === "ACTIVE" ? (
             <>
-              <Button variant="outline" size="sm" onClick={openEdit}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>
+              <Button variant="outline" size="sm" onClick={() => navigate(`/invoices/${id}/edit`)}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>
               <Button variant="destructive" size="sm" onClick={() => setConfirmCancel(true)} disabled={cancelMutation.isPending}>
                 <Ban className="h-3.5 w-3.5" /> تعطيل
               </Button>

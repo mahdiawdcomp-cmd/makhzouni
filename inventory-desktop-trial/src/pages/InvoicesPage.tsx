@@ -220,7 +220,7 @@ export function InvoicesPage() {
               variant="outline"
               size="sm"
               title="تعديل الفاتورة"
-              onClick={() => navigate(`/invoices/${row.original.id}`)}
+              onClick={() => navigate(`/invoices/${row.original.id}/edit`)}
             >
               <Pencil className="h-4 w-4" />
             </Button>

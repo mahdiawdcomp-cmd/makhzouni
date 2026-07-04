@@ -30,6 +30,7 @@ const AccountLookupPage = lazyPage(() => import("./pages/AccountLookupPage"), "A
 const DashboardPage = lazyPage(() => import("./pages/DashboardPage"), "DashboardPage")
 const InvoiceDetailPage = lazyPage(() => import("./pages/InvoiceDetailPage"), "InvoiceDetailPage")
 const InvoiceCreatePage = lazyPage(() => import("./pages/InvoiceCreatePage"), "InvoiceCreatePage")
+const InvoiceEditPage = lazyPage(() => import("./pages/InvoiceEditPage"), "InvoiceEditPage")
 const InvoicesPage = lazyPage(() => import("./pages/InvoicesPage"), "InvoicesPage")
 const LoginPage = lazyPage(() => import("./pages/LoginPage"), "LoginPage")
 const LowStockPage = lazyPage(() => import("./pages/LowStockPage"), "LowStockPage")
@@ -119,6 +120,7 @@ const router = createBrowserRouter([
           { path: "invoices/new", element: s(<InvoiceCreatePage />) },
           { path: "invoices/returns", element: f("salesReturns", "مرتجعات البيع", <SalesReturnsPage />) },
           { path: "invoices/:id", element: s(<InvoiceDetailPage />) },
+          { path: "invoices/:id/edit", element: s(<InvoiceEditPage />) },
           { path: "quotations", element: f("quotations", "عروض الأسعار", <QuotationsPage />) },
           { path: "vouchers", element: s(<VouchersPage />) },
           { path: "vouchers/:id", element: s(<VoucherDetailPage />) },
