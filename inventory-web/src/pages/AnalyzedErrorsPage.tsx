@@ -16,6 +16,7 @@ import { analyzeErrorLog, analyzeHealthComponent, getErrorLogs, getSystemHealth,
 import type { ErrorAnalysis, ErrorLog, ErrorLogSource, HealthLevel } from "../types/api"
 import { toast } from "../components/ui/use-toast"
 import { cn } from "../utils/cn"
+import { useFeatureEnabled } from "../hooks/useTenantConfig"
 
 const SOURCE_LABELS: Record<ErrorLogSource, string> = {
   CAMPAIGN: "الحملات",
@@ -41,18 +42,19 @@ const HEALTH_LABELS: Record<HealthLevel, { label: string; color: string }> = {
   unknown: { label: "غير معروف", color: "#94A3B8" },
 }
 
-function AiAnalyzeButton({ aiEnabled, analyzing, onClick, compact }: {
+function AiAnalyzeButton({ aiEnabled, analyzing, onClick, compact, disabledReason }: {
   aiEnabled: boolean
   analyzing: boolean
   onClick: () => void
   compact?: boolean
+  disabledReason?: string
 }) {
   return (
     <button
       type="button"
       disabled={!aiEnabled || analyzing}
       onClick={onClick}
-      title={aiEnabled ? undefined : "أضف GROQ_API_KEY في إعدادات الخادم لتفعيل التحليل"}
+      title={aiEnabled ? undefined : (disabledReason ?? "أضف GROQ_API_KEY في إعدادات الخادم لتفعيل التحليل")}
       className={cn(
         "flex items-center gap-1.5 rounded-lg border font-semibold transition disabled:cursor-not-allowed",
         compact ? "px-2 py-1 text-[11.5px]" : "px-3 py-1.5 text-[12.5px]",
@@ -67,7 +69,7 @@ function AiAnalyzeButton({ aiEnabled, analyzing, onClick, compact }: {
   )
 }
 
-function HealthCard({ title, level, detail, Icon, aiEnabled, analyzing, analysis, onAnalyze }: {
+function HealthCard({ title, level, detail, Icon, aiEnabled, analyzing, analysis, onAnalyze, disabledReason }: {
   title: string
   level: HealthLevel
   detail?: string | null
@@ -76,6 +78,7 @@ function HealthCard({ title, level, detail, Icon, aiEnabled, analyzing, analysis
   analyzing: boolean
   analysis?: ErrorAnalysis
   onAnalyze: () => void
+  disabledReason?: string
 }) {
   const h = HEALTH_LABELS[level]
   const troubled = level === "warn" || level === "down"
@@ -98,7 +101,7 @@ function HealthCard({ title, level, detail, Icon, aiEnabled, analyzing, analysis
         </div>
       </div>
       {troubled && !analysis && (
-        <AiAnalyzeButton compact aiEnabled={aiEnabled} analyzing={analyzing} onClick={onAnalyze} />
+        <AiAnalyzeButton compact aiEnabled={aiEnabled} analyzing={analyzing} onClick={onAnalyze} disabledReason={disabledReason} />
       )}
       {analysis && <AnalysisBox analysis={analysis} />}
     </div>
@@ -163,9 +166,18 @@ export function AnalyzedErrorsPage() {
     onError: () => toast({ title: "تعذّر تحليل الحالة", variant: "destructive" }),
   })
 
+  // Batch 12B — the SaaS `aiErrorAnalysis` entitlement gates the AI button
+  // alongside the existing GROQ_API_KEY check; the plain error/health list
+  // above stays visible either way (it's core, not premium).
+  const saasAiAllowed = useFeatureEnabled("aiErrorAnalysis")
+
   const health = healthQuery.data
   const rows: ErrorLog[] = logsQuery.data?.rows ?? []
-  const aiEnabled = logsQuery.data?.aiEnabled ?? false
+  const groqConfigured = logsQuery.data?.aiEnabled ?? false
+  const aiEnabled = groqConfigured && saasAiAllowed
+  const aiDisabledReason = !saasAiAllowed
+    ? "ميزة التحليل بالذكاء الاصطناعي غير مفعّلة في نسختك."
+    : "أضف GROQ_API_KEY في إعدادات الخادم لتفعيل التحليل"
 
   return (
     <div className="space-y-4">
@@ -212,6 +224,7 @@ export function AnalyzedErrorsPage() {
               analyzing={analyzeHealthMutation.isPending && analyzeHealthMutation.variables === c.key}
               analysis={healthAnalyses[c.key]}
               onAnalyze={() => analyzeHealthMutation.mutate(c.key)}
+              disabledReason={aiDisabledReason}
             />
           ))}
         </div>
@@ -302,6 +315,7 @@ export function AnalyzedErrorsPage() {
                       aiEnabled={aiEnabled}
                       analyzing={analyzing}
                       onClick={() => analyzeMutation.mutate(log.id)}
+                      disabledReason={aiDisabledReason}
                     />
                   )}
                   {!log.resolvedAt && (
@@ -325,7 +339,7 @@ export function AnalyzedErrorsPage() {
       {!aiEnabled && rows.length > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-[12.5px] text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          التحليل بالذكاء الاصطناعي غير مفعّل — أضف مفتاح API في إعدادات الخادم لتفعيله.
+          {aiDisabledReason}
         </div>
       )}
     </div>

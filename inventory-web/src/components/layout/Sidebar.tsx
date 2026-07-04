@@ -68,6 +68,7 @@ function featureKeyForItem(item: Item): string | null {
   if (path === "/catalog-management") return "catalogWholesale"
   if (path === "/retail-catalog") return "retailShop"
   if (path === "/campaigns") return "whatsappCampaigns"
+  if (path === "/customers/broadcast") return "whatsappCampaigns"
   if (path === "/quotations") return "quotations"
   if (path === "/invoices/returns") return "salesReturns"
   if (path === "/pos") return "pos"

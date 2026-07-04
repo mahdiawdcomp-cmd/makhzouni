@@ -124,7 +124,7 @@ const router = createBrowserRouter([
           { path: "vouchers/:id", element: s(<VoucherDetailPage />) },
           { path: "losses", element: s(<LossesPage />) },
           { path: "customers", element: s(<CustomersPage />) },
-          { path: "customers/broadcast", element: s(<CustomerBroadcastPage />) },
+          { path: "customers/broadcast", element: f("whatsappCampaigns", "حملات واتساب", <CustomerBroadcastPage />) },
           { path: "campaigns", element: f("whatsappCampaigns", "الحملات", <CampaignsPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
@@ -142,7 +142,7 @@ const router = createBrowserRouter([
               { path: "error-logs", element: s(<AnalyzedErrorsPage />) },
               { path: "branches", element: s(<BranchesPage />) },
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
-              { path: "coupons", element: s(<CouponsPage />) },
+              { path: "coupons", element: f("retailCoupons", "كوبونات المفرد", <CouponsPage />) },
               { path: "super-admin", element: s(<SuperAdminPage />) },
               // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
               { path: "balance-migration", element: <BalanceMigrationDisabled /> },
