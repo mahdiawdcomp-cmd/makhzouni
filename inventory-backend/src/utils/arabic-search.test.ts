@@ -35,11 +35,11 @@ describe("scoreProduct ranking", () => {
   it("normalizes letters: 'مجنونه' finds 'مجنونة'", () => {
     assert.ok(scoreProduct(p(), "مجنونه") >= 2);
   });
-  it("exact item number scores highest (6)", () => {
-    assert.equal(scoreProduct(p(), "AWD-700"), 6);
+  it("exact item number scores highest (8)", () => {
+    assert.equal(scoreProduct(p(), "AWD-700"), 8);
   });
-  it("code prefix scores 5", () => {
-    assert.equal(scoreProduct(p(), "AWD"), 5);
+  it("code prefix scores 7", () => {
+    assert.equal(scoreProduct(p(), "AWD"), 7);
   });
   it("whole phrase in name scores 4", () => {
     assert.equal(scoreProduct(p(), "شحن ستيرن"), 4);

@@ -43,9 +43,15 @@ function isSubsequence(needle: string, haystack: string): boolean {
 }
 
 /**
- * Relevance score for a product (0 = no match). Mirrors the backend tiers:
- * 6 exact code · 5 code prefix · 4 whole phrase · 3 all tokens · 2 some · 1 fuzzy.
- * Also keeps the Arabic-keyboard-garbled barcode fallback for raw scans.
+ * Relevance score for a product (0 = no match). Precision over recall — tiers:
+ * 8 exact code · 7 code prefix / garbled scan · 6 exact name · 5 name prefix ·
+ * 4 name contains phrase · 3 every query word appears (name/category/code).
+ *
+ * The old loose "some tokens" and "fuzzy subsequence" tiers were removed on
+ * purpose: subsequence matching (letters in order, anywhere) turned a short
+ * query into dozens of barely-related hits, and "some tokens" let one shared
+ * word ("قلم ازرق" → "قلم احمر") match. Substring matching within a word still
+ * works via the phrase/all-words tiers, so partial typing is unaffected.
  */
 export function scoreProduct(product: SearchableProduct, q: string): number {
   const full = normalizeArabic(q)
@@ -58,22 +64,25 @@ export function scoreProduct(product: SearchableProduct, q: string): number {
     .map((c) => normalizeArabic(c))
     .filter(Boolean)
 
-  if (codes.some((c) => c === full)) return 6
-  if (codes.some((c) => c.startsWith(full) || full.startsWith(c))) return 5
+  // Codes first (barcode / item number): exact, then prefix.
+  if (codes.some((c) => c === full)) return 8
+  if (codes.some((c) => c.startsWith(full) || full.startsWith(c))) return 7
+
+  // Name: exact → starts-with → contains the whole phrase.
+  if (name === full) return 6
+  if (name.startsWith(full)) return 5
   if (name.includes(full)) return 4
 
+  // Every query word appears somewhere (name/category/code) — "clear words".
   const haystacks = [name, category, ...codes]
-  const hits = ts.filter((t) => haystacks.some((h) => h.includes(t))).length
-  if (hits === ts.length) return 3
-  if (hits > 0) return 2
-  if (ts.every((t) => isSubsequence(t, name))) return 1
+  if (ts.every((t) => haystacks.some((h) => h.includes(t)))) return 3
 
   // Last-ditch: an Arabic-keyboard-garbled scan (raw codes only).
   const rawCodes = [product.itemNumber, product.qrCode ?? "", product.cartonQrCode ?? ""].map((c) => c.toLowerCase())
   const matchedScan = barcodeMatchCandidates(q)
     .filter((c) => c !== q.trim().toLowerCase())
     .some((c) => rawCodes.some((code) => !!code && (code === c || (c.length >= 8 && code.includes(c)))))
-  return matchedScan ? 5 : 0
+  return matchedScan ? 7 : 0
 }
 
 export function matchProduct(product: SearchableProduct, q: string): boolean {

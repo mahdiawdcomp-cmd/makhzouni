@@ -53,8 +53,12 @@ export interface RankableProduct {
 
 /**
  * Relevance score for a product against a (raw) query. 0 = no match.
- * 6 exact code · 5 code prefix · 4 whole phrase in name · 3 all tokens ·
- * 2 some tokens · 1 fuzzy subsequence.
+ * Precision over recall — tiers: 8 exact code · 7 code prefix · 6 exact name ·
+ * 5 name prefix · 4 name contains phrase · 3 every query word appears.
+ *
+ * The old loose "some tokens" and "fuzzy subsequence" tiers were removed on
+ * purpose (they produced dozens of barely-related matches). Substring matching
+ * within a word still works via the phrase / all-words tiers.
  */
 export function scoreProduct(product: RankableProduct, query: string): number {
   const full = normalizeArabic(query);
@@ -67,16 +71,16 @@ export function scoreProduct(product: RankableProduct, query: string): number {
     .map((c) => normalizeArabic(c))
     .filter(Boolean);
 
-  if (codes.some((c) => c === full)) return 6;
-  if (codes.some((c) => c.startsWith(full) || full.startsWith(c))) return 5;
+  if (codes.some((c) => c === full)) return 8;
+  if (codes.some((c) => c.startsWith(full) || full.startsWith(c))) return 7;
+
+  if (name === full) return 6;
+  if (name.startsWith(full)) return 5;
   if (name.includes(full)) return 4;
 
   const haystacks = [name, category, ...codes];
-  const tokenHits = tokens.filter((t) => haystacks.some((h) => h.includes(t))).length;
-  if (tokenHits === tokens.length) return 3;
-  if (tokenHits > 0) return 2;
+  if (tokens.every((t) => haystacks.some((h) => h.includes(t)))) return 3;
 
-  if (tokens.every((t) => isSubsequence(t, name))) return 1;
   return 0;
 }
 

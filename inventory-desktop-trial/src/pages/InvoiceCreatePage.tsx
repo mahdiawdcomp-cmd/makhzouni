@@ -304,7 +304,9 @@ export function InvoiceCreatePage() {
     [customers, customerQuery],
   )
   const productSuggestions = useMemo(
-    () => sortProductsByRelevance(products, productQuery),
+    // Cap the dropdown so a broad query shows the top matches only, not a wall
+    // of results. Ranking already puts the best first.
+    () => sortProductsByRelevance(products, productQuery).slice(0, 15),
     [products, productQuery],
   )
 
