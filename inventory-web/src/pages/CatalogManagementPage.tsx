@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react"
+import { useEffect, useState, useMemo, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BookOpen,
@@ -35,6 +35,8 @@ import {
   toggleAdminPromoCode,
   getCustomerTags,
   getCustomersPaged,
+  getSettings,
+  updateSettings,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccess,
@@ -58,8 +60,13 @@ dayjs.locale("ar")
 
 const CATALOG_BASE = window.location.origin + "/catalog?access="
 
-function copyText(text: string) {
-  navigator.clipboard.writeText(text).catch(() => {})
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function StatusBadge({ customer }: { customer: CatalogCustomer }) {
@@ -249,11 +256,17 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
     onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog-customers"] }),
   })
 
-  function handleCopy() {
+  async function handleCopy() {
     if (!customer.token) return
-    copyText(CATALOG_BASE + customer.token)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    const link = CATALOG_BASE + customer.token
+    const ok = await copyText(link)
+    if (ok) {
+      toast({ title: "تم نسخ رابط الكتالوج" })
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } else {
+      toast({ title: "تعذر النسخ، انسخ الرابط يدوياً", description: link, variant: "destructive" })
+    }
   }
 
   const isLoading = patchMut.isPending || revokeMut.isPending
@@ -968,6 +981,57 @@ function PromoCodesTab() {
   )
 }
 
+/* ─── Catalog OTP re-verification toggle ──────────────────────────────── */
+function CatalogOtpSettings() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const [enabled, setEnabled] = useState(true)
+
+  useEffect(() => {
+    const s = settingsQuery.data
+    if (!s) return
+    setEnabled(s.catalogRequireOtp !== false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsQuery.data])
+
+  const saveMut = useMutation({
+    mutationFn: (value: boolean) => updateSettings({ catalogRequireOtp: value }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] })
+      toast({ title: "تم حفظ الإعداد" })
+    },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحفظ"), variant: "destructive" }),
+  })
+
+  function toggle(checked: boolean) {
+    setEnabled(checked)
+    saveMut.mutate(checked)
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+      <label className="flex cursor-pointer items-center justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <ShieldOff className="h-4 w-4 text-slate-500" />
+            تفعيل التحقق برمز واتساب عند دخول الكتالوك
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            عند إيقافه، سيتمكن أي شخص يملك رابط الكتالوك من الدخول بدون رمز تحقق.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={saveMut.isPending}
+          onChange={(e) => toggle(e.target.checked)}
+          className="h-4 w-4 shrink-0 accent-blue-600"
+        />
+      </label>
+    </div>
+  )
+}
+
 const PAGE_SIZE = 50
 
 export function CatalogManagementPage() {
@@ -1015,6 +1079,8 @@ export function CatalogManagementPage() {
         <h1 className="text-2xl font-bold text-slate-900">إدارة كاتلوك الجملة</h1>
         <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن والتصميم وأكواد الخصم</p>
       </div>
+
+      <CatalogOtpSettings />
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">

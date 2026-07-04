@@ -50,6 +50,11 @@ export interface AppSettings {
   catalogDesignWelcomeMessage?: string;
   catalogDesignBannerEnabled?: boolean;
   catalogDesignBannerImages?: Array<{ url: string; title: string; order: number }>;
+  // Wholesale catalog OTP re-verification gate. Defaults to true (current
+  // behavior unchanged) — undefined/missing must also mean true so existing
+  // tenants are never silently opened up. When false, a valid catalog link
+  // grants access directly with no phone re-verification step.
+  catalogRequireOtp?: boolean;
   // Prospect auto-reply: when a prospect's reply contains ANY of these
   // trigger keywords, the configured message (with {{link}} substituted)
   // is sent back to them automatically.
@@ -120,6 +125,7 @@ export const defaultSettings: AppSettings = {
   shopWarehouseId: "",
   catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
   catalogAdminWhatsappNumber: "",
+  catalogRequireOtp: true,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,

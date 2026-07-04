@@ -346,10 +346,16 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
     throw new AppError("Catalog access is invalid", 404, "CATALOG_ACCESS_INVALID");
   }
 
+  const settings = await getSettings();
+
   // OTP re-verification window: the token stays valid forever, but browsing
   // requires a successful OTP within the last ~6 months. Legacy links
   // (last_verified_at NULL) simply prompt for OTP once on next open.
-  const needsOtp = !isVerificationFresh(link.last_verified_at);
+  // catalogRequireOtp === false (merchant opt-out) skips this entirely — the
+  // token itself remains the only gate. Missing/undefined always means true
+  // so existing tenants keep the current behavior unchanged.
+  const catalogRequireOtp = settings.catalogRequireOtp !== false;
+  const needsOtp = catalogRequireOtp && !isVerificationFresh(link.last_verified_at);
   if (requireVerified && needsOtp) {
     throw new AppError("يرجى تأكيد رقم الهاتف برمز OTP للمتابعة", 403, "CATALOG_OTP_REQUIRED");
   }
@@ -369,7 +375,6 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
     throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
   }
 
-  const settings = await getSettings();
   const catalogDesign = {
     primaryColor: settings.catalogDesignPrimaryColor ?? null,
     bgColor: settings.catalogDesignBgColor ?? null,
