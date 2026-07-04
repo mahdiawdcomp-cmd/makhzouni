@@ -21,6 +21,16 @@ export interface FeatureItem {
   key: string;
   label: string;
   description?: string;
+  /**
+   * Batch 17B — hidden from the Super Admin selectable-features UI. The key
+   * stays in FEATURE_GROUPS/FEATURE_KEYS so existing tenants that already
+   * have it stored keep validating and saving without error; it just can't
+   * be (re-)selected going forward. See Batch 17A audit: profitReports and
+   * advancedPermissions are always-on base behavior (never actually gated),
+   * catalogOtp is a hardcoded security check with no on/off toggle, and
+   * backupRestore has no cloud restore endpoint to gate.
+   */
+  hidden?: boolean;
 }
 export interface FeatureGroup {
   key: string;
@@ -44,11 +54,11 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     key: "management",
     title: "الإدارة",
     items: [
-      { key: "advancedPermissions", label: "صلاحيات متقدمة", description: "صلاحيات دقيقة لكل مستخدم وشاشة" },
+      { key: "advancedPermissions", label: "صلاحيات متقدمة", description: "صلاحيات دقيقة لكل مستخدم وشاشة", hidden: true },
       { key: "auditLog", label: "سجل التدقيق", description: "سجل كامل لكل عمليات التعديل والحذف" },
       { key: "advancedReports", label: "تقارير متقدمة", description: "تقارير تحليلية إضافية فوق الأساسية" },
       { key: "dailyClosing", label: "الإغلاق اليومي", description: "إقفال الصندوق اليومي بتقرير مطابقة" },
-      { key: "profitReports", label: "تقارير الأرباح", description: "تقارير الربح التفصيلية حسب المنتج/الفترة" },
+      { key: "profitReports", label: "تقارير الأرباح", description: "تقارير الربح التفصيلية حسب المنتج/الفترة", hidden: true },
     ],
   },
   {
@@ -66,7 +76,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     title: "كتلوگ الجملة",
     items: [
       { key: "catalogWholesale", label: "كتلوگ الجملة", description: "كتالوج للزبائن يعرض الأسعار والمخزون" },
-      { key: "catalogOtp", label: "تحقق OTP", description: "تحقق برمز مرسل واتساب قبل دخول الكتالوج" },
+      { key: "catalogOtp", label: "تحقق OTP", description: "تحقق برمز مرسل واتساب قبل دخول الكتالوج", hidden: true },
       { key: "catalogShowHidePrice", label: "إظهار/إخفاء السعر", description: "التحكم بظهور السعر لكل زبون" },
       { key: "catalogShowHideStock", label: "إظهار/إخفاء المخزون", description: "التحكم بظهور الكمية المتوفرة" },
       { key: "catalogFullCartonFilter", label: "فلتر الكرتون الكامل", description: "عرض المواد المتوفرة بكرتون كامل فقط" },
@@ -126,7 +136,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     items: [
       { key: "onlineBackup", label: "نسخ أونلاين", description: "نسخة احتياطية يومية على السيرفر" },
       { key: "incrementalBackup", label: "نسخ تزايدي", description: "نسخ تزايدي أخف وأسرع من النسخ الكامل" },
-      { key: "backupRestore", label: "الاستعادة", description: "استعادة نسخة احتياطية سابقة عند الحاجة" },
+      { key: "backupRestore", label: "الاستعادة", description: "استعادة نسخة احتياطية سابقة عند الحاجة", hidden: true },
     ],
   },
 ];
@@ -145,5 +155,5 @@ export const PLATFORM_TOGGLES: Array<FeatureItem & { note?: string }> = [
 export const BASE_VERSION_ITEMS: string[] = [
   "مواد", "زبائن", "موردين", "فواتير بيع", "فواتير شراء", "سند قبض", "سند دفع",
   "تقارير أساسية", "تقارير أرباح", "باركود/QR بسيط", "مخزن واحد",
-  "مستخدمين وصلاحيات حسب الحاجة", "System Health مبدئي", "Backup أساسي",
+  "مستخدمين وصلاحيات دقيقة لكل مستخدم", "System Health مبدئي", "Backup أساسي",
 ];

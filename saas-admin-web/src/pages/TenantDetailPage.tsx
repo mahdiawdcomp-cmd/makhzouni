@@ -120,12 +120,13 @@ export default function TenantDetailPage() {
   const selectAllInGroup = (groupKey: string) => {
     const group = FEATURE_GROUPS.find((g) => g.key === groupKey);
     if (!group) return;
-    setLic((c) => ({ ...c, features: Array.from(new Set([...c.features, ...group.items.map((i) => i.key)])) }));
+    const visible = group.items.filter((i) => !i.hidden);
+    setLic((c) => ({ ...c, features: Array.from(new Set([...c.features, ...visible.map((i) => i.key)])) }));
   };
   const clearAllInGroup = (groupKey: string) => {
     const group = FEATURE_GROUPS.find((g) => g.key === groupKey);
     if (!group) return;
-    const keys = new Set(group.items.map((i) => i.key));
+    const keys = new Set(group.items.filter((i) => !i.hidden).map((i) => i.key));
     setLic((c) => ({ ...c, features: c.features.filter((f) => !keys.has(f)) }));
   };
   const saveLicense = () => run(() => tenantsApi.update(id, {
@@ -317,15 +318,17 @@ export default function TenantDetailPage() {
         </div>}
 
         {FEATURE_GROUPS.map((group) => {
+          const visibleItems = group.items.filter((i) => !i.hidden);
+          if (visibleItems.length === 0) return null;
           const collapsed = !!collapsedGroups[group.key];
-          const selectedCount = group.items.filter((i) => lic.features.includes(i.key)).length;
+          const selectedCount = visibleItems.filter((i) => lic.features.includes(i.key)).length;
           return (
             <div className={`feature-group ${collapsed ? "" : "open"}`} key={group.key}>
               <div className="feature-group-head">
                 <div className="feature-group-head-left" style={{ cursor: "pointer" }} onClick={() => toggleGroup(group.key)}>
                   <span className="feature-group-chevron"><ChevronDown size={16} /></span>
                   <span className="feature-group-title">{group.title}</span>
-                  <span className="feature-group-count">{selectedCount}/{group.items.length}</span>
+                  <span className="feature-group-count">{selectedCount}/{visibleItems.length}</span>
                 </div>
                 <div className="feature-group-actions">
                   <button type="button" onClick={() => selectAllInGroup(group.key)}>تحديد الكل</button>
@@ -333,7 +336,7 @@ export default function TenantDetailPage() {
                 </div>
               </div>
               {!collapsed && <div className="feature-group-body">
-                {group.items.map((item) => {
+                {visibleItems.map((item) => {
                   const on = lic.features.includes(item.key);
                   return (
                     <div className={`feature-row ${on ? "on" : ""}`} key={item.key} onClick={() => toggleLicFeature(item.key)}>

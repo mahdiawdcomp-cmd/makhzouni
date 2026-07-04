@@ -24,6 +24,15 @@ export type TenantStatusValue = (typeof TENANT_STATUSES)[number];
  * Optional feature keys — everything here is ON TOP of the always-on base
  * version. Grouped only for UI/documentation; the stored value is a flat
  * string[] of these keys.
+ *
+ * Batch 17B: profitReports, advancedPermissions, catalogOtp, and
+ * backupRestore are intentionally kept in this list (never removed) so
+ * tenants that already have one stored keep validating/saving without
+ * error — but saas-admin-web/src/entitlements.ts marks them `hidden: true`
+ * so they no longer show up as selectable in the Super Admin UI. Batch 17A
+ * audit: profitReports/advancedPermissions are always-on base behavior
+ * (never actually gated), catalogOtp is a hardcoded security check with no
+ * on/off toggle, and backupRestore has no cloud restore endpoint to gate.
  */
 export const FEATURE_GROUPS = {
   inventory: [
