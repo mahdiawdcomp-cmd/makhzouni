@@ -47,17 +47,10 @@ export const triggerDailySummary = asyncHandler(async (_req, res) => {
 });
 
 /** GET /api/settings/backup/download — streams full DB export as JSON file.
- *  Requires ?secret=BACKUP_SECRET query param, matched exactly against the
- *  configured env value. Fail-closed: missing/misconfigured secret ⇒ 401.
+ *  Access is gated by allowBackupAccess (settings.routes.ts): a matching
+ *  ?secret=BACKUP_SECRET OR an authenticated admin session.
  */
 export const downloadBackup = asyncHandler(async (req, res) => {
-  const querySecret = String(req.query.secret ?? "");
-  const envSecret = process.env.BACKUP_SECRET ?? "";
-  if (!envSecret || !querySecret || querySecret !== envSecret) {
-    res.status(401).json({ success: false, error: "UNAUTHORIZED_BACKUP_ACCESS" });
-    return;
-  }
-
   // lean=1 strips base64 images from audit-log snapshots (export only).
   // Default (no flag) preserves the exact previous behaviour.
   const lean = String(req.query.lean ?? "") === "1";
@@ -88,16 +81,9 @@ export const downloadBackup = asyncHandler(async (req, res) => {
 
 /** GET /api/settings/backup/changes?since=ISO — streams ONLY records changed
  *  after `since` as a JSON file. For the experimental incremental backup system.
- *  Same auth as downloadBackup — fail-closed on a missing/misconfigured secret.
+ *  Same auth as downloadBackup (allowBackupAccess in settings.routes.ts).
  */
 export const downloadChanges = asyncHandler(async (req, res) => {
-  const querySecret = String(req.query.secret ?? "");
-  const envSecret = process.env.BACKUP_SECRET ?? "";
-  if (!envSecret || !querySecret || querySecret !== envSecret) {
-    res.status(401).json({ success: false, error: "UNAUTHORIZED_BACKUP_ACCESS" });
-    return;
-  }
-
   const sinceRaw = String(req.query.since ?? "");
   const since = new Date(sinceRaw);
   if (!sinceRaw || Number.isNaN(since.getTime())) {

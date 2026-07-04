@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { NextFunction, Request, Response, Router } from "express";
 import {
   getAllSettings,
   updateAppSettings,
@@ -17,6 +17,40 @@ import { validate } from "../middleware/validate";
 import { updateSettingsSchema } from "../utils/schemas";
 import rateLimit from "express-rate-limit";
 
+/**
+ * Batch 13D — gates the secret-or-admin backup endpoints. Allows either:
+ *   A) ?secret= matching BACKUP_SECRET exactly (external scripts), or
+ *   B) an authenticated admin session (authMiddleware + adminOnly — the
+ *      web/Android "download backup" button, which sends a JWT, no secret).
+ * Fails closed (401 UNAUTHORIZED_BACKUP_ACCESS) unless one of the two holds;
+ * never reveals which check failed.
+ */
+async function allowBackupAccess(req: Request, res: Response, next: NextFunction) {
+  const querySecret = String(req.query.secret ?? "");
+  const envSecret = process.env.BACKUP_SECRET ?? "";
+  if (envSecret && querySecret && querySecret === envSecret) {
+    next();
+    return;
+  }
+
+  let authorized = false;
+  await new Promise<void>((resolve) => {
+    authMiddleware(req, res, (err?: unknown) => {
+      if (err) { resolve(); return; }
+      adminOnly(req, res, (err2?: unknown) => {
+        authorized = !err2;
+        resolve();
+      });
+    });
+  });
+
+  if (authorized) {
+    next();
+    return;
+  }
+  res.status(401).json({ success: false, error: "UNAUTHORIZED_BACKUP_ACCESS" });
+}
+
 // Backup operations are expensive — max 10 per hour per IP
 const backupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -28,10 +62,11 @@ const backupLimiter = rateLimit({
 
 const router = Router();
 
-// Secret-based download (no login needed — for auto-download scripts)
-// Must be registered BEFORE authMiddleware
-router.get("/backup/download", backupLimiter, downloadBackup);
-router.get("/backup/changes", backupLimiter, downloadChanges);
+// Secret-OR-admin-session download. Must be registered BEFORE the blanket
+// authMiddleware below so a valid ?secret= still works with no JWT at all
+// (allowBackupAccess runs authMiddleware itself for the admin-session path).
+router.get("/backup/download", backupLimiter, allowBackupAccess, downloadBackup);
+router.get("/backup/changes", backupLimiter, allowBackupAccess, downloadChanges);
 
 router.use(authMiddleware);
 
