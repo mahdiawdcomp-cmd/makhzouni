@@ -51,14 +51,19 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   vouchers: ["vouchers", "voucher", "customers", "dashboard-report", "reports"],
 }
 
-function realtimeUrl(token: string) {
+function realtimeUrl(token: string): string | null {
   const configuredBase = String(import.meta.env.VITE_REALTIME_API_URL ?? "").trim()
+  // Fail-closed: only open an SSE connection against an ABSOLUTE backend base
+  // (VITE_REALTIME_API_URL, or the runtime-resolved API_BASE_URL once it points
+  // at the tenant's own backend). Previously this fell back to a hardcoded
+  // backend when API_BASE_URL was still relative — that could route realtime
+  // traffic to the wrong tenant. No hardcoded fallback: if there's no absolute
+  // base we simply don't connect.
   const base = (
     configuredBase ||
-    (API_BASE_URL.startsWith("http")
-      ? API_BASE_URL
-      : "https://inventory-backend-production-7e85.up.railway.app/api")
+    (API_BASE_URL.startsWith("http") ? API_BASE_URL : "")
   ).replace(/\/$/, "")
+  if (!base) return null
   return `${base}/realtime/events?token=${encodeURIComponent(token)}`
 }
 
@@ -120,7 +125,13 @@ export function RealtimeSyncBridge() {
       tokenRef.current = token
       closeCurrent()
 
-      const source = new EventSource(realtimeUrl(token))
+      const url = realtimeUrl(token)
+      if (!url) {
+        // No absolute backend base resolved yet — skip realtime (fail-closed,
+        // never route SSE traffic to a hardcoded/other-tenant backend).
+        return
+      }
+      const source = new EventSource(url)
       eventSourceRef.current = source
 
       // "connected" is just a handshake — do NOT invalidate here.
