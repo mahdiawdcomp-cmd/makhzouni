@@ -46,20 +46,23 @@ router.get("/:id/label/carton.png", validate(idParamSchema), getCartonLabelPng);
 router.use(authMiddleware);
 
 router.get("/", validate(listProductsSchema), getProducts);
+// POST / PUT / DELETE on products intentionally have NO requirePermission here:
+// the controller routes STAFF without MANAGE_PRODUCTS into a PendingApproval
+// (202) instead of executing — adding a 403 guard would break that flow.
 router.post("/", validate(createProductSchema), addProduct);
-router.post("/backfill-qr", backfillProductQrs);
-router.post("/backfill-thumbnails", backfillThumbs);
+router.post("/backfill-qr", requirePermission("MANAGE_PRODUCTS"), backfillProductQrs);
+router.post("/backfill-thumbnails", requirePermission("MANAGE_PRODUCTS"), backfillThumbs);
 router.post("/variety-convert", requireAnyPermission("VARIETY_CONVERT", "MANAGE_PRODUCTS"), validate(varietyConvertSchema), convertVariety);
 router.get("/stale", getStale);
-router.post("/bulk-delete", bulkDelete);
-router.get("/deleted", getDeletedProductsList);
+router.post("/bulk-delete", requirePermission("MANAGE_PRODUCTS"), bulkDelete);
+router.get("/deleted", requirePermission("MANAGE_PRODUCTS"), getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);
 router.get("/:id", validate(idParamSchema), getProductDetails);
 router.get("/:id/manual-adjustments", validate(idParamSchema), getManualAdjustments);
 router.get("/:id/stock-history", validate(idParamSchema), getStockHistory);
-router.post("/:id/adjust-stock", validate(idParamSchema), adjustStock);
+router.post("/:id/adjust-stock", requireAnyPermission("INVENTORY_MANAGE", "MANAGE_PRODUCTS"), validate(idParamSchema), adjustStock);
 router.put("/:id", validate(updateProductSchema), editProduct);
 router.delete("/:id", validate(idParamSchema), removeProduct);
-router.post("/:id/restore", validate(idParamSchema), restoreProductCtrl);
+router.post("/:id/restore", requirePermission("MANAGE_PRODUCTS"), validate(idParamSchema), restoreProductCtrl);
 
 export default router;

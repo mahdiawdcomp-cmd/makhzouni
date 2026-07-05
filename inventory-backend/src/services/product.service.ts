@@ -56,7 +56,7 @@ function stockFrom(product: {
   return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
 }
 
-function serializeProduct<T extends {
+export function serializeProduct<T extends {
   openingBalancePcs: number;
   cartonsAvailable: number;
   pcsPerCarton: number;
@@ -64,7 +64,8 @@ function serializeProduct<T extends {
 }>(
   product: T,
   shopWarehouseId?: string | null,
-  hidePurchasePrice = false
+  hidePurchasePrice = false,
+  hideAllPrices = false
 ) {
   const warehouseTotal = product.warehouseStocks?.reduce(
     (sum, stock) => sum + stock.quantityPieces,
@@ -80,11 +81,27 @@ function serializeProduct<T extends {
     currentStock: warehouseTotal ?? stockFrom(product),
     ...(shopStock === undefined ? {} : { shopStock }),
   };
+  // VIEW_WITHOUT_PRICES (warehouse-worker mode) is stronger than the purchase-
+  // price rule below: NO money fields at all leave the server, so nothing can
+  // leak via devtools or direct API calls.
+  if (hideAllPrices) {
+    const {
+      purchasePrice, salePrice, retailPrice, costPrice, oldPrice,
+      ...rest
+    } = result as typeof result & {
+      purchasePrice?: unknown; salePrice?: unknown; retailPrice?: unknown;
+      costPrice?: unknown; oldPrice?: unknown;
+    };
+    void purchasePrice; void salePrice; void retailPrice; void costPrice; void oldPrice;
+    return rest;
+  }
   // Staff without VIEW_PURCHASE_PRICE must never see cost price — stripped
   // server-side (not just hidden in the UI) so it can't leak via devtools.
   if (hidePurchasePrice) {
-    const { purchasePrice, ...rest } = result as typeof result & { purchasePrice?: unknown };
-    void purchasePrice;
+    const { purchasePrice, costPrice, ...rest } = result as typeof result & {
+      purchasePrice?: unknown; costPrice?: unknown;
+    };
+    void purchasePrice; void costPrice;
     return rest;
   }
   return result;
@@ -170,6 +187,7 @@ export async function listProducts(query: {
   page?: number;
   limit?: number;
   hidePurchasePrice?: boolean;
+  hideAllPrices?: boolean;
 }) {
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
@@ -194,7 +212,7 @@ export async function listProducts(query: {
       omit: { imageUrl: true }, // list never needs the full image — thumbnailUrl is enough
       orderBy: { name: "asc" },
     });
-    let list = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice));
+    let list = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice, query.hideAllPrices));
     if (query.lowStock) {
       list = list.filter((product) => product.currentStock <= product.minStock);
     }
@@ -228,7 +246,7 @@ export async function listProducts(query: {
     prisma.product.count({ where }),
   ]);
 
-  const data = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice));
+  const data = rows.map((p) => serializeProduct(p, shopWarehouseId, query.hidePurchasePrice, query.hideAllPrices));
 
   return {
     data,
@@ -241,7 +259,7 @@ export async function listProducts(query: {
   };
 }
 
-export async function getProductById(id: string, db: Db = prisma, hidePurchasePrice = false) {
+export async function getProductById(id: string, db: Db = prisma, hidePurchasePrice = false, hideAllPrices = false) {
   const product = await db.product.findFirst({
     where: { id, deletedAt: null },
     include: productWarehouseInclude,
@@ -252,10 +270,10 @@ export async function getProductById(id: string, db: Db = prisma, hidePurchasePr
   }
 
   const shopWarehouseId = await resolveShopWarehouseId(db).catch(() => null);
-  return serializeProduct(product, shopWarehouseId, hidePurchasePrice);
+  return serializeProduct(product, shopWarehouseId, hidePurchasePrice, hideAllPrices);
 }
 
-export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePurchasePrice = false) {
+export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePurchasePrice = false, hideAllPrices = false) {
   const product = await db.product.findFirst({
     where: {
       OR: [{ qrCode }, { cartonQrCode: qrCode }],
@@ -274,7 +292,7 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePu
   const scannedUnit: "CARTON" | "PIECE" =
     product.cartonQrCode && product.cartonQrCode === code ? "CARTON" : "PIECE";
 
-  return { ...serializeProduct(product, undefined, hidePurchasePrice), scannedUnit };
+  return { ...serializeProduct(product, undefined, hidePurchasePrice, hideAllPrices), scannedUnit };
 }
 
 /* ─── Manual stock adjustment (تعديل الكمية يدوياً) ───────────────────── */
@@ -803,7 +821,7 @@ export async function restoreProduct(id: string, db: Db = prisma) {
  * excluded (they're new, not stale). Returns last-activity date + current stock
  * so the user can decide whether to delete or keep each one.
  */
-export async function getStaleProducts(days = 60) {
+export async function getStaleProducts(days = 60, hideAllPrices = false) {
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
 
@@ -828,7 +846,7 @@ export async function getStaleProducts(days = 60) {
     .map((p) => {
       const { stockMovements, ...rest } = p;
       return {
-        ...serializeProduct(rest, shopWarehouseId),
+        ...serializeProduct(rest, shopWarehouseId, false, hideAllPrices),
         lastMovementAt: stockMovements[0]?.createdAt ?? null,
       };
     })

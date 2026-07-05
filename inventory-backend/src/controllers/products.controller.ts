@@ -30,6 +30,17 @@ import { asyncHandler } from "../utils/async-handler";
 import { hasPermission } from "../middleware/permission.middleware";
 import { getSettings } from "../services/settings.service";
 
+/**
+ * VIEW_WITHOUT_PRICES (warehouse-worker mode): non-admin holders get ALL money
+ * fields stripped server-side. Stronger than (and overrides) VIEW_PURCHASE_PRICE.
+ * ADMIN is never restricted.
+ */
+export function hideAllPricesFor(user: Express.User | undefined): boolean {
+  return Boolean(
+    user && user.role !== UserRole.ADMIN && user.permissions.includes("VIEW_WITHOUT_PRICES")
+  );
+}
+
 function requireUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
     throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
@@ -42,6 +53,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   const result = await listProducts({
     ...(req.validatedQuery as Parameters<typeof listProducts>[0]),
     hidePurchasePrice: !hasPermission(req.user, "VIEW_PURCHASE_PRICE"),
+    hideAllPrices: hideAllPricesFor(req.user),
   });
 
   res.json({
@@ -52,7 +64,7 @@ export const getProducts = asyncHandler(async (req, res) => {
 
 export const getStale = asyncHandler(async (req, res) => {
   const days = req.query.days ? Math.max(7, Math.min(365, Number(req.query.days))) : 60;
-  const result = await getStaleProducts(days);
+  const result = await getStaleProducts(days, hideAllPricesFor(req.user));
   res.json({ success: true, ...result });
 });
 
@@ -72,7 +84,8 @@ export const getProductDetails = asyncHandler(async (req, res) => {
   const product = await getProductById(
     String(req.params.id),
     undefined,
-    !hasPermission(req.user, "VIEW_PURCHASE_PRICE")
+    !hasPermission(req.user, "VIEW_PURCHASE_PRICE"),
+    hideAllPricesFor(req.user)
   );
 
   res.json({
@@ -106,7 +119,8 @@ export const getProductByQr = asyncHandler(async (req, res) => {
   const product = await getProductByQrCode(
     String(req.params.qrCode),
     undefined,
-    !hasPermission(req.user, "VIEW_PURCHASE_PRICE")
+    !hasPermission(req.user, "VIEW_PURCHASE_PRICE"),
+    hideAllPricesFor(req.user)
   );
 
   res.json({
