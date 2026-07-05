@@ -99,6 +99,39 @@
 - [ ] تأكد أن `mahdi` و`makhzouni-qa` لم يتأثرا (فتح سريع لكل واحد).
 - [ ] احذف/عطّل أي بيانات smoke test قبل التسليم.
 
+## ملحق: التسلسل العملي المجرّب (دفعة 22C — نجح فعلياً على makhzouni-dryrun)
+
+كل خطوات Railway تمت عبر CLI بدون Dashboard:
+
+```bash
+railway link -p 654a7c3e-a0b1-4cf6-8287-e47da5343921   # مشروع inventory-backend الرئيسي
+railway add -d postgres                                  # قاعدة جديدة (اسم عشوائي Postgres-XXXX)
+railway add -s <subdomain>-api \
+  --variables "TENANT_ID=<uuid>" --variables "NODE_ENV=production" \
+  --variables 'DATABASE_URL=${{Postgres-XXXX.DATABASE_URL}}' \
+  --variables "JWT_SECRET=<random>" --variables "BACKUP_SECRET=<random>" \
+  --variables "SUPER_ADMIN_API_URL=..." --variables "SUPER_ADMIN_API_KEY=..." \
+  --variables "INITIAL_ADMIN_USERNAME=..." --variables "INITIAL_ADMIN_PASSWORD=..."
+# migrations من جهازك على DATABASE_PUBLIC_URL للقاعدة الجديدة:
+#   DATABASE_URL=<public url> npx prisma migrate deploy
+cd inventory-backend && railway up --service <subdomain>-api --detach
+railway domain --service <subdomain>-api                 # يولّد رابط *.up.railway.app
+railway variables --set "BACKEND_PUBLIC_URL=<الرابط>" --service <subdomain>-api
+```
+
+ثم Vercel:
+
+```bash
+vercel link --yes --project inventory-web --scope <team>
+vercel domains add <subdomain>.mazbwoni.com
+```
+
+ملاحظات مجرّبة:
+- أول admin انخلق تلقائياً عبر `INITIAL_ADMIN_*` عند أول إقلاع — اشتغل من أول مرة، وبعد أول دخول غيّر كلمة المرور واحذف المتغيرين.
+- **الدومين يُربط بمشروع `inventory-web` المشترك** — لا تنشئ مشروع Vercel منفصل. (مشروع `makhzouni-qa-web` المنفصل هو legacy خاص بالـ QA فقط، لا تقلده.)
+- Cloudflare: CNAME ‏`<subdomain>` → `cname.vercel-dns.com` ‏(DNS only) — تُضاف يدوياً من اللوحة.
+- زر Doctor في Super Admin بعد الإعداد: المتوقع PASS على كل الفحوصات، مع WARNING مقبول على السيريالات إذا Android معطّل.
+
 ## أخطاء شائعة (Traps)
 
 - **saas-admin-api ما عنده auto-deploy** — أي تغيير عليه يحتاج `railway up --service saas-admin-api` يدوياً. (inventory-backend يعمل auto-deploy طبيعي.)
