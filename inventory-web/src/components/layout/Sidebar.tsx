@@ -92,6 +92,7 @@ function isFeatureAllowed(item: Item, mode: string | undefined, features: string
 
 const navItems: Item[] = [
   { to: "/", label: "الرئيسية", icon: Home },
+  { to: "/worker", label: "عامل المخزن", icon: Boxes },
   {
     id: "inventory",
     label: "المخزن",
@@ -399,6 +400,10 @@ export function Sidebar() {
     // Transfers leaf: VARIETY_CONVERT or MANAGE_PRODUCTS are both sufficient
     if ("to" in item && item.to === "/inventory/transfers") {
       return permissions.includes("VARIETY_CONVERT") || permissions.includes("MANAGE_PRODUCTS")
+    }
+    // Worker page: only for warehouse-worker permission holders (admins pass above)
+    if ("to" in item && item.to === "/worker") {
+      return permissions.includes("VIEW_WITHOUT_PRICES") || permissions.includes("REQUEST_TRANSFER")
     }
     const perm = permissionForItem(item)
     return perm === null || permissions.includes(perm)

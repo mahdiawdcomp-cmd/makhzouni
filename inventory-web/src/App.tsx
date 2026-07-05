@@ -58,6 +58,7 @@ const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
+const WorkerPage = lazyPage(() => import("./pages/WorkerPage"), "WorkerPage")
 // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
 // The wizard page file (pages/BalanceMigrationPage.tsx) is kept intact but is
 // no longer routed. /balance-migration now shows a disabled notice.
@@ -109,6 +110,7 @@ const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: s(<DashboardPage />) },
+          { path: "worker", element: s(<WorkerPage />) },
           { path: "inventory", element: s(<ProductsPage />) },
           { path: "inventory/low-stock", element: s(<LowStockPage />) },
           { path: "inventory/transfers", element: f("transfers", "التحويلات بين المخازن", <TransfersPage />) },

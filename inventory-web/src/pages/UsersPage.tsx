@@ -332,7 +332,18 @@ export function UsersPage() {
           </div>
 
           <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-            <div className="mb-3 text-sm font-semibold">الصلاحيات الرئيسية</div>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold">الصلاحيات الرئيسية</span>
+              <button
+                type="button"
+                disabled={form.role === "ADMIN"}
+                onClick={() => setForm({ ...form, permissions: ["VIEW_WITHOUT_PRICES", "REQUEST_TRANSFER"] })}
+                className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                title="عرض بدون أسعار + طلب تحويل فقط — بدون أي صلاحية مالية أو إدارية"
+              >
+                🧰 حساب عامل مخزن
+              </button>
+            </div>
             <div className="grid gap-2 md:grid-cols-2">
               {allPermissions.filter((p) => !p.group).map((permission) => {
                 const checked = form.role === "ADMIN" || (form.permissions ?? []).includes(permission.id)
