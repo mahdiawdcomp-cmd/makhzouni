@@ -446,6 +446,13 @@ async function applyStockMovement(
   // while OLD sale invoices keep their own frozen invoiceItem.costPrice snapshot.
   // Variety products have no special handling here — their cost is only ever
   // re-averaged by convertToVariety, a path that never runs through purchases.
+  // Cost to freeze onto the invoice line. For SALE/others this is the product's
+  // current cost (unchanged). For PURCHASE it is updated below to the POST-WAC
+  // blended cost so the line reflects the cost as-of after this purchase, not the
+  // stale pre-purchase value.
+  let costSnapshot =
+    toNumber(product.costPrice) > 0 ? toNumber(product.costPrice) : toNumber(product.purchasePrice);
+
   if (invoiceType === InvoiceType.PURCHASE && quantityInPieces > 0) {
     const currentCost =
       toNumber(product.costPrice) > 0
@@ -466,6 +473,7 @@ async function applyStockMovement(
         purchasePrice: roundMoney(newUnitCostPerPiece),
       },
     });
+    costSnapshot = newCostPrice;
   }
 
   return {
@@ -476,6 +484,7 @@ async function applyStockMovement(
     totalPrice: roundMoney(unitPrice * item.quantity),
     wentNegative,
     deficitPieces,
+    costSnapshot,
   };
 }
 
@@ -740,6 +749,15 @@ async function createInvoiceInTransaction(
     quantityPieces: number;
     deficitPieces: number;
   }> = [];
+  // SALE lines priced below their (frozen) cost — collected for a manager audit
+  // log. WARNING/LOG ONLY: it never blocks the save and never queues an approval.
+  const belowCostLines: Array<{
+    productId: string;
+    productName: string;
+    unitPrice: number;
+    lineCost: number;
+    totalPrice: number;
+  }> = [];
 
   for (const item of input.items) {
     const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy);
@@ -755,6 +773,21 @@ async function createInvoiceInTransaction(
       });
     }
 
+    // Below-cost detection: compare line revenue against line cost (per-piece
+    // frozen cost × pieces). Only meaningful for SALE and when a cost is known.
+    if (invoiceType === InvoiceType.SALE && pricedItem.costSnapshot > 0) {
+      const lineCost = roundMoney(pricedItem.costSnapshot * pricedItem.quantityInPieces);
+      if (pricedItem.totalPrice < lineCost) {
+        belowCostLines.push({
+          productId: pricedItem.product.id,
+          productName: pricedItem.product.name,
+          unitPrice: pricedItem.unitPrice,
+          lineCost,
+          totalPrice: pricedItem.totalPrice,
+        });
+      }
+    }
+
     await tx.invoiceItem.create({
       data: {
         invoiceId: invoice.id,
@@ -765,10 +798,8 @@ async function createInvoiceInTransaction(
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: pricedItem.unitPrice,
-        costPrice:
-          toNumber(pricedItem.product.costPrice) > 0
-            ? toNumber(pricedItem.product.costPrice)
-            : toNumber(pricedItem.product.purchasePrice),
+        // Post-WAC cost for PURCHASE lines; current product cost for SALE lines.
+        costPrice: pricedItem.costSnapshot,
         totalPrice: pricedItem.totalPrice,
         notes: item.notes?.trim() || null,
       },
@@ -879,6 +910,49 @@ async function createInvoiceInTransaction(
           })),
         } as Prisma.InputJsonValue,
         requestedBy: createdBy,
+      },
+    });
+  }
+
+  // EDIT that drives stock negative: by product decision this does NOT require an
+  // approval (unlike a brand-new negative sale above). Instead we LOG it to the
+  // audit trail so the manager still has visibility, without gating the edit.
+  if (invoiceType === InvoiceType.SALE && existingInvoiceId && negativeLines.length > 0) {
+    const whNames = await tx.branch.findMany({
+      where: { id: { in: [...new Set(negativeLines.map((l) => l.warehouseId))] } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(whNames.map((w) => [w.id, w.name]));
+    await tx.auditLog.create({
+      data: {
+        userId: createdBy,
+        action: "NEGATIVE_STOCK_ON_EDIT",
+        entity: "Invoice",
+        recordId: updatedInvoice.id,
+        metadata: {
+          invoiceNumber: updatedInvoice.invoiceNumber,
+          customerName: updatedInvoice.customer?.name ?? null,
+          lines: negativeLines.map((l) => ({ ...l, warehouseName: nameById.get(l.warehouseId) ?? "" })),
+        } as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  // Below-cost SALE lines: log for manager review (warning only — never blocks the
+  // save and never queues an approval). Applies to both new invoices and edits.
+  if (invoiceType === InvoiceType.SALE && belowCostLines.length > 0) {
+    await tx.auditLog.create({
+      data: {
+        userId: createdBy,
+        action: "BELOW_COST_SALE",
+        entity: "Invoice",
+        recordId: updatedInvoice.id,
+        metadata: {
+          invoiceNumber: updatedInvoice.invoiceNumber,
+          customerName: updatedInvoice.customer?.name ?? null,
+          isEdit: Boolean(existingInvoiceId),
+          lines: belowCostLines,
+        } as Prisma.InputJsonValue,
       },
     });
   }

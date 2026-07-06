@@ -220,13 +220,45 @@ function describe(log: {
     };
   }
 
+  // Manager-review alerts written by the invoice service (warning only, never block
+  // the save). Entity is "Invoice" (capitalised) with a custom action string, so they
+  // never collide with the "invoices" CRUD block above.
+  if (log.entity === "Invoice") {
+    const invoiceNumber = pickString(meta, "invoiceNumber") ?? log.recordId ?? "";
+    const customerName = pickString(meta, "customerName") ?? "زبون";
+    if (log.action === "BELOW_COST_SALE") {
+      return {
+        id: log.id,
+        createdAt: log.createdAt,
+        severity: "warning",
+        icon: "TrendingDown",
+        title: "بيع تحت الكلفة",
+        message: `${actorName} باع تحت سعر الكلفة في الفاتورة ${invoiceNumber} لـ ${customerName}`,
+        link: log.recordId ? `/invoices/${log.recordId}` : undefined,
+        actor: log.user ?? undefined,
+      };
+    }
+    if (log.action === "NEGATIVE_STOCK_ON_EDIT") {
+      return {
+        id: log.id,
+        createdAt: log.createdAt,
+        severity: "warning",
+        icon: "AlertTriangle",
+        title: "مخزون بالسالب بعد تعديل",
+        message: `${actorName} عدّل الفاتورة ${invoiceNumber} لـ ${customerName} فأصبح المخزون بالسالب`,
+        link: log.recordId ? `/invoices/${log.recordId}` : undefined,
+        actor: log.user ?? undefined,
+      };
+    }
+  }
+
   return null;
 }
 
 export async function getRecentNotifications(limit = 30) {
   const [logs, catalogOrders] = await Promise.all([
     prisma.auditLog.findMany({
-      where: { entity: { in: ["invoices", "vouchers", "products", "customers", "variety-convert"] } },
+      where: { entity: { in: ["invoices", "vouchers", "products", "customers", "variety-convert", "Invoice"] } },
       include: { user: { select: { id: true, name: true, role: true } } },
       orderBy: { createdAt: "desc" },
       take: limit * 2,

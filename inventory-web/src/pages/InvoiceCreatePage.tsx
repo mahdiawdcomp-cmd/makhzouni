@@ -18,9 +18,12 @@ import { Button } from "../components/ui/button"
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
+import { NumericInput } from "../components/ui/NumericInput"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { UnsavedChangesDialog } from "../components/ui/UnsavedChangesDialog"
 import { toast } from "../components/ui/use-toast"
+import { ToastAction } from "../components/ui/toast"
+import { referenceUnitPrice, priceLooksSuspicious } from "../utils/priceGuard"
 import { localDateStr } from "../utils/date"
 import { cn } from "../utils/cn"
 import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
@@ -202,11 +205,18 @@ export function InvoiceCreatePage() {
   const [showPurchase, setShowPurchase] = useState(false)
   const [showStock, setShowStock] = useState(false)
   const [useRetailPrice, setUseRetailPrice] = useState(false)
+  // When the clerk flips جملة/مفرد while rows already exist we ask what to do
+  // with the existing lines. Holds the *target* useRetailPrice value, or null.
+  const [priceModePrompt, setPriceModePrompt] = useState<boolean | null>(null)
 
   // ---- totals state ----
   const [discount, setDiscount] = useState(0)
   const [couponCode, setCouponCode] = useState("")
   const [couponMessage, setCouponMessage] = useState("")
+  // True while the current `discount` value came from an applied coupon (not a
+  // manual entry). Lets us (a) warn when a coupon replaces a manual discount and
+  // (b) clear the stale "coupon applied" note the moment the clerk edits discount.
+  const [couponApplied, setCouponApplied] = useState(false)
   const [paidAmount, setPaidAmount] = useState(0)
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
@@ -338,11 +348,17 @@ export function InvoiceCreatePage() {
   const finalBalance = financials.finalBalance
   const hasInvalidTotal = total < 0
 
-  function unitPriceFor(product: Product, unit: Unit) {
+  // Per-unit price for an explicit retail/wholesale mode (used when re-pricing
+  // existing rows after the جملة/مفرد toggle, where the state flag hasn't flipped yet).
+  function unitPriceForMode(product: Product, unit: Unit, retail: boolean) {
     const base = isPurchase
       ? product.purchasePrice
-      : (useRetailPrice && product.retailPrice > 0 ? product.retailPrice : product.salePrice)
+      : (retail && product.retailPrice > 0 ? product.retailPrice : product.salePrice)
     return base * piecesPerUnit(unit, product)
+  }
+
+  function unitPriceFor(product: Product, unit: Unit) {
+    return unitPriceForMode(product, unit, useRetailPrice)
   }
 
   // Items selling below purchase price — compare in the SAME unit as unitPrice
@@ -358,6 +374,19 @@ export function InvoiceCreatePage() {
   }, [items, isPurchase])
 
   const hasBelowCost = belowCostItems.size > 0
+
+  // Suspicious (extreme) unit price vs a reference price — WARNING ONLY, never blocks.
+  // Flags a likely fat-fingered price (extra/missing zero) so the clerk can catch it.
+  const priceWarnItems = useMemo(() => {
+    const map = new Map<number, "HIGH" | "LOW">()
+    items.forEach((item, i) => {
+      const ref = referenceUnitPrice(item.product, isPurchase, piecesPerUnit(item.unit, item.product))
+      const flag = priceLooksSuspicious(item.unitPrice, ref)
+      if (flag) map.set(i, flag)
+    })
+    return map
+  }, [items, isPurchase])
+  const hasPriceWarn = priceWarnItems.size > 0
 
   // Items that would push stock into negative territory (warning only, not blocking)
   const lowStockWarnings = useMemo(() => {
@@ -699,22 +728,47 @@ export function InvoiceCreatePage() {
     return undefined
   }
 
-  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE", qty = 1) {
+  // Remove exactly the line that was just added (matched by object identity so a
+  // later scan/edit can't cause the wrong row to be removed). If the row was since
+  // edited via updateItem its reference changed and this becomes a safe no-op.
+  function undoAddedItem(target: DraftItem) {
+    setItems((current) => current.filter((x) => x !== target))
+  }
+
+  // Toast with an «تراجع» (undo) button, shown after a scan direct-adds a line.
+  function showAddedUndoToast(product: Product, added: DraftItem) {
+    toast({
+      title: `أُضيف: ${product.name}`,
+      description: "اضغط «تراجع» لإزالة آخر إضافة",
+      duration: 6000,
+      action: (
+        <ToastAction altText="تراجع عن إضافة المادة" onClick={() => undoAddedItem(added)}>
+          تراجع
+        </ToastAction>
+      ),
+    })
+  }
+
+  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE", qty = 1, opts?: { undo?: boolean }) {
     const nextIndex = items.length
-    setItems((current) => [
-      ...current,
-      {
-        product,
-        unit,
-        quantity: Math.max(1, qty),
-        unitPrice: unitPriceFor(product, unit),
-        warehouseId: overrideWarehouseId ?? defaultWarehouseId(product),
-        warehouseName: overrideWarehouseName,
-      },
-    ])
+    const newItem: DraftItem = {
+      product,
+      unit,
+      quantity: Math.max(1, qty),
+      unitPrice: unitPriceFor(product, unit),
+      warehouseId: overrideWarehouseId ?? defaultWarehouseId(product),
+      warehouseName: overrideWarehouseName,
+    }
+    setItems((current) => [...current, newItem])
     setProductModal(false)
     setProductQuery("")
-    window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
+    if (opts?.undo) {
+      // Scan path: don't steal focus (keeps the gun ready for the next scan) and
+      // offer an inline undo instead.
+      showAddedUndoToast(product, newItem)
+    } else {
+      window.setTimeout(() => quantityRefs.current[`${nextIndex}`]?.focus(), 0)
+    }
   }
 
   // ---- Smart Invoice Preview: look up a scanned/selected product and show its card ----
@@ -723,15 +777,6 @@ export function InvoiceCreatePage() {
     setScanPreview({ product, unit, qty: 1 })
   }
 
-  function openScanPreviewByCode(code: string) {
-    if (!code.trim()) return
-    const found = findProductByScan(products, code)
-    if (!found) {
-      toast({ title: "المادة غير موجودة", description: `لا توجد مادة بهذا الباركود: ${code}`, variant: "destructive" })
-      return
-    }
-    openScanPreview(found.product, found.isCarton ? "CARTON" : "PIECE")
-  }
 
   // Confirm from the preview card → add the line exactly like the manual/scan path
   // (keeps the same shop-stock warehouse guard so a scan never pulls from an empty shop).
@@ -901,13 +946,17 @@ export function InvoiceCreatePage() {
   function addProductByCode(code: string) {
     if (!code.trim()) return
     const found = findProductByScan(products, code)
-    if (!found) return
+    if (!found) {
+      toast({ title: "المادة غير موجودة", description: `لا توجد مادة بهذا الباركود: ${code}`, variant: "destructive" })
+      return
+    }
     const hit = found.product
     const unit: Unit = found.isCarton ? "CARTON" : "PIECE"
     // Route through the same shop-stock warehouse picker as manual add, so a
     // scanned item with an empty shop never silently adds from the wrong place.
     if (maybePromptWarehouse(hit, unit)) return
-    doAddProduct(hit, undefined, undefined, unit)
+    // Scan paths (gun / camera / URL) direct-add for speed, with an undo toast.
+    doAddProduct(hit, undefined, undefined, unit, 1, { undo: true })
   }
 
   function updateItem(index: number, patch: Partial<DraftItem>) {
@@ -1193,9 +1242,18 @@ export function InvoiceCreatePage() {
   async function applyCouponCode() {
     if (!couponCode.trim() || subtotal <= 0) return
     try {
+      // A manual discount and a coupon must NOT stack — the coupon replaces it.
+      const hadManualDiscount = discount > 0 && !couponApplied
       const result = await applyCoupon(couponCode, subtotal)
       setDiscount(result?.discount ?? 0)
+      setCouponApplied(!!result)
       setCouponMessage(result ? `تم تطبيق ${result.coupon.code}` : "")
+      if (result && hadManualDiscount) {
+        toast({
+          title: "استبدل الكوبون الخصم اليدوي",
+          description: `الخصم الآن ${fmt(result.discount ?? 0)} من الكوبون بدل الخصم المُدخل يدوياً`,
+        })
+      }
     } catch (error) {
       setCouponMessage(apiErrorMessage(error, "تعذر تطبيق الكوبون"))
     }
@@ -1211,6 +1269,28 @@ export function InvoiceCreatePage() {
       const url = await invoiceImageObjectUrl(id)
       window.open(url, "_blank", "noopener,noreferrer")
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    }
+  }
+
+  // ---- جملة/مفرد (wholesale/retail) price-mode toggle ----
+  // If rows already exist we ask the clerk what to do; otherwise flip silently.
+  function requestPriceModeToggle() {
+    const target = !useRetailPrice
+    if (items.length > 0) setPriceModePrompt(target)
+    else setUseRetailPrice(target)
+  }
+
+  // Resolve the prompt. scope: "all" reprices existing rows to the new mode
+  // (quantities + units preserved); "future" leaves existing rows untouched.
+  function resolvePriceMode(scope: "all" | "future" | "cancel") {
+    const target = priceModePrompt
+    setPriceModePrompt(null)
+    if (target === null || scope === "cancel") return
+    setUseRetailPrice(target)
+    if (scope === "all") {
+      setItems((current) =>
+        current.map((item) => ({ ...item, unitPrice: unitPriceForMode(item.product, item.unit, target) })),
+      )
     }
   }
 
@@ -1460,7 +1540,7 @@ export function InvoiceCreatePage() {
               <button
                 type="button"
                 className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", useRetailPrice ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")}
-                onClick={() => setUseRetailPrice((v) => !v)}
+                onClick={requestPriceModeToggle}
               >
                 {useRetailPrice ? "مفرد" : "جملة"}
               </button>
@@ -1544,6 +1624,15 @@ export function InvoiceCreatePage() {
                               ⚠ أقل من التكلفة
                             </span>
                           ) : null}
+                          {priceWarnItems.get(index) === "HIGH" ? (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              ⚠ سعر مرتفع غير معتاد؟
+                            </span>
+                          ) : priceWarnItems.get(index) === "LOW" ? (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              ⚠ سعر منخفض غير معتاد؟
+                            </span>
+                          ) : null}
                         </div>
                         {showPurchase ? <div className="text-xs text-slate-500">شراء: {fmt(item.product.purchasePrice)}</div> : null}
                         {showStock ? <div className="text-xs text-slate-500">متوفر: {stockOf(item.product)}</div> : null}
@@ -1582,38 +1671,36 @@ export function InvoiceCreatePage() {
                         </select>
                       </TD>
                       <TD>
-                        <Input
+                        <NumericInput
                           ref={(el) => { quantityRefs.current[rowKey] = el }}
-                          type="number"
+                          decimal={false}
                           className="w-20"
                           value={item.quantity}
                           onFocus={selectAllOnFocus}
-                          onChange={(event) => updateItem(index, { quantity: Number(event.target.value) })}
+                          onValueChange={(n) => updateItem(index, { quantity: n })}
                           onKeyDown={(e) => handleRowKey(e, rowKey, "qty")}
                         />
                       </TD>
                       {!hidePrice && (
                         <TD>
-                          <Input
+                          <NumericInput
                             ref={(el) => { priceRefs.current[rowKey] = el }}
-                            type="number"
                             className="w-24"
                             value={item.unitPrice}
                             onFocus={selectAllOnFocus}
-                            onChange={(event) => updateItem(index, { unitPrice: Number(event.target.value) })}
+                            onValueChange={(n) => updateItem(index, { unitPrice: n })}
                             onKeyDown={(e) => handleRowKey(e, rowKey, "price")}
                           />
                         </TD>
                       )}
                       {!hidePrice && (
                         <TD>
-                          <Input
+                          <NumericInput
                             ref={(el) => { totalRefs.current[rowKey] = el }}
-                            type="number"
                             className="w-28 font-semibold"
                             value={Math.round(item.quantity * item.unitPrice * 1000) / 1000}
                             onFocus={selectAllOnFocus}
-                            onChange={(e) => updateItemTotal(index, Number(e.target.value))}
+                            onValueChange={(n) => updateItemTotal(index, n)}
                             onKeyDown={(e) => handleRowKey(e, rowKey, "total")}
                           />
                         </TD>
@@ -1677,12 +1764,21 @@ export function InvoiceCreatePage() {
             </div>
             <div>
               <label className="text-[11px] font-medium text-slate-500">الخصم</label>
-              <Input
-                type="number"
+              <NumericInput
                 className="mt-0.5 h-8 text-sm"
                 value={discount}
                 onFocus={selectAllOnFocus}
-                onChange={(e) => setDiscount(Number(e.target.value))}
+                onValueChange={(n) => {
+                  setDiscount(n)
+                  // Editing the discount by hand overrides any coupon: clear the
+                  // coupon code (so the server uses this manual value, not the
+                  // coupon) and drop the stale "coupon applied" note.
+                  if (couponApplied || couponCode || couponMessage) {
+                    setCouponApplied(false)
+                    setCouponCode("")
+                    setCouponMessage("")
+                  }
+                }}
               />
             </div>
             {!isPurchase && (
@@ -1788,6 +1884,12 @@ export function InvoiceCreatePage() {
         {hasBelowCost ? (
           <div className="mt-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
             <span className="font-semibold"><AlertTriangle className="inline h-3.5 w-3.5 ml-1" />بيع تحت سعر الشراء</span> — {belowCostItems.size} مادة
+            <span className="block text-[11px] opacity-80">تنبيه فقط — يمكنك الحفظ، وسيُسجَّل للمراجعة من المدير.</span>
+          </div>
+        ) : null}
+        {hasPriceWarn ? (
+          <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <span className="font-semibold"><AlertTriangle className="inline h-3.5 w-3.5 ml-1" />سعر غير معتاد</span> — راجع {priceWarnItems.size} مادة (تنبيه فقط، لا يمنع الحفظ)
           </div>
         ) : null}
         {lowStockWarnings.length > 0 ? (
@@ -1920,13 +2022,30 @@ export function InvoiceCreatePage() {
           title="مسح صنف بالكاميرا"
           onDetect={(code) => {
             setCameraOpen(false)
-            // Camera scan always shows the preview card first (the "هاي بيش؟" flow)
-            // so the clerk can check the price before committing a line.
-            openScanPreviewByCode(code)
+            // Unified scan behavior: camera scan direct-adds the line (like the
+            // barcode gun / URL scan) with an undo toast, for speed.
+            addProductByCode(code)
           }}
           onClose={() => setCameraOpen(false)}
         />
       )}
+
+      {/* جملة/مفرد price-mode change with existing rows */}
+      <Dialog open={priceModePrompt !== null} onOpenChange={(open) => { if (!open) setPriceModePrompt(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>تغيير التسعير إلى {priceModePrompt ? "المفرد" : "الجملة"}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            يوجد {items.length} صنف بالفاتورة. كيف تريد تطبيق سعر {priceModePrompt ? "المفرد" : "الجملة"}؟
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            <Button onClick={() => resolvePriceMode("all")}>تطبيق على كل الأصناف الحالية</Button>
+            <Button variant="outline" onClick={() => resolvePriceMode("future")}>للأصناف الجديدة فقط</Button>
+            <Button variant="ghost" onClick={() => resolvePriceMode("cancel")}>إلغاء</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Smart Invoice Preview: bottom-sheet (mobile) / centered card ── */}
       {scanPreview && (() => {
@@ -1968,7 +2087,7 @@ export function InvoiceCreatePage() {
               {/* Price + stock grid */}
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded-lg bg-emerald-50 px-3 py-2 dark:bg-emerald-950/30">
-                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400">سعر {scanPreview.unit === "CARTON" ? "الكرتونة" : "القطعة"}</p>
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400">سعر {UNIT_LABELS[scanPreview.unit]}</p>
                   <p className="text-lg font-extrabold text-emerald-700 dark:text-emerald-300">{fmt(unitPrice)}</p>
                 </div>
                 <div className="rounded-lg bg-sky-50 px-3 py-2 dark:bg-sky-950/30">
@@ -1990,31 +2109,30 @@ export function InvoiceCreatePage() {
                 </div>
               ) : null}
 
-              {/* Unit toggle + quick qty */}
-              <div className="mt-3 flex items-center gap-2">
-                {p.pcsPerCarton > 1 && (
+              {/* Unit toggle + quick qty — supports ALL visible units (PIECE/DOZEN/BOX/CARTON) */}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {visibleUnits(p).length > 1 && (
                   <div className="flex overflow-hidden rounded-lg border dark:border-slate-700">
-                    {(["PIECE", "CARTON"] as Unit[]).map((u) => (
+                    {visibleUnits(p).map((u) => (
                       <button
                         key={u}
                         type="button"
                         onClick={() => setScanPreview((s) => (s ? { ...s, unit: u } : s))}
                         className={cn("px-3 py-1.5 text-xs font-semibold", scanPreview.unit === u ? "bg-emerald-600 text-white" : "bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-300")}
                       >
-                        {u === "CARTON" ? "كارتون" : "قطعة"}
+                        {UNIT_LABELS[u]}
                       </button>
                     ))}
                   </div>
                 )}
                 <div className="flex items-center gap-1">
                   <span className="text-xs text-slate-500">العدد</span>
-                  <Input
-                    type="number"
-                    min={1}
+                  <NumericInput
+                    decimal={false}
                     className="h-9 w-20 text-center"
                     value={scanPreview.qty}
                     onFocus={selectAllOnFocus}
-                    onChange={(e) => setScanPreview((s) => (s ? { ...s, qty: Math.max(1, Number(e.target.value) || 1) } : s))}
+                    onValueChange={(n) => setScanPreview((s) => (s ? { ...s, qty: Math.max(1, n || 1) } : s))}
                   />
                 </div>
               </div>
@@ -2058,10 +2176,10 @@ export function InvoiceCreatePage() {
               <div>
                 <label className="mb-1 block text-sm font-medium">الرصيد الافتتاحي</label>
                 <Input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={quickAddCustomerBalance}
-                  onChange={(e) => setQuickAddCustomerBalance(e.target.value)}
+                  onChange={(e) => setQuickAddCustomerBalance(e.target.value.replace(/[^0-9.]/g, ""))}
                   placeholder="0"
                 />
               </div>
@@ -2076,10 +2194,10 @@ export function InvoiceCreatePage() {
               <div>
                 <label className="mb-1 block text-sm font-medium">سقف الائتمان</label>
                 <Input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={quickAddCustomerCreditLimit}
-                  onChange={(e) => setQuickAddCustomerCreditLimit(e.target.value)}
+                  onChange={(e) => setQuickAddCustomerCreditLimit(e.target.value.replace(/[^0-9.]/g, ""))}
                   placeholder="بدون سقف"
                 />
               </div>
@@ -2164,20 +2282,20 @@ export function InvoiceCreatePage() {
               <div>
                 <label className="mb-1 block text-sm font-medium">سعر البيع</label>
                 <Input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={quickAddProductSalePrice}
-                  onChange={(e) => setQuickAddProductSalePrice(e.target.value)}
+                  onChange={(e) => setQuickAddProductSalePrice(e.target.value.replace(/[^0-9.]/g, ""))}
                   placeholder="0"
                 />
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium">سعر الشراء</label>
                 <Input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="decimal"
                   value={quickAddProductPurchasePrice}
-                  onChange={(e) => setQuickAddProductPurchasePrice(e.target.value)}
+                  onChange={(e) => setQuickAddProductPurchasePrice(e.target.value.replace(/[^0-9.]/g, ""))}
                   placeholder="0"
                 />
               </div>

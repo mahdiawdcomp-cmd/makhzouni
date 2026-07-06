@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ComponentType } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
+  AlertTriangle,
   Bell,
   FileText,
   Package,
@@ -12,6 +13,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   Trash2,
+  TrendingDown,
   UserPlus,
   Wallet,
 } from "lucide-react"
@@ -32,7 +34,7 @@ interface Notification {
 }
 
 const iconMap: Record<string, ComponentType<{ className?: string }>> = {
-  Receipt, ReceiptText, ShoppingCart, ShoppingBag, Wallet, Package, PackageMinus, Pencil, Trash2, FileText, UserPlus,
+  Receipt, ReceiptText, ShoppingCart, ShoppingBag, Wallet, Package, PackageMinus, Pencil, Trash2, FileText, UserPlus, TrendingDown, AlertTriangle,
 }
 
 const severityStyles: Record<Notification["severity"], { dot: string; row: string }> = {

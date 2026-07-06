@@ -10,10 +10,11 @@ import { fmt } from "../utils/fmt"
 import type { Product } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
+import { NumericInput } from "../components/ui/NumericInput"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { ErrorExplain } from "../components/ui/error-explain"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
-import { unitPriceFrom, visibleUnits } from "../utils/units"
+import { unitPriceFrom, unitToPieces, visibleUnits } from "../utils/units"
 
 type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 
@@ -61,7 +62,7 @@ export function InvoiceEditPage() {
   usePageTitle(invoice ? `تعديل الفاتورة ${invoice.invoiceNumber}` : "تعديل الفاتورة")
 
   const [ready, setReady] = useState(false)
-  const [discount, setDiscount] = useState("0")
+  const [discount, setDiscount] = useState(0)
   const [paid, setPaid] = useState("0")
   const [paymentType, setPaymentType] = useState<"CREDIT" | "CASH" | "PARTIAL">("CREDIT")
   const [notes, setNotes] = useState("")
@@ -73,7 +74,7 @@ export function InvoiceEditPage() {
   // stored per-line warehouse names resolve correctly.
   useEffect(() => {
     if (ready || !invoice) return
-    setDiscount(String(invoice.discount ?? 0))
+    setDiscount(Number(invoice.discount ?? 0))
     setPaid(Number(invoice.paidAmount ?? 0).toLocaleString("en-US"))
     setPaymentType((invoice.paymentType as "CREDIT" | "CASH" | "PARTIAL") ?? "CREDIT")
     setNotes(invoice.notes ?? "")
@@ -137,14 +138,48 @@ export function InvoiceEditPage() {
   }
 
   const subtotal = items.reduce((s, it) => s + it.quantity * it.unitPrice, 0)
-  const total = subtotal - Number(discount || 0)
+  const total = subtotal - (discount || 0)
+
+  // Employee warning (SALE only): best-effort projection of shop stock AFTER this
+  // edit. The backend edit fully reverses the original lines then re-applies the
+  // new ones, so projected = currentShopStock + originalPieces − newPieces.
+  // This never blocks saving; a negative result is logged server-side for the
+  // manager (audit log), NOT sent through the approval queue.
+  const negativeStockWarnings = useMemo(() => {
+    if (!invoice || invoice.type !== "SALE") return [] as string[]
+    const pcsByProduct = (rows: Array<{ productId: string; unit: Unit; quantity: number }>) => {
+      const acc: Record<string, number> = {}
+      for (const it of rows) {
+        const prod = allProducts.find((p) => p.id === it.productId)
+        if (!prod) continue
+        acc[it.productId] = (acc[it.productId] ?? 0) + unitToPieces(it.unit, it.quantity, prod)
+      }
+      return acc
+    }
+    const originalPcs = pcsByProduct(
+      (invoice.items ?? []).map((it) => ({ productId: it.productId, unit: (it.unit ?? "PIECE") as Unit, quantity: it.quantity })),
+    )
+    const newPcs = pcsByProduct(items)
+    const warnings: string[] = []
+    const seen = new Set<string>()
+    for (const it of items) {
+      if (seen.has(it.productId)) continue
+      seen.add(it.productId)
+      const prod = allProducts.find((p) => p.id === it.productId)
+      if (!prod) continue
+      const shop = prod.shopStock ?? 0
+      const projected = shop + (originalPcs[it.productId] ?? 0) - (newPcs[it.productId] ?? 0)
+      if (projected < 0) warnings.push(`${it.productName} — سيصبح المحل ${projected} قطعة بعد التعديل`)
+    }
+    return warnings
+  }, [invoice, allProducts, items])
 
   const mutation = useMutation({
     mutationFn: () =>
       updateInvoice(id!, {
         type: invoice?.type,
         customerId: invoice?.customerId ?? "",
-        discount: Number(discount || 0),
+        discount: discount || 0,
         tax: 0,
         paidAmount: Number(paid.replace(/,/g, "")),
         paymentType,
@@ -290,35 +325,32 @@ export function InvoiceEditPage() {
                     </select>
                   </TD>
                   <TD>
-                    <Input
-                      type="number"
+                    <NumericInput
+                      decimal={false}
                       className="h-8 w-20 text-sm"
                       value={it.quantity}
                       onFocus={(e) => e.target.select()}
-                      onChange={(e) =>
-                        setItems((p) => p.map((x, j) => (j === i ? { ...x, quantity: Number(e.target.value) } : x)))
+                      onValueChange={(n) =>
+                        setItems((p) => p.map((x, j) => (j === i ? { ...x, quantity: n } : x)))
                       }
                     />
                   </TD>
                   <TD>
-                    <Input
-                      type="number"
+                    <NumericInput
                       className="h-8 w-24 text-sm"
                       value={it.unitPrice}
                       onFocus={(e) => e.target.select()}
-                      onChange={(e) =>
-                        setItems((p) => p.map((x, j) => (j === i ? { ...x, unitPrice: Number(e.target.value) } : x)))
+                      onValueChange={(n) =>
+                        setItems((p) => p.map((x, j) => (j === i ? { ...x, unitPrice: n } : x)))
                       }
                     />
                   </TD>
                   <TD>
-                    <Input
-                      type="number"
+                    <NumericInput
                       className="h-8 w-28 text-sm font-semibold"
                       value={Math.round(it.quantity * it.unitPrice)}
                       onFocus={(e) => e.target.select()}
-                      onChange={(e) => {
-                        const tot = Number(e.target.value)
+                      onValueChange={(tot) => {
                         const qty = it.quantity || 1
                         setItems((p) =>
                           p.map((x, j) => (j === i ? { ...x, unitPrice: Math.round((tot / qty) * 1000) / 1000 } : x)),
@@ -364,11 +396,10 @@ export function InvoiceEditPage() {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1 block text-xs text-slate-500">الخصم</label>
-            <Input
-              type="number"
+            <NumericInput
               value={discount}
               onFocus={(e) => e.target.select()}
-              onChange={(e) => setDiscount(e.target.value)}
+              onValueChange={(n) => setDiscount(n)}
             />
           </div>
           <div>
@@ -408,6 +439,17 @@ export function InvoiceEditPage() {
         {total < 0 ? (
           <div className="mt-2 flex items-center gap-2 rounded-md bg-amber-50 p-2 text-sm text-amber-800">
             <AlertTriangle className="h-4 w-4" /> الخصم أكبر من المجموع
+          </div>
+        ) : null}
+        {negativeStockWarnings.length > 0 ? (
+          <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            <div className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-4 w-4" /> تنبيه: التعديل سيجعل المخزون سالباً
+            </div>
+            {negativeStockWarnings.map((w, i) => (
+              <div key={i} className="mt-0.5 text-xs">• {w}</div>
+            ))}
+            <div className="mt-1 text-[11px] opacity-80">يمكنك الحفظ — سيُسجَّل تلقائياً لمراجعة المدير (بدون طلب موافقة).</div>
           </div>
         ) : null}
         {mutation.isError ? <ErrorExplain className="mt-3" error={mutation.error} fallback="تعذر تعديل الفاتورة" /> : null}
