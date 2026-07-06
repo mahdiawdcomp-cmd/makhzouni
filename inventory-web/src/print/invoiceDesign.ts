@@ -250,6 +250,12 @@ export async function renderDesignToPdfBlob(html: string, width: number, height:
       backgroundColor: "#ffffff",
       windowWidth: cssWidth,
       windowHeight: cssHeight,
+      // html2canvas's own text engine mis-shapes/garbles Arabic (breaks letter
+      // joining, drops parts of RTL runs) — foreignObjectRendering defers text
+      // layout to the browser itself via an SVG <foreignObject>, which renders
+      // Arabic correctly. storeLogo is always a same-origin data: URL, so this
+      // never taints the canvas.
+      foreignObjectRendering: true,
     })
 
     const pdf = new jsPDF({
@@ -378,7 +384,7 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
 
   const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
   const td = (content: string, right = false, extra = "") =>
-    `<td style="padding:5px 4px;border-bottom:1px solid #e5e7eb;text-align:${right ? "right" : "center"};font-size:${fs}px;line-height:1.25;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;${extra}">${content}</td>`
+    `<td style="padding:5px 4px;border-bottom:1px solid #cbd5e1;text-align:${right ? "right" : "center"};font-size:${fs}px;line-height:1.25;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;${extra}">${content}</td>`
 
   const body = inv.lines.map((l, idx) => {
     const cells: string[] = [td(`${idx + 1}`)]
