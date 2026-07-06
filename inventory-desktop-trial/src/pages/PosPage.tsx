@@ -19,7 +19,7 @@ import {
   X,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { createInvoice, getCustomers, getProducts, getSettings } from "../api/endpoints"
+import { createInvoice, createReceipt, getCustomers, getProducts, getSettings, getWalkInCustomer } from "../api/endpoints"
 import { Input } from "../components/ui/input"
 import type { Customer, Product } from "../types/api"
 import { fmt } from "../utils/fmt"
@@ -28,7 +28,7 @@ import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance } from "../utils/search"
-import { unitPriceFrom } from "../utils/units"
+import { unitPriceFrom, unitToPieces } from "../utils/units"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
 
@@ -641,6 +641,8 @@ export function POSPage() {
   const [productQuery, setProductQuery] = useState("")
   const [items, setItems] = useState<PosItem[]>([])
   const [paid, setPaid] = useState("")
+  const [discount, setDiscount] = useState(0)
+  const [walkInLoading, setWalkInLoading] = useState(false)
   const [message, setMessage] = useState("")
   const [lastReceipt, setLastReceipt] = useState<{ inv: PrintInvoice; store: PrintStore } | null>(null)
   const [showCustomerPicker, setShowCustomerPicker] = useState(false)
@@ -718,9 +720,19 @@ export function POSPage() {
 
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
   const paidValue = Number(paid || 0)
-  const financials = calculateInvoiceFinancials({ type: "SALE", subtotal, paidAmount: paidValue })
+  const financials = calculateInvoiceFinancials({ type: "SALE", subtotal, discount, paidAmount: paidValue })
   const remaining = financials.remainingAmount
   const change = financials.overpayment
+
+  // Walk-in (نقدي) customer: reuse/create the shared walk-in account and pay cash.
+  async function chooseWalkIn() {
+    setWalkInLoading(true)
+    try {
+      const c = await getWalkInCustomer()
+      if (c) chooseCustomer(c)
+    } catch { /* ignore */ }
+    setWalkInLoading(false)
+  }
 
   function chooseCustomer(c: Customer) {
     setSelectedCustomer(c)
@@ -808,19 +820,38 @@ export function POSPage() {
         customerId: selectedCustomer?.id ?? "",
         type: "SALE",
         clientRequestId: clientRequestIdRef.current,
-        discount: 0,
+        discount,
         tax: 0,
         paidAmount: financials.paidAmount,
         paymentType: financials.paymentType,
-        items: items.map((item) => ({
-          productId: item.productId,
-          warehouseId: item.warehouseId,
-          unit: item.unit,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-        })),
+        items: items.map((item) => {
+          // Authorize the deficit for any line the chosen warehouse (or the shop)
+          // can't fully cover — mirrors the regular invoice flow so POS never fails
+          // where InvoiceCreate would succeed. allowNegative only *permits* going
+          // below zero; it never forces it.
+          const product = products.find((p) => p.id === item.productId)
+          const pieces = product ? unitToPieces(item.unit, item.quantity, product) : 0
+          const available = item.warehouseId
+            ? Number(product?.warehouseStocks?.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0)
+            : Number(product?.shopStock ?? product?.currentStock ?? 0)
+          return {
+            productId: item.productId,
+            warehouseId: item.warehouseId,
+            unit: item.unit,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            allowNegativeStock: pieces > available || undefined,
+          }
+        }),
       }),
-    onSuccess: (response) => {
+    onSuccess: async (response) => {
+      // If the customer paid more than the total, record the surplus as a receipt
+      // voucher (matches the regular invoice flow instead of only showing "راجع").
+      if (change > 0 && selectedCustomer) {
+        try {
+          await createReceipt({ customerId: selectedCustomer.id, amount: change, type: "RECEIPT" })
+        } catch { /* receipt failure shouldn't block the sale */ }
+      }
       // Track sales counts
       const newCounts = { ...posConfigRef.current.salesCounts }
       itemsRef.current.forEach((item) => {
@@ -859,6 +890,7 @@ export function POSPage() {
       setMessage(`✓ فاتورة ${response.data?.invoiceNumber ?? ""} — تم الحفظ`)
       setItems([])
       setPaid("")
+      setDiscount(0)
       setProductQuery("")
       clientRequestIdRef.current = crypto.randomUUID()
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
@@ -969,6 +1001,17 @@ export function POSPage() {
           <UserRound className="h-4 w-4 shrink-0" />
           <span className="truncate font-semibold">{selectedCustomer?.name ?? "اختر الزبون"}</span>
         </button>
+        {!selectedCustomer && (
+          <button
+            type="button"
+            disabled={walkInLoading}
+            onClick={chooseWalkIn}
+            title="زبون نقدي سريع"
+            className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+          >
+            {walkInLoading ? "..." : "⚡ نقدي"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowCustomize(true)}
@@ -1203,6 +1246,26 @@ export function POSPage() {
               <span className="text-sm text-slate-500">الإجمالي</span>
               <span className="text-xl font-bold">{fmt(subtotal)}</span>
             </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-slate-500">الخصم</span>
+              <Input
+                value={discount || ""}
+                onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
+                type="number"
+                placeholder="0"
+                className="h-9 w-28 text-center text-sm font-bold"
+                inputMode="numeric"
+                onFocus={(e) => e.target.select()}
+              />
+            </div>
+
+            {discount > 0 && (
+              <div className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-1.5 text-sm dark:bg-slate-800/50">
+                <span className="text-slate-500">الصافي</span>
+                <span className="font-bold">{fmt(financials.totalAmount)}</span>
+              </div>
+            )}
 
             <Input
               ref={paidInputRef}
