@@ -20,10 +20,13 @@ import { ErrorBoundary } from "../ErrorBoundary"
 import { toast } from "../ui/use-toast"
 import { LanguageSwitcher } from "./LanguageSwitcher"
 
+// NOTE: intentionally opacity-only (no `y`/transform). A transformed ancestor
+// becomes the containing block for any `position: fixed` descendant, which broke
+// sticky/fixed bottom bars inside pages (grey overlay near end of scroll).
 const pageVariants = {
-  initial: { opacity: 0, y: 10 },
-  enter:   { opacity: 1, y: 0 },
-  exit:    { opacity: 0, y: -6 },
+  initial: { opacity: 0 },
+  enter:   { opacity: 1 },
+  exit:    { opacity: 0 },
 }
 
 const pageTransition = {
