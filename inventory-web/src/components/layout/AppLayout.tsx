@@ -120,6 +120,7 @@ function WebDisabledBanner() {
 
 export function AppLayout() {
   const isPosOnly = useAuthStore((s) => s.isPosOnly())
+  const isWorkerOnly = useAuthStore((s) => s.isWorkerOnly())
   const refreshUser = useAuthStore((s) => s.refreshUser)
   const token = useAuthStore((s) => s.token)
   const [darkMode, setDarkMode] = useState(
@@ -214,6 +215,16 @@ export function AppLayout() {
 
   // All hooks above run unconditionally; only now may we bail out of rendering.
   if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
+  // Warehouse worker: locked to his two pages — worker + losses. Any other URL
+  // (dashboard, customers, invoices, designer, ...) bounces back to /worker.
+  if (
+    isWorkerOnly &&
+    pathname !== "/worker" &&
+    pathname !== "/losses" &&
+    !pathname.startsWith("/losses/")
+  ) {
+    return <Navigate to="/worker" replace />
+  }
 
   return (
     <div

@@ -413,7 +413,12 @@ export function Sidebar() {
     return isFeatureAllowed(item, tenantMode, tenantFeatures)
   }
 
-  const visibleItems = navItems.filter((item) => hasPermission(item) && hasFeature(item))
+  // Warehouse worker: only his two pages appear — عامل المخزن + التلف والخسائر.
+  const isWorkerOnly = useAuthStore((s) => s.isWorkerOnly())
+  const visibleItems = navItems.filter((item) => {
+    if (isWorkerOnly) return "to" in item && (item.to === "/worker" || item.to === "/losses")
+    return hasPermission(item) && hasFeature(item)
+  })
 
   return (
     <aside

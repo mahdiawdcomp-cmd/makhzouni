@@ -12,6 +12,7 @@ interface AuthState {
   isAdmin: () => boolean
   hasPermission: (permission: UserPermission) => boolean
   isPosOnly: () => boolean
+  isWorkerOnly: () => boolean
 }
 
 function readUser() {
@@ -56,5 +57,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const perms = user.permissions ?? []
     // POS-only: staff with zero permissions or whose only permission is ACCESS_POS
     return perms.length === 0 || perms.every((p) => p === "ACCESS_POS")
+  },
+  isWorkerOnly: () => {
+    const user = get().user
+    if (!user || user.role === "ADMIN") return false
+    const perms = user.permissions ?? []
+    // Warehouse worker: staff whose permissions are ONLY the worker pair
+    // (VIEW_WITHOUT_PRICES / REQUEST_TRANSFER). Mirrors isPosOnly above.
+    return (
+      perms.length > 0 &&
+      perms.every((p) => p === "VIEW_WITHOUT_PRICES" || p === "REQUEST_TRANSFER")
+    )
   },
 }))
