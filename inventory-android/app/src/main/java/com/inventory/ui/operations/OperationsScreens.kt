@@ -921,11 +921,14 @@ private fun TransferDialog(
     SimpleDialog("تحويل جديد", onDismiss, { onSave(from, to, product, qty, unit, notes) }) {
         SelectField("من مخزن", branches.map { it.id to it.name }, from) { from = it }
         SelectField("إلى مخزن", branches.map { it.id to it.name }, to) { to = it }
+        // Only show products that actually have stock in the selected SOURCE warehouse.
+        // Before a source warehouse is chosen, show nothing (avoids listing every product).
         SelectField(
             "المادة",
-            products.map { item ->
+            if (from.isBlank()) emptyList()
+            else products.mapNotNull { item ->
                 val sourceQty = item.warehouseStocks.firstOrNull { it.warehouseId == from }?.quantityPieces ?: 0
-                item.id to "${item.name} ($sourceQty قطعة)"
+                if (sourceQty > 0) item.id to "${item.name} ($sourceQty قطعة)" else null
             },
             product,
         ) { product = it }

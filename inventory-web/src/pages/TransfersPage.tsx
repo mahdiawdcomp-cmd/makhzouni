@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
 import { ArchiveX, ArrowRightLeft, ChevronLeft, ChevronRight, Eye, Plus, Search, X } from "lucide-react"
@@ -355,6 +355,7 @@ function CreateTransferDialog({
   const [unit, setUnit]                   = useState<"PIECE" | "DOZEN" | "CARTON">("PIECE")
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  const itemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
 
   const { data: branches } = useQuery({ queryKey: ["branches"], queryFn: () => getBranches() })
   const { data: allProducts = [] } = useQuery({
@@ -365,13 +366,22 @@ function CreateTransferDialog({
   const sourceStockOf = (product: Product) =>
     product.warehouseStocks?.find((stock) => stock.warehouseId === fromBranchId)?.quantityPieces ?? 0
 
-  const productSuggestions = productSearch.trim().length >= 1
+  // Only suggest products that actually have stock in the selected SOURCE warehouse.
+  // Before a source warehouse is chosen, show nothing (avoids listing the whole tenant).
+  const productSuggestions = fromBranchId && productSearch.trim().length >= 1
     ? allProducts.filter((p) =>
-        p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-        p.itemNumber.toLowerCase().includes(productSearch.toLowerCase()) ||
-        (p.qrCode?.toLowerCase().includes(productSearch.toLowerCase()) ?? false)
+        sourceStockOf(p) > 0 && (
+          p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
+          p.itemNumber.toLowerCase().includes(productSearch.toLowerCase()) ||
+          (p.qrCode?.toLowerCase().includes(productSearch.toLowerCase()) ?? false)
+        )
       ).slice(0, 8)
     : []
+
+  // Keep the keyboard-highlighted suggestion scrolled into view (arrow keys past the visible area)
+  useEffect(() => {
+    itemRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" })
+  }, [activeIndex])
 
   const mutation = useMutation({
     mutationFn: createTransfer,
@@ -539,6 +549,7 @@ function CreateTransferDialog({
                       <button
                         key={product.id}
                         type="button"
+                        ref={(el) => { itemRefs.current[idx] = el }}
                         className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-right text-sm dark:border-slate-800 ${idx === activeIndex ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-blue-50 dark:hover:bg-blue-950/20"}`}
                         onMouseEnter={() => setActiveIndex(idx)}
                         onMouseDown={(e) => e.preventDefault()}
