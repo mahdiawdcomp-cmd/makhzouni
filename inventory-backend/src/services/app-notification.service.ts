@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 
+// Accepts either the base client or an active transaction client, so producers
+// can create a notification atomically inside their own $transaction.
+type NotificationDb = typeof prisma | Prisma.TransactionClient;
+
 /**
  * In-app notification foundation (batch 23B).
  *
@@ -46,15 +50,18 @@ export function buildDedupeKey(
  * with that key already exists) bump the existing row's `count` and refresh its
  * text/severity instead of inserting a duplicate.
  */
-export async function createAppNotification(input: CreateAppNotificationInput) {
+export async function createAppNotification(
+  input: CreateAppNotificationInput,
+  db: NotificationDb = prisma,
+) {
   if (input.dedupeKey) {
-    const existing = await prisma.appNotification.findFirst({
+    const existing = await db.appNotification.findFirst({
       where: { dedupeKey: input.dedupeKey, archivedAt: null },
       orderBy: { createdAt: "desc" },
     });
 
     if (existing) {
-      return prisma.appNotification.update({
+      return db.appNotification.update({
         where: { id: existing.id },
         data: {
           count: { increment: 1 },
@@ -70,7 +77,7 @@ export async function createAppNotification(input: CreateAppNotificationInput) {
     }
   }
 
-  return prisma.appNotification.create({
+  return db.appNotification.create({
     data: {
       type: input.type,
       category: input.category,

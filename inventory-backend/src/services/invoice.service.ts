@@ -25,6 +25,13 @@ import {
   syncProductTotalStock,
 } from "./warehouse-stock.service";
 import { executeTransferWithin } from "./transfer.service";
+import { createAppNotification, buildDedupeKey } from "./app-notification.service";
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationSeverity,
+  NotificationRoleTarget,
+} from "../constants/notifications";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -757,6 +764,8 @@ async function createInvoiceInTransaction(
     unitPrice: number;
     lineCost: number;
     totalPrice: number;
+    costPerPiece: number;
+    quantityPieces: number;
   }> = [];
 
   for (const item of input.items) {
@@ -784,6 +793,8 @@ async function createInvoiceInTransaction(
           unitPrice: pricedItem.unitPrice,
           lineCost,
           totalPrice: pricedItem.totalPrice,
+          costPerPiece: pricedItem.costSnapshot,
+          quantityPieces: pricedItem.quantityInPieces,
         });
       }
     }
@@ -912,6 +923,47 @@ async function createInvoiceInTransaction(
         requestedBy: createdBy,
       },
     });
+
+    // Manager-only IMPORTANT notification per shorted line (does NOT block the
+    // sale — the approval above is acknowledge-only). Deduped per invoice+product+
+    // warehouse+day so re-saves don't spam.
+    for (const l of negativeLines) {
+      const warehouseName = nameById.get(l.warehouseId) ?? "";
+      const availableQuantity = l.quantityPieces - l.deficitPieces;
+      await createAppNotification(
+        {
+          type: NotificationType.NEGATIVE_STOCK_SALE,
+          category: NotificationCategory.NEGATIVE_SALE,
+          severity: NotificationSeverity.IMPORTANT,
+          roleTarget: NotificationRoleTarget.ADMIN,
+          title: "بيع يسبب مخزون سالب",
+          message:
+            `فاتورة ${updatedInvoice.invoiceNumber} — ${l.productName} في ${warehouseName}: ` +
+            `طُلب ${l.quantityPieces} قطعة والمتوفر ${availableQuantity}، عجز ${l.deficitPieces}`,
+          entityType: "INVOICE",
+          entityId: updatedInvoice.id,
+          actionUrl: `/invoices/${updatedInvoice.id}`,
+          metadata: {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            productId: l.productId,
+            productName: l.productName,
+            warehouseId: l.warehouseId,
+            warehouseName,
+            requestedQuantity: l.quantityPieces,
+            availableQuantity,
+            deficitPieces: l.deficitPieces,
+            userId: createdBy,
+            customerId: input.customerId,
+          },
+          dedupeKey: buildDedupeKey(
+            NotificationType.NEGATIVE_STOCK_SALE,
+            `${updatedInvoice.id}:${l.productId}:${l.warehouseId}`,
+          ),
+        },
+        tx,
+      );
+    }
   }
 
   // EDIT that drives stock negative: by product decision this does NOT require an
@@ -936,6 +988,46 @@ async function createInvoiceInTransaction(
         } as Prisma.InputJsonValue,
       },
     });
+
+    // Manager-only IMPORTANT notification for an edit that drove stock negative.
+    // Does NOT block the edit (matches the audit-log-only decision above).
+    for (const l of negativeLines) {
+      const warehouseName = nameById.get(l.warehouseId) ?? "";
+      const availableQuantity = l.quantityPieces - l.deficitPieces;
+      await createAppNotification(
+        {
+          type: NotificationType.NEGATIVE_STOCK_ON_EDIT,
+          category: NotificationCategory.NEGATIVE_SALE,
+          severity: NotificationSeverity.IMPORTANT,
+          roleTarget: NotificationRoleTarget.ADMIN,
+          title: "تعديل فاتورة سبب مخزون سالب",
+          message:
+            `تعديل فاتورة ${updatedInvoice.invoiceNumber} — ${l.productName} في ${warehouseName}: ` +
+            `طُلب ${l.quantityPieces} قطعة والمتوفر ${availableQuantity}، عجز ${l.deficitPieces}`,
+          entityType: "INVOICE",
+          entityId: updatedInvoice.id,
+          actionUrl: `/invoices/${updatedInvoice.id}`,
+          metadata: {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            productId: l.productId,
+            productName: l.productName,
+            warehouseId: l.warehouseId,
+            warehouseName,
+            requestedQuantity: l.quantityPieces,
+            availableQuantity,
+            deficitPieces: l.deficitPieces,
+            userId: createdBy,
+            customerId: input.customerId,
+          },
+          dedupeKey: buildDedupeKey(
+            NotificationType.NEGATIVE_STOCK_ON_EDIT,
+            `${updatedInvoice.id}:${l.productId}:${l.warehouseId}`,
+          ),
+        },
+        tx,
+      );
+    }
   }
 
   // Below-cost SALE lines: log for manager review (warning only — never blocks the
@@ -955,6 +1047,47 @@ async function createInvoiceInTransaction(
         } as Prisma.InputJsonValue,
       },
     });
+
+    // Manager-only IMPORTANT notification per below-cost line (never blocks the
+    // save). Deduped per invoice+product+day.
+    for (const l of belowCostLines) {
+      const totalLoss = roundMoney(l.lineCost - l.totalPrice);
+      await createAppNotification(
+        {
+          type: NotificationType.BELOW_COST_SALE,
+          category: NotificationCategory.NEGATIVE_SALE,
+          severity: NotificationSeverity.IMPORTANT,
+          roleTarget: NotificationRoleTarget.ADMIN,
+          title: "بيع بسعر أقل من التكلفة",
+          message:
+            `فاتورة ${updatedInvoice.invoiceNumber} — ${l.productName}: ` +
+            `سعر البيع ${l.unitPrice} وسعر الكلفة ${l.costPerPiece} للقطعة، ` +
+            `خسارة تقديرية ${totalLoss}`,
+          entityType: "INVOICE",
+          entityId: updatedInvoice.id,
+          actionUrl: `/invoices/${updatedInvoice.id}`,
+          metadata: {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            productId: l.productId,
+            productName: l.productName,
+            unitPrice: l.unitPrice,
+            purchasePrice: l.costPerPiece,
+            quantity: l.quantityPieces,
+            lineCost: l.lineCost,
+            totalPrice: l.totalPrice,
+            totalLoss,
+            userId: createdBy,
+            customerId: input.customerId,
+          },
+          dedupeKey: buildDedupeKey(
+            NotificationType.BELOW_COST_SALE,
+            `${updatedInvoice.id}:${l.productId}`,
+          ),
+        },
+        tx,
+      );
+    }
   }
 
   return serializeInvoice(updatedInvoice);
