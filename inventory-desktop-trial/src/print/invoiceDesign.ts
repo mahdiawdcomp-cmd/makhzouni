@@ -209,22 +209,59 @@ export function printHTML(html: string) {
   iframe.srcdoc = html
 }
 
-export async function downloadDesignPDF(html: string, filename: string) {
+// Rasterize the EXACT custom-designed invoice HTML (same renderDesignHTML output
+// used by "طباعة A4") into a real, single-page downloadable PDF — so the
+// downloaded file always matches the shop's own invoice design, instead of a
+// separate hardcoded template. html2canvas/jsPDF are dynamically imported so
+// they never bloat the initial bundle.
+export async function renderDesignToPdfBlob(html: string, width: number, height: number): Promise<Blob> {
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    import("html2canvas"),
+    import("jspdf"),
+  ])
+
   const iframe = document.createElement("iframe")
-  iframe.style.cssText = "position:fixed;width:0;height:0;border:0;left:-9999px;top:0"
+  iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${width}px;height:${height}px;border:0`
   document.body.appendChild(iframe)
-  const titledHtml = html.replace("<head>", `<head><title>${filename}</title>`)
-  await new Promise<void>((resolve) => {
-    iframe.onload = () => {
-      iframe.contentWindow?.focus()
-      iframe.contentWindow?.print()
-      setTimeout(() => {
-        iframe.remove()
-        resolve()
-      }, 1500)
-    }
-    iframe.srcdoc = titledHtml
-  })
+  try {
+    await new Promise<void>((resolve) => {
+      iframe.onload = () => resolve()
+      iframe.srcdoc = html
+    })
+    const doc = iframe.contentDocument
+    if (!doc) throw new Error("PDF render frame failed to load")
+    const paper = doc.querySelector(".paper") as HTMLElement | null
+    if (!paper) throw new Error("Design has no .paper root")
+
+    // Wait for images (logo/stamp) and the web font to finish loading — otherwise
+    // html2canvas can capture a blank/placeholder frame.
+    await Promise.all(
+      Array.from(doc.images).map(
+        (img) => (img.complete ? Promise.resolve() : new Promise<void>((res) => { img.onload = () => res(); img.onerror = () => res() })),
+      ),
+    )
+    await (doc as Document & { fonts?: FontFaceSet }).fonts?.ready?.catch(() => {})
+
+    const cssWidth = paper.scrollWidth
+    const cssHeight = paper.scrollHeight
+    const canvas = await html2canvas(paper, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      windowWidth: cssWidth,
+      windowHeight: cssHeight,
+    })
+
+    const pdf = new jsPDF({
+      unit: "px",
+      format: [cssWidth, cssHeight],
+      orientation: cssWidth > cssHeight ? "landscape" : "portrait",
+    })
+    pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, cssWidth, cssHeight)
+    return pdf.output("blob")
+  } finally {
+    iframe.remove()
+  }
 }
 
 export function parseDesign(json?: string | null, paper: PaperSize = "80mm"): Design {
@@ -451,6 +488,7 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     }).join("")
 
     return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"/><style>
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
       ${pageCss}
       *{box-sizing:border-box;margin:0;padding:0}
       body{font-family:"Cairo","Segoe UI",Tahoma,sans-serif;background:#fff}
@@ -473,6 +511,7 @@ export function renderDesignHTML(design: Design, inv: PrintInvoice, store: Print
     .map((el) => `<div style="${elBoxStyle(el)}">${elInnerHTML(el, inv, store)}</div>`)
     .join("")
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8" /><style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
     ${pageCss}
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:"Cairo","Segoe UI",Tahoma,sans-serif;background:#fff}

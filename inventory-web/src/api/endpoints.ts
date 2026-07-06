@@ -889,13 +889,6 @@ export function invoiceImageUrl(id: string) {
   return `${api.defaults.baseURL}/invoices/${id}/image`
 }
 
-export async function invoicePdfObjectUrl(id: string) {
-  const { data } = await api.get(`/invoices/${id}/pdf`, {
-    responseType: "blob",
-  })
-  return URL.createObjectURL(data as Blob)
-}
-
 export async function invoiceImageObjectUrl(id: string) {
   const { data } = await api.get(`/invoices/${id}/image`, {
     responseType: "blob",

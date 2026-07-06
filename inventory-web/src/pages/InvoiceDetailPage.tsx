@@ -16,13 +16,13 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getBranches, getInvoiceAuditTrail, invoicePdfObjectUrl, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
-import { parseDesigns, renderDesignHTML, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
+import { parseDesigns, renderDesignHTML, renderDesignToPdfBlob, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
 import { downloadBlobUrl } from "../utils/download"
 import type { InvoiceItem, Product } from "../types/api"
 import { Button } from "../components/ui/button"
@@ -117,16 +117,16 @@ export function InvoiceDetailPage() {
       })
   }, [list])
 
-  // Print using the saved visual design (invoiceDesign)
-  function printWithDesign(paper: PaperSize) {
-    if (!invoice) return
+  // Shared payload for both print paths — always reflects the shop's own saved
+  // design (settings.invoiceDesign), so "طباعة A4" and "تحميل PDF" never diverge.
+  function buildDesignPrintPayload(paper: PaperSize) {
     const design = parseDesigns(settings?.invoiceDesign)[paper]
     const printInv: PrintInvoice = {
-      number: invoice.invoiceNumber,
-      date: String(invoice.date).slice(0, 10),
-      customerName: invoice.customer?.name ?? "",
-      customerPhone: invoice.customer?.phone ?? "",
-      lines: (invoice.items ?? []).map((it) => ({
+      number: invoice!.invoiceNumber,
+      date: String(invoice!.date).slice(0, 10),
+      customerName: invoice!.customer?.name ?? "",
+      customerPhone: invoice!.customer?.phone ?? "",
+      lines: (invoice!.items ?? []).map((it) => ({
         name: it.productName ?? "",
         unit: unitLabel(it.unit),
         qty: it.quantity,
@@ -135,17 +135,17 @@ export function InvoiceDetailPage() {
         itemNumber: it.itemNumber ?? (it as any).product?.itemNumber ?? undefined,
         pcsPerCarton: (it as any).product?.pcsPerCarton ?? undefined,
       })),
-      notes: invoice.notes ?? "",
-      subtotal: invoice.subtotal,
-      discount: invoice.discount,
-      tax: invoice.tax,
-      total: invoice.totalAmount,
-      paid: invoice.paidAmount,
-      remaining: invoice.remainingAmount,
-      previousBalance: invoice.previousBalance ?? 0,
-      finalBalance: invoice.finalBalance,
-      paymentType: invoice.paymentType === "CASH" ? "نقد" : invoice.paymentType === "PARTIAL" ? "جزئي" : "أجل",
-      invoiceType: invoice.type as "SALE" | "PURCHASE" | "SALES_RETURN",
+      notes: invoice!.notes ?? "",
+      subtotal: invoice!.subtotal,
+      discount: invoice!.discount,
+      tax: invoice!.tax,
+      total: invoice!.totalAmount,
+      paid: invoice!.paidAmount,
+      remaining: invoice!.remainingAmount,
+      previousBalance: invoice!.previousBalance ?? 0,
+      finalBalance: invoice!.finalBalance,
+      paymentType: invoice!.paymentType === "CASH" ? "نقد" : invoice!.paymentType === "PARTIAL" ? "جزئي" : "أجل",
+      invoiceType: invoice!.type as "SALE" | "PURCHASE" | "SALES_RETURN",
     }
     const store = {
       storeName: settings?.storeName || "",
@@ -154,14 +154,27 @@ export function InvoiceDetailPage() {
       storeAddress: settings?.storeAddress || "",
       currency: settings?.currency || "د.ع",
     }
+    return { design, printInv, store }
+  }
+
+  // Print using the saved visual design (invoiceDesign)
+  function printWithDesign(paper: PaperSize) {
+    if (!invoice) return
+    const { design, printInv, store } = buildDesignPrintPayload(paper)
     printHTML(renderDesignHTML(design, printInv, store))
   }
 
+  // Downloaded PDF must look exactly like the shop's own A4 design — rasterize the
+  // same renderDesignHTML() output used by "طباعة A4" into a real PDF file, instead
+  // of the backend's separate hardcoded template.
   async function downloadA4Pdf() {
     if (!invoice) return
     setPdfDownloading(true)
     try {
-      const url = await invoicePdfObjectUrl(invoice.id)
+      const { design, printInv, store } = buildDesignPrintPayload("a4")
+      const html = renderDesignHTML(design, printInv, store)
+      const blob = await renderDesignToPdfBlob(html, design.width, design.height)
+      const url = URL.createObjectURL(blob)
       downloadBlobUrl(url, invoicePdfFilename(invoice.invoiceNumber))
       setTimeout(() => URL.revokeObjectURL(url), 5000)
       toast({ title: "تم تحميل ملف PDF." })
