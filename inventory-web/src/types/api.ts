@@ -18,6 +18,8 @@ export type UserPermission =
   | "MANAGE_TRANSFERS"
   | "INVENTORY_MANAGE"
   | "VARIETY_CONVERT"
+  // DENY marker: when present, hides profit & financial reports even from an ADMIN.
+  | "HIDE_PROFIT_REPORTS"
 
 export interface ApiEnvelope<T> {
   success: boolean

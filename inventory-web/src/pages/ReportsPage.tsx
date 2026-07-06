@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
+import { useAuthStore } from "../store/authStore"
 import {
   Bar, BarChart, CartesianGrid,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -36,6 +37,11 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
 export function ReportsPage() {
   usePageTitle("التقارير")
   const [tab, setTab] = useState<Tab>("sales")
+  // Profit & store-brain tabs expose full financial margins — hidden when the
+  // profit-visibility capability is revoked (even for a second admin).
+  const canViewProfits = useAuthStore((s) => s.canViewProfitReports)()
+  const visibleTabs = TABS.filter((t) => canViewProfits || (t.id !== "profits" && t.id !== "store-brain"))
+  const activeTab: Tab = !canViewProfits && (tab === "profits" || tab === "store-brain") ? "sales" : tab
 
   return (
     <div className="space-y-4">
@@ -46,13 +52,13 @@ export function ReportsPage() {
 
       {/* Tab bar */}
       <div className="flex flex-wrap gap-1.5 rounded-xl border border-slate-200 bg-white p-1.5 dark:border-slate-700 dark:bg-slate-900">
-        {TABS.map((t) => (
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             type="button"
             onClick={() => setTab(t.id)}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition ${
-              tab === t.id
+              activeTab === t.id
                 ? "bg-slate-900 text-white dark:bg-amber-500 dark:text-slate-900"
                 : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
             }`}
@@ -63,14 +69,14 @@ export function ReportsPage() {
         ))}
       </div>
 
-      {tab === "store-brain"   && <StoreBrainTab />}
-      {tab === "sales"         && <SalesTab />}
-      {tab === "profits"       && <ProfitsTab />}
-      {tab === "top-customers" && <TopCustomersTab />}
-      {tab === "end-of-day"    && <EndOfDayTab />}
-      {tab === "inventory"     && <InventoryTab />}
-      {tab === "debts"         && <DebtsTab />}
-      {tab === "archive"       && <ArchiveTab />}
+      {activeTab === "store-brain"   && canViewProfits && <StoreBrainTab />}
+      {activeTab === "sales"         && <SalesTab />}
+      {activeTab === "profits"       && canViewProfits && <ProfitsTab />}
+      {activeTab === "top-customers" && <TopCustomersTab />}
+      {activeTab === "end-of-day"    && <EndOfDayTab />}
+      {activeTab === "inventory"     && <InventoryTab />}
+      {activeTab === "debts"         && <DebtsTab />}
+      {activeTab === "archive"       && <ArchiveTab />}
     </div>
   )
 }
@@ -82,6 +88,7 @@ function SalesTab() {
   const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("day")
   const report = useSalesReport({ from: from || undefined, to: to || undefined, groupBy })
   const sales = report.data
+  const canViewProfits = useAuthStore((s) => s.canViewProfitReports)()
 
   return (
     <div className="space-y-4">
@@ -101,7 +108,7 @@ function SalesTab() {
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard title="إجمالي المبيعات" value={sales?.totalSales ?? 0} color="text-emerald-600" />
         <MetricCard title="عدد الفواتير"    value={sales?.invoiceCount ?? 0} suffix="" />
-        <MetricCard title="إجمالي الأرباح"  value={sales?.grossProfit ?? 0} color="text-blue-600" />
+        {canViewProfits && <MetricCard title="إجمالي الأرباح"  value={sales?.grossProfit ?? 0} color="text-blue-600" />}
       </div>
 
       <Card>

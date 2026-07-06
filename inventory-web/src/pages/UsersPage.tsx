@@ -42,6 +42,12 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
 
 const fullPermissions = allPermissions.map((permission) => permission.id)
 
+// DENY marker (not a normal grant, so intentionally NOT in allPermissions): when
+// present it hides profit & financial reports even from a full ADMIN. The toggle below
+// is the ONLY per-account control that stays editable for admins.
+const HIDE_PROFIT: UserPermission = "HIDE_PROFIT_REPORTS"
+const isProfitHidden = (perms: UserPermission[] | undefined) => (perms ?? []).includes(HIDE_PROFIT)
+
 const emptyForm: UserForm = {
   name: "",
   username: "",
@@ -83,7 +89,12 @@ export function UsersPage() {
       username: user.username,
       password: "",
       role: user.role,
-      permissions: user.role === "ADMIN" ? fullPermissions : user.permissions ?? [],
+      // Admins are shown as holding every grant, but we must preserve the profit DENY
+      // marker if it was set on this account (fullPermissions doesn't carry it).
+      permissions:
+        user.role === "ADMIN"
+          ? [...fullPermissions, ...(isProfitHidden(user.permissions) ? [HIDE_PROFIT] : [])]
+          : user.permissions ?? [],
       phone: user.phone ?? "",
       isActive: user.isActive,
     })
@@ -92,10 +103,15 @@ export function UsersPage() {
   }
 
   function setRole(role: Role) {
+    const profitHidden = isProfitHidden(form.permissions)
     setForm({
       ...form,
       role,
-      permissions: role === "ADMIN" ? fullPermissions : form.permissions,
+      // Switching to ADMIN grants everything but must keep the profit DENY marker if set.
+      permissions:
+        role === "ADMIN"
+          ? [...fullPermissions, ...(profitHidden ? [HIDE_PROFIT] : [])]
+          : form.permissions,
     })
   }
 
@@ -106,10 +122,23 @@ export function UsersPage() {
     setForm({ ...form, permissions: Array.from(current) })
   }
 
+  // Editable even for ADMIN. checked = can view profits (= marker absent).
+  function toggleProfitVisibility() {
+    const current = new Set(form.permissions ?? [])
+    if (current.has(HIDE_PROFIT)) current.delete(HIDE_PROFIT)
+    else current.add(HIDE_PROFIT)
+    setForm({ ...form, permissions: Array.from(current) })
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault()
     setError("")
-    const permissions = form.role === "ADMIN" ? fullPermissions : form.permissions ?? []
+    // Admins get every grant; both roles additionally carry the profit DENY marker when set.
+    const profitHidden = isProfitHidden(form.permissions)
+    const basePermissions = form.role === "ADMIN" ? fullPermissions : form.permissions ?? []
+    const permissions = Array.from(
+      new Set<UserPermission>([...basePermissions, ...(profitHidden ? [HIDE_PROFIT] : [])]),
+    )
     if (!editing && form.password.trim().length < 4) {
       setError("كلمة المرور لازم تكون 4 أحرف على الأقل")
       return
@@ -391,8 +420,24 @@ export function UsersPage() {
               })}
             </div>
             {form.role === "ADMIN" ? (
-              <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً.</div>
+              <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح أدناه.</div>
             ) : null}
+
+            <div className="my-3 border-t border-slate-200 dark:border-slate-700" />
+            <div className="mb-2 text-sm font-semibold text-slate-600">الأرباح والتقارير المالية</div>
+            <label className="flex gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 text-sm dark:border-emerald-800 dark:bg-emerald-900/20">
+              <input
+                type="checkbox"
+                checked={!isProfitHidden(form.permissions)}
+                onChange={toggleProfitVisibility}
+              />
+              <span>
+                <span className="block font-medium">عرض الأرباح والتقارير المالية</span>
+                <span className="block text-xs text-slate-500">
+                  عند التعطيل يُخفى قسم الأرباح وعقل المحل والتقارير المالية عن هذا الحساب — حتى لو كان مديراً كاملاً.
+                </span>
+              </span>
+            </label>
           </div>
 
           <label className="flex items-center gap-2 text-sm">

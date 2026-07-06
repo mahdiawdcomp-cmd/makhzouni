@@ -11,6 +11,7 @@ interface AuthState {
   isAuthenticated: () => boolean
   isAdmin: () => boolean
   hasPermission: (permission: UserPermission) => boolean
+  canViewProfitReports: () => boolean
   isPosOnly: () => boolean
   isWorkerOnly: () => boolean
 }
@@ -50,6 +51,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   hasPermission: (permission) => {
     const user = get().user
     return Boolean(user && (user.role === "ADMIN" || user.permissions?.includes(permission)))
+  },
+  // Profit / financial-reports visibility. Revocable even from an ADMIN via the
+  // HIDE_PROFIT_REPORTS deny marker; otherwise admins see it, and staff see it when
+  // they hold VIEW_REPORTS. Mirrors canViewProfitReports() on the backend.
+  canViewProfitReports: () => {
+    const user = get().user
+    if (!user) return false
+    if (user.permissions?.includes("HIDE_PROFIT_REPORTS")) return false
+    if (user.role === "ADMIN") return true
+    return Boolean(user.permissions?.includes("VIEW_REPORTS"))
   },
   isPosOnly: () => {
     const user = get().user

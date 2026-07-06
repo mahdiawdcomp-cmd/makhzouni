@@ -215,6 +215,10 @@ model User {
   username           String              @unique
   passwordHash       String              @map("password_hash")
   role               UserRole            @default(STAFF)
+  // Free-form capability strings (see frontend UserPermission union). Also carries
+  // DENY markers such as "HIDE_PROFIT_REPORTS" which revoke a capability even from an
+  // ADMIN — see canViewProfitReports() in permission.middleware.ts. No migration is
+  // needed to introduce new markers; this is intentionally an open String[].
   permissions        String[]            @default([])
   phone              String?
   isActive           Boolean             @default(true) @map("is_active")

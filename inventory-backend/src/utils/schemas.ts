@@ -31,6 +31,9 @@ const userPermissionSchema = z.enum([
   "INVENTORY_MANAGE",
   // Transfer-only staff: restricted to the transfers/variety-convert page, no prices
   "VARIETY_CONVERT",
+  // DENY marker: hides profit & financial reports even from a full ADMIN
+  // (see canViewProfitReports in permission.middleware.ts).
+  "HIDE_PROFIT_REPORTS",
 ]);
 
 const auditEntitySchema = z.enum([
