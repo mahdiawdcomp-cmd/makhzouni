@@ -788,6 +788,44 @@ model Notification {
   @@map("notifications")
 }
 
+// In-app notification center (batch 23B foundation). SEPARATE from the legacy
+// `Notification` model above (which is a customer WhatsApp/marketing log — do not
+// merge). Additive only; not yet written to by any producer (invoice/whatsapp/
+// transfer) — wiring comes in later batches (23D+).
+model AppNotification {
+  id              String    @id @default(uuid()) @db.Uuid
+  type            String
+  category        String
+  severity        String
+  title           String
+  message         String
+  // Role-based fan-out target: "ADMIN" | "STAFF" | "ALL" (nullable = untargeted).
+  roleTarget      String?   @map("role_target")
+  // Optional single-user target (takes precedence over roleTarget when set).
+  recipientUserId String?   @map("recipient_user_id") @db.Uuid
+  entityType      String?   @map("entity_type")
+  entityId        String?   @map("entity_id")
+  actionUrl       String?   @map("action_url")
+  metadata        Json?
+  // Dedupe grouping key (e.g. "type:entityId:YYYY-MM-DD"). Non-unique on purpose:
+  // dedupe is resolved in the service against non-archived rows, so an archived
+  // row never blocks a fresh one from being created with the same key.
+  dedupeKey       String?   @map("dedupe_key")
+  count           Int       @default(1)
+  readAt          DateTime? @map("read_at")
+  archivedAt      DateTime? @map("archived_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([roleTarget, createdAt])
+  @@index([recipientUserId, createdAt])
+  @@index([category, createdAt])
+  @@index([severity, createdAt])
+  @@index([entityType, entityId])
+  @@index([dedupeKey])
+  @@map("app_notifications")
+}
+
 model MessageTemplate {
   id        String   @id @default(uuid()) @db.Uuid
   name      String   @unique

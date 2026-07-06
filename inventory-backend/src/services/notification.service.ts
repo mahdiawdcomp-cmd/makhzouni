@@ -11,6 +11,18 @@ interface FriendlyNotification {
   message: string;       // longer Arabic message (e.g. "موظف بيع 5 قطع من …")
   link?: string;         // optional in-app link (e.g. /invoices/<id>)
   actor?: { id: string; name: string; role: string };
+  sensitive?: boolean;   // ADMIN-only — hidden from STAFF in the bell feed
+}
+
+// Which derived audit entries are manager-only (financial / destructive / cost/
+// shortage sensitive). STAFF must never see these in the bell. Non-sensitive
+// operational events (new invoice, product/customer create, variety-convert) stay
+// visible to everyone.
+function isSensitiveAudit(entity: string, action: string): boolean {
+  if (entity === "Invoice") return true;                         // BELOW_COST_SALE / NEGATIVE_STOCK_ON_EDIT
+  if (entity === "invoices") return action === "UPDATE" || action === "DELETE"; // edit / cancel
+  if (entity === "vouchers") return true;                        // all financial vouchers
+  return false;
 }
 
 function safeJson(value: unknown): Record<string, unknown> | null {
@@ -255,7 +267,10 @@ function describe(log: {
   return null;
 }
 
-export async function getRecentNotifications(limit = 30) {
+export async function getRecentNotifications(
+  limit = 30,
+  viewer?: { role?: string },
+) {
   const [logs, catalogOrders] = await Promise.all([
     prisma.auditLog.findMany({
       where: { entity: { in: ["invoices", "vouchers", "products", "customers", "variety-convert", "Invoice"] } },
@@ -272,8 +287,8 @@ export async function getRecentNotifications(limit = 30) {
   ]);
 
   const auditNotifs = logs
-    .map((row) =>
-      describe({
+    .map((row) => {
+      const notif = describe({
         id: row.id,
         createdAt: row.createdAt,
         action: row.action,
@@ -283,8 +298,14 @@ export async function getRecentNotifications(limit = 30) {
         after: row.after,
         metadata: row.metadata,
         user: row.user,
-      }),
-    )
+      });
+      if (!notif) return null;
+      const tagged: FriendlyNotification = {
+        ...notif,
+        sensitive: isSensitiveAudit(row.entity, row.action),
+      };
+      return tagged;
+    })
     .filter((n): n is FriendlyNotification => n !== null);
 
   const catalogNotifs: FriendlyNotification[] = catalogOrders.map((a) => {
@@ -299,11 +320,20 @@ export async function getRecentNotifications(limit = 30) {
       title: "طلب كاتلوك جديد ينتظر موافقتك",
       message: `${customerName} — ${itemCount} صنف — يحتاج موافقة`,
       link: "/approvals",
+      sensitive: true, // approvals are admin-only
     };
   });
 
   // Merge and sort by date desc
-  return [...auditNotifs, ...catalogNotifs]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, limit);
+  const merged = [...auditNotifs, ...catalogNotifs].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  // Security: non-ADMIN viewers (STAFF) never receive sensitive financial /
+  // destructive / cost-shortage notifications. ADMIN sees everything. When no
+  // viewer is supplied, default to the safe (STAFF) view rather than leaking.
+  const isAdmin = viewer?.role === "ADMIN";
+  const visible = isAdmin ? merged : merged.filter((n) => !n.sensitive);
+
+  return visible.slice(0, limit);
 }
