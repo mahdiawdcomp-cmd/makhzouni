@@ -675,7 +675,13 @@ async function createInvoiceInTransaction(
   const invoiceType = input.type ?? InvoiceType.SALE;
   await assertUnitsNotHidden(tx, input.items, allowedUnitPairs);
   const existingInvoice = existingInvoiceId
-    ? await tx.invoice.findUnique({ where: { id: existingInvoiceId }, select: { date: true } })
+    ? await tx.invoice.findUnique({
+        where: { id: existingInvoiceId },
+        // date drives the invoice date; createdAt/paidAmount/customerId let the
+        // update notification flag an old-invoice edit, a paid-amount change, or a
+        // customer swap (read-only enrichment — no calculation is affected).
+        select: { date: true, createdAt: true, paidAmount: true, customerId: true },
+      })
     : null;
   const date = existingInvoice?.date ?? (input.date ? new Date(input.date) : new Date());
   const manualDiscount = input.discount ?? 0;
@@ -1095,13 +1101,38 @@ async function createInvoiceInTransaction(
   {
     const custName = updatedInvoice.customer?.name ?? "زبون";
     if (existingInvoiceId) {
+      // Enrich the edit notification: an edit to an invoice older than a day is
+      // escalated to IMPORTANT ("تعديل فاتورة قديمة"), and paid-amount / customer
+      // changes are called out in the message. Pure read-side comparison — no
+      // calculation or behaviour changes.
+      const OLD_INVOICE_HOURS = 24;
+      const oldCreatedAt = existingInvoice?.createdAt;
+      const isOld = oldCreatedAt
+        ? Date.now() - oldCreatedAt.getTime() > OLD_INVOICE_HOURS * 3600 * 1000
+        : false;
+
+      const oldPaid = toNumber(existingInvoice?.paidAmount);
+      const newPaid = paidAmount;
+      const paidChanged = Math.abs(oldPaid - newPaid) > 0.001;
+
+      const customerChanged = Boolean(
+        existingInvoice?.customerId && existingInvoice.customerId !== input.customerId,
+      );
+
+      const extras: string[] = [];
+      if (paidChanged) {
+        extras.push(`الواصل تغيّر من ${oldPaid.toLocaleString()} إلى ${newPaid.toLocaleString()}`);
+      }
+      if (customerChanged) extras.push("تغيّر الزبون");
+      const suffix = extras.length ? ` — ${extras.join(" — ")}` : "";
+
       await notifyAdmin(
         {
           type: NotificationType.INVOICE_UPDATED,
           category: NotificationCategory.INVOICES,
-          severity: NotificationSeverity.MEDIUM,
-          title: "تم تعديل فاتورة",
-          message: `تم تعديل الفاتورة ${updatedInvoice.invoiceNumber} — ${custName}`,
+          severity: isOld ? NotificationSeverity.IMPORTANT : NotificationSeverity.MEDIUM,
+          title: isOld ? "تعديل فاتورة قديمة" : "تم تعديل فاتورة",
+          message: `${isOld ? "تعديل فاتورة قديمة" : "تم تعديل الفاتورة"} ${updatedInvoice.invoiceNumber} — ${custName}${suffix}`,
           entityType: "INVOICE",
           entityId: updatedInvoice.id,
           actionUrl: `/invoices/${updatedInvoice.id}`,
@@ -1110,6 +1141,12 @@ async function createInvoiceInTransaction(
             invoiceNumber: updatedInvoice.invoiceNumber,
             userId: createdBy,
             customerId: input.customerId,
+            isOldInvoice: isOld,
+            paidChanged,
+            oldPaidAmount: oldPaid,
+            newPaidAmount: newPaid,
+            customerChanged,
+            previousCustomerId: existingInvoice?.customerId ?? null,
           },
           dedupeKey: buildDedupeKey(NotificationType.INVOICE_UPDATED, updatedInvoice.id),
         },
