@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bell,
   FileText,
+  Info,
   Package,
   PackageMinus,
   Pencil,
@@ -18,7 +19,6 @@ import {
   Wallet,
 } from "lucide-react"
 import { api } from "../../api/client"
-import { Button } from "../ui/button"
 import { cn } from "../../utils/cn"
 
 interface NotificationActor { id: string; name: string; role: string }
@@ -33,12 +33,13 @@ interface Notification {
   actor?: NotificationActor
 }
 
-// New AppNotification center rows (batch 23C).
+// New AppNotification center rows (batch 23C / 23C-B).
+type AppSeverity = "IMPORTANT" | "MEDIUM" | "NORMAL"
 interface AppNotification {
   id: string
   type: string
   category: string
-  severity: "IMPORTANT" | "MEDIUM" | "NORMAL"
+  severity: AppSeverity
   title: string
   message: string
   entityType?: string | null
@@ -53,19 +54,26 @@ const iconMap: Record<string, ComponentType<{ className?: string }>> = {
   Receipt, ReceiptText, ShoppingCart, ShoppingBag, Wallet, Package, PackageMinus, Pencil, Trash2, FileText, UserPlus, TrendingDown, AlertTriangle,
 }
 
-const severityStyles: Record<Notification["severity"], { dot: string; row: string }> = {
+const legacySeverityStyles: Record<Notification["severity"], { dot: string; row: string }> = {
   success: { dot: "bg-emerald-500", row: "bg-emerald-50/60 dark:bg-emerald-950/20" },
   warning: { dot: "bg-amber-500",   row: "bg-amber-50/60 dark:bg-amber-950/20" },
   error:   { dot: "bg-rose-500",    row: "bg-rose-50/60 dark:bg-rose-950/20" },
   info:    { dot: "bg-sky-500",     row: "bg-sky-50/60 dark:bg-sky-950/20" },
 }
 
-// Map an AppNotification severity onto the shared colour vocabulary + Arabic label.
-const appSeverityStyle: Record<AppNotification["severity"], { dot: string; row: string; label: string; badge: string }> = {
-  IMPORTANT: { dot: "bg-rose-500",  row: "bg-rose-50/60 dark:bg-rose-950/20",  label: "مهم",   badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" },
-  MEDIUM:    { dot: "bg-amber-500", row: "bg-amber-50/60 dark:bg-amber-950/20", label: "متوسط", badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" },
-  NORMAL:    { dot: "bg-sky-500",   row: "bg-sky-50/60 dark:bg-sky-950/20",     label: "عادي",  badge: "bg-sky-100 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" },
-}
+// The three severity buttons shown in the header.
+const SEVERITY_BUTTONS: Array<{
+  key: AppSeverity
+  label: string
+  icon: ComponentType<{ className?: string }>
+  dot: string
+  badge: string
+  active: string
+}> = [
+  { key: "IMPORTANT", label: "مهم",   icon: AlertTriangle, dot: "bg-rose-500",  badge: "bg-rose-500",  active: "text-rose-600 dark:text-rose-400" },
+  { key: "MEDIUM",    label: "متوسط", icon: Info,          dot: "bg-amber-500", badge: "bg-amber-500", active: "text-amber-600 dark:text-amber-400" },
+  { key: "NORMAL",    label: "عادي",  icon: Bell,          dot: "bg-sky-500",   badge: "bg-sky-500",   active: "text-sky-600 dark:text-sky-400" },
+]
 
 const CATEGORY_LABEL: Record<string, string> = {
   IMPORTANT: "مهم",
@@ -78,10 +86,9 @@ const CATEGORY_LABEL: Record<string, string> = {
   SYSTEM: "نظام",
 }
 
-// Tab keys: "ALL" = everything, "IMPORTANT" filters by severity, the rest by category.
-const TABS: Array<{ key: string; label: string }> = [
+// Category sub-filters shown inside an open severity panel.
+const PANEL_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "ALL", label: "الكل" },
-  { key: "IMPORTANT", label: "مهم" },
   { key: "NEGATIVE_SALE", label: "بيع سالب / بخسارة" },
   { key: "INVOICES", label: "فواتير" },
   { key: "APPROVALS", label: "موافقات" },
@@ -96,12 +103,19 @@ async function fetchRecent(): Promise<Notification[]> {
   return data.data ?? []
 }
 
-async function fetchAppNotifications(): Promise<{ items: AppNotification[]; unreadCount: number }> {
-  const { data } = await api.get<{ success: boolean; items: AppNotification[]; unreadCount: number }>(
+async function fetchAppNotifications(): Promise<AppNotification[]> {
+  const { data } = await api.get<{ success: boolean; items: AppNotification[] }>(
     "/notifications/app/recent",
-    { params: { limit: 50 } },
+    { params: { limit: 100 } },
   )
-  return { items: data.items ?? [], unreadCount: data.unreadCount ?? 0 }
+  return data.items ?? []
+}
+
+async function fetchAppCounts(): Promise<{ important: number; medium: number; normal: number }> {
+  const { data } = await api.get<{ success: boolean; important: number; medium: number; normal: number }>(
+    "/notifications/app/counts",
+  )
+  return { important: data.important ?? 0, medium: data.medium ?? 0, normal: data.normal ?? 0 }
 }
 
 function timeAgo(iso: string): string {
@@ -122,8 +136,8 @@ export function NotificationsBell() {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState("ALL")
+  const [openSeverity, setOpenSeverity] = useState<AppSeverity | null>(null)
+  const [catFilter, setCatFilter] = useState("ALL")
   const ref = useRef<HTMLDivElement | null>(null)
   const firstLoadRef = useRef(true)
 
@@ -141,42 +155,48 @@ export function NotificationsBell() {
   })
 
   // New AppNotification center feed (structured, server read/unread).
-  const { data: appData } = useQuery({
+  const { data: appItems = [] } = useQuery({
     queryKey: ["app-notifications"],
     queryFn: fetchAppNotifications,
     refetchInterval: 30_000,
   })
-  const appItems = appData?.items ?? []
-  const appUnread = appData?.unreadCount ?? 0
+  const { data: counts = { important: 0, medium: 0, normal: 0 } } = useQuery({
+    queryKey: ["app-notification-counts"],
+    queryFn: fetchAppCounts,
+    refetchInterval: 30_000,
+  })
 
+  function invalidateApp() {
+    queryClient.invalidateQueries({ queryKey: ["app-notifications"] })
+    queryClient.invalidateQueries({ queryKey: ["app-notification-counts"] })
+  }
   const markOne = useMutation({
     mutationFn: (id: string) => api.post(`/notifications/app/${id}/read`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-notifications"] }),
+    onSuccess: invalidateApp,
   })
-  const markAllApp = useMutation({
-    mutationFn: () => api.post("/notifications/app/mark-all-read"),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["app-notifications"] }),
+  const markAllSeverity = useMutation({
+    mutationFn: (severity: AppSeverity) => api.post("/notifications/app/mark-all-read", { severity }),
+    onSuccess: invalidateApp,
   })
 
   // Close when clicking outside.
   useEffect(() => {
-    if (!open) return
+    if (!openSeverity) return
     function onClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpenSeverity(null)
     }
     document.addEventListener("mousedown", onClick)
     return () => document.removeEventListener("mousedown", onClick)
-  }, [open])
+  }, [openSeverity])
 
   // Legacy "unread" = anything newer than the last-seen timestamp (localStorage).
   const [seenAt, setSeenAt] = useState<number>(() => {
     try { return Number(localStorage.getItem("notif_seen_at") || 0) } catch { return 0 }
   })
   const legacyUnread = legacy.filter((n) => new Date(n.createdAt).getTime() > seenAt).length
-  const unreadCount = appUnread + legacyUnread
 
   // Sound + browser push for the legacy feed only (unchanged). Multi-tone,
-  // per-category sound for AppNotification comes later (batch 23F).
+  // per-severity sound for AppNotification comes later (batch 23F).
   useEffect(() => {
     if (!legacy.length) return
     const newest = legacy[0]
@@ -209,13 +229,6 @@ export function NotificationsBell() {
     }
   }, [legacy, location.pathname, navigate])
 
-  function markSeen() {
-    const now = Date.now()
-    setSeenAt(now)
-    try { localStorage.setItem("notif_seen_at", String(now)) } catch {}
-    markAllApp.mutate()
-  }
-
   async function enableBrowserNotifications() {
     if (!("Notification" in window)) return
     if (Notification.permission === "default") {
@@ -223,92 +236,134 @@ export function NotificationsBell() {
     }
   }
 
-  // Which AppNotifications belong to the active tab.
-  const visibleApp = useMemo(() => {
-    if (activeTab === "ALL") return appItems
-    if (activeTab === "IMPORTANT") return appItems.filter((n) => n.severity === "IMPORTANT")
-    return appItems.filter((n) => n.category === activeTab)
-  }, [appItems, activeTab])
+  function toggleSeverity(sev: AppSeverity) {
+    setOpenSeverity((cur) => {
+      const next = cur === sev ? null : sev
+      if (next) { setCatFilter("ALL"); void enableBrowserNotifications() }
+      return next
+    })
+  }
 
-  // Legacy items only surface under "الكل".
-  const showLegacy = activeTab === "ALL"
-  const isEmpty = visibleApp.length === 0 && (!showLegacy || legacy.length === 0)
+  function markSeenForPanel(sev: AppSeverity) {
+    markAllSeverity.mutate(sev)
+    // The NORMAL panel also carries the legacy feed → clear its local seen marker.
+    if (sev === "NORMAL") {
+      const now = Date.now()
+      setSeenAt(now)
+      try { localStorage.setItem("notif_seen_at", String(now)) } catch {}
+    }
+  }
+
+  // The unread badge per button. NORMAL also includes legacy (shown in its panel).
+  function badgeFor(sev: AppSeverity): number {
+    if (sev === "IMPORTANT") return counts.important
+    if (sev === "MEDIUM") return counts.medium
+    return counts.normal + legacyUnread
+  }
+
+  // Items for the currently open panel (severity + category filter).
+  const panelItems = useMemo(() => {
+    if (!openSeverity) return []
+    return appItems.filter(
+      (n) => n.severity === openSeverity && (catFilter === "ALL" || n.category === catFilter),
+    )
+  }, [appItems, openSeverity, catFilter])
+
+  const showLegacyInPanel = openSeverity === "NORMAL" && catFilter === "ALL"
+  const panelEmpty = panelItems.length === 0 && (!showLegacyInPanel || legacy.length === 0)
 
   function onOpenAppItem(n: AppNotification) {
     if (!n.readAt) markOne.mutate(n.id)
     if (n.actionUrl) {
       openNotification(n.actionUrl)
-      setOpen(false)
+      setOpenSeverity(null)
     }
   }
 
+  const activeButton = SEVERITY_BUTTONS.find((b) => b.key === openSeverity)
+
   return (
     <div className="relative" ref={ref}>
-      <Button
-        variant="ghost"
-        className="relative px-3"
-        aria-label="الإشعارات"
-        onClick={() => { setOpen((v) => !v); if (!open) { markSeen(); void enableBrowserNotifications() } }}
-      >
-        <Bell className="h-5 w-5" />
-        {unreadCount > 0 ? (
-          <span className="absolute -left-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-rose-500 px-1 text-[11px] font-bold text-white">
-            {unreadCount > 99 ? "99+" : unreadCount}
-          </span>
-        ) : null}
-      </Button>
+      <div className="flex items-center gap-0.5">
+        {SEVERITY_BUTTONS.map((b) => {
+          const Icon = b.icon
+          const count = badgeFor(b.key)
+          const isOpen = openSeverity === b.key
+          return (
+            <button
+              key={b.key}
+              type="button"
+              aria-label={`إشعارات ${b.label}`}
+              onClick={() => toggleSeverity(b.key)}
+              className={cn(
+                "relative flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium transition hover:bg-slate-100 dark:hover:bg-slate-800",
+                isOpen ? b.active : "text-slate-500 dark:text-slate-400",
+              )}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="hidden sm:inline">{b.label}</span>
+              {count > 0 ? (
+                <span className={cn("flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white", b.badge)}>
+                  {count > 99 ? "99+" : count}
+                </span>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
 
-      {open ? (
+      {openSeverity && activeButton ? (
         <div className="absolute right-0 z-50 mt-2 max-h-[75vh] w-96 max-w-[92vw] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-200 p-3 dark:border-slate-700">
-            <div className="text-sm font-semibold">مركز الإشعارات</div>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <span className={cn("h-2 w-2 rounded-full", activeButton.dot)} />
+              مركز الإشعارات — {activeButton.label}
+            </div>
             <button
               type="button"
               className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-              onClick={markSeen}
+              onClick={() => markSeenForPanel(openSeverity)}
             >
               قراءة الكل
             </button>
           </div>
 
-          {/* Tabs */}
+          {/* Category sub-filters */}
           <div className="flex gap-1 overflow-x-auto border-b border-slate-100 px-2 py-2 dark:border-slate-800">
-            {TABS.map((t) => (
+            {PANEL_CATEGORIES.map((c) => (
               <button
-                key={t.key}
+                key={c.key}
                 type="button"
-                onClick={() => setActiveTab(t.key)}
+                onClick={() => setCatFilter(c.key)}
                 className={cn(
                   "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium transition",
-                  activeTab === t.key
+                  catFilter === c.key
                     ? "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900"
                     : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300",
                 )}
               >
-                {t.label}
+                {c.label}
               </button>
             ))}
           </div>
 
           <div className="max-h-[55vh] overflow-auto">
-            {isEmpty ? (
+            {panelEmpty ? (
               <div className="p-6 text-center text-sm text-slate-500">لا توجد إشعارات.</div>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {/* AppNotifications */}
-                {visibleApp.map((n) => {
-                  const style = appSeverityStyle[n.severity] ?? appSeverityStyle.NORMAL
+                {panelItems.map((n) => {
                   const unread = !n.readAt
                   return (
                     <li
                       key={`app-${n.id}`}
                       className={cn(
                         "flex cursor-pointer items-start gap-3 px-3 py-2 transition hover:bg-slate-50 dark:hover:bg-slate-800",
-                        unread && style.row,
+                        unread && "bg-slate-50/70 dark:bg-slate-800/40",
                       )}
                       onClick={() => onOpenAppItem(n)}
                     >
-                      <div className={cn("mt-1.5 h-2 w-2 flex-shrink-0 rounded-full", unread ? style.dot : "bg-transparent")} />
+                      <div className={cn("mt-1.5 h-2 w-2 flex-shrink-0 rounded-full", unread ? activeButton.dot : "bg-transparent")} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5">
                           <span className="text-sm font-medium">{n.title}</span>
@@ -320,7 +375,6 @@ export function NotificationsBell() {
                         </div>
                         <div className="text-xs text-slate-600 dark:text-slate-400">{n.message}</div>
                         <div className="mt-1 flex items-center gap-2">
-                          <span className={cn("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", style.badge)}>{style.label}</span>
                           <span className="text-[10px] text-slate-400">{CATEGORY_LABEL[n.category] ?? n.category}</span>
                           <span className="text-[10px] text-slate-400">·</span>
                           <span className="text-[10px] text-slate-400">{timeAgo(n.createdAt)}</span>
@@ -339,10 +393,10 @@ export function NotificationsBell() {
                   )
                 })}
 
-                {/* Legacy fallback (only under "الكل") */}
-                {showLegacy && legacy.map((n) => {
+                {/* Legacy fallback (only in the "عادي" panel, "الكل" filter) */}
+                {showLegacyInPanel && legacy.map((n) => {
                   const Icon = iconMap[n.icon] ?? Bell
-                  const style = severityStyles[n.severity]
+                  const style = legacySeverityStyles[n.severity]
                   return (
                     <li
                       key={`legacy-${n.id}`}
@@ -353,7 +407,7 @@ export function NotificationsBell() {
                       onClick={() => {
                         if (n.link) {
                           openNotification(n.link)
-                          setOpen(false)
+                          setOpenSeverity(null)
                         }
                       }}
                     >

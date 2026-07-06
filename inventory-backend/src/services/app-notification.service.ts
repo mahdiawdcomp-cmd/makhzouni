@@ -187,10 +187,10 @@ export async function markAppNotificationRead(id: string, viewer: AppNotificatio
   return { updated: result.count };
 }
 
-/** Mark all visible (optionally one category) as read. */
+/** Mark all visible (optionally filtered by category and/or severity) as read. */
 export async function markAllAppNotificationsRead(
   viewer: AppNotificationViewer,
-  category?: string,
+  opts: { category?: string; severity?: string } = {},
 ) {
   const result = await prisma.appNotification.updateMany({
     where: {
@@ -198,12 +198,26 @@ export async function markAllAppNotificationsRead(
         viewerVisibilityWhere(viewer),
         { archivedAt: null },
         { readAt: null },
-        ...(category ? [{ category }] : []),
+        ...(opts.category ? [{ category: opts.category }] : []),
+        ...(opts.severity ? [{ severity: opts.severity }] : []),
       ],
     },
     data: { readAt: new Date() },
   });
   return { updated: result.count };
+}
+
+/** Unread counts per severity (accurate regardless of list limit). */
+export async function countUnreadBySeverity(viewer: AppNotificationViewer) {
+  const unread = (severity: string): Prisma.AppNotificationWhereInput => ({
+    AND: [viewerVisibilityWhere(viewer), { archivedAt: null }, { readAt: null }, { severity }],
+  });
+  const [important, medium, normal] = await Promise.all([
+    prisma.appNotification.count({ where: unread("IMPORTANT") }),
+    prisma.appNotification.count({ where: unread("MEDIUM") }),
+    prisma.appNotification.count({ where: unread("NORMAL") }),
+  ]);
+  return { important, medium, normal };
 }
 
 /** Archive one notification — only if the viewer is allowed to see it. */

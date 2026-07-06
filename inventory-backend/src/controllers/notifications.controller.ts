@@ -2,6 +2,7 @@ import { asyncHandler } from "../utils/async-handler";
 import { getRecentNotifications } from "../services/notification.service";
 import {
   archiveAppNotification,
+  countUnreadBySeverity,
   listAppNotifications,
   markAllAppNotificationsRead,
   markAppNotificationRead,
@@ -37,7 +38,13 @@ export const markAppRead = asyncHandler(async (req, res) => {
 
 export const markAllAppRead = asyncHandler(async (req, res) => {
   const category = typeof req.body?.category === "string" ? req.body.category : undefined;
-  const data = await markAllAppNotificationsRead(viewerFrom(req), category);
+  const severity = typeof req.body?.severity === "string" ? req.body.severity : undefined;
+  const data = await markAllAppNotificationsRead(viewerFrom(req), { category, severity });
+  res.json({ success: true, ...data });
+});
+
+export const getAppCounts = asyncHandler(async (req, res) => {
+  const data = await countUnreadBySeverity(viewerFrom(req));
   res.json({ success: true, ...data });
 });
 

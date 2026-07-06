@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import {
   archiveApp,
+  getAppCounts,
   getAppRecent,
   getRecent,
   markAllAppRead,
@@ -17,6 +18,7 @@ router.get("/recent", getRecent);
 
 // New AppNotification center (role-filtered inside the service).
 router.get("/app/recent", getAppRecent);
+router.get("/app/counts", getAppCounts);
 router.post("/app/mark-all-read", markAllAppRead);
 router.post("/app/:id/read", markAppRead);
 router.post("/app/:id/archive", archiveApp);
