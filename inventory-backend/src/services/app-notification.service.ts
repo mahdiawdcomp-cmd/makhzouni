@@ -94,3 +94,123 @@ export async function createAppNotification(
     },
   });
 }
+
+// ── Read API (batch 23C) ──────────────────────────────────────────────────────
+
+export interface AppNotificationViewer {
+  id: string;
+  role: string;
+}
+
+/**
+ * Row-visibility filter. ADMIN sees admin-targeted / general (ALL / untargeted)
+ * notifications plus anything addressed directly to them. STAFF (any non-admin)
+ * NEVER sees ADMIN-targeted or untargeted rows — only ALL / STAFF / their own.
+ */
+function viewerVisibilityWhere(
+  viewer: AppNotificationViewer,
+): Prisma.AppNotificationWhereInput {
+  if (viewer.role === "ADMIN") {
+    return {
+      OR: [
+        { roleTarget: "ADMIN" },
+        { roleTarget: "ALL" },
+        { roleTarget: null },
+        { recipientUserId: viewer.id },
+      ],
+    };
+  }
+  return {
+    OR: [
+      { recipientUserId: viewer.id },
+      { roleTarget: "STAFF" },
+      { roleTarget: "ALL" },
+    ],
+  };
+}
+
+const APP_NOTIFICATION_SELECT = {
+  id: true,
+  type: true,
+  category: true,
+  severity: true,
+  title: true,
+  message: true,
+  roleTarget: true,
+  entityType: true,
+  entityId: true,
+  actionUrl: true,
+  metadata: true,
+  count: true,
+  readAt: true,
+  archivedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.AppNotificationSelect;
+
+export async function listAppNotifications(
+  viewer: AppNotificationViewer,
+  opts: { category?: string; severity?: string; unreadOnly?: boolean; limit?: number } = {},
+) {
+  const limit = Math.min(opts.limit ?? 50, 100);
+  const where: Prisma.AppNotificationWhereInput = {
+    AND: [
+      viewerVisibilityWhere(viewer),
+      { archivedAt: null },
+      ...(opts.category ? [{ category: opts.category }] : []),
+      ...(opts.severity ? [{ severity: opts.severity }] : []),
+      ...(opts.unreadOnly ? [{ readAt: null }] : []),
+    ],
+  };
+
+  const [items, unreadCount] = await Promise.all([
+    prisma.appNotification.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: APP_NOTIFICATION_SELECT,
+    }),
+    prisma.appNotification.count({
+      where: { AND: [viewerVisibilityWhere(viewer), { archivedAt: null }, { readAt: null }] },
+    }),
+  ]);
+
+  return { items, unreadCount };
+}
+
+/** Mark one notification read — only if the viewer is actually allowed to see it. */
+export async function markAppNotificationRead(id: string, viewer: AppNotificationViewer) {
+  const result = await prisma.appNotification.updateMany({
+    where: { AND: [{ id }, viewerVisibilityWhere(viewer), { readAt: null }] },
+    data: { readAt: new Date() },
+  });
+  return { updated: result.count };
+}
+
+/** Mark all visible (optionally one category) as read. */
+export async function markAllAppNotificationsRead(
+  viewer: AppNotificationViewer,
+  category?: string,
+) {
+  const result = await prisma.appNotification.updateMany({
+    where: {
+      AND: [
+        viewerVisibilityWhere(viewer),
+        { archivedAt: null },
+        { readAt: null },
+        ...(category ? [{ category }] : []),
+      ],
+    },
+    data: { readAt: new Date() },
+  });
+  return { updated: result.count };
+}
+
+/** Archive one notification — only if the viewer is allowed to see it. */
+export async function archiveAppNotification(id: string, viewer: AppNotificationViewer) {
+  const result = await prisma.appNotification.updateMany({
+    where: { AND: [{ id }, viewerVisibilityWhere(viewer)] },
+    data: { archivedAt: new Date() },
+  });
+  return { updated: result.count };
+}
