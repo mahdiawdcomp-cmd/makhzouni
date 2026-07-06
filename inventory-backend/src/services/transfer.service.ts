@@ -10,6 +10,12 @@ import {
   ensureLegacyWarehouseStock,
   syncProductTotalStock,
 } from "./warehouse-stock.service";
+import { createAppNotification } from "./app-notification.service";
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationSeverity,
+} from "../constants/notifications";
 
 export interface TransferItemInput {
   productId: string;
@@ -176,6 +182,30 @@ export async function notifyTransferReviewed(
     logger.warn(`[Transfer] لا يمكن إرسال إشعار للموظف (${requester?.name ?? requestedBy}) لعدم وجود رقم هاتف.`);
   }
   if (adminTarget) await sendWhatsAppText(adminTarget, message).catch(() => {});
+
+  // In-app notification to the requester about the outcome (best-effort). Only
+  // when we have a valid requester id — recipient_user_id is a UUID column.
+  if (requestedBy) {
+    const approved = status === "APPROVED";
+    await createAppNotification({
+      type: approved ? NotificationType.TRANSFER_APPROVED : NotificationType.TRANSFER_REJECTED,
+      category: NotificationCategory.STOCK,
+      severity: NotificationSeverity.MEDIUM,
+      recipientUserId: requestedBy,
+      title: approved ? "تمت الموافقة على التحويل" : "تم رفض التحويل",
+      message: `${verb} طلب التحويل من ${snap.fromName ?? ""} إلى ${snap.toName ?? ""}`,
+      entityType: "TRANSFER",
+      actionUrl: "/inventory/transfers",
+      metadata: {
+        status,
+        fromName: snap.fromName ?? null,
+        toName: snap.toName ?? null,
+        requestedBy,
+      },
+      // No dedupeKey: each transfer outcome is a distinct event (we have no stable
+      // transfer id here to key on, and per-day collapsing would hide outcomes).
+    }).catch(() => {});
+  }
 }
 
 // Create a transfer REQUEST that waits for approval (does not move stock yet).

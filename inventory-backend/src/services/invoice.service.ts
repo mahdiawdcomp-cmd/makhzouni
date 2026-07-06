@@ -25,7 +25,7 @@ import {
   syncProductTotalStock,
 } from "./warehouse-stock.service";
 import { executeTransferWithin } from "./transfer.service";
-import { createAppNotification, buildDedupeKey } from "./app-notification.service";
+import { createAppNotification, buildDedupeKey, notifyAdmin } from "./app-notification.service";
 import {
   NotificationType,
   NotificationCategory,
@@ -1084,6 +1084,55 @@ async function createInvoiceInTransaction(
             NotificationType.BELOW_COST_SALE,
             `${updatedInvoice.id}:${l.productId}`,
           ),
+        },
+        tx,
+      );
+    }
+  }
+
+  // General invoice-lifecycle notification (ADMIN only). NORMAL for a brand-new
+  // invoice, MEDIUM for an edit. Deduped per invoice+day. Never blocks anything.
+  {
+    const custName = updatedInvoice.customer?.name ?? "زبون";
+    if (existingInvoiceId) {
+      await notifyAdmin(
+        {
+          type: NotificationType.INVOICE_UPDATED,
+          category: NotificationCategory.INVOICES,
+          severity: NotificationSeverity.MEDIUM,
+          title: "تم تعديل فاتورة",
+          message: `تم تعديل الفاتورة ${updatedInvoice.invoiceNumber} — ${custName}`,
+          entityType: "INVOICE",
+          entityId: updatedInvoice.id,
+          actionUrl: `/invoices/${updatedInvoice.id}`,
+          metadata: {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            userId: createdBy,
+            customerId: input.customerId,
+          },
+          dedupeKey: buildDedupeKey(NotificationType.INVOICE_UPDATED, updatedInvoice.id),
+        },
+        tx,
+      );
+    } else {
+      await notifyAdmin(
+        {
+          type: NotificationType.INVOICE_CREATED,
+          category: NotificationCategory.INVOICES,
+          severity: NotificationSeverity.NORMAL,
+          title: "فاتورة جديدة",
+          message: `فاتورة جديدة ${updatedInvoice.invoiceNumber} — ${custName} بقيمة ${financials.totalAmount.toLocaleString()}`,
+          entityType: "INVOICE",
+          entityId: updatedInvoice.id,
+          actionUrl: `/invoices/${updatedInvoice.id}`,
+          metadata: {
+            invoiceId: updatedInvoice.id,
+            invoiceNumber: updatedInvoice.invoiceNumber,
+            userId: createdBy,
+            customerId: input.customerId,
+          },
+          dedupeKey: buildDedupeKey(NotificationType.INVOICE_CREATED, updatedInvoice.id),
         },
         tx,
       );

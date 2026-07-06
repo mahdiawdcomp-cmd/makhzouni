@@ -8,15 +8,39 @@ import { sendWhatsAppText } from "./whatsapp.service";
 import { getDailySummaryData } from "./report.service";
 import { processCampaignsTick } from "./campaign.service";
 import { cleanupOldErrorLogs, recordError } from "./error-log.service";
+import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationSeverity,
+} from "../constants/notifications";
 
 /** Cron catch helper: keep the console.error AND surface the failure on /error-logs. */
 function reportCronFailure(job: string, error: unknown) {
   console.error(`${job} failed`, error);
+  const errMessage = error instanceof Error ? error.message : String(error);
   void recordError({
     source: "CRON",
     code: job,
-    message: error instanceof Error ? error.message : String(error),
+    message: errMessage,
   });
+
+  // Also surface as an IMPORTANT in-app notification for the manager. Backup jobs
+  // get their own type. Deduped per job+day so a repeatedly-failing minute cron
+  // (e.g. campaign tick) becomes one notification with a count, not hundreds.
+  const isBackup = job.toUpperCase().includes("BACKUP");
+  void notifyAdmin({
+    type: isBackup ? NotificationType.BACKUP_FAILED : NotificationType.SYSTEM_ERROR,
+    category: NotificationCategory.SYSTEM,
+    severity: NotificationSeverity.IMPORTANT,
+    title: isBackup ? "فشل النسخ الاحتياطي" : "خطأ في النظام",
+    message: `فشلت المهمة «${job}»: ${errMessage}`.slice(0, 300),
+    entityType: "CRON",
+    entityId: job,
+    actionUrl: "/error-logs",
+    metadata: { job },
+    dedupeKey: buildDedupeKey(isBackup ? NotificationType.BACKUP_FAILED : NotificationType.SYSTEM_ERROR, job),
+  }).catch(() => {});
 }
 
 let jobsStarted = false;

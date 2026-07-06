@@ -16,6 +16,8 @@ import {
   Trash2,
   TrendingDown,
   UserPlus,
+  Volume2,
+  VolumeX,
   Wallet,
 } from "lucide-react"
 import { api } from "../../api/client"
@@ -33,7 +35,7 @@ interface Notification {
   actor?: NotificationActor
 }
 
-// New AppNotification center rows (batch 23C / 23C-B).
+// New AppNotification center rows (batch 23C / 23C-B / 23E-23F).
 type AppSeverity = "IMPORTANT" | "MEDIUM" | "NORMAL"
 interface AppNotification {
   id: string
@@ -98,6 +100,11 @@ const PANEL_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "SYSTEM", label: "نظام" },
 ]
 
+const SOUND_MUTED_KEY = "notifications_sound_muted"
+const IMPORTANT_LAST_KEY = "notif_important_last"
+const SOUND_LAST_PLAYED_KEY = "notif_sound_last_played"
+const SOUND_COOLDOWN_MS = 10_000
+
 async function fetchRecent(): Promise<Notification[]> {
   const { data } = await api.get<{ success: boolean; data: Notification[] }>("/notifications/recent", { params: { limit: 30 } })
   return data.data ?? []
@@ -138,16 +145,19 @@ export function NotificationsBell() {
   const queryClient = useQueryClient()
   const [openSeverity, setOpenSeverity] = useState<AppSeverity | null>(null)
   const [catFilter, setCatFilter] = useState("ALL")
+  const [muted, setMuted] = useState<boolean>(() => {
+    try { return localStorage.getItem(SOUND_MUTED_KEY) === "true" } catch { return false }
+  })
   const ref = useRef<HTMLDivElement | null>(null)
-  const firstLoadRef = useRef(true)
+  const firstImportantLoad = useRef(true)
 
   function openNotification(path: string) {
     if (location.pathname === "/invoices/new") window.open(path, "_blank", "noopener,noreferrer")
     else navigate(path)
   }
 
-  // Legacy derived feed (AuditLog / PendingApproval) — kept as a fallback so
-  // existing events (new invoice, approvals, ...) don't disappear before 23E.
+  // Legacy derived feed (AuditLog / PendingApproval) — display-only fallback so
+  // existing events don't disappear before every producer is migrated (23E).
   const { data: legacy = [] } = useQuery({
     queryKey: ["notifications", "recent"],
     queryFn: fetchRecent,
@@ -178,6 +188,10 @@ export function NotificationsBell() {
     mutationFn: (severity: AppSeverity) => api.post("/notifications/app/mark-all-read", { severity }),
     onSuccess: invalidateApp,
   })
+  const archiveOne = useMutation({
+    mutationFn: (id: string) => api.post(`/notifications/app/${id}/archive`),
+    onSuccess: invalidateApp,
+  })
 
   // Close when clicking outside.
   useEffect(() => {
@@ -195,51 +209,44 @@ export function NotificationsBell() {
   })
   const legacyUnread = legacy.filter((n) => new Date(n.createdAt).getTime() > seenAt).length
 
-  // Sound + browser push for the legacy feed only (unchanged). Multi-tone,
-  // per-severity sound for AppNotification comes later (batch 23F).
+  // Multi-tone sound for NEW IMPORTANT AppNotifications only (batch 23F).
+  // NORMAL/MEDIUM and legacy are silent. Guarded by mute, a 10s cooldown, and a
+  // first-load marker so old items never chime on page open.
   useEffect(() => {
-    if (!legacy.length) return
-    const newest = legacy[0]
+    const important = appItems.filter((n) => n.severity === "IMPORTANT")
+    if (!important.length) return
+    const newest = important[0] // list is sorted newest-first by the API
     const newestTime = new Date(newest.createdAt).getTime()
     if (!Number.isFinite(newestTime)) return
 
-    const lastPushed = Number(localStorage.getItem("notif_last_push_at") || 0)
-    if (firstLoadRef.current) {
-      firstLoadRef.current = false
-      localStorage.setItem("notif_last_push_at", String(Math.max(lastPushed, newestTime)))
+    const lastSeen = Number(localStorage.getItem(IMPORTANT_LAST_KEY) || 0)
+    if (firstImportantLoad.current) {
+      firstImportantLoad.current = false
+      localStorage.setItem(IMPORTANT_LAST_KEY, String(Math.max(lastSeen, newestTime)))
       return
     }
-    if (newestTime <= lastPushed) return
+    if (newestTime <= lastSeen) return
+    localStorage.setItem(IMPORTANT_LAST_KEY, String(newestTime))
 
-    localStorage.setItem("notif_last_push_at", String(newestTime))
-    playNotificationTone()
+    if (muted) return
+    const lastPlayed = Number(localStorage.getItem(SOUND_LAST_PLAYED_KEY) || 0)
+    if (Date.now() - lastPlayed < SOUND_COOLDOWN_MS) return
+    localStorage.setItem(SOUND_LAST_PLAYED_KEY, String(Date.now()))
+    playCategoryTone(newest.category)
+  }, [appItems, muted])
 
-    if ("Notification" in window && Notification.permission === "granted") {
-      const notification = new Notification(newest.title, {
-        body: newest.message,
-        icon: "/pwa-icon.svg",
-        badge: "/pwa-icon.svg",
-        tag: newest.id,
-        requireInteraction: newest.severity === "error",
-      })
-      notification.onclick = () => {
-        window.focus()
-        if (newest.link) openNotification(newest.link)
-      }
-    }
-  }, [legacy, location.pathname, navigate])
-
-  async function enableBrowserNotifications() {
-    if (!("Notification" in window)) return
-    if (Notification.permission === "default") {
-      await Notification.requestPermission()
-    }
+  function toggleMute() {
+    setMuted((m) => {
+      const next = !m
+      try { localStorage.setItem(SOUND_MUTED_KEY, String(next)) } catch {}
+      return next
+    })
   }
 
   function toggleSeverity(sev: AppSeverity) {
     setOpenSeverity((cur) => {
       const next = cur === sev ? null : sev
-      if (next) { setCatFilter("ALL"); void enableBrowserNotifications() }
+      if (next) setCatFilter("ALL")
       return next
     })
   }
@@ -319,13 +326,24 @@ export function NotificationsBell() {
               <span className={cn("h-2 w-2 rounded-full", activeButton.dot)} />
               مركز الإشعارات — {activeButton.label}
             </div>
-            <button
-              type="button"
-              className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-              onClick={() => markSeenForPanel(openSeverity)}
-            >
-              قراءة الكل
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                onClick={toggleMute}
+                title={muted ? "تشغيل الصوت" : "كتم الصوت"}
+              >
+                {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                {muted ? "تشغيل الصوت" : "كتم الصوت"}
+              </button>
+              <button
+                type="button"
+                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                onClick={() => markSeenForPanel(openSeverity)}
+              >
+                قراءة الكل
+              </button>
+            </div>
           </div>
 
           {/* Category sub-filters */}
@@ -387,6 +405,13 @@ export function NotificationsBell() {
                               تعليم كمقروء
                             </button>
                           ) : null}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); archiveOne.mutate(n.id) }}
+                            className={cn("text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200", unread ? "" : "mr-auto")}
+                          >
+                            أرشفة
+                          </button>
                         </div>
                       </div>
                     </li>
@@ -430,18 +455,35 @@ export function NotificationsBell() {
   )
 }
 
-function playNotificationTone() {
+// WebAudio multi-tone player. A distinct short pattern per IMPORTANT category so
+// the manager can tell a risky sale from an approval / WhatsApp / system alert
+// without looking. No audio files. Browsers may block audio before interaction.
+function playCategoryTone(category: string) {
   try {
-    const context = new AudioContext()
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = "sine"
-    oscillator.frequency.value = 880
-    gain.gain.value = 0.05
-    oscillator.connect(gain)
-    gain.connect(context.destination)
-    oscillator.start()
-    oscillator.stop(context.currentTime + 0.18)
+    const ctx = new AudioContext()
+    const beep = (freq: number, startAt: number, dur: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = "sine"
+      osc.frequency.value = freq
+      gain.gain.value = 0.05
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(ctx.currentTime + startAt)
+      osc.stop(ctx.currentTime + startAt + dur)
+    }
+    switch (category) {
+      case "NEGATIVE_SALE": // two short descending warning beeps
+        beep(660, 0, 0.15); beep(440, 0.2, 0.2); break
+      case "APPROVALS": // two ascending
+        beep(523, 0, 0.12); beep(784, 0.16, 0.15); break
+      case "WHATSAPP": // double pulse, same pitch
+        beep(600, 0, 0.1); beep(600, 0.15, 0.1); break
+      case "SYSTEM": // single low tone
+        beep(220, 0, 0.35); break
+      default: // generic IMPORTANT
+        beep(880, 0, 0.18)
+    }
   } catch {
     // Browsers may block audio until the user interacts with the page.
   }

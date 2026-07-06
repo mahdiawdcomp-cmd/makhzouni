@@ -95,6 +95,14 @@ export async function createAppNotification(
   });
 }
 
+/** Convenience: create an ADMIN-targeted notification (the common case). */
+export function notifyAdmin(
+  input: Omit<CreateAppNotificationInput, "roleTarget">,
+  db?: NotificationDb,
+) {
+  return createAppNotification({ ...input, roleTarget: "ADMIN" }, db);
+}
+
 // ── Read API (batch 23C) ──────────────────────────────────────────────────────
 
 export interface AppNotificationViewer {

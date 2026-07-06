@@ -28,6 +28,12 @@ import {
   notifyPreparationStaffPending,
 } from "./order-preparation.service";
 import { getSettings } from "./settings.service";
+import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
+import {
+  NotificationType,
+  NotificationCategory,
+  NotificationSeverity,
+} from "../constants/notifications";
 
 type Db = Prisma.TransactionClient;
 
@@ -124,6 +130,25 @@ export async function createPendingApproval(
       requestedBy,
     },
   });
+
+  // In-app IMPORTANT notification for the manager (does not change approval logic).
+  const actionLabelForNotif = approvalTypeLabels[requestType] ?? requestType;
+  await notifyAdmin({
+    type: NotificationType.APPROVAL_PENDING,
+    category: NotificationCategory.APPROVALS,
+    severity: NotificationSeverity.IMPORTANT,
+    title: "موافقة مطلوبة",
+    message: `طلب «${actionLabelForNotif}» من ${requesterName ?? "موظف"} ينتظر موافقتك`,
+    entityType: "APPROVAL",
+    entityId: approval.id,
+    actionUrl: "/approvals",
+    metadata: {
+      approvalId: approval.id,
+      approvalType: requestType,
+      requestedBy,
+    },
+    dedupeKey: buildDedupeKey(NotificationType.APPROVAL_PENDING, approval.id),
+  }).catch(() => {});
 
   // Send WhatsApp notification to the manager for destructive operations.
   if (deleteApprovalTypes.has(requestType)) {
