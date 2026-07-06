@@ -1299,8 +1299,8 @@ function ProductCard({
   const thumbSrc = product.thumbnailUrl || product.imageUrl
   const outOfStock = product.currentStock <= 0
   const lowStock = product.currentStock > 0 && product.currentStock <= 5
-  // Price shown is per CARTON by default (when not in cart) or the cart unit
-  const displayUnit = cartUnit ?? "CARTON"
+  // Price shown is per PIECE by default (when not in cart) or the cart unit
+  const displayUnit = cartUnit ?? "PIECE"
   const displayPrice = linePrice(product, displayUnit)
   // canAddMore: if single unit type in cart, check that unit's limit; else check total pieces vs stock
   const canAddMore = !outOfStock && (
