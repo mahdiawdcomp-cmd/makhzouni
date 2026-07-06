@@ -511,6 +511,7 @@ function CatalogShop({
   const [perRow, setPerRow] = useState(2)
   const [search, setSearch] = useState("")
   const [activeSugg, setActiveSugg] = useState(0)
+  const suggItemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
   const [category, setCategory] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [cart, setCart] = useState<CartLine[]>([])
@@ -713,6 +714,11 @@ function CatalogShop({
     })
   }
 
+  // Keep the keyboard-highlighted suggestion scrolled into view (arrow keys past the visible area)
+  useEffect(() => {
+    suggItemRefs.current[activeSugg]?.scrollIntoView({ block: "nearest" })
+  }, [activeSugg])
+
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
     if (!suggestions.length) return
     if (e.key === "ArrowDown") { e.preventDefault(); setActiveSugg(v => Math.min(v + 1, suggestions.length - 1)) }
@@ -808,6 +814,7 @@ function CatalogShop({
                   style={{ background: tk.cardBg, borderColor: tk.divider }}>
                   {suggestions.map((p, i) => (
                     <button key={p.id} type="button"
+                      ref={(el) => { suggItemRefs.current[i] = el }}
                       className="flex w-full items-center gap-3 px-3 py-2.5 text-right text-sm transition"
                       style={{ background: i === activeSugg ? tk.accentLight : "transparent" }}
                       onMouseEnter={() => setActiveSugg(i)}

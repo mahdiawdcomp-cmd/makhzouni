@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react"
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FileText, Plus } from "lucide-react"
@@ -41,6 +41,7 @@ export function QuotationsPage() {
   const [productQuery, setProductQuery] = useState("")
   const [productHighlight, setProductHighlight] = useState(0)
   const [productListOpen, setProductListOpen] = useState(false)
+  const productItemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
 
   const products = productsQuery.data ?? []
   const customers = customersQuery.data ?? []
@@ -60,6 +61,12 @@ export function QuotationsPage() {
       normalize(p.cartonQrCode).includes(q)
     ).slice(0, 10)
   }, [products, productQuery])
+
+  // Keep the keyboard-highlighted suggestion scrolled into view (arrow keys past the visible area)
+  useEffect(() => {
+    productItemRefs.current[productHighlight]?.scrollIntoView({ block: "nearest" })
+  }, [productHighlight])
+
   const subtotal = lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
   const total = Math.max(0, subtotal - discount)
 
@@ -189,6 +196,7 @@ export function QuotationsPage() {
                     <button
                       key={p.id}
                       type="button"
+                      ref={(el) => { productItemRefs.current[idx] = el }}
                       className={cn("flex w-full items-center justify-between px-3 py-2 text-sm text-right", idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-50 dark:hover:bg-slate-900")}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => { addLine(p.id); setProductQuery(""); setProductListOpen(false) }}

@@ -76,6 +76,7 @@ export function VouchersPage() {
   const [customerQuery, setCustomerQuery] = useState("")
   const [customerListOpen, setCustomerListOpen] = useState(false)
   const [customerHighlight, setCustomerHighlight] = useState(0)
+  const customerItemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
   const [description, setDescription] = useState("")
@@ -130,6 +131,11 @@ export function VouchersPage() {
         )
         .slice(0, 6)
     : []
+
+  // Keep the keyboard-highlighted suggestion scrolled into view (arrow keys past the visible area)
+  useEffect(() => {
+    customerItemRefs.current[customerHighlight]?.scrollIntoView({ block: "nearest" })
+  }, [customerHighlight])
 
   function pickCustomer(id: string, name: string) {
     setCustomerId(id)
@@ -403,6 +409,7 @@ export function VouchersPage() {
                         <button
                           key={c.id}
                           type="button"
+                          ref={(el) => { customerItemRefs.current[index] = el }}
                           className={cn(
                             "flex w-full items-center justify-between border-b border-slate-100 px-4 py-2.5 text-right text-sm hover:bg-blue-50 dark:border-slate-800 dark:hover:bg-slate-800",
                             index === customerHighlight && "bg-blue-50 dark:bg-slate-800",
