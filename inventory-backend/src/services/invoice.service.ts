@@ -444,8 +444,29 @@ async function applyStockMovement(
 
   // Default unit price: SALE/SALES_RETURN use sale price; PURCHASE uses purchase price.
   const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : product.salePrice;
+  // For PURCHASE, treat an explicit 0 / negative the SAME as "missing" and fall back to the
+  // product's purchase price. A real purchase line is never priced at 0; a stray 0 (e.g. a new
+  // product whose purchasePrice still defaults to 0, pre-filled into the edit form) would flow
+  // into the WAC formula below and SILENTLY zero out costPrice/purchasePrice. `??` alone does not
+  // catch 0. SALE keeps an explicit 0 as-is (a deliberately free/gift line is valid).
+  const rawUnitPrice = item.unitPrice;
+  const effectiveRawUnitPrice =
+    invoiceType === InvoiceType.PURCHASE && (rawUnitPrice == null || rawUnitPrice <= 0)
+      ? undefined
+      : rawUnitPrice;
   const unitPrice =
-    item.unitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton, product.boxPieces);
+    effectiveRawUnitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton, product.boxPieces);
+
+  // Hard guard: a PURCHASE line must carry a positive price. If neither the request nor the
+  // product's own purchase price yields one, reject the save with a clear message instead of
+  // letting the WAC recompute corrupt the product cost to zero.
+  if (invoiceType === InvoiceType.PURCHASE && !(unitPrice > 0)) {
+    throw new AppError(
+      `سعر الشراء مطلوب للمادة "${product.name}" — لا يمكن حفظ سطر فاتورة شراء بسعر صفر أو سالب.`,
+      400,
+      "PURCHASE_PRICE_REQUIRED"
+    );
+  }
 
   // PURCHASE only: roll the product cost forward by Weighted-Average Cost (WAC),
   // and record the latest purchase unit cost into purchasePrice. The SALE path is

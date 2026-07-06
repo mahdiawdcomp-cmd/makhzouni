@@ -140,6 +140,12 @@ export function InvoiceEditPage() {
   const subtotal = items.reduce((s, it) => s + it.quantity * it.unitPrice, 0)
   const total = subtotal - (discount || 0)
 
+  // PURCHASE guard: never let a purchase line be saved with a 0/blank price — that
+  // silently zeroes the product's cost/purchase price through the weighted-average
+  // recompute on the server. Block the save and force a real price to be entered.
+  const missingPurchasePrice =
+    invoice?.type === "PURCHASE" && items.some((it) => !(it.unitPrice > 0))
+
   // Employee warning (SALE only): best-effort projection of shop stock AFTER this
   // edit. The backend edit fully reverses the original lines then re-applies the
   // new ones, so projected = currentShopStock + originalPieces − newPieces.
@@ -456,7 +462,12 @@ export function InvoiceEditPage() {
       </div>
 
       {/* Sticky action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+      <div className="sticky inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 p-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        {missingPurchasePrice ? (
+          <div className="mx-auto mb-2 max-w-5xl rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+            أدخل سعر شراء صحيح (أكبر من صفر) لكل مادة قبل الحفظ — لا يمكن حفظ سطر شراء بسعر صفر.
+          </div>
+        ) : null}
         <div className="mx-auto flex max-w-5xl gap-2">
           <Button variant="outline" className="flex-1" onClick={() => navigate(`/invoices/${id}`)}>
             إلغاء
@@ -464,8 +475,8 @@ export function InvoiceEditPage() {
           <Button
             className="flex-1"
             onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || items.length === 0 || total < 0 || readOnly}
-            title={readOnly ? READ_ONLY_MESSAGE : undefined}
+            disabled={mutation.isPending || items.length === 0 || total < 0 || readOnly || missingPurchasePrice}
+            title={readOnly ? READ_ONLY_MESSAGE : missingPurchasePrice ? "أدخل سعر شراء صحيح لكل مادة قبل الحفظ" : undefined}
           >
             {mutation.isPending ? <RefreshCw className="h-4 w-4 animate-spin ml-2" /> : <Save className="h-4 w-4 ml-2" />}
             حفظ التعديلات
