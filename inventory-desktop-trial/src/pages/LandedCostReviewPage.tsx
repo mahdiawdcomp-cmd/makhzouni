@@ -8,6 +8,7 @@ import { Label } from "../components/ui/label"
 import { Badge } from "../components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import {
   cancelLandedCostBatch,
   confirmLandedCostBatch,
@@ -67,7 +68,7 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
   const decisionMutation = useMutation({
     mutationFn: (payload: Parameters<typeof setLandedCostItemDecision>[2]) => setLandedCostItemDecision(batchId, item.id, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-cost-batch", batchId] }),
-    onError: (err: unknown) => toast({ title: "تعذّر حفظ القرار", description: String((err as Error)?.message ?? err), variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "تعذّر حفظ القرار", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
   const image = imgSrc(item.product?.thumbnailUrl ?? item.product?.imageUrl)
@@ -195,7 +196,7 @@ export function LandedCostReviewPage() {
       setSummary(result)
       toast({ title: "تم إنشاء فاتورة الشراء", description: `رقم الفاتورة: ${result.invoiceNumber}` })
     },
-    onError: (err: unknown) => toast({ title: "تعذّر إنشاء فاتورة الشراء", description: String((err as Error)?.message ?? err), variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "تعذّر إنشاء فاتورة الشراء", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
   const cancelMutation = useMutation({

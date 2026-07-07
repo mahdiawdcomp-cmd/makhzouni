@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
 import { Badge } from "../components/ui/badge"
 import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 import {
   cancelLandedCostBatch,
   createChinaOrderBatch,
@@ -64,7 +65,7 @@ export function LandedCostImportPage() {
       return previewChinaOrder(file, params)
     },
     onSuccess: (result) => setPreview(result),
-    onError: (err: unknown) => toast({ title: "تعذّرت معاينة الملف", description: String((err as Error)?.message ?? err), variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "تعذّر تسعير الملف", description: apiErrorMessage(err, "تأكد من أن الملف على القالب الثابت ومن مدخلات التسعير"), variant: "destructive" }),
   })
 
   const createBatchMutation = useMutation({
@@ -84,7 +85,7 @@ export function LandedCostImportPage() {
       queryClient.invalidateQueries({ queryKey: ["landed-cost-batches"] })
       navigate(`/inventory/landed-cost/${batch.id}`)
     },
-    onError: (err: unknown) => toast({ title: "تعذّر حفظ الأوردر", description: String((err as Error)?.message ?? err), variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "تعذّر حفظ الأوردر", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
   const cancelMutation = useMutation({
