@@ -316,7 +316,8 @@ async function applyStockMovement(
   item: InvoiceItemInput,
   invoiceType: InvoiceType,
   branchId?: string | null,
-  createdBy = "system"
+  createdBy = "system",
+  isEdit = false
 ) {
   const product = await tx.product.findUnique({
     where: { id: item.productId },
@@ -330,9 +331,11 @@ async function applyStockMovement(
   const isSale = invoiceType === InvoiceType.SALE;
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
   const addsStock = isStockInflow(invoiceType);
-  // When the seller explicitly opted in (allowNegativeStock), we skip the block and let
-  // the line go negative — the deficit is settled automatically when stock next arrives.
-  const allowNegativeSale = isSale && Boolean(item.allowNegativeStock);
+  // When the seller explicitly opted in (allowNegativeStock) on a NEW sale, or this
+  // is an EDIT to an existing sale (edits never require the opt-in — see the
+  // audit-log block below), skip the block and let the line go negative — the
+  // deficit is settled automatically when stock next arrives.
+  const allowNegativeSale = isSale && (Boolean(item.allowNegativeStock) || isEdit);
 
   // Sales always come out of المحل. If the line names a different warehouse (the
   // seller pulled from a depot), AUTO-TRANSFER that quantity من المخزن → المحل
@@ -639,7 +642,7 @@ async function createInvoiceInTransaction(
   }> = [];
 
   for (const item of input.items) {
-    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy);
+    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId));
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
 
     if (pricedItem.wentNegative) {
@@ -775,6 +778,31 @@ async function createInvoiceInTransaction(
           })),
         } as Prisma.InputJsonValue,
         requestedBy: createdBy,
+      },
+    });
+  }
+
+  // EDIT that drives stock negative: by product decision this does NOT require an
+  // approval (unlike a brand-new negative sale above). Instead we LOG it to the
+  // audit trail so an admin reviewing /audit-logs still has visibility, without
+  // gating the edit.
+  if (invoiceType === InvoiceType.SALE && existingInvoiceId && negativeLines.length > 0) {
+    const whNames = await tx.branch.findMany({
+      where: { id: { in: [...new Set(negativeLines.map((l) => l.warehouseId))] } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(whNames.map((w) => [w.id, w.name]));
+    await tx.auditLog.create({
+      data: {
+        userId: createdBy,
+        action: "NEGATIVE_STOCK_ON_EDIT",
+        entity: "Invoice",
+        recordId: updatedInvoice.id,
+        metadata: {
+          invoiceNumber: updatedInvoice.invoiceNumber,
+          customerName: updatedInvoice.customer?.name ?? null,
+          lines: negativeLines.map((l) => ({ ...l, warehouseName: nameById.get(l.warehouseId) ?? "" })),
+        } as Prisma.InputJsonValue,
       },
     });
   }

@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
 import { Badge } from "../components/ui/badge"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import {
@@ -88,9 +89,11 @@ export function LandedCostImportPage() {
     onError: (err: unknown) => toast({ title: "تعذّر حفظ الأوردر", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null)
   const cancelMutation = useMutation({
     mutationFn: (id: string) => cancelLandedCostBatch(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-cost-batches"] }),
+    onError: (err: unknown) => toast({ title: "تعذّر إلغاء الأوردر", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
   return (
@@ -253,7 +256,7 @@ export function LandedCostImportPage() {
                       <Button size="sm" variant="outline" onClick={() => navigate(`/invoices/${b.purchaseInvoice?.id}`)}>عرض الفاتورة</Button>
                     )}
                     {(b.status === "DRAFT_PRICED" || b.status === "REVIEWING_ITEMS") && (
-                      <Button size="sm" variant="ghost" onClick={() => cancelMutation.mutate(b.id)}>إلغاء</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmCancelId(b.id)}>إلغاء</Button>
                     )}
                   </td>
                 </tr>
@@ -265,6 +268,17 @@ export function LandedCostImportPage() {
           </table>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!confirmCancelId}
+        title="إلغاء هذا الأوردر؟"
+        description="سيتم إلغاء الأوردر المسعّر ولا يمكن التراجع عن ذلك."
+        confirmLabel="إلغاء الأوردر"
+        destructive
+        loading={cancelMutation.isPending}
+        onConfirm={() => { if (confirmCancelId) cancelMutation.mutate(confirmCancelId, { onSuccess: () => setConfirmCancelId(null) }) }}
+        onCancel={() => setConfirmCancelId(null)}
+      />
     </div>
   )
 }

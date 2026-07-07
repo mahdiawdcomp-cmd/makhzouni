@@ -328,7 +328,8 @@ async function applyStockMovement(
   item: InvoiceItemInput,
   invoiceType: InvoiceType,
   branchId?: string | null,
-  createdBy = "system"
+  createdBy = "system",
+  isEdit = false
 ) {
   const product = await tx.product.findUnique({
     where: { id: item.productId },
@@ -342,9 +343,11 @@ async function applyStockMovement(
   const isSale = invoiceType === InvoiceType.SALE;
   const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
   const addsStock = isStockInflow(invoiceType);
-  // When the seller explicitly opted in (allowNegativeStock), we skip the block and let
+  // When the seller explicitly opted in (allowNegativeStock) on a NEW sale, or this
+  // is an EDIT to an existing sale (by product decision edits never require the
+  // opt-in — see the audit-log/notification block below), skip the block and let
   // the line go negative — the deficit is settled automatically when stock next arrives.
-  const allowNegativeSale = isSale && Boolean(item.allowNegativeStock);
+  const allowNegativeSale = isSale && (Boolean(item.allowNegativeStock) || isEdit);
 
   // Sales always come out of المحل. If the line names a different warehouse (the
   // seller pulled from a depot), AUTO-TRANSFER that quantity من المخزن → المحل
@@ -796,7 +799,7 @@ async function createInvoiceInTransaction(
   }> = [];
 
   for (const item of input.items) {
-    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy);
+    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId));
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
 
     if (pricedItem.wentNegative) {

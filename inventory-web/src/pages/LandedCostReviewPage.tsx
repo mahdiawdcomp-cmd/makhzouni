@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
 import { Badge } from "../components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
+import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import {
@@ -199,9 +200,11 @@ export function LandedCostReviewPage() {
     onError: (err: unknown) => toast({ title: "تعذّر إنشاء فاتورة الشراء", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const cancelMutation = useMutation({
     mutationFn: () => cancelLandedCostBatch(batchId),
     onSuccess: () => navigate("/inventory/landed-cost"),
+    onError: (err: unknown) => toast({ title: "تعذّر إلغاء الدفعة", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
   const batch = batchQuery.data
@@ -236,7 +239,7 @@ export function LandedCostReviewPage() {
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-4 sm:p-6" dir="rtl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">مراجعة الأوردر المسعّر</h1>
-        {!locked && <Button variant="ghost" onClick={() => cancelMutation.mutate()}>إلغاء الدفعة</Button>}
+        {!locked && <Button variant="ghost" onClick={() => setConfirmCancel(true)}>إلغاء الدفعة</Button>}
       </div>
 
       {unresolvedCount > 0 && (
@@ -303,6 +306,17 @@ export function LandedCostReviewPage() {
           </CardContent>
         </Card>
       )}
+
+      <ConfirmDialog
+        open={confirmCancel}
+        title="إلغاء هذه الدفعة؟"
+        description="سيتم إلغاء الأوردر المسعّر وكل القرارات اللي سويتها عليه، ولا يمكن التراجع عن ذلك."
+        confirmLabel="إلغاء الدفعة"
+        destructive
+        loading={cancelMutation.isPending}
+        onConfirm={() => cancelMutation.mutate()}
+        onCancel={() => setConfirmCancel(false)}
+      />
     </div>
   )
 }

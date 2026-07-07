@@ -1994,7 +1994,12 @@ export function InvoiceCreatePage() {
                 onMouseEnter={() => setProductHighlight(idx)}
                 onClick={() => { if (isMobile) openScanPreview(product, "PIECE"); else addProduct(product) }}
               >
-                <span className="flex items-center gap-2 font-medium"><ProductThumb product={product} />{product.name}</span>
+                <span className="flex flex-col items-start gap-0.5">
+                  <span className="flex items-center gap-2 font-medium"><ProductThumb product={product} />{product.name}</span>
+                  {product.pcsPerCarton > 1 && (
+                    <span className="text-[11px] text-slate-400">{product.pcsPerCarton} قطعة/كرتون</span>
+                  )}
+                </span>
                 <span className="text-slate-500">{product.itemNumber}</span>
               </button>
             ))}

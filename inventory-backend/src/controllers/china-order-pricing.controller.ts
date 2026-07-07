@@ -5,6 +5,7 @@ import {
   computeChinaPricing,
   createChinaBatch,
   parseChinaOrderExcel,
+  type ChinaOrderRow,
   type ChinaPricedItem,
   type ChinaPricingParams,
 } from "../services/china-order-pricing.service";
@@ -59,14 +60,29 @@ export const createChinaBatchCtrl = asyncHandler(async (req, res) => {
     throw new AppError("لا يوجد أصناف لحفظها", 400, "NO_ITEMS");
   }
 
+  const params = readParams(body.params ?? {});
+  // Never trust the client's pre-computed pricing (cost/margin numbers a client
+  // could tamper with before saving) — re-derive every price from the raw row
+  // inputs + params using the same formula the preview used, so what gets
+  // persisted into the purchase invoice is always server-computed.
+  const rows: ChinaOrderRow[] = body.items.map((it) => ({
+    itemNumber: it.itemNumber,
+    image: it.image,
+    cartonCount: it.cartonCount,
+    piecesPerCarton: it.piecesPerCarton,
+    unitPriceCny: it.unitPriceCny,
+    cartonCbm: it.cartonCbm,
+  }));
+  const recomputed = await computeChinaPricing(rows, params);
+
   const batch = await createChinaBatch(
     {
       invoiceNumber: body.invoiceNumber,
       supplier: body.supplier,
       note: body.note,
       originalFileName: body.originalFileName,
-      params: readParams(body.params ?? {}),
-      items: body.items,
+      params,
+      items: recomputed.items,
     },
     req.user!.id
   );
