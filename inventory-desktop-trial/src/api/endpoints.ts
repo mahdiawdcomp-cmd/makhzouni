@@ -1342,7 +1342,7 @@ export async function rejectStocktakeItem(sessionId: string, itemId: string) {
 export async function importProductsExcel(file: File) {
   const form = new FormData()
   form.append("file", file)
-  const { data } = await api.post<ApiEnvelope<{ created: number; skipped: number; errors: string[] }>>("/import/products", form)
+  const { data } = await api.post<ApiEnvelope<{ created: number; skipped: number; errors: string[] }>>("/import/products", form, { headers: { "Content-Type": "multipart/form-data" } })
   return data.data!
 }
 
@@ -1426,7 +1426,7 @@ export async function previewLandedCost(file: File, allocationMethod: LandedCost
   form.append("file", file)
   form.append("allocationMethod", allocationMethod)
   Object.entries(manualExtraCosts).forEach(([k, v]) => { if (v !== undefined) form.append(k, String(v)) })
-  const { data } = await api.post<ApiEnvelope<LandedCostPreviewResult>>("/landed-cost/preview", form)
+  const { data } = await api.post<ApiEnvelope<LandedCostPreviewResult>>("/landed-cost/preview", form, { headers: { "Content-Type": "multipart/form-data" } })
   return data.data!
 }
 
@@ -1536,7 +1536,7 @@ export async function previewChinaOrder(file: File, params: ChinaPricingParams) 
   const form = new FormData()
   form.append("file", file)
   Object.entries(params).forEach(([k, v]) => form.append(k, String(v)))
-  const { data } = await api.post<ApiEnvelope<ChinaPricingResult>>("/landed-cost/china/preview", form)
+  const { data } = await api.post<ApiEnvelope<ChinaPricingResult>>("/landed-cost/china/preview", form, { headers: { "Content-Type": "multipart/form-data" } })
   return data.data!
 }
 
