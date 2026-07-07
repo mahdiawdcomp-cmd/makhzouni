@@ -383,22 +383,22 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
 
   const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
   const td = (content: string, right = false, extra = "") =>
-    `<td style="padding:5px 4px;border-bottom:1px solid #cbd5e1;text-align:${right ? "right" : "center"};font-size:${fs}px;line-height:1.25;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;${extra}">${content}</td>`
+    `<td style="padding:5px 4px;border-bottom:1px solid #cbd5e1;text-align:${right ? "right" : "center"};font-size:${fs}px;line-height:1.25;vertical-align:top;${extra}">${content}</td>`
 
   const body = inv.lines.map((l, idx) => {
-    const cells: string[] = [td(`${idx + 1}`)]
-    if (hasItemNum) cells.push(td(`<span style="color:#6366f1;font-weight:700">${esc(l.itemNumber || "—")}</span>`))
+    const cells: string[] = [td(`${idx + 1}`, false, "vertical-align:middle")]
+    if (hasItemNum) cells.push(td(`<span style="color:#6366f1;font-weight:700">${esc(l.itemNumber || "—")}</span>`, false, "vertical-align:middle"))
     const pcsHtml = l.pcsPerCarton && l.pcsPerCarton > 1
       ? ` <span style="font-size:${fsSm}px;color:#94a3b8">(${l.pcsPerCarton} ق/ك)</span>`
       : ""
     const nameFs = itemNameFontSize(l.name, fs)
-    const nameHtml = `<span title="${esc(l.name)}" style="display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:${nameFs}px;line-height:1.25">${esc(l.name)}${pcsHtml}</span>`
-    cells.push(td(nameHtml, true, "white-space:nowrap"))
-    cells.push(td(esc(l.unit || "—")))
-    if (el.showQty) cells.push(td(`${l.qty}`))
-    if (el.showPrice) cells.push(td(numFmt(l.price)))
-    cells.push(td(numFmt(l.qty * l.price)))
-    cells.push(td(esc(l.notes || "")))
+    const nameHtml = `<span style="display:block;max-width:100%;white-space:normal;overflow-wrap:break-word;word-break:break-word;font-size:${nameFs}px;line-height:1.3">${esc(l.name)}${pcsHtml}</span>`
+    cells.push(td(nameHtml, true))
+    cells.push(td(esc(l.unit || "—"), false, "vertical-align:middle"))
+    if (el.showQty) cells.push(td(`${l.qty}`, false, "vertical-align:middle"))
+    if (el.showPrice) cells.push(td(numFmt(l.price), false, "vertical-align:middle"))
+    cells.push(td(numFmt(l.qty * l.price), false, "vertical-align:middle"))
+    cells.push(td(esc(l.notes || ""), true))
     return `<tr>${cells.join("")}</tr>`
   }).join("")
   const totalCols = cols.length
