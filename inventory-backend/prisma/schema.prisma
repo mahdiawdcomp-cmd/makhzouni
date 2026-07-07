@@ -1194,6 +1194,9 @@ model CycleCountSession {
   itemLimit    Int                     @map("item_limit")
   scheduledFor DateTime?               @map("scheduled_for")
   source       CycleCountSessionSource @default(MANUAL)
+  // Worker counting link (like StocktakeSession.publicToken, but a separate
+  // column/feature) — no login required, systemQty is never exposed to it.
+  publicToken  String?                 @unique @map("public_token")
   createdBy    String                  @map("created_by") @db.Uuid
   creator      User                    @relation("CycleCountSessionCreatedBy", fields: [createdBy], references: [id])
   items        CycleCountItem[]

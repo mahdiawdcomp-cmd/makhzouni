@@ -58,6 +58,7 @@ const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCo
 const LandedCostImportPage = lazyPage(() => import("./pages/LandedCostImportPage"), "LandedCostImportPage")
 const LandedCostReviewPage = lazyPage(() => import("./pages/LandedCostReviewPage"), "LandedCostReviewPage")
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
+const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage"), "PublicCycleCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
@@ -103,6 +104,7 @@ const router = createBrowserRouter([
   { path: "/client/:token", element: s(<ClientPortalPage />) },
   { path: "/client/:token/invoice/:invoiceId", element: s(<PublicInvoicePage />) },
   { path: "/stocktake/:token", element: s(<PublicStocktakePage />) },
+  { path: "/cycle-count/:token", element: s(<PublicCycleCountPage />) },
 
   // ── Protected routes ──
   {

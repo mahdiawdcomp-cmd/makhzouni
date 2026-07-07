@@ -2,14 +2,21 @@
 import { CycleCountSessionSource, CycleCountStrategy } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import {
+  approveAllCycleCountItems,
   approveCycleCountItem,
   cancelCycleCountSession,
   closeCycleCountSession,
   createCycleCountSession,
   getCycleCountSession,
+  getPublicCycleCountSession,
   listCycleCountSessions,
+  rejectAllCycleCountItems,
   rejectCycleCountItem,
+  reopenCycleCountSession,
+  scanCycleCountQrCode,
+  setCycleCountItemQty,
   submitCycleCountSession,
+  submitPublicCycleCount,
   updateCycleCountItem,
 } from "../services/cycle-count.service";
 
@@ -73,5 +80,48 @@ export const approveItem = asyncHandler(async (req, res) => {
 
 export const rejectItem = asyncHandler(async (req, res) => {
   const data = await rejectCycleCountItem(String(req.params.id), String(req.params.itemId), String(req.user!.id));
+  res.json({ success: true, data });
+});
+
+export const approveAllItems = asyncHandler(async (req, res) => {
+  const data = await approveAllCycleCountItems(String(req.params.id), String(req.user!.id));
+  res.json({ success: true, data });
+});
+
+export const rejectAllItems = asyncHandler(async (req, res) => {
+  const data = await rejectAllCycleCountItems(String(req.params.id), String(req.user!.id));
+  res.json({ success: true, data });
+});
+
+export const reopenSession = asyncHandler(async (req, res) => {
+  const data = await reopenCycleCountSession(String(req.params.id));
+  res.json({ success: true, data });
+});
+
+// ── Public (worker, no auth) ─────────────────────────────────────────────────
+
+export const publicGetSession = asyncHandler(async (req, res) => {
+  const data = await getPublicCycleCountSession(String(req.params.token));
+  res.json({ success: true, data });
+});
+
+export const publicScanQr = asyncHandler(async (req, res) => {
+  const { qrCode } = req.body as { qrCode: string };
+  const data = await scanCycleCountQrCode(String(req.params.token), qrCode);
+  res.json({ success: true, data });
+});
+
+export const publicSetQty = asyncHandler(async (req, res) => {
+  const { productId, qty, unit } = req.body as {
+    productId: string;
+    qty: number;
+    unit: "CARTON" | "PIECE";
+  };
+  const data = await setCycleCountItemQty(String(req.params.token), productId, qty, unit);
+  res.json({ success: true, data });
+});
+
+export const publicSubmit = asyncHandler(async (req, res) => {
+  const data = await submitPublicCycleCount(String(req.params.token));
   res.json({ success: true, data });
 });

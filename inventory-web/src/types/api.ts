@@ -219,6 +219,7 @@ export interface CycleCountSessionSummary {
   strategy: CycleCountStrategy
   itemLimit: number
   source: CycleCountSessionSource
+  publicToken: string | null
   scheduledFor: string | null
   notes: string | null
   createdAt: string

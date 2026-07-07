@@ -1461,6 +1461,21 @@ export async function rejectCycleCountItem(sessionId: string, itemId: string) {
   return data.data!
 }
 
+export async function approveAllCycleCountItems(sessionId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; approvedCount: number }>>(`/cycle-count/${sessionId}/approve-all`)
+  return data.data!
+}
+
+export async function rejectAllCycleCountItems(sessionId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; rejectedCount: number }>>(`/cycle-count/${sessionId}/reject-all`)
+  return data.data!
+}
+
+export async function reopenCycleCountSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<CycleCountSessionDetail>>(`/cycle-count/${id}/reopen`)
+  return data.data!
+}
+
 // ── Excel Import ──────────────────────────────────────────────────────────────
 export async function importProductsExcel(file: File) {
   const form = new FormData()

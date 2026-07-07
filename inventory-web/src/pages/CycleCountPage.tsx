@@ -2,8 +2,22 @@
 // page/feature from StocktakePage.tsx (manual "الجرد الدوري"). Do not merge.
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CalendarClock, Check, CheckCircle2, ChevronRight, ClipboardList, Plus, X, XCircle } from "lucide-react"
+import { useSearchParams } from "react-router-dom"
 import {
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardList,
+  Copy,
+  ExternalLink,
+  Plus,
+  RotateCcw,
+  X,
+  XCircle,
+} from "lucide-react"
+import {
+  approveAllCycleCountItems,
   approveCycleCountItem,
   cancelCycleCountSession,
   closeCycleCountSession,
@@ -11,7 +25,9 @@ import {
   getBranches,
   getCycleCountSession,
   listCycleCountSessions,
+  rejectAllCycleCountItems,
   rejectCycleCountItem,
+  reopenCycleCountSession,
   submitCycleCountSession,
   updateCycleCountItem,
 } from "../api/endpoints"
@@ -21,6 +37,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { useSettings, useUpdateSettings } from "../hooks/useSettings"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
+
+const PUBLIC_BASE = `${window.location.origin}/cycle-count`
 
 const STRATEGY_LABELS: Record<CycleCountStrategy, string> = {
   RANDOM: "عشوائي",
@@ -42,7 +60,8 @@ function statusLabel(status: string) {
 export function CycleCountPage() {
   const readOnly = useReadOnly()
   const qc = useQueryClient()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("session"))
   const [showNew, setShowNew] = useState(false)
 
   const listQ = useQuery({ queryKey: ["cycle-count-sessions"], queryFn: listCycleCountSessions })
@@ -282,25 +301,43 @@ function NewSessionCard({
 
 function SessionRow({ session, onClick }: { session: CycleCountSessionSummary; onClick: () => void }) {
   const st = statusLabel(session.status)
+  const publicUrl = session.publicToken ? `${PUBLIC_BASE}/${session.publicToken}` : null
+  const showLink = publicUrl && session.status !== "CLOSED" && session.status !== "CANCELLED"
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-lg border p-3 text-right hover:border-indigo-300 transition dark:border-slate-700"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${st.cls}`}>{st.label}</span>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {session.source === "SCHEDULED" ? "تلقائي" : "يدوي"}
-        </span>
-        <span className="text-sm font-medium">{session.createdAt.slice(0, 10)}</span>
-        {session.warehouse && <span className="text-xs text-slate-400">— {session.warehouse.name}</span>}
-      </div>
-      <p className="text-xs text-slate-500 mt-0.5">
-        {session.creator?.name ?? "—"} · {session.itemCount} منتج · {STRATEGY_LABELS[session.strategy]}
-        {session.notes ? ` · ${session.notes}` : ""}
-      </p>
-    </button>
+    <div className="rounded-lg border p-3 dark:border-slate-700">
+      <button type="button" onClick={onClick} className="w-full text-right">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${st.cls}`}>{st.label}</span>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {session.source === "SCHEDULED" ? "تلقائي" : "يدوي"}
+          </span>
+          <span className="text-sm font-medium">{session.createdAt.slice(0, 10)}</span>
+          {session.warehouse && <span className="text-xs text-slate-400">— {session.warehouse.name}</span>}
+        </div>
+        <p className="text-xs text-slate-500 mt-0.5">
+          {session.creator?.name ?? "—"} · {session.itemCount} منتج · {STRATEGY_LABELS[session.strategy]}
+          {session.notes ? ` · ${session.notes}` : ""}
+        </p>
+      </button>
+
+      {showLink && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-slate-800 px-3 py-2">
+          <p className="flex-1 text-xs text-slate-500 font-mono truncate" dir="ltr">{publicUrl}</p>
+          <button
+            type="button"
+            title="نسخ رابط العامل"
+            onClick={() => navigator.clipboard.writeText(publicUrl)}
+            className="text-slate-400 hover:text-slate-700 transition"
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <a href={publicUrl} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-blue-600 transition">
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -310,6 +347,7 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
   const readOnly = useReadOnly()
   const qc = useQueryClient()
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [copied, setCopied] = useState(false)
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["cycle-count-session", session.id] })
@@ -323,16 +361,29 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
   })
   const submitMut = useMutation({ mutationFn: () => submitCycleCountSession(session.id), onSuccess: invalidate })
   const closeMut = useMutation({ mutationFn: () => closeCycleCountSession(session.id), onSuccess: invalidate })
+  const reopenMut = useMutation({ mutationFn: () => reopenCycleCountSession(session.id), onSuccess: invalidate })
   const cancelMut = useMutation({
     mutationFn: () => cancelCycleCountSession(session.id),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["cycle-count-sessions"] }); onBack() },
   })
   const approveMut = useMutation({ mutationFn: (itemId: string) => approveCycleCountItem(session.id, itemId), onSuccess: invalidate })
   const rejectMut = useMutation({ mutationFn: (itemId: string) => rejectCycleCountItem(session.id, itemId), onSuccess: invalidate })
+  const approveAllMut = useMutation({ mutationFn: () => approveAllCycleCountItems(session.id), onSuccess: invalidate })
+  const rejectAllMut = useMutation({ mutationFn: () => rejectAllCycleCountItems(session.id), onSuccess: invalidate })
 
   const errors = session.items.filter((i) => i.hasError)
   const uncounted = session.items.filter((i) => i.actualQty === null)
+  const pendingWithDiff = session.items.filter((i) => i.approvalStatus === "PENDING" && i.hasError)
   const st = statusLabel(session.status)
+  const publicUrl = session.publicToken ? `${PUBLIC_BASE}/${session.publicToken}` : null
+  const showLink = publicUrl && session.status !== "CLOSED" && session.status !== "CANCELLED"
+
+  function copyLink() {
+    if (!publicUrl) return
+    navigator.clipboard.writeText(publicUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   return (
     <div className="space-y-4">
@@ -354,6 +405,32 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
         </div>
       </div>
 
+      {/* Worker link — admin can copy/open the same link the worker received */}
+      {showLink && (
+        <Card className="border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4 space-y-2">
+            <p className="text-sm font-semibold">رابط العامل للعد</p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={publicUrl}
+                dir="ltr"
+                className="flex-1 rounded-lg border bg-slate-50 px-3 py-2 text-xs font-mono dark:bg-slate-900"
+              />
+              <Button size="sm" variant="outline" onClick={copyLink}>
+                <Copy className="h-4 w-4" /> {copied ? "تم النسخ!" : "نسخ"}
+              </Button>
+              <a href={publicUrl} target="_blank" rel="noopener noreferrer">
+                <Button size="sm" variant="outline"><ExternalLink className="h-4 w-4" /></Button>
+              </a>
+            </div>
+            <p className="text-xs text-slate-400">
+              أُرسل هذا الرابط تلقائياً عبر واتساب لهاتف المخزن (إن كان مضبوطاً) — ويمكنك فتحه وإدخال الكميات بنفسك أيضاً.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {session.status === "OPEN" && (
           <Button onClick={() => submitMut.mutate()} disabled={readOnly || submitMut.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
@@ -361,9 +438,35 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
           </Button>
         )}
         {session.status === "SUBMITTED" && (
-          <Button variant="outline" onClick={() => closeMut.mutate()} disabled={readOnly || closeMut.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
-            <CheckCircle2 className="h-4 w-4" /> {closeMut.isPending ? "جاري الإغلاق..." : "إغلاق الجلسة"}
-          </Button>
+          <>
+            <Button
+              onClick={() => { if (confirm(`الموافقة على كل الفروقات (${pendingWithDiff.length})؟`)) approveAllMut.mutate() }}
+              disabled={readOnly || approveAllMut.isPending || pendingWithDiff.length === 0}
+              title={readOnly ? READ_ONLY_MESSAGE : undefined}
+            >
+              <Check className="h-4 w-4" /> {approveAllMut.isPending ? "جاري الموافقة..." : "الموافقة على كل الفروقات"}
+            </Button>
+            <Button
+              variant="outline"
+              className="border-red-200 text-red-600"
+              onClick={() => { if (confirm(`رفض كل الفروقات (${pendingWithDiff.length})؟ لن يتغيّر المخزون.`)) rejectAllMut.mutate() }}
+              disabled={readOnly || rejectAllMut.isPending || pendingWithDiff.length === 0}
+              title={readOnly ? READ_ONLY_MESSAGE : undefined}
+            >
+              <X className="h-4 w-4" /> {rejectAllMut.isPending ? "جاري الرفض..." : "رفض كل الفروقات"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => reopenMut.mutate()}
+              disabled={readOnly || reopenMut.isPending}
+              title={readOnly ? READ_ONLY_MESSAGE : "إعادة فتح الجلسة للتعديل — العناصر التي عُولجت (موافقة/رفض) تبقى كما هي"}
+            >
+              <RotateCcw className="h-4 w-4" /> {reopenMut.isPending ? "جاري إعادة الفتح..." : "إعادة فتح الجلسة"}
+            </Button>
+            <Button variant="outline" onClick={() => closeMut.mutate()} disabled={readOnly || closeMut.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
+              <CheckCircle2 className="h-4 w-4" /> {closeMut.isPending ? "جاري الإغلاق..." : "إغلاق الجلسة"}
+            </Button>
+          </>
         )}
         {(session.status === "OPEN" || session.status === "SUBMITTED") && (
           <Button
@@ -378,102 +481,183 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
         )}
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800">
-                <tr>
-                  <th className="px-3 py-2 text-right font-medium">المادة</th>
-                  <th className="px-3 py-2 text-center font-medium">بالنظام</th>
-                  <th className="px-3 py-2 text-center font-medium">فعلي</th>
-                  <th className="px-3 py-2 text-center font-medium">الفرق</th>
-                  {session.status === "SUBMITTED" && <th className="px-3 py-2 text-center font-medium">المراجعة</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {session.items.map((item) => {
-                  const rowCls = item.hasError
-                    ? "bg-red-50 dark:bg-red-950"
-                    : item.actualQty === null ? "" : "bg-emerald-50/40 dark:bg-emerald-950/20"
-                  return (
-                    <tr key={item.id} className={rowCls}>
-                      <td className="px-3 py-2 font-medium">{item.productName}</td>
-                      <td className="px-3 py-2 text-center">{item.systemQty}</td>
-                      <td className="px-3 py-2 text-center">
-                        {session.status === "OPEN" ? (
-                          <input
-                            type="number"
-                            disabled={readOnly}
-                            className="w-20 rounded border border-slate-200 px-2 py-1 text-center dark:border-slate-700 dark:bg-slate-950"
-                            value={drafts[item.id] ?? (item.actualQty ?? "")}
-                            onChange={(e) => setDrafts((d) => ({ ...d, [item.id]: e.target.value }))}
-                            onBlur={(e) => {
-                              const v = Number(e.target.value)
-                              if (!Number.isNaN(v) && e.target.value !== "") {
-                                updateItemMut.mutate({ productId: item.productId, actualQty: v })
-                              }
-                            }}
-                          />
-                        ) : item.actualQty !== null ? item.actualQty : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        {item.variance !== null ? (
-                          <span className={
-                            item.variance === 0
-                              ? "text-emerald-600 font-bold"
-                              : item.variance > 0 ? "text-blue-600 font-bold" : "text-red-600 font-bold"
-                          }>
-                            {item.variance > 0 ? `+${item.variance}` : item.variance}
-                          </span>
-                        ) : "—"}
-                      </td>
-                      {session.status === "SUBMITTED" && (
-                        <td className="px-3 py-2 text-center">
-                          {item.approvalStatus === "PENDING" && (
-                            <div className="flex justify-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-100"
-                                onClick={() => approveMut.mutate(item.id)}
-                                disabled={readOnly || approveMut.isPending || item.actualQty === null}
-                                title="وافق"
-                              >
-                                <Check className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-red-600 hover:bg-red-100"
-                                onClick={() => rejectMut.mutate(item.id)}
-                                disabled={readOnly || rejectMut.isPending}
-                                title="رفض"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                          {item.approvalStatus === "APPROVED" && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
-                              <Check className="h-3 w-3" /> موافق
-                            </span>
-                          )}
-                          {item.approvalStatus === "REJECTED" && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
-                              <X className="h-3 w-3" /> مرفوض
-                            </span>
-                          )}
-                        </td>
-                      )}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      {session.status === "SUBMITTED" ? (
+        <div className="space-y-4">
+          <ItemsGroup
+            title={`فروقات (${errors.length})`}
+            items={session.items.filter((i) => i.hasError)}
+            status={session.status}
+            readOnly={readOnly}
+            onApprove={(id) => approveMut.mutate(id)}
+            onReject={(id) => rejectMut.mutate(id)}
+            approvePending={approveMut.isPending}
+            rejectPending={rejectMut.isPending}
+          />
+          <ItemsGroup
+            title={`مطابقة — بلا فرق (${session.items.length - errors.length - uncounted.length})`}
+            items={session.items.filter((i) => !i.hasError && i.actualQty !== null)}
+            status={session.status}
+            readOnly={readOnly}
+            onApprove={(id) => approveMut.mutate(id)}
+            onReject={(id) => rejectMut.mutate(id)}
+            approvePending={approveMut.isPending}
+            rejectPending={rejectMut.isPending}
+          />
+          {uncounted.length > 0 && (
+            <ItemsGroup
+              title={`لم يُحسب (${uncounted.length})`}
+              items={uncounted}
+              status={session.status}
+              readOnly={readOnly}
+              onApprove={(id) => approveMut.mutate(id)}
+              onReject={(id) => rejectMut.mutate(id)}
+              approvePending={approveMut.isPending}
+              rejectPending={rejectMut.isPending}
+            />
+          )}
+        </div>
+      ) : (
+        <ItemsGroup
+          items={session.items}
+          status={session.status}
+          readOnly={readOnly}
+          openDrafts={drafts}
+          onOpenDraftChange={(id, v) => setDrafts((d) => ({ ...d, [id]: v }))}
+          onOpenCommit={(productId, actualQty) => updateItemMut.mutate({ productId, actualQty })}
+        />
+      )}
     </div>
+  )
+}
+
+// ── Items table (grouped for SUBMITTED review, single table for OPEN/CLOSED) ──
+
+function ItemsGroup({
+  title,
+  items,
+  status,
+  readOnly,
+  onApprove,
+  onReject,
+  approvePending,
+  rejectPending,
+  openDrafts,
+  onOpenDraftChange,
+  onOpenCommit,
+}: {
+  title?: string
+  items: CycleCountSessionDetail["items"]
+  status: string
+  readOnly: boolean
+  onApprove?: (itemId: string) => void
+  onReject?: (itemId: string) => void
+  approvePending?: boolean
+  rejectPending?: boolean
+  openDrafts?: Record<string, string>
+  onOpenDraftChange?: (itemId: string, value: string) => void
+  onOpenCommit?: (productId: string, actualQty: number) => void
+}) {
+  if (title && items.length === 0) return null
+
+  return (
+    <Card>
+      {title && (
+        <CardHeader className="py-3">
+          <CardTitle className="text-sm">{title}</CardTitle>
+        </CardHeader>
+      )}
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800">
+              <tr>
+                <th className="px-3 py-2 text-right font-medium">المادة</th>
+                <th className="px-3 py-2 text-center font-medium">بالنظام</th>
+                <th className="px-3 py-2 text-center font-medium">فعلي (العامل)</th>
+                <th className="px-3 py-2 text-center font-medium">الفرق</th>
+                {status === "SUBMITTED" && <th className="px-3 py-2 text-center font-medium">المراجعة</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {items.map((item) => {
+                const rowCls = item.hasError
+                  ? "bg-red-50 dark:bg-red-950"
+                  : item.actualQty === null ? "" : "bg-emerald-50/40 dark:bg-emerald-950/20"
+                return (
+                  <tr key={item.id} className={rowCls}>
+                    <td className="px-3 py-2 font-medium">{item.productName}</td>
+                    <td className="px-3 py-2 text-center">{item.systemQty}</td>
+                    <td className="px-3 py-2 text-center">
+                      {status === "OPEN" && item.approvalStatus === "PENDING" ? (
+                        <input
+                          type="number"
+                          disabled={readOnly}
+                          className="w-20 rounded border border-slate-200 px-2 py-1 text-center dark:border-slate-700 dark:bg-slate-950"
+                          value={openDrafts?.[item.id] ?? (item.actualQty ?? "")}
+                          onChange={(e) => onOpenDraftChange?.(item.id, e.target.value)}
+                          onBlur={(e) => {
+                            const v = Number(e.target.value)
+                            if (!Number.isNaN(v) && e.target.value !== "") onOpenCommit?.(item.productId, v)
+                          }}
+                        />
+                      ) : item.actualQty !== null ? item.actualQty : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {item.variance !== null ? (
+                        <span className={
+                          item.variance === 0
+                            ? "text-emerald-600 font-bold"
+                            : item.variance > 0 ? "text-blue-600 font-bold" : "text-red-600 font-bold"
+                        }>
+                          {item.variance > 0 ? `+${item.variance}` : item.variance}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    {status === "SUBMITTED" && (
+                      <td className="px-3 py-2 text-center">
+                        {item.approvalStatus === "PENDING" && (
+                          <div className="flex justify-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-100"
+                              onClick={() => onApprove?.(item.id)}
+                              disabled={readOnly || approvePending || item.actualQty === null}
+                              title="وافق"
+                            >
+                              <Check className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-red-600 hover:bg-red-100"
+                              onClick={() => onReject?.(item.id)}
+                              disabled={readOnly || rejectPending}
+                              title="رفض"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                        {item.approvalStatus === "APPROVED" && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700">
+                            <Check className="h-3 w-3" /> موافق
+                          </span>
+                        )}
+                        {item.approvalStatus === "REJECTED" && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-1 text-xs text-red-700">
+                            <X className="h-3 w-3" /> مرفوض
+                          </span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

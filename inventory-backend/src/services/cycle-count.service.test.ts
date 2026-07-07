@@ -4,9 +4,10 @@
  * Fully independent feature from the manual stocktake flow (stocktake.service.ts,
  * untouched by this work). Uses a faithful in-memory fake for `../config/database`
  * (same pattern as transfer-conservation.test.ts) so these tests exercise the
- * REAL service logic — selection strategies, session lifecycle, and the
- * approve-writes-StockMovement / reject-never-touches-stock invariant — without
- * a live database.
+ * REAL service logic — selection strategies, session lifecycle, the worker
+ * public link, admin review (single/bulk approve-reject), and the
+ * approve-writes-StockMovement / reject-never-touches-stock invariant —
+ * without a live database.
  */
 import assert from "node:assert/strict";
 import { before, beforeEach, describe, it, mock } from "node:test";
@@ -25,6 +26,7 @@ let movements: any[];
 let users: Map<string, any>;
 let settingsStore: Map<string, unknown>;
 let idCounter: number;
+let notifyAdminCalls: any[];
 
 function nextId(prefix: string) {
   idCounter += 1;
@@ -46,7 +48,15 @@ function attachSession(session: any) {
     items: sessionItems.map((item) => ({
       ...item,
       product: products.get(item.productId)
-        ? { id: item.productId, name: products.get(item.productId).name, category: null, imageUrl: null }
+        ? {
+            id: item.productId,
+            name: products.get(item.productId).name,
+            category: null,
+            imageUrl: null,
+            qrCode: products.get(item.productId).qrCode ?? null,
+            cartonQrCode: products.get(item.productId).cartonQrCode ?? null,
+            pcsPerCarton: products.get(item.productId).pcsPerCarton ?? 1,
+          }
         : null,
       approver: item.approvedBy && users.get(item.approvedBy)
         ? { id: item.approvedBy, name: users.get(item.approvedBy).name }
@@ -55,6 +65,21 @@ function attachSession(session: any) {
     _count: { items: sessionItems.length },
   };
 }
+
+// Mocked BEFORE importing cycle-count.service so the real whatsapp-web.js /
+// app-notification DB calls never run in this unit test.
+mock.module("./whatsapp.service", {
+  exports: {
+    sendWhatsAppText: async () => ({ to: "", message: "" }),
+    setCloudCredentials: () => {},
+  },
+});
+mock.module("./app-notification.service", {
+  exports: {
+    notifyAdmin: async (input: any) => { notifyAdminCalls.push(input); return {}; },
+    buildDedupeKey: (type: string, entityId?: string | null) => `${type}:${entityId ?? "-"}`,
+  },
+});
 
 const fakeDb: any = {
   branch: {
@@ -67,6 +92,10 @@ const fakeDb: any = {
       const active = all.filter((b) => where?.isActive === undefined || b.isActive === where.isActive);
       active.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
       return active[0] ? { ...active[0] } : null;
+    },
+    findUnique: async ({ where }: any) => {
+      const wh = branches.get(where.id);
+      return wh ? { ...wh } : null;
     },
   },
   productWarehouseStock: {
@@ -120,6 +149,7 @@ const fakeDb: any = {
         closedAt: null,
         scheduledFor: null,
         notes: null,
+        publicToken: null,
         createdAt: new Date(),
         ...data,
       };
@@ -140,7 +170,9 @@ const fakeDb: any = {
       return all.map(attachSession);
     },
     findUnique: async ({ where }: any) => {
-      const session = sessions.get(where.id);
+      const session = where.id
+        ? sessions.get(where.id)
+        : [...sessions.values()].find((s) => s.publicToken === where.publicToken);
       return session ? attachSession(session) : null;
     },
     update: async ({ where, data }: any) => {
@@ -170,7 +202,9 @@ const fakeDb: any = {
     },
     findFirst: async ({ where }: any) => {
       const match = [...items.values()].find((i) => i.sessionId === where.sessionId && i.productId === where.productId);
-      return match ? { ...match } : null;
+      if (!match) return null;
+      const product = products.get(match.productId);
+      return { ...match, product: product ? { pcsPerCarton: product.pcsPerCarton ?? 1 } : undefined };
     },
     findMany: async ({ where }: any) => {
       const warehouseId = where.session.warehouseId;
@@ -195,6 +229,15 @@ const fakeDb: any = {
       if (!item || item.approvalStatus !== where.approvalStatus) return { count: 0 };
       Object.assign(item, data);
       return { count: 1 };
+    },
+  },
+  product: {
+    findFirst: async ({ where }: any) => {
+      const codes: string[] = (where.OR ?? []).map((c: any) => c.qrCode ?? c.cartonQrCode);
+      const match = [...products.values()].find(
+        (p) => p.deletedAt === null && (codes.includes(p.qrCode) || codes.includes(p.cartonQrCode)),
+      );
+      return match ? { ...match } : null;
     },
   },
   user: {
@@ -229,14 +272,15 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
 
   beforeEach(() => {
     idCounter = 0;
+    notifyAdminCalls = [];
     branches = new Map([
-      [WAREHOUSE, { id: WAREHOUSE, name: "المخزن الرئيسي", isActive: true, createdAt: new Date("2026-01-01") }],
-      [OTHER_WAREHOUSE, { id: OTHER_WAREHOUSE, name: "مخزن ثانٍ", isActive: true, createdAt: new Date("2026-01-02") }],
+      [WAREHOUSE, { id: WAREHOUSE, name: "المخزن الرئيسي", phone: null, isActive: true, createdAt: new Date("2026-01-01") }],
+      [OTHER_WAREHOUSE, { id: OTHER_WAREHOUSE, name: "مخزن ثانٍ", phone: null, isActive: true, createdAt: new Date("2026-01-02") }],
     ]);
     products = new Map([
-      ["p1", { id: "p1", name: "منتج 1", salePrice: 1000, minStock: 5, deletedAt: null }],
-      ["p2", { id: "p2", name: "منتج 2", salePrice: 5000, minStock: 5, deletedAt: null }],
-      ["p3", { id: "p3", name: "منتج 3", salePrice: 500, minStock: 20, deletedAt: null }],
+      ["p1", { id: "p1", name: "منتج 1", salePrice: 1000, minStock: 5, deletedAt: null, qrCode: "QR-P1", cartonQrCode: "CQR-P1", pcsPerCarton: 12 }],
+      ["p2", { id: "p2", name: "منتج 2", salePrice: 5000, minStock: 5, deletedAt: null, qrCode: "QR-P2", cartonQrCode: "CQR-P2", pcsPerCarton: 6 }],
+      ["p3", { id: "p3", name: "منتج 3", salePrice: 500, minStock: 20, deletedAt: null, qrCode: "QR-P3", cartonQrCode: "CQR-P3", pcsPerCarton: 24 }],
     ]);
     stocks = new Map([
       [stockKey("p1", WAREHOUSE), { productId: "p1", warehouseId: WAREHOUSE, quantityPieces: 100, minStock: null }],
@@ -289,17 +333,27 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     );
   });
 
+  it("every new session gets a publicToken (the worker count link)", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    assert.ok(session.publicToken && session.publicToken.length > 0);
+    const listed = await svc.listCycleCountSessions();
+    assert.equal(listed[0].publicToken, session.publicToken, "admin list also exposes the link so it can be copied");
+  });
+
   // ── Strategies ───────────────────────────────────────────────────────────────
 
   it("HIGH_VALUE orders by (quantity × sale price) descending", async () => {
     const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "HIGH_VALUE" as any, 3);
-    // p1: 100*1000=100000, p2: 10*5000=50000, p3: 5*500=2500
     assert.deepEqual(selected.map((s) => s.productId), ["p1", "p2", "p3"]);
   });
 
   it("LOW_STOCK orders by (quantity - minStock) ascending — most deficient first", async () => {
     const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "LOW_STOCK" as any, 3);
-    // p1: 100-5=95, p2: 10-5=5, p3: 5-20=-15
     assert.deepEqual(selected.map((s) => s.productId), ["p3", "p2", "p1"]);
   });
 
@@ -315,14 +369,12 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
   });
 
   it("LEAST_RECENTLY_COUNTED puts never-counted products before previously-counted ones", async () => {
-    // Simulate a prior session that counted p1 only.
     const priorSession = await svc.createCycleCountSession({
       createdBy: ADMIN_USER,
       warehouseId: WAREHOUSE,
       strategy: "RANDOM" as any,
       itemLimit: 1,
     });
-    // Force the prior session to have counted p1 specifically.
     for (const item of items.values()) {
       if (item.sessionId === priorSession.id) item.productId = "p1";
     }
@@ -381,6 +433,122 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
 
     for (const [key, qty] of stockBefore) assert.equal(stocks.get(key)!.quantityPieces, qty, `${key} unchanged`);
     assert.equal(movements.length, 0, "no StockMovement rows before any approval");
+  });
+
+  // ── Admin notification on submit ────────────────────────────────────────────
+
+  it("submitting a session (admin path) fires a best-effort admin notification", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    await svc.submitCycleCountSession(session.id);
+
+    assert.equal(notifyAdminCalls.length, 1);
+    assert.equal(notifyAdminCalls[0].type, "CYCLE_COUNT_SUBMITTED");
+    assert.equal(notifyAdminCalls[0].entityId, session.id);
+  });
+
+  it("submitting via the worker public link also fires the admin notification", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    await svc.submitPublicCycleCount(session.publicToken!);
+
+    assert.equal(notifyAdminCalls.length, 1);
+    assert.equal(notifyAdminCalls[0].entityId, session.id);
+    const updated = sessions.get(session.id);
+    assert.equal(updated.status, "SUBMITTED");
+  });
+
+  // ── Worker public link ───────────────────────────────────────────────────────
+
+  it("the worker never sees systemQty in the public session payload", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const publicView = await svc.getPublicCycleCountSession(session.publicToken!);
+    for (const item of publicView.items) {
+      assert.ok(!("systemQty" in item), "systemQty must never be present in the worker-facing payload");
+    }
+  });
+
+  it("worker-entered quantities persist across re-fetching the same link (reopen-safe)", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const token = session.publicToken!;
+    const firstView = await svc.getPublicCycleCountSession(token);
+    const target = firstView.items[0];
+    assert.equal(target.actualQty, null, "starts empty — worker counts by himself");
+
+    await svc.setCycleCountItemQty(token, target.productId, 5, "PIECE");
+
+    // Simulate the worker leaving and reopening the same link later.
+    const reopenedView = await svc.getPublicCycleCountSession(token);
+    const sameItem = reopenedView.items.find((i) => i.productId === target.productId)!;
+    assert.equal(sameItem.actualQty, 5, "previously entered quantity is still there — not wiped");
+  });
+
+  it("worker barcode scan increments actualQty using cartonQrCode × pcsPerCarton", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const token = session.publicToken!;
+    const result = await svc.scanCycleCountQrCode(token, "CQR-P1"); // p1 pcsPerCarton = 12
+    assert.equal(result.newQty, 12);
+    const again = await svc.scanCycleCountQrCode(token, "QR-P1"); // piece barcode, +1
+    assert.equal(again.newQty, 13);
+  });
+
+  it("worker cannot edit quantities once the session is submitted", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    const token = session.publicToken!;
+    await svc.submitPublicCycleCount(token);
+
+    await assert.rejects(
+      () => svc.setCycleCountItemQty(token, [...items.values()][0].productId, 3, "PIECE"),
+      (err: any) => err.code === "SESSION_NOT_OPEN",
+    );
+  });
+
+  it("admin cannot edit an item after the session is submitted, unless reopened", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    const productId = [...items.values()][0].productId;
+    await svc.submitCycleCountSession(session.id);
+
+    await assert.rejects(
+      () => svc.updateCycleCountItem(session.id, productId, 9),
+      (err: any) => err.code === "SESSION_NOT_OPEN",
+    );
+
+    await svc.reopenCycleCountSession(session.id);
+    const updated = await svc.updateCycleCountItem(session.id, productId, 9);
+    assert.equal(updated.actualQty, 9, "editable again after reopen");
   });
 
   // ── Approve writes StockMovement; reject does not ───────────────────────────
@@ -443,6 +611,145 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
   });
 
+  it("cannot approve the same item twice — second call rejects and no duplicate StockMovement is written", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p1")!;
+    await svc.updateCycleCountItem(session.id, "p1", item.systemQty + 10);
+    await svc.submitCycleCountSession(session.id);
+
+    const before = stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces;
+    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER); // first click
+
+    await assert.rejects(
+      () => svc.approveCycleCountItem(session.id, item.id, ADMIN_USER), // double-click
+      (err: any) => err.code === "ALREADY_PROCESSED",
+    );
+
+    assert.equal(stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces, before + 10, "delta applied exactly once");
+    assert.equal(movements.length, 1, "exactly one StockMovement, not two");
+  });
+
+  it("cannot reject an already-approved item, and cannot approve an already-rejected item", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const [item1, item2] = [...items.values()].filter((i) => i.sessionId === session.id);
+    await svc.updateCycleCountItem(session.id, item1.productId, item1.systemQty + 1);
+    await svc.updateCycleCountItem(session.id, item2.productId, item2.systemQty + 1);
+    await svc.submitCycleCountSession(session.id);
+
+    await svc.approveCycleCountItem(session.id, item1.id, ADMIN_USER);
+    await assert.rejects(
+      () => svc.rejectCycleCountItem(session.id, item1.id, ADMIN_USER),
+      (err: any) => err.code === "ALREADY_PROCESSED",
+    );
+
+    await svc.rejectCycleCountItem(session.id, item2.id, ADMIN_USER);
+    await assert.rejects(
+      () => svc.approveCycleCountItem(session.id, item2.id, ADMIN_USER),
+      (err: any) => err.code === "ALREADY_PROCESSED",
+    );
+  });
+
+  // ── Bulk approve / reject ────────────────────────────────────────────────────
+
+  it("approve-all applies every counted item's delta and writes one StockMovement per nonzero delta", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const sessionItems = [...items.values()].filter((i) => i.sessionId === session.id);
+    for (const item of sessionItems) {
+      await svc.updateCycleCountItem(session.id, item.productId, item.systemQty + 3);
+    }
+    await svc.submitCycleCountSession(session.id);
+
+    const before = new Map(sessionItems.map((i) => [i.productId, stocks.get(stockKey(i.productId, WAREHOUSE))!.quantityPieces]));
+    const result = await svc.approveAllCycleCountItems(session.id, ADMIN_USER);
+
+    assert.equal(result.approvedCount, sessionItems.length);
+    for (const item of sessionItems) {
+      assert.equal(stocks.get(stockKey(item.productId, WAREHOUSE))!.quantityPieces, before.get(item.productId)! + 3);
+    }
+    assert.equal(movements.length, sessionItems.length);
+    for (const item of sessionItems) assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
+  });
+
+  it("reject-all leaves every stock quantity unchanged and writes no StockMovement", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const sessionItems = [...items.values()].filter((i) => i.sessionId === session.id);
+    for (const item of sessionItems) {
+      await svc.updateCycleCountItem(session.id, item.productId, item.systemQty + 4);
+    }
+    await svc.submitCycleCountSession(session.id);
+
+    const before = new Map([...stocks.entries()].map(([k, v]) => [k, v.quantityPieces]));
+    const result = await svc.rejectAllCycleCountItems(session.id, ADMIN_USER);
+
+    assert.equal(result.rejectedCount, sessionItems.length);
+    for (const [key, qty] of before) assert.equal(stocks.get(key)!.quantityPieces, qty, `${key} unchanged`);
+    assert.equal(movements.length, 0, "reject-all never writes StockMovement");
+    for (const item of sessionItems) assert.equal(items.get(item.id)!.approvalStatus, "REJECTED");
+  });
+
+  it("approve-all skips items with no actualQty entered and items already processed", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const sessionItems = [...items.values()].filter((i) => i.sessionId === session.id);
+    // Only count the first item; leave the rest uncounted.
+    await svc.updateCycleCountItem(session.id, sessionItems[0].productId, sessionItems[0].systemQty + 2);
+    await svc.submitCycleCountSession(session.id);
+
+    const result = await svc.approveAllCycleCountItems(session.id, ADMIN_USER);
+    assert.equal(result.approvedCount, 1, "only the counted item gets approved");
+  });
+
+  // ── Admin close / cancel ─────────────────────────────────────────────────────
+
+  it("admin can close a submitted session", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    await svc.submitCycleCountSession(session.id);
+    const closed = await svc.closeCycleCountSession(session.id);
+    assert.equal(closed.status, "CLOSED");
+    assert.ok(sessions.get(session.id).closedAt);
+  });
+
+  it("admin can cancel an open session", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    const result = await svc.cancelCycleCountSession(session.id);
+    assert.equal(result.success, true);
+    assert.equal(sessions.get(session.id).status, "CANCELLED");
+  });
+
   // ── Scheduled cron job ───────────────────────────────────────────────────────
 
   it("runScheduledCycleCountJob does nothing when the feature is disabled", async () => {
@@ -492,9 +799,6 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.runScheduledCycleCountJob();
     assert.equal(sessions.size, 1, "first run creates one session");
 
-    // Still due (lastRunAt was advanced to "now" by the first run, so force it
-    // back to make the interval look elapsed again) — the OPEN scheduled
-    // session guard must still block a second run.
     settingsStore.set("cycleCountLastRunAt", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString());
     await svc.runScheduledCycleCountJob();
 

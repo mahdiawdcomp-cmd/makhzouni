@@ -37,6 +37,7 @@ export const NotificationType = {
   WHATSAPP_SEND_FAILED: "WHATSAPP_SEND_FAILED",
   SYSTEM_ERROR: "SYSTEM_ERROR",
   BACKUP_FAILED: "BACKUP_FAILED",
+  CYCLE_COUNT_SUBMITTED: "CYCLE_COUNT_SUBMITTED",
 } as const;
 export type NotificationType =
   (typeof NotificationType)[keyof typeof NotificationType];

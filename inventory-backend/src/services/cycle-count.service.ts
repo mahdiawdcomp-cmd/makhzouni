@@ -9,6 +9,7 @@
 // which also writes a normal StockMovement row. Rejecting an item never
 // changes stock.
 
+import { randomBytes } from "crypto";
 import {
   CycleCountApprovalStatus,
   CycleCountSessionSource,
@@ -19,12 +20,34 @@ import {
 } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { normalizePhone } from "../utils/phone";
 import { resolveWarehouseId } from "./warehouse-stock.service";
 import { getSettings, updateSettings } from "./settings.service";
+import { sendWhatsAppText } from "./whatsapp.service";
+import { buildDedupeKey, notifyAdmin } from "./app-notification.service";
+import { NotificationCategory, NotificationSeverity, NotificationType } from "../constants/notifications";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
 const FAST_MOVING_WINDOW_DAYS = 30;
+
+function makeToken() {
+  return `cyc_${randomBytes(24).toString("base64url")}`;
+}
+
+/** Builds the absolute worker-link URL from the tenant's own catalogPublicUrl
+ * setting (multi-tenant safe — never hardcode a tenant host). */
+function buildCycleCountPublicUrl(publicToken: string, catalogPublicUrl?: string): string {
+  let origin = "https://app.mazbwoni.com";
+  if (catalogPublicUrl) {
+    try {
+      origin = new URL(catalogPublicUrl).origin;
+    } catch {
+      // keep fallback
+    }
+  }
+  return `${origin}/cycle-count/${publicToken}`;
+}
 
 interface StrategyPoolEntry {
   productId: string;
@@ -136,8 +159,10 @@ export async function createCycleCountSession(params: {
   if (products.length === 0)
     throw new AppError("لا توجد منتجات لإنشاء جلسة جرد ذكي", 400, "NO_PRODUCTS");
 
-  return prisma.$transaction(async (tx) => {
-    const session = await tx.cycleCountSession.create({
+  const publicToken = makeToken();
+
+  const session = await prisma.$transaction(async (tx) => {
+    const created = await tx.cycleCountSession.create({
       data: {
         warehouseId,
         strategy: params.strategy,
@@ -147,19 +172,38 @@ export async function createCycleCountSession(params: {
         createdBy: params.createdBy,
         notes: params.notes,
         status: CycleCountSessionStatus.OPEN,
+        publicToken,
       },
     });
 
     await tx.cycleCountItem.createMany({
       data: products.map((p) => ({
-        sessionId: session.id,
+        sessionId: created.id,
         productId: p.productId,
         systemQty: p.systemQty,
       })),
     });
 
-    return session;
+    return created;
   });
+
+  // Best-effort: WhatsApp the worker link to the warehouse's configured phone.
+  // Never blocks/fails session creation — creation already succeeded above.
+  notifyWorkerOfNewSession(warehouseId, publicToken).catch(() => {});
+
+  return session;
+}
+
+async function notifyWorkerOfNewSession(warehouseId: string, publicToken: string) {
+  const [branch, settings] = await Promise.all([
+    prisma.branch.findUnique({ where: { id: warehouseId }, select: { name: true, phone: true } }),
+    getSettings().catch(() => null),
+  ]);
+  if (!branch?.phone) return;
+
+  const link = buildCycleCountPublicUrl(publicToken, settings?.catalogPublicUrl);
+  const message = `📋 جرد ذكي جديد لمخزن ${branch.name}\nافتح الرابط وابدأ العد:\n${link}`;
+  await sendWhatsAppText(normalizePhone(branch.phone), message);
 }
 
 // ─── Guard: block a duplicate SCHEDULED session while one is still open ──────
@@ -178,7 +222,7 @@ export async function hasOpenScheduledSession(warehouseId: string): Promise<bool
   return Boolean(existing);
 }
 
-// ─── List / get ────────────────────────────────────────────────────────────────
+// ─── List / get (admin) ────────────────────────────────────────────────────────
 
 export async function listCycleCountSessions() {
   const sessions = await prisma.cycleCountSession.findMany({
@@ -196,6 +240,7 @@ export async function listCycleCountSessions() {
     strategy: s.strategy,
     itemLimit: s.itemLimit,
     source: s.source,
+    publicToken: s.publicToken,
     scheduledFor: s.scheduledFor?.toISOString() ?? null,
     notes: s.notes,
     createdAt: s.createdAt.toISOString(),
@@ -257,6 +302,7 @@ export async function getCycleCountSession(id: string) {
     strategy: session.strategy,
     itemLimit: session.itemLimit,
     source: session.source,
+    publicToken: session.publicToken,
     scheduledFor: session.scheduledFor?.toISOString() ?? null,
     notes: session.notes,
     createdAt: session.createdAt.toISOString(),
@@ -269,7 +315,8 @@ export async function getCycleCountSession(id: string) {
   };
 }
 
-// ─── Update a single item's counted quantity (OPEN sessions only) ────────────
+// ─── Update a single item's counted quantity — admin side (OPEN sessions,
+// PENDING items only; once an item is APPROVED/REJECTED it is frozen) ────────
 
 export async function updateCycleCountItem(
   sessionId: string,
@@ -283,10 +330,12 @@ export async function updateCycleCountItem(
   });
   if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status !== CycleCountSessionStatus.OPEN)
-    throw new AppError("الجلسة ليست مفتوحة للتعديل", 400, "SESSION_NOT_OPEN");
+    throw new AppError("الجلسة ليست مفتوحة للتعديل — أعد فتحها أولاً", 400, "SESSION_NOT_OPEN");
 
   const item = await prisma.cycleCountItem.findFirst({ where: { sessionId, productId } });
   if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
+  if (item.approvalStatus !== CycleCountApprovalStatus.PENDING)
+    throw new AppError("تم معالجة هذا العنصر بالفعل، لا يمكن تعديله", 400, "ITEM_ALREADY_PROCESSED");
 
   const variance = actualQty - item.systemQty;
 
@@ -298,9 +347,10 @@ export async function updateCycleCountItem(
   return { productId, actualQty, variance };
 }
 
-// ─── Submit session (recompute variances, lock for review) ───────────────────
+// ─── Submit (recompute variances, lock for review, notify admin) ────────────
+// Shared by both the admin submit action and the worker's public submit.
 
-export async function submitCycleCountSession(sessionId: string) {
+async function performSubmit(sessionId: string) {
   const session = await prisma.cycleCountSession.findUnique({
     where: { id: sessionId },
     include: { items: true },
@@ -324,10 +374,52 @@ export async function submitCycleCountSession(sessionId: string) {
     });
   });
 
+  const result = await getCycleCountSession(sessionId);
+
+  // Best-effort in-app admin notification — never blocks/fails the submit.
+  notifyAdmin({
+    type: NotificationType.CYCLE_COUNT_SUBMITTED,
+    category: NotificationCategory.STOCK,
+    severity: NotificationSeverity.IMPORTANT,
+    title: "جدولة الجرد الذكي — بانتظار المراجعة",
+    message: `تم رفع جرد لمخزن ${result.warehouse?.name ?? "—"} — ${result.stats.errors} فرق من أصل ${result.stats.total}`,
+    entityType: "CYCLE_COUNT_SESSION",
+    entityId: sessionId,
+    actionUrl: `/inventory/cycle-count?session=${sessionId}`,
+    metadata: { sessionId },
+    dedupeKey: buildDedupeKey(NotificationType.CYCLE_COUNT_SUBMITTED, sessionId),
+  }).catch(() => {});
+
+  return result;
+}
+
+export async function submitCycleCountSession(sessionId: string) {
+  return performSubmit(sessionId);
+}
+
+// ─── Reopen a SUBMITTED session so it (and the worker link) accept edits again ──
+// Already-APPROVED/REJECTED items stay frozen (guarded in updateCycleCountItem
+// and the worker-side setters) — only still-PENDING items become editable again.
+
+export async function reopenCycleCountSession(sessionId: string) {
+  const session = await prisma.cycleCountSession.findUnique({ where: { id: sessionId } });
+  if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.status !== CycleCountSessionStatus.SUBMITTED)
+    throw new AppError("يمكن إعادة فتح جلسة مرسلة فقط", 400, "SESSION_NOT_SUBMITTED");
+
+  await prisma.cycleCountSession.update({
+    where: { id: sessionId },
+    data: { status: CycleCountSessionStatus.OPEN, submittedAt: null },
+  });
+
   return getCycleCountSession(sessionId);
 }
 
 // ─── Approve item variance — the ONLY place this feature ever touches stock ──
+// Safe against a double-click: the whole thing is one $transaction, and the
+// final updateMany's PENDING guard throwing on a second/concurrent call rolls
+// back that entire attempt (including its stock increment/StockMovement),
+// leaving the first successful approval as the only lasting effect.
 
 export async function approveCycleCountItem(
   sessionId: string,
@@ -424,7 +516,92 @@ export async function rejectCycleCountItem(
   });
 }
 
-// ─── Close / cancel session ────────────────────────────────────────────────────
+// ─── Bulk: approve / reject every still-PENDING item in one pass ─────────────
+// Same per-item safety as the single-item functions above (increment/movement
+// then a PENDING-guarded updateMany), just looped inside one transaction.
+
+export async function approveAllCycleCountItems(sessionId: string, approvingUserId: string) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { id: sessionId },
+    include: { items: true },
+  });
+  if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.status !== CycleCountSessionStatus.SUBMITTED)
+    throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+
+  const approver = await prisma.user.findUnique({ where: { id: approvingUserId }, select: { name: true } });
+
+  return prisma.$transaction(async (tx) => {
+    let approvedCount = 0;
+    for (const item of session.items) {
+      if (item.approvalStatus !== CycleCountApprovalStatus.PENDING || item.actualQty === null) continue;
+
+      const delta = item.actualQty - item.systemQty;
+      const updatedStock = await tx.productWarehouseStock.update({
+        where: { productId_warehouseId: { productId: item.productId, warehouseId: session.warehouseId } },
+        data: { quantityPieces: { increment: delta } },
+        select: { quantityPieces: true },
+      });
+
+      if (delta !== 0) {
+        await tx.stockMovement.create({
+          data: {
+            productId: item.productId,
+            branchId: session.warehouseId,
+            type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
+            quantity: Math.abs(delta),
+            balanceBefore: updatedStock.quantityPieces - delta,
+            balanceAfter: updatedStock.quantityPieces,
+            userId: approvingUserId,
+            userName: approver?.name ?? null,
+            note: "تسوية جدولة الجرد الذكي (موافقة الكل)",
+          },
+        });
+      }
+
+      const updated = await tx.cycleCountItem.updateMany({
+        where: { id: item.id, approvalStatus: CycleCountApprovalStatus.PENDING },
+        data: {
+          approvalStatus: CycleCountApprovalStatus.APPROVED,
+          approvedQty: item.actualQty,
+          approvedBy: approvingUserId,
+          approvedAt: new Date(),
+        },
+      });
+      if (updated.count === 1) approvedCount++;
+    }
+    return { success: true, approvedCount };
+  });
+}
+
+export async function rejectAllCycleCountItems(sessionId: string, reviewingUserId: string) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { id: sessionId },
+    include: { items: true },
+  });
+  if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
+  if (session.status !== CycleCountSessionStatus.SUBMITTED)
+    throw new AppError("الجلسة غير مرسلة بعد", 400, "SESSION_NOT_SUBMITTED");
+
+  return prisma.$transaction(async (tx) => {
+    let rejectedCount = 0;
+    for (const item of session.items) {
+      if (item.approvalStatus !== CycleCountApprovalStatus.PENDING) continue;
+      const updated = await tx.cycleCountItem.updateMany({
+        where: { id: item.id, approvalStatus: CycleCountApprovalStatus.PENDING },
+        data: {
+          approvalStatus: CycleCountApprovalStatus.REJECTED,
+          approvedBy: reviewingUserId,
+          approvedAt: new Date(),
+        },
+      });
+      if (updated.count === 1) rejectedCount++;
+    }
+    return { success: true, rejectedCount };
+  });
+}
+
+// ─── Close / cancel session (admin only) ──────────────────────────────────────
 
 export async function closeCycleCountSession(sessionId: string) {
   const session = await prisma.cycleCountSession.findUnique({ where: { id: sessionId } });
@@ -451,6 +628,130 @@ export async function cancelCycleCountSession(sessionId: string) {
     data: { status: CycleCountSessionStatus.CANCELLED },
   });
 
+  return { success: true };
+}
+
+// ─── Public (worker) — no auth, no systemQty ever exposed ─────────────────────
+
+export async function getPublicCycleCountSession(token: string) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { publicToken: token },
+    select: {
+      id: true,
+      status: true,
+      notes: true,
+      createdAt: true,
+      warehouse: { select: { name: true } },
+      items: {
+        select: {
+          id: true,
+          productId: true,
+          actualQty: true,
+          notes: true,
+          approvalStatus: true,
+          // systemQty is intentionally never selected here — never shown to the worker.
+          product: { select: { name: true, category: true, qrCode: true, cartonQrCode: true, pcsPerCarton: true } },
+        },
+        orderBy: [{ product: { category: "asc" } }, { product: { name: "asc" } }],
+      },
+    },
+  });
+
+  if (!session) throw new AppError("الرابط غير صحيح أو منتهي", 404, "SESSION_NOT_FOUND");
+
+  return {
+    id: session.id,
+    status: session.status,
+    notes: session.notes,
+    warehouse: session.warehouse,
+    createdAt: session.createdAt.toISOString(),
+    items: session.items.map((item) => ({
+      id: item.id,
+      productId: item.productId,
+      productName: item.product.name,
+      category: item.product.category,
+      qrCode: item.product.qrCode,
+      cartonQrCode: item.product.cartonQrCode,
+      pcsPerCarton: item.product.pcsPerCarton,
+      actualQty: item.actualQty, // shows the worker's own prior progress — never wiped on reopen
+      notes: item.notes,
+      approvalStatus: item.approvalStatus,
+    })),
+  };
+}
+
+export async function scanCycleCountQrCode(token: string, qrCode: string) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { publicToken: token },
+    select: { id: true, status: true },
+  });
+  if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
+  if (session.status !== CycleCountSessionStatus.OPEN)
+    throw new AppError("الجلسة ليست مفتوحة للتعديل", 400, "SESSION_NOT_OPEN");
+
+  const product = await prisma.product.findFirst({
+    where: { OR: [{ qrCode: qrCode.trim() }, { cartonQrCode: qrCode.trim() }], deletedAt: null },
+  });
+  if (!product) throw new AppError("لم يُعثر على منتج بهذا الباركود", 404, "PRODUCT_NOT_FOUND");
+
+  const item = await prisma.cycleCountItem.findFirst({ where: { sessionId: session.id, productId: product.id } });
+  if (!item) throw new AppError("هذا المنتج ليس ضمن قائمة الجرد", 404, "ITEM_NOT_IN_SESSION");
+  if (item.approvalStatus !== CycleCountApprovalStatus.PENDING)
+    throw new AppError("تم معالجة هذا العنصر بالفعل", 400, "ITEM_ALREADY_PROCESSED");
+
+  const isCartonBarcode = product.cartonQrCode === qrCode.trim();
+  const increment = isCartonBarcode ? Math.max(1, product.pcsPerCarton) : 1;
+  const newQty = (item.actualQty ?? 0) + increment;
+
+  await prisma.cycleCountItem.update({
+    where: { id: item.id },
+    data: { actualQty: newQty, variance: newQty - item.systemQty },
+  });
+
+  return { productId: product.id, productName: product.name, category: product.category, newQty, increment };
+}
+
+export async function setCycleCountItemQty(
+  token: string,
+  productId: string,
+  qty: number,
+  unit: "CARTON" | "PIECE",
+) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { publicToken: token },
+    select: { id: true, status: true },
+  });
+  if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
+  if (session.status !== CycleCountSessionStatus.OPEN)
+    throw new AppError("الجلسة ليست مفتوحة للتعديل", 400, "SESSION_NOT_OPEN");
+
+  const item = await prisma.cycleCountItem.findFirst({
+    where: { sessionId: session.id, productId },
+    include: { product: { select: { pcsPerCarton: true } } },
+  });
+  if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
+  if (item.approvalStatus !== CycleCountApprovalStatus.PENDING)
+    throw new AppError("تم معالجة هذا العنصر بالفعل", 400, "ITEM_ALREADY_PROCESSED");
+
+  const actualPcsPerCarton = Math.max(1, item.product.pcsPerCarton);
+  const qtyInPieces = unit === "CARTON" ? qty * actualPcsPerCarton : qty;
+
+  await prisma.cycleCountItem.update({
+    where: { id: item.id },
+    data: { actualQty: qtyInPieces, variance: qtyInPieces - item.systemQty },
+  });
+
+  return { productId, actualQty: qtyInPieces, unit, original: qty };
+}
+
+export async function submitPublicCycleCount(token: string) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { publicToken: token },
+    select: { id: true },
+  });
+  if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
+
+  await performSubmit(session.id);
   return { success: true };
 }
 
