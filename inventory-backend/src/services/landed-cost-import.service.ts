@@ -220,13 +220,13 @@ export interface CreateBatchInput {
   items: LandedCostComputedItem[];
 }
 
-export async function createBatchFromPreview(input: CreateBatchInput, createdBy: string) {
+export async function createBatchFromPreview(input: CreateBatchInput, createdBy: string, db: Db = prisma) {
   const totalExtraCost = roundMoney(
     (input.freight ?? 0) + (input.customs ?? 0) + (input.localTransport ?? 0) +
     (input.unloading ?? 0) + (input.commission ?? 0) + (input.otherCosts ?? 0)
   );
 
-  const batch = await prisma.landedCostImportBatch.create({
+  const batch = await db.landedCostImportBatch.create({
     data: {
       invoiceNumber: input.invoiceNumber?.trim() || null,
       supplier: input.supplier?.trim() || null,
@@ -268,8 +268,8 @@ export async function createBatchFromPreview(input: CreateBatchInput, createdBy:
   return batch;
 }
 
-export async function getBatch(batchId: string) {
-  const batch = await prisma.landedCostImportBatch.findUnique({
+export async function getBatch(batchId: string, db: Db = prisma) {
+  const batch = await db.landedCostImportBatch.findUnique({
     where: { id: batchId },
     include: {
       items: { include: { product: { select: { id: true, name: true, itemNumber: true, imageUrl: true, thumbnailUrl: true, salePrice: true, purchasePrice: true, costPrice: true } } } },
@@ -280,8 +280,8 @@ export async function getBatch(batchId: string) {
   return batch;
 }
 
-export async function listBatches() {
-  return prisma.landedCostImportBatch.findMany({
+export async function listBatches(db: Db = prisma) {
+  return db.landedCostImportBatch.findMany({
     orderBy: { createdAt: "desc" },
     take: 100,
     include: { _count: { select: { items: true } }, purchaseInvoice: { select: { id: true, invoiceNumber: true } } },
@@ -304,24 +304,28 @@ export interface ItemDecisionInput {
   } | null;
 }
 
-export async function setItemDecision(batchId: string, itemId: string, decision: ItemDecisionInput) {
-  const batch = await prisma.landedCostImportBatch.findUnique({ where: { id: batchId }, select: { status: true } });
+export async function setItemDecision(batchId: string, itemId: string, decision: ItemDecisionInput, db: Db = prisma) {
+  const batch = await db.landedCostImportBatch.findUnique({ where: { id: batchId }, select: { status: true } });
   if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
   if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED || batch.status === LandedCostBatchStatus.CANCELLED) {
     throw new AppError("لا يمكن تعديل دفعة تم تحويلها لفاتورة شراء أو أُلغيت", 409, "BATCH_LOCKED");
   }
 
-  const item = await prisma.landedCostImportItem.findFirst({ where: { id: itemId, batchId } });
+  const item = await db.landedCostImportItem.findFirst({ where: { id: itemId, batchId } });
   if (!item) throw new AppError("الصنف غير موجود ضمن هذه الدفعة", 404, "ITEM_NOT_FOUND");
 
   if (decision.action === LandedCostItemAction.LINK_EXISTING && !decision.productId) {
     throw new AppError("اختر مادة موجودة للربط", 400, "PRODUCT_REQUIRED");
   }
+  if (decision.action === LandedCostItemAction.LINK_EXISTING && decision.productId) {
+    const linked = await db.product.findFirst({ where: { id: decision.productId, deletedAt: null } });
+    if (!linked) throw new AppError("المادة المختارة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
+  }
   if (decision.action === LandedCostItemAction.CREATE_NEW && (decision.confirmedSalePrice === undefined || decision.confirmedSalePrice === null)) {
     throw new AppError("سعر البيع مطلوب عند إنشاء مادة جديدة", 400, "SALE_PRICE_REQUIRED");
   }
 
-  const updated = await prisma.landedCostImportItem.update({
+  const updated = await db.landedCostImportItem.update({
     where: { id: itemId },
     data: {
       action: decision.action,
@@ -337,20 +341,20 @@ export async function setItemDecision(batchId: string, itemId: string, decision:
   });
 
   if (batch.status === LandedCostBatchStatus.DRAFT_PRICED) {
-    await prisma.landedCostImportBatch.update({ where: { id: batchId }, data: { status: LandedCostBatchStatus.REVIEWING_ITEMS } });
+    await db.landedCostImportBatch.update({ where: { id: batchId }, data: { status: LandedCostBatchStatus.REVIEWING_ITEMS } });
   }
 
   return updated;
 }
 
-export async function cancelBatch(batchId: string, userId: string) {
-  const batch = await prisma.landedCostImportBatch.findUnique({ where: { id: batchId }, select: { status: true } });
+export async function cancelBatch(batchId: string, userId: string, db: Db = prisma) {
+  const batch = await db.landedCostImportBatch.findUnique({ where: { id: batchId }, select: { status: true } });
   if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
   if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED) {
     throw new AppError("لا يمكن إلغاء دفعة تم تحويلها بالفعل لفاتورة شراء", 409, "BATCH_LOCKED");
   }
-  await prisma.landedCostImportBatch.update({ where: { id: batchId }, data: { status: LandedCostBatchStatus.CANCELLED } });
-  await prisma.auditLog.create({
+  await db.landedCostImportBatch.update({ where: { id: batchId }, data: { status: LandedCostBatchStatus.CANCELLED } });
+  await db.auditLog.create({
     data: { userId, action: "LANDED_COST_CANCELLED", entity: "LandedCostImportBatch", recordId: batchId, metadata: {} as Prisma.InputJsonValue },
   });
 }
@@ -374,31 +378,71 @@ export interface FinalConfirmSummary {
   warnings: string[];
 }
 
-export async function finalConfirmBatch(batchId: string, opts: FinalConfirmInput, userId: string, userName?: string): Promise<FinalConfirmSummary> {
-  return prisma.$transaction(async (tx) => {
-    const batch = await tx.landedCostImportBatch.findUnique({
-      where: { id: batchId },
-      include: { items: true },
-    });
-    if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
-    if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED) {
-      throw new AppError("تم بالفعل إنشاء فاتورة شراء من هذه الدفعة", 409, "ALREADY_APPLIED");
-    }
-    if (batch.status === LandedCostBatchStatus.CANCELLED) {
-      throw new AppError("هذه الدفعة ملغاة", 409, "BATCH_CANCELLED");
-    }
+export async function finalConfirmBatch(
+  batchId: string,
+  opts: FinalConfirmInput,
+  userId: string,
+  userName?: string,
+  db?: Prisma.TransactionClient,
+): Promise<FinalConfirmSummary> {
+  if (db) return finalConfirmBatchInTransaction(db, batchId, opts, userId, userName);
+  return prisma.$transaction((tx) => finalConfirmBatchInTransaction(tx, batchId, opts, userId, userName));
+}
 
-    const pendingBlocking = batch.items.filter(
-      (it) => it.action === LandedCostItemAction.PENDING
+async function finalConfirmBatchInTransaction(
+  tx: Prisma.TransactionClient,
+  batchId: string,
+  opts: FinalConfirmInput,
+  userId: string,
+  userName?: string,
+): Promise<FinalConfirmSummary> {
+  const batch = await tx.landedCostImportBatch.findUnique({
+    where: { id: batchId },
+    include: { items: true },
+  });
+  if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
+  if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED) {
+    throw new AppError("تم بالفعل إنشاء فاتورة شراء من هذه الدفعة", 409, "ALREADY_APPLIED");
+  }
+  if (batch.status === LandedCostBatchStatus.CANCELLED) {
+    throw new AppError("هذه الدفعة ملغاة", 409, "BATCH_CANCELLED");
+  }
+
+  const pendingBlocking = batch.items.filter(
+    (it) => it.action === LandedCostItemAction.PENDING
+  );
+  if (pendingBlocking.length > 0) {
+    throw new AppError(
+      `يوجد ${pendingBlocking.length} صنف بحاجة لقرار (ربط بمادة / إنشاء مادة جديدة / تخطي) قبل التأكيد`,
+      400,
+      "UNRESOLVED_ITEMS"
     );
-    if (pendingBlocking.length > 0) {
-      throw new AppError(
-        `يوجد ${pendingBlocking.length} صنف بحاجة لقرار (ربط بمادة / إنشاء مادة جديدة / تخطي) قبل التأكيد`,
-        400,
-        "UNRESOLVED_ITEMS"
-      );
-    }
+  }
 
+  const zeroQty = batch.items.find((it) => it.action !== LandedCostItemAction.SKIP && it.quantity <= 0);
+  if (zeroQty) {
+    throw new AppError(`الصنف "${zeroQty.productName}" له كمية صفر أو غير صحيحة — تخطّه أو صحّح الكمية قبل التأكيد`, 400, "INVALID_QUANTITY");
+  }
+
+  // Atomically claim the batch by flipping its status now that every
+  // validation above has passed, still inside this same transaction. Postgres
+  // holds a row lock on this UPDATE for the rest of the transaction, so a
+  // second concurrent confirm (double-click, or two admins confirming the
+  // same batch at once) blocks until this one commits/rolls back, then sees
+  // status already PURCHASE_INVOICE_CREATED and gets count 0 — preventing two
+  // purchase invoices ever being created from one batch. If anything below
+  // throws, the whole transaction (including this claim) rolls back, so a
+  // failed confirm never leaves the batch falsely "applied".
+  const claim = await tx.landedCostImportBatch.updateMany({
+    where: { id: batchId, status: { notIn: [LandedCostBatchStatus.PURCHASE_INVOICE_CREATED, LandedCostBatchStatus.CANCELLED] } },
+    data: { status: LandedCostBatchStatus.PURCHASE_INVOICE_CREATED },
+  });
+  if (claim.count === 0) {
+    // Lost a race against a concurrent confirm that landed between our read and this claim.
+    throw new AppError("تم بالفعل إنشاء فاتورة شراء من هذه الدفعة", 409, "ALREADY_APPLIED");
+  }
+
+  {
     const warnings: string[] = [];
     let linkedCount = 0;
     let createdCount = 0;
@@ -442,6 +486,12 @@ export async function finalConfirmBatch(batchId: string, opts: FinalConfirmInput
         );
         productId = created.id;
         createdCount++;
+        // The purchase invoice created below runs its own weighted-average-cost
+        // update on this product. For a brand-new product (zero prior stock)
+        // that average collapses to the raw purchase price and would silently
+        // erase the landed cost we just set via createProduct — so re-assert it
+        // after createInvoice runs, same as the LINK_EXISTING overwrite below.
+        costOverwrites.push({ productId, costPrice: Number(item.landedCostPerUnit), purchasePrice: Number(item.purchasePrice) });
       } else {
         // LINK_EXISTING
         if (!productId) {
@@ -526,5 +576,5 @@ export async function finalConfirmBatch(batchId: string, opts: FinalConfirmInput
       totalStockAdded,
       warnings,
     };
-  });
+  }
 }

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCustomerSafeInvoiceDto } from "./invoice-export.service";
+import { buildCustomerSafeInvoiceDto, generateInvoicePdf, generateInvoicePng, generateCustomerImageInvoiceWithProducts } from "./invoice-export.service";
 
 const FORBIDDEN_KEYS = ["purchasePrice", "costPrice", "profit", "margin", "internalNotes", "notes"];
 
@@ -88,4 +88,42 @@ test("rejects PURCHASE invoices — this feature is customer-facing SALE invoice
     () => buildCustomerSafeInvoiceDto("inv-2", fakeInvoiceDb({ type: "PURCHASE" })),
     /فواتير البيع فقط|NOT_A_SALE_INVOICE/,
   );
+});
+
+test("generateCustomerImageInvoiceWithProducts is exported as a callable function taking one invoiceId argument", () => {
+  // Full rendering isn't independently DB-injectable (it calls
+  // buildCustomerSafeInvoiceDto with the default real-prisma db), so the
+  // safety-critical part (field allowlisting) is covered directly against
+  // buildCustomerSafeInvoiceDto above; this just guards the export shape.
+  assert.equal(typeof generateCustomerImageInvoiceWithProducts, "function");
+  assert.equal(generateCustomerImageInvoiceWithProducts.length, 1);
+});
+
+test("embeddableImage-driven rendering: a data: URL image is embedded, a bare http(s) URL falls back to the placeholder", async () => {
+  const dataUrlDb = fakeInvoiceDb({
+    items: [{
+      productName: "منتج له صورة", unit: "PIECE", quantity: 1, unitPrice: 100, totalPrice: 100,
+      product: { thumbnailUrl: "data:image/jpeg;base64,/9j/AAAA", imageUrl: null },
+    }],
+  });
+  const withImage = await buildCustomerSafeInvoiceDto("inv-3", dataUrlDb);
+  assert.equal(withImage.lines[0].imageDataUrl, "data:image/jpeg;base64,/9j/AAAA");
+
+  const httpUrlDb = fakeInvoiceDb({
+    items: [{
+      productName: "منتج رابط خارجي", unit: "PIECE", quantity: 1, unitPrice: 100, totalPrice: 100,
+      product: { thumbnailUrl: null, imageUrl: "https://example.com/product.jpg" },
+    }],
+  });
+  const withHttpUrl = await buildCustomerSafeInvoiceDto("inv-4", httpUrlDb);
+  assert.equal(withHttpUrl.lines[0].imageDataUrl, null, "bare http(s) URLs cannot be rasterized offline -> must fall back to placeholder, not a broken reference");
+});
+
+// ── Old WhatsApp PDF path (feature request: "old option must stay exactly working") ──
+
+test("the old WhatsApp PDF export functions are still exported as callable functions (unchanged by the new image-invoice feature)", () => {
+  assert.equal(typeof generateInvoicePng, "function");
+  assert.equal(typeof generateInvoicePdf, "function");
+  assert.equal(generateInvoicePng.length, 1, "signature unchanged: still takes a single invoiceId argument");
+  assert.equal(generateInvoicePdf.length, 1, "signature unchanged: still takes a single invoiceId argument");
 });

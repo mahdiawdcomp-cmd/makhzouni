@@ -47,6 +47,7 @@ const product: any = {
 const invoices: any[] = [];
 const vouchers: any[] = [];
 const movements: any[] = [];
+const appNotifications: any[] = [];
 const counters = new Map<string, number>();
 let invSeq = 0, itemSeq = 0, vSeq = 0;
 
@@ -197,6 +198,32 @@ const tx: any = {
 
   couponRedemption: { deleteMany: async () => ({ count: 0 }), create: async () => ({}) },
   pendingApproval: { create: async () => ({}) },
+
+  // invoice.service notifies admins on create/edit (createAppNotification/notifyAdmin,
+  // real unmocked service — see app-notification.service.ts). Faithful in-memory stub
+  // so those calls succeed exactly like the real appNotification table would.
+  appNotification: {
+    findFirst: async ({ where }: any) => {
+      const matches = appNotifications.filter(
+        (n) =>
+          (where?.dedupeKey === undefined || n.dedupeKey === where.dedupeKey) &&
+          (where?.archivedAt !== null || n.archivedAt == null),
+      );
+      return matches.length ? { ...matches[matches.length - 1] } : null;
+    },
+    create: async ({ data }: any) => {
+      const n = { id: `an-${appNotifications.length + 1}`, createdAt: new Date(), count: 1, readAt: null, archivedAt: null, ...data };
+      appNotifications.push(n);
+      return { ...n };
+    },
+    update: async ({ where, data }: any) => {
+      const n = appNotifications.find((x) => x.id === where.id);
+      if (!n) throw new Error(`[fake] appNotification ${where.id} missing`);
+      if (data.count?.increment) n.count = (n.count ?? 0) + data.count.increment;
+      for (const k of ["title", "message", "severity", "metadata", "readAt"]) if (data[k] !== undefined) n[k] = data[k];
+      return { ...n };
+    },
+  },
 
   paymentVoucher: {
     create: async ({ data }: any) => {

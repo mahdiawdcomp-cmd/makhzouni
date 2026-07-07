@@ -147,7 +147,7 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
           </div>
         )}
 
-        {item.action !== "CREATE_NEW" && (
+        {item.action === "LINK_EXISTING" && item.productId && (
           <div className="mt-2">
             <Label className="text-xs">سعر البيع (للمعاينة فقط، لا يُحدَّث تلقائياً في المادة الموجودة)</Label>
             <Input
@@ -155,7 +155,7 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
               className="w-40"
               value={salePrice ?? ""}
               onChange={(e) => setSalePrice(Number(e.target.value) || undefined)}
-              onBlur={() => decisionMutation.mutate({ action: item.action === "PENDING" ? "LINK_EXISTING" : item.action, confirmedSalePrice: salePrice, productId: item.productId })}
+              onBlur={() => decisionMutation.mutate({ action: "LINK_EXISTING", confirmedSalePrice: salePrice, productId: item.productId })}
             />
           </div>
         )}
