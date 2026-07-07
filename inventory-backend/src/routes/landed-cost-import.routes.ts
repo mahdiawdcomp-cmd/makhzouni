@@ -19,7 +19,8 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { requireAnyPermission } from "../middleware/permission.middleware";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+// 25MB: real China-order sheets often carry embedded product photos.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 router.use(authMiddleware);
 // Deals with purchase cost + creates real purchase invoices — gate behind the

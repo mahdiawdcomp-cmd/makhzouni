@@ -50,27 +50,75 @@ export interface ChinaOrderRow {
   cartonCbm: number;
 }
 
+// Column aliases used only to auto-detect a header row. The template is
+// positional (fixed order), so header names are OPTIONAL — any real-world
+// sheet whose columns follow the fixed order works even with custom labels
+// or a decorative title row above the table.
+const HEADER_ALIASES: Record<keyof ChinaOrderRow, string[]> = {
+  itemNumber: ["itemnumber", "item_number", "رقم المادة", "كود الصنف", "كود", "رقم"],
+  image: ["image", "الصورة", "صورة"],
+  cartonCount: ["cartoncount", "carton_count", "cartons", "عدد الكراتين", "الكراتين", "كراتين"],
+  piecesPerCarton: ["piecespercarton", "pieces_per_carton", "قطع بالكارتون", "عدد القطع بالكارتون", "قطع الكارتون"],
+  unitPriceCny: ["unitpricecny", "unit_price_cny", "سعر القطعة يوان", "سعر المفرد يوان", "سعر القطعة", "سعر يوان"],
+  cartonCbm: ["cartoncbm", "carton_cbm", "cbm", "حجم الكارتون", "الحجم"],
+};
+
 export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
   const wb = read(buffer, { type: "buffer" });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const raw = utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
 
-  if (raw.length === 0) throw new AppError("الملف فارغ", 400, "EMPTY_FILE");
-  if (raw.length > 2000) throw new AppError("الملف يحتوي على أكثر من 2000 صف", 400, "TOO_MANY_ROWS");
+  // First sheet that actually contains rows.
+  let grid: unknown[][] = [];
+  for (const name of wb.SheetNames) {
+    const aoa = utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "" });
+    if (aoa.some((r) => r.some((c) => clean(c) !== ""))) { grid = aoa; break; }
+  }
+  if (grid.length === 0) throw new AppError("الملف فارغ", 400, "EMPTY_FILE");
 
-  const rows = raw.map((row) => ({
-    itemNumber: clean(row["itemNumber"] ?? row["رقم المادة"] ?? row["كود الصنف"] ?? row["item_number"]),
-    image: clean(row["image"] ?? row["الصورة"] ?? row["صورة"]),
-    cartonCount: Math.max(0, Math.floor(cleanNum(row["cartonCount"] ?? row["عدد الكراتين"] ?? row["carton_count"]))),
-    piecesPerCarton: Math.max(0, Math.floor(cleanNum(row["piecesPerCarton"] ?? row["قطع بالكارتون"] ?? row["عدد القطع بالكارتون"] ?? row["pieces_per_carton"]))),
-    unitPriceCny: cleanNum(row["unitPriceCny"] ?? row["سعر القطعة يوان"] ?? row["سعر المفرد يوان"] ?? row["unit_price_cny"]),
-    cartonCbm: cleanNum(row["cartonCbm"] ?? row["حجم الكارتون"] ?? row["CBM"] ?? row["carton_cbm"]),
-  }));
+  // Fixed positional order by default; a recognized header row (searched in
+  // the first 10 rows, so title rows above the table are fine) can remap it.
+  let cols: Record<keyof ChinaOrderRow, number> = { itemNumber: 0, image: 1, cartonCount: 2, piecesPerCarton: 3, unitPriceCny: 4, cartonCbm: 5 };
+  let dataStart = 0;
+  for (let i = 0; i < Math.min(grid.length, 10); i++) {
+    const cells = grid[i].map((c) => clean(c).toLowerCase());
+    const found: Partial<Record<keyof ChinaOrderRow, number>> = {};
+    cells.forEach((cell, idx) => {
+      for (const key of Object.keys(HEADER_ALIASES) as (keyof ChinaOrderRow)[]) {
+        if (found[key] === undefined && HEADER_ALIASES[key].includes(cell)) found[key] = idx;
+      }
+    });
+    if (found.cartonCount !== undefined && found.piecesPerCarton !== undefined && found.unitPriceCny !== undefined) {
+      cols = { ...cols, ...found };
+      dataStart = i + 1;
+      break;
+    }
+  }
 
-  // Skip fully-empty rows (common trailing rows in real sheets).
-  const filtered = rows.filter((r) => r.itemNumber || r.cartonCount || r.unitPriceCny);
-  if (filtered.length === 0) throw new AppError("الملف فارغ", 400, "EMPTY_FILE");
-  return filtered;
+  const rows: ChinaOrderRow[] = [];
+  for (let i = dataStart; i < grid.length; i++) {
+    const r = grid[i];
+    const row: ChinaOrderRow = {
+      itemNumber: clean(r[cols.itemNumber]),
+      image: clean(r[cols.image]),
+      cartonCount: Math.max(0, Math.floor(cleanNum(r[cols.cartonCount]))),
+      piecesPerCarton: Math.max(0, Math.floor(cleanNum(r[cols.piecesPerCarton]))),
+      unitPriceCny: cleanNum(r[cols.unitPriceCny]),
+      cartonCbm: cleanNum(r[cols.cartonCbm]),
+    };
+    // Skip non-data rows (titles, header text, totals, trailing blanks): a
+    // real order line always carries at least one of the three key numbers.
+    if (row.cartonCount <= 0 && row.piecesPerCarton <= 0 && row.unitPriceCny <= 0) continue;
+    rows.push(row);
+  }
+
+  if (rows.length === 0) {
+    throw new AppError(
+      "لم أتعرف على بيانات الملف. تأكد أن الأعمدة بالترتيب الثابت: رقم المادة، الصورة، عدد الكراتين، قطع الكارتون، سعر القطعة يوان، حجم الكارتون (CBM)",
+      400,
+      "NO_VALID_ROWS"
+    );
+  }
+  if (rows.length > 2000) throw new AppError("الملف يحتوي على أكثر من 2000 صف", 400, "TOO_MANY_ROWS");
+  return rows;
 }
 
 export function buildChinaOrderTemplate(): Buffer {

@@ -140,6 +140,44 @@ test("parseChinaOrderExcel accepts the Arabic header equivalents", () => {
   assert.equal(rows[0].cartonCbm, 0.15);
 });
 
+test("parseChinaOrderExcel works POSITIONALLY: custom header labels + a title row above the table", () => {
+  // Real supplier sheets rarely use our exact header names — the template is
+  // fixed by ORDER, so col1..col6 must be read by position.
+  const buf = xlsxBuffer(
+    ["أوردر شهر 7 من المكتب"], // decorative title row
+    [
+      ["الكود", "صورة المنتج", "كم كرتون", "كم قطعة", "السعر", "الحجم"], // custom labels we don't know
+      ["A-100", "", 10, 72, 10, 0.2],
+      ["A-200", "", 5, 24, 3.5, 0.15],
+    ],
+  );
+  const rows = parseChinaOrderExcel(buf);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], { itemNumber: "A-100", image: "", cartonCount: 10, piecesPerCarton: 72, unitPriceCny: 10, cartonCbm: 0.2 });
+  assert.equal(rows[1].unitPriceCny, 3.5);
+});
+
+test("parseChinaOrderExcel skips trailing totals/blank rows", () => {
+  const buf = xlsxBuffer(
+    ["itemNumber", "image", "cartonCount", "piecesPerCarton", "unitPriceCny", "cartonCbm"],
+    [
+      ["P001", "", 10, 72, 3.5, 0.2],
+      ["", "", "", "", "", ""],
+      ["الإجمالي", "", "", "", "", ""],
+    ],
+  );
+  const rows = parseChinaOrderExcel(buf);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].itemNumber, "P001");
+});
+
+test("parseChinaOrderExcel gives a clear NO_VALID_ROWS error for a sheet with no usable data", () => {
+  const buf = xlsxBuffer(["itemNumber", "image", "cartonCount", "piecesPerCarton", "unitPriceCny", "cartonCbm"], []);
+  assert.throws(() => parseChinaOrderExcel(buf), (e: any) => e.code === "NO_VALID_ROWS");
+  const junk = xlsxBuffer(["ملاحظات"], [["نص فقط بدون أرقام"], ["سطر آخر"]]);
+  assert.throws(() => parseChinaOrderExcel(junk), (e: any) => e.code === "NO_VALID_ROWS");
+});
+
 test("buildChinaOrderTemplate round-trips through parseChinaOrderExcel", () => {
   const rows = parseChinaOrderExcel(buildChinaOrderTemplate());
   assert.equal(rows.length, 1);
