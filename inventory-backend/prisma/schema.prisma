@@ -1170,6 +1170,12 @@ model LandedCostImportBatch {
   note              String?
   status            LandedCostBatchStatus      @default(DRAFT_PRICED)
   originalFileName  String?                    @map("original_file_name")
+  // China order pricing inputs (fixed-template flow). Local to this batch —
+  // deliberately NOT a general currency/exchange-rate system.
+  cbmPriceUsd       Decimal?                   @map("cbm_price_usd") @db.Decimal(12, 4)
+  officePercent     Decimal?                   @map("office_percent") @db.Decimal(6, 3)
+  cnyPerUsd         Decimal?                   @map("cny_per_usd") @db.Decimal(12, 4)
+  usdToIqd          Decimal?                   @map("usd_to_iqd") @db.Decimal(12, 4)
   purchaseInvoiceId String?                    @map("purchase_invoice_id") @db.Uuid
   purchaseInvoice   Invoice?                   @relation(fields: [purchaseInvoiceId], references: [id])
   createdBy         String                     @map("created_by") @db.Uuid
@@ -1197,6 +1203,12 @@ model LandedCostImportItem {
   productName         String                @map("product_name")
   quantity            Int
   cartonCount         Int?                  @map("carton_count")
+  // China fixed-template fields (nullable for legacy generic batches).
+  piecesPerCarton     Int?                  @map("pieces_per_carton")
+  unitPriceCny        Decimal?              @map("unit_price_cny") @db.Decimal(12, 4)
+  cartonCbm           Decimal?              @map("carton_cbm") @db.Decimal(12, 4)
+  cartonCostUsd       Decimal?              @map("carton_cost_usd") @db.Decimal(12, 4)
+  unitCostUsd         Decimal?              @map("unit_cost_usd") @db.Decimal(12, 4)
   purchasePrice       Decimal               @db.Decimal(12, 2) @map("purchase_price")
   allocatedExtraCost  Decimal               @default(0) @map("allocated_extra_cost") @db.Decimal(12, 2)
   landedCostPerUnit   Decimal               @default(0) @map("landed_cost_per_unit") @db.Decimal(12, 2)

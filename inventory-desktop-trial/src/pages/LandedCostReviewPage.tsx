@@ -88,11 +88,15 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
           {item.action === "SKIP" && <Badge variant="secondary">تم التخطي</Badge>}
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
-          الكمية {item.quantity} · الكراتين {item.cartonCount ?? "—"} · سعر الشراء {money(item.purchasePrice)} · كلفة موزّعة {money(item.allocatedExtraCost)}
+          {item.cartonCount ?? "—"} كرتون × {item.piecesPerCarton ?? "—"} قطعة = <b>{item.quantity}</b> قطعة
+          {item.unitPriceCny != null && <> · سعر القطعة {item.unitPriceCny} ¥</>}
+          {item.cartonCbm != null && <> · CBM {item.cartonCbm}</>}
         </div>
         <div className="mt-1 text-sm">
-          كلفة/قطعة: <b>{money(item.landedCostPerUnit)}</b>
-          {item.landedCostPerCarton != null && <> · كلفة/كرتون: <b>{money(item.landedCostPerCarton)}</b></>}
+          كلفة القطعة: <b>{money(item.landedCostPerUnit)} د.ع</b>
+          {item.unitCostUsd != null && <> ({item.unitCostUsd} $)</>}
+          {item.landedCostPerCarton != null && <> · كلفة الكارتون: <b>{money(item.landedCostPerCarton)} د.ع</b></>}
+          {item.cartonCostUsd != null && <> ({item.cartonCostUsd} $)</>}
           {item.suggestedSalePrice != null && <> · سعر بيع مقترح: <b>{money(item.suggestedSalePrice)}</b></>}
         </div>
 

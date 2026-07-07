@@ -317,4 +317,31 @@ describe("finalConfirmBatch — real createProduct/createInvoice against a fake 
       (err: any) => err.code === "BATCH_CANCELLED",
     );
   });
+
+  it("China-priced item: H (IQD unit cost) flows into the purchase invoice line and no stock moves before confirm", async () => {
+    // Worked example: 10¥ × 72 pcs, 7.2 CNY/USD, 3% office, 0.2 CBM × 170$,
+    // usdToIqd 1400 → A=137$, H=(137/72)×1400 ≈ 2663.89 IQD per piece.
+    const H = Math.round(((137 / 72) * 1400 + Number.EPSILON) * 100) / 100;
+    const before = stockOf(existingProduct.id, SHOP);
+    const batch = makeBatch({
+      items: [baseItem({
+        productId: existingProduct.id, quantity: 720, cartonCount: 10,
+        purchasePrice: H, landedCostPerUnit: H,
+      })],
+    });
+
+    // Nothing has moved during upload/pricing/persist — only confirm moves stock.
+    assert.equal(stockOf(existingProduct.id, SHOP), before, "no stock change before final confirm");
+
+    const summary = await finalConfirmBatch(batch.id, { supplierCustomerId: CUST, warehouseId: SHOP, paidAmount: 0 }, "user-1", "Admin", tx);
+    assert.equal(summary.totalStockAdded, 720);
+    assert.equal(stockOf(existingProduct.id, SHOP), before + 720);
+
+    // The invoice line must carry H as its per-piece unit price…
+    const line = invoiceItems.find((i) => i.invoiceId === batch.purchaseInvoiceId && i.productId === existingProduct.id);
+    assert.ok(line, "invoice line created for the China item");
+    assert.equal(Number(line.unitPrice), H);
+    // …and the product's cost is overwritten to exactly H (not WAC-blended).
+    assert.equal(Number(existingProduct.costPrice), H);
+  });
 });

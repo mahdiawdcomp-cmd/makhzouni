@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardHeader, CardContent } from "../components/ui/card"
@@ -6,24 +6,17 @@ import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
 import { Badge } from "../components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { toast } from "../components/ui/use-toast"
 import {
   cancelLandedCostBatch,
-  createLandedCostBatch,
-  getLandedCostTemplateUrl,
+  createChinaOrderBatch,
+  getChinaTemplateUrl,
   listLandedCostBatches,
-  previewLandedCost,
-  type LandedCostAllocationMethod,
+  previewChinaOrder,
+  type ChinaPricingParams,
+  type ChinaPricingResult,
   type LandedCostBatch,
-  type LandedCostPreviewResult,
 } from "../api/endpoints"
-
-const ALLOCATION_LABELS: Record<LandedCostAllocationMethod, string> = {
-  BY_QUANTITY: "حسب الكمية",
-  BY_VALUE: "حسب قيمة الشراء",
-  BY_CARTON: "حسب عدد الكراتين",
-}
 
 const STATUS_LABELS: Record<LandedCostBatch["status"], { label: string; variant: "secondary" | "info" | "success" | "danger" }> = {
   DRAFT_PRICED: { label: "تم التسعير", variant: "info" },
@@ -32,8 +25,12 @@ const STATUS_LABELS: Record<LandedCostBatch["status"], { label: string; variant:
   CANCELLED: { label: "ملغاة", variant: "danger" },
 }
 
-function money(n: number) {
+function iqd(n: number) {
   return Math.round(n).toLocaleString("en-US")
+}
+
+function usd(n: number) {
+  return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
 
 export function LandedCostImportPage() {
@@ -41,28 +38,30 @@ export function LandedCostImportPage() {
   const queryClient = useQueryClient()
 
   const [file, setFile] = useState<File | null>(null)
-  const [allocationMethod, setAllocationMethod] = useState<LandedCostAllocationMethod>("BY_VALUE")
   const [invoiceNumber, setInvoiceNumber] = useState("")
   const [supplier, setSupplier] = useState("")
   const [note, setNote] = useState("")
-  const [extra, setExtra] = useState({ freight: "", customs: "", localTransport: "", unloading: "", commission: "", otherCosts: "" })
-  const [preview, setPreview] = useState<LandedCostPreviewResult | null>(null)
+  // Screen inputs — local to this pricing only (no general currency system).
+  const [cbmPriceUsd, setCbmPriceUsd] = useState("")
+  const [officePercent, setOfficePercent] = useState("")
+  const [cnyPerUsd, setCnyPerUsd] = useState("")
+  const [usdToIqd, setUsdToIqd] = useState("")
+  const [preview, setPreview] = useState<ChinaPricingResult | null>(null)
 
-  const extraNumbers = useMemo(() => ({
-    freight: Number(extra.freight) || undefined,
-    customs: Number(extra.customs) || undefined,
-    localTransport: Number(extra.localTransport) || undefined,
-    unloading: Number(extra.unloading) || undefined,
-    commission: Number(extra.commission) || undefined,
-    otherCosts: Number(extra.otherCosts) || undefined,
-  }), [extra])
+  const params: ChinaPricingParams = {
+    cbmPriceUsd: Number(cbmPriceUsd) || 0,
+    officePercent: Number(officePercent) || 0,
+    cnyPerUsd: Number(cnyPerUsd) || 0,
+    usdToIqd: Number(usdToIqd) || 0,
+  }
+  const paramsReady = params.cnyPerUsd > 0 && params.usdToIqd > 0
 
   const batchesQuery = useQuery({ queryKey: ["landed-cost-batches"], queryFn: listLandedCostBatches })
 
   const previewMutation = useMutation({
     mutationFn: () => {
       if (!file) throw new Error("اختر ملف Excel أولاً")
-      return previewLandedCost(file, allocationMethod, extraNumbers)
+      return previewChinaOrder(file, params)
     },
     onSuccess: (result) => setPreview(result),
     onError: (err: unknown) => toast({ title: "تعذّرت معاينة الملف", description: String((err as Error)?.message ?? err), variant: "destructive" }),
@@ -70,23 +69,22 @@ export function LandedCostImportPage() {
 
   const createBatchMutation = useMutation({
     mutationFn: () => {
-      if (!preview) throw new Error("لا يوجد معاينة")
-      return createLandedCostBatch({
+      if (!preview) throw new Error("لا يوجد تسعير")
+      return createChinaOrderBatch({
         invoiceNumber: invoiceNumber || undefined,
         supplier: supplier || undefined,
-        allocationMethod,
-        ...extraNumbers,
         note: note || undefined,
         originalFileName: file?.name,
+        params: preview.params,
         items: preview.items,
       })
     },
     onSuccess: (batch) => {
-      toast({ title: "تم حفظ التسعير", description: "الآن راجع الأصناف قبل إنشاء فاتورة الشراء." })
+      toast({ title: "تم حفظ الأوردر المسعّر", description: "الآن راجع الأصناف قبل إنشاء فاتورة الشراء." })
       queryClient.invalidateQueries({ queryKey: ["landed-cost-batches"] })
       navigate(`/inventory/landed-cost/${batch.id}`)
     },
-    onError: (err: unknown) => toast({ title: "تعذّر حفظ الدفعة", description: String((err as Error)?.message ?? err), variant: "destructive" }),
+    onError: (err: unknown) => toast({ title: "تعذّر حفظ الأوردر", description: String((err as Error)?.message ?? err), variant: "destructive" }),
   })
 
   const cancelMutation = useMutation({
@@ -97,66 +95,62 @@ export function LandedCostImportPage() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 sm:p-6" dir="rtl">
       <div>
-        <h1 className="text-xl font-bold">استيراد كلفة الشحنة (Landed Cost)</h1>
+        <h1 className="text-xl font-bold">تسعيرة أوردر الصين</h1>
         <p className="text-sm text-muted-foreground">
-          ارفع ملف Excel لأصناف شحنة وارد، وزّع كلفة الشحن والجمارك وغيرها على الأصناف، وحوّل الأوردر المسعّر لفاتورة شراء حقيقية بعد المراجعة.
+          ارفع ملف Excel بالأعمدة الثابتة (رقم المادة، الصورة، عدد الكراتين، قطع الكارتون، سعر القطعة يوان، حجم الكارتون CBM)،
+          وأدخل سعر المتر ونسبة المكتب وأسعار الصرف — يحسب لك كلفة القطعة بالدينار وكل تفاصيل الكارتون.
         </p>
       </div>
 
       <Card>
         <CardHeader className="flex items-center justify-between">
-          <span className="font-semibold">1. رفع الملف وتوزيع الكلفة</span>
-          <a href={getLandedCostTemplateUrl()} className="text-sm text-indigo-600 underline">تحميل نموذج Excel</a>
+          <span className="font-semibold">1. رفع الملف ومدخلات التسعير</span>
+          <a href={getChinaTemplateUrl()} className="text-sm text-indigo-600 underline">تحميل قالب Excel الثابت</a>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 p-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
-              <Label>ملف Excel</Label>
+              <Label>ملف Excel (القالب الثابت)</Label>
               <Input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-            </div>
-            <div>
-              <Label>طريقة توزيع الكلفة الإضافية</Label>
-              <Select value={allocationMethod} onValueChange={(v) => setAllocationMethod(v as LandedCostAllocationMethod)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(ALLOCATION_LABELS).map(([k, label]) => (
-                    <SelectItem key={k} value={k}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div>
               <Label>رقم فاتورة المورّد (اختياري)</Label>
               <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
             </div>
             <div>
-              <Label>اسم المورّد (اختياري، للعرض فقط)</Label>
+              <Label>اسم المورّد (اختياري)</Label>
               <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} />
             </div>
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-3">
               <Label>ملاحظة (اختياري)</Label>
               <Input value={note} onChange={(e) => setNote(e.target.value)} />
             </div>
           </div>
 
-          <div>
-            <Label className="mb-2 block">التكاليف الإضافية الإجمالية للشحنة (تُوزَّع على الأصناف التي لا تحمل كلفتها الخاصة داخل الملف)</Label>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
-              {(["freight", "customs", "localTransport", "unloading", "commission", "otherCosts"] as const).map((key) => (
-                <div key={key}>
-                  <Label className="text-xs text-muted-foreground">
-                    {{ freight: "الشحن", customs: "الجمارك", localTransport: "نقل داخلي", unloading: "تفريغ", commission: "عمولة", otherCosts: "تكاليف أخرى" }[key]}
-                  </Label>
-                  <Input type="number" value={extra[key]} onChange={(e) => setExtra((s) => ({ ...s, [key]: e.target.value }))} />
-                </div>
-              ))}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div>
+              <Label className="text-xs">سعر المتر المكعب $ (شحن + كمرك + نقل)</Label>
+              <Input type="number" value={cbmPriceUsd} onChange={(e) => setCbmPriceUsd(e.target.value)} placeholder="مثال: 170" />
+            </div>
+            <div>
+              <Label className="text-xs">نسبة المكتب %</Label>
+              <Input type="number" value={officePercent} onChange={(e) => setOfficePercent(e.target.value)} placeholder="مثال: 3" />
+            </div>
+            <div>
+              <Label className="text-xs">كم يوان = 1 دولار</Label>
+              <Input type="number" value={cnyPerUsd} onChange={(e) => setCnyPerUsd(e.target.value)} placeholder="مثال: 7.2" />
+            </div>
+            <div>
+              <Label className="text-xs">سعر صرف الدولار للدينار</Label>
+              <Input type="number" value={usdToIqd} onChange={(e) => setUsdToIqd(e.target.value)} placeholder="مثال: 1400" />
             </div>
           </div>
 
-          <div>
-            <Button disabled={!file || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
-              {previewMutation.isPending ? "جاري المعاينة..." : "معاينة"}
+          <div className="flex items-center gap-3">
+            <Button disabled={!file || !paramsReady || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+              {previewMutation.isPending ? "جاري التسعير..." : "تسعير الأوردر"}
             </Button>
+            {!paramsReady && <span className="text-xs text-muted-foreground">أدخل سعر صرف اليوان والدولار أولاً</span>}
           </div>
         </CardContent>
       </Card>
@@ -164,7 +158,7 @@ export function LandedCostImportPage() {
       {preview && (
         <Card>
           <CardHeader className="flex items-center justify-between">
-            <span className="font-semibold">2. معاينة النتائج ({preview.items.length} صنف)</span>
+            <span className="font-semibold">2. الأوردر المسعّر ({preview.items.length} صنف)</span>
             <div className="flex gap-2">
               {preview.notFoundCount > 0 && <Badge variant="warning">{preview.notFoundCount} صنف غير موجود</Badge>}
               {preview.ambiguousCount > 0 && <Badge variant="danger">{preview.ambiguousCount} صنف مكرر بالملف</Badge>}
@@ -174,32 +168,36 @@ export function LandedCostImportPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs text-muted-foreground dark:bg-slate-800">
                 <tr>
-                  <th className="p-2 text-right">كود</th>
-                  <th className="p-2 text-right">الاسم</th>
-                  <th className="p-2">الكمية</th>
+                  <th className="p-2 text-right">رقم المادة</th>
                   <th className="p-2">كراتين</th>
-                  <th className="p-2">سعر الشراء</th>
-                  <th className="p-2">كلفة موزّعة</th>
-                  <th className="p-2">كلفة/قطعة</th>
-                  <th className="p-2">كلفة/كرتون</th>
-                  <th className="p-2">سعر بيع مقترح</th>
-                  <th className="p-2">ربح متوقع</th>
+                  <th className="p-2">قطع/كرتون</th>
+                  <th className="p-2">إجمالي القطع</th>
+                  <th className="p-2">سعر القطعة ¥</th>
+                  <th className="p-2">كارتون ¥ (X)</th>
+                  <th className="p-2">كارتون $ (Y)</th>
+                  <th className="p-2">بعد المكتب $ (Z)</th>
+                  <th className="p-2">شحن الكارتون $ (V)</th>
+                  <th className="p-2">كلفة الكارتون $ (A)</th>
+                  <th className="p-2">القطعة $ (N)</th>
+                  <th className="p-2">القطعة د.ع (H)</th>
                   <th className="p-2">الحالة</th>
                 </tr>
               </thead>
               <tbody>
                 {preview.items.map((it, i) => (
                   <tr key={i} className="border-t">
-                    <td className="p-2">{it.itemCode || "—"}</td>
-                    <td className="p-2">{it.productName}</td>
-                    <td className="p-2 text-center">{it.quantity}</td>
-                    <td className="p-2 text-center">{it.cartonCount ?? "—"}</td>
-                    <td className="p-2 text-center">{money(it.purchasePrice)}</td>
-                    <td className="p-2 text-center">{money(it.allocatedExtraCost)}</td>
-                    <td className="p-2 text-center font-semibold">{money(it.landedCostPerUnit)}</td>
-                    <td className="p-2 text-center">{it.landedCostPerCarton != null ? money(it.landedCostPerCarton) : "—"}</td>
-                    <td className="p-2 text-center">{it.suggestedSalePrice != null ? money(it.suggestedSalePrice) : "—"}</td>
-                    <td className="p-2 text-center">{it.expectedProfit != null ? money(it.expectedProfit) : "—"}</td>
+                    <td className="p-2 font-semibold">{it.itemNumber || "—"}</td>
+                    <td className="p-2 text-center">{it.cartonCount}</td>
+                    <td className="p-2 text-center">{it.piecesPerCarton}</td>
+                    <td className="p-2 text-center">{it.totalPieces}</td>
+                    <td className="p-2 text-center">{usd(it.unitPriceCny)}</td>
+                    <td className="p-2 text-center">{usd(it.cartonCny)}</td>
+                    <td className="p-2 text-center">{usd(it.cartonUsdBeforeOffice)}</td>
+                    <td className="p-2 text-center">{usd(it.cartonUsdAfterOffice)}</td>
+                    <td className="p-2 text-center">{usd(it.cartonShippingUsd)}</td>
+                    <td className="p-2 text-center font-semibold">{usd(it.cartonCostUsd)}</td>
+                    <td className="p-2 text-center">{usd(it.unitCostUsd)}</td>
+                    <td className="p-2 text-center font-bold">{iqd(it.unitCostIqd)}</td>
                     <td className="p-2 text-center">
                       {it.matchStatus === "MATCHED" && <Badge variant="success">مطابق</Badge>}
                       {it.matchStatus === "NOT_FOUND" && <Badge variant="warning">غير موجود</Badge>}
@@ -210,16 +208,22 @@ export function LandedCostImportPage() {
               </tbody>
             </table>
           </CardContent>
-          <div className="flex justify-end p-4">
+          <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
+              <div>إجمالي الكراتين: <b>{preview.totalCartons}</b></div>
+              <div>إجمالي القطع: <b>{preview.totalPieces}</b></div>
+              <div>كلفة الأوردر: <b>{usd(preview.totalOrderCostUsd)} $</b></div>
+              <div>كلفة الأوردر: <b>{iqd(preview.totalOrderCostIqd)} د.ع</b></div>
+            </div>
             <Button disabled={createBatchMutation.isPending} onClick={() => createBatchMutation.mutate()}>
-              {createBatchMutation.isPending ? "جاري الحفظ..." : "تأكيد التسعير ومتابعة إلى المراجعة"}
+              {createBatchMutation.isPending ? "جاري الحفظ..." : "تريد تضيف هذا الأوردر المسعّر كفاتورة شراء؟"}
             </Button>
           </div>
         </Card>
       )}
 
       <Card>
-        <CardHeader><span className="font-semibold">سجل الاستيرادات السابقة</span></CardHeader>
+        <CardHeader><span className="font-semibold">سجل الأوردرات السابقة</span></CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs text-muted-foreground dark:bg-slate-800">
@@ -254,7 +258,7 @@ export function LandedCostImportPage() {
                 </tr>
               ))}
               {(batchesQuery.data ?? []).length === 0 && (
-                <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">لا يوجد استيرادات سابقة</td></tr>
+                <tr><td colSpan={6} className="p-6 text-center text-muted-foreground">لا يوجد أوردرات سابقة</td></tr>
               )}
             </tbody>
           </table>

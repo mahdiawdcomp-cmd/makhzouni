@@ -1455,6 +1455,12 @@ export interface LandedCostItem extends LandedCostComputedItem {
   confirmedSalePrice: number | null
   newProductDraft: { name?: string; itemCode?: string; barcode?: string; category?: string; pcsPerCarton?: number; imageUrl?: string } | null
   product?: { id: string; name: string; itemNumber: string; imageUrl: string | null; thumbnailUrl: string | null; salePrice: number; purchasePrice: number; costPrice: number } | null
+  // China fixed-template fields (null on legacy generic batches)
+  piecesPerCarton?: number | null
+  unitPriceCny?: number | null
+  cartonCbm?: number | null
+  cartonCostUsd?: number | null
+  unitCostUsd?: number | null
 }
 
 export interface LandedCostBatch {
@@ -1534,6 +1540,72 @@ export interface LandedCostConfirmSummary {
 
 export async function confirmLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number }) {
   const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/confirm`, payload)
+  return data.data!
+}
+
+// ── China fixed-template order pricing (the only visible landed-cost flow) ──
+
+export interface ChinaPricingParams {
+  cbmPriceUsd: number
+  officePercent: number
+  cnyPerUsd: number
+  usdToIqd: number
+}
+
+export interface ChinaPricedItem {
+  itemNumber: string
+  image: string
+  cartonCount: number
+  piecesPerCarton: number
+  totalPieces: number
+  unitPriceCny: number
+  cartonCbm: number
+  cartonCny: number
+  cartonUsdBeforeOffice: number
+  cartonUsdAfterOffice: number
+  cartonShippingUsd: number
+  cartonCostUsd: number
+  unitCostUsd: number
+  unitCostIqd: number
+  cartonCostIqd: number
+  suggestedSalePrice: number | null
+  matchStatus: LandedCostMatchStatus
+  productId: string | null
+  matchedProduct: { id: string; name: string; itemNumber: string; salePrice: number; purchasePrice: number; imageUrl: string | null; thumbnailUrl: string | null } | null
+}
+
+export interface ChinaPricingResult {
+  items: ChinaPricedItem[]
+  totalCartons: number
+  totalPieces: number
+  totalOrderCostUsd: number
+  totalOrderCostIqd: number
+  ambiguousCount: number
+  notFoundCount: number
+  params: ChinaPricingParams
+}
+
+export function getChinaTemplateUrl() {
+  return `${api.defaults.baseURL}/landed-cost/china/template`
+}
+
+export async function previewChinaOrder(file: File, params: ChinaPricingParams) {
+  const form = new FormData()
+  form.append("file", file)
+  Object.entries(params).forEach(([k, v]) => form.append(k, String(v)))
+  const { data } = await api.post<ApiEnvelope<ChinaPricingResult>>("/landed-cost/china/preview", form)
+  return data.data!
+}
+
+export async function createChinaOrderBatch(payload: {
+  invoiceNumber?: string
+  supplier?: string
+  note?: string
+  originalFileName?: string
+  params: ChinaPricingParams
+  items: ChinaPricedItem[]
+}) {
+  const { data } = await api.post<ApiEnvelope<LandedCostBatch>>("/landed-cost/china/batches", payload)
   return data.data!
 }
 

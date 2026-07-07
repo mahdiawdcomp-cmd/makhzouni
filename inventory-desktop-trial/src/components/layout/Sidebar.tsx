@@ -100,7 +100,7 @@ const navItems: Item[] = [
     children: [
       { to: "/inventory", label: "المنتجات", icon: Boxes, dotColor: "#818CF8" },
       { to: "/inventory/transfers", label: "التحويلات", icon: ArrowRightLeft, dotColor: "#38BDF8" },
-      { to: "/inventory/landed-cost", label: "استيراد كلفة الشحنة", icon: FileSpreadsheet, dotColor: "#A78BFA" },
+      { to: "/inventory/landed-cost", label: "تسعيرة أوردر الصين", icon: FileSpreadsheet, dotColor: "#A78BFA" },
     ],
   },
   {
