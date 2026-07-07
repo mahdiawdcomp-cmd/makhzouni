@@ -1381,14 +1381,29 @@ async function updateInvoiceInTransaction(
     const preexistingUnitPairs = new Set(
       invoice.items.map((it) => `${it.productId}:${it.unit}`)
     );
+    // The edit UI may reassign the invoice to a different customer/supplier.
+    // recalculateCustomerBalanceInTransaction above already zeroed this invoice's
+    // effect out of the OLD customer's balance; createInvoiceInTransaction below
+    // recalculates whichever customerId we pass it, so simply passing the new one
+    // through (instead of always forcing the original) is enough to move the
+    // invoice's balance impact onto the new customer.
+    const newCustomerId = input.customerId || invoice.customerId;
+    const customerChanged = newCustomerId !== invoice.customerId;
     const result = await createInvoiceInTransaction(
       tx,
-      { ...input, items: rebuildItems, type: effectiveType, customerId: invoice.customerId },
+      { ...input, items: rebuildItems, type: effectiveType, customerId: newCustomerId },
       updatedBy,
       id,
       invoice.invoiceNumber,
       preexistingUnitPairs
     );
+
+    // If the customer changed, "originalPreviousBalance" was the OLD customer's
+    // pre-invoice balance — meaningless for the new one, so keep the fresh
+    // previousBalance/finalBalance createInvoiceInTransaction just computed.
+    if (customerChanged) {
+      return result;
+    }
 
     // Restore the display-only previousBalance/finalBalance so the invoice shows the
     // balance at the time it was originally created (not the balance including later invoices).

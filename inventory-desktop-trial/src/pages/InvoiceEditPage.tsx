@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, Plus, RefreshCw, Save, Trash2, X, AlertTriangle } from "lucide-react"
+import { ArrowRight, Camera, Plus, RefreshCw, Save, Trash2, X, AlertTriangle } from "lucide-react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
+import { useCustomers } from "../hooks/useCustomers"
 import { updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import type { Product } from "../types/api"
@@ -13,10 +14,21 @@ import { Input } from "../components/ui/input"
 import { NumericInput } from "../components/ui/NumericInput"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { ErrorExplain } from "../components/ui/error-explain"
+import { toast } from "../components/ui/use-toast"
+import { CameraScanModal } from "../components/CameraScanModal"
+import { findProductByScan } from "../utils/barcode-scan"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 import { unitPriceFrom, unitToPieces, visibleUnits } from "../utils/units"
 
 type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
+
+function ProductThumb({ product }: { product: Product }) {
+  const src = product.thumbnailUrl || product.imageUrl
+  if (src) {
+    return <img src={src} alt={product.name} loading="lazy" decoding="async" className="h-8 w-8 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
+  }
+  return <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
+}
 
 interface EditItem {
   productId: string
@@ -58,12 +70,17 @@ export function InvoiceEditPage() {
   const invoice = invoiceQuery.data
   const { productsQuery } = useProducts()
   const allProducts = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
+  const { customersQuery } = useCustomers()
 
   usePageTitle(invoice ? `تعديل الفاتورة ${invoice.invoiceNumber}` : "تعديل الفاتورة")
 
   const [ready, setReady] = useState(false)
   const [discount, setDiscount] = useState(0)
   const [paid, setPaid] = useState("0")
+  const [customerId, setCustomerId] = useState("")
+  const [customerQuery, setCustomerQuery] = useState("")
+  const [customerOpen, setCustomerOpen] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const [paymentType, setPaymentType] = useState<"CREDIT" | "CASH" | "PARTIAL">("CREDIT")
   const [notes, setNotes] = useState("")
   const [items, setItems] = useState<EditItem[]>([])
@@ -78,6 +95,7 @@ export function InvoiceEditPage() {
     setPaid(Number(invoice.paidAmount ?? 0).toLocaleString("en-US"))
     setPaymentType((invoice.paymentType as "CREDIT" | "CASH" | "PARTIAL") ?? "CREDIT")
     setNotes(invoice.notes ?? "")
+    setCustomerId(invoice.customerId)
     setItems((invoice.items ?? []).map((it) => {
       const wsId = it.warehouseId
       const product = allProducts.find((p) => p.id === it.productId)
@@ -104,6 +122,17 @@ export function InvoiceEditPage() {
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.itemNumber.toLowerCase().includes(q))
       .slice(0, 15)
   }, [allProducts, productSearch])
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerQuery.trim().toLowerCase()
+    return (customersQuery.data ?? [])
+      .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.phone ?? "").includes(q))
+      .slice(0, 15)
+  }, [customersQuery.data, customerQuery])
+
+  const selectedCustomerName = useMemo(() => {
+    return (customersQuery.data ?? []).find((c) => c.id === customerId)?.name ?? invoice?.customer?.name ?? "—"
+  }, [customersQuery.data, customerId, invoice])
 
   function addProduct(p: Product) {
     const isSale = invoice?.type === "SALE"
@@ -184,7 +213,7 @@ export function InvoiceEditPage() {
     mutationFn: () =>
       updateInvoice(id!, {
         type: invoice?.type,
-        customerId: invoice?.customerId ?? "",
+        customerId: customerId || (invoice?.customerId ?? ""),
         discount: discount || 0,
         tax: 0,
         paidAmount: Number(paid.replace(/,/g, "")),
@@ -226,13 +255,50 @@ export function InvoiceEditPage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-lg font-bold">تعديل {typeLabel}</p>
-            <p className="text-sm opacity-90">
-              {invoice.invoiceNumber} · {invoice.customer?.name ?? "—"}
-            </p>
+            <p className="text-sm opacity-90">{invoice.invoiceNumber}</p>
           </div>
           <span className="rounded-lg bg-white/20 px-3 py-1 text-xs">التاريخ ورقم الفاتورة ثابتان</span>
         </div>
+        <button
+          type="button"
+          onClick={() => setCustomerOpen((v) => !v)}
+          className="mt-2 text-sm underline decoration-dotted underline-offset-2 opacity-90 hover:opacity-100"
+        >
+          {isSale ? "الزبون" : "المورّد"}: {selectedCustomerName} (تغيير)
+        </button>
       </div>
+
+      {customerOpen ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <div className="mb-2 flex items-center gap-2">
+            <Input
+              autoFocus
+              placeholder={isSale ? "بحث عن زبون بالاسم أو الهاتف" : "بحث عن مورّد بالاسم أو الهاتف"}
+              value={customerQuery}
+              onChange={(e) => setCustomerQuery(e.target.value)}
+            />
+            <Button variant="ghost" size="sm" onClick={() => setCustomerOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="max-h-56 overflow-auto">
+            {filteredCustomers.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`flex w-full justify-between rounded px-3 py-2 text-right text-sm hover:bg-slate-100 dark:hover:bg-slate-800 ${c.id === customerId ? "bg-slate-100 font-semibold dark:bg-slate-800" : ""}`}
+                onClick={() => { setCustomerId(c.id); setCustomerOpen(false); setCustomerQuery("") }}
+              >
+                <span>{c.name}</span>
+                <span className="text-slate-500">{c.phone}</span>
+              </button>
+            ))}
+            {filteredCustomers.length === 0 ? (
+              <p className="px-3 py-4 text-center text-sm text-slate-400">لا نتائج</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {/* Items */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -252,6 +318,14 @@ export function InvoiceEditPage() {
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
               />
+              <button
+                type="button"
+                title="مسح بالكاميرا"
+                onClick={() => setCameraOpen(true)}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-slate-200 bg-white hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-950"
+              >
+                <Camera className="h-4 w-4" />
+              </button>
               <Button variant="ghost" size="sm" onClick={() => setProductOpen(false)}>
                 <X className="h-4 w-4" />
               </Button>
@@ -261,10 +335,15 @@ export function InvoiceEditPage() {
                 <button
                   key={p.id}
                   type="button"
-                  className="flex w-full justify-between rounded px-3 py-2 text-right text-sm hover:bg-white dark:hover:bg-slate-800"
+                  className="flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-right text-sm hover:bg-white dark:hover:bg-slate-800"
                   onClick={() => addProduct(p)}
                 >
-                  <span className="font-medium">{p.name}</span>
+                  <span className="flex flex-col items-start gap-0.5">
+                    <span className="flex items-center gap-2 font-medium"><ProductThumb product={p} />{p.name}</span>
+                    {p.pcsPerCarton > 1 && (
+                      <span className="text-[11px] text-slate-400">{p.pcsPerCarton} قطعة/كرتون</span>
+                    )}
+                  </span>
                   <span className="text-slate-500">{p.itemNumber}</span>
                 </button>
               ))}
@@ -275,6 +354,22 @@ export function InvoiceEditPage() {
           </div>
         ) : null}
 
+        {cameraOpen ? (
+          <CameraScanModal
+            title="مسح صنف بالكاميرا"
+            onDetect={(code) => {
+              setCameraOpen(false)
+              const found = findProductByScan(allProducts, code)
+              if (!found) {
+                toast({ title: "المادة غير موجودة", description: `لا توجد مادة بهذا الباركود: ${code}`, variant: "destructive" })
+                return
+              }
+              addProduct(found.product)
+            }}
+            onClose={() => setCameraOpen(false)}
+          />
+        ) : null}
+
         <div className="overflow-x-auto">
           <Table>
             <THead>
@@ -282,7 +377,7 @@ export function InvoiceEditPage() {
                 <TH>الاسم</TH>
                 <TH>الوحدة</TH>
                 <TH>العدد</TH>
-                <TH>السعر</TH>
+                <TH>{invoice.type === "PURCHASE" ? "سعر الشراء" : "السعر"}</TH>
                 <TH>الإجمالي</TH>
                 <TH>ملاحظة</TH>
                 <TH>حذف</TH>
