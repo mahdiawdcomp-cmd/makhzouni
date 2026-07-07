@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import ExcelJS from "exceljs";
 import { getInvoiceById } from "./invoice.service";
 import { getSettings } from "./settings.service";
 import { pngToPdf } from "../utils/png-to-pdf";
@@ -581,4 +582,130 @@ export async function generateCustomerImageInvoiceWithProducts(invoiceId: string
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+/**
+ * Customer-safe invoice as a real PDF (same rendering as the WhatsApp image
+ * invoice above, wrapped in a single-page PDF instead of a PNG). Built from
+ * the same allowlist DTO — no purchase price/cost/profit can leak in.
+ */
+export async function generateCustomerImagePdf(invoiceId: string): Promise<Buffer> {
+  const png = await generateCustomerImageInvoiceWithProducts(invoiceId);
+  return pngToPdf(png);
+}
+
+function imageExtensionFromDataUrl(dataUrl: string): "jpeg" | "png" | "gif" | null {
+  const match = /^data:image\/(jpeg|jpg|png|gif);base64,/i.exec(dataUrl);
+  if (!match) return null;
+  const type = match[1].toLowerCase();
+  return type === "jpg" ? "jpeg" : (type as "jpeg" | "png" | "gif");
+}
+
+function addEmbeddedImage(workbook: ExcelJS.Workbook, dataUrl: string | null): number | null {
+  if (!dataUrl) return null;
+  const extension = imageExtensionFromDataUrl(dataUrl);
+  if (!extension) return null;
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return workbook.addImage({ base64, extension });
+}
+
+/**
+ * Customer-safe invoice as an .xlsx workbook, with product thumbnails
+ * embedded per row. Built from the exact same allowlist DTO as the PDF/PNG
+ * above — purchase price/cost price/profit/margin/internal notes physically
+ * cannot appear because the DTO never carries them.
+ */
+export async function generateCustomerImageExcel(invoiceId: string): Promise<Buffer> {
+  const dto = await buildCustomerSafeInvoiceDto(invoiceId);
+  return buildCustomerImageExcelFromDto(dto);
+}
+
+// Split out from generateCustomerImageExcel so the workbook-building logic can
+// be unit-tested against a hand-built DTO, without a real database.
+export async function buildCustomerImageExcelFromDto(dto: CustomerSafeInvoiceDto): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("فاتورة", { views: [{ rightToLeft: true }] });
+  sheet.columns = [
+    { width: 4 },   // #
+    { width: 12 },  // صورة
+    { width: 34 },  // اسم الصنف
+    { width: 12 },  // الوحدة
+    { width: 10 },  // الكمية
+    { width: 16 },  // سعر المفرد
+    { width: 18 },  // الإجمالي
+  ];
+
+  const logoImageId = addEmbeddedImage(workbook, embeddableImage(dto.storeLogo));
+  if (logoImageId !== null) {
+    sheet.addImage(logoImageId, { tl: { col: 5.2, row: 0.1 }, ext: { width: 90, height: 60 } });
+  }
+
+  sheet.mergeCells("A1:D1");
+  sheet.getCell("A1").value = dto.storeName;
+  sheet.getCell("A1").font = { bold: true, size: 16 };
+
+  sheet.mergeCells("A2:D2");
+  sheet.getCell("A2").value = `فاتورة رقم ${dto.invoiceNumber}`;
+  sheet.getCell("A2").font = { bold: true, size: 12 };
+
+  sheet.mergeCells("A3:D3");
+  sheet.getCell("A3").value = `التاريخ: ${dto.date}`;
+
+  sheet.mergeCells("A4:D4");
+  sheet.getCell("A4").value = `الزبون: ${dto.customerName}`;
+  sheet.getCell("A4").font = { bold: true };
+
+  const headerRowIndex = 6;
+  const headerRow = sheet.getRow(headerRowIndex);
+  headerRow.values = ["#", "صورة", "اسم الصنف", "الوحدة", "الكمية", "سعر المفرد", "الإجمالي"];
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1D4ED8" } };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+  });
+
+  const currencyFmt = `#,##0 "${dto.currency}"`;
+  let rowIndex = headerRowIndex + 1;
+  dto.lines.forEach((line, i) => {
+    const row = sheet.getRow(rowIndex);
+    row.height = 48;
+    row.getCell(1).value = i + 1;
+    row.getCell(3).value = line.productName;
+    row.getCell(4).value = line.unit;
+    row.getCell(5).value = line.quantity;
+    row.getCell(6).value = line.unitPrice;
+    row.getCell(6).numFmt = currencyFmt;
+    row.getCell(7).value = line.totalPrice;
+    row.getCell(7).numFmt = currencyFmt;
+    row.eachCell((cell) => { cell.alignment = { horizontal: "center", vertical: "middle" }; });
+
+    const imageId = addEmbeddedImage(workbook, line.imageDataUrl);
+    if (imageId !== null) {
+      sheet.addImage(imageId, {
+        tl: { col: 1.15, row: rowIndex - 1 + 0.1 },
+        ext: { width: 44, height: 44 },
+      });
+    }
+    rowIndex += 1;
+  });
+
+  rowIndex += 1;
+  const summaryRows: Array<[string, number]> = [
+    ["الإجمالي", dto.totalAmount],
+    ["المدفوع", dto.paidAmount],
+    ["الباقي", dto.remainingAmount],
+  ];
+  for (const [label, value] of summaryRows) {
+    sheet.mergeCells(`C${rowIndex}:D${rowIndex}`);
+    sheet.getCell(`C${rowIndex}`).value = label;
+    sheet.getCell(`C${rowIndex}`).font = { bold: true };
+    sheet.getCell(`C${rowIndex}`).alignment = { horizontal: "left" };
+    sheet.getCell(`G${rowIndex}`).value = value;
+    sheet.getCell(`G${rowIndex}`).numFmt = currencyFmt;
+    sheet.getCell(`G${rowIndex}`).font = { bold: true };
+    rowIndex += 1;
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
 }

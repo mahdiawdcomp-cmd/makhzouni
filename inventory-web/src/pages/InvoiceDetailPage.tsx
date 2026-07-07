@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Ban,
   FileDown,
+  FileSpreadsheet,
   Image as ImageIcon,
   MessageCircle,
   Pencil,
@@ -17,7 +18,7 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, downloadCustomerImageInvoiceExcelBlob, downloadCustomerImageInvoicePdfBlob, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -41,6 +42,11 @@ function money(v: number | undefined) { return fmt(v) }
 function invoicePdfFilename(invoiceNumber: string) {
   const safeNumber = String(invoiceNumber || "invoice").replace(/[\\/:*?"<>|]+/g, "_")
   return `invoice-${safeNumber}.pdf`
+}
+
+function customerImageInvoiceFilename(invoiceNumber: string, ext: "pdf" | "xlsx") {
+  const safeNumber = String(invoiceNumber || "invoice").replace(/[\\/:*?"<>|]+/g, "_")
+  return `فاتورة-بالصور-${safeNumber}.${ext}`
 }
 
 function unitLabel(unit: string) {
@@ -249,6 +255,66 @@ export function InvoiceDetailPage() {
     }
   }
 
+  // Customer-safe "invoice with product photos" downloads (PDF / Excel) —
+  // same allowlist DTO as sendWaImageInvoice above, never purchase price/cost
+  // price/profit/margin/internal notes. Independent of the WhatsApp send flow.
+  const [customerPdfDownloading, setCustomerPdfDownloading] = useState(false)
+  const [customerExcelDownloading, setCustomerExcelDownloading] = useState(false)
+  const [customerBothDownloading, setCustomerBothDownloading] = useState(false)
+
+  async function downloadCustomerImagePdf() {
+    if (!invoice) return
+    setCustomerPdfDownloading(true)
+    try {
+      const blob = await downloadCustomerImageInvoicePdfBlob(invoice.id)
+      const url = URL.createObjectURL(blob)
+      downloadBlobUrl(url, customerImageInvoiceFilename(invoice.invoiceNumber, "pdf"))
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      toast({ title: "تم تحميل فاتورة بالصور PDF." })
+    } catch {
+      toast({ title: "تعذر تحميل فاتورة بالصور PDF.", variant: "destructive" })
+    } finally {
+      setCustomerPdfDownloading(false)
+    }
+  }
+
+  async function downloadCustomerImageExcel() {
+    if (!invoice) return
+    setCustomerExcelDownloading(true)
+    try {
+      const blob = await downloadCustomerImageInvoiceExcelBlob(invoice.id)
+      const url = URL.createObjectURL(blob)
+      downloadBlobUrl(url, customerImageInvoiceFilename(invoice.invoiceNumber, "xlsx"))
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+      toast({ title: "تم تحميل فاتورة بالصور Excel." })
+    } catch {
+      toast({ title: "تعذر تحميل فاتورة بالصور Excel.", variant: "destructive" })
+    } finally {
+      setCustomerExcelDownloading(false)
+    }
+  }
+
+  async function downloadCustomerImageBoth() {
+    if (!invoice) return
+    setCustomerBothDownloading(true)
+    try {
+      const [pdfBlob, excelBlob] = await Promise.all([
+        downloadCustomerImageInvoicePdfBlob(invoice.id),
+        downloadCustomerImageInvoiceExcelBlob(invoice.id),
+      ])
+      const pdfUrl = URL.createObjectURL(pdfBlob)
+      const excelUrl = URL.createObjectURL(excelBlob)
+      downloadBlobUrl(pdfUrl, customerImageInvoiceFilename(invoice.invoiceNumber, "pdf"))
+      downloadBlobUrl(excelUrl, customerImageInvoiceFilename(invoice.invoiceNumber, "xlsx"))
+      setTimeout(() => { URL.revokeObjectURL(pdfUrl); URL.revokeObjectURL(excelUrl) }, 5000)
+      toast({ title: "تم تحميل PDF + Excel." })
+    } catch {
+      toast({ title: "تعذر تحميل الملفين.", variant: "destructive" })
+    } finally {
+      setCustomerBothDownloading(false)
+    }
+  }
+
   const cancelMutation = useMutation({
     mutationFn: (returnWarehouseId?: string) => cancelInvoice(id!, returnWarehouseId),
     onSuccess: () => {
@@ -425,6 +491,37 @@ export function InvoiceDetailPage() {
             >
               <ImageIcon className="h-3.5 w-3.5 text-emerald-600" /> {waImageSending ? "جاري الإرسال..." : "إرسال فاتورة بالصور"}
             </Button>
+          )}
+          {invoice.type === "SALE" && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void downloadCustomerImagePdf()}
+                disabled={customerPdfDownloading}
+                title="فاتورة بالصور — بدون سعر الشراء أو الأرباح"
+              >
+                <FileDown className="h-3.5 w-3.5 text-indigo-600" /> {customerPdfDownloading ? "جاري التحميل..." : "تحميل فاتورة بالصور PDF"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void downloadCustomerImageExcel()}
+                disabled={customerExcelDownloading}
+                title="فاتورة بالصور — بدون سعر الشراء أو الأرباح"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-600" /> {customerExcelDownloading ? "جاري التحميل..." : "تحميل فاتورة بالصور Excel"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void downloadCustomerImageBoth()}
+                disabled={customerBothDownloading}
+                title="فاتورة بالصور — بدون سعر الشراء أو الأرباح"
+              >
+                <FileDown className="h-3.5 w-3.5 text-indigo-600" /> {customerBothDownloading ? "جاري التحميل..." : "تحميل PDF + Excel"}
+              </Button>
+            </>
           )}
           <Button variant="outline" size="sm" onClick={() => printWithDesign("80mm")}><Printer className="h-3.5 w-3.5" /> طباعة حرارية</Button>
           <Button variant="outline" size="sm" onClick={() => printWithDesign("a4")}><FileDown className="h-3.5 w-3.5" /> طباعة A4</Button>

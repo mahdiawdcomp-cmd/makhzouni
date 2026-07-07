@@ -18,6 +18,8 @@ import {
   updateInvoice,
 } from "../services/invoice.service";
 import {
+  generateCustomerImageExcel,
+  generateCustomerImagePdf,
   generateInvoicePdf,
   generateInvoicePng,
 } from "../services/invoice-export.service";
@@ -239,4 +241,32 @@ export const exportInvoiceImage = asyncHandler(async (req, res) => {
     `attachment; filename="invoice-${String(req.params.id)}.png"`
   );
   res.send(png);
+});
+
+// Customer-safe "invoice with product photos" downloads — same allowlist DTO
+// as the "إرسال فاتورة بالصور" WhatsApp option. Never carries purchase
+// price/cost price/profit/margin/internal notes.
+export const exportCustomerImageInvoicePdf = asyncHandler(async (req, res) => {
+  const pdf = await generateCustomerImagePdf(String(req.params.id));
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="invoice-photos-${String(req.params.id)}.pdf"`
+  );
+  res.send(pdf);
+});
+
+export const exportCustomerImageInvoiceExcel = asyncHandler(async (req, res) => {
+  const excel = await generateCustomerImageExcel(String(req.params.id));
+
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="invoice-photos-${String(req.params.id)}.xlsx"`
+  );
+  res.send(excel);
 });

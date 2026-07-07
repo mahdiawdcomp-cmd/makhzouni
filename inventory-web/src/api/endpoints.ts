@@ -896,6 +896,23 @@ export async function invoiceImageObjectUrl(id: string) {
   return URL.createObjectURL(data as Blob)
 }
 
+// Customer-safe "invoice with product photos" downloads — same allowlist DTO
+// as sendWhatsAppInvoiceImage above (never includes purchase price/cost
+// price/profit/margin/internal notes).
+export async function downloadCustomerImageInvoicePdfBlob(id: string) {
+  const { data } = await api.get(`/invoices/${id}/customer-image-pdf/download`, {
+    responseType: "blob",
+  })
+  return data as Blob
+}
+
+export async function downloadCustomerImageInvoiceExcelBlob(id: string) {
+  const { data } = await api.get(`/invoices/${id}/customer-image-excel/download`, {
+    responseType: "blob",
+  })
+  return data as Blob
+}
+
 export async function getVouchers(params?: { customerId?: string; type?: "RECEIPT" | "PAYMENT" | "EXPENSE"; limit?: number; showCancelled?: boolean }) {
   const { data } = await api.get<PagedResponse<Voucher>>("/vouchers", { params: { limit: 1000, ...params } })
   return data.data ?? []

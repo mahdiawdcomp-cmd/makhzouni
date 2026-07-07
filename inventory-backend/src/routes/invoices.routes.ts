@@ -3,6 +3,8 @@ import {
   addInvoice,
   deleteInvoice,
   editInvoice,
+  exportCustomerImageInvoiceExcel,
+  exportCustomerImageInvoicePdf,
   exportInvoiceImage,
   exportInvoicePdf,
   getInvoiceAudit,
@@ -35,6 +37,8 @@ router.post("/", enforcePlanLimit("invoice"), validate(createInvoiceSchema), add
 router.get("/last-sold-price", validate(lastSoldPriceSchema), getLastSoldPriceForProduct);
 router.get("/:id/pdf", validate(idParamSchema), exportInvoicePdf);
 router.get("/:id/image", validate(idParamSchema), exportInvoiceImage);
+router.get("/:id/customer-image-pdf/download", validate(idParamSchema), exportCustomerImageInvoicePdf);
+router.get("/:id/customer-image-excel/download", validate(idParamSchema), exportCustomerImageInvoiceExcel);
 router.get("/:id/audit-trail", validate(idParamSchema), getInvoiceAudit);
 router.get("/:id", validate(idParamSchema), getInvoiceDetails);
 router.post("/:id/reactivate", validate(idParamSchema), restoreInvoice);
