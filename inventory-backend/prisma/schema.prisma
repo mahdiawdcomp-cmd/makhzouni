@@ -172,6 +172,32 @@ enum OrderPreparationStatus {
   PREPARED
 }
 
+enum LandedCostBatchStatus {
+  DRAFT_PRICED
+  REVIEWING_ITEMS
+  PURCHASE_INVOICE_CREATED
+  CANCELLED
+}
+
+enum LandedCostMatchStatus {
+  MATCHED
+  NOT_FOUND
+  AMBIGUOUS
+}
+
+enum LandedCostAllocationMethod {
+  BY_QUANTITY
+  BY_VALUE
+  BY_CARTON
+}
+
+enum LandedCostItemAction {
+  PENDING
+  LINK_EXISTING
+  CREATE_NEW
+  SKIP
+}
+
 model StockLoss {
   id           String         @id @default(uuid()) @db.Uuid
   lossNumber   String         @unique @map("loss_number")
@@ -237,6 +263,8 @@ model User {
   preparedOrders     OrderPreparation[]  @relation("PreparedByUser")
   stocktakeSessions  StocktakeSession[]
   stockLosses        StockLoss[]         @relation("StockLossCreatedBy")
+  landedCostBatchesCreated LandedCostImportBatch[] @relation("LandedCostBatchCreatedBy")
+  landedCostBatchesApplied LandedCostImportBatch[] @relation("LandedCostBatchAppliedBy")
 
   @@map("users")
 }
@@ -301,6 +329,7 @@ model Product {
   retailItems       RetailCatalogItem[] @relation("RetailItemProduct")
   stockLossItems    StockLossItem[]     @relation("StockLossItems")
   arrivalSubscriptions ProductArrivalSubscription[]
+  landedCostImportItems LandedCostImportItem[]
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
   deletedAt         DateTime?       @map("deleted_at")
@@ -605,6 +634,7 @@ model Invoice {
   stockMovements   StockMovement[]
   couponRedemptions CouponRedemption[]
   preparation      OrderPreparation?
+  landedCostBatches LandedCostImportBatch[]
   notes            String?          @db.Text
   createdAt        DateTime         @default(now()) @map("created_at")
   // Accounting-safe deletion: rows are never physically removed. Archived
@@ -1117,6 +1147,77 @@ model StocktakeItem {
   @@index([sessionId])
   @@index([approvalStatus])
   @@map("stocktake_items")
+}
+
+// Landed-Cost Excel Import: upload -> parse -> preview (nothing persisted yet)
+// -> confirm pricing (persists batch as DRAFT_PRICED) -> per-item review
+// (link/create/skip, REVIEWING_ITEMS) -> final confirm creates a real
+// PURCHASE invoice via the existing invoice.service.createInvoice flow, which
+// is the only thing that ever writes stock. This model never touches
+// ProductWarehouseStock/StockMovement directly.
+model LandedCostImportBatch {
+  id                String                     @id @default(uuid()) @db.Uuid
+  invoiceNumber     String?                    @map("invoice_number")
+  supplier          String?
+  allocationMethod  LandedCostAllocationMethod @default(BY_VALUE) @map("allocation_method")
+  totalExtraCost    Decimal                    @default(0) @map("total_extra_cost") @db.Decimal(12, 2)
+  freight           Decimal                    @default(0) @db.Decimal(12, 2)
+  customs           Decimal                    @default(0) @db.Decimal(12, 2)
+  localTransport    Decimal                    @default(0) @map("local_transport") @db.Decimal(12, 2)
+  unloading         Decimal                    @default(0) @db.Decimal(12, 2)
+  commission        Decimal                    @default(0) @db.Decimal(12, 2)
+  otherCosts        Decimal                    @default(0) @map("other_costs") @db.Decimal(12, 2)
+  note              String?
+  status            LandedCostBatchStatus      @default(DRAFT_PRICED)
+  originalFileName  String?                    @map("original_file_name")
+  purchaseInvoiceId String?                    @map("purchase_invoice_id") @db.Uuid
+  purchaseInvoice   Invoice?                   @relation(fields: [purchaseInvoiceId], references: [id])
+  createdBy         String                     @map("created_by") @db.Uuid
+  creator           User                       @relation("LandedCostBatchCreatedBy", fields: [createdBy], references: [id])
+  appliedBy         String?                    @map("applied_by") @db.Uuid
+  applier           User?                      @relation("LandedCostBatchAppliedBy", fields: [appliedBy], references: [id])
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  appliedAt         DateTime?                  @map("applied_at")
+  items             LandedCostImportItem[]
+
+  @@index([createdBy])
+  @@index([status])
+  @@map("landed_cost_import_batches")
+}
+
+model LandedCostImportItem {
+  id                  String                @id @default(uuid()) @db.Uuid
+  batchId             String                @map("batch_id") @db.Uuid
+  batch               LandedCostImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  // Currently-linked product (the initial auto-match, or a different product
+  // the user picked instead, or the product just created for this row).
+  productId           String?               @map("product_id") @db.Uuid
+  product             Product?              @relation(fields: [productId], references: [id])
+  itemCode            String                @map("item_code")
+  productName         String                @map("product_name")
+  quantity            Int
+  cartonCount         Int?                  @map("carton_count")
+  purchasePrice       Decimal               @db.Decimal(12, 2) @map("purchase_price")
+  allocatedExtraCost  Decimal               @default(0) @map("allocated_extra_cost") @db.Decimal(12, 2)
+  landedCostPerUnit   Decimal               @default(0) @map("landed_cost_per_unit") @db.Decimal(12, 2)
+  landedCostPerCarton Decimal?              @map("landed_cost_per_carton") @db.Decimal(12, 2)
+  suggestedSalePrice  Decimal?              @map("suggested_sale_price") @db.Decimal(12, 2)
+  // Editable in the review step; required before Apply when action=CREATE_NEW.
+  confirmedSalePrice  Decimal?              @map("confirmed_sale_price") @db.Decimal(12, 2)
+  expectedProfit      Decimal?              @map("expected_profit") @db.Decimal(12, 2)
+  // Initial system match result at parse time — immutable historical record.
+  matchStatus         LandedCostMatchStatus @default(NOT_FOUND) @map("match_status")
+  // Mutable user decision made in the review step.
+  action              LandedCostItemAction  @default(PENDING)
+  // New-product fields (name/barcode/category/pcsPerCarton/imageUrl overrides)
+  // captured only when action=CREATE_NEW. Free-form JSON to avoid a wide,
+  // mostly-empty column set.
+  newProductDraft     Json?                 @map("new_product_draft")
+  createdAt           DateTime              @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@index([productId])
+  @@map("landed_cost_import_items")
 }
 
 model LicensedClient {

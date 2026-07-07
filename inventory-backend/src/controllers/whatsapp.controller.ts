@@ -1,6 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import { getInvoiceById } from "../services/invoice.service";
-import { generateInvoicePdf } from "../services/invoice-export.service";
+import { generateInvoicePdf, generateCustomerImageInvoiceWithProducts } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
@@ -8,6 +8,7 @@ import { logger } from "../utils/logger";
 import {
   getWhatsAppStatus,
   restartWhatsApp,
+  sendWhatsAppImage,
   sendWhatsAppPdf,
   sendWhatsAppText,
 } from "../services/whatsapp.service";
@@ -101,6 +102,35 @@ export const sendInvoice = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: "Invoice sent by WhatsApp successfully",
+    data: result,
+  });
+});
+
+// New, separate option: "إرسال فاتورة بالصور" — sends a customer-safe image
+// invoice (product thumbnails, no purchase price/cost/profit) instead of the
+// existing PDF above. Does not replace or change the sendInvoice flow.
+export const sendInvoiceImage = asyncHandler(async (req, res) => {
+  const invoiceId = String(req.params.invoiceId);
+  const [invoice, png, settings] = await Promise.all([
+    getInvoiceById(invoiceId),
+    generateCustomerImageInvoiceWithProducts(invoiceId),
+    getSettings(),
+  ]);
+
+  const message = await renderTemplateByType("NEW_INVOICE", {
+    customerName: invoice.customer.name,
+    amount: invoice.remainingAmount,
+    invoiceNumber: invoice.invoiceNumber,
+    daysLate: "",
+    storeName: settings.storeName,
+    date: new Date(invoice.date).toLocaleDateString(),
+  });
+
+  const result = await sendWhatsAppImage(invoice.customer.phone, message, png, "image/png");
+
+  res.json({
+    success: true,
+    message: "Invoice image sent by WhatsApp successfully",
     data: result,
   });
 });

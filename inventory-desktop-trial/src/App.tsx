@@ -53,6 +53,8 @@ const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPa
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
+const LandedCostImportPage = lazyPage(() => import("./pages/LandedCostImportPage"), "LandedCostImportPage")
+const LandedCostReviewPage = lazyPage(() => import("./pages/LandedCostReviewPage"), "LandedCostReviewPage")
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
@@ -100,6 +102,8 @@ const router = createBrowserRouter([
           { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stale", element: s(<StaleProductsPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
+          { path: "inventory/landed-cost", element: s(<LandedCostImportPage />) },
+          { path: "inventory/landed-cost/:id", element: s(<LandedCostReviewPage />) },
           { path: "inventory/:id", element: s(<ProductDetailPage />) },
           { path: "invoices", element: s(<InvoicesPage />) },
           { path: "invoices/new", element: s(<InvoiceCreatePage />) },

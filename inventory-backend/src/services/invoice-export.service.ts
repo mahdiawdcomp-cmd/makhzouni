@@ -2,6 +2,8 @@ import sharp from "sharp";
 import { getInvoiceById } from "./invoice.service";
 import { getSettings } from "./settings.service";
 import { pngToPdf } from "../utils/png-to-pdf";
+import prisma from "../config/database";
+import { AppError } from "../utils/app-error";
 
 function money(value: number | string | null | undefined) {
   const n = Number(value ?? 0);
@@ -411,6 +413,171 @@ export async function generateInvoicePng(invoiceId: string): Promise<Buffer> {
 
     <!-- Footer -->
     <text x="450" y="${bodyH - 20}" font-size="11" fill="#9CA3AF" text-anchor="middle">شكراً لتعاملكم — ${esc(storeName)}</text>
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ── Customer-safe image invoice (optional "send with images" WhatsApp option) ──
+//
+// SECURITY: this DTO is built from an explicit narrow Prisma `select` — never
+// from the full invoice/product objects used elsewhere in this file — so
+// purchasePrice/costPrice/profit/internal notes/audit fields structurally
+// cannot leak into the customer-facing renderer below, even by accident.
+// Does NOT touch generateInvoicePng/generateInvoicePdf (old WhatsApp flow).
+
+export interface CustomerSafeInvoiceLine {
+  productName: string;
+  imageDataUrl: string | null;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}
+
+export interface CustomerSafeInvoiceDto {
+  storeName: string;
+  storeLogo: string | null;
+  invoiceNumber: string;
+  customerName: string;
+  date: string;
+  currency: string;
+  lines: CustomerSafeInvoiceLine[];
+  totalAmount: number;
+  paidAmount: number;
+  remainingAmount: number;
+}
+
+// Only a real data: URI can be embedded/rasterized offline; a bare http(s)
+// product image URL is dropped in favor of the placeholder rather than risk
+// a broken/unfetchable reference in the rendered image.
+function embeddableImage(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return /^data:image\//i.test(url) ? url : null;
+}
+
+export async function buildCustomerSafeInvoiceDto(
+  invoiceId: string,
+  db: Pick<typeof prisma, "invoice"> = prisma,
+): Promise<CustomerSafeInvoiceDto> {
+  const [invoice, settings] = await Promise.all([
+    db.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        invoiceNumber: true,
+        date: true,
+        type: true,
+        totalAmount: true,
+        paidAmount: true,
+        remainingAmount: true,
+        customer: { select: { name: true } },
+        items: {
+          select: {
+            productName: true,
+            unit: true,
+            quantity: true,
+            unitPrice: true,
+            totalPrice: true,
+            product: { select: { thumbnailUrl: true, imageUrl: true } },
+          },
+        },
+      },
+    }),
+    getSettings().catch(() => null),
+  ]);
+
+  if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+  if (invoice.type !== "SALE") {
+    throw new AppError("صور الفاتورة بالمنتجات متاحة لفواتير البيع فقط", 400, "NOT_A_SALE_INVOICE");
+  }
+
+  return {
+    storeName: settings?.storeName ?? "مخزوني",
+    storeLogo: settings?.storeLogo ?? null,
+    invoiceNumber: invoice.invoiceNumber,
+    customerName: invoice.customer?.name ?? "—",
+    date: formatDate(invoice.date),
+    currency: settings?.currency ?? "د.ع",
+    lines: invoice.items.map((item) => ({
+      productName: item.productName,
+      imageDataUrl: embeddableImage(item.product?.thumbnailUrl ?? item.product?.imageUrl),
+      unit: unitAr(item.unit),
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice),
+      totalPrice: Number(item.totalPrice),
+    })),
+    totalAmount: Number(invoice.totalAmount),
+    paidAmount: Number(invoice.paidAmount),
+    remainingAmount: Number(invoice.remainingAmount),
+  };
+}
+
+const PLACEHOLDER_ICON = `<rect width="64" height="64" rx="10" fill="#E5E7EB"/>
+  <path d="M20 40 L27 31 L33 37 L40 27 L46 40" stroke="#9CA3AF" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="24" cy="24" r="4" fill="#9CA3AF"/>`;
+
+function itemImageSvg(dataUrl: string | null, x: number, y: number): string {
+  if (dataUrl) {
+    return `<clipPath id="clip-${x}-${y}"><rect x="${x}" y="${y}" width="64" height="64" rx="10"/></clipPath>
+      <image href="${dataUrl}" x="${x}" y="${y}" width="64" height="64" preserveAspectRatio="xMidYMid slice" clip-path="url(#clip-${x}-${y})"/>`;
+  }
+  return `<g transform="translate(${x}, ${y})">${PLACEHOLDER_ICON}</g>`;
+}
+
+/**
+ * Render a clean, customer-safe invoice image (with product thumbnails) for
+ * the optional "إرسال فاتورة بالصور" WhatsApp option. Never includes
+ * purchase price, cost price, profit, margin, or internal notes — the DTO
+ * above physically cannot carry them.
+ */
+export async function generateCustomerImageInvoiceWithProducts(invoiceId: string): Promise<Buffer> {
+  const dto = await buildCustomerSafeInvoiceDto(invoiceId);
+  const accent = "#1D4ED8";
+  const rowH = 84;
+  const bodyH = Math.max(560, 300 + dto.lines.length * rowH + 220);
+
+  const rows = dto.lines
+    .map((line, i) => {
+      const y = 250 + i * rowH;
+      return `
+    <rect x="40" y="${y}" width="820" height="${rowH - 8}" rx="10" fill="${i % 2 === 0 ? "#F9FAFB" : "#FFFFFF"}" stroke="#F1F5F9"/>
+    ${itemImageSvg(line.imageDataUrl, 52, y + 6)}
+    <text x="130" y="${y + 28}" font-size="14" fill="#111827" font-weight="700">${esc(line.productName).slice(0, 40)}</text>
+    <text x="130" y="${y + 50}" font-size="12" fill="#6B7280">${esc(line.unit)} × ${line.quantity} — ${money(line.unitPrice)} ${esc(dto.currency)}</text>
+    <text x="845" y="${y + 40}" font-size="15" fill="${accent}" text-anchor="end" font-weight="800">${money(line.totalPrice)} ${esc(dto.currency)}</text>`;
+    })
+    .join("");
+
+  const summaryY = 250 + dto.lines.length * rowH + 20;
+
+  const svg = `<svg width="900" height="${bodyH}" xmlns="http://www.w3.org/2000/svg">
+    <defs><style>text { font-family: Arial, sans-serif; }</style></defs>
+    <rect width="900" height="${bodyH}" fill="#F3F4F6"/>
+    <rect x="24" y="24" width="852" height="${bodyH - 48}" rx="14" fill="#FFFFFF" stroke="#E5E7EB"/>
+    <rect x="24" y="24" width="852" height="7" rx="14" fill="${accent}"/>
+
+    <text x="56" y="84" font-size="22" font-weight="800" fill="${accent}">${esc(dto.storeName)}</text>
+    <text x="844" y="76" font-size="17" font-weight="700" fill="#111827" text-anchor="end">${esc(dto.invoiceNumber)}</text>
+    <text x="844" y="96" font-size="12" fill="#9CA3AF" text-anchor="end">${esc(dto.date)}</text>
+
+    <line x1="40" y1="112" x2="860" y2="112" stroke="#E5E7EB"/>
+    <text x="56" y="140" font-size="11" fill="#9CA3AF">الزبون</text>
+    <text x="56" y="162" font-size="16" font-weight="700" fill="#111827">${esc(dto.customerName)}</text>
+    <line x1="40" y1="190" x2="860" y2="190" stroke="#E5E7EB"/>
+
+    ${rows}
+
+    <rect x="480" y="${summaryY}" width="380" height="140" rx="10" fill="#F9FAFB" stroke="#E5E7EB"/>
+    <text x="496" y="${summaryY + 28}" font-size="11" fill="#9CA3AF">الإجمالي</text>
+    <text x="844" y="${summaryY + 28}" font-size="14" fill="#111827" text-anchor="end" font-weight="700">${money(dto.totalAmount)} ${esc(dto.currency)}</text>
+    <text x="496" y="${summaryY + 54}" font-size="11" fill="#6B7280">المدفوع</text>
+    <text x="844" y="${summaryY + 54}" font-size="13" fill="#059669" text-anchor="end" font-weight="600">${money(dto.paidAmount)} ${esc(dto.currency)}</text>
+    <line x1="496" y1="${summaryY + 66}" x2="844" y2="${summaryY + 66}" stroke="#E5E7EB"/>
+    <rect x="480" y="${summaryY + 78}" width="380" height="46" rx="8" fill="${accent}"/>
+    <text x="496" y="${summaryY + 106}" font-size="13" fill="#FFFFFF">الباقي</text>
+    <text x="844" y="${summaryY + 108}" font-size="18" fill="#FFFFFF" text-anchor="end" font-weight="800">${money(dto.remainingAmount)} ${esc(dto.currency)}</text>
+
+    <text x="450" y="${bodyH - 20}" font-size="11" fill="#9CA3AF" text-anchor="middle">شكراً لتعاملكم — ${esc(dto.storeName)}</text>
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();

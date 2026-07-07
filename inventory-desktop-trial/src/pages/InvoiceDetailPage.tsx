@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Ban,
   FileDown,
+  Image as ImageIcon,
   MessageCircle,
   Pencil,
   Printer,
@@ -16,7 +17,7 @@ import {
   Receipt as ReceiptIcon,
   Trash2,
 } from "lucide-react"
-import { cancelInvoice, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -227,6 +228,27 @@ export function InvoiceDetailPage() {
     }
   }
 
+  // New, separate option: send a customer-safe image invoice (product photos,
+  // no purchase price/cost/profit). Does not touch the sendWaMessage flow above.
+  const [waImageSending, setWaImageSending] = useState(false)
+  async function sendWaImageInvoice() {
+    if (!invoice) return
+    if (invoice.type !== "SALE") {
+      toast({ title: "صور الفاتورة بالمنتجات متاحة لفواتير البيع فقط.", variant: "destructive" })
+      return
+    }
+    if (!invoice.customer?.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    setWaImageSending(true)
+    try {
+      await sendWhatsAppInvoiceImage(invoice.id)
+      toast({ title: "✓ تم إرسال الفاتورة بالصور عبر واتساب." })
+    } catch {
+      toast({ title: "✗ تعذر إرسال الفاتورة بالصور. تحقق من إعدادات واتساب.", variant: "destructive" })
+    } finally {
+      setWaImageSending(false)
+    }
+  }
+
   const cancelMutation = useMutation({
     mutationFn: (returnWarehouseId?: string) => cancelInvoice(id!, returnWarehouseId),
     onSuccess: () => {
@@ -391,6 +413,17 @@ export function InvoiceDetailPage() {
           {whatsappInvoicesEnabled && (
             <Button variant="outline" size="sm" onClick={openWaPreview} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
               <MessageCircle className="h-3.5 w-3.5 text-emerald-600" /> واتساب
+            </Button>
+          )}
+          {whatsappInvoicesEnabled && invoice.type === "SALE" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void sendWaImageInvoice()}
+              disabled={readOnly || waImageSending}
+              title={readOnly ? READ_ONLY_MESSAGE : "إرسال فاتورة بالصور — بدون سعر الشراء أو الأرباح"}
+            >
+              <ImageIcon className="h-3.5 w-3.5 text-emerald-600" /> {waImageSending ? "جاري الإرسال..." : "إرسال فاتورة بالصور"}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => printWithDesign("80mm")}><Printer className="h-3.5 w-3.5" /> طباعة حرارية</Button>

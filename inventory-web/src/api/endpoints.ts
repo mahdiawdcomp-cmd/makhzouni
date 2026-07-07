@@ -1108,6 +1108,13 @@ export async function sendWhatsAppInvoice(invoiceId: string) {
   return data.data
 }
 
+// New, separate option — sends a customer-safe image invoice (product photos,
+// no purchase price/cost/profit). Does not replace sendWhatsAppInvoice above.
+export async function sendWhatsAppInvoiceImage(invoiceId: string) {
+  const { data } = await api.post<ApiEnvelope<{ to: string; idMessage?: string }>>(`/whatsapp/send-invoice-image/${invoiceId}`)
+  return data.data
+}
+
 export async function sendWhatsAppMessage(payload: { phone: string; message: string }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
   return data
@@ -1398,6 +1405,136 @@ export async function importProductsExcel(file: File) {
 
 export function getImportTemplateUrl() {
   return `${api.defaults.baseURL}/import/products/template`
+}
+
+// ── Landed Cost Excel Import ───────────────────────────────────────────────
+
+export type LandedCostAllocationMethod = "BY_QUANTITY" | "BY_VALUE" | "BY_CARTON"
+export type LandedCostMatchStatus = "MATCHED" | "NOT_FOUND" | "AMBIGUOUS"
+export type LandedCostItemAction = "PENDING" | "LINK_EXISTING" | "CREATE_NEW" | "SKIP"
+export type LandedCostBatchStatus = "DRAFT_PRICED" | "REVIEWING_ITEMS" | "PURCHASE_INVOICE_CREATED" | "CANCELLED"
+
+export interface LandedCostManualExtraCosts {
+  freight?: number
+  customs?: number
+  localTransport?: number
+  unloading?: number
+  commission?: number
+  otherCosts?: number
+}
+
+export interface LandedCostComputedItem {
+  itemCode: string
+  productName: string
+  quantity: number
+  cartonCount: number | null
+  purchasePrice: number
+  allocatedExtraCost: number
+  landedCostPerUnit: number
+  landedCostPerCarton: number | null
+  suggestedSalePrice: number | null
+  expectedProfit: number | null
+  matchStatus: LandedCostMatchStatus
+  productId: string | null
+  matchedProduct: { id: string; name: string; itemNumber: string; salePrice: number; purchasePrice: number; imageUrl: string | null; thumbnailUrl: string | null } | null
+}
+
+export interface LandedCostPreviewResult {
+  items: LandedCostComputedItem[]
+  totalExtraCost: number
+  allocationMethod: LandedCostAllocationMethod
+  manualExtraCosts: LandedCostManualExtraCosts
+  totalRows: number
+  ambiguousCount: number
+  notFoundCount: number
+}
+
+export interface LandedCostItem extends LandedCostComputedItem {
+  id: string
+  action: LandedCostItemAction
+  confirmedSalePrice: number | null
+  newProductDraft: { name?: string; itemCode?: string; barcode?: string; category?: string; pcsPerCarton?: number; imageUrl?: string } | null
+  product?: { id: string; name: string; itemNumber: string; imageUrl: string | null; thumbnailUrl: string | null; salePrice: number; purchasePrice: number; costPrice: number } | null
+}
+
+export interface LandedCostBatch {
+  id: string
+  invoiceNumber: string | null
+  supplier: string | null
+  allocationMethod: LandedCostAllocationMethod
+  totalExtraCost: number
+  status: LandedCostBatchStatus
+  note: string | null
+  originalFileName: string | null
+  purchaseInvoice: { id: string; invoiceNumber: string } | null
+  createdAt: string
+  appliedAt: string | null
+  items: LandedCostItem[]
+}
+
+export async function previewLandedCost(file: File, allocationMethod: LandedCostAllocationMethod, manualExtraCosts: LandedCostManualExtraCosts) {
+  const form = new FormData()
+  form.append("file", file)
+  form.append("allocationMethod", allocationMethod)
+  Object.entries(manualExtraCosts).forEach(([k, v]) => { if (v !== undefined) form.append(k, String(v)) })
+  const { data } = await api.post<ApiEnvelope<LandedCostPreviewResult>>("/landed-cost/preview", form)
+  return data.data!
+}
+
+export function getLandedCostTemplateUrl() {
+  return `${api.defaults.baseURL}/landed-cost/template`
+}
+
+export async function createLandedCostBatch(payload: {
+  invoiceNumber?: string
+  supplier?: string
+  allocationMethod: LandedCostAllocationMethod
+  freight?: number; customs?: number; localTransport?: number; unloading?: number; commission?: number; otherCosts?: number
+  note?: string
+  originalFileName?: string
+  items: LandedCostComputedItem[]
+}) {
+  const { data } = await api.post<ApiEnvelope<LandedCostBatch>>("/landed-cost/batches", payload)
+  return data.data!
+}
+
+export async function listLandedCostBatches() {
+  const { data } = await api.get<ApiEnvelope<LandedCostBatch[]>>("/landed-cost/batches")
+  return data.data ?? []
+}
+
+export async function getLandedCostBatch(id: string) {
+  const { data } = await api.get<ApiEnvelope<LandedCostBatch>>(`/landed-cost/batches/${id}`)
+  return data.data!
+}
+
+export async function setLandedCostItemDecision(batchId: string, itemId: string, payload: {
+  action: LandedCostItemAction
+  productId?: string | null
+  confirmedSalePrice?: number | null
+  newProductDraft?: LandedCostItem["newProductDraft"]
+}) {
+  const { data } = await api.patch<ApiEnvelope<LandedCostItem>>(`/landed-cost/batches/${batchId}/items/${itemId}`, payload)
+  return data.data!
+}
+
+export async function cancelLandedCostBatch(id: string) {
+  await api.post(`/landed-cost/batches/${id}/cancel`)
+}
+
+export interface LandedCostConfirmSummary {
+  purchaseInvoiceId: string
+  invoiceNumber: string
+  linkedCount: number
+  createdCount: number
+  skippedCount: number
+  totalStockAdded: number
+  warnings: string[]
+}
+
+export async function confirmLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number }) {
+  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/confirm`, payload)
+  return data.data!
 }
 
 // ── Catalog Categories ────────────────────────────────────────────────────────

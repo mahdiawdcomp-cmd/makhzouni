@@ -37,6 +37,7 @@ import inboundMessagesRoutes from "./inbound-messages.routes";
 import healthRoutes from "./health.routes";
 import errorLogsRoutes from "./error-logs.routes";
 import balanceMigrationRoutes from "./balance-migration.routes";
+import landedCostImportRoutes from "./landed-cost-import.routes";
 
 const router = Router();
 
@@ -78,5 +79,6 @@ router.use("/inbound-messages", inboundMessagesRoutes);
 router.use("/health", healthRoutes);
 router.use("/error-logs", errorLogsRoutes);
 router.use("/balance-migration", balanceMigrationRoutes);
+router.use("/landed-cost", landedCostImportRoutes);
 
 export default router;

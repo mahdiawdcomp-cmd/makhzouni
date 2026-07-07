@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   sendInvoice,
+  sendInvoiceImage,
   sendMessage,
   whatsappRestart,
   whatsappStatus,
@@ -20,6 +21,11 @@ router.post(
   "/send-invoice/:invoiceId",
   validate(invoiceIdParamSchema),
   sendInvoice
+);
+router.post(
+  "/send-invoice-image/:invoiceId",
+  validate(invoiceIdParamSchema),
+  sendInvoiceImage
 );
 
 export default router;
