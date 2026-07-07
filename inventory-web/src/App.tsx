@@ -54,6 +54,7 @@ const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "Campaigns
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
+const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCountPage")
 const LandedCostImportPage = lazyPage(() => import("./pages/LandedCostImportPage"), "LandedCostImportPage")
 const LandedCostReviewPage = lazyPage(() => import("./pages/LandedCostReviewPage"), "LandedCostReviewPage")
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
@@ -119,6 +120,7 @@ const router = createBrowserRouter([
           { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stale", element: s(<StaleProductsPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
+          { path: "inventory/cycle-count", element: s(<CycleCountPage />) },
           { path: "inventory/landed-cost", element: s(<LandedCostImportPage />) },
           { path: "inventory/landed-cost/:id", element: s(<LandedCostReviewPage />) },
           { path: "inventory/:id", element: s(<ProductDetailPage />) },

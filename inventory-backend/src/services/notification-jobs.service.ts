@@ -8,6 +8,7 @@ import { sendWhatsAppText } from "./whatsapp.service";
 import { getDailySummaryData } from "./report.service";
 import { processCampaignsTick } from "./campaign.service";
 import { cleanupOldErrorLogs, recordError } from "./error-log.service";
+import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
 import {
   NotificationType,
@@ -344,6 +345,15 @@ export function startNotificationJobs() {
     cleanupOldErrorLogs()
       .then((n) => { if (n > 0) console.log(`[ErrorLog] cleaned ${n} old rows`); })
       .catch((error) => reportCronFailure("ERRORLOG_CLEANUP", error));
+  });
+
+  // "جدولة الجرد الذكي" — hourly check. Independent from every job above and
+  // from the manual stocktake feature; see cycle-count.service.ts for the
+  // interval/duplicate-session guards.
+  cron.schedule("0 * * * *", () => {
+    runScheduledCycleCountJob().catch((error) => {
+      reportCronFailure("SCHEDULED_CYCLE_COUNT", error);
+    });
   });
 
   // Neon DB keep-alive REMOVED (2026-07-01): the database has been migrated to

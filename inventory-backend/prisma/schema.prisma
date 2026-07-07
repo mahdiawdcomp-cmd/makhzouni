@@ -104,6 +104,34 @@ enum StocktakeApprovalStatus {
   REJECTED
 }
 
+// "جدولة الجرد الذكي" (scheduled smart cycle count) — fully independent from
+// the manual StocktakeSession/StocktakeItem models above. Do not merge them.
+enum CycleCountSessionStatus {
+  OPEN
+  SUBMITTED
+  CLOSED
+  CANCELLED
+}
+
+enum CycleCountSessionSource {
+  MANUAL
+  SCHEDULED
+}
+
+enum CycleCountApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum CycleCountStrategy {
+  RANDOM
+  HIGH_VALUE
+  FAST_MOVING
+  LOW_STOCK
+  LEAST_RECENTLY_COUNTED
+}
+
 enum RetailOrderStatus {
   PENDING
   PROCESSING
@@ -265,6 +293,8 @@ model User {
   stockLosses        StockLoss[]         @relation("StockLossCreatedBy")
   landedCostBatchesCreated LandedCostImportBatch[] @relation("LandedCostBatchCreatedBy")
   landedCostBatchesApplied LandedCostImportBatch[] @relation("LandedCostBatchAppliedBy")
+  cycleCountSessionsCreated CycleCountSession[] @relation("CycleCountSessionCreatedBy")
+  cycleCountItemsApproved   CycleCountItem[]    @relation("CycleCountItemApprovedBy")
 
   @@map("users")
 }
@@ -289,6 +319,7 @@ model Branch {
   transfersIn        InventoryTransfer[] @relation("TransfersIn")
   stocktakeSessions  StocktakeSession[]
   stockLosses        StockLoss[]         @relation("StockLossWarehouse")
+  cycleCountSessions CycleCountSession[]
   createdAt          DateTime         @default(now()) @map("created_at")
   updatedAt          DateTime         @updatedAt @map("updated_at")
 
@@ -325,6 +356,7 @@ model Product {
   stockMovements    StockMovement[]
   transferItems     TransferItem[]
   stocktakeItems    StocktakeItem[]
+  cycleCountItems   CycleCountItem[]
   warehouseStocks  ProductWarehouseStock[]
   retailItems       RetailCatalogItem[] @relation("RetailItemProduct")
   stockLossItems    StockLossItem[]     @relation("StockLossItems")
@@ -1147,6 +1179,56 @@ model StocktakeItem {
   @@index([sessionId])
   @@index([approvalStatus])
   @@map("stocktake_items")
+}
+
+// ── جدولة الجرد الذكي (scheduled smart cycle count) ───────────────────────────
+// Fully independent from StocktakeSession/StocktakeItem above: separate
+// tables, separate service/routes/page. Never read or written by the manual
+// stocktake flow, and vice versa.
+model CycleCountSession {
+  id           String                  @id @default(uuid()) @db.Uuid
+  warehouseId  String                  @map("warehouse_id") @db.Uuid
+  warehouse    Branch                  @relation(fields: [warehouseId], references: [id])
+  status       CycleCountSessionStatus @default(OPEN)
+  strategy     CycleCountStrategy
+  itemLimit    Int                     @map("item_limit")
+  scheduledFor DateTime?               @map("scheduled_for")
+  source       CycleCountSessionSource @default(MANUAL)
+  createdBy    String                  @map("created_by") @db.Uuid
+  creator      User                    @relation("CycleCountSessionCreatedBy", fields: [createdBy], references: [id])
+  items        CycleCountItem[]
+  notes        String?
+  createdAt    DateTime                @default(now()) @map("created_at")
+  submittedAt  DateTime?               @map("submitted_at")
+  closedAt     DateTime?               @map("closed_at")
+
+  @@index([warehouseId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("cycle_count_sessions")
+}
+
+model CycleCountItem {
+  id             String                    @id @default(uuid()) @db.Uuid
+  sessionId      String                    @map("session_id") @db.Uuid
+  session        CycleCountSession         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  productId      String                    @map("product_id") @db.Uuid
+  product        Product                   @relation(fields: [productId], references: [id])
+  systemQty      Int                       @map("system_qty")
+  actualQty      Int?                      @map("actual_qty")
+  variance       Int?
+  approvalStatus CycleCountApprovalStatus  @default(PENDING) @map("approval_status")
+  approvedQty    Int?                      @map("approved_qty")
+  approvedBy     String?                   @map("approved_by") @db.Uuid
+  approver       User?                     @relation("CycleCountItemApprovedBy", fields: [approvedBy], references: [id])
+  approvedAt     DateTime?                 @map("approved_at")
+  notes          String?
+
+  @@unique([sessionId, productId])
+  @@index([sessionId])
+  @@index([productId])
+  @@index([approvalStatus])
+  @@map("cycle_count_items")
 }
 
 // Landed-Cost Excel Import: upload -> parse -> preview (nothing persisted yet)

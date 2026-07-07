@@ -93,6 +93,14 @@ export interface AppSettings {
   cartonLabelNameFontSize?: number;
   cartonLabelMetaFontSize?: number;
   cartonLabelPaddingMm?: number;
+  // "جدولة الجرد الذكي" (scheduled smart cycle count) — fully independent
+  // feature/settings from the manual "الجرد الدوري" stocktake page above.
+  cycleCountEnabled?: boolean;
+  cycleCountWarehouseId?: string;
+  cycleCountIntervalDays?: number;
+  cycleCountItemLimit?: number;
+  cycleCountStrategy?: "RANDOM" | "HIGH_VALUE" | "FAST_MOVING" | "LOW_STOCK" | "LEAST_RECENTLY_COUNTED";
+  cycleCountLastRunAt?: string;
 }
 
 export interface BotRule {
@@ -170,6 +178,12 @@ export const defaultSettings: AppSettings = {
   cartonLabelNameFontSize: 20,
   cartonLabelMetaFontSize: 14,
   cartonLabelPaddingMm: 5,
+  cycleCountEnabled: false,
+  cycleCountWarehouseId: "",
+  cycleCountIntervalDays: 7,
+  cycleCountItemLimit: 20,
+  cycleCountStrategy: "LEAST_RECENTLY_COUNTED",
+  cycleCountLastRunAt: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

@@ -67,6 +67,9 @@ import type {
   DebtCustomer,
   StocktakeSessionSummary,
   StocktakeSessionDetail,
+  CycleCountSessionSummary,
+  CycleCountSessionDetail,
+  CycleCountStrategy,
   PublicInvoiceDetail,
   PortalRetailOrder,
   ArrivalSubscription,
@@ -1352,6 +1355,52 @@ export async function approveStocktakeItem(sessionId: string, itemId: string) {
 
 export async function rejectStocktakeItem(sessionId: string, itemId: string) {
   const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/stocktake/${sessionId}/items/${itemId}/reject`)
+  return data.data!
+}
+
+// ── جدولة الجرد الذكي (scheduled smart cycle count) — independent from Stocktake above ──
+export async function listCycleCountSessions() {
+  const { data } = await api.get<ApiEnvelope<CycleCountSessionSummary[]>>("/cycle-count")
+  return data.data ?? []
+}
+
+export async function createCycleCountSession(payload: { warehouseId?: string; strategy: CycleCountStrategy; itemLimit: number; notes?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ id: string }>>("/cycle-count", payload)
+  return data.data!
+}
+
+export async function getCycleCountSession(id: string) {
+  const { data } = await api.get<ApiEnvelope<CycleCountSessionDetail>>(`/cycle-count/${id}`)
+  return data.data!
+}
+
+export async function updateCycleCountItem(sessionId: string, productId: string, actualQty: number, notes?: string) {
+  const { data } = await api.patch<ApiEnvelope<never>>(`/cycle-count/${sessionId}/items`, { productId, actualQty, notes })
+  return data
+}
+
+export async function submitCycleCountSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<CycleCountSessionDetail>>(`/cycle-count/${id}/submit`)
+  return data.data!
+}
+
+export async function closeCycleCountSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<CycleCountSessionDetail>>(`/cycle-count/${id}/close`)
+  return data.data!
+}
+
+export async function cancelCycleCountSession(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/cycle-count/${id}/cancel`)
+  return data.data!
+}
+
+export async function approveCycleCountItem(sessionId: string, itemId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/cycle-count/${sessionId}/items/${itemId}/approve`)
+  return data.data!
+}
+
+export async function rejectCycleCountItem(sessionId: string, itemId: string) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean }>>(`/cycle-count/${sessionId}/items/${itemId}/reject`)
   return data.data!
 }
 

@@ -1,0 +1,503 @@
+/**
+ * cycle-count.service — "جدولة الجرد الذكي" (scheduled smart cycle count).
+ *
+ * Fully independent feature from the manual stocktake flow (stocktake.service.ts,
+ * untouched by this work). Uses a faithful in-memory fake for `../config/database`
+ * (same pattern as transfer-conservation.test.ts) so these tests exercise the
+ * REAL service logic — selection strategies, session lifecycle, and the
+ * approve-writes-StockMovement / reject-never-touches-stock invariant — without
+ * a live database.
+ */
+import assert from "node:assert/strict";
+import { before, beforeEach, describe, it, mock } from "node:test";
+
+const WAREHOUSE = "wh-1";
+const OTHER_WAREHOUSE = "wh-2";
+const ADMIN_USER = "user-admin";
+
+// ── In-memory fake store ──────────────────────────────────────────────────────
+let branches: Map<string, any>;
+let products: Map<string, any>;
+let stocks: Map<string, any>; // key: `${productId}:${warehouseId}`
+let sessions: Map<string, any>;
+let items: Map<string, any>;
+let movements: any[];
+let users: Map<string, any>;
+let settingsStore: Map<string, unknown>;
+let idCounter: number;
+
+function nextId(prefix: string) {
+  idCounter += 1;
+  return `${prefix}-${idCounter}`;
+}
+
+function stockKey(productId: string, warehouseId: string) {
+  return `${productId}:${warehouseId}`;
+}
+
+function attachSession(session: any) {
+  const sessionItems = [...items.values()].filter((i) => i.sessionId === session.id);
+  return {
+    ...session,
+    creator: users.get(session.createdBy) ? { id: session.createdBy, name: users.get(session.createdBy).name } : null,
+    warehouse: branches.get(session.warehouseId)
+      ? { id: session.warehouseId, name: branches.get(session.warehouseId).name ?? session.warehouseId }
+      : null,
+    items: sessionItems.map((item) => ({
+      ...item,
+      product: products.get(item.productId)
+        ? { id: item.productId, name: products.get(item.productId).name, category: null, imageUrl: null }
+        : null,
+      approver: item.approvedBy && users.get(item.approvedBy)
+        ? { id: item.approvedBy, name: users.get(item.approvedBy).name }
+        : null,
+    })),
+    _count: { items: sessionItems.length },
+  };
+}
+
+const fakeDb: any = {
+  branch: {
+    findFirst: async ({ where }: any) => {
+      const all = [...branches.values()];
+      if (where?.id) {
+        const wh = branches.get(where.id);
+        return wh && (where.isActive === undefined || wh.isActive === where.isActive) ? { ...wh } : null;
+      }
+      const active = all.filter((b) => where?.isActive === undefined || b.isActive === where.isActive);
+      active.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      return active[0] ? { ...active[0] } : null;
+    },
+  },
+  productWarehouseStock: {
+    findMany: async ({ where }: any) => {
+      const warehouseId = where.warehouseId;
+      return [...stocks.values()]
+        .filter((s) => s.warehouseId === warehouseId)
+        .filter((s) => {
+          const product = products.get(s.productId);
+          return product && product.deletedAt === null;
+        })
+        .map((s) => {
+          const product = products.get(s.productId);
+          return {
+            productId: s.productId,
+            quantityPieces: s.quantityPieces,
+            minStock: s.minStock,
+            product: { salePrice: product.salePrice, minStock: product.minStock },
+          };
+        });
+    },
+    update: async ({ where, data }: any) => {
+      const key = stockKey(where.productId_warehouseId.productId, where.productId_warehouseId.warehouseId);
+      const stock = stocks.get(key);
+      if (!stock) throw new Error("stock not found");
+      stock.quantityPieces += data.quantityPieces.increment;
+      return { quantityPieces: stock.quantityPieces };
+    },
+  },
+  stockMovement: {
+    create: async ({ data }: any) => {
+      movements.push(data);
+      return { id: nextId("mv"), ...data };
+    },
+    groupBy: async ({ where }: any) => {
+      const since: Date = where.createdAt.gte;
+      const matched = movements.filter(
+        (m) => m.branchId === where.branchId && m.type === where.type && m.createdAt >= since,
+      );
+      const sums = new Map<string, number>();
+      for (const m of matched) sums.set(m.productId, (sums.get(m.productId) ?? 0) + m.quantity);
+      return [...sums.entries()].map(([productId, qty]) => ({ productId, _sum: { quantity: qty } }));
+    },
+  },
+  cycleCountSession: {
+    create: async ({ data }: any) => {
+      const session = {
+        id: nextId("sess"),
+        status: "OPEN",
+        submittedAt: null,
+        closedAt: null,
+        scheduledFor: null,
+        notes: null,
+        createdAt: new Date(),
+        ...data,
+      };
+      sessions.set(session.id, session);
+      return { ...session };
+    },
+    findFirst: async ({ where }: any) => {
+      const match = [...sessions.values()].find(
+        (s) =>
+          s.warehouseId === where.warehouseId &&
+          s.source === where.source &&
+          where.status.in.includes(s.status),
+      );
+      return match ? { id: match.id } : null;
+    },
+    findMany: async () => {
+      const all = [...sessions.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return all.map(attachSession);
+    },
+    findUnique: async ({ where }: any) => {
+      const session = sessions.get(where.id);
+      return session ? attachSession(session) : null;
+    },
+    update: async ({ where, data }: any) => {
+      const session = sessions.get(where.id);
+      if (!session) throw new Error("session not found");
+      Object.assign(session, data);
+      return { ...session };
+    },
+  },
+  cycleCountItem: {
+    createMany: async ({ data }: any) => {
+      for (const row of data) {
+        const item = {
+          id: nextId("item"),
+          actualQty: null,
+          variance: null,
+          approvalStatus: "PENDING",
+          approvedQty: null,
+          approvedBy: null,
+          approvedAt: null,
+          notes: null,
+          ...row,
+        };
+        items.set(item.id, item);
+      }
+      return { count: data.length };
+    },
+    findFirst: async ({ where }: any) => {
+      const match = [...items.values()].find((i) => i.sessionId === where.sessionId && i.productId === where.productId);
+      return match ? { ...match } : null;
+    },
+    findMany: async ({ where }: any) => {
+      const warehouseId = where.session.warehouseId;
+      return [...items.values()]
+        .filter((i) => sessions.get(i.sessionId)?.warehouseId === warehouseId)
+        .map((i) => ({ productId: i.productId, session: { createdAt: sessions.get(i.sessionId).createdAt } }));
+    },
+    findUnique: async ({ where }: any) => {
+      const item = items.get(where.id);
+      if (!item) return null;
+      const session = sessions.get(item.sessionId);
+      return { ...item, session: { status: session.status, warehouseId: session.warehouseId } };
+    },
+    update: async ({ where, data }: any) => {
+      const item = items.get(where.id);
+      if (!item) throw new Error("item not found");
+      Object.assign(item, data);
+      return { ...item };
+    },
+    updateMany: async ({ where, data }: any) => {
+      const item = items.get(where.id);
+      if (!item || item.approvalStatus !== where.approvalStatus) return { count: 0 };
+      Object.assign(item, data);
+      return { count: 1 };
+    },
+  },
+  user: {
+    findUnique: async ({ where }: any) => {
+      const u = users.get(where.id);
+      return u ? { name: u.name } : null;
+    },
+    findFirst: async ({ where }: any) => {
+      const matches = [...users.values()].filter((u) => u.role === where.role && u.isActive === where.isActive);
+      matches.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      return matches[0] ? { id: matches[0].id } : null;
+    },
+  },
+  setting: {
+    findMany: async () => [...settingsStore.entries()].map(([key, value]) => ({ key, value })),
+    upsert: async ({ where, create }: any) => {
+      settingsStore.set(where.key, create.value);
+      return { key: where.key, value: create.value };
+    },
+  },
+  $transaction: async (fn: any) => fn(fakeDb),
+};
+
+mock.module("../config/database", { exports: { default: fakeDb } });
+
+let svc: typeof import("./cycle-count.service");
+
+describe("cycle-count.service — جدولة الجرد الذكي (independent feature)", () => {
+  before(async () => {
+    svc = await import("./cycle-count.service");
+  });
+
+  beforeEach(() => {
+    idCounter = 0;
+    branches = new Map([
+      [WAREHOUSE, { id: WAREHOUSE, name: "المخزن الرئيسي", isActive: true, createdAt: new Date("2026-01-01") }],
+      [OTHER_WAREHOUSE, { id: OTHER_WAREHOUSE, name: "مخزن ثانٍ", isActive: true, createdAt: new Date("2026-01-02") }],
+    ]);
+    products = new Map([
+      ["p1", { id: "p1", name: "منتج 1", salePrice: 1000, minStock: 5, deletedAt: null }],
+      ["p2", { id: "p2", name: "منتج 2", salePrice: 5000, minStock: 5, deletedAt: null }],
+      ["p3", { id: "p3", name: "منتج 3", salePrice: 500, minStock: 20, deletedAt: null }],
+    ]);
+    stocks = new Map([
+      [stockKey("p1", WAREHOUSE), { productId: "p1", warehouseId: WAREHOUSE, quantityPieces: 100, minStock: null }],
+      [stockKey("p2", WAREHOUSE), { productId: "p2", warehouseId: WAREHOUSE, quantityPieces: 10, minStock: null }],
+      [stockKey("p3", WAREHOUSE), { productId: "p3", warehouseId: WAREHOUSE, quantityPieces: 5, minStock: null }],
+    ]);
+    sessions = new Map();
+    items = new Map();
+    movements = [];
+    users = new Map([
+      [ADMIN_USER, { id: ADMIN_USER, name: "المدير", role: "ADMIN", isActive: true, createdAt: new Date("2026-01-01") }],
+    ]);
+    settingsStore = new Map();
+  });
+
+  // ── Item count / capping ────────────────────────────────────────────────────
+
+  it("creates exactly itemLimit items when the warehouse has more products than the limit", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    const created = [...items.values()].filter((i) => i.sessionId === session.id);
+    assert.equal(created.length, 2);
+  });
+
+  it("caps at the available product count when itemLimit exceeds it", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 999,
+    });
+    const created = [...items.values()].filter((i) => i.sessionId === session.id);
+    assert.equal(created.length, 3, "only 3 products exist in this warehouse");
+  });
+
+  it("rejects creating a session for a warehouse with no stock at all", async () => {
+    await assert.rejects(
+      () =>
+        svc.createCycleCountSession({
+          createdBy: ADMIN_USER,
+          warehouseId: OTHER_WAREHOUSE,
+          strategy: "RANDOM" as any,
+          itemLimit: 5,
+        }),
+      (err: any) => err.code === "NO_PRODUCTS",
+    );
+  });
+
+  // ── Strategies ───────────────────────────────────────────────────────────────
+
+  it("HIGH_VALUE orders by (quantity × sale price) descending", async () => {
+    const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "HIGH_VALUE" as any, 3);
+    // p1: 100*1000=100000, p2: 10*5000=50000, p3: 5*500=2500
+    assert.deepEqual(selected.map((s) => s.productId), ["p1", "p2", "p3"]);
+  });
+
+  it("LOW_STOCK orders by (quantity - minStock) ascending — most deficient first", async () => {
+    const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "LOW_STOCK" as any, 3);
+    // p1: 100-5=95, p2: 10-5=5, p3: 5-20=-15
+    assert.deepEqual(selected.map((s) => s.productId), ["p3", "p2", "p1"]);
+  });
+
+  it("FAST_MOVING orders by recent OUT movement quantity descending", async () => {
+    const now = new Date();
+    movements.push(
+      { productId: "p3", branchId: WAREHOUSE, type: "OUT", quantity: 50, createdAt: now },
+      { productId: "p1", branchId: WAREHOUSE, type: "OUT", quantity: 5, createdAt: now },
+    );
+    const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "FAST_MOVING" as any, 3);
+    assert.equal(selected[0].productId, "p3", "most OUT movement first");
+    assert.ok(selected.map((s) => s.productId).includes("p2"), "products with zero movement are still included");
+  });
+
+  it("LEAST_RECENTLY_COUNTED puts never-counted products before previously-counted ones", async () => {
+    // Simulate a prior session that counted p1 only.
+    const priorSession = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 1,
+    });
+    // Force the prior session to have counted p1 specifically.
+    for (const item of items.values()) {
+      if (item.sessionId === priorSession.id) item.productId = "p1";
+    }
+
+    const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "LEAST_RECENTLY_COUNTED" as any, 3);
+    assert.notEqual(selected[0].productId, "p1", "p1 was already counted — should not be first");
+  });
+
+  it("RANDOM selects itemLimit distinct products from the pool", async () => {
+    const selected = await svc.selectProductsForStrategy(fakeDb, WAREHOUSE, "RANDOM" as any, 2);
+    assert.equal(selected.length, 2);
+    assert.equal(new Set(selected.map((s) => s.productId)).size, 2, "no duplicates");
+    for (const s of selected) assert.ok(["p1", "p2", "p3"].includes(s.productId));
+  });
+
+  // ── Duplicate scheduled session guard ───────────────────────────────────────
+
+  it("hasOpenScheduledSession is false with no sessions, true once a SCHEDULED OPEN session exists", async () => {
+    assert.equal(await svc.hasOpenScheduledSession(WAREHOUSE), false);
+    await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 1,
+      source: "SCHEDULED" as any,
+    });
+    assert.equal(await svc.hasOpenScheduledSession(WAREHOUSE), true);
+  });
+
+  it("does not flag a warehouse as having an open scheduled session when only a MANUAL session is open", async () => {
+    await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 1,
+      source: "MANUAL" as any,
+    });
+    assert.equal(await svc.hasOpenScheduledSession(WAREHOUSE), false);
+  });
+
+  // ── No stock movement before approval ───────────────────────────────────────
+
+  it("creating a session, entering quantities, and submitting never touches stock or StockMovement", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const stockBefore = new Map([...stocks.entries()].map(([k, v]) => [k, v.quantityPieces]));
+
+    for (const item of [...items.values()].filter((i) => i.sessionId === session.id)) {
+      await svc.updateCycleCountItem(session.id, item.productId, item.systemQty + 7);
+    }
+    await svc.submitCycleCountSession(session.id);
+
+    for (const [key, qty] of stockBefore) assert.equal(stocks.get(key)!.quantityPieces, qty, `${key} unchanged`);
+    assert.equal(movements.length, 0, "no StockMovement rows before any approval");
+  });
+
+  // ── Approve writes StockMovement; reject does not ───────────────────────────
+
+  it("approving an item with a nonzero variance updates stock and writes exactly one StockMovement", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p1")!;
+    await svc.updateCycleCountItem(session.id, "p1", item.systemQty + 10);
+    await svc.submitCycleCountSession(session.id);
+
+    const before = stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces;
+    const result = await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER);
+
+    assert.equal(result.delta, 10);
+    assert.equal(stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces, before + 10);
+    assert.equal(movements.length, 1);
+    assert.equal(movements[0].type, "IN");
+    assert.equal(movements[0].quantity, 10);
+    assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
+    assert.equal(items.get(item.id)!.approvedBy, ADMIN_USER);
+  });
+
+  it("rejecting an item never touches stock and writes no StockMovement", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p2")!;
+    await svc.updateCycleCountItem(session.id, "p2", item.systemQty + 25);
+    await svc.submitCycleCountSession(session.id);
+
+    const before = stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces;
+    await svc.rejectCycleCountItem(session.id, item.id, ADMIN_USER);
+
+    assert.equal(stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces, before, "stock unchanged");
+    assert.equal(movements.length, 0, "no StockMovement written on reject");
+    assert.equal(items.get(item.id)!.approvalStatus, "REJECTED");
+  });
+
+  it("approving a zero-variance item updates approval status but writes no StockMovement", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p3")!;
+    await svc.updateCycleCountItem(session.id, "p3", item.systemQty); // no variance
+    await svc.submitCycleCountSession(session.id);
+
+    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER);
+    assert.equal(movements.length, 0, "zero delta approvals don't create a movement row");
+    assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
+  });
+
+  // ── Scheduled cron job ───────────────────────────────────────────────────────
+
+  it("runScheduledCycleCountJob does nothing when the feature is disabled", async () => {
+    settingsStore.set("cycleCountEnabled", false);
+    settingsStore.set("cycleCountWarehouseId", WAREHOUSE);
+    await svc.runScheduledCycleCountJob();
+    assert.equal(sessions.size, 0);
+  });
+
+  it("runScheduledCycleCountJob respects cycleCountIntervalDays — skips when not due yet", async () => {
+    settingsStore.set("cycleCountEnabled", true);
+    settingsStore.set("cycleCountWarehouseId", WAREHOUSE);
+    settingsStore.set("cycleCountIntervalDays", 7);
+    settingsStore.set("cycleCountItemLimit", 2);
+    settingsStore.set("cycleCountStrategy", "RANDOM");
+    settingsStore.set("cycleCountLastRunAt", new Date().toISOString()); // just ran
+
+    await svc.runScheduledCycleCountJob();
+    assert.equal(sessions.size, 0, "interval has not elapsed — no session created");
+  });
+
+  it("runScheduledCycleCountJob creates a SCHEDULED session once the interval has elapsed", async () => {
+    settingsStore.set("cycleCountEnabled", true);
+    settingsStore.set("cycleCountWarehouseId", WAREHOUSE);
+    settingsStore.set("cycleCountIntervalDays", 7);
+    settingsStore.set("cycleCountItemLimit", 2);
+    settingsStore.set("cycleCountStrategy", "RANDOM");
+    settingsStore.set("cycleCountLastRunAt", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString());
+
+    await svc.runScheduledCycleCountJob();
+
+    const created = [...sessions.values()];
+    assert.equal(created.length, 1);
+    assert.equal(created[0].source, "SCHEDULED");
+    assert.equal(created[0].warehouseId, WAREHOUSE);
+    assert.equal(settingsStore.get("cycleCountLastRunAt") !== "", true, "lastRunAt was advanced");
+  });
+
+  it("runScheduledCycleCountJob does not create a duplicate when a SCHEDULED session is still open", async () => {
+    settingsStore.set("cycleCountEnabled", true);
+    settingsStore.set("cycleCountWarehouseId", WAREHOUSE);
+    settingsStore.set("cycleCountIntervalDays", 7);
+    settingsStore.set("cycleCountItemLimit", 2);
+    settingsStore.set("cycleCountStrategy", "RANDOM");
+    settingsStore.set("cycleCountLastRunAt", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString());
+
+    await svc.runScheduledCycleCountJob();
+    assert.equal(sessions.size, 1, "first run creates one session");
+
+    // Still due (lastRunAt was advanced to "now" by the first run, so force it
+    // back to make the interval look elapsed again) — the OPEN scheduled
+    // session guard must still block a second run.
+    settingsStore.set("cycleCountLastRunAt", new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString());
+    await svc.runScheduledCycleCountJob();
+
+    assert.equal(sessions.size, 1, "no duplicate session created while one is still open for the warehouse");
+  });
+});

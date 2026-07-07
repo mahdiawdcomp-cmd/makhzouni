@@ -756,6 +756,13 @@ export const updateSettingsSchema = z.object({
           })
         )
         .optional(),
+      // "جدولة الجرد الذكي" (scheduled smart cycle count) settings — independent
+      // from the manual stocktake feature.
+      cycleCountEnabled: z.boolean().optional(),
+      cycleCountWarehouseId: z.string().trim().optional(),
+      cycleCountIntervalDays: z.coerce.number().int().min(1).max(365).optional(),
+      cycleCountItemLimit: z.coerce.number().int().min(1).max(1000).optional(),
+      cycleCountStrategy: z.enum(["RANDOM", "HIGH_VALUE", "FAST_MOVING", "LOW_STOCK", "LEAST_RECENTLY_COUNTED"]).optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

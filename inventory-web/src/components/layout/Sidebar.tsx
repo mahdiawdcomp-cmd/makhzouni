@@ -7,6 +7,7 @@ import {
   BarChart3,
   Boxes,
   ChevronDown,
+  ClipboardCheck,
   FileCheck2,
   FileSpreadsheet,
   FileText,
@@ -103,6 +104,7 @@ const navItems: Item[] = [
       { to: "/inventory", label: "المنتجات", icon: Boxes, dotColor: "#818CF8" },
       { to: "/inventory/transfers", label: "التحويلات", icon: ArrowRightLeft, dotColor: "#38BDF8" },
       { to: "/inventory/landed-cost", label: "تسعيرة أوردر الصين", icon: FileSpreadsheet, dotColor: "#A78BFA" },
+      { to: "/inventory/cycle-count", label: "جدولة الجرد الذكي", icon: ClipboardCheck, dotColor: "#22C55E" },
     ],
   },
   {

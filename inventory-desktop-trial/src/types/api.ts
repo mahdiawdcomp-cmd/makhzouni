@@ -206,6 +206,48 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
   stats?: { filled: number; total: number }
 }
 
+// "جدولة الجرد الذكي" (scheduled smart cycle count) — fully independent from
+// StocktakeSession/StocktakeItem above.
+export type CycleCountSessionStatus = "OPEN" | "SUBMITTED" | "CLOSED" | "CANCELLED"
+export type CycleCountSessionSource = "MANUAL" | "SCHEDULED"
+export type CycleCountApprovalStatus = "PENDING" | "APPROVED" | "REJECTED"
+export type CycleCountStrategy = "RANDOM" | "HIGH_VALUE" | "FAST_MOVING" | "LOW_STOCK" | "LEAST_RECENTLY_COUNTED"
+
+export interface CycleCountSessionSummary {
+  id: string
+  status: CycleCountSessionStatus
+  strategy: CycleCountStrategy
+  itemLimit: number
+  source: CycleCountSessionSource
+  scheduledFor: string | null
+  notes: string | null
+  createdAt: string
+  submittedAt: string | null
+  closedAt: string | null
+  creator: { id: string; name: string } | null
+  warehouse: { id: string; name: string } | null
+  itemCount: number
+}
+
+export interface CycleCountSessionDetail extends Omit<CycleCountSessionSummary, "itemCount"> {
+  items: Array<{
+    id: string
+    productId: string
+    productName: string
+    category: string | null
+    systemQty: number
+    actualQty: number | null
+    variance: number | null
+    notes: string | null
+    approvalStatus: CycleCountApprovalStatus
+    approvedQty: number | null
+    approver: { id: string; name: string } | null
+    approvedAt: string | null
+    hasError: boolean
+  }>
+  stats: { total: number; filled: number; errors: number }
+}
+
 export interface PublicCatalogProduct {
   id: string
   itemNumber: string
@@ -760,6 +802,13 @@ export interface AppSettings {
   cartonLabelNameFontSize?: number
   cartonLabelMetaFontSize?: number
   cartonLabelPaddingMm?: number
+  // "جدولة الجرد الذكي" — independent from the manual stocktake feature.
+  cycleCountEnabled?: boolean
+  cycleCountWarehouseId?: string
+  cycleCountIntervalDays?: number
+  cycleCountItemLimit?: number
+  cycleCountStrategy?: CycleCountStrategy
+  cycleCountLastRunAt?: string
 }
 
 export type BotReplyType = "STATEMENT" | "BALANCE" | "CATALOG_LINK" | "TEXT"
