@@ -17,6 +17,7 @@ import {
   ShoppingCart,
   Receipt as ReceiptIcon,
   Trash2,
+  Users,
 } from "lucide-react"
 import { cancelInvoice, downloadCustomerImageInvoiceExcelBlob, downloadCustomerImageInvoicePdfBlob, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
@@ -35,6 +36,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { ErrorExplain } from "../components/ui/error-explain"
 import { RecordNavigator } from "../components/RecordNavigator"
+import { WorkerSendModal } from "../components/WorkerSendModal"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 
 function money(v: number | undefined) { return fmt(v) }
@@ -191,6 +193,9 @@ export function InvoiceDetailPage() {
       setPdfDownloading(false)
     }
   }
+
+  // Send to preparation worker
+  const [workerModalOpen, setWorkerModalOpen] = useState(false)
 
   // WhatsApp preview
   const [waPreview, setWaPreview] = useState(false)
@@ -492,6 +497,11 @@ export function InvoiceDetailPage() {
               <ImageIcon className="h-3.5 w-3.5 text-emerald-600" /> {waImageSending ? "جاري الإرسال..." : "إرسال فاتورة بالصور"}
             </Button>
           )}
+          {whatsappInvoicesEnabled && (
+            <Button variant="outline" size="sm" onClick={() => setWorkerModalOpen(true)}>
+              <Users className="h-3.5 w-3.5 text-emerald-600" /> إرسال للعامل
+            </Button>
+          )}
           {invoice.type === "SALE" && (
             <>
               <Button
@@ -730,6 +740,12 @@ export function InvoiceDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <WorkerSendModal
+        invoiceId={invoice.id}
+        open={workerModalOpen}
+        onClose={() => setWorkerModalOpen(false)}
+      />
 
       {/* Full edit dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
