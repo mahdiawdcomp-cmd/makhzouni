@@ -39,6 +39,7 @@ import type {
   CustomerPayload,
   CustomerRatingEntry,
   CustomerTransactionsResponse,
+  CustomerStatementsExportEntry,
   DashboardReport,
   DailySummaryData,
   DebtAgingRow,
@@ -586,6 +587,13 @@ export async function getVapidPublicKey(): Promise<string | null> {
 export async function getCustomerTransactions(id: string, params?: { from?: string; to?: string }) {
   const { data } = await api.get<ApiEnvelope<CustomerTransactionsResponse>>(`/customers/${id}/transactions`, { params })
   return data.data?.transactions ?? []
+}
+
+// One page of the "حفظ الكشف العام" bulk export (customers who have at least
+// one transaction, each with their full merged statement + invoice line items).
+export async function getCustomerStatementsExport(params: { page: number; limit: number }) {
+  const { data } = await api.get<PagedResponse<CustomerStatementsExportEntry>>("/reports/customers/statements-export", { params })
+  return { entries: data.data ?? [], pagination: data.pagination }
 }
 
 export async function recalculateCustomerBalance(id: string) {

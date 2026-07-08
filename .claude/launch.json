@@ -13,6 +13,25 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "inventory-web", "run", "preview", "--", "--port", "4173"],
       "port": 4173
+    },
+    {
+      "name": "saas-admin-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "saas-admin-web", "run", "dev"],
+      "port": 5174,
+      "autoPort": true
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "inventory-backend", "run", "dev"],
+      "port": 5000
+    },
+    {
+      "name": "desktop",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "inventory-desktop-trial", "run", "dev"],
+      "port": 1421
     }
   ]
 }

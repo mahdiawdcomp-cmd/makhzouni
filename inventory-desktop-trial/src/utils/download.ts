@@ -50,3 +50,19 @@ export async function deliverLabel(
   }
   downloadAndPreviewBlobUrl(await blobUrl(), filename)
 }
+
+// Save client-generated text content (no backend URL involved, e.g. the master
+// customer statement HTML) to disk. On desktop this writes straight to the
+// Downloads folder via a Rust command, since blob-URL <a download> is a no-op
+// inside the Tauri WebView2; on web it's a normal browser download.
+export async function saveGeneratedTextFile(filename: string, content: string, mimeType = "text/html;charset=utf-8") {
+  if (isTauri()) {
+    const savedPath = await invoke<string>("save_text_file", { filename, content })
+    return savedPath
+  }
+  const blob = new Blob([content], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  downloadBlobUrl(url, filename)
+  URL.revokeObjectURL(url)
+  return filename
+}

@@ -406,6 +406,15 @@ export interface CustomerBroadcastResult {
   total: number
 }
 
+export interface CustomerTransactionItem {
+  productName: string
+  itemNumber: string | null
+  unit: string
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+}
+
 export interface CustomerTransaction {
   id: string
   date: string
@@ -425,6 +434,15 @@ export interface CustomerTransaction {
   lastChangedByName?: string | null
   lastChangedBy?: Pick<User, "id" | "name" | "username" | "role"> | null
   lastChangeSummary?: unknown
+  /** Line items — only present on merged INVOICE rows. */
+  items?: CustomerTransactionItem[] | null
+  /** Voucher description/notes — only present on RECEIPT/PAYMENT/EXPENSE rows. */
+  description?: string | null
+}
+
+export interface CustomerStatementsExportEntry {
+  customer: { id: string; name: string; phone: string; openingBalance: number; currentBalance: number }
+  transactions: CustomerTransaction[]
 }
 
 export interface CustomerTransactionsResponse {

@@ -3,6 +3,7 @@ import {
   atRiskCustomersReport,
   customerDebtsReport,
   customerRatingsReport,
+  customerStatementsExportReport,
   dailySummaryReport,
   dashboardReport,
   debtAgingReport,
@@ -21,6 +22,7 @@ import { requireProfitReports } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   customerDebtsReportSchema,
+  customerStatementsExportSchema,
   productMovementReportSchema,
   profitReportSchema,
   storeBrainReportSchema,
@@ -42,6 +44,7 @@ router.get("/end-of-day", endOfDayReport);
 router.get("/customers/at-risk", atRiskCustomersReport);
 router.get("/customers/ratings", customerRatingsReport);
 router.get("/customers/debt-aging", debtAgingReport);
+router.get("/customers/statements-export", validate(customerStatementsExportSchema), customerStatementsExportReport);
 // Profit + store-brain expose full financial margins — gated by the profit-visibility
 // capability, which (unlike every other permission) can be revoked even from an ADMIN.
 router.get("/profit", requireProfitReports(), validate(profitReportSchema), profitReport);

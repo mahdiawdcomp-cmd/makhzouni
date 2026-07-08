@@ -17,6 +17,7 @@ import {
 } from "../services/report.service";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
+import { getAllCustomerStatements } from "../services/customer.service";
 
 export const dashboardReport = asyncHandler(async (_req, res) => {
   const data = await getDashboardReport();
@@ -121,6 +122,14 @@ export const customerRatingsReport = asyncHandler(async (_req, res) => {
 export const debtAgingReport = asyncHandler(async (_req, res) => {
   const data = await getDebtAging();
   res.json({ success: true, data });
+});
+
+// GET /api/reports/customers/statements-export — paginated bulk statement export
+// (used by the "حفظ الكشف العام" master statement HTML download).
+export const customerStatementsExportReport = asyncHandler(async (req, res) => {
+  const { page, limit } = req.validatedQuery as Parameters<typeof getAllCustomerStatements>[0];
+  const { data, total, pages } = await getAllCustomerStatements({ page, limit });
+  res.json({ success: true, data, pagination: { total, page, limit, pages } });
 });
 
 // POST /api/reports/debt-reminder/send  — send WhatsApp to selected customers

@@ -10,13 +10,25 @@ fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
   app.shell().open(url, None).map_err(|e| e.to_string())
 }
 
+// Save generated text content (e.g. the master customer statement HTML) straight
+// to the user's Downloads folder. The in-webview <a download> click is a no-op
+// inside the Tauri WebView2 (see open_external above), so client-generated files
+// need this native write path instead of a blob-URL download.
+#[tauri::command]
+fn save_text_file(app: tauri::AppHandle, filename: String, content: String) -> Result<String, String> {
+  let dir = app.path().download_dir().map_err(|e| e.to_string())?;
+  let path = dir.join(&filename);
+  std::fs::write(&path, content).map_err(|e| e.to_string())?;
+  Ok(path.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![open_external])
+    .invoke_handler(tauri::generate_handler![open_external, save_text_file])
     .setup(|app| {
       // Resolve paths for the local backend
       let resource_dir = app.path().resource_dir().unwrap_or_default();

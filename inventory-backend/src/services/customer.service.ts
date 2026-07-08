@@ -393,82 +393,85 @@ export async function restoreCustomer(id: string) {
   return serializeCustomer(restored);
 }
 
-export async function getCustomerTransactions(id: string, filter: TransactionFilter) {
-  const customer = await getCustomerOrThrow(id);
-  const upperDateFilter = buildTransactionUpperDateFilter(filter);
+const customerStatementInvoiceInclude = {
+  creator: { select: { id: true, name: true, username: true, role: true } },
+  items: true,
+} satisfies Prisma.InvoiceInclude;
+type StatementInvoice = Prisma.InvoiceGetPayload<{ include: typeof customerStatementInvoiceInclude }>;
+
+const customerStatementVoucherInclude = {
+  creator: { select: { id: true, name: true, username: true, role: true } },
+} satisfies Prisma.PaymentVoucherInclude;
+type StatementVoucher = Prisma.PaymentVoucherGetPayload<{ include: typeof customerStatementVoucherInclude }>;
+
+const customerStatementAuditInclude = {
+  user: { select: { id: true, name: true, username: true, role: true } },
+} satisfies Prisma.AuditLogInclude;
+type StatementAuditLog = Prisma.AuditLogGetPayload<{ include: typeof customerStatementAuditInclude }>;
+
+type StatementCustomer = { id: string; name: string; openingBalance: DecimalLike };
+
+type StatementInvoiceItem = {
+  productName: string;
+  itemNumber: string | null;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+type StatementMovement = {
+  date: Date;
+  type: string;
+  amount: number;
+  referenceNumber: string;
+  recordId: string;
+  sortKey: number;
+  createdAt: Date;
+  creator?: { id: string; name: string; username: string; role: string } | null;
+  lastAudit?: StatementAuditLog;
+  status?: InvoiceStatus;
+  items?: StatementInvoiceItem[];
+  description?: string | null;
+};
+
+// Pure statement builder — shared by the single-customer endpoint and the
+// bulk "all customers" export so the balance sign convention and audit-log
+// enrichment logic only lives in one place.
+function buildCustomerStatement(
+  customer: StatementCustomer,
+  invoices: StatementInvoice[],
+  vouchers: StatementVoucher[],
+  auditLogs: StatementAuditLog[],
+  filter: TransactionFilter
+) {
   const outputDateFilter = buildTransactionDateFilter(filter);
   const outputStartDate = startDateForFilter(filter);
 
-  const [invoices, vouchers] = await Promise.all([
-    prisma.invoice.findMany({
-      where: {
-        customerId: id,
-        archivedAt: null,
-        ...(upperDateFilter ? { date: upperDateFilter } : {}),
-      },
-      include: {
-        creator: {
-          select: { id: true, name: true, username: true, role: true },
-        },
-      },
-      orderBy: { date: "asc" },
-    }),
-    prisma.paymentVoucher.findMany({
-      where: {
-        customerId: id,
-        archivedAt: null,
-        ...(upperDateFilter ? { date: upperDateFilter } : {}),
-      },
-      include: {
-        creator: {
-          select: { id: true, name: true, username: true, role: true },
-        },
-      },
-      orderBy: { date: "asc" },
-    }),
-  ]);
-
-  const recordIds = [...invoices.map((invoice) => invoice.id), ...vouchers.map((voucher) => voucher.id)];
-  const auditLogs = recordIds.length
-    ? await prisma.auditLog.findMany({
-        where: {
-          recordId: { in: recordIds },
-          entity: { in: ["invoices", "vouchers"] },
-          action: { in: ["UPDATE", "DELETE", "REACTIVATE"] },
-        },
-        include: {
-          user: { select: { id: true, name: true, username: true, role: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      })
-    : [];
-  const latestAuditByRecord = new Map<string, (typeof auditLogs)[number]>();
+  const latestAuditByRecord = new Map<string, StatementAuditLog>();
   for (const log of auditLogs) {
     if (log.recordId && !latestAuditByRecord.has(log.recordId)) {
       latestAuditByRecord.set(log.recordId, log);
     }
   }
 
-  const invoiceMovements = invoices.flatMap((invoice) => {
+  const invoiceMovements: StatementMovement[] = invoices.flatMap((invoice) => {
     const isSale = invoice.type === "SALE";
     const isReturn = invoice.type === "SALES_RETURN";
-    const movements: Array<{
-      date: Date;
-      // SALE_INVOICE adds to balance (customer owes us more → debit).
-      // PURCHASE_INVOICE subtracts (we owe supplier → credit).
-      // SALE_PAYMENT / PURCHASE_PAYMENT are the upfront-paid portions on the invoice itself.
-      type: "SALE_INVOICE" | "SALE_PAYMENT" | "PURCHASE_INVOICE" | "PURCHASE_PAYMENT" | "SALES_RETURN_INVOICE";
-      amount: number;
-      referenceNumber: string;
-      recordId: string;
-      sortKey: number;
-      createdAt: Date;
-      creator?: { id: string; name: string; username: string; role: string } | null;
-      lastAudit?: (typeof auditLogs)[number];
-      status?: InvoiceStatus;
-    }> = [
+    const items: StatementInvoiceItem[] = invoice.items.map((item) => ({
+      productName: item.productName,
+      itemNumber: item.itemNumber,
+      unit: item.unit,
+      quantity: item.quantity,
+      unitPrice: toNumber(item.unitPrice),
+      totalPrice: toNumber(item.totalPrice),
+    }));
+    const movements: StatementMovement[] = [
       {
         date: invoice.date,
+        // SALE_INVOICE adds to balance (customer owes us more → debit).
+        // PURCHASE_INVOICE subtracts (we owe supplier → credit).
+        // SALE_PAYMENT / PURCHASE_PAYMENT are the upfront-paid portions on the invoice itself.
         type: isReturn ? "SALES_RETURN_INVOICE" : isSale ? "SALE_INVOICE" : "PURCHASE_INVOICE",
         amount: toNumber(invoice.totalAmount),
         referenceNumber: invoice.invoiceNumber,
@@ -478,6 +481,7 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
         creator: invoice.creator,
         lastAudit: latestAuditByRecord.get(invoice.id),
         status: invoice.status,
+        items,
       },
     ];
 
@@ -504,7 +508,7 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
   // (e.g. 23:27 UTC = 02:27 AM Iraq next day) while invoices use midnight UTC
   // of the business date. Adding 3 h converts both to the correct Iraq calendar day.
   const UTC3 = 3 * 60 * 60 * 1000;
-  const movements = [
+  const movements: StatementMovement[] = [
     ...invoiceMovements,
     ...vouchers.map((voucher) => ({
       date: voucher.date,
@@ -517,6 +521,7 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
       creator: voucher.creator,
       lastAudit: latestAuditByRecord.get(voucher.id),
       status: undefined,
+      description: voucher.description ?? voucher.notes ?? null,
     })),
   ].sort((a, b) => {
     const dayA = Math.floor((a.date.getTime() + UTC3) / 86_400_000);
@@ -608,6 +613,8 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
       debit: !isCancelled && !isCredit ? movement.amount : 0,
       credit: !isCancelled && isCredit ? movement.amount : 0,
       runningBalance,
+      items: movement.items ?? null,
+      description: movement.description ?? null,
     }];
   });
 
@@ -619,6 +626,137 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
     },
     transactions,
   };
+}
+
+export async function getCustomerTransactions(id: string, filter: TransactionFilter) {
+  const customer = await getCustomerOrThrow(id);
+  const upperDateFilter = buildTransactionUpperDateFilter(filter);
+
+  const [invoices, vouchers] = await Promise.all([
+    prisma.invoice.findMany({
+      where: {
+        customerId: id,
+        archivedAt: null,
+        ...(upperDateFilter ? { date: upperDateFilter } : {}),
+      },
+      include: customerStatementInvoiceInclude,
+      orderBy: { date: "asc" },
+    }),
+    prisma.paymentVoucher.findMany({
+      where: {
+        customerId: id,
+        archivedAt: null,
+        ...(upperDateFilter ? { date: upperDateFilter } : {}),
+      },
+      include: customerStatementVoucherInclude,
+      orderBy: { date: "asc" },
+    }),
+  ]);
+
+  const recordIds = [...invoices.map((invoice) => invoice.id), ...vouchers.map((voucher) => voucher.id)];
+  const auditLogs = recordIds.length
+    ? await prisma.auditLog.findMany({
+        where: {
+          recordId: { in: recordIds },
+          entity: { in: ["invoices", "vouchers"] },
+          action: { in: ["UPDATE", "DELETE", "REACTIVATE"] },
+        },
+        include: customerStatementAuditInclude,
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  return buildCustomerStatement(customer, invoices, vouchers, auditLogs, filter);
+}
+
+export async function getAllCustomerStatements(params: { page: number; limit: number }) {
+  const page = Math.max(1, params.page || 1);
+  const limit = Math.max(1, Math.min(params.limit || 25, 100));
+
+  const where: Prisma.CustomerWhereInput = {
+    deletedAt: null,
+    OR: [{ invoices: { some: { archivedAt: null } } }, { paymentVouchers: { some: { archivedAt: null } } }],
+  };
+
+  const [total, customers] = await Promise.all([
+    prisma.customer.count({ where }),
+    prisma.customer.findMany({
+      where,
+      select: { id: true, name: true, phone: true, openingBalance: true, currentBalance: true },
+      orderBy: { name: "asc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  const customerIds = customers.map((c) => c.id);
+  const noFilter: TransactionFilter = { all: true };
+
+  const [invoices, vouchers] = customerIds.length
+    ? await Promise.all([
+        prisma.invoice.findMany({
+          where: { customerId: { in: customerIds }, archivedAt: null },
+          include: customerStatementInvoiceInclude,
+          orderBy: { date: "asc" },
+        }),
+        prisma.paymentVoucher.findMany({
+          where: { customerId: { in: customerIds }, archivedAt: null },
+          include: customerStatementVoucherInclude,
+          orderBy: { date: "asc" },
+        }),
+      ])
+    : [[], []];
+
+  const recordIds = [...invoices.map((invoice) => invoice.id), ...vouchers.map((voucher) => voucher.id)];
+  const auditLogs = recordIds.length
+    ? await prisma.auditLog.findMany({
+        where: {
+          recordId: { in: recordIds },
+          entity: { in: ["invoices", "vouchers"] },
+          action: { in: ["UPDATE", "DELETE", "REACTIVATE"] },
+        },
+        include: customerStatementAuditInclude,
+        orderBy: { createdAt: "desc" },
+      })
+    : [];
+
+  const invoicesByCustomer = new Map<string, StatementInvoice[]>();
+  for (const invoice of invoices) {
+    const list = invoicesByCustomer.get(invoice.customerId) ?? [];
+    list.push(invoice);
+    invoicesByCustomer.set(invoice.customerId, list);
+  }
+  const vouchersByCustomer = new Map<string, StatementVoucher[]>();
+  for (const voucher of vouchers) {
+    if (!voucher.customerId) continue;
+    const list = vouchersByCustomer.get(voucher.customerId) ?? [];
+    list.push(voucher);
+    vouchersByCustomer.set(voucher.customerId, list);
+  }
+  const auditLogsByRecord = new Map<string, StatementAuditLog[]>();
+  for (const log of auditLogs) {
+    if (!log.recordId) continue;
+    const list = auditLogsByRecord.get(log.recordId) ?? [];
+    list.push(log);
+    auditLogsByRecord.set(log.recordId, list);
+  }
+
+  const data = customers.map((customer) => {
+    const customerInvoices = invoicesByCustomer.get(customer.id) ?? [];
+    const customerVouchers = vouchersByCustomer.get(customer.id) ?? [];
+    const customerRecordIds = [
+      ...customerInvoices.map((invoice) => invoice.id),
+      ...customerVouchers.map((voucher) => voucher.id),
+    ];
+    const customerAuditLogs = customerRecordIds.flatMap((id) => auditLogsByRecord.get(id) ?? []);
+    const statement = buildCustomerStatement(customer, customerInvoices, customerVouchers, customerAuditLogs, noFilter);
+    return {
+      customer: { ...statement.customer, phone: customer.phone, currentBalance: toNumber(customer.currentBalance) },
+      transactions: statement.transactions,
+    };
+  });
+
+  return { data, total, page, pages: Math.max(1, Math.ceil(total / limit)) };
 }
 
 export async function getLastCustomerTransaction(id: string) {

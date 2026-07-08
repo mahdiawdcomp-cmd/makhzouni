@@ -8,6 +8,7 @@ import {
   Boxes,
   ChevronDown,
   ClipboardCheck,
+  Download,
   FileCheck2,
   FileSpreadsheet,
   FileText,
@@ -37,6 +38,7 @@ import { useSettings } from "../../hooks/useSettings"
 import { useTenantConfig } from "../../hooks/useTenantConfig"
 import type { UserPermission } from "../../types/api"
 import { cn } from "../../utils/cn"
+import { GenerateFullStatementDialog } from "../GenerateFullStatementDialog"
 
 type Leaf = { to: string; label: string; icon: ComponentType<{ className?: string }>; dotColor?: string }
 type Group = { id: string; label: string; icon: ComponentType<{ className?: string }>; basePath: string; children: Leaf[] }
@@ -137,6 +139,7 @@ const navItems: Item[] = [
   { to: "/customers/broadcast", label: "إرسال - زبائن الجملة", icon: Megaphone },
   { to: "/campaigns", label: "الزبائن الجدد", icon: Send },
   { to: "/account", label: "كشف الحساب", icon: Search },
+  { to: "/account/statement-export", label: "حفظ الكشف العام", icon: Download },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
@@ -382,6 +385,7 @@ export function Sidebar() {
     (item) => isGroup(item) && location.pathname.startsWith(item.basePath)
   ) as Group | undefined
   const [openGroupId, setOpenGroupId] = useState<string | null>(defaultOpen?.id ?? null)
+  const [statementExportOpen, setStatementExportOpen] = useState(false)
 
   function toggleGroup(id: string) {
     setOpenGroupId((prev) => (prev === id ? null : id))
@@ -476,6 +480,18 @@ export function Sidebar() {
               </span>
               كاشير سريع
             </button>
+          ) : "to" in item && item.to === "/account/statement-export" ? (
+            <button
+              key="/account/statement-export"
+              type="button"
+              onClick={() => setStatementExportOpen(true)}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium text-[var(--theme-sidebarText)] transition-all duration-150 hover:bg-white/6 hover:text-[var(--theme-sidebarTextHover)]"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/8">
+                <Download className="h-4 w-4" />
+              </span>
+              حفظ الكشف العام
+            </button>
           ) : (
             <SideLink key={item.to} to={item.to} label={item.label} Icon={item.icon} />
           ),
@@ -531,6 +547,8 @@ export function Sidebar() {
           شاشة العرض
         </button>
       </div>
+
+      <GenerateFullStatementDialog open={statementExportOpen} onOpenChange={setStatementExportOpen} />
     </aside>
   )
 }
