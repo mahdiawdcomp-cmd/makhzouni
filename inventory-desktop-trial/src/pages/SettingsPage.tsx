@@ -223,6 +223,8 @@ export function SettingsPage() {
     mutationFn: updateSettings,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] })
+      // Refresh the active WhatsApp provider immediately after saving.
+      queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     },
@@ -1916,6 +1918,20 @@ function WhatsAppProviderSettings({
             }`}
           >
             {activeLine}
+          </div>
+        )}
+
+        {/* Unsaved-selection warning (e.g. picked Cloud but didn't press Save yet) */}
+        {status && settings.whatsappProvider && settings.whatsappProvider !== (status.selectedProvider ?? "web") && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            ⚠️ لم يتم حفظ اختيار المزود بعد — اضغط «حفظ» ليصبح فعّالاً في الإرسال.
+          </div>
+        )}
+
+        {/* Missing required fields for the ACTIVE provider */}
+        {status && status.missingFields.length > 0 && (
+          <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+            حقول ناقصة للمزود الفعلي ({activeLabel}): {status.missingFields.join("، ")}
           </div>
         )}
 

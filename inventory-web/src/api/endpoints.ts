@@ -1163,7 +1163,9 @@ export type WhatsAppProviderSource = "env" | "db" | "default"
 export interface WhatsAppStatus {
   provider: WhatsAppProvider
   activeProvider: WhatsAppProvider
+  selectedProvider: WhatsAppProvider | null
   providerSource: WhatsAppProviderSource
+  missingFields: string[]
   status: WhatsAppStatusCode
   enabled: boolean
   cloudConfigured: boolean

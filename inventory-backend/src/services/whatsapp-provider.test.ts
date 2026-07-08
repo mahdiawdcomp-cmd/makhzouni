@@ -140,12 +140,61 @@ test("DB explicit cloud beats env greenapi credentials", () => {
   assert.equal(getWhatsAppStatus().provider, "cloud");
 });
 
-test("env WHATSAPP_PROVIDER wins over DB provider", () => {
+test("DB explicit provider WINS over env WHATSAPP_PROVIDER (saved cloud must not fall back to env Green)", () => {
   process.env.WHATSAPP_PROVIDER = "greenapi";
   process.env.GREENAPI_INSTANCE_ID = "2202";
   process.env.GREENAPI_TOKEN = "envtok";
+  syncWhatsAppSettings({
+    whatsappProvider: "cloud",
+    whatsappCloudToken: "EAAtoken",
+    whatsappCloudPhoneNumberId: "123456",
+  });
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "cloud");
+  assert.equal(s.providerSource, "db");
+});
+
+test("DB cloud + valid creds + Green env present → activeProvider is cloud, ready", () => {
+  process.env.GREENAPI_INSTANCE_ID = "2202"; // deleted/dead env Green instance
+  process.env.GREENAPI_TOKEN = "envtok";
+  syncWhatsAppSettings({
+    whatsappProvider: "cloud",
+    whatsappCloudToken: "EAAtoken",
+    whatsappCloudPhoneNumberId: "123456",
+  });
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "cloud");
+  assert.equal(s.status, "ready");
+  assert.deepEqual(s.missingFields, []);
+});
+
+test("DB cloud missing token (Green env present) → cloud missing_settings, NOT green fallback", () => {
+  process.env.GREENAPI_INSTANCE_ID = "2202";
+  process.env.GREENAPI_TOKEN = "envtok";
+  syncWhatsAppSettings({ whatsappProvider: "cloud", whatsappCloudPhoneNumberId: "123456" });
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "cloud");
+  assert.equal(s.status, "missing_settings");
+  assert.deepEqual(s.missingFields, ["Access Token"]);
+});
+
+test("test send uses the active (DB cloud) provider, not env Green", async () => {
+  // env Green is 'deleted'; DB explicit cloud with no creds → send must fail as
+  // CLOUD not configured (proving it routed to cloud, not the env Green path).
+  // ENABLE_WHATSAPP lets it past the enabled gate so it reaches the cloud branch.
+  process.env.ENABLE_WHATSAPP = "true";
+  process.env.GREENAPI_INSTANCE_ID = "2202";
+  process.env.GREENAPI_TOKEN = "envtok";
   syncWhatsAppSettings({ whatsappProvider: "cloud" });
-  assert.equal(getWhatsAppStatus().provider, "greenapi");
+  await assert.rejects(
+    () => sendWhatsAppText("9647700000000", "hi"),
+    (err: unknown) => (err as { code?: string })?.code === "WHATSAPP_CLOUD_NOT_CONFIGURED",
+  );
+});
+
+test("selectedProvider reflects the saved DB choice", () => {
+  syncWhatsAppSettings({ whatsappProvider: "cloud", whatsappCloudToken: "t", whatsappCloudPhoneNumberId: "p" });
+  assert.equal(getWhatsAppStatus().selectedProvider, "cloud");
 });
 
 test("legacy: DB provider=web with env greenapi creds still auto-detects greenapi", () => {

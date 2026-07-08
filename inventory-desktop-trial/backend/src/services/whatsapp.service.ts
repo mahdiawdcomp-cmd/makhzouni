@@ -99,17 +99,18 @@ function hasCloudCreds() {
 export type ProviderSource = "env" | "db" | "default";
 
 function providerWithSource(): { provider: WhatsAppProvider; source: ProviderSource } {
+  // DB EXPLICIT choice wins — a saved "cloud" must never fall back to env Green.
+  // A saved "web" is the legacy auto sentinel and falls through to env/auto-detect.
+  if (_dbProviderOverride === "cloud") return { provider: "cloud", source: "db" };
+  if (_dbProviderOverride === "greenapi") return { provider: "greenapi", source: "db" };
+  if (_dbProviderOverride === "manual") return { provider: "manual", source: "db" };
+  if (_dbProviderOverride === "disabled") return { provider: "disabled", source: "db" };
+
   const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
   if (configured === "greenapi") return { provider: "greenapi", source: "env" };
   if (configured === "cloud") return { provider: "cloud", source: "env" };
   if (configured === "manual") return { provider: "manual", source: "env" };
   if (configured === "disabled") return { provider: "disabled", source: "env" };
-
-  // DB explicit choice (a saved "web" falls through to auto-detect for legacy safety)
-  if (_dbProviderOverride === "greenapi") return { provider: "greenapi", source: "db" };
-  if (_dbProviderOverride === "cloud") return { provider: "cloud", source: "db" };
-  if (_dbProviderOverride === "manual") return { provider: "manual", source: "db" };
-  if (_dbProviderOverride === "disabled") return { provider: "disabled", source: "db" };
 
   const envGreen = Boolean(process.env.GREENAPI_INSTANCE_ID?.trim() && process.env.GREENAPI_TOKEN?.trim());
   if (envGreen) return { provider: "greenapi", source: "env" };
@@ -540,10 +541,26 @@ export function getWhatsAppStatus() {
     statusCode = state === "READY" ? "ready" : whatsappEnabled() ? "failed" : "missing_settings";
   }
 
+  const selectedProvider: WhatsAppProvider | null = _dbProviderOverride;
+  const missingFields: string[] = [];
+  if (currentProvider === "cloud") {
+    const hasToken = Boolean(process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken);
+    const hasPhoneId = Boolean(process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId);
+    if (!hasToken) missingFields.push("Access Token");
+    if (!hasPhoneId) missingFields.push("Phone Number ID");
+  } else if (currentProvider === "greenapi") {
+    const hasInstance = Boolean(process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId);
+    const hasToken = Boolean(process.env.GREENAPI_TOKEN?.trim() || _greenApiToken);
+    if (!hasInstance) missingFields.push("Instance ID");
+    if (!hasToken) missingFields.push("Token");
+  }
+
   return {
     provider: currentProvider,
     activeProvider: currentProvider,
+    selectedProvider,
     providerSource,
+    missingFields,
     status: statusCode,
     enabled: whatsappEnabled(),
     cloudConfigured,

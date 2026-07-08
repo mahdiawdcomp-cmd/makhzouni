@@ -111,22 +111,22 @@ export type ProviderSource = "env" | "db" | "default";
  * "db" = the tenant's saved UI settings, "default" = unconfigured legacy web.
  */
 function providerWithSource(): { provider: WhatsAppProvider; source: ProviderSource } {
-  // 1) env override takes top priority (unchanged for greenapi/cloud; manual/
-  //    disabled added). env "web" intentionally falls through to auto-detect.
+  // 1) DB EXPLICIT choice wins — the tenant configured this from the UI, so it
+  //    must beat env (a saved "cloud" must never fall back to an env Green
+  //    instance). A saved "web" is the legacy auto sentinel and deliberately
+  //    falls through to env/auto-detect below (never short-circuits) so tenants
+  //    who set up Green/Cloud via env and never picked a provider keep working.
+  if (_dbProviderOverride === "cloud") return { provider: "cloud", source: "db" };
+  if (_dbProviderOverride === "greenapi") return { provider: "greenapi", source: "db" };
+  if (_dbProviderOverride === "manual") return { provider: "manual", source: "db" };
+  if (_dbProviderOverride === "disabled") return { provider: "disabled", source: "db" };
+
+  // 2) env override (only when the DB provider is unset / legacy "web").
   const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
   if (configured === "greenapi") return { provider: "greenapi", source: "env" };
   if (configured === "cloud") return { provider: "cloud", source: "env" };
   if (configured === "manual") return { provider: "manual", source: "env" };
   if (configured === "disabled") return { provider: "disabled", source: "env" };
-
-  // 2) DB explicit choice. NOTE: a saved "web" deliberately falls through to
-  //    auto-detect below, preserving the exact legacy behaviour for tenants
-  //    who configured Green/Cloud via env and never picked a provider in the UI
-  //    (their old default was "web"). Only the new explicit values short-circuit.
-  if (_dbProviderOverride === "greenapi") return { provider: "greenapi", source: "db" };
-  if (_dbProviderOverride === "cloud") return { provider: "cloud", source: "db" };
-  if (_dbProviderOverride === "manual") return { provider: "manual", source: "db" };
-  if (_dbProviderOverride === "disabled") return { provider: "disabled", source: "db" };
 
   // 3) auto-detect from credentials — distinguish env vs DB so the UI can say
   //    "من إعدادات السيرفر" when it's an env fallback.
@@ -612,10 +612,31 @@ export function getWhatsAppStatus() {
     statusCode = state === "READY" ? "ready" : whatsappEnabled() ? "failed" : "missing_settings";
   }
 
+  // The provider the tenant explicitly selected in the UI (null when never set /
+  // legacy "web" auto). Distinct from activeProvider, which is what actually sends.
+  const selectedProvider: WhatsAppProvider | null = _dbProviderOverride;
+
+  // Required-but-missing credential fields for the ACTIVE provider — so the UI
+  // can pinpoint exactly what's incomplete instead of a generic message.
+  const missingFields: string[] = [];
+  if (currentProvider === "cloud") {
+    const hasToken = Boolean(process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken);
+    const hasPhoneId = Boolean(process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId);
+    if (!hasToken) missingFields.push("Access Token");
+    if (!hasPhoneId) missingFields.push("Phone Number ID");
+  } else if (currentProvider === "greenapi") {
+    const hasInstance = Boolean(process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId);
+    const hasToken = Boolean(process.env.GREENAPI_TOKEN?.trim() || _greenApiToken);
+    if (!hasInstance) missingFields.push("Instance ID");
+    if (!hasToken) missingFields.push("Token");
+  }
+
   return {
     provider: currentProvider,
     activeProvider: currentProvider,
+    selectedProvider,
     providerSource,
+    missingFields,
     status: statusCode,
     enabled: whatsappEnabled(),
     cloudConfigured,
