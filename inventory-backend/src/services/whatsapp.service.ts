@@ -734,6 +734,39 @@ export async function sendWhatsAppText(phone: string, message: string): Promise<
   }
 }
 
+/**
+ * Send a pre-approved Meta template message (Marketing/Utility/Authentication).
+ * Cloud API only — a template is meaningless for the other providers, and
+ * silently falling back to free text for a cold contact is exactly the
+ * unsolicited-messaging pattern that gets WhatsApp numbers banned. Fail loud
+ * instead so a campaign can never accidentally cold-message through Green API.
+ */
+export async function sendWhatsAppTemplate(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+): Promise<{ to: string; idMessage?: string }> {
+  const prov = assertCanSend();
+  if (prov !== "cloud") {
+    throw new AppError(
+      "قوالب الرسائل (Templates) مدعومة بس مع Meta Cloud API — المزوّد الحالي لا يدعمها",
+      400,
+      "WHATSAPP_TEMPLATE_REQUIRES_CLOUD",
+    );
+  }
+
+  const to = normalizeCloudPhone(phone);
+  const idMessage = await sendCloudMessage({
+    to,
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+    },
+  });
+  return { to, idMessage };
+}
+
 export async function sendWhatsAppPdf(
   phone: string,
   message: string,

@@ -225,6 +225,7 @@ const STATUS_COLOR: Record<CampaignStatus, string> = {
 const emptyForm: CampaignPayload = {
   name: "", messages: [], includeCatalogLink: true,
   minDelaySec: 90, maxDelaySec: 240, dailyMin: 20, dailyMax: 50, activeStartHour: 9, activeEndHour: 21,
+  useTemplate: false, templateName: "", templateLanguage: "ar",
 }
 
 const DEFAULT_AUTO_REPLY_MESSAGE = "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}"
@@ -470,6 +471,9 @@ function SendTab() {
             dailyMax: editTarget.dailyMax,
             activeStartHour: editTarget.activeStartHour,
             activeEndHour: editTarget.activeEndHour,
+            useTemplate: editTarget.useTemplate,
+            templateName: editTarget.templateName ?? "",
+            templateLanguage: editTarget.templateLanguage ?? "ar",
           }}
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ["campaigns"] }) }} />
@@ -564,15 +568,37 @@ function CampaignForm({ onClose, onSaved, initial, campaignId }: {
           <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="مثلاً: عرض جديد"
             className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
         </div>
-        <div>
-          <label className="mb-1 block text-xs font-bold text-gray-600">
-            نصوص الرسائل — افصل بين كل صيغة بسطر فيه <code className="rounded bg-gray-100 px-1">---</code>
-          </label>
-          <textarea value={messagesText} onChange={(e) => setMessagesText(e.target.value)} rows={6}
-            placeholder={"مرحباً! وصلتنا بضاعة جديدة 🌟\n---\nأهلاً، شوف عروضنا 🛍️"}
-            className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
-          <p className="mt-1 text-[11px] text-gray-400">تتدوّر الصيغ عشوائياً مع كل رسالة.</p>
-        </div>
+        <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+          <input type="checkbox" checked={!!form.useTemplate} onChange={(e) => set("useTemplate", e.target.checked)} className="h-4 w-4" />
+          استخدام قالب واتساب معتمد من ميتا (لأرقام جديدة لم تراسلك من قبل)
+        </label>
+        {form.useTemplate ? (
+          <div className="space-y-3 rounded-xl border border-gray-200 bg-white p-3">
+            <div>
+              <label className="mb-1 block text-xs font-bold text-gray-600">اسم القالب المعتمد بالضبط</label>
+              <input value={form.templateName ?? ""} onChange={(e) => set("templateName", e.target.value)}
+                placeholder="toys_offer_intro" dir="ltr"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-gray-600">رمز اللغة</label>
+              <input value={form.templateLanguage ?? "ar"} onChange={(e) => set("templateLanguage", e.target.value)}
+                placeholder="ar" dir="ltr"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+            </div>
+            <p className="text-[11px] text-gray-400">لازم يكون القالب موافق عليه من ميتا مسبقاً. الرسالة تنرسل كما وافقت عليها ميتا، بدون تغيير.</p>
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-xs font-bold text-gray-600">
+              نصوص الرسائل — افصل بين كل صيغة بسطر فيه <code className="rounded bg-gray-100 px-1">---</code>
+            </label>
+            <textarea value={messagesText} onChange={(e) => setMessagesText(e.target.value)} rows={6}
+              placeholder={"مرحباً! وصلتنا بضاعة جديدة 🌟\n---\nأهلاً، شوف عروضنا 🛍️"}
+              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+            <p className="mt-1 text-[11px] text-gray-400">تتدوّر الصيغ عشوائياً مع كل رسالة.</p>
+          </div>
+        )}
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={form.includeCatalogLink} onChange={(e) => set("includeCatalogLink", e.target.checked)} className="h-4 w-4" />
           إرفاق رابط الكتلوك تلقائياً

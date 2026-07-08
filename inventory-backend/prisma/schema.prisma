@@ -517,6 +517,11 @@ model Campaign {
   // Optional product images to attach (first message carries them + catalog link).
   productIds         String[]              @default([]) @map("product_ids")
   includeCatalogLink Boolean               @default(true) @map("include_catalog_link")
+  // Cloud API pre-approved template (required for cold/first-contact sends —
+  // Meta rejects free-text business-initiated messages outside the 24h session).
+  useTemplate        Boolean               @default(false) @map("use_template")
+  templateName       String?               @map("template_name")
+  templateLanguage   String?               @default("ar") @map("template_language")
   // Randomization windows.
   minDelaySec        Int                   @default(90)  @map("min_delay_sec")
   maxDelaySec        Int                   @default(240) @map("max_delay_sec")

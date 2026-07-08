@@ -293,6 +293,9 @@ export interface Campaign {
   dailyMax: number
   activeStartHour: number
   activeEndHour: number
+  useTemplate: boolean
+  templateName?: string | null
+  templateLanguage?: string | null
   sentToday: number
   dailyCapToday: number
   lastSentAt?: string | null
@@ -373,6 +376,9 @@ export interface CampaignPayload {
   dailyMax?: number
   activeStartHour?: number
   activeEndHour?: number
+  useTemplate?: boolean
+  templateName?: string
+  templateLanguage?: string
 }
 
 export interface PublicCatalogProduct {
@@ -435,6 +441,8 @@ export interface CatalogOrderPayload {
     quantity: number
   }>
 }
+
+export type GuestCatalogOrderPayload = Omit<CatalogOrderPayload, "promoCode">
 
 export interface ProductPayload {
   // Only `name` is required; the server will auto-generate item number / QR codes if omitted.

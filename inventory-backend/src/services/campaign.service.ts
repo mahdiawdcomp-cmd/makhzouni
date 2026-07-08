@@ -5,7 +5,7 @@ import { logger } from "../utils/logger";
 import { markCampaignTick } from "./campaign-heartbeat";
 import { recordError } from "./error-log.service";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
+import { sendWhatsAppImage, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.service";
 
 // Retry policy: after the first attempt fails, retry up to MAX_RETRIES more
 // times with an increasing backoff, then mark FAILED permanently.
@@ -99,6 +99,9 @@ export interface CampaignInput {
   dailyMax?: number;
   activeStartHour?: number;
   activeEndHour?: number;
+  useTemplate?: boolean;
+  templateName?: string;
+  templateLanguage?: string;
 }
 
 function sanitize(input: CampaignInput) {
@@ -120,6 +123,9 @@ function sanitize(input: CampaignInput) {
     dailyMax,
     activeStartHour,
     activeEndHour,
+    useTemplate: input.useTemplate ?? false,
+    templateName: input.templateName?.trim() || null,
+    templateLanguage: input.templateLanguage?.trim() || "ar",
   };
 }
 
@@ -141,8 +147,14 @@ export async function deleteCampaign(id: string) {
 
 export async function setCampaignStatus(id: string, status: CampaignStatus) {
   const campaign = await getCampaign(id);
-  if (status === CampaignStatus.RUNNING && campaign.messages.length === 0) {
-    throw new AppError("أضف نص رسالة واحدة على الأقل قبل التشغيل", 400, "CAMPAIGN_NO_MESSAGE");
+  if (status === CampaignStatus.RUNNING) {
+    if (campaign.useTemplate) {
+      if (!campaign.templateName?.trim()) {
+        throw new AppError("حدد اسم القالب المعتمد قبل التشغيل", 400, "CAMPAIGN_NO_TEMPLATE");
+      }
+    } else if (campaign.messages.length === 0) {
+      throw new AppError("أضف نص رسالة واحدة على الأقل قبل التشغيل", 400, "CAMPAIGN_NO_MESSAGE");
+    }
   }
   // Resume sends immediately (no leftover wait from a previous pause).
   return prisma.campaign.update({
@@ -194,9 +206,24 @@ export async function removeRecipient(campaignId: string, recipientId: string) {
 /* ─── Background worker ──────────────────────────────────────────────── */
 
 async function sendOneMessage(
-  campaign: { messages: string[]; productIds: string[]; includeCatalogLink: boolean },
+  campaign: {
+    messages: string[];
+    productIds: string[];
+    includeCatalogLink: boolean;
+    useTemplate: boolean;
+    templateName: string | null;
+    templateLanguage: string | null;
+  },
   recipient: { phone: string },
 ): Promise<{ variant: string; messageId?: string }> {
+  if (campaign.useTemplate) {
+    if (!campaign.templateName?.trim()) {
+      throw new AppError("حدد اسم القالب المعتمد قبل التشغيل", 400, "CAMPAIGN_NO_TEMPLATE");
+    }
+    const res = await sendWhatsAppTemplate(recipient.phone, campaign.templateName, campaign.templateLanguage || "ar");
+    return { variant: campaign.templateName, messageId: res.idMessage };
+  }
+
   const message = pickRandom(campaign.messages) ?? "";
 
   const settings = await getSettings().catch(() => null);
