@@ -169,6 +169,39 @@ test("verify token: env value overrides DB, generated tokens are unique", () => 
   assert.match(a, /^mkz_[0-9a-f]{36}$/);
 });
 
+test("providerSource: DB explicit choice → db", () => {
+  syncWhatsAppSettings({ whatsappProvider: "greenapi", greenApiInstanceId: "1", greenApiToken: "t" });
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "greenapi");
+  assert.equal(s.providerSource, "db");
+});
+
+test("providerSource: env WHATSAPP_PROVIDER → env", () => {
+  process.env.WHATSAPP_PROVIDER = "greenapi";
+  process.env.GREENAPI_INSTANCE_ID = "1";
+  process.env.GREENAPI_TOKEN = "t";
+  syncWhatsAppSettings({});
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "greenapi");
+  assert.equal(s.providerSource, "env");
+});
+
+test("providerSource: env credential auto-detect (DB empty) → env", () => {
+  process.env.GREENAPI_INSTANCE_ID = "1";
+  process.env.GREENAPI_TOKEN = "t";
+  syncWhatsAppSettings({ whatsappProvider: "web" }); // legacy default, falls through
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "greenapi");
+  assert.equal(s.providerSource, "env");
+});
+
+test("providerSource: nothing configured → web/default", () => {
+  syncWhatsAppSettings({});
+  const s = getWhatsAppStatus();
+  assert.equal(s.activeProvider, "web");
+  assert.equal(s.providerSource, "default");
+});
+
 test("appSecretSet / verifyTokenSet flags reflect config", () => {
   syncWhatsAppSettings({
     whatsappProvider: "cloud",

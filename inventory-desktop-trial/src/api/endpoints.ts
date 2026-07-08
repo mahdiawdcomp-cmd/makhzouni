@@ -1094,9 +1094,12 @@ export async function sendWhatsAppMessage(payload: { phone: string; message: str
 export type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR"
 export type WhatsAppProvider = "manual" | "greenapi" | "cloud" | "web" | "disabled"
 export type WhatsAppStatusCode = "ready" | "missing_settings" | "failed" | "disabled" | "manual_only"
+export type WhatsAppProviderSource = "env" | "db" | "default"
 
 export interface WhatsAppStatus {
   provider: WhatsAppProvider
+  activeProvider: WhatsAppProvider
+  providerSource: WhatsAppProviderSource
   status: WhatsAppStatusCode
   enabled: boolean
   cloudConfigured: boolean

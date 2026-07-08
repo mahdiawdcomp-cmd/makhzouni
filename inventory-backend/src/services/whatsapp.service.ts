@@ -102,30 +102,48 @@ function hasCloudCreds() {
   );
 }
 
-function provider(): WhatsAppProvider {
+/** Where the active provider was resolved from — for the "you are using…" line. */
+export type ProviderSource = "env" | "db" | "default";
+
+/**
+ * Resolves the provider actually used for sending AND where it came from.
+ * "env" = server env vars (WHATSAPP_PROVIDER or the GREENAPI / WHATSAPP_CLOUD keys),
+ * "db" = the tenant's saved UI settings, "default" = unconfigured legacy web.
+ */
+function providerWithSource(): { provider: WhatsAppProvider; source: ProviderSource } {
   // 1) env override takes top priority (unchanged for greenapi/cloud; manual/
   //    disabled added). env "web" intentionally falls through to auto-detect.
   const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
-  if (configured === "greenapi") return "greenapi";
-  if (configured === "cloud") return "cloud";
-  if (configured === "manual") return "manual";
-  if (configured === "disabled") return "disabled";
+  if (configured === "greenapi") return { provider: "greenapi", source: "env" };
+  if (configured === "cloud") return { provider: "cloud", source: "env" };
+  if (configured === "manual") return { provider: "manual", source: "env" };
+  if (configured === "disabled") return { provider: "disabled", source: "env" };
 
   // 2) DB explicit choice. NOTE: a saved "web" deliberately falls through to
   //    auto-detect below, preserving the exact legacy behaviour for tenants
   //    who configured Green/Cloud via env and never picked a provider in the UI
   //    (their old default was "web"). Only the new explicit values short-circuit.
-  if (_dbProviderOverride === "greenapi") return "greenapi";
-  if (_dbProviderOverride === "cloud") return "cloud";
-  if (_dbProviderOverride === "manual") return "manual";
-  if (_dbProviderOverride === "disabled") return "disabled";
+  if (_dbProviderOverride === "greenapi") return { provider: "greenapi", source: "db" };
+  if (_dbProviderOverride === "cloud") return { provider: "cloud", source: "db" };
+  if (_dbProviderOverride === "manual") return { provider: "manual", source: "db" };
+  if (_dbProviderOverride === "disabled") return { provider: "disabled", source: "db" };
 
-  // 3) auto-detect from credentials (env or DB)
-  if (hasGreenApiCreds()) return "greenapi";
-  if (hasCloudCreds()) return "cloud";
+  // 3) auto-detect from credentials — distinguish env vs DB so the UI can say
+  //    "من إعدادات السيرفر" when it's an env fallback.
+  const envGreen = Boolean(process.env.GREENAPI_INSTANCE_ID?.trim() && process.env.GREENAPI_TOKEN?.trim());
+  if (envGreen) return { provider: "greenapi", source: "env" };
+  if (_greenApiInstanceId && _greenApiToken) return { provider: "greenapi", source: "db" };
+
+  const envCloud = Boolean(process.env.WHATSAPP_CLOUD_TOKEN?.trim() && process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim());
+  if (envCloud) return { provider: "cloud", source: "env" };
+  if (_dbCloudToken && _dbCloudPhoneNumberId) return { provider: "cloud", source: "db" };
 
   // 4) legacy default
-  return "web";
+  return { provider: "web", source: "default" };
+}
+
+function provider(): WhatsAppProvider {
+  return providerWithSource().provider;
 }
 
 function whatsappEnabled() {
@@ -572,7 +590,7 @@ export function initializeWhatsApp() {
 }
 
 export function getWhatsAppStatus() {
-  const currentProvider = provider();
+  const { provider: currentProvider, source: providerSource } = providerWithSource();
   const cloudConfigured = hasCloudCreds();
   const greenConfigured = hasGreenApiCreds();
   const webhook = getCloudWebhookConfig();
@@ -596,6 +614,8 @@ export function getWhatsAppStatus() {
 
   return {
     provider: currentProvider,
+    activeProvider: currentProvider,
+    providerSource,
     status: statusCode,
     enabled: whatsappEnabled(),
     cloudConfigured,

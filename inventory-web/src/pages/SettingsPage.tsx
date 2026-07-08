@@ -1705,6 +1705,14 @@ const WA_PROVIDERS: { id: WhatsAppProvider; title: string; desc: string }[] = [
   { id: "disabled", title: "تعطيل واتساب",          desc: "إيقاف كل إرسال واتساب." },
 ]
 
+const WA_PROVIDER_LABEL: Record<string, string> = {
+  manual:   "رابط يدوي فقط",
+  greenapi: "Green API",
+  cloud:    "Meta WhatsApp Cloud API",
+  web:      "WhatsApp Web QR",
+  disabled: "واتساب معطّل",
+}
+
 const WA_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   ready:            { label: "جاهز",          cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" },
   missing_settings: { label: "ناقص إعدادات",  cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" },
@@ -1789,6 +1797,18 @@ function WhatsAppProviderSettings({
 
   const badge = WA_STATUS_BADGE[status?.status ?? "missing_settings"] ?? WA_STATUS_BADGE.missing_settings
 
+  // The provider actually used for sending (from the backend), which may differ
+  // from the card the user clicked — e.g. an env fallback, or an incomplete
+  // explicit selection that another provider is overriding.
+  const activeProvider = status?.activeProvider ?? selected
+  const fromEnv = status?.providerSource === "env"
+  const activeLabel = WA_PROVIDER_LABEL[activeProvider] ?? activeProvider
+  const explicitMismatch =
+    !!settings.whatsappProvider && settings.whatsappProvider !== "web" && settings.whatsappProvider !== activeProvider
+  const activeLine = explicitMismatch
+    ? `الخيار المحدد غير مكتمل، والإرسال حالياً يستخدم: ${activeLabel}${fromEnv ? " (من إعدادات السيرفر)" : ""}`
+    : `أنت تستخدم حالياً: ${activeLabel}${fromEnv ? " من إعدادات السيرفر" : ""}`
+
   return (
     <Card>
       <CardContent className="p-5 space-y-5">
@@ -1801,6 +1821,19 @@ function WhatsAppProviderSettings({
             </span>
           )}
         </div>
+
+        {/* Active provider line — reflects the real backend sending provider */}
+        {status && (
+          <div
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+              explicitMismatch
+                ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+                : "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
+            }`}
+          >
+            {activeLine}
+          </div>
+        )}
 
         {/* Provider cards */}
         <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">

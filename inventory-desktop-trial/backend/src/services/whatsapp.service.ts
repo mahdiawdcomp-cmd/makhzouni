@@ -96,23 +96,34 @@ function hasCloudCreds() {
   );
 }
 
-function provider(): WhatsAppProvider {
+export type ProviderSource = "env" | "db" | "default";
+
+function providerWithSource(): { provider: WhatsAppProvider; source: ProviderSource } {
   const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
-  if (configured === "greenapi") return "greenapi";
-  if (configured === "cloud") return "cloud";
-  if (configured === "manual") return "manual";
-  if (configured === "disabled") return "disabled";
+  if (configured === "greenapi") return { provider: "greenapi", source: "env" };
+  if (configured === "cloud") return { provider: "cloud", source: "env" };
+  if (configured === "manual") return { provider: "manual", source: "env" };
+  if (configured === "disabled") return { provider: "disabled", source: "env" };
 
   // DB explicit choice (a saved "web" falls through to auto-detect for legacy safety)
-  if (_dbProviderOverride === "greenapi") return "greenapi";
-  if (_dbProviderOverride === "cloud") return "cloud";
-  if (_dbProviderOverride === "manual") return "manual";
-  if (_dbProviderOverride === "disabled") return "disabled";
+  if (_dbProviderOverride === "greenapi") return { provider: "greenapi", source: "db" };
+  if (_dbProviderOverride === "cloud") return { provider: "cloud", source: "db" };
+  if (_dbProviderOverride === "manual") return { provider: "manual", source: "db" };
+  if (_dbProviderOverride === "disabled") return { provider: "disabled", source: "db" };
 
-  if (hasGreenApiCreds()) return "greenapi";
-  if (hasCloudCreds()) return "cloud";
+  const envGreen = Boolean(process.env.GREENAPI_INSTANCE_ID?.trim() && process.env.GREENAPI_TOKEN?.trim());
+  if (envGreen) return { provider: "greenapi", source: "env" };
+  if (_greenApiInstanceId && _greenApiToken) return { provider: "greenapi", source: "db" };
 
-  return "web";
+  const envCloud = Boolean(process.env.WHATSAPP_CLOUD_TOKEN?.trim() && process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim());
+  if (envCloud) return { provider: "cloud", source: "env" };
+  if (_dbCloudToken && _dbCloudPhoneNumberId) return { provider: "cloud", source: "db" };
+
+  return { provider: "web", source: "default" };
+}
+
+function provider(): WhatsAppProvider {
+  return providerWithSource().provider;
 }
 
 function whatsappEnabled() {
@@ -510,7 +521,7 @@ export function initializeWhatsApp() {
 }
 
 export function getWhatsAppStatus() {
-  const currentProvider = provider();
+  const { provider: currentProvider, source: providerSource } = providerWithSource();
   const cloudConfigured = hasCloudCreds();
   const greenConfigured = hasGreenApiCreds();
   const webhook = getCloudWebhookConfig();
@@ -531,6 +542,8 @@ export function getWhatsAppStatus() {
 
   return {
     provider: currentProvider,
+    activeProvider: currentProvider,
+    providerSource,
     status: statusCode,
     enabled: whatsappEnabled(),
     cloudConfigured,
