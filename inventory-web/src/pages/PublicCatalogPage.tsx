@@ -23,6 +23,9 @@ import {
   getCatalogSession,
   getPublicCatalogProducts,
   getPublicCatalogProductImage,
+  getGuestCatalogProducts,
+  getGuestCatalogProductImage,
+  submitGuestCatalogOrder,
   requestCatalogAccess,
   sendCatalogOtp,
   verifyCatalogOtp,
@@ -184,13 +187,41 @@ export function PublicCatalogPage() {
     staleTime: 5 * 60_000,
   })
 
+  // Fetched before any token exists so we know whether the merchant allows
+  // anonymous browsing (catalogRequireOtp off) or requires the phone/OTP gate.
+  const guestConfigQuery = useQuery({
+    queryKey: ["catalog-design-public"],
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { guestModeEnabled?: boolean } }).data ?? {}),
+    enabled: !accessToken,
+    staleTime: 5 * 60_000,
+  })
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (sessionQuery.isError) clearAccess()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionQuery.isError])
 
-  if (!accessToken) return <CatalogGate onAccess={handleAccess} />
+  if (!accessToken) {
+    if (guestConfigQuery.isLoading)
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
+          <div className="flex flex-col items-center gap-3 text-gray-400">
+            <ShoppingBag className="h-10 w-10 animate-pulse" />
+            <p className="text-sm font-medium">جاري فتح المتجر...</p>
+          </div>
+        </div>
+      )
+    if (guestConfigQuery.data?.guestModeEnabled) {
+      return (
+        <CatalogShop
+          accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
+          customerId="" customerName="" customerPhone="" guestMode
+        />
+      )
+    }
+    return <CatalogGate onAccess={handleAccess} />
+  }
 
   if (sessionQuery.isPending || sessionQuery.isLoading)
     return (
@@ -479,22 +510,114 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   GUEST PRICE-ACCESS REQUEST (no OTP — guest mode only)
+══════════════════════════════════════════════════════════════════════ */
+function GuestAccessRequestModal({ tk, onClose }: { tk: ThemeTokens; onClose: () => void }) {
+  const [step, setStep] = useState<"form" | "sent">("form")
+  const [name, setName] = useState("")
+  const [phone, setPhone] = useState("")
+  const [address, setAddress] = useState("")
+  const [notes, setNotes] = useState("")
+  const [msg, setMsg] = useState("")
+
+  const requestMut = useMutation({
+    mutationFn: () => requestCatalogAccess({ customerName: name.trim(), phone: phone.trim(), address: address.trim() || undefined, notes: notes.trim() || undefined }),
+    onSuccess: () => { setMsg(""); setStep("sent") },
+    onError: () => setMsg("تعذر إرسال الطلب. حاول مرة ثانية."),
+  })
+
+  const checkMut = useMutation({
+    mutationFn: () => getCatalogAccessStatus(phone.trim()),
+    onSuccess: (s) => {
+      if (s?.approved && s.token) {
+        localStorage.setItem(storageKey, s.token)
+        window.location.href = `/catalog?access=${s.token}`
+      } else {
+        setMsg("طلبك لم يُوافق عليه بعد، حاول لاحقاً.")
+      }
+    },
+  })
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[180] bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-[190] max-h-[90vh] overflow-y-auto rounded-t-3xl p-5 shadow-2xl lg:inset-y-0 lg:right-0 lg:left-auto lg:w-[420px] lg:rounded-none"
+        style={{ background: tk.cardBg }} dir="rtl">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-base font-extrabold" style={{ color: tk.text }}>طلب عرض الأسعار</p>
+          <button onClick={onClose} className="rounded-xl p-2" style={{ background: tk.catIdle }}>
+            <X className="h-5 w-5" style={{ color: tk.subtext }} />
+          </button>
+        </div>
+
+        {step === "form" ? (
+          <div className="space-y-3">
+            <p className="text-xs" style={{ color: tk.subtext }}>
+              أدخل بياناتك وسيقوم المتجر بمراجعة طلبك وتفعيل الأسعار لك — لا حاجة لرمز تحقق.
+            </p>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="الاسم الكامل"
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none" style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} dir="rtl" />
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="رقم الهاتف" type="tel"
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none" style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} dir="ltr" />
+            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="العنوان (اختياري)"
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none" style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} dir="rtl" />
+            <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات (اختياري)"
+              className="w-full rounded-xl px-4 py-3 text-sm outline-none" style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} dir="rtl" />
+            <button
+              disabled={name.trim().length < 2 || phone.trim().length < 7 || requestMut.isPending}
+              onClick={() => requestMut.mutate()}
+              className="w-full rounded-xl py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: tk.accent }}
+            >
+              {requestMut.isPending ? "جاري الإرسال..." : "إرسال الطلب"}
+            </button>
+            <button onClick={() => checkMut.mutate()} disabled={phone.trim().length < 7 || checkMut.isPending}
+              className="w-full text-center text-xs font-semibold underline disabled:opacity-40" style={{ color: tk.accent }}>
+              لدي طلب سابق — فحص الموافقة
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-3 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full" style={{ background: tk.accentLight }}>
+              <CheckCircle2 className="h-7 w-7" style={{ color: tk.accent }} />
+            </div>
+            <p className="text-sm font-bold" style={{ color: tk.text }}>تم إرسال طلبك!</p>
+            <p className="text-xs" style={{ color: tk.subtext }}>سيقوم المتجر بمراجعته، ثم اضغط الزر أدناه لتفعيل الأسعار.</p>
+            <button onClick={() => checkMut.mutate()} disabled={checkMut.isPending}
+              className="w-full rounded-xl py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:opacity-50"
+              style={{ background: tk.accent }}>
+              {checkMut.isPending ? "جاري الفحص..." : "فحص الموافقة"}
+            </button>
+          </div>
+        )}
+
+        {msg && (
+          <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{msg}</div>
+        )}
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    SHOP
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
   accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
+  guestMode = false,
 }: {
   accessToken: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter
   customerId: string; customerName: string; customerPhone: string
+  guestMode?: boolean
 }) {
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
-  // Ordering is still carton-only either way.
+  // Ordering is still carton-only either way. Guests are always carton-only.
   const canDisplay = (p: PublicCatalogProduct) =>
-    stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
+    guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
   const productsQuery = useQuery({
-    queryKey: ["public-catalog-products", accessToken],
-    queryFn: () => getPublicCatalogProducts(accessToken),
+    queryKey: guestMode ? ["guest-catalog-products"] : ["public-catalog-products", accessToken],
+    queryFn: () => guestMode ? getGuestCatalogProducts() : getPublicCatalogProducts(accessToken),
     refetchOnMount: "always",
     staleTime: 0,
   })
@@ -526,6 +649,10 @@ function CatalogShop({
   const [promoResult, setPromoResult] = useState<{ code: string; type: string; value: number | null; description: string | null } | null>(null)
   const [promoError, setPromoError] = useState("")
   const [promoLoading, setPromoLoading] = useState(false)
+  const [guestName, setGuestName] = useState("")
+  const [guestPhone, setGuestPhone] = useState("")
+  const [guestAddress, setGuestAddress] = useState("")
+  const [accessRequestOpen, setAccessRequestOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const themeRef = useRef<HTMLDivElement>(null)
   const bannerTouchX = useRef<number | null>(null)
@@ -666,14 +793,20 @@ function CatalogShop({
 
   const orderMut = useMutation({
     mutationFn: () =>
-      submitPublicCatalogOrder(
-        {
-          customerName, phone: customerPhone, notes: notes.trim() || undefined,
-          items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
-          promoCode: promoResult?.code,
-        },
-        accessToken,
-      ),
+      guestMode
+        ? submitGuestCatalogOrder({
+            customerName: guestName.trim(), phone: guestPhone.trim(), address: guestAddress.trim() || undefined,
+            notes: notes.trim() || undefined,
+            items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+          })
+        : submitPublicCatalogOrder(
+            {
+              customerName, phone: customerPhone, notes: notes.trim() || undefined,
+              items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+              promoCode: promoResult?.code,
+            },
+            accessToken,
+          ),
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
@@ -735,7 +868,7 @@ function CatalogShop({
     if (!thumb) return
     setZoomedImg({ src: thumb, name: product.name })
     try {
-      const full = await getPublicCatalogProductImage(accessToken, product.id)
+      const full = guestMode ? await getGuestCatalogProductImage(product.id) : await getPublicCatalogProductImage(accessToken, product.id)
       if (full) setZoomedImg({ src: full, name: product.name })
     } catch {}
   }
@@ -964,6 +1097,22 @@ function CatalogShop({
         </div>
       </header>
 
+      {/* ── Guest banner: prices hidden until admin grants access ── */}
+      {guestMode && (
+        <button
+          onClick={() => setAccessRequestOpen(true)}
+          className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80"
+          style={{ background: tk.accentLight }}
+        >
+          <span className="text-xs font-bold" style={{ color: tk.accent }}>
+            🔒 الأسعار غير ظاهرة لك بعد — اضغط لطلب تفعيلها
+          </span>
+          <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white" style={{ background: tk.accent }}>
+            طلب الأسعار
+          </span>
+        </button>
+      )}
+
       {/* ── Hero banner (slideshow) ── */}
       {(() => {
         const bannerEnabled = design?.bannerEnabled !== false
@@ -980,7 +1129,7 @@ function CatalogShop({
         if (slides.length < 2) return null
         const total = slides.length
         const idx = ((bannerIndex % total) + total) % total
-        const welcomeMsg = design?.welcomeMessage || `مرحباً ${customerName} 👋`
+        const welcomeMsg = design?.welcomeMessage || (customerName ? `مرحباً ${customerName} 👋` : "مرحباً بك 👋")
         return (
           <div
             className="relative overflow-hidden select-none"
@@ -1139,7 +1288,15 @@ function CatalogShop({
           promoLoading={promoLoading} onApplyPromo={applyPromo}
           promoDiscount={promoDiscount} finalTotal={finalTotal} hasFreeDelivery={hasFreeDelivery}
           onClearPromo={() => { setPromoResult(null); setPromoCode(""); setPromoError("") }}
+          guestMode={guestMode}
+          guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
+          onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
         />
+      )}
+
+      {/* ── Guest price-access request modal ── */}
+      {guestMode && accessRequestOpen && (
+        <GuestAccessRequestModal tk={tk} onClose={() => setAccessRequestOpen(false)} />
       )}
 
       {/* ── Image lightbox ── */}
@@ -1535,6 +1692,7 @@ function CartOverlay({
   onClose, onSubmit, isPending, submitted, isError, tk,
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
   promoDiscount, finalTotal, hasFreeDelivery, onClearPromo,
+  guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
   onNotes: (v: string) => void; onChangeQty: (id: string, d: number) => void
@@ -1545,7 +1703,11 @@ function CartOverlay({
   promoResult: { code: string; type: string; value: number | null; description: string | null } | null
   promoError: string; promoLoading: boolean; onApplyPromo: () => void
   promoDiscount: number; finalTotal: number; hasFreeDelivery: boolean; onClearPromo: () => void
+  guestMode?: boolean
+  guestName?: string; guestPhone?: string; guestAddress?: string
+  onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
 }) {
+  const guestDetailsMissing = Boolean(guestMode) && (!guestName?.trim() || (guestPhone?.trim().length ?? 0) < 7)
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -1576,7 +1738,11 @@ function CartOverlay({
                 <CheckCircle2 className="h-8 w-8" style={{ color: tk.accent }} />
               </div>
               <p className="text-lg font-extrabold" style={{ color: tk.text }}>تم إرسال الطلب!</p>
-              <p className="text-sm" style={{ color: tk.subtext }}>طلبك ينتظر موافقة الإدارة. سيتم التواصل معك قريباً.</p>
+              <p className="text-sm" style={{ color: tk.subtext }}>
+                {guestMode
+                  ? "سيتم التواصل معك على رقمك وإرسال فاتورتك بعد تجهيز الطلب."
+                  : "طلبك ينتظر موافقة الإدارة. سيتم التواصل معك قريباً."}
+              </p>
               <button onClick={onClose} className="mt-2 rounded-xl px-6 py-2.5 text-sm font-bold text-white" style={{ background: tk.accent }}>
                 متابعة التسوق
               </button>
@@ -1598,13 +1764,30 @@ function CartOverlay({
 
         {!submitted && cart.length > 0 && (
           <div className="space-y-3 px-4 py-4" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
+            {guestMode && (
+              <div className="space-y-2 rounded-xl p-3" style={{ background: tk.cardBg, border: `1px solid ${tk.divider}` }}>
+                <p className="text-xs font-bold" style={{ color: tk.text }}>بياناتك — لإتمام الطلب والتواصل معك</p>
+                <input value={guestName ?? ""} onChange={(e) => onGuestName?.(e.target.value)}
+                  placeholder="اسمك الكامل" dir="rtl"
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+                <input value={guestPhone ?? ""} onChange={(e) => onGuestPhone?.(e.target.value)}
+                  placeholder="رقم هاتفك" type="tel" dir="ltr"
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+                <input value={guestAddress ?? ""} onChange={(e) => onGuestAddress?.(e.target.value)}
+                  placeholder="العنوان (اختياري)" dir="rtl"
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+              </div>
+            )}
             <input value={notes} onChange={(e) => onNotes(e.target.value)}
               placeholder="ملاحظات إضافية (اختياري)"
               className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
               style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
 
-            {/* Promo code */}
-            {promoResult ? (
+            {/* Promo code — not available for anonymous guests (no account to attach it to) */}
+            {!guestMode && (promoResult ? (
               <div className="flex items-center justify-between rounded-xl px-3 py-2.5"
                 style={{ background: "#d1fae5", border: "1px solid #6ee7b7" }}>
                 <div>
@@ -1635,8 +1818,8 @@ function CartOverlay({
                   {promoLoading ? "..." : "تطبيق"}
                 </button>
               </div>
-            )}
-            {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+            ))}
+            {!guestMode && promoError && <p className="text-xs text-red-600">{promoError}</p>}
 
             {/* Totals */}
             {allowPrices && (
@@ -1665,7 +1848,8 @@ function CartOverlay({
             )}
 
             {isError && <p className="text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
-            <button disabled={isPending} onClick={onSubmit}
+            {guestDetailsMissing && <p className="text-xs" style={{ color: tk.subtext }}>أدخل اسمك ورقم هاتفك لإتمام الطلب</p>}
+            <button disabled={isPending || guestDetailsMissing} onClick={onSubmit}
               className="w-full rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition active:scale-95 disabled:opacity-50"
               style={{ background: tk.accent }}>
               {isPending ? "جاري الإرسال..." : "إرسال الطلب للمراجعة ✓"}

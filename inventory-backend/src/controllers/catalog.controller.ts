@@ -2,10 +2,13 @@ import {
   confirmCatalogVerification,
   getCatalogAccess,
   getCatalogProductImage,
+  getGuestCatalogProductImage,
   listCatalogProducts,
+  listGuestCatalogProducts,
   lookupCatalogAccess,
   requestCatalogAccess,
   submitCatalogOrder,
+  submitGuestCatalogOrder,
   validatePromoCode,
 } from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
@@ -54,6 +57,25 @@ export const createCatalogOrder = asyncHandler(async (req, res) => {
   res.status(201).json({
     success: true,
     message: "Catalog order submitted for approval",
+    data: result,
+  });
+});
+
+export const getGuestCatalogProducts = asyncHandler(async (_req, res) => {
+  const products = await listGuestCatalogProducts();
+  res.json({ success: true, data: products });
+});
+
+export const getGuestCatalogProductImageCtrl = asyncHandler(async (req, res) => {
+  const imageUrl = await getGuestCatalogProductImage(String(req.query.id ?? ""));
+  res.json({ success: true, data: { imageUrl } });
+});
+
+export const createGuestCatalogOrder = asyncHandler(async (req, res) => {
+  const result = await submitGuestCatalogOrder(req.body);
+  res.status(201).json({
+    success: true,
+    message: "Guest catalog order submitted for approval",
     data: result,
   });
 });

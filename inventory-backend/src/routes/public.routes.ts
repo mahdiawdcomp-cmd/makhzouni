@@ -2,13 +2,17 @@ import { Router } from "express";
 import {
   createCatalogAccessRequest,
   createCatalogOrder,
+  createGuestCatalogOrder,
   getCatalogAccessStatus,
   getCatalogProductImageCtrl,
   getCatalogProducts,
   getCatalogSession,
+  getGuestCatalogProductImageCtrl,
+  getGuestCatalogProducts,
   validatePromoCtrl,
   verifyCatalogAccessCtrl,
 } from "../controllers/catalog.controller";
+import { isGuestCatalogEnabled } from "../services/catalog.service";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import {
   whatsappIncomingWebhook,
@@ -47,6 +51,8 @@ import {
   catalogAccessRequestSchema,
   catalogAccessStatusSchema,
   createCatalogOrderSchema,
+  createGuestCatalogOrderSchema,
+  guestCatalogProductImageSchema,
   portalTokenSchema,
   sendOtpSchema,
   verifyOtpSchema,
@@ -78,6 +84,7 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
   for (const s of settings) {
     try { kv[s.key] = JSON.parse(String(s.value)); } catch { kv[s.key] = s.value; }
   }
+  const guestModeEnabled = await isGuestCatalogEnabled();
   res.json({
     success: true,
     data: {
@@ -88,6 +95,7 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
       welcomeMessage: (kv.catalogDesignWelcomeMessage as string) ?? null,
       bannerEnabled: kv.catalogDesignBannerEnabled ?? true,
       bannerImages: (kv.catalogDesignBannerImages as Array<{ url: string; title: string; order: number }>) ?? [],
+      guestModeEnabled,
     },
   });
 }));
@@ -102,6 +110,12 @@ router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchem
 router.get("/catalog/product-image", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProductImageCtrl);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
 router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
+
+// Guest catalog (no OTP/access token) — only served when the merchant has
+// turned off catalogRequireOtp; the service layer enforces that, not the route.
+router.get("/catalog/guest-products", catalogLimiter, getGuestCatalogProducts);
+router.get("/catalog/guest-product-image", catalogLimiter, validate(guestCatalogProductImageSchema), getGuestCatalogProductImageCtrl);
+router.post("/catalog/guest-orders", catalogLimiter, validate(createGuestCatalogOrderSchema), createGuestCatalogOrder);
 
 // Retail storefront (كتلوك المفرد) — fully public, no login
 router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);

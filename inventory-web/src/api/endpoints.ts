@@ -11,6 +11,7 @@ import type {
   CatalogStockFilter,
   OrderPreparation,
   CatalogOrderPayload,
+  GuestCatalogOrderPayload,
   CatalogAccessRequestPayload,
   CatalogAccessStatus,
   CatalogSession,
@@ -184,6 +185,23 @@ export async function verifyCatalogAccess(access: string) {
 export async function getPublicCatalogProducts(access: string) {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access } })
   return data.data ?? []
+}
+
+/* ── Guest catalog (no phone/OTP — only served when the merchant has
+   turned off catalogRequireOtp) ────────────────────────────────────── */
+export async function getGuestCatalogProducts() {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products")
+  return data.data ?? []
+}
+
+export async function getGuestCatalogProductImage(id: string) {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/guest-product-image", { params: { id } })
+  return data.data?.imageUrl ?? null
+}
+
+export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload)
+  return data
 }
 
 /* ── Inbound WhatsApp messages (الرسائل الواردة) ────────────────────── */

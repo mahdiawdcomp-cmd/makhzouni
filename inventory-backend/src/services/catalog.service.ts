@@ -250,8 +250,12 @@ export async function listCustomersWithCatalogStatus(opts?: {
 export async function requestCatalogAccess(input: CatalogAccessInput) {
   const phone = normalizePhone(input.phone);
 
-  // OTP must be verified before submitting
-  if (!isVerified(phone)) {
+  // OTP must be verified before submitting — unless the merchant has turned
+  // off catalog OTP entirely (guest mode), in which case anyone can request
+  // access without ever receiving a WhatsApp code.
+  const settings = await getSettings();
+  const requireOtp = settings.catalogRequireOtp !== false;
+  if (requireOtp && !isVerified(phone)) {
     throw new AppError("رقم الهاتف غير مُتحقق منه. أرسل رمز OTP أولاً.", 403, "PHONE_NOT_VERIFIED");
   }
 
@@ -488,6 +492,178 @@ export async function getCatalogProductImage(token: string, productId: string) {
     select: { imageUrl: true },
   });
   return product?.imageUrl ?? null;
+}
+
+// Guest catalog mode: when the merchant turns off catalogRequireOtp, anyone
+// with the bare /catalog link can browse and order without a phone/OTP gate.
+// Prices stay hidden until the shopper requests access (still OTP-free, but
+// still admin-approved) — orders placed while browsing anonymously collect
+// name/phone/address at checkout instead and go to the same approval queue.
+export async function isGuestCatalogEnabled() {
+  const settings = await getSettings();
+  return settings.catalogRequireOtp === false;
+}
+
+async function assertGuestCatalogEnabled() {
+  if (!(await isGuestCatalogEnabled())) {
+    throw new AppError("الدخول المفتوح للكتالوج غير مفعّل", 403, "GUEST_CATALOG_DISABLED");
+  }
+}
+
+export async function listGuestCatalogProducts() {
+  await assertGuestCatalogEnabled();
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    omit: { imageUrl: true },
+    include: { warehouseStocks: { select: { quantityPieces: true } } },
+    orderBy: [{ category: "asc" }, { name: "asc" }],
+  });
+
+  return products
+    .map((product) => {
+      const stock = totalStock(product);
+      return {
+        id: product.id,
+        itemNumber: product.itemNumber,
+        name: product.name,
+        thumbnailUrl: product.thumbnailUrl,
+        category: product.category,
+        categoryTags: product.categoryTags,
+        typeTags: product.typeTags,
+        isNewArrival: product.isNewArrival,
+        isOffer: product.isOffer,
+        oldPrice: null,
+        createdAt: product.createdAt,
+        salePrice: null, // guests never see prices — request access first
+        pcsPerCarton: product.pcsPerCarton,
+        boxPieces: product.boxPieces,
+        hiddenUnits: product.hiddenUnits,
+        currentStock: stock,
+        showStock: true,
+      };
+    })
+    .filter((product) => product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
+}
+
+export async function getGuestCatalogProductImage(productId: string) {
+  await assertGuestCatalogEnabled();
+  const product = await prisma.product.findFirst({
+    where: { id: productId, deletedAt: null },
+    select: { imageUrl: true },
+  });
+  return product?.imageUrl ?? null;
+}
+
+export type GuestCatalogOrderInput = {
+  customerName: string;
+  phone: string;
+  address?: string;
+  notes?: string;
+  items: Array<{ productId: string; unit: Unit; quantity: number }>;
+};
+
+export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput) {
+  await assertGuestCatalogEnabled();
+
+  const customerName = input.customerName.trim();
+  const phone = normalizePhone(input.phone);
+  if (!customerName || !phone) {
+    throw new AppError("الاسم ورقم الهاتف مطلوبان", 400, "GUEST_ORDER_INVALID");
+  }
+
+  const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
+  const products = await prisma.product.findMany({
+    where: { id: { in: uniqueProductIds }, deletedAt: null },
+    include: { warehouseStocks: { select: { quantityPieces: true } } },
+  });
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const requestedPiecesByProduct = new Map<string, number>();
+
+  for (const item of input.items) {
+    const product = productById.get(item.productId);
+    if (!product) {
+      throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    }
+    const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
+    requestedPiecesByProduct.set(
+      product.id,
+      (requestedPiecesByProduct.get(product.id) ?? 0) + requestedPieces
+    );
+  }
+
+  for (const product of products) {
+    if ((requestedPiecesByProduct.get(product.id) ?? 0) > totalStock(product)) {
+      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+    }
+  }
+
+  const normalizedItems = input.items.map((item) => {
+    const product = productById.get(item.productId);
+    if (!product) {
+      throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    }
+    const available = totalStock(product);
+    if (available <= 0) {
+      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+    }
+    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+    return {
+      productId: product.id,
+      productName: product.name,
+      unit: item.unit,
+      quantity: item.quantity,
+      unitPrice,
+      totalPrice: unitPrice * item.quantity,
+      availableStock: available,
+    };
+  });
+
+  const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+  const requester = await findApprovalRequester();
+
+  const approval = await createPendingApproval(
+    approvalRequestTypes.CATALOG_ORDER,
+    {
+      source: "PUBLIC_CATALOG_GUEST",
+      customerName,
+      phone,
+      address: input.address,
+      notes: input.notes,
+      subtotal,
+      finalTotal: subtotal,
+      body: {
+        customerName,
+        phone,
+        address: input.address,
+        notes: input.notes,
+        items: normalizedItems.map((item) => ({
+          productId: item.productId,
+          unit: item.unit,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+      },
+      displayItems: normalizedItems,
+    },
+    requester.id
+  );
+
+  setImmediate(() => {
+    notifyCatalogOrderSubmitted(
+      customerName,
+      phone,
+      normalizedItems.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+      })),
+    ).catch((err) => console.error("[GuestCatalogOrder] notify failed:", err));
+  });
+
+  return { approvalId: approval.id };
 }
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {

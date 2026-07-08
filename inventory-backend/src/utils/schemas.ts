@@ -181,6 +181,22 @@ export const createCatalogOrderSchema = z.object({
   }),
 });
 
+export const guestCatalogProductImageSchema = z.object({
+  query: z.object({
+    id: z.string().uuid(),
+  }),
+});
+
+export const createGuestCatalogOrderSchema = z.object({
+  body: z.object({
+    customerName: z.string().trim().min(2).max(120),
+    phone: z.string().trim().min(5).max(40),
+    address: z.string().trim().max(240).optional(),
+    notes: z.string().trim().max(500).optional(),
+    items: z.array(catalogOrderItemSchema).min(1),
+  }),
+});
+
 export const invoiceIdParamSchema = z.object({
   params: z.object({
     invoiceId: z.string().uuid(),
