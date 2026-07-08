@@ -384,10 +384,15 @@ export function InvoiceEditPage() {
               </TR>
             </THead>
             <TBody>
-              {items.map((it, i) => (
+              {items.map((it, i) => {
+                const itemProduct = allProducts.find((p) => p.id === it.productId)
+                return (
                 <TR key={i}>
                   <TD className="text-sm font-medium">
                     {it.productName}
+                    {itemProduct && itemProduct.pcsPerCarton > 1 ? (
+                      <span className="block text-[11px] font-normal text-slate-400">{itemProduct.pcsPerCarton} قطعة/كرتون</span>
+                    ) : null}
                     {it.warehouseName ? (
                       <span className="block text-xs text-slate-500">📦 {it.warehouseName}</span>
                     ) : null}
@@ -475,7 +480,8 @@ export function InvoiceEditPage() {
                     </Button>
                   </TD>
                 </TR>
-              ))}
+                )
+              })}
               {items.length === 0 ? (
                 <TR>
                   <TD colSpan={7} className="py-6 text-center text-sm text-slate-400">

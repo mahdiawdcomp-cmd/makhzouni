@@ -1634,6 +1634,7 @@ export function InvoiceCreatePage() {
                             </span>
                           ) : null}
                         </div>
+                        {item.product.pcsPerCarton > 1 ? <div className="text-xs text-slate-400">{item.product.pcsPerCarton} قطعة/كرتون</div> : null}
                         {showPurchase ? <div className="text-xs text-slate-500">شراء: {fmt(item.product.purchasePrice)}</div> : null}
                         {showStock ? <div className="text-xs text-slate-500">متوفر: {stockOf(item.product)}</div> : null}
                       </TD>
