@@ -16,12 +16,18 @@ interface PublicItem {
   id: string
   productId: string
   productName: string
+  itemNumber: string | null
   category: string | null
   qrCode: string | null
   cartonQrCode: string | null
   pcsPerCarton: number
   actualQty: number | null
   approvalStatus: "PENDING" | "APPROVED" | "REJECTED"
+}
+
+// "AWD-225 | بويت باتري صوت وضوء" when itemNumber exists, else just the name.
+function productLabel(item: Pick<PublicItem, "productName" | "itemNumber">) {
+  return item.itemNumber ? `${item.itemNumber} | ${item.productName}` : item.productName
 }
 
 interface PublicSession {
@@ -44,7 +50,7 @@ async function fetchSession(token: string): Promise<PublicSession> {
 
 async function apiScan(token: string, qrCode: string) {
   const { data } = await api.post(`/cycle-count/public/${token}/scan`, { qrCode })
-  return (data as { data: { productId: string; productName: string; newQty: number; category: string | null } }).data
+  return (data as { data: { productId: string; productName: string; itemNumber: string | null; newQty: number; category: string | null } }).data
 }
 
 async function apiSetQty(token: string, productId: string, qty: number, unit: "CARTON" | "PIECE") {
@@ -169,9 +175,10 @@ function WorkerInterface({
           <div className="flex items-center justify-between">
             <div>
               <p className="font-bold text-lg">جرد ذكي</p>
-              <p className="text-xs text-slate-500">
-                {session.warehouse?.name ?? "الفرع الرئيسي"} · {filled}/{session.items.length} منتج
+              <p className="text-sm font-semibold text-slate-700">
+                المخزن المطلوب جرده: {session.warehouse?.name ?? "الفرع الرئيسي"}
               </p>
+              <p className="text-xs text-slate-500">{filled}/{session.items.length} منتج</p>
             </div>
             <div className={`rounded-full px-3 py-1 text-xs font-bold ${filled === session.items.length ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
               {filled}/{session.items.length}
@@ -296,7 +303,7 @@ function ScanMode({
   const scanMut = useMutation({
     mutationFn: (qr: string) => apiScan(token, qr),
     onSuccess: (d) => {
-      onScan({ text: `✓ ${d.productName} — ${d.newQty} قطعة`, ok: true })
+      onScan({ text: `✓ ${productLabel(d)} — ${d.newQty} قطعة`, ok: true })
       setLocalInput("")
       setTimeout(() => inputRef.current?.focus(), 100)
     },
@@ -353,7 +360,7 @@ function ScanMode({
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {scanned.map((item) => (
               <div key={item.id} className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
-                <span className="text-sm font-medium">{item.productName}</span>
+                <span className="text-sm font-medium">{productLabel(item)}</span>
                 <span className="rounded-full bg-emerald-200 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
                   {item.actualQty} قطعة
                 </span>
@@ -414,7 +421,7 @@ function ManualMode({
           >
             <div className="flex items-start justify-between mb-3">
               <div>
-                <p className="font-semibold">{item.productName}</p>
+                <p className="font-semibold">{productLabel(item)}</p>
                 {item.category && <p className="text-xs text-slate-400">{item.category}</p>}
               </div>
               {saved && (

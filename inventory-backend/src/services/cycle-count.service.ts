@@ -650,7 +650,7 @@ export async function getPublicCycleCountSession(token: string) {
           notes: true,
           approvalStatus: true,
           // systemQty is intentionally never selected here — never shown to the worker.
-          product: { select: { name: true, category: true, qrCode: true, cartonQrCode: true, pcsPerCarton: true } },
+          product: { select: { name: true, itemNumber: true, category: true, qrCode: true, cartonQrCode: true, pcsPerCarton: true } },
         },
         orderBy: [{ product: { category: "asc" } }, { product: { name: "asc" } }],
       },
@@ -669,6 +669,7 @@ export async function getPublicCycleCountSession(token: string) {
       id: item.id,
       productId: item.productId,
       productName: item.product.name,
+      itemNumber: item.product.itemNumber?.trim() || null,
       category: item.product.category,
       qrCode: item.product.qrCode,
       cartonQrCode: item.product.cartonQrCode,
@@ -708,7 +709,14 @@ export async function scanCycleCountQrCode(token: string, qrCode: string) {
     data: { actualQty: newQty, variance: newQty - item.systemQty },
   });
 
-  return { productId: product.id, productName: product.name, category: product.category, newQty, increment };
+  return {
+    productId: product.id,
+    productName: product.name,
+    itemNumber: product.itemNumber?.trim() || null,
+    category: product.category,
+    newQty,
+    increment,
+  };
 }
 
 export async function setCycleCountItemQty(

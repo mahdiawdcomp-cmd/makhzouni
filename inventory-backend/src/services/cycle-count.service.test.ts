@@ -51,6 +51,7 @@ function attachSession(session: any) {
         ? {
             id: item.productId,
             name: products.get(item.productId).name,
+            itemNumber: products.get(item.productId).itemNumber ?? null,
             category: null,
             imageUrl: null,
             qrCode: products.get(item.productId).qrCode ?? null,
@@ -278,9 +279,9 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
       [OTHER_WAREHOUSE, { id: OTHER_WAREHOUSE, name: "مخزن ثانٍ", phone: null, isActive: true, createdAt: new Date("2026-01-02") }],
     ]);
     products = new Map([
-      ["p1", { id: "p1", name: "منتج 1", salePrice: 1000, minStock: 5, deletedAt: null, qrCode: "QR-P1", cartonQrCode: "CQR-P1", pcsPerCarton: 12 }],
-      ["p2", { id: "p2", name: "منتج 2", salePrice: 5000, minStock: 5, deletedAt: null, qrCode: "QR-P2", cartonQrCode: "CQR-P2", pcsPerCarton: 6 }],
-      ["p3", { id: "p3", name: "منتج 3", salePrice: 500, minStock: 20, deletedAt: null, qrCode: "QR-P3", cartonQrCode: "CQR-P3", pcsPerCarton: 24 }],
+      ["p1", { id: "p1", name: "منتج 1", itemNumber: "AWD-225", salePrice: 1000, minStock: 5, deletedAt: null, qrCode: "QR-P1", cartonQrCode: "CQR-P1", pcsPerCarton: 12 }],
+      ["p2", { id: "p2", name: "منتج 2", itemNumber: "AWD-226", salePrice: 5000, minStock: 5, deletedAt: null, qrCode: "QR-P2", cartonQrCode: "CQR-P2", pcsPerCarton: 6 }],
+      ["p3", { id: "p3", name: "منتج 3", itemNumber: "", salePrice: 500, minStock: 20, deletedAt: null, qrCode: "QR-P3", cartonQrCode: "CQR-P3", pcsPerCarton: 24 }],
     ]);
     stocks = new Map([
       [stockKey("p1", WAREHOUSE), { productId: "p1", warehouseId: WAREHOUSE, quantityPieces: 100, minStock: null }],
@@ -479,6 +480,37 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     for (const item of publicView.items) {
       assert.ok(!("systemQty" in item), "systemQty must never be present in the worker-facing payload");
     }
+  });
+
+  it("the worker payload includes itemNumber when set, and null when the product has none", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const publicView = await svc.getPublicCycleCountSession(session.publicToken!);
+
+    const p1 = publicView.items.find((i) => i.productId === "p1")!;
+    assert.equal(p1.itemNumber, "AWD-225");
+
+    const p3 = publicView.items.find((i) => i.productId === "p3")!; // itemNumber: ""
+    assert.equal(p3.itemNumber, null, "an empty itemNumber must come through as null, not an empty string");
+  });
+
+  it("scanning a barcode also returns itemNumber (null when the product has none)", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const token = session.publicToken!;
+    const scanned = await svc.scanCycleCountQrCode(token, "QR-P1");
+    assert.equal(scanned.itemNumber, "AWD-225");
+
+    const scannedNoItemNumber = await svc.scanCycleCountQrCode(token, "QR-P3");
+    assert.equal(scannedNoItemNumber.itemNumber, null);
   });
 
   it("worker-entered quantities persist across re-fetching the same link (reopen-safe)", async () => {
