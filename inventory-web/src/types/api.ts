@@ -523,6 +523,7 @@ export interface CustomerPayload {
 
 export interface CustomerBroadcastPayload {
   tags: string[]
+  customerIds?: string[]
   productIds: string[]
   message: string
 }

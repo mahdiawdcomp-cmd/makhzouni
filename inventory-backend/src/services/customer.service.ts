@@ -17,6 +17,7 @@ export interface ListCustomersQuery {
   branchId?: string;
   isSupplier?: boolean;
   tags?: string[];
+  customerIds?: string[];
   /** When true, includes soft-deleted customers (used by account lookup) */
   includeDeleted?: boolean;
   page: number;
@@ -226,8 +227,23 @@ export async function listCustomers(query: ListCustomersQuery) {
         ? { OR: [{ isSupplier: true }, { isBoth: true }] }
         : { isSupplier: false }
       : {}),
-    ...(query.tags && query.tags.length > 0 ? { tags: { hasSome: query.tags } } : {}),
   };
+
+  const hasTags = !!query.tags && query.tags.length > 0;
+  const hasCustomerIds = !!query.customerIds && query.customerIds.length > 0;
+  if (hasTags || hasCustomerIds) {
+    const recipientOr: Prisma.CustomerWhereInput[] = [];
+    if (hasTags) recipientOr.push({ tags: { hasSome: query.tags! } });
+    if (hasCustomerIds) recipientOr.push({ id: { in: query.customerIds! } });
+    // isSupplier already occupies `where.OR` above — combine both via AND so
+    // neither condition silently clobbers the other.
+    if (where.OR) {
+      where.AND = [{ OR: where.OR as Prisma.CustomerWhereInput[] }, { OR: recipientOr }];
+      delete where.OR;
+    } else {
+      where.OR = recipientOr;
+    }
+  }
 
   if (query.hasDebt !== undefined) {
     where.currentBalance = query.hasDebt ? { gt: 0 } : { lte: 0 };
@@ -879,11 +895,22 @@ export async function broadcastCatalogLink(input: { tags: string[]; promoCode?: 
 
 export async function broadcastToCustomers(input: {
   tags: string[];
+  customerIds?: string[];
   productIds: string[];
   message: string;
 }) {
+  const hasTags = input.tags.length > 0;
+  const hasCustomerIds = !!input.customerIds && input.customerIds.length > 0;
+  if (!hasTags && !hasCustomerIds) return { sent: 0, failed: 0, total: 0, skippedProducts: 0 };
+
   const customers = await prisma.customer.findMany({
-    where: { deletedAt: null, tags: { hasSome: input.tags } },
+    where: {
+      deletedAt: null,
+      OR: [
+        ...(hasTags ? [{ tags: { hasSome: input.tags } }] : []),
+        ...(hasCustomerIds ? [{ id: { in: input.customerIds! } }] : []),
+      ],
+    },
   });
   if (customers.length === 0) return { sent: 0, failed: 0, total: 0, skippedProducts: 0 };
 

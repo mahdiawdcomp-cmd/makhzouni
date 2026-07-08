@@ -639,7 +639,7 @@ export async function broadcastCatalogLink(payload: { tags: string[]; promoCode?
   return data
 }
 
-export async function getCustomersPaged(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[] }) {
+export async function getCustomersPaged(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[]; customerIds?: string[] }) {
   const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 30, ...params } })
   return data
 }

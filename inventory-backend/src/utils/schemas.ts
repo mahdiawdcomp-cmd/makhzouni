@@ -252,6 +252,10 @@ export const listCustomersSchema = z.object({
       .union([z.string(), z.array(z.string())])
       .optional()
       .transform((value) => (value === undefined ? undefined : (Array.isArray(value) ? value : [value]))),
+    customerIds: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .transform((value) => (value === undefined ? undefined : (Array.isArray(value) ? value : [value]))),
     includeDeleted: z
       .enum(["true", "false"])
       .optional()
@@ -297,11 +301,17 @@ export const updateCustomerSchema = z.object({
 });
 
 export const customerBroadcastSchema = z.object({
-  body: z.object({
-    tags: z.array(z.string().trim().min(1)).min(1).max(20),
-    productIds: z.array(z.string().uuid()).min(1).max(10),
-    message: z.string().trim().min(1).max(2000),
-  }),
+  body: z
+    .object({
+      tags: z.array(z.string().trim().min(1)).max(20).default([]),
+      customerIds: z.array(z.string().uuid()).max(1000).default([]),
+      productIds: z.array(z.string().uuid()).min(1).max(10),
+      message: z.string().trim().min(1).max(2000),
+    })
+    .refine((body) => body.tags.length > 0 || body.customerIds.length > 0, {
+      message: "اختر تاك واحد أو زبون واحد على الأقل",
+      path: ["tags"],
+    }),
 });
 
 export const customerTagCreateSchema = z.object({

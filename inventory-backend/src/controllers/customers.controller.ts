@@ -259,15 +259,15 @@ export const postCatalogLinkBroadcast = asyncHandler(async (req, res) => {
 });
 
 export const postCustomerBroadcast = asyncHandler(async (req, res) => {
-  const { tags, productIds, message } = req.body as {
-    tags: string[]; productIds: string[]; message: string;
+  const { tags, customerIds, productIds, message } = req.body as {
+    tags: string[]; customerIds: string[]; productIds: string[]; message: string;
   };
-  const recipients = await listCustomers({ tags, page: 1, limit: 1 });
+  const recipients = await listCustomers({ tags, customerIds, page: 1, limit: 1 });
   const total = recipients.pagination.total;
   // Respond immediately; the actual send is throttled and slow.
   res.json({ success: true, message: `جارٍ الإرسال إلى ${total} زبون`, data: { total } });
   setImmediate(() => {
-    broadcastToCustomers({ tags, productIds, message })
+    broadcastToCustomers({ tags, customerIds, productIds, message })
       .then((r) => logger.info(`[CustomerBroadcast] done: ${r.sent}/${r.total} sent, ${r.failed} failed, ${r.skippedProducts} products skipped (no image)`))
       .catch((err) => logger.error(`[CustomerBroadcast] error: ${err}`));
   });
