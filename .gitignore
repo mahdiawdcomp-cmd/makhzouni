@@ -31,6 +31,7 @@ outputs/
 .env.*
 inventory-desktop-trial/src-tauri/update-key.pem
 inventory-desktop-trial/src-tauri/update-key.pem.pub
+_secrets_backup/
 
 # Claude Code workflow tooling (machine-specific)
 .mcp.json
@@ -43,3 +44,5 @@ inventory-desktop-trial/src-tauri/update-key.pem.pub
 *.tsbuildinfo
 inventory-android/gradle_err.txt
 inventory-android/gradle_out.txt
+
+.vercel

@@ -206,11 +206,15 @@ test("legacy: DB provider=web with env greenapi creds still auto-detects greenap
   assert.equal(getWhatsAppStatus().provider, "greenapi");
 });
 
-test("verify token: env value overrides DB, generated tokens are unique", () => {
+test("verify token: DB value wins over env, generated tokens are unique", () => {
+  // A saved DB value must win over a stale/leftover env var — same principle as
+  // the explicit DB provider override, otherwise a tenant's saved Cloud API
+  // credentials can be silently shadowed by an old env var on the server.
+  process.env.WHATSAPP_CLOUD_VERIFY_TOKEN = "env-token";
+  syncWhatsAppSettings({});
+  assert.equal(getCloudWebhookConfig().verifyToken, "env-token");
   syncWhatsAppSettings({ whatsappCloudVerifyToken: "db-token" });
   assert.equal(getCloudWebhookConfig().verifyToken, "db-token");
-  process.env.WHATSAPP_CLOUD_VERIFY_TOKEN = "env-token";
-  assert.equal(getCloudWebhookConfig().verifyToken, "env-token");
 
   const a = generateVerifyToken();
   const b = generateVerifyToken();

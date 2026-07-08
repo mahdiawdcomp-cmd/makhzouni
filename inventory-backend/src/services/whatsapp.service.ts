@@ -83,22 +83,22 @@ export function generateVerifyToken() {
 /** Cloud webhook secrets, env-first with DB fallback. Never returned to clients raw. */
 export function getCloudWebhookConfig() {
   return {
-    verifyToken: process.env.WHATSAPP_CLOUD_VERIFY_TOKEN?.trim() || _dbCloudVerifyToken,
-    appSecret: process.env.WHATSAPP_CLOUD_APP_SECRET?.trim() || _dbCloudAppSecret,
+    verifyToken: _dbCloudVerifyToken || process.env.WHATSAPP_CLOUD_VERIFY_TOKEN?.trim(),
+    appSecret: _dbCloudAppSecret || process.env.WHATSAPP_CLOUD_APP_SECRET?.trim(),
   };
 }
 
 function hasGreenApiCreds() {
   return Boolean(
-    (process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId) &&
-    (process.env.GREENAPI_TOKEN?.trim() || _greenApiToken),
+    (_greenApiInstanceId || process.env.GREENAPI_INSTANCE_ID?.trim()) &&
+    (_greenApiToken || process.env.GREENAPI_TOKEN?.trim()),
   );
 }
 
 function hasCloudCreds() {
   return Boolean(
-    (process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken) &&
-    (process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId),
+    (_dbCloudToken || process.env.WHATSAPP_CLOUD_TOKEN?.trim()) &&
+    (_dbCloudPhoneNumberId || process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim()),
   );
 }
 
@@ -175,11 +175,11 @@ function assertCanSend(): WhatsAppProvider {
 // ── Green API ────────────────────────────────────────────────────────────────
 
 function greenApiConfig() {
-  const instanceId = process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId;
-  const token = process.env.GREENAPI_TOKEN?.trim() || _greenApiToken;
+  const instanceId = _greenApiInstanceId || process.env.GREENAPI_INSTANCE_ID?.trim();
+  const token = _greenApiToken || process.env.GREENAPI_TOKEN?.trim();
   if (!instanceId || !token) throw new AppError("Green API is not configured", 503, "GREENAPI_NOT_CONFIGURED");
   // Support custom base URL (e.g. https://7107.api.greenapi.com) or fall back to default
-  const customBase = process.env.GREENAPI_BASE_URL?.trim() || _dbGreenBaseUrl;
+  const customBase = _dbGreenBaseUrl || process.env.GREENAPI_BASE_URL?.trim();
   const baseUrl = customBase
     ? `${customBase}/waInstance${instanceId}`
     : `https://api.green-api.com/waInstance${instanceId}`;
@@ -305,8 +305,8 @@ async function uploadCloudImage(image: Buffer, mime: string) {
 // ── Meta Cloud API ───────────────────────────────────────────────────────────
 
 function cloudConfig() {
-  const token = process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken;
-  const phoneNumberId = process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId;
+  const token = _dbCloudToken || process.env.WHATSAPP_CLOUD_TOKEN?.trim();
+  const phoneNumberId = _dbCloudPhoneNumberId || process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim();
   if (!token || !phoneNumberId) {
     throw new AppError("WhatsApp Cloud API is not configured", 503, "WHATSAPP_CLOUD_NOT_CONFIGURED");
   }
