@@ -45,6 +45,9 @@ export interface AppSettings {
   greenApiInstanceId?: string;
   greenApiToken?: string;
   greenApiBaseUrl?: string;
+  // Preparation workers ("عمال التجهيز") — structured list for selective invoice
+  // PDF sending. Stored as JSON in settings (no migration needed).
+  preparationWorkers?: Array<{ id: string; name: string; phone: string; active: boolean; notes?: string }>;
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
@@ -106,6 +109,7 @@ export const defaultSettings: AppSettings = {
   greenApiInstanceId: "",
   greenApiToken: "",
   greenApiBaseUrl: "",
+  preparationWorkers: [],
   labelPieceWidthMm: 50,
   labelPieceHeightMm: 25,
   labelCartonWidthMm: 100,

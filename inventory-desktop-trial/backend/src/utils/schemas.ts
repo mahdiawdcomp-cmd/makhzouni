@@ -692,6 +692,17 @@ export const updateSettingsSchema = z.object({
       greenApiInstanceId: z.string().trim().optional(),
       greenApiToken: z.string().trim().optional(),
       greenApiBaseUrl: z.string().trim().optional(),
+      preparationWorkers: z
+        .array(
+          z.object({
+            id: z.string(),
+            name: z.string().trim(),
+            phone: z.string().trim(),
+            active: z.boolean(),
+            notes: z.string().trim().optional(),
+          }),
+        )
+        .optional(),
       seasonalAlerts: z.string().trim().optional(),
       siteDesignerName: z.string().trim().max(120).optional(),
       siteDesignerPhone: z.string().trim().max(40).optional(),

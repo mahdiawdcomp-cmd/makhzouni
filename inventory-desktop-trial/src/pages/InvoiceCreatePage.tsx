@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Keybo
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, X } from "lucide-react"
+import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, ScanLine, ShoppingCart, Trash2, Users, X } from "lucide-react"
+import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
 import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
@@ -223,6 +224,7 @@ export function InvoiceCreatePage() {
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
   const [whatsappPromptId, setWhatsappPromptId] = useState<string | null>(null)
   const [whatsappSending, setWhatsappSending] = useState(false)
+  const [workerModalId, setWorkerModalId] = useState<string | null>(null)
   const [walkInLoading, setWalkInLoading] = useState(false)
 
   // Track mobile viewport (drives the Smart Invoice Preview bottom-sheet behavior)
@@ -2455,8 +2457,23 @@ export function InvoiceCreatePage() {
               لا شكراً
             </Button>
           </div>
+          <Button
+            variant="ghost"
+            className="mt-1 w-full text-sm"
+            disabled={whatsappSending}
+            onClick={() => setWorkerModalId(whatsappPromptId)}
+          >
+            <Users className="h-4 w-4" />
+            إرسال هذه الفاتورة للعامل
+          </Button>
         </DialogContent>
       </Dialog>
+
+      <WorkerSendModal
+        invoiceId={workerModalId}
+        open={!!workerModalId}
+        onClose={() => setWorkerModalId(null)}
+      />
 
       {/* Shop-stock-zero alert: المحل has 0, other warehouses have stock */}
       <Dialog open={!!shopStockAlert} onOpenChange={(open) => { if (!open) setShopStockAlert(null) }}>

@@ -52,6 +52,10 @@ export interface AppSettings {
   greenApiInstanceId?: string;
   greenApiToken?: string;
   greenApiBaseUrl?: string;
+  // Preparation workers ("عمال التجهيز") — structured list for selective invoice
+  // PDF sending. Stored as JSON in settings (no migration needed). Separate from
+  // the legacy freeform orderPreparationWhatsappNumbers auto-broadcast.
+  preparationWorkers?: Array<{ id: string; name: string; phone: string; active: boolean; notes?: string }>;
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
@@ -166,6 +170,7 @@ export const defaultSettings: AppSettings = {
   greenApiInstanceId: "",
   greenApiToken: "",
   greenApiBaseUrl: "",
+  preparationWorkers: [],
   prospectGroupInviteLink: "",
   prospectAutoReplyKeywords: ["تم", "نعم", "اوكي", "ok"],
   prospectAutoReplyMessage: "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}",

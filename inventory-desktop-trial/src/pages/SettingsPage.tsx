@@ -75,7 +75,7 @@ import {
   type ShortcutOverride,
 } from "../hooks/useGlobalShortcuts"
 import type { WhatsAppStatus, WhatsAppProvider } from "../api/endpoints"
-import type { AppSettings, MessageTemplate } from "../types/api"
+import type { AppSettings, MessageTemplate, PreparationWorker } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -547,6 +547,7 @@ export function SettingsPage() {
           onRestart={() => waRestartMutation.mutate()}
           restarting={waRestartMutation.isPending}
         />
+        <WorkersEditor settings={settings} upd={upd} saveSettings={saveSettings} saved={saved} />
         <Card>
           <CardContent className="p-5 space-y-4">
             <SectionTitle>تنبيهات الكتالوج وتجهيز الطلبات</SectionTitle>
@@ -1684,6 +1685,98 @@ function TemplateField({ label, value, onChange }: { label: string; value: strin
         dir="rtl"
       />
     </div>
+  )
+}
+
+// ── عمال التجهيز (preparation workers editor) ─────────────────────────────────
+
+function genWorkerId() {
+  try { return crypto.randomUUID() } catch { return `w_${Date.now()}_${Math.random().toString(36).slice(2)}` }
+}
+
+function WorkersEditor({
+  settings,
+  upd,
+  saveSettings,
+  saved,
+}: {
+  settings: AppSettings
+  upd: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void
+  saveSettings: { mutate: (p: Partial<AppSettings>) => void; isPending: boolean }
+  saved: boolean
+}) {
+  const workers = settings.preparationWorkers ?? []
+
+  const setWorkers = (next: PreparationWorker[]) => upd("preparationWorkers", next)
+  const updateWorker = (id: string, patch: Partial<PreparationWorker>) =>
+    setWorkers(workers.map((w) => (w.id === id ? { ...w, ...patch } : w)))
+  const addWorker = () =>
+    setWorkers([...workers, { id: genWorkerId(), name: "", phone: "", active: true }])
+  const removeWorker = (id: string) => setWorkers(workers.filter((w) => w.id !== id))
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <SectionTitle>عمال التجهيز</SectionTitle>
+          <Button size="sm" variant="outline" onClick={addWorker}>
+            <Plus className="h-4 w-4" />إضافة عامل
+          </Button>
+        </div>
+        <p className="text-xs text-slate-500">
+          أضِف عمال التجهيز لإرسال فاتورة التجهيز لهم عبر واتساب باختيارك. لا يُرسَل تلقائياً للجميع — تختار العامل وقت الإرسال.
+        </p>
+
+        {workers.length === 0 ? (
+          <p className="rounded-md bg-slate-50 px-3 py-3 text-center text-sm text-slate-400 dark:bg-slate-800/50">
+            لا يوجد عمال بعد. اضغط «إضافة عامل».
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {workers.map((w) => (
+              <div key={w.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Field label="الاسم">
+                    <Input value={w.name} onChange={(e) => updateWorker(w.id, { name: e.target.value })} placeholder="اسم العامل" />
+                  </Field>
+                  <Field label="رقم واتساب">
+                    <Input value={w.phone} onChange={(e) => updateWorker(w.id, { phone: e.target.value })} placeholder="9647xxxxxxxx" dir="ltr" />
+                  </Field>
+                  <div className="md:col-span-2">
+                    <Field label="ملاحظات (اختياري)">
+                      <Input value={w.notes ?? ""} onChange={(e) => updateWorker(w.id, { notes: e.target.value })} placeholder="مثلاً: مسؤول مخزن ب" />
+                    </Field>
+                  </div>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => updateWorker(w.id, { active: !w.active })}
+                    className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+                      w.active
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                        : "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+                    }`}
+                  >
+                    {w.active ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                    {w.active ? "مفعّل" : "غير مفعّل"}
+                  </button>
+                  <Button size="sm" variant="ghost" onClick={() => removeWorker(w.id)}>
+                    <Trash2 className="h-4 w-4 text-red-500" />حذف
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <SaveRow
+          onSave={() => saveSettings.mutate({ preparationWorkers: workers })}
+          isPending={saveSettings.isPending}
+          saved={saved}
+        />
+      </CardContent>
+    </Card>
   )
 }
 

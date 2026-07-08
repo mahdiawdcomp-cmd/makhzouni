@@ -1086,6 +1086,20 @@ export async function sendWhatsAppInvoiceImage(invoiceId: string) {
   return data.data
 }
 
+export interface WorkerSendResult {
+  sent: { phone: string; name: string }[]
+  failed: { phone: string; name: string; error: string }[]
+  skipped: { phone: string; reason: string }[]
+}
+
+export async function sendInvoiceToWorkers(invoiceId: string, phones: string[]) {
+  const { data } = await api.post<ApiEnvelope<WorkerSendResult>>(
+    `/whatsapp/send-invoice-to-workers/${invoiceId}`,
+    { phones },
+  )
+  return data
+}
+
 export async function sendWhatsAppMessage(payload: { phone: string; message: string }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
   return data

@@ -4,6 +4,7 @@ import { getInvoiceById } from "../services/invoice.service";
 import { generateInvoicePdf } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings, updateSettings } from "../services/settings.service";
+import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import {
   getCloudWebhookConfig,
   generateVerifyToken,
@@ -64,6 +65,23 @@ export const sendInvoice = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     message: "Invoice sent by WhatsApp successfully",
+    data: result,
+  });
+});
+
+// Send the invoice PDF to selected preparation workers ("عمال التجهيز").
+export const sendInvoiceToWorkersCtrl = asyncHandler(async (req, res) => {
+  const invoiceId = String(req.params.invoiceId);
+  const phones = Array.isArray((req.body as { phones?: unknown })?.phones)
+    ? ((req.body as { phones: unknown[] }).phones.map((p) => String(p)))
+    : [];
+  if (phones.length === 0) {
+    throw new AppError("اختر عاملاً واحداً على الأقل", 400, "NO_WORKERS_SELECTED");
+  }
+  const result = await sendInvoiceToWorkers(invoiceId, phones);
+  res.json({
+    success: true,
+    message: `تم الإرسال إلى ${result.sent.length} عامل` + (result.failed.length ? `، وفشل ${result.failed.length}` : ""),
     data: result,
   });
 });

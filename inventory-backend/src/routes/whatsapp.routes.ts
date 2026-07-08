@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   sendInvoice,
   sendInvoiceImage,
+  sendInvoiceToWorkersCtrl,
   sendMessage,
   whatsappRestart,
   whatsappStatus,
@@ -32,6 +33,11 @@ router.post(
   "/send-invoice-image/:invoiceId",
   validate(invoiceIdParamSchema),
   sendInvoiceImage
+);
+router.post(
+  "/send-invoice-to-workers/:invoiceId",
+  validate(invoiceIdParamSchema),
+  sendInvoiceToWorkersCtrl
 );
 
 // Admin test / diagnostics endpoints (no real Meta account needed for webhook check)

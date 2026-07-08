@@ -738,6 +738,14 @@ export interface EndOfDayReport {
 
 export type ThemePreset = "classic" | "iraqi" | "exclusive" | "bold" | "designer"
 
+export interface PreparationWorker {
+  id: string
+  name: string
+  phone: string
+  active: boolean
+  notes?: string
+}
+
 export interface AppSettings {
   storeName: string
   storeLogo: string
@@ -772,6 +780,7 @@ export interface AppSettings {
   greenApiInstanceId?: string
   greenApiToken?: string
   greenApiBaseUrl?: string
+  preparationWorkers?: PreparationWorker[]
   // Telegram backup delivery
   telegramBotToken?: string
   telegramChatId?: string

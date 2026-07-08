@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   sendInvoice,
+  sendInvoiceToWorkersCtrl,
   sendMessage,
   whatsappRestart,
   whatsappStatus,
@@ -26,6 +27,11 @@ router.post(
   "/send-invoice/:invoiceId",
   validate(invoiceIdParamSchema),
   sendInvoice
+);
+router.post(
+  "/send-invoice-to-workers/:invoiceId",
+  validate(invoiceIdParamSchema),
+  sendInvoiceToWorkersCtrl
 );
 
 // Admin test / diagnostics endpoints
