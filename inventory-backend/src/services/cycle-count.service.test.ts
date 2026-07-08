@@ -73,6 +73,8 @@ mock.module("./whatsapp.service", {
   exports: {
     sendWhatsAppText: async () => ({ to: "", message: "" }),
     setCloudCredentials: () => {},
+    syncWhatsAppSettings: () => {},
+    generateVerifyToken: () => "tok",
   },
 });
 mock.module("./app-notification.service", {

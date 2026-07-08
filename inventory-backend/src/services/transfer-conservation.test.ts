@@ -56,7 +56,7 @@ mock.module("./approval.service", {
   exports: { approvalRequestTypes: {}, createPendingApproval: async () => ({}) },
 });
 mock.module("./settings.service", { exports: { getSettings: async () => ({}) } });
-mock.module("./whatsapp.service", { exports: { sendWhatsAppText: async () => {} } });
+mock.module("./whatsapp.service", { exports: { sendWhatsAppText: async () => {}, syncWhatsAppSettings: () => {}, generateVerifyToken: () => "tok" } });
 
 // ── Fake transaction client ───────────────────────────────────────────────────
 let movements: any[];

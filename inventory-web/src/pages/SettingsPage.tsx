@@ -10,7 +10,12 @@ import {
   Building2,
   CheckCircle2,
   ClipboardList,
+  Copy,
   Download,
+  Eye,
+  EyeOff,
+  Link2,
+  MessageSquare,
   FileJson,
   HardDrive,
   ImagePlus,
@@ -45,6 +50,11 @@ import {
   permanentDeleteInvoice,
   reactivateInvoice,
   restartWhatsApp,
+  testWhatsAppText,
+  testWhatsAppImage,
+  testWhatsAppPdf,
+  checkWhatsAppWebhook,
+  regenerateVerifyToken,
   updateMessageTemplate,
   updateSettings,
   triggerManualBackup,
@@ -55,7 +65,7 @@ import {
   wipeOperationalData,
   mergeWarehouses,
 } from "../api/endpoints"
-import type { WhatsAppStatus } from "../api/endpoints"
+import type { WhatsAppStatus, WhatsAppProvider } from "../api/endpoints"
 import type { AppSettings, MessageTemplate } from "../types/api"
 import {
   DEFAULT_SHORTCUTS,
@@ -538,7 +548,15 @@ export function SettingsPage() {
       {/* ── WHATSAPP ───────────────────────────────────────── */}
       {activeTab === "whatsapp" && (
         <>
-        <WhatsAppConnectCard status={waQuery.data ?? null} onRestart={() => waRestartMutation.mutate()} restarting={waRestartMutation.isPending} />
+        <WhatsAppProviderSettings
+          settings={settings}
+          upd={upd}
+          saveSettings={saveSettings}
+          saved={saved}
+          status={waQuery.data ?? null}
+          onRestart={() => waRestartMutation.mutate()}
+          restarting={waRestartMutation.isPending}
+        />
         <Card>
           <CardContent className="p-5 space-y-4">
             <SectionTitle>تنبيهات الكتالوج وتجهيز الطلبات</SectionTitle>
@@ -593,60 +611,6 @@ export function SettingsPage() {
                 catalogPublicUrl: settings.catalogPublicUrl,
                 orderPreparationWhatsappNumbers: settings.orderPreparationWhatsappNumbers,
                 adminApprovalWhatsappNumber: settings.adminApprovalWhatsappNumber,
-              })}
-              isPending={saveSettings.isPending}
-              saved={saved}
-            />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-5 space-y-4">
-            <SectionTitle>إعداد واتساب Cloud API للإنتاج</SectionTitle>
-            <div className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300 space-y-1">
-              <p className="font-semibold">لإرسال الواتساب من السيرفر السحابي (Railway) بشكل موثوق:</p>
-              <ol className="list-decimal list-inside space-y-0.5">
-                <li>اذهب إلى <strong>Meta for Developers</strong> وأنشئ تطبيقاً من نوع WhatsApp Business</li>
-                <li>احصل على <strong>Access Token</strong> و<strong>Phone Number ID</strong></li>
-                <li>أدخلهم أدناه واختر "Cloud API"</li>
-                <li>فعّل <code className="rounded bg-blue-100 px-1 dark:bg-blue-900">ENABLE_WHATSAPP=true</code> في Railway</li>
-              </ol>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              <Field label="نوع الاتصال">
-                <select
-                  className="h-10 w-full rounded-md border bg-white px-3 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
-                  value={settings.whatsappProvider ?? "web"}
-                  onChange={(e) => upd("whatsappProvider", e.target.value as "web" | "cloud")}
-                >
-                  <option value="web">رمز QR — محلي فقط</option>
-                  <option value="cloud">Cloud API — موصى به للإنتاج</option>
-                </select>
-              </Field>
-              <Field label="Phone Number ID">
-                <Input
-                  value={settings.whatsappCloudPhoneNumberId ?? ""}
-                  onChange={(e) => upd("whatsappCloudPhoneNumberId", e.target.value)}
-                  placeholder="123456789012345"
-                  dir="ltr"
-                />
-              </Field>
-              <div className="md:col-span-2">
-                <Field label="Access Token">
-                  <Input
-                    type="password"
-                    value={settings.whatsappCloudToken ?? ""}
-                    onChange={(e) => upd("whatsappCloudToken", e.target.value)}
-                    placeholder="EAAxxxxx..."
-                    dir="ltr"
-                  />
-                </Field>
-              </div>
-            </div>
-            <SaveRow
-              onSave={() => saveSettings.mutate({
-                whatsappProvider: settings.whatsappProvider,
-                whatsappCloudToken: settings.whatsappCloudToken,
-                whatsappCloudPhoneNumberId: settings.whatsappCloudPhoneNumberId,
               })}
               isPending={saveSettings.isPending}
               saved={saved}
@@ -1731,14 +1695,329 @@ function TemplateField({ label, value, onChange }: { label: string; value: strin
   )
 }
 
-function WhatsAppConnectCard({
+// ── إعدادات واتساب (provider selection + credentials + tests) ─────────────────
+
+const WA_PROVIDERS: { id: WhatsAppProvider; title: string; desc: string }[] = [
+  { id: "manual",   title: "رابط يدوي فقط",        desc: "يفتح واتساب فقط، بدون API. مناسب للبداية — لا يحتاج أي إعداد." },
+  { id: "greenapi", title: "Green API",             desc: "مناسب للإرسال القليل والسريع." },
+  { id: "cloud",    title: "Meta WhatsApp Cloud API", desc: "رسمي وأقوى — موصى به للإنتاج." },
+  { id: "web",      title: "WhatsApp Web QR",       desc: "ربط عبر مسح رمز QR." },
+  { id: "disabled", title: "تعطيل واتساب",          desc: "إيقاف كل إرسال واتساب." },
+]
+
+const WA_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+  ready:            { label: "جاهز",          cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" },
+  missing_settings: { label: "ناقص إعدادات",  cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" },
+  failed:           { label: "فشل",           cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
+  disabled:         { label: "غير مفعّل",      cls: "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700" },
+  manual_only:      { label: "رابط يدوي فقط",  cls: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800" },
+}
+
+function MaskedInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const [reveal, setReveal] = useState(false)
+  return (
+    <div className="relative">
+      <Input
+        type={reveal ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        dir="ltr"
+        className="pl-10"
+      />
+      <button
+        type="button"
+        onClick={() => setReveal((r) => !r)}
+        className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+        tabIndex={-1}
+      >
+        {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
+  )
+}
+
+function WhatsAppProviderSettings({
+  settings,
+  upd,
+  saveSettings,
+  saved,
   status,
   onRestart,
   restarting,
 }: {
+  settings: AppSettings
+  upd: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void
+  saveSettings: { mutate: (p: Partial<AppSettings>) => void; isPending: boolean }
+  saved: boolean
   status: WhatsAppStatus | null
   onRestart: () => void
   restarting: boolean
+}) {
+  const selected: WhatsAppProvider = settings.whatsappProvider ?? "web"
+  const [testPhone, setTestPhone] = useState(settings.storePhone ?? "")
+  const [testMsg, setTestMsg] = useState("")
+  const [webhookInfo, setWebhookInfo] = useState<{ url: string; issues: string[]; appSecretWarning: string | null } | null>(null)
+  const [copied, setCopied] = useState("")
+
+  function copy(text: string, tag: string) {
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopied(tag)
+      setTimeout(() => setCopied(""), 1500)
+    })
+  }
+
+  const testText = useMutation({
+    mutationFn: () => testWhatsAppText({ phone: testPhone, message: testMsg || undefined }),
+    onSuccess: () => setTestMsg((m) => m), // no-op; feedback via mutation state
+  })
+  const testImage = useMutation({ mutationFn: () => testWhatsAppImage({ phone: testPhone }) })
+  const testPdf = useMutation({ mutationFn: () => testWhatsAppPdf({ phone: testPhone }) })
+  const webhookCheck = useMutation({
+    mutationFn: checkWhatsAppWebhook,
+    onSuccess: (d) => { if (d) setWebhookInfo({ url: d.webhookUrl, issues: d.issues, appSecretWarning: d.appSecretWarning }) },
+  })
+  const regenToken = useMutation({
+    mutationFn: regenerateVerifyToken,
+    onSuccess: (d) => { if (d) upd("whatsappCloudVerifyToken", d.verifyToken) },
+  })
+
+  const anyTestPending = testText.isPending || testImage.isPending || testPdf.isPending
+  const lastTestError =
+    (testText.error || testImage.error || testPdf.error) as { response?: { data?: { message?: string } } } | null
+  const lastTestOk = testText.isSuccess || testImage.isSuccess || testPdf.isSuccess
+
+  const badge = WA_STATUS_BADGE[status?.status ?? "missing_settings"] ?? WA_STATUS_BADGE.missing_settings
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-5">
+        <div className="flex items-center justify-between">
+          <SectionTitle>إعدادات واتساب</SectionTitle>
+          {status && (
+            <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}>
+              <MessageSquare className="h-3.5 w-3.5" />
+              {badge.label}
+            </span>
+          )}
+        </div>
+
+        {/* Provider cards */}
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+          {WA_PROVIDERS.map((p) => {
+            const active = selected === p.id
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => upd("whatsappProvider", p.id)}
+                className={`rounded-xl border p-3 text-right transition ${
+                  active
+                    ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200 dark:border-emerald-600 dark:bg-emerald-950/40 dark:ring-emerald-900"
+                    : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold">{p.title}</span>
+                  {active && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{p.desc}</p>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Save provider choice */}
+        <SaveRow
+          onSave={() => saveSettings.mutate({ whatsappProvider: selected })}
+          isPending={saveSettings.isPending}
+          saved={saved}
+        />
+
+        {/* ── Manual ── */}
+        {selected === "manual" && (
+          <div className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+            في هذا الوضع يفتح واتساب فقط عبر روابط <code dir="ltr">wa.me</code> — لا يوجد إرسال تلقائي بالخلفية. لا يحتاج أي إعداد إضافي.
+          </div>
+        )}
+
+        {/* ── Disabled ── */}
+        {selected === "disabled" && (
+          <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            ⚠️ الإرسال عبر واتساب معطّل بالكامل. أي محاولة إرسال تلقائي سترجع خطأ <code dir="ltr">WHATSAPP_DISABLED</code>.
+          </div>
+        )}
+
+        {/* ── Green API ── */}
+        {selected === "greenapi" && (
+          <div className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Instance ID">
+                <Input value={settings.greenApiInstanceId ?? ""} onChange={(e) => upd("greenApiInstanceId", e.target.value)} placeholder="1101xxxxxx" dir="ltr" />
+              </Field>
+              <Field label="Base URL (اختياري)">
+                <Input value={settings.greenApiBaseUrl ?? ""} onChange={(e) => upd("greenApiBaseUrl", e.target.value)} placeholder="https://7107.api.greenapi.com" dir="ltr" />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="API Token">
+                  <MaskedInput value={settings.greenApiToken ?? ""} onChange={(v) => upd("greenApiToken", v)} placeholder="xxxxxxxxxxxxxxxx" />
+                </Field>
+              </div>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                whatsappProvider: "greenapi",
+                greenApiInstanceId: settings.greenApiInstanceId,
+                greenApiToken: settings.greenApiToken,
+                greenApiBaseUrl: settings.greenApiBaseUrl,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+          </div>
+        )}
+
+        {/* ── Meta Cloud API ── */}
+        {selected === "cloud" && (
+          <div className="space-y-3">
+            <div className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300 space-y-1">
+              <p className="font-semibold">خطوات الربط:</p>
+              <ol className="list-decimal list-inside space-y-0.5">
+                <li>افتح <strong>Meta for Developers</strong> وأنشئ تطبيق WhatsApp Business.</li>
+                <li>خذ <strong>Access Token</strong> و<strong>Phone Number ID</strong> والصقهما أدناه.</li>
+                <li>احفظ، ثم انسخ <strong>Webhook URL</strong> و<strong>Verify Token</strong> والصقهما في Meta.</li>
+              </ol>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Phone Number ID">
+                <Input value={settings.whatsappCloudPhoneNumberId ?? ""} onChange={(e) => upd("whatsappCloudPhoneNumberId", e.target.value)} placeholder="123456789012345" dir="ltr" />
+              </Field>
+              <Field label="Business Account ID (اختياري)">
+                <Input value={settings.whatsappCloudBusinessAccountId ?? ""} onChange={(e) => upd("whatsappCloudBusinessAccountId", e.target.value)} placeholder="اختياري" dir="ltr" />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="Access Token">
+                  <MaskedInput value={settings.whatsappCloudToken ?? ""} onChange={(v) => upd("whatsappCloudToken", v)} placeholder="EAAxxxxx..." />
+                </Field>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="App Secret (اختياري — للتحقق من التوقيع)">
+                  <MaskedInput value={settings.whatsappCloudAppSecret ?? ""} onChange={(v) => upd("whatsappCloudAppSecret", v)} placeholder="اختياري" />
+                </Field>
+              </div>
+            </div>
+
+            {/* Verify token */}
+            <Field label="Verify Token">
+              <div className="flex gap-2">
+                <Input value={settings.whatsappCloudVerifyToken ?? ""} readOnly dir="ltr" placeholder="يُولّد تلقائياً عند الحفظ" />
+                <Button type="button" variant="outline" onClick={() => copy(settings.whatsappCloudVerifyToken ?? "", "vt")} disabled={!settings.whatsappCloudVerifyToken}>
+                  <Copy className="h-4 w-4" />{copied === "vt" ? "تم" : "نسخ"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => regenToken.mutate()} disabled={regenToken.isPending}>
+                  <RefreshCw className={`h-4 w-4 ${regenToken.isPending ? "animate-spin" : ""}`} />توليد
+                </Button>
+              </div>
+            </Field>
+
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                whatsappProvider: "cloud",
+                whatsappCloudToken: settings.whatsappCloudToken,
+                whatsappCloudPhoneNumberId: settings.whatsappCloudPhoneNumberId,
+                whatsappCloudBusinessAccountId: settings.whatsappCloudBusinessAccountId,
+                whatsappCloudAppSecret: settings.whatsappCloudAppSecret,
+                whatsappCloudVerifyToken: settings.whatsappCloudVerifyToken,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+
+            {/* Webhook check */}
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">إعداد الويب هوك (استقبال الرسائل)</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => webhookCheck.mutate()} disabled={webhookCheck.isPending}>
+                  <Link2 className="h-4 w-4" />فحص الإعداد
+                </Button>
+              </div>
+              {webhookInfo && (
+                <div className="space-y-2">
+                  <Field label="Webhook URL (انسخه إلى Meta)">
+                    <div className="flex gap-2">
+                      <Input value={webhookInfo.url} readOnly dir="ltr" />
+                      <Button type="button" variant="outline" onClick={() => copy(webhookInfo.url, "wh")}>
+                        <Copy className="h-4 w-4" />{copied === "wh" ? "تم" : "نسخ"}
+                      </Button>
+                    </div>
+                  </Field>
+                  {webhookInfo.appSecretWarning && (
+                    <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">{webhookInfo.appSecretWarning}</p>
+                  )}
+                  {webhookInfo.issues.length > 0 ? (
+                    <ul className="list-disc list-inside text-xs text-red-600 dark:text-red-400">
+                      {webhookInfo.issues.map((i) => <li key={i}>{i}</li>)}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ الإعدادات جاهزة للربط مع Meta.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── WhatsApp Web QR ── */}
+        {selected === "web" && (
+          <WhatsAppConnectCard status={status} onRestart={onRestart} restarting={restarting} embedded />
+        )}
+
+        {/* ── Test buttons (sending providers only) ── */}
+        {(selected === "greenapi" || selected === "cloud" || selected === "web") && (
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700 space-y-3">
+            <span className="text-sm font-medium">اختبار الإرسال</span>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Field label="رقم الاختبار">
+                <Input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="9647xxxxxxxx" dir="ltr" />
+              </Field>
+              <Field label="نص الرسالة (اختياري)">
+                <Input value={testMsg} onChange={(e) => setTestMsg(e.target.value)} placeholder="رسالة اختبار" />
+              </Field>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => testText.mutate()} disabled={anyTestPending || !testPhone}>
+                <Send className="h-4 w-4" />اختبار نص
+              </Button>
+              <Button type="button" variant="outline" onClick={() => testImage.mutate()} disabled={anyTestPending || !testPhone}>
+                <ImagePlus className="h-4 w-4" />اختبار صورة
+              </Button>
+              <Button type="button" variant="outline" onClick={() => testPdf.mutate()} disabled={anyTestPending || !testPhone}>
+                <FileJson className="h-4 w-4" />اختبار PDF
+              </Button>
+            </div>
+            {lastTestOk && <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ تم إرسال رسالة الاختبار بنجاح.</p>}
+            {lastTestError && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950 dark:text-red-400">
+                ✗ {lastTestError.response?.data?.message ?? "فشل إرسال الاختبار"}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function WhatsAppConnectCard({
+  status,
+  onRestart,
+  restarting,
+  embedded,
+}: {
+  status: WhatsAppStatus | null
+  onRestart: () => void
+  restarting: boolean
+  embedded?: boolean
 }) {
   const state = status?.state ?? "DISCONNECTED"
 
@@ -1751,9 +2030,8 @@ function WhatsAppConnectCard({
     ERROR:        { icon: <XCircle className="h-4 w-4" />,    label: "خطأ",                  cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
   }[state] ?? { icon: <WifiOff className="h-4 w-4" />, label: "غير متصل", cls: "bg-slate-50 text-slate-600 border-slate-200" }
 
-  return (
-    <Card>
-      <CardContent className="p-5 space-y-4">
+  const inner = (
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <SectionTitle>ربط الواتساب</SectionTitle>
           <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}>
@@ -1812,7 +2090,15 @@ function WhatsAppConnectCard({
           <RefreshCw className={`h-4 w-4 ${restarting ? "animate-spin" : ""}`} />
           {restarting ? "جاري إعادة التشغيل..." : "إعادة ربط الواتساب"}
         </Button>
-      </CardContent>
+      </div>
+  )
+
+  if (embedded) {
+    return <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">{inner}</div>
+  }
+  return (
+    <Card>
+      <CardContent className="p-5">{inner}</CardContent>
     </Card>
   )
 }

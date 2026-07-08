@@ -890,10 +890,16 @@ export interface AppSettings {
   autoSendDailySummary?: boolean
   dailySummaryWhatsappNumber?: string
   dailySummaryHour?: number
-  // WhatsApp Cloud API credentials
-  whatsappProvider?: "web" | "cloud"
+  // WhatsApp provider + credentials
+  whatsappProvider?: "manual" | "greenapi" | "cloud" | "web" | "disabled"
   whatsappCloudToken?: string
   whatsappCloudPhoneNumberId?: string
+  whatsappCloudBusinessAccountId?: string
+  whatsappCloudVerifyToken?: string
+  whatsappCloudAppSecret?: string
+  greenApiInstanceId?: string
+  greenApiToken?: string
+  greenApiBaseUrl?: string
   // Telegram backup delivery
   telegramBotToken?: string
   telegramChatId?: string

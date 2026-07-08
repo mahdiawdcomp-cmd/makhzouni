@@ -84,7 +84,12 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json({ limit: "8mb" }));   // صور base64 تحتاج حد أكبر
+app.use(express.json({
+  limit: "8mb",   // صور base64 تحتاج حد أكبر
+  // Preserve the raw body so the Meta webhook can verify X-Hub-Signature-256.
+  // Additive only — does not change how any existing route reads req.body.
+  verify: (req, _res, buf) => { (req as unknown as { rawBody?: Buffer }).rawBody = buf; },
+}));
 app.use(requestLogger);
 app.use(auditLogMiddleware);
 app.use(realtimeMutationMiddleware);

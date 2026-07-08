@@ -10,7 +10,11 @@ import {
   verifyCatalogAccessCtrl,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
-import { whatsappIncomingWebhook } from "../controllers/whatsapp.controller";
+import {
+  whatsappIncomingWebhook,
+  whatsappMetaWebhookVerify,
+  whatsappMetaWebhookReceive,
+} from "../controllers/whatsapp.controller";
 import {
   getClientPortal,
   getClientPortalInvoice,
@@ -56,6 +60,11 @@ const router = Router();
 
 // Incoming WhatsApp webhook (Green API) — set this URL in the Green API console.
 router.post("/whatsapp/incoming-webhook", whatsappIncomingWebhook);
+
+// Meta WhatsApp Cloud API webhook (single URL, GET verify + POST receive).
+// Runs in parallel with the Green API webhook above.
+router.get("/whatsapp/meta-webhook", whatsappMetaWebhookVerify);
+router.post("/whatsapp/meta-webhook", whatsappMetaWebhookReceive);
 
 // OTP verification (strict rate limit on send)
 router.post("/otp/send", otpLimiter, validate(sendOtpSchema), sendOtp);

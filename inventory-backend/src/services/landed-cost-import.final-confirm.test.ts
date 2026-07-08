@@ -83,7 +83,7 @@ mock.module("./warehouse-stock.service", {
 });
 mock.module("./approval.service", { exports: { approvalRequestTypes: {}, createPendingApproval: async () => ({}) } });
 mock.module("./settings.service", { exports: { getSettings: async () => ({}) } });
-mock.module("./whatsapp.service", { exports: { sendWhatsAppText: async () => {} } });
+mock.module("./whatsapp.service", { exports: { sendWhatsAppText: async () => {}, syncWhatsAppSettings: () => {}, generateVerifyToken: () => "tok" } });
 
 const tx: any = {
   $queryRaw: async () => [],

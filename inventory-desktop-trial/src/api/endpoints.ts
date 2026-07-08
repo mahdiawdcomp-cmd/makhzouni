@@ -1092,11 +1092,18 @@ export async function sendWhatsAppMessage(payload: { phone: string; message: str
 }
 
 export type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR"
+export type WhatsAppProvider = "manual" | "greenapi" | "cloud" | "web" | "disabled"
+export type WhatsAppStatusCode = "ready" | "missing_settings" | "failed" | "disabled" | "manual_only"
 
 export interface WhatsAppStatus {
-  provider: "web" | "cloud"
+  provider: WhatsAppProvider
+  status: WhatsAppStatusCode
   enabled: boolean
   cloudConfigured: boolean
+  greenConfigured: boolean
+  businessAccountId: string | null
+  verifyTokenSet: boolean
+  appSecretSet: boolean
   initialized: boolean
   state: WhatsAppState
   isReady: boolean
@@ -1113,6 +1120,42 @@ export async function getWhatsAppStatus() {
 export async function restartWhatsApp() {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/restart")
   return data
+}
+
+// ── WhatsApp provider test / diagnostics ────────────────────────────────────
+export async function testWhatsAppText(payload: { phone: string; message?: string }) {
+  const { data } = await api.post<ApiEnvelope<unknown>>("/whatsapp/test/text", payload)
+  return data
+}
+
+export async function testWhatsAppImage(payload: { phone: string }) {
+  const { data } = await api.post<ApiEnvelope<unknown>>("/whatsapp/test/image", payload)
+  return data
+}
+
+export async function testWhatsAppPdf(payload: { phone: string }) {
+  const { data } = await api.post<ApiEnvelope<unknown>>("/whatsapp/test/pdf", payload)
+  return data
+}
+
+export interface WhatsAppWebhookCheck {
+  ready: boolean
+  webhookUrl: string
+  verifyTokenSet: boolean
+  appSecretConfigured: boolean
+  appSecretWarning: string | null
+  issues: string[]
+  instructions?: string[]
+}
+
+export async function checkWhatsAppWebhook() {
+  const { data } = await api.get<ApiEnvelope<WhatsAppWebhookCheck>>("/whatsapp/webhook-check")
+  return data.data
+}
+
+export async function regenerateVerifyToken() {
+  const { data } = await api.post<ApiEnvelope<{ verifyToken: string }>>("/whatsapp/verify-token/regenerate")
+  return data.data
 }
 
 export interface TransferItemPayload {

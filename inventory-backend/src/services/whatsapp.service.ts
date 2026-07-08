@@ -1,12 +1,14 @@
 import { Client, LocalAuth, MessageMedia } from "whatsapp-web.js";
 import qrcode from "qrcode";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
-type WhatsAppProvider = "web" | "cloud" | "greenapi";
+export type WhatsAppProvider = "web" | "cloud" | "greenapi" | "manual" | "disabled";
+export type WhatsAppStatusCode = "ready" | "missing_settings" | "failed" | "disabled" | "manual_only";
 
 let client: Client | null = null;
 let state: WhatsAppState = "DISCONNECTED";
@@ -26,6 +28,10 @@ let _dbCloudPhoneNumberId = "";
 let _dbProviderOverride: WhatsAppProvider | null = null;
 let _greenApiInstanceId = "";
 let _greenApiToken = "";
+let _dbGreenBaseUrl = "";
+let _dbCloudBusinessAccountId = "";
+let _dbCloudVerifyToken = "";
+let _dbCloudAppSecret = "";
 
 /** Called by settings service when credentials change, and at server startup */
 export function setCloudCredentials(token: string, phoneNumberId: string, providerOverride?: string) {
@@ -34,6 +40,8 @@ export function setCloudCredentials(token: string, phoneNumberId: string, provid
   _dbProviderOverride =
     providerOverride === "cloud" ? "cloud" :
     providerOverride === "greenapi" ? "greenapi" :
+    providerOverride === "manual" ? "manual" :
+    providerOverride === "disabled" ? "disabled" :
     providerOverride === "web" ? "web" :
     null;
 }
@@ -43,29 +51,80 @@ export function setGreenApiCredentials(instanceId: string, token: string) {
   _greenApiToken = token?.trim() ?? "";
 }
 
-function provider(): WhatsAppProvider {
-  // env override takes priority
-  const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
-  if (configured === "greenapi") return "greenapi";
-  if (configured === "cloud") return "cloud";
+/**
+ * Unified DB → runtime sync. Called by settings.service on startup and whenever
+ * settings are saved, so a tenant can fully configure WhatsApp from the UI with
+ * no env/Railway access. env vars remain the fallback when a DB field is empty.
+ */
+export function syncWhatsAppSettings(s: {
+  whatsappProvider?: string;
+  whatsappCloudToken?: string;
+  whatsappCloudPhoneNumberId?: string;
+  whatsappCloudBusinessAccountId?: string;
+  whatsappCloudVerifyToken?: string;
+  whatsappCloudAppSecret?: string;
+  greenApiInstanceId?: string;
+  greenApiToken?: string;
+  greenApiBaseUrl?: string;
+}) {
+  setCloudCredentials(s.whatsappCloudToken ?? "", s.whatsappCloudPhoneNumberId ?? "", s.whatsappProvider);
+  setGreenApiCredentials(s.greenApiInstanceId ?? "", s.greenApiToken ?? "");
+  _dbGreenBaseUrl = s.greenApiBaseUrl?.trim() ?? "";
+  _dbCloudBusinessAccountId = s.whatsappCloudBusinessAccountId?.trim() ?? "";
+  _dbCloudVerifyToken = s.whatsappCloudVerifyToken?.trim() ?? "";
+  _dbCloudAppSecret = s.whatsappCloudAppSecret?.trim() ?? "";
+}
 
-  // DB override
-  if (_dbProviderOverride === "greenapi") return "greenapi";
-  if (_dbProviderOverride === "cloud") return "cloud";
+/** Random opaque token for the Meta webhook verify handshake. */
+export function generateVerifyToken() {
+  return `mkz_${crypto.randomBytes(18).toString("hex")}`;
+}
 
-  // auto-detect from credentials
-  const hasGreenApi = Boolean(
+/** Cloud webhook secrets, env-first with DB fallback. Never returned to clients raw. */
+export function getCloudWebhookConfig() {
+  return {
+    verifyToken: process.env.WHATSAPP_CLOUD_VERIFY_TOKEN?.trim() || _dbCloudVerifyToken,
+    appSecret: process.env.WHATSAPP_CLOUD_APP_SECRET?.trim() || _dbCloudAppSecret,
+  };
+}
+
+function hasGreenApiCreds() {
+  return Boolean(
     (process.env.GREENAPI_INSTANCE_ID?.trim() || _greenApiInstanceId) &&
     (process.env.GREENAPI_TOKEN?.trim() || _greenApiToken),
   );
-  if (hasGreenApi) return "greenapi";
+}
 
-  const hasCloud = Boolean(
+function hasCloudCreds() {
+  return Boolean(
     (process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken) &&
     (process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId),
   );
-  if (hasCloud) return "cloud";
+}
 
+function provider(): WhatsAppProvider {
+  // 1) env override takes top priority (unchanged for greenapi/cloud; manual/
+  //    disabled added). env "web" intentionally falls through to auto-detect.
+  const configured = process.env.WHATSAPP_PROVIDER?.trim().toLowerCase();
+  if (configured === "greenapi") return "greenapi";
+  if (configured === "cloud") return "cloud";
+  if (configured === "manual") return "manual";
+  if (configured === "disabled") return "disabled";
+
+  // 2) DB explicit choice. NOTE: a saved "web" deliberately falls through to
+  //    auto-detect below, preserving the exact legacy behaviour for tenants
+  //    who configured Green/Cloud via env and never picked a provider in the UI
+  //    (their old default was "web"). Only the new explicit values short-circuit.
+  if (_dbProviderOverride === "greenapi") return "greenapi";
+  if (_dbProviderOverride === "cloud") return "cloud";
+  if (_dbProviderOverride === "manual") return "manual";
+  if (_dbProviderOverride === "disabled") return "disabled";
+
+  // 3) auto-detect from credentials (env or DB)
+  if (hasGreenApiCreds()) return "greenapi";
+  if (hasCloudCreds()) return "cloud";
+
+  // 4) legacy default
   return "web";
 }
 
@@ -77,6 +136,24 @@ function whatsappEnabled() {
   return hasCloud || hasGreen;
 }
 
+/**
+ * Single gate for all silent/background sends. Throws a clear, code-tagged error
+ * for the two "no silent sending" providers before any network work happens.
+ */
+function assertCanSend(): WhatsAppProvider {
+  const prov = provider();
+  if (prov === "disabled") {
+    throw new AppError("الواتساب معطّل من الإعدادات", 503, "WHATSAPP_DISABLED");
+  }
+  if (prov === "manual") {
+    throw new AppError("واتساب مضبوط على الرابط اليدوي فقط — لا يوجد إرسال تلقائي بالخلفية", 400, "WHATSAPP_MANUAL_ONLY");
+  }
+  if (!whatsappEnabled()) {
+    throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
+  }
+  return prov;
+}
+
 // ── Green API ────────────────────────────────────────────────────────────────
 
 function greenApiConfig() {
@@ -84,7 +161,7 @@ function greenApiConfig() {
   const token = process.env.GREENAPI_TOKEN?.trim() || _greenApiToken;
   if (!instanceId || !token) throw new AppError("Green API is not configured", 503, "GREENAPI_NOT_CONFIGURED");
   // Support custom base URL (e.g. https://7107.api.greenapi.com) or fall back to default
-  const customBase = process.env.GREENAPI_BASE_URL?.trim();
+  const customBase = process.env.GREENAPI_BASE_URL?.trim() || _dbGreenBaseUrl;
   const baseUrl = customBase
     ? `${customBase}/waInstance${instanceId}`
     : `https://api.green-api.com/waInstance${instanceId}`;
@@ -387,19 +464,22 @@ function triggerRestart(reason = "restart") {
 }
 
 export function initializeWhatsApp() {
-  if (provider() === "cloud") {
+  const prov = provider();
+
+  // HTTP-based / no-session providers don't launch Puppeteer.
+  if (prov === "cloud" || prov === "greenapi") {
     state = "READY";
     initialized = true;
     lastError = null;
-    logger.info("[WhatsApp] Cloud API provider ready");
+    logger.info(`[WhatsApp] ${prov === "cloud" ? "Cloud API" : "Green API"} provider ready`);
     return;
   }
 
-  if (provider() === "greenapi") {
-    state = "READY";
+  if (prov === "manual" || prov === "disabled") {
+    state = "DISCONNECTED";
     initialized = true;
     lastError = null;
-    logger.info("[WhatsApp] Green API provider ready");
+    logger.info(`[WhatsApp] provider=${prov} — no background sending`);
     return;
   }
 
@@ -493,24 +573,49 @@ export function initializeWhatsApp() {
 
 export function getWhatsAppStatus() {
   const currentProvider = provider();
-  const cloudConfigured = Boolean(
-    (process.env.WHATSAPP_CLOUD_TOKEN?.trim() || _dbCloudToken) &&
-    (process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID?.trim() || _dbCloudPhoneNumberId),
-  );
+  const cloudConfigured = hasCloudCreds();
+  const greenConfigured = hasGreenApiCreds();
+  const webhook = getCloudWebhookConfig();
+  const isHttpProvider = currentProvider === "cloud" || currentProvider === "greenapi";
+
+  // Coarse, synchronous status. Deep Green API liveness lives in
+  // system-health.service via getGreenApiStateCached (async, cached).
+  let statusCode: WhatsAppStatusCode;
+  if (currentProvider === "disabled") {
+    statusCode = "disabled";
+  } else if (currentProvider === "manual") {
+    statusCode = "manual_only";
+  } else if (currentProvider === "greenapi") {
+    statusCode = greenConfigured ? "ready" : "missing_settings";
+  } else if (currentProvider === "cloud") {
+    statusCode = cloudConfigured ? "ready" : "missing_settings";
+  } else {
+    // web (QR)
+    statusCode = state === "READY" ? "ready" : whatsappEnabled() ? "failed" : "missing_settings";
+  }
+
   return {
     provider: currentProvider,
+    status: statusCode,
     enabled: whatsappEnabled(),
     cloudConfigured,
+    greenConfigured,
+    businessAccountId: _dbCloudBusinessAccountId || null,
+    verifyTokenSet: Boolean(webhook.verifyToken),
+    appSecretSet: Boolean(webhook.appSecret),
     initialized,
     state,
-    isReady: whatsappEnabled() && (currentProvider === "cloud" ? cloudConfigured : state === "READY"),
-    qr: currentProvider === "cloud" ? null : lastQr,
-    qrDataUrl: currentProvider === "cloud" ? null : lastQrDataUrl,
-    error: !whatsappEnabled()
-      ? "ENABLE_WHATSAPP is not true"
-      : currentProvider === "cloud" && !cloudConfigured
-        ? "WhatsApp Cloud token or phone number id is missing"
-        : lastError,
+    isReady: statusCode === "ready",
+    qr: isHttpProvider ? null : lastQr,
+    qrDataUrl: isHttpProvider ? null : lastQrDataUrl,
+    error:
+      currentProvider === "cloud" && !cloudConfigured
+        ? "إعدادات Cloud API ناقصة (Access Token و Phone Number ID)"
+        : currentProvider === "greenapi" && !greenConfigured
+          ? "إعدادات Green API ناقصة (Instance ID و Token)"
+          : currentProvider === "web" && !whatsappEnabled()
+            ? "ENABLE_WHATSAPP is not true"
+            : lastError,
   };
 }
 
@@ -522,12 +627,14 @@ function requireReadyClient() {
 }
 
 export async function restartWhatsApp() {
-  if (provider() === "cloud") {
-    state = "READY";
-    initialized = true;
+  const prov = provider();
+  // Only the WhatsApp Web (Puppeteer) provider has a real session to restart.
+  if (prov !== "web") {
     lastQr = null;
     lastQrDataUrl = null;
     lastError = null;
+    initialized = false;
+    initializeWhatsApp();
     return;
   }
 
@@ -552,11 +659,7 @@ export async function restartWhatsApp() {
 
 /** Send a text message. */
 export async function sendWhatsAppText(phone: string, message: string): Promise<{ to: string; message: string; idMessage?: string }> {
-  if (!whatsappEnabled()) {
-    throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
-  }
-
-  const prov = provider();
+  const prov = assertCanSend();
 
   if (prov === "greenapi") {
     const { idMessage } = await sendGreenApiText(phone, message);
@@ -596,11 +699,7 @@ export async function sendWhatsAppPdf(
   pdf: Buffer,
   filename: string,
 ): Promise<{ to: string; filename: string }> {
-  if (!whatsappEnabled()) {
-    throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
-  }
-
-  const prov = provider();
+  const prov = assertCanSend();
 
   if (prov === "greenapi") {
     await sendGreenApiDocument(phone, pdf, filename, message);
@@ -646,11 +745,7 @@ export async function sendWhatsAppImage(
   image: Buffer,
   mime = "image/jpeg",
 ): Promise<{ to: string; idMessage?: string }> {
-  if (!whatsappEnabled()) {
-    throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
-  }
-
-  const prov = provider();
+  const prov = assertCanSend();
 
   if (prov === "greenapi") {
     const { idMessage } = await sendGreenApiImage(phone, image, mime, message);

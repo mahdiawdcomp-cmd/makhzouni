@@ -113,6 +113,8 @@ mock.module("./whatsapp.service", {
   exports: {
     sendWhatsAppText: async () => {},
     sendWhatsAppImage: async () => {},
+    syncWhatsAppSettings: () => {},
+    generateVerifyToken: () => "tok",
   },
 });
 mock.module("./settings.service", {

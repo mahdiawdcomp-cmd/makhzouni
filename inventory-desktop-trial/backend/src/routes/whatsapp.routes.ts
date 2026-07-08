@@ -4,8 +4,14 @@ import {
   sendMessage,
   whatsappRestart,
   whatsappStatus,
+  testWhatsAppText,
+  testWhatsAppImage,
+  testWhatsAppPdf,
+  checkWhatsAppWebhook,
+  regenerateVerifyToken,
 } from "../controllers/whatsapp.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { adminOnly } from "../middleware/admin-only.middleware";
 import { validate } from "../middleware/validate";
 import { invoiceIdParamSchema, sendWhatsAppSchema } from "../utils/schemas";
 
@@ -21,5 +27,12 @@ router.post(
   validate(invoiceIdParamSchema),
   sendInvoice
 );
+
+// Admin test / diagnostics endpoints
+router.post("/test/text", adminOnly, testWhatsAppText);
+router.post("/test/image", adminOnly, testWhatsAppImage);
+router.post("/test/pdf", adminOnly, testWhatsAppPdf);
+router.get("/webhook-check", adminOnly, checkWhatsAppWebhook);
+router.post("/verify-token/regenerate", adminOnly, regenerateVerifyToken);
 
 export default router;

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
-import { setCloudCredentials } from "./whatsapp.service";
+import { syncWhatsAppSettings, generateVerifyToken } from "./whatsapp.service";
 
 export interface AppSettings {
   debtReminderDays: number;
@@ -35,10 +35,23 @@ export interface AppSettings {
   autoSendDailySummary: boolean;
   dailySummaryWhatsappNumber?: string;
   dailySummaryHour: number;
-  // WhatsApp Cloud API credentials (stored in DB so admin can configure from UI)
-  whatsappProvider?: "web" | "cloud";
+  // WhatsApp provider + credentials (stored in DB so each tenant configures it
+  // from the UI with no env/Railway access). env vars remain the fallback.
+  //   manual   → wa.me links only, no silent background sending
+  //   greenapi → send via Green API
+  //   cloud    → send via Meta WhatsApp Cloud API
+  //   web      → WhatsApp Web QR (Puppeteer) — legacy/auto default
+  //   disabled → all WhatsApp sending blocked
+  whatsappProvider?: "manual" | "greenapi" | "cloud" | "web" | "disabled";
   whatsappCloudToken?: string;
   whatsappCloudPhoneNumberId?: string;
+  whatsappCloudBusinessAccountId?: string;
+  whatsappCloudVerifyToken?: string;
+  whatsappCloudAppSecret?: string;
+  // Green API credentials (DB-configurable; env GREENAPI_* still works as fallback)
+  greenApiInstanceId?: string;
+  greenApiToken?: string;
+  greenApiBaseUrl?: string;
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
@@ -139,9 +152,20 @@ export const defaultSettings: AppSettings = {
   autoSendDailySummary: false,
   dailySummaryWhatsappNumber: "",
   dailySummaryHour: 21,
+  // Legacy "web" sentinel: falls through to env auto-detect in whatsapp.service
+  // so tenants who set up Green/Cloud via env (and never picked a provider in
+  // the UI) keep working exactly as before. New tenants that never open the
+  // WhatsApp settings page effectively behave as "manual" (wa.me only), because
+  // with no credentials + no ENABLE_WHATSAPP, silent sends are blocked anyway.
   whatsappProvider: "web",
   whatsappCloudToken: "",
   whatsappCloudPhoneNumberId: "",
+  whatsappCloudBusinessAccountId: "",
+  whatsappCloudVerifyToken: "",
+  whatsappCloudAppSecret: "",
+  greenApiInstanceId: "",
+  greenApiToken: "",
+  greenApiBaseUrl: "",
   prospectGroupInviteLink: "",
   prospectAutoReplyKeywords: ["تم", "نعم", "اوكي", "ok"],
   prospectAutoReplyMessage: "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}",
@@ -210,12 +234,8 @@ export async function getSettings(): Promise<AppSettings> {
 
   const settings = values as unknown as AppSettings;
 
-  // Sync WhatsApp Cloud credentials into the WA service module
-  setCloudCredentials(
-    settings.whatsappCloudToken ?? "",
-    settings.whatsappCloudPhoneNumberId ?? "",
-    settings.whatsappProvider,
-  );
+  // Sync all WhatsApp provider + credentials into the WA service module
+  syncWhatsAppSettings(settings);
 
   return settings;
 }
@@ -235,5 +255,19 @@ export async function updateSettings(input: Partial<AppSettings>) {
   }
 
   // getSettings() re-syncs WhatsApp credentials automatically
-  return getSettings();
+  const saved = await getSettings();
+
+  // Auto-generate a Meta webhook verify token the first time Cloud API is the
+  // chosen provider and none exists yet, so the webhook is usable immediately.
+  if (saved.whatsappProvider === "cloud" && !saved.whatsappCloudVerifyToken?.trim()) {
+    const token = generateVerifyToken();
+    await prisma.setting.upsert({
+      where: { key: "whatsappCloudVerifyToken" },
+      create: { key: "whatsappCloudVerifyToken", value: token },
+      update: { value: token },
+    });
+    return getSettings();
+  }
+
+  return saved;
 }

@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
-import { setCloudCredentials } from "./whatsapp.service";
+import { syncWhatsAppSettings, generateVerifyToken } from "./whatsapp.service";
 
 export interface AppSettings {
   debtReminderDays: number;
@@ -35,10 +35,16 @@ export interface AppSettings {
   autoSendDailySummary: boolean;
   dailySummaryWhatsappNumber?: string;
   dailySummaryHour: number;
-  // WhatsApp Cloud API credentials (stored in DB so admin can configure from UI)
-  whatsappProvider?: "web" | "cloud";
+  // WhatsApp provider + credentials (DB-configurable; env vars are the fallback).
+  whatsappProvider?: "manual" | "greenapi" | "cloud" | "web" | "disabled";
   whatsappCloudToken?: string;
   whatsappCloudPhoneNumberId?: string;
+  whatsappCloudBusinessAccountId?: string;
+  whatsappCloudVerifyToken?: string;
+  whatsappCloudAppSecret?: string;
+  greenApiInstanceId?: string;
+  greenApiToken?: string;
+  greenApiBaseUrl?: string;
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
@@ -94,6 +100,12 @@ export const defaultSettings: AppSettings = {
   whatsappProvider: "web",
   whatsappCloudToken: "",
   whatsappCloudPhoneNumberId: "",
+  whatsappCloudBusinessAccountId: "",
+  whatsappCloudVerifyToken: "",
+  whatsappCloudAppSecret: "",
+  greenApiInstanceId: "",
+  greenApiToken: "",
+  greenApiBaseUrl: "",
   labelPieceWidthMm: 50,
   labelPieceHeightMm: 25,
   labelCartonWidthMm: 100,
@@ -139,12 +151,8 @@ export async function getSettings(): Promise<AppSettings> {
 
   const settings = values as unknown as AppSettings;
 
-  // Sync WhatsApp Cloud credentials into the WA service module
-  setCloudCredentials(
-    settings.whatsappCloudToken ?? "",
-    settings.whatsappCloudPhoneNumberId ?? "",
-    settings.whatsappProvider,
-  );
+  // Sync all WhatsApp provider + credentials into the WA service module
+  syncWhatsAppSettings(settings);
 
   return settings;
 }
@@ -163,6 +171,17 @@ export async function updateSettings(input: Partial<AppSettings>) {
     });
   }
 
-  // getSettings() re-syncs WhatsApp credentials automatically
-  return getSettings();
+  const saved = await getSettings();
+
+  if (saved.whatsappProvider === "cloud" && !saved.whatsappCloudVerifyToken?.trim()) {
+    const token = generateVerifyToken();
+    await prisma.setting.upsert({
+      where: { key: "whatsappCloudVerifyToken" },
+      create: { key: "whatsappCloudVerifyToken", value: token },
+      update: { value: token },
+    });
+    return getSettings();
+  }
+
+  return saved;
 }

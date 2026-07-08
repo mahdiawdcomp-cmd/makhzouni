@@ -76,7 +76,7 @@ mock.module("./warehouse-stock.service", {
 // transfer.service transitive imports — stubbed.
 mock.module("./approval.service", { exports: { approvalRequestTypes: {}, createPendingApproval: async () => ({}) } });
 mock.module("./settings.service", { exports: { getSettings: async () => ({}) } });
-mock.module("./whatsapp.service", { exports: { sendWhatsAppText: async () => {} } });
+mock.module("./whatsapp.service", { exports: { sendWhatsAppText: async () => {}, syncWhatsAppSettings: () => {}, generateVerifyToken: () => "tok" } });
 
 // ── Helpers to augment include-shapes ─────────────────────────────────────────
 function withItems(inv: any) {
