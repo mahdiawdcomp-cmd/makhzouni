@@ -15,8 +15,38 @@ import {
   restartWhatsApp,
   sendWhatsAppImage,
   sendWhatsAppPdf,
+  sendWhatsAppTemplatePdf,
   sendWhatsAppText,
 } from "../services/whatsapp.service";
+
+// Utility-category template awaiting Meta approval for cold/first-contact
+// invoice sends (Cloud API rejects free text outside the 24h session window —
+// see sendInvoiceViaCloudSafe below). Update once the approved name differs.
+const INVOICE_TEMPLATE_NAME = "invoice_notification";
+const INVOICE_TEMPLATE_LANG = "ar";
+
+// Cloud API: try the approved template first (works regardless of session
+// state), and only fall back to free text if the template call fails (e.g.
+// not approved yet) — never worse than the pre-template behavior, and starts
+// working the moment Meta approves the template, with no further deploy.
+async function sendInvoiceViaCloudSafe(
+  phone: string,
+  message: string,
+  pdf: Buffer,
+  filename: string,
+  bodyParams: string[],
+) {
+  const status = getWhatsAppStatus();
+  if (status.activeProvider !== "cloud") {
+    return sendWhatsAppPdf(phone, message, pdf, filename);
+  }
+  try {
+    return await sendWhatsAppTemplatePdf(phone, INVOICE_TEMPLATE_NAME, INVOICE_TEMPLATE_LANG, pdf, filename, bodyParams);
+  } catch (err) {
+    logger.warn(`[WhatsApp] Invoice template send failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return sendWhatsAppPdf(phone, message, pdf, filename);
+  }
+}
 
 // ── Meta WhatsApp Cloud API webhook ────────────────────────────────────────
 // Meta uses ONE URL for both the GET verification handshake and POST delivery.
@@ -172,11 +202,19 @@ export const sendInvoice = asyncHandler(async (req, res) => {
     date: new Date(invoice.date).toLocaleDateString(),
   });
 
-  const result = await sendWhatsAppPdf(
+  const result = await sendInvoiceViaCloudSafe(
     invoice.customer.phone,
     message,
     pdf,
-    `${invoice.invoiceNumber}.pdf`
+    `${invoice.invoiceNumber}.pdf`,
+    [
+      invoice.customer.name,
+      invoice.invoiceNumber,
+      new Date(invoice.date).toLocaleDateString(),
+      String(invoice.remainingAmount),
+      "د.ع",
+      settings.storeName,
+    ],
   );
 
   res.json({

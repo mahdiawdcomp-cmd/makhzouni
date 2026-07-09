@@ -745,6 +745,10 @@ export async function sendWhatsAppTemplate(
   phone: string,
   templateName: string,
   languageCode: string,
+  options?: {
+    bodyParams?: string[];
+    documentHeader?: { mediaId: string; filename: string };
+  },
 ): Promise<{ to: string; idMessage?: string }> {
   const prov = assertCanSend();
   if (prov !== "cloud") {
@@ -755,6 +759,23 @@ export async function sendWhatsAppTemplate(
     );
   }
 
+  const components: Record<string, unknown>[] = [];
+  if (options?.documentHeader) {
+    components.push({
+      type: "header",
+      parameters: [{
+        type: "document",
+        document: { id: options.documentHeader.mediaId, filename: options.documentHeader.filename },
+      }],
+    });
+  }
+  if (options?.bodyParams?.length) {
+    components.push({
+      type: "body",
+      parameters: options.bodyParams.map((text) => ({ type: "text", text })),
+    });
+  }
+
   const to = normalizeCloudPhone(phone);
   const idMessage = await sendCloudMessage({
     to,
@@ -762,9 +783,31 @@ export async function sendWhatsAppTemplate(
     template: {
       name: templateName,
       language: { code: languageCode },
+      ...(components.length ? { components } : {}),
     },
   });
   return { to, idMessage };
+}
+
+/**
+ * Upload a PDF and send it as the document header of an approved template —
+ * the Cloud-API-safe replacement for sendWhatsAppPdf's free-text caption when
+ * the recipient hasn't messaged within the last 24h (e.g. a brand-new number
+ * with no prior conversation history, where free text is always rejected).
+ */
+export async function sendWhatsAppTemplatePdf(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+  pdf: Buffer,
+  filename: string,
+  bodyParams?: string[],
+): Promise<{ to: string; idMessage?: string }> {
+  const mediaId = await uploadCloudMedia(pdf, filename);
+  return sendWhatsAppTemplate(phone, templateName, languageCode, {
+    bodyParams,
+    documentHeader: { mediaId, filename },
+  });
 }
 
 export async function sendWhatsAppPdf(
