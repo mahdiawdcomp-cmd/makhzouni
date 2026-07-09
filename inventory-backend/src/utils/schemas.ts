@@ -775,6 +775,7 @@ export const updateSettingsSchema = z.object({
       whatsappBotEnabled: z.boolean().optional(),
       botUnknownMessage: z.string().optional(),
       catalogRequireOtp: z.boolean().optional(),
+      catalogFullCartonOnly: z.boolean().optional(),
       labelPieceWidthMm: z.coerce.number().min(10).max(300).optional(),
       labelPieceHeightMm: z.coerce.number().min(10).max(300).optional(),
       labelCartonWidthMm: z.coerce.number().min(10).max(300).optional(),

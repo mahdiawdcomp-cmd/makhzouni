@@ -72,6 +72,11 @@ export interface AppSettings {
   // tenants are never silently opened up. When false, a valid catalog link
   // grants access directly with no phone re-verification step.
   catalogRequireOtp?: boolean;
+  // Global override: when true, every catalog viewer (guest AND registered
+  // customers, regardless of their per-link stockFilter) only sees products
+  // with at least one full carton in stock. Defaults to false so existing
+  // per-customer stockFilter configuration is unaffected until opted in.
+  catalogFullCartonOnly?: boolean;
   // Prospect auto-reply: when a prospect's reply contains ANY of these
   // trigger keywords, the configured message (with {{link}} substituted)
   // is sent back to them automatically.
@@ -151,6 +156,7 @@ export const defaultSettings: AppSettings = {
   catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
   catalogAdminWhatsappNumber: "",
   catalogRequireOtp: true,
+  catalogFullCartonOnly: false,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,

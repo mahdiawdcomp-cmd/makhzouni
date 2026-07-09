@@ -1409,7 +1409,7 @@ function UnitPickerSheet({
                   </div>
                   <p className="text-xs" style={{ color: tk.subtext }}>
                     {UNIT_DESC[u](pcs(product, u))}
-                    {!disabled && ` · متوفر: ${qty} ${UNIT_LABELS[u]}`}
+                    {showStock && !disabled && ` · متوفر: ${qty} ${UNIT_LABELS[u]}`}
                     {disabled && " · غير متوفر"}
                   </p>
                 </div>

@@ -10,6 +10,7 @@ import {
   Image,
   Lock,
   MessageCircle,
+  Package,
   Palette,
   Plus,
   Search,
@@ -1033,6 +1034,58 @@ function CatalogOtpSettings() {
   )
 }
 
+/* ─── Global carton-only display toggle ─────────────────────────────── */
+function CatalogFullCartonOnlySettings() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    const s = settingsQuery.data
+    if (!s) return
+    setEnabled(s.catalogFullCartonOnly === true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsQuery.data])
+
+  const saveMut = useMutation({
+    mutationFn: (value: boolean) => updateSettings({ catalogFullCartonOnly: value }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings"] })
+      toast({ title: "تم حفظ الإعداد" })
+    },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحفظ"), variant: "destructive" }),
+  })
+
+  function toggle(checked: boolean) {
+    setEnabled(checked)
+    saveMut.mutate(checked)
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+      <label className="flex cursor-pointer items-center justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Package className="h-4 w-4 text-slate-500" />
+            عرض المواد المتوفرة بكارتون كامل فقط (لكل الزبائن)
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            عند التفعيل، أي مادة كميتها أقل من كارتون كامل تختفي من الكتالوج لجميع الزبائن — يتجاوز إعداد كل زبون
+            المخصص. عند الإيقاف، تبقى إعدادات كل زبون كما هي.
+          </p>
+        </div>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={saveMut.isPending}
+          onChange={(e) => toggle(e.target.checked)}
+          className="h-4 w-4 shrink-0 accent-blue-600"
+        />
+      </label>
+    </div>
+  )
+}
+
 const PAGE_SIZE = 50
 
 export function CatalogManagementPage() {
@@ -1081,7 +1134,10 @@ export function CatalogManagementPage() {
         <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن والتصميم وأكواد الخصم</p>
       </div>
 
-      <CatalogOtpSettings />
+      <div className="space-y-3">
+        <CatalogOtpSettings />
+        <CatalogFullCartonOnlySettings />
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">

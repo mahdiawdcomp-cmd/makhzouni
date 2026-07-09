@@ -919,6 +919,7 @@ export interface AppSettings {
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
   catalogRequireOtp?: boolean
+  catalogFullCartonOnly?: boolean
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean

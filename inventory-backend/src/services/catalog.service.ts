@@ -402,9 +402,15 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
   ]);
   const allowPrices = showHidePriceEnabled ? link.allow_prices : false;
   const showStock = showHideStockEnabled ? link.show_stock : true;
-  const stockFilter = fullCartonFilterEnabled
-    ? (link.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY)
-    : CatalogStockFilter.FULL_CARTON_ONLY;
+  // catalogFullCartonOnly is a merchant-controlled master switch (Settings):
+  // when on, it overrides every per-customer stockFilter and forces
+  // full-carton-only display for everyone. Off (default) leaves the existing
+  // per-link configuration untouched.
+  const stockFilter = settings.catalogFullCartonOnly
+    ? CatalogStockFilter.FULL_CARTON_ONLY
+    : fullCartonFilterEnabled
+      ? (link.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY)
+      : CatalogStockFilter.FULL_CARTON_ONLY;
 
   return {
     customer,
