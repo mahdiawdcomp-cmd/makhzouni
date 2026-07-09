@@ -327,9 +327,8 @@ export function resolveField(f: FieldKey, inv: PrintInvoice, store: PrintStore):
       return money(displayFinal, cur)
     }
     case "grandTotal": {
-      // For sale: total + prev balance (what customer owes in total)
-      // For purchase: total + abs(prev) (total we owe supplier)
-      const displayGrand = inv.invoiceType === "PURCHASE" ? total + Math.abs(prev) : total + prev
+      // What's owed overall after this invoice: previous balance + (this invoice's total minus what was paid on it)
+      const displayGrand = inv.invoiceType === "PURCHASE" ? -finalBalance : finalBalance
       return money(displayGrand, cur)
     }
     case "footer": return "شكراً لتعاملكم معنا 🌟"
