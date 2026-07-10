@@ -4,6 +4,7 @@ import {
   customerDebtsReport,
   customerRatingsReport,
   customerStatementsExportReport,
+  dailyAssistantReport,
   dailySummaryReport,
   dashboardReport,
   debtAgingReport,
@@ -23,6 +24,7 @@ import { validate } from "../middleware/validate";
 import {
   customerDebtsReportSchema,
   customerStatementsExportSchema,
+  dailyAssistantSchema,
   productMovementReportSchema,
   profitReportSchema,
   storeBrainReportSchema,
@@ -49,6 +51,8 @@ router.get("/customers/statements-export", validate(customerStatementsExportSche
 // capability, which (unlike every other permission) can be revoked even from an ADMIN.
 router.get("/profit", requireProfitReports(), validate(profitReportSchema), profitReport);
 router.get("/store-brain", requireProfitReports(), validate(storeBrainReportSchema), storeBrainReport);
+// «المساعد الذكي اليومي» — exposes profit figures, so gated exactly like /profit.
+router.get("/daily-assistant", requireProfitReports(), validate(dailyAssistantSchema), dailyAssistantReport);
 router.get("/debt-reminder", debtReminderList);
 router.post("/debt-reminder/send", sendDebtReminder);
 

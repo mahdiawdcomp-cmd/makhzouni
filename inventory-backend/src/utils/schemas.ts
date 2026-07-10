@@ -697,6 +697,16 @@ export const storeBrainReportSchema = z.object({
   }),
 });
 
+export const dailyAssistantSchema = z.object({
+  query: z.object({
+    date: dateString.optional(),
+    refresh: z
+      .enum(["true", "false", "1", "0"])
+      .optional()
+      .transform((v) => v === "true" || v === "1"),
+  }),
+});
+
 export const customerDebtsReportSchema = z.object({
   query: z.object({
     minDays: z.coerce.number().int().min(0).default(0),

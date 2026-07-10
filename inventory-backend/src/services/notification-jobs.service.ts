@@ -6,6 +6,11 @@ import { getSettings } from "./settings.service";
 import { renderTemplateByType } from "./message-template.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { getDailySummaryData } from "./report.service";
+import {
+  buildHeavySnapshot,
+  buildBasketSnapshot,
+  assistantTimezone,
+} from "./daily-assistant.service";
 import { processCampaignsTick } from "./campaign.service";
 import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
@@ -297,9 +302,54 @@ export async function runDailySummaryJob(force = false) {
   return { message, whatsappResult };
 }
 
+/** Current hour (0-23) + weekday (0=Sun) in the shop timezone. */
+function nowInAssistantTz(): { hour: number; weekday: number } {
+  const tz = assistantTimezone();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour: "2-digit", hour12: false, weekday: "short",
+  }).formatToParts(new Date());
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
+  const wdName = parts.find((p) => p.type === "weekday")?.value ?? "Sun";
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wdName);
+  return { hour, weekday };
+}
+
+/**
+ * Daily Smart Assistant heavy snapshot — rebuilds the sleeping/frozen-capital/
+ * reorder/spike indicators for TODAY (shop timezone). Idempotent (upsert on
+ * kind+periodKey) so a re-run never duplicates rows. Failure is swallowed by the
+ * caller's reportCronFailure; the assistant falls back to the last valid snapshot.
+ */
+export async function runDailyAssistantSnapshotJob() {
+  return buildHeavySnapshot();
+}
+
+/** Weekly bought-together basket analysis — low-usage, idempotent per ISO week. */
+export async function runWeeklyBasketJob() {
+  return buildBasketSnapshot();
+}
+
 export function startNotificationJobs() {
   if (jobsStarted) return;
   jobsStarted = true;
+
+  // Daily Smart Assistant heavy snapshot — hourly check, fires once at 06:00
+  // local shop time. Timezone-aware so it doesn't drift with the UTC server.
+  cron.schedule("0 * * * *", () => {
+    if (nowInAssistantTz().hour !== 6) return;
+    runDailyAssistantSnapshotJob().catch((error) => {
+      reportCronFailure("DAILY_ASSISTANT_SNAPSHOT", error);
+    });
+  });
+
+  // Weekly basket analysis — Friday 04:00 local (low usage). Idempotent per week.
+  cron.schedule("0 * * * *", () => {
+    const { hour, weekday } = nowInAssistantTz();
+    if (weekday !== 5 || hour !== 4) return;
+    runWeeklyBasketJob().catch((error) => {
+      reportCronFailure("WEEKLY_BASKET_ANALYSIS", error);
+    });
+  });
 
   cron.schedule("0 10 * * *", () => {
     runDebtReminderJob().catch((error) => {

@@ -15,6 +15,7 @@ import {
   getCustomerRatings,
   getDebtAging,
 } from "../services/report.service";
+import { getDailyAssistant } from "../services/daily-assistant.service";
 import { sendWhatsAppText } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
 import { getAllCustomerStatements } from "../services/customer.service";
@@ -103,6 +104,15 @@ export const profitReport = asyncHandler(async (req, res) => {
 export const storeBrainReport = asyncHandler(async (req, res) => {
   const data = await getStoreBrainReport(
     req.validatedQuery as Parameters<typeof getStoreBrainReport>[0]
+  );
+  res.json({ success: true, data });
+});
+
+// GET /api/reports/daily-assistant?date=YYYY-MM-DD&refresh=true — «المساعد الذكي اليومي»
+// Gated by requireProfitReports() at the route level (shows profit figures).
+export const dailyAssistantReport = asyncHandler(async (req, res) => {
+  const data = await getDailyAssistant(
+    req.validatedQuery as Parameters<typeof getDailyAssistant>[0],
   );
   res.json({ success: true, data });
 });

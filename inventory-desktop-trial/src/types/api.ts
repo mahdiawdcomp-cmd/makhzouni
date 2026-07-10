@@ -177,6 +177,79 @@ export interface DebtCustomer {
   lastTransactionAt: string | null
 }
 
+// ── «المساعد الذكي اليومي» (Daily Smart Assistant) ────────────────────────────
+export interface AssistantSuggestion {
+  type: string
+  priority: number
+  title: string
+  description: string
+  relatedEntityType: string | null
+  relatedEntityId: string | null
+  actionUrl: string | null
+}
+export interface AssistantTaskItem { id: string; label: string; createdAt: string; actionUrl: string }
+export interface AssistantTaskGroup { count: number; items: AssistantTaskItem[] }
+export interface AssistantSleeping {
+  productId: string; name: string; itemNumber: string; imageUrl: string | null
+  currentStock: number; lastSaleAt: string | null; daysIdle: number; capitalValue: number
+}
+export interface AssistantReorder {
+  productId: string; name: string; itemNumber: string; currentStock: number; minStock: number
+  dailyRate: number; daysLeft: number | null; suggestedPieces: number; suggestedCartons: number | null; pcsPerCarton: number
+}
+export interface AssistantSpike {
+  productId: string; name: string; comparisonDay: string
+  comparisonDayQty: number; dailyAverage: number; risePercent: number
+}
+export interface AssistantBasketPair {
+  productAId: string; productAName: string; productBId: string; productBName: string; count: number
+}
+export interface AssistantTopProduct { productId: string; name: string; pieces?: number; amount?: number; profit?: number }
+export interface AssistantDebtor { id: string; name: string; phone: string; balance: number; daysLate: number }
+export interface AssistantStopped { id: string; name: string; phone: string; lastTransactionAt: string; daysStopped: number }
+export interface DailyAssistantReport {
+  meta: {
+    selectedDate: string
+    timezone: string
+    generatedAt: string
+    heavySnapshotGeneratedAt: string | null
+    basketAnalysisGeneratedAt: string | null
+    isUsingPreviousSnapshot: boolean
+    comparisonDay: string
+    fallbacksUsed: string[]
+    excludedNoCostCount: number
+  }
+  summary: {
+    totalSales: number; totalProfit: number; saleInvoiceCount: number; avgInvoiceValue: number; newCustomers: number
+  }
+  suggestions: AssistantSuggestion[]
+  products: {
+    topSellingToday: AssistantTopProduct[]
+    topSellingLast7Days: AssistantTopProduct[]
+    topProfitToday: AssistantTopProduct[]
+    lowMarginToday: Array<{ productId: string; name: string; margin: number; profit: number }>
+    sleeping: AssistantSleeping[]
+    sleepingAll: AssistantSleeping[]
+    frozenCapital: AssistantSleeping[]
+    frozenCapitalAll: AssistantSleeping[]
+    reorder: AssistantReorder[]
+    reorderAll: AssistantReorder[]
+    spike: AssistantSpike[]
+    basket: AssistantBasketPair[]
+  }
+  customers: {
+    topDebtors: AssistantDebtor[]
+    topThisWeek: Array<{ customerId: string; name: string; totalPurchases: number; invoiceCount: number }>
+    stopped30: AssistantStopped[]
+    stopped60: AssistantStopped[]
+  }
+  tasks: {
+    preparations: AssistantTaskGroup
+    transfers: AssistantTaskGroup
+    approvals: AssistantTaskGroup
+  }
+}
+
 export interface StocktakeSessionSummary {
   id: string
   status: string

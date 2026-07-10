@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useAuthStore } from "../store/authStore"
@@ -14,16 +14,19 @@ import {
 import { normalizePhone } from "../utils/whatsapp"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
-import { getProfitReport, getStoreBrainReport, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { useDailyAssistant } from "../hooks/useReports"
+import { getProfitReport, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "archive"
+type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
+  { id: "assistant",    label: "المساعد الذكي",   emoji: "🤖" },
   { id: "store-brain",  label: "عقل المحل",      emoji: "🧠" },
   { id: "sales",        label: "المبيعات",       emoji: "📊" },
   { id: "profits",      label: "الأرباح",         emoji: "💰" },
@@ -40,8 +43,11 @@ export function ReportsPage() {
   // Profit & store-brain tabs expose full financial margins — hidden when the
   // profit-visibility capability is revoked (even for a second admin).
   const canViewProfits = useAuthStore((s) => s.canViewProfitReports)()
-  const visibleTabs = TABS.filter((t) => canViewProfits || (t.id !== "profits" && t.id !== "store-brain"))
-  const activeTab: Tab = !canViewProfits && (tab === "profits" || tab === "store-brain") ? "sales" : tab
+  // Assistant, profits & store-brain all expose profit figures — hidden together
+  // when the profit-visibility capability is revoked (even for a second admin).
+  const gated = (id: Tab) => id === "profits" || id === "store-brain" || id === "assistant"
+  const visibleTabs = TABS.filter((t) => canViewProfits || !gated(t.id))
+  const activeTab: Tab = !canViewProfits && gated(tab) ? "sales" : tab
 
   return (
     <div className="space-y-4">
@@ -69,6 +75,7 @@ export function ReportsPage() {
         ))}
       </div>
 
+      {activeTab === "assistant"     && canViewProfits && <AssistantTab />}
       {activeTab === "store-brain"   && canViewProfits && <StoreBrainTab />}
       {activeTab === "sales"         && <SalesTab />}
       {activeTab === "profits"       && canViewProfits && <ProfitsTab />}
@@ -78,6 +85,204 @@ export function ReportsPage() {
       {activeTab === "debts"         && <DebtsTab />}
       {activeTab === "archive"       && <ArchiveTab />}
     </div>
+  )
+}
+
+// ─── Daily Smart Assistant Tab («المساعد الذكي اليومي») ───────────────────────
+function AssistantTab() {
+  const user = useAuthStore((s) => s.user)
+  const qc = useQueryClient()
+  const { data, isLoading, isError, refetch } = useDailyAssistant()
+  const [refreshing, setRefreshing] = useState(false)
+
+  const onRefresh = async () => {
+    setRefreshing(true)
+    try {
+      const fresh = await getDailyAssistant({ refresh: true })
+      qc.setQueryData(["reports", "daily-assistant", "today"], fresh)
+    } catch {
+      await refetch()
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  if (isLoading) {
+    return <div className="py-16 text-center text-slate-500">جارٍ تحميل المساعد الذكي…</div>
+  }
+  if (isError || !data) {
+    return (
+      <div className="py-16 text-center space-y-3">
+        <p className="text-red-600">تعذّر تحميل المساعد الذكي.</p>
+        <Button onClick={() => refetch()}>إعادة المحاولة</Button>
+      </div>
+    )
+  }
+
+  const { meta, summary, suggestions, products, customers, tasks } = data
+  const timeStr = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString("ar-IQ", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : "—"
+
+  return (
+    <div className="space-y-5">
+      {/* Header + welcome + last update + refresh */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold">🤖 المساعد الذكي اليومي</h2>
+          <p className="text-slate-500">أهلاً {user?.name ?? ""} — ملخص يومك واقتراحات عملية.</p>
+          <p className="mt-1 text-xs text-slate-400">
+            آخر تحديث: {timeStr(meta.generatedAt)} • لقطة المؤشرات الثقيلة: {timeStr(meta.heavySnapshotGeneratedAt)}
+            {meta.basketAnalysisGeneratedAt ? ` • تحليل السلة: ${timeStr(meta.basketAnalysisGeneratedAt)}` : ""}
+          </p>
+          {meta.isUsingPreviousSnapshot && (
+            <p className="mt-1 text-xs text-amber-600">⚠️ يتم عرض مؤشرات من لقطة سابقة (تعذّر إنشاء لقطة اليوم).</p>
+          )}
+        </div>
+        <Button variant="outline" onClick={onRefresh} disabled={refreshing}>
+          {refreshing ? "جارٍ التحديث…" : "🔄 تحديث"}
+        </Button>
+      </div>
+
+      {/* Five summary cards */}
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
+        <MetricCard title="مبيعات اليوم"      value={summary.totalSales} color="text-emerald-600" />
+        <MetricCard title="ربح اليوم"          value={summary.totalProfit} color="text-blue-600" />
+        <MetricCard title="فواتير البيع"       value={summary.saleInvoiceCount} suffix="" />
+        <MetricCard title="متوسط الفاتورة"     value={summary.avgInvoiceValue} />
+        <MetricCard title="زبائن جدد اليوم"    value={summary.newCustomers} suffix="" />
+      </div>
+
+      {/* شنو أسوي اليوم؟ */}
+      <Card>
+        <CardHeader><CardTitle>💡 شنو أسوي اليوم؟</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {suggestions.length === 0 ? (
+            <p className="text-sm text-slate-500">لا توجد اقتراحات عاجلة اليوم — كل شيء تحت السيطرة 👍</p>
+          ) : (
+            suggestions.map((s, i) => (
+              <div key={i} className="flex items-start gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <span className="mt-0.5 rounded-full bg-slate-900 px-2 py-0.5 text-xs text-white dark:bg-amber-500 dark:text-slate-900">{s.priority}</span>
+                <div className="flex-1">
+                  <div className="font-semibold">{s.title}</div>
+                  <div className="text-sm text-slate-500">{s.description}</div>
+                </div>
+                {s.actionUrl && <Link to={s.actionUrl} className="text-sm text-blue-600 hover:underline">فتح</Link>}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Products */}
+      <h3 className="text-lg font-bold pt-2">📦 المنتجات</h3>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AssistantList title="أفضل مبيعًا اليوم" rows={products.topSellingToday}
+          empty={products.topSellingLast7Days.length ? "لا مبيعات اليوم" : "لا توجد مبيعات"}
+          render={(p: any) => `${p.name} — ${p.pieces} قطعة (${fmt(p.amount)})`}
+          extra={products.topSellingLast7Days.length ? (
+            <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+              <div className="mb-1 text-xs font-medium text-slate-400">أفضل المنتجات خلال آخر 7 أيام</div>
+              {products.topSellingLast7Days.slice(0, 3).map((p, i) => (
+                <div key={i} className="text-sm">{p.name} — {p.pieces} قطعة ({fmt(p.amount ?? 0)})</div>
+              ))}
+            </div>
+          ) : null}
+        />
+        <AssistantList title="أكثر ربحًا اليوم" rows={products.topProfitToday}
+          render={(p: any) => `${p.name} — ربح ${fmt(p.profit)}`} empty="لا توجد أرباح اليوم" />
+        <AssistantList title="أقل هامش ربح اليوم" rows={products.lowMarginToday}
+          render={(p: any) => `${p.name} — هامش ${p.margin}% (${fmt(p.profit)})`}
+          empty="لا توجد بيانات كافية"
+          footer={meta.excludedNoCostCount > 0 ? `${meta.excludedNoCostCount} منتج مستبعد لعدم توفر الكلفة` : undefined} />
+        <AssistantList title="منتجات نايمة" rows={products.sleeping} allRows={products.sleepingAll}
+          render={(p: any) => `${p.name} — ${p.currentStock} قطعة، راكد ${p.daysIdle} يوم`}
+          empty="لا توجد منتجات نايمة" />
+        <AssistantList title="رأس مال مجمّد" rows={products.frozenCapital} allRows={products.frozenCapitalAll}
+          render={(p: any) => `${p.name} — ${fmt(p.capitalValue)} (${p.currentStock} قطعة)`}
+          empty="لا يوجد رأس مال مجمّد" />
+        <AssistantList title="يجب إعادة طلبها" rows={products.reorder} allRows={products.reorderAll}
+          render={(p: any) => `${p.name} — يكفي ${p.daysLeft ?? "?"} يوم، اطلب ${p.suggestedPieces} قطعة${p.suggestedCartons ? ` (${p.suggestedCartons} كرتون)` : ""}`}
+          empty="لا توجد منتجات تحتاج إعادة طلب" />
+        <AssistantList title="قفزة مبيعات" rows={products.spike}
+          render={(p: any) => `${p.name} — ${p.comparisonDayQty} قطعة (+${p.risePercent}%) يوم ${p.comparisonDay}`}
+          empty="لا توجد قفزات غير طبيعية" />
+        <AssistantList title="تُشترى معًا" rows={products.basket}
+          render={(p: any) => `${p.productAName} + ${p.productBName} — ${p.count} مرة`}
+          empty="لا يوجد تحليل سلة بعد" />
+      </div>
+
+      {/* Customers */}
+      <h3 className="text-lg font-bold pt-2">👥 الزبائن</h3>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AssistantList title="أكثر تأخرًا بالسداد" rows={customers.topDebtors}
+          render={(c: any) => `${c.name} — ${fmt(c.balance)} (${c.daysLate} يوم)`} empty="لا ديون متأخرة" />
+        <AssistantList title="أكثر شراءً هذا الأسبوع" rows={customers.topThisWeek}
+          render={(c: any) => `${c.name} — ${fmt(c.totalPurchases)} (${c.invoiceCount} فاتورة)`} empty="لا مشتريات هذا الأسبوع" />
+        <AssistantList title="توقفوا منذ 30 يومًا" rows={customers.stopped30}
+          render={(c: any) => `${c.name} — منذ ${c.daysStopped} يوم`} empty="لا يوجد" />
+        <AssistantList title="توقفوا منذ 60 يومًا" rows={customers.stopped60}
+          render={(c: any) => `${c.name} — منذ ${c.daysStopped} يوم`} empty="لا يوجد" />
+      </div>
+
+      {/* Pending tasks */}
+      <h3 className="text-lg font-bold pt-2">⏳ المهام المعلقة</h3>
+      <div className="grid gap-4 md:grid-cols-3">
+        <AssistantTaskCard title="طلبات التجهيز" group={tasks.preparations} />
+        <AssistantTaskCard title="تحويلات المخزون" group={tasks.transfers} />
+        <AssistantTaskCard title="الموافقات" group={tasks.approvals} />
+      </div>
+    </div>
+  )
+}
+
+function AssistantList<T>({ title, rows, allRows, render, empty, footer, extra }: {
+  title: string; rows: T[]; allRows?: T[]; render: (row: T) => string; empty: string
+  footer?: string; extra?: ReactNode
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const full = allRows ?? rows
+  const shown = showAll ? full : rows.slice(0, 3)
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+      <CardContent className="space-y-1.5">
+        {shown.length === 0 ? (
+          <p className="text-sm text-slate-400">{empty}</p>
+        ) : (
+          shown.map((row, i) => <div key={i} className="text-sm">{render(row)}</div>)
+        )}
+        {extra}
+        {footer && <p className="pt-1 text-xs text-slate-400">{footer}</p>}
+        {full.length > rows.length && (
+          <button type="button" onClick={() => setShowAll((v) => !v)}
+            className="pt-1 text-xs font-medium text-blue-600 hover:underline">
+            {showAll ? "إخفاء" : `عرض الكل (${full.length})`}
+          </button>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function AssistantTaskCard({ title, group }: { title: string; group: { count: number; items: Array<{ id: string; label: string; actionUrl: string }> } }) {
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base flex items-center justify-between">{title}<span className="rounded-full bg-slate-100 px-2 py-0.5 text-sm dark:bg-slate-800">{group.count}</span></CardTitle></CardHeader>
+      <CardContent className="space-y-1.5">
+        {group.items.length === 0 ? (
+          <p className="text-sm text-slate-400">لا يوجد</p>
+        ) : (
+          group.items.map((it) => (
+            <div key={it.id} className="text-sm">
+              <Link to={it.actionUrl} className="hover:underline">{it.label}</Link>
+            </div>
+          ))
+        )}
+        {group.count > group.items.length && group.items[0] && (
+          <Link to={group.items[0].actionUrl} className="pt-1 block text-xs font-medium text-blue-600 hover:underline">عرض الكل ({group.count})</Link>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

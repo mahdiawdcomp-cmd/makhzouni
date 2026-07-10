@@ -3,6 +3,7 @@ import {
   getAtRiskCustomers,
   getCustomerDebts,
   getCustomerRatings,
+  getDailyAssistant,
   getDebtAging,
   getDailySummary,
   getDashboardReport,
@@ -84,5 +85,13 @@ export function useDebtAging() {
     queryKey: ["reports", "debt-aging"],
     queryFn: getDebtAging,
     staleTime: 10 * 60 * 1000,
+  })
+}
+
+export function useDailyAssistant(date?: string) {
+  return useQuery({
+    queryKey: ["reports", "daily-assistant", date ?? "today"],
+    queryFn: () => getDailyAssistant({ date }),
+    staleTime: 2 * 60 * 1000,
   })
 }

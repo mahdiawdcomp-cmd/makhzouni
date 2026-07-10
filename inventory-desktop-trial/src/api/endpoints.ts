@@ -65,6 +65,7 @@ import type {
   EndOfDayReport,
   ProfitReport,
   StoreBrainReport,
+  DailyAssistantReport,
   DebtCustomer,
   StocktakeSessionSummary,
   StocktakeSessionDetail,
@@ -1368,6 +1369,12 @@ export async function getProfitReport(params?: { from?: string; to?: string; gro
 
 export async function getStoreBrainReport(params?: { from?: string; to?: string }) {
   const { data } = await api.get<ApiEnvelope<StoreBrainReport>>("/reports/store-brain", { params })
+  return data.data!
+}
+
+// ── «المساعد الذكي اليومي» (Daily Smart Assistant) — cloud backend only in V1 ──
+export async function getDailyAssistant(params?: { date?: string; refresh?: boolean }) {
+  const { data } = await api.get<ApiEnvelope<DailyAssistantReport>>("/reports/daily-assistant", { params })
   return data.data!
 }
 

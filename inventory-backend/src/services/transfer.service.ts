@@ -52,14 +52,20 @@ const transferInclude = {
 
 export async function listTransfers(query: {
   branchId?: string;
+  status?: TransferStatus;
   page?: number;
   limit?: number;
 }) {
   const page = query.page ?? 1;
   const limit = query.limit ?? 20;
-  const where: Prisma.InventoryTransferWhereInput = query.branchId
-    ? { OR: [{ fromBranchId: query.branchId }, { toBranchId: query.branchId }] }
-    : {};
+  // Optional status filter — additive; existing callers omit it and get all
+  // statuses exactly as before.
+  const where: Prisma.InventoryTransferWhereInput = {
+    ...(query.branchId
+      ? { OR: [{ fromBranchId: query.branchId }, { toBranchId: query.branchId }] }
+      : {}),
+    ...(query.status ? { status: query.status } : {}),
+  };
 
   const [rows, total] = await Promise.all([
     prisma.inventoryTransfer.findMany({

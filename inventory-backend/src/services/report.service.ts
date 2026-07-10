@@ -80,7 +80,7 @@ function labelFor(date: Date, groupBy: "day" | "week" | "month") {
   return `${year}-${month}-${day}`;
 }
 
-function currentStock(product: {
+export function currentStock(product: {
   openingBalancePcs: number;
   cartonsAvailable: number;
   pcsPerCarton: number;
@@ -88,7 +88,7 @@ function currentStock(product: {
   return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
 }
 
-function invoiceRevenueRatio(invoice: {
+export function invoiceRevenueRatio(invoice: {
   subtotal: DecimalLike;
   totalAmount: DecimalLike;
 }) {
@@ -109,7 +109,7 @@ async function getInvoiceItemsForProfit(where: Prisma.InvoiceWhereInput) {
   });
 }
 
-function itemCostPrice(item: {
+export function itemCostPrice(item: {
   unit: Unit;
   quantity: number;
   costPrice: DecimalLike;
