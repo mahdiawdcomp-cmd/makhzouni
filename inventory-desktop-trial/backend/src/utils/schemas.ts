@@ -115,7 +115,7 @@ export const createPortalLinkSchema = z.object({
 
 const catalogOrderItemSchema = z.object({
   productId: z.string().uuid(),
-  unit: z.enum(["PIECE", "DOZEN", "CARTON"]).default("PIECE"),
+  unit: z.enum(["PIECE", "DOZEN", "BOX", "CARTON"]).default("PIECE"),
   quantity: z.coerce.number().int().min(1),
 });
 
@@ -338,7 +338,7 @@ export const createTransferSchema = z.object({
         z.object({
           productId: z.string().uuid(),
           quantity: z.coerce.number().int().positive(),
-          unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
+          unit: z.enum(["PIECE", "DOZEN", "BOX", "CARTON"]),
         })
       )
       .min(1),
@@ -355,6 +355,8 @@ export const createStockLossSchema = z.object({
       .array(
         z.object({
           productId: z.string().uuid(),
+          // BOX is intentionally excluded: a loss line has no BOX support
+          // (loss-math rejects it), so reject it here with a clear error.
           unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
           // Rejects 0, negatives, NaN and non-integers — a loss only removes stock.
           quantity: z.coerce.number().int().positive(),
@@ -472,7 +474,7 @@ export const lastSoldPriceSchema = z.object({
 const invoiceItemSchema = z.object({
   productId: z.string().uuid(),
   warehouseId: z.string().uuid().optional(),
-  unit: z.enum(["PIECE", "DOZEN", "CARTON"]),
+  unit: z.enum(["PIECE", "DOZEN", "BOX", "CARTON"]),
   quantity: z.coerce.number().int().min(1),
   unitPrice: z.coerce.number().nonnegative().optional(),
   notes: z.string().trim().max(500).optional(),

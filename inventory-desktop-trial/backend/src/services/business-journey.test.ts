@@ -116,6 +116,10 @@ const tx: any = {
     findUnique: async ({ where }: any) => (where.id === product.id ? { ...product } : null),
     findMany: async ({ where }: any) =>
       (where.id.in as string[]).filter((id) => id === product.id).map(() => ({ ...product })),
+    update: async ({ where, data }: any) => {
+      if (where.id === product.id) Object.assign(product, data);
+      return { ...product };
+    },
   },
 
   branch: {
@@ -180,6 +184,13 @@ const tx: any = {
       const { productId, warehouseId } = where.productId_warehouseId;
       const q = stock.get(skey(productId, warehouseId));
       return q === undefined ? null : { quantityPieces: q };
+    },
+    aggregate: async ({ where }: any) => {
+      let sum = 0;
+      for (const [key, q] of stock) {
+        if (key.startsWith(`${where.productId}:`)) sum += q;
+      }
+      return { _sum: { quantityPieces: sum } };
     },
   },
 

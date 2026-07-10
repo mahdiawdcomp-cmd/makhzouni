@@ -26,6 +26,7 @@ enum InvoiceStatus {
 enum Unit {
   PIECE
   DOZEN
+  BOX
   CARTON
 }
 
@@ -181,6 +182,8 @@ model Product {
   openingBalancePcs Int             @default(0) @map("opening_balance_pcs")
   cartonsAvailable  Int             @default(0) @map("cartons_available")
   pcsPerCarton      Int             @default(1) @map("pcs_per_carton")
+  // Pieces inside one BOX. Null = auto half-carton (see effectiveBoxPieces).
+  boxPieces         Int?            @map("box_pieces")
   purchasePrice     Decimal         @default(0) @map("purchase_price")
   salePrice         Decimal         @default(0) @map("sale_price")
   retailPrice       Decimal         @default(0) @map("retail_price")

@@ -163,6 +163,19 @@ async function initializeDatabase() {
       logger.warn("[DB] Migration SQL not found — DB may be empty.");
     }
   }
+
+  // Idempotent additive column patches for DBs created by an older build (the
+  // sidecar has no incremental-migration runner — it only applies the init SQL
+  // once). Each ALTER is a no-op / silently ignored if the column already
+  // exists. Keep new additive columns here so existing offline DBs pick them up.
+  const columnPatches = [
+    // box_pieces: pieces inside one BOX (null = auto half-carton). Required for
+    // BOX-unit invoice lines to convert to the right piece count instead of 1.
+    `ALTER TABLE "products" ADD COLUMN "box_pieces" INTEGER`,
+  ];
+  for (const patch of columnPatches) {
+    await prisma.$executeRawUnsafe(patch).catch(() => {});
+  }
 }
 
 app.listen(port, "0.0.0.0", async () => {

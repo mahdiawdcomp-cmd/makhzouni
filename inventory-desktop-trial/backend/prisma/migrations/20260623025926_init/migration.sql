@@ -66,6 +66,7 @@ CREATE TABLE "products" (
     "opening_balance_pcs" INTEGER NOT NULL DEFAULT 0,
     "cartons_available" INTEGER NOT NULL DEFAULT 0,
     "pcs_per_carton" INTEGER NOT NULL DEFAULT 1,
+    "box_pieces" INTEGER,
     "purchase_price" DECIMAL NOT NULL DEFAULT 0,
     "sale_price" DECIMAL NOT NULL DEFAULT 0,
     "retail_price" DECIMAL NOT NULL DEFAULT 0,

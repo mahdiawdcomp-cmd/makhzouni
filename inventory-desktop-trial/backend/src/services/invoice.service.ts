@@ -13,6 +13,7 @@ import {
   amountInPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
+  effectiveBoxPieces,
   invoiceBalanceSign,
   roundMoney,
 } from "../utils/financial";
@@ -93,13 +94,15 @@ function serializeInvoice(invoice: any) {
   };
 }
 
-function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number) {
-  return amountInPieces(unit, quantity, pcsPerCarton);
+function unitToPieces(unit: Unit, quantity: number, pcsPerCarton: number, boxPieces?: number | null) {
+  return amountInPieces(unit, quantity, pcsPerCarton, boxPieces);
 }
 
-function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: number) {
+function defaultUnitPrice(unit: Unit, salePrice: DecimalLike, pcsPerCarton: number, boxPieces?: number | null) {
   const price = toNumber(salePrice);
-  if (unit === Unit.CARTON) return roundMoney(price * pcsPerCarton);
+  const n = Math.max(1, pcsPerCarton);
+  if (unit === Unit.CARTON) return roundMoney(price * n);
+  if (unit === Unit.BOX) return roundMoney(price * effectiveBoxPieces(n, boxPieces));
   if (unit === Unit.DOZEN) return roundMoney(price * 12);
   return roundMoney(price);
 }
@@ -329,7 +332,7 @@ async function applyStockMovement(
 
   await ensureLegacyWarehouseStock(tx, product);
   const isSale = invoiceType === InvoiceType.SALE;
-  const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton);
+  const quantityInPieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
   const addsStock = isStockInflow(invoiceType);
   // When the seller explicitly opted in (allowNegativeStock) on a NEW sale, or this
   // is an EDIT to an existing sale (edits never require the opt-in — see the
@@ -395,6 +398,18 @@ async function applyStockMovement(
       );
     }
   }
+  // PURCHASE only: snapshot the product's TOTAL pieces across all warehouses
+  // BEFORE this purchase line lands, so the weighted-average cost blends the old
+  // stock (at old cost) with the newly-purchased stock (at the new unit cost).
+  let purchaseQtyBefore = 0;
+  if (invoiceType === InvoiceType.PURCHASE) {
+    const agg = await tx.productWarehouseStock.aggregate({
+      where: { productId: product.id },
+      _sum: { quantityPieces: true },
+    });
+    purchaseQtyBefore = Number(agg._sum.quantityPieces ?? 0);
+  }
+
   const movement = await adjustWarehouseStock(tx, {
     productId: product.id,
     warehouseId,
@@ -422,8 +437,51 @@ async function applyStockMovement(
 
   // Default unit price: SALE/SALES_RETURN use sale price; PURCHASE uses purchase price.
   const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : product.salePrice;
+  // For PURCHASE, treat an explicit 0 / negative the SAME as "missing" and fall back
+  // to the product's purchase price — a stray 0 would otherwise flow into the WAC
+  // formula below and silently zero out costPrice/purchasePrice. `??` alone does not
+  // catch 0. SALE keeps an explicit 0 as-is (a deliberately free/gift line is valid).
+  const rawUnitPrice = item.unitPrice;
+  const effectiveRawUnitPrice =
+    invoiceType === InvoiceType.PURCHASE && (rawUnitPrice == null || rawUnitPrice <= 0)
+      ? undefined
+      : rawUnitPrice;
   const unitPrice =
-    item.unitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton);
+    effectiveRawUnitPrice ?? defaultUnitPrice(item.unit, defaultPriceSource, product.pcsPerCarton, product.boxPieces);
+
+  // Hard guard: a PURCHASE line must carry a positive price, else reject instead of
+  // letting the WAC recompute corrupt the product cost to zero.
+  if (invoiceType === InvoiceType.PURCHASE && !(unitPrice > 0)) {
+    throw new AppError(
+      `سعر الشراء مطلوب للمادة "${product.name}" — لا يمكن حفظ سطر فاتورة شراء بسعر صفر أو سالب.`,
+      400,
+      "PURCHASE_PRICE_REQUIRED"
+    );
+  }
+
+  // PURCHASE only: roll the product cost forward by Weighted-Average Cost (WAC) and
+  // record the latest purchase unit cost into purchasePrice. Mirrors the cloud
+  // backend so offline purchases keep the product cost basis accurate.
+  let costSnapshot =
+    toNumber(product.costPrice) > 0 ? toNumber(product.costPrice) : toNumber(product.purchasePrice);
+  if (invoiceType === InvoiceType.PURCHASE && quantityInPieces > 0) {
+    const currentCost = costSnapshot;
+    const newUnitCostPerPiece = (unitPrice * item.quantity) / quantityInPieces;
+    const currentQty = purchaseQtyBefore;
+    const denom = currentQty + quantityInPieces;
+    const newCostPrice =
+      denom > 0
+        ? roundMoney((currentQty * currentCost + quantityInPieces * newUnitCostPerPiece) / denom)
+        : currentCost;
+    await tx.product.update({
+      where: { id: product.id },
+      data: {
+        costPrice: newCostPrice,
+        purchasePrice: roundMoney(newUnitCostPerPiece),
+      },
+    });
+    costSnapshot = newCostPrice;
+  }
 
   return {
     product,
@@ -433,6 +491,7 @@ async function applyStockMovement(
     totalPrice: roundMoney(unitPrice * item.quantity),
     wentNegative,
     deficitPieces,
+    costSnapshot,
   };
 }
 
@@ -460,6 +519,34 @@ async function adjustProductStock(
   await syncProductTotalStock(tx, productId);
 }
 
+// Inverse of the WAC blend in applyStockMovement. Removing a purchase of `q`
+// pieces whose total cost was `lineTotalCost` restores the pre-purchase average
+// from the current state. If the remaining stock no longer covers this purchase
+// an exact restore is impossible, so we leave costPrice untouched. Mirrors the
+// cloud backend so an offline cancel/delete doesn't leave an inflated cost.
+async function reversePurchaseWacCost(
+  tx: Db,
+  productId: string,
+  quantityInPieces: number,
+  lineTotalCost: number
+) {
+  const product = await tx.product.findUnique({ where: { id: productId } });
+  if (!product) return;
+  const agg = await tx.productWarehouseStock.aggregate({
+    where: { productId },
+    _sum: { quantityPieces: true },
+  });
+  const qNow = Number(agg._sum.quantityPieces ?? 0);
+  const qBefore = qNow - quantityInPieces;
+  if (qBefore <= 0) return;
+  const costNow =
+    toNumber(product.costPrice) > 0 ? toNumber(product.costPrice) : toNumber(product.purchasePrice);
+  const c = lineTotalCost / quantityInPieces;
+  const costBefore = roundMoney((qNow * costNow - quantityInPieces * c) / qBefore);
+  if (!(costBefore > 0)) return;
+  await tx.product.update({ where: { id: productId }, data: { costPrice: costBefore } });
+}
+
 async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
   const invoice = await tx.invoice.findUnique({
     where: { id: invoiceId },
@@ -475,7 +562,12 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string) {
   }
 
   for (const item of invoice.items) {
-    const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
+    // Back a cancelled/deleted PURCHASE line out of the WAC cost before removing
+    // the stock, so a mistaken purchase can't permanently inflate the cost basis.
+    if (invoice.type === InvoiceType.PURCHASE && quantityInPieces > 0) {
+      await reversePurchaseWacCost(tx, item.productId, quantityInPieces, toNumber(item.unitPrice) * item.quantity);
+    }
     await adjustProductStock(
       tx,
       item.productId,
@@ -664,10 +756,8 @@ async function createInvoiceInTransaction(
         unit: item.unit,
         quantity: item.quantity,
         unitPrice: pricedItem.unitPrice,
-        costPrice:
-          toNumber(pricedItem.product.costPrice) > 0
-            ? toNumber(pricedItem.product.costPrice)
-            : toNumber(pricedItem.product.purchasePrice),
+        // Freeze the cost as-of after this line (post-WAC blend for PURCHASE).
+        costPrice: pricedItem.costSnapshot,
         totalPrice: pricedItem.totalPrice,
         notes: item.notes?.trim() || null,
       },

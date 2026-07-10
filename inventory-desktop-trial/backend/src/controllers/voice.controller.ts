@@ -780,6 +780,7 @@ export const parseVoiceCommand = asyncHandler(async (req, res) => {
   const unitLabels: Record<Unit, string> = {
     PIECE: "قطعة",
     DOZEN: "درزن",
+    BOX: "علبة",
     CARTON: "كارتون",
   };
   const itemSummary = items
