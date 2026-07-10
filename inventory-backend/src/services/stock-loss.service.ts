@@ -126,6 +126,9 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
           productName: product.name,
           unit: item.unit,
           quantity: item.quantity,
+          // Freeze pieces too (see schema): valuation must not shift if
+          // pcsPerCarton is edited after the loss.
+          quantityPieces: pcs,
           costPrice: snapshotCost,
         },
       });

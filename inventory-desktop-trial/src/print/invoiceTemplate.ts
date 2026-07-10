@@ -61,9 +61,17 @@ export interface PrintInvoice {
   customerPhone?: string
   lines: PrintLine[]
   notes?: string
+  discount?: number
+  tax?: number
+  // Backend-computed invoice total after discount/tax. When omitted we fall
+  // back to (subtotal - discount + tax).
+  totalAmount?: number
   previousBalance?: number
   paidAmount?: number
   remainingAmount?: number
+  // Backend-computed final balance owed after this invoice. When omitted we
+  // fall back to (previousBalance + totalAmount - paidAmount).
+  finalBalance?: number
 }
 
 export interface PrintStore {
@@ -86,7 +94,10 @@ export const SAMPLE_INVOICE: PrintInvoice = {
     { name: "حافظة موبايل شفافة", qty: 10, price: 2000 },
   ],
   notes: "البضاعة المباعة لا تُرد بعد 3 أيام.",
+  discount: 3500,
   previousBalance: 25000,
+  paidAmount: 50000,
+  remainingAmount: 40000,
 }
 
 const esc = (s: string) =>
@@ -104,8 +115,15 @@ export function renderInvoiceHTML(
 ): string {
   const cur = store.currency || "د.ع"
   const subtotal = inv.lines.reduce((a, l) => a + l.qty * l.price, 0)
+  const discount = inv.discount ?? 0
+  const tax = inv.tax ?? 0
+  const total = inv.totalAmount ?? Math.max(0, subtotal - discount + tax)
   const prev = inv.previousBalance ?? 0
-  const grand = subtotal + prev
+  const paidForGrand = inv.paidAmount ?? 0
+  // "المطلوب الكلّي" = what the customer owes overall after this invoice:
+  // previous balance + (this invoice total − what was paid on it). Mirrors the
+  // A4 designer's grandTotal/finalBalance so both renderers agree.
+  const grand = inv.finalBalance ?? (prev + (total - paidForGrand))
   const isThermal = t.paper === "80mm" || t.paper === "58mm"
   const thermalWidth = t.paper === "58mm" ? "58mm" : "80mm"
   const is80 = isThermal  // keep variable name for all thermal-width branches
@@ -154,6 +172,20 @@ export function renderInvoiceHTML(
       <div style="display:flex;justify-content:space-between;padding:2px 0">
         <span>إجمالي الفاتورة</span><b>${money(subtotal, cur)}</b>
       </div>
+      ${
+        discount > 0
+          ? `<div style="display:flex;justify-content:space-between;padding:2px 0;color:#475569">
+               <span>الخصم</span><span>- ${money(discount, cur)}</span>
+             </div>`
+          : ""
+      }
+      ${
+        tax > 0
+          ? `<div style="display:flex;justify-content:space-between;padding:2px 0;color:#475569">
+               <span>الضريبة</span><span>${money(tax, cur)}</span>
+             </div>`
+          : ""
+      }
       ${
         prev
           ? `<div style="display:flex;justify-content:space-between;padding:2px 0;color:#b45309">

@@ -543,6 +543,42 @@ async function adjustProductStock(
   await syncProductTotalStock(tx, productId);
 }
 
+// Inverse of the WAC blend in applyStockMovement. Removing a purchase of `q`
+// pieces whose total cost was `lineTotalCost` (so per-piece cost c = lineTotalCost/q)
+// restores the pre-purchase average from the current state:
+//   costBefore = (Qnow*costNow − q*c) / (Qnow − q)
+// which is exactly the algebraic reverse of
+//   costNow = (Qbefore*costBefore + q*c) / (Qbefore + q).
+// If the remaining stock no longer covers this purchase (Qnow ≤ q, e.g. the goods
+// were already sold/lost/transferred out) an exact restore is impossible, so we
+// leave costPrice untouched rather than corrupt it further. purchasePrice ("last
+// purchase price" metadata) is not restored — it does not feed valuation.
+async function reversePurchaseWacCost(
+  tx: Db,
+  productId: string,
+  quantityInPieces: number,
+  lineTotalCost: number
+) {
+  const product = await tx.product.findUnique({ where: { id: productId } });
+  if (!product) return;
+  const agg = await tx.productWarehouseStock.aggregate({
+    where: { productId },
+    _sum: { quantityPieces: true },
+  });
+  const qNow = Number(agg._sum.quantityPieces ?? 0);
+  const qBefore = qNow - quantityInPieces;
+  if (qBefore <= 0) return;
+  const costNow =
+    toNumber(product.costPrice) > 0 ? toNumber(product.costPrice) : toNumber(product.purchasePrice);
+  const c = lineTotalCost / quantityInPieces;
+  const costBefore = roundMoney((qNow * costNow - quantityInPieces * c) / qBefore);
+  if (!(costBefore > 0)) return;
+  await tx.product.update({
+    where: { id: productId },
+    data: { costPrice: costBefore },
+  });
+}
+
 async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehouseId?: string) {
   const invoice = await tx.invoice.findUnique({
     where: { id: invoiceId },
@@ -576,6 +612,14 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
 
   for (const item of invoice.items) {
     const quantityInPieces = unitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
+    // PURCHASE reversal: back this line's pieces out of the product's
+    // Weighted-Average Cost BEFORE we remove the stock, otherwise a mistaken
+    // purchase (e.g. a typo'd unit cost) would permanently inflate costPrice —
+    // which feeds inventory valuation and frozen loss snapshots. Done per-item
+    // and pre-adjustment so it uses the qty that still includes this purchase.
+    if (invoice.type === InvoiceType.PURCHASE && quantityInPieces > 0) {
+      await reversePurchaseWacCost(tx, item.productId, quantityInPieces, Number(item.unitPrice) * item.quantity);
+    }
     await adjustProductStock(
       tx,
       item.productId,

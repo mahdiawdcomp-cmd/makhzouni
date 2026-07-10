@@ -21,7 +21,7 @@ import {
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { normalizePhone } from "../utils/phone";
-import { resolveWarehouseId } from "./warehouse-stock.service";
+import { resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
 import { getSettings, updateSettings } from "./settings.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { buildDedupeKey, notifyAdmin } from "./app-notification.service";
@@ -465,6 +465,9 @@ export async function approveCycleCountItem(
       });
     }
 
+    // Keep denormalized legacy stock fields in sync (see approveStocktakeItem).
+    if (delta !== 0) await syncProductTotalStock(tx, item.productId);
+
     const updated = await tx.cycleCountItem.updateMany({
       where: { id: itemId, approvalStatus: CycleCountApprovalStatus.PENDING },
       data: {
@@ -558,6 +561,9 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
           },
         });
       }
+
+      // Keep denormalized legacy stock fields in sync (see approveStocktakeItem).
+      if (delta !== 0) await syncProductTotalStock(tx, item.productId);
 
       const updated = await tx.cycleCountItem.updateMany({
         where: { id: item.id, approvalStatus: CycleCountApprovalStatus.PENDING },

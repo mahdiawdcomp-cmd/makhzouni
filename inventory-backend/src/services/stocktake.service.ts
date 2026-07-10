@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import { Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { resolveWarehouseId } from "./warehouse-stock.service";
+import { resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -438,9 +438,12 @@ export async function approveStocktakeItem(
       select: { quantityPieces: true },
     });
 
-    // Sync total product stock to canonical warehouse representation (don't touch legacy fields)
-    // This ensures the next approval doesn't double-count. Rely on warehouse stock table only.
-    // (Do not write to openingBalancePcs or cartonsAvailable — they are legacy)
+    // Refresh the denormalized legacy stock fields (openingBalancePcs /
+    // cartonsAvailable) from the canonical warehouse table, exactly like every
+    // other stock-mutating path (invoice/transfer/loss) does. Without this the
+    // inventory-valuation report and dashboard low-stock counts — which still
+    // read the legacy fields via currentStock() — go stale after an approval.
+    if (delta !== 0) await syncProductTotalStock(tx, item.productId);
 
     // Record the adjustment in the unified stock-movement ledger so stocktake
     // corrections show up in سجل حركة المخزون like every other stock change.

@@ -127,6 +127,12 @@ const fakeDb: any = {
       stock.quantityPieces += data.quantityPieces.increment;
       return { quantityPieces: stock.quantityPieces };
     },
+    aggregate: async ({ where }: any) => {
+      const total = [...stocks.values()]
+        .filter((s) => s.productId === where.productId)
+        .reduce((sum, s) => sum + s.quantityPieces, 0);
+      return { _sum: { quantityPieces: total } };
+    },
   },
   stockMovement: {
     create: async ({ data }: any) => {
@@ -241,6 +247,16 @@ const fakeDb: any = {
         (p) => p.deletedAt === null && (codes.includes(p.qrCode) || codes.includes(p.cartonQrCode)),
       );
       return match ? { ...match } : null;
+    },
+    findUnique: async ({ where }: any) => {
+      const p = products.get(where.id);
+      return p ? { ...p } : null;
+    },
+    update: async ({ where, data }: any) => {
+      const p = products.get(where.id);
+      if (!p) throw new Error("product not found");
+      Object.assign(p, data);
+      return { ...p };
     },
   },
   user: {

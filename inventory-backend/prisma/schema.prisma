@@ -256,6 +256,11 @@ model StockLossItem {
   productName String   @map("product_name")
   unit        Unit
   quantity    Int
+  // Piece count frozen at loss time (quantity × pcsPerCarton as-of the loss).
+  // Nullable for legacy rows; the report falls back to a live re-computation for
+  // those. Freezing it stops historical loss valuations from silently changing
+  // when a product's pcsPerCarton is later edited.
+  quantityPieces Int?  @map("quantity_pieces")
   costPrice   Decimal? @map("cost_price") @db.Decimal(12, 2)
 
   @@index([lossId])

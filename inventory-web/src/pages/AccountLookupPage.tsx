@@ -138,8 +138,11 @@ export function AccountLookupPage() {
   const invoices = details.invoicesQuery.data ?? []
   const vouchers = details.vouchersQuery.data ?? []
 
+  // Gross sales: active SALE invoices only. Exclude cancelled invoices (the
+  // list endpoint returns them when no status filter is sent) and SALES_RETURN
+  // (a return is not a sale — adding it would overstate the figure).
   const totalSales = invoices
-    .filter((i) => i.type !== "PURCHASE")
+    .filter((i) => i.type !== "PURCHASE" && i.type !== "SALES_RETURN" && i.status === "ACTIVE")
     .reduce((s, i) => s + Number(i.totalAmount ?? 0), 0)
 
   const totalReceipts = vouchers

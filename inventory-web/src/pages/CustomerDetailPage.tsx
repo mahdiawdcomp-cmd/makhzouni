@@ -104,7 +104,12 @@ export function CustomerDetailPage() {
     return (!from || date >= from) && (!to || date <= to)
   })
 
-  const totalPurchases = invoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount ?? 0), 0)
+  // What the customer bought from us: active SALE invoices only. Exclude
+  // cancelled invoices (returned by the list endpoint when no status filter is
+  // sent) and SALES_RETURN (a return must not be added as if it were a sale).
+  const totalPurchases = invoices
+    .filter((i) => i.type !== "PURCHASE" && i.type !== "SALES_RETURN" && i.status === "ACTIVE")
+    .reduce((sum, invoice) => sum + Number(invoice.totalAmount ?? 0), 0)
   const totalReceived = vouchers
     .filter((v) => v.type === "RECEIPT")
     .reduce((sum, v) => sum + Number(v.amount ?? 0), 0)

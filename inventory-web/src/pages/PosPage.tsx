@@ -872,9 +872,13 @@ export function POSPage() {
               qty: it.quantity,
               price: it.unitPrice,
             })),
+            discount: inv.discount != null ? Number(inv.discount) : undefined,
+            tax: inv.tax != null ? Number(inv.tax) : undefined,
+            totalAmount: inv.totalAmount != null ? Number(inv.totalAmount) : undefined,
             paidAmount: inv.paidAmount,
             remainingAmount: inv.remainingAmount,
             previousBalance: inv.previousBalance,
+            finalBalance: inv.finalBalance != null ? Number(inv.finalBalance) : undefined,
             notes: inv.notes ?? undefined,
           },
           store: {

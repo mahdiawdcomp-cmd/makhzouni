@@ -1125,7 +1125,11 @@ export async function getProfitReport(query: ProfitReportQuery) {
 
   const lossesTotal = Math.round(
     lossItems.reduce((s, item) => {
-      const pcs = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
+      // Prefer the piece count frozen at loss time; only legacy rows (null) fall
+      // back to a live re-computation, which can drift if pcsPerCarton changed.
+      const pcs =
+        item.quantityPieces ??
+        amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
       // Prefer the frozen snapshot stockLossItem.costPrice (cost at loss time);
       // fall back to the live accounting cost (costPrice → purchasePrice) only
       // when the snapshot is missing/zero. Same freeze model as sale invoices.
@@ -1463,8 +1467,25 @@ export async function getDebtAging() {
     const balance = toNumber(c.currentBalance);
     const b = agingMap.get(c.id) ?? { current: 0, days30: 0, days60: 0, days90: 0 };
     const invoicedTotal = b.current + b.days30 + b.days60 + b.days90;
-    // Opening-balance debt (no matching invoice) goes to 90+ bucket
-    if (invoicedTotal === 0 && balance > 0) b.days90 = balance;
+    // Reconcile the per-invoice buckets to the customer's ACTUAL currentBalance
+    // so the four bucket columns always sum to the "total" column. currentBalance
+    // also nets opening balances, unallocated RECEIPT/PAYMENT vouchers, and
+    // returns — none of which appear as an outstanding SALE invoice remainder.
+    //   • surplus (balance > invoiced): untied/opening debt → oldest bucket (90+)
+    //   • shortfall (balance < invoiced): an unapplied credit settles the oldest
+    //     debt first (FIFO), so remove it from oldest → newest buckets.
+    const diff = roundMoney(balance - invoicedTotal);
+    if (diff > 0) {
+      b.days90 += diff;
+    } else if (diff < 0) {
+      let credit = -diff;
+      for (const k of ["days90", "days60", "days30", "current"] as const) {
+        if (credit <= 0) break;
+        const take = Math.min(b[k], credit);
+        b[k] -= take;
+        credit -= take;
+      }
+    }
 
     return {
       id: c.id,
