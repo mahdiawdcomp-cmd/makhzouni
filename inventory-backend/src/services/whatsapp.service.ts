@@ -474,13 +474,13 @@ async function sendCloudMessage(payload: Record<string, unknown>): Promise<strin
   return data?.messages?.[0]?.id;
 }
 
-async function uploadCloudMedia(pdf: Buffer, filename: string) {
+async function uploadCloudMedia(pdf: Buffer, filename: string, mime = "application/pdf") {
   const { token, baseUrl } = cloudConfig();
   const bytes = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
-  form.append("type", "application/pdf");
-  form.append("file", new Blob([bytes], { type: "application/pdf" }), filename);
+  form.append("type", mime);
+  form.append("file", new Blob([bytes], { type: mime }), filename);
 
   const response = await fetch(`${baseUrl}/media`, {
     method: "POST",
@@ -929,34 +929,38 @@ function outboundMediaDataUrl(buf: Buffer, mimeType: string): string | null {
   return `data:${mimeType};base64,${buf.toString("base64")}`;
 }
 
-export async function sendWhatsAppPdf(
+/** Send any document (PDF/Excel/Word/…) with a caption. Mime drives both the
+ * Cloud upload type and the inline chat-log preview. */
+export async function sendWhatsAppDocument(
   phone: string,
   message: string,
-  pdf: Buffer,
+  doc: Buffer,
   filename: string,
-): Promise<{ to: string; filename: string }> {
+  mime = "application/pdf",
+): Promise<{ to: string; filename: string; idMessage?: string }> {
   const prov = assertCanSend();
-  const logPdf = (to: string) =>
+  const logDoc = (to: string, idMessage?: string) =>
     logChatMessage({
       phone: to,
       direction: "OUT",
       text: message,
+      waMessageId: idMessage,
       mediaType: "DOCUMENT",
-      mediaDataUrl: outboundMediaDataUrl(pdf, "application/pdf"),
+      mediaDataUrl: outboundMediaDataUrl(doc, mime),
       mediaFilename: filename,
-      mediaMimeType: "application/pdf",
+      mediaMimeType: mime,
     }).catch(() => {});
 
   if (prov === "greenapi") {
-    await sendGreenApiDocument(phone, pdf, filename, message);
-    await logPdf(phone);
+    await sendGreenApiDocument(phone, doc, filename, message);
+    await logDoc(phone);
     return { to: phone, filename };
   }
 
   if (prov === "cloud") {
     const to = normalizeCloudPhone(phone);
-    const mediaId = await uploadCloudMedia(pdf, filename);
-    await sendCloudMessage({
+    const mediaId = await uploadCloudMedia(doc, filename, mime);
+    const idMessage = await sendCloudMessage({
       to,
       type: "document",
       document: {
@@ -965,27 +969,36 @@ export async function sendWhatsAppPdf(
         caption: message,
       },
     });
-    await logPdf(to);
-    return { to, filename };
+    await logDoc(to, idMessage);
+    return { to, filename, idMessage };
   }
 
   const to = normalizePhone(phone);
 
   try {
     const readyClient = requireReadyClient();
-    const media = new MessageMedia("application/pdf", pdf.toString("base64"), filename);
+    const media = new MessageMedia(mime, doc.toString("base64"), filename);
     await readyClient.sendMessage(to, media, { caption: message });
-    await logPdf(to);
+    await logDoc(to);
     return { to, filename };
   } catch (err) {
     if (isFrameDetachedError(err)) {
-      logger.warn(`[WhatsApp] Frame detached while sending PDF to ${to} — triggering restart`);
+      logger.warn(`[WhatsApp] Frame detached while sending document to ${to} — triggering restart`);
       triggerRestart("frame detached");
     } else if (state !== "READY" && process.env.ENABLE_WHATSAPP === "true") {
-      scheduleReconnect("send PDF while not ready");
+      scheduleReconnect("send document while not ready");
     }
     throw err;
   }
+}
+
+export async function sendWhatsAppPdf(
+  phone: string,
+  message: string,
+  pdf: Buffer,
+  filename: string,
+): Promise<{ to: string; filename: string }> {
+  return sendWhatsAppDocument(phone, message, pdf, filename, "application/pdf");
 }
 
 export async function sendWhatsAppImage(

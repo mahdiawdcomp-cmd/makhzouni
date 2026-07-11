@@ -276,6 +276,11 @@ export async function sendWhatsappChatMessage(phone: string, text: string) {
   return data.data
 }
 
+export async function sendWhatsappChatMedia(phone: string, payload: { dataUrl: string; filename?: string; caption?: string }) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/media`, payload)
+  return data.data
+}
+
 export async function markWhatsappConversationRead(phone: string) {
   const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/read`, {})
   return data.data

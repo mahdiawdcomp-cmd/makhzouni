@@ -5,6 +5,7 @@ import {
   getWhatsappConversations,
   getWhatsappMessages,
   markWhatsappConversationRead,
+  sendWhatsappChatMedia,
   sendWhatsappChatMessage,
 } from "../api/endpoints"
 import { Input } from "../components/ui/input"
@@ -210,6 +211,7 @@ export function WhatsappChatPage() {
   useEffect(() => {
     setOlderMessages([])
     setOldestHasMore(false)
+    setAttachment(null)
   }, [selectedPhone])
   useEffect(() => {
     if (olderMessages.length === 0) setOldestHasMore(threadQuery.data?.hasMore ?? false)
@@ -247,6 +249,37 @@ export function WhatsappChatPage() {
     },
   })
 
+  // Attachment picked but not sent yet — shown as a preview strip above the
+  // composer; the text box doubles as its caption until إرسال.
+  const [attachment, setAttachment] = useState<{ dataUrl: string; filename: string; mime: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const MAX_MEDIA_BYTES = 5 * 1024 * 1024
+
+  function pickAttachment(file: File | undefined | null) {
+    if (!file) return
+    if (file.size > MAX_MEDIA_BYTES) {
+      toast({ title: "حجم الملف أكبر من الحد المسموح (5MB)", variant: "destructive" })
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setAttachment({ dataUrl: String(reader.result), filename: file.name, mime: file.type || "application/octet-stream" })
+    reader.readAsDataURL(file)
+  }
+
+  const sendMediaMutation = useMutation({
+    mutationFn: ({ phone, dataUrl, filename, caption }: { phone: string; dataUrl: string; filename: string; caption: string }) =>
+      sendWhatsappChatMedia(phone, { dataUrl, filename, caption }),
+    onSuccess: () => {
+      setComposeText("")
+      setAttachment(null)
+      queryClient.invalidateQueries({ queryKey: ["whatsapp-messages"] })
+      queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] })
+    },
+    onError: () => {
+      toast({ title: "تعذر إرسال الملف", variant: "destructive" })
+    },
+  })
+
   const markReadMutation = useMutation({
     mutationFn: (phone: string) => markWhatsappConversationRead(phone),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["whatsapp-conversations"] }),
@@ -259,8 +292,13 @@ export function WhatsappChatPage() {
 
   const MAX_MESSAGE_LENGTH = 4096
   function handleSend() {
+    if (!selectedPhone || sendMutation.isPending || sendMediaMutation.isPending) return
     const text = composeText.trim().slice(0, MAX_MESSAGE_LENGTH)
-    if (!text || !selectedPhone || sendMutation.isPending) return
+    if (attachment) {
+      sendMediaMutation.mutate({ phone: selectedPhone, dataUrl: attachment.dataUrl, filename: attachment.filename, caption: text })
+      return
+    }
+    if (!text) return
     sendMutation.mutate({ phone: selectedPhone, text })
   }
 
@@ -424,7 +462,45 @@ export function WhatsappChatPage() {
               )}
             </div>
 
+            {attachment && (
+              <div className="flex items-center gap-2 border-t px-3 py-2" style={{ borderColor: "var(--theme-cardBorder)" }}>
+                {attachment.mime.startsWith("image/") ? (
+                  <img src={attachment.dataUrl} alt={attachment.filename} className="h-14 w-14 rounded-lg object-cover" />
+                ) : (
+                  <FileText className="h-8 w-8 text-slate-400" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12px]" style={{ color: "var(--theme-textPrimary)" }}>{attachment.filename}</p>
+                  <p className="text-[11px] text-slate-400">اكتب تعليقاً (اختياري) ثم اضغط إرسال</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAttachment(null)}
+                  className="rounded-full px-2 py-1 text-[11px] text-red-500 transition hover:bg-red-50 dark:hover:bg-red-950"
+                >
+                  إلغاء
+                </button>
+              </div>
+            )}
             <div className="flex items-end gap-2 border-t p-3" style={{ borderColor: "var(--theme-cardBorder)" }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  pickAttachment(e.target.files?.[0])
+                  e.target.value = ""
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                aria-label="إرفاق ملف"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               <textarea
                 dir="auto"
                 value={composeText}
@@ -444,7 +520,7 @@ export function WhatsappChatPage() {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={!composeText.trim() || sendMutation.isPending}
+                disabled={(!composeText.trim() && !attachment) || sendMutation.isPending || sendMediaMutation.isPending}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white transition hover:bg-emerald-600 disabled:opacity-40"
                 aria-label="إرسال"
               >

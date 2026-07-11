@@ -6,6 +6,7 @@ import {
   getWhatsappUnreadCount,
   getWhatsappConversationMessages,
   sendWhatsappConversationMessage,
+  sendWhatsappConversationMedia,
   markWhatsappConversationRead,
 } from "../controllers/whatsapp-chat.controller";
 
@@ -18,6 +19,7 @@ router.get("/conversations", access, listWhatsappConversations);
 router.get("/unread-count", access, getWhatsappUnreadCount);
 router.get("/conversations/:phone/messages", access, getWhatsappConversationMessages);
 router.post("/conversations/:phone/messages", access, sendWhatsappConversationMessage);
+router.post("/conversations/:phone/media", access, sendWhatsappConversationMedia);
 router.post("/conversations/:phone/read", access, markWhatsappConversationRead);
 
 export default router;
