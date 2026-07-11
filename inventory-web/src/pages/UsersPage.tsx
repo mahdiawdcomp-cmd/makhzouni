@@ -38,6 +38,7 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "MANAGE_TRANSFERS",    label: "إدارة المخزن (قبول التحويلات)", hint: "يقبل أو يرفض طلبات التحويل بين المخازن", group: "transfer" },
   { id: "INVENTORY_MANAGE",    label: "جرد المخزون",        hint: "يفتح ويدير جلسات الجرد (الستوكتيك)", group: "transfer" },
   { id: "VARIETY_CONVERT",     label: "تحويل الصنف",        hint: "صلاحية محدودة لصفحة تحويل الأصناف بدون رؤية الأسعار", group: "transfer" },
+  { id: "ACCESS_WHATSAPP_CHAT", label: "محادثات الواتساب",  hint: "يفتح شاشة الواتساب ويرسل ويستقبل رسائل باسم المحل" },
 ]
 
 const fullPermissions = allPermissions.map((permission) => permission.id)

@@ -34,6 +34,9 @@ const userPermissionSchema = z.enum([
   // DENY marker: hides profit & financial reports even from a full ADMIN
   // (see canViewProfitReports in permission.middleware.ts).
   "HIDE_PROFIT_REPORTS",
+  // Two-way WhatsApp chat screen — send-as-the-shop is more sensitive than
+  // MANAGE_CUSTOMERS, so it gets its own permission.
+  "ACCESS_WHATSAPP_CHAT",
 ]);
 
 const auditEntitySchema = z.enum([
@@ -824,11 +827,36 @@ export const updateSettingsSchema = z.object({
       cycleCountIntervalDays: z.coerce.number().int().min(1).max(365).optional(),
       cycleCountItemLimit: z.coerce.number().int().min(1).max(1000).optional(),
       cycleCountStrategy: z.enum(["RANDOM", "HIGH_VALUE", "FAST_MOVING", "LOW_STOCK", "LEAST_RECENTLY_COUNTED"]).optional(),
+      personalDebtReminderWhatsappNumber: z.string().trim().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",
     }),
+})
+
+// «الديون الشخصية» — personal debts, unrelated to shop customers.
+export const createPersonalDebtSchema = z.object({
+  body: z.object({
+    personName: z.string().trim().min(1),
+    amount: z.coerce.number().positive(),
+    dueDate: dateString,
+    notes: z.string().trim().max(500).optional(),
+  }),
 });
+
+export const updatePersonalDebtSchema = z.object({
+  params: uuidParam,
+  body: z
+    .object({
+      personName: z.string().trim().min(1).optional(),
+      amount: z.coerce.number().positive().optional(),
+      dueDate: dateString.optional(),
+      notes: z.string().trim().max(500).optional(),
+    })
+    .refine((body) => Object.keys(body).length > 0, {
+      message: "At least one field is required",
+    }),
+});;
 
 export const updateMessageTemplateSchema = z.object({
   params: uuidParam,

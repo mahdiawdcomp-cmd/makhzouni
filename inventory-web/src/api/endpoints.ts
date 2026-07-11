@@ -27,6 +27,8 @@ import type {
   ProspectListResult,
   InboundMessage,
   InboundMessageStatus,
+  WhatsappConversation,
+  WhatsappChatMessage,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -50,6 +52,9 @@ import type {
   LastTransaction,
   MessageTemplate,
   PagedResponse,
+  PersonalDebt,
+  CreatePersonalDebtPayload,
+  UpdatePersonalDebtPayload,
   Product,
   CatalogCategory,
   Quotation,
@@ -146,6 +151,32 @@ export async function getApprovals() {
   return data.data ?? []
 }
 
+// «الديون الشخصية» — unrelated to shop customers.
+export async function getPersonalDebts() {
+  const { data } = await api.get<ApiEnvelope<PersonalDebt[]>>("/personal-debts")
+  return data.data ?? []
+}
+
+export async function createPersonalDebt(payload: CreatePersonalDebtPayload) {
+  const { data } = await api.post<ApiEnvelope<PersonalDebt>>("/personal-debts", payload)
+  return data.data
+}
+
+export async function updatePersonalDebt(id: string, payload: UpdatePersonalDebtPayload) {
+  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}`, payload)
+  return data.data
+}
+
+export async function markPersonalDebtPaid(id: string) {
+  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}/paid`, {})
+  return data.data
+}
+
+export async function deletePersonalDebt(id: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/personal-debts/${id}`)
+  return data
+}
+
 export async function getMyApprovals() {
   const { data } = await api.get<ApiEnvelope<Approval[]>>("/approvals/my-requests")
   return data.data ?? []
@@ -218,6 +249,35 @@ export async function markInboundMessageRead(id: string) {
 
 export async function replyToInboundMessage(id: string, text: string) {
   const { data } = await api.post<ApiEnvelope<InboundMessage>>(`/inbound-messages/${id}/reply`, { text })
+  return data.data
+}
+
+/* ── WhatsApp chat (Meta Cloud API messenger screen) ─────────────────── */
+export async function getWhatsappConversations(search?: string) {
+  const { data } = await api.get<ApiEnvelope<WhatsappConversation[]>>("/whatsapp-chat/conversations", { params: { search } })
+  return data.data ?? []
+}
+
+export async function getWhatsappUnreadCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/whatsapp-chat/unread-count")
+  return data.data?.count ?? 0
+}
+
+export async function getWhatsappMessages(phone: string, params?: { before?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<{ conversation: WhatsappConversation | null; messages: WhatsappChatMessage[]; hasMore: boolean }>>(
+    `/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`,
+    { params }
+  )
+  return data.data ?? { conversation: null, messages: [], hasMore: false }
+}
+
+export async function sendWhatsappChatMessage(phone: string, text: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text })
+  return data.data
+}
+
+export async function markWhatsappConversationRead(phone: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/read`, {})
   return data.data
 }
 

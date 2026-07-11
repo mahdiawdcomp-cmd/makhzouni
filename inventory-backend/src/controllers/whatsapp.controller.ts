@@ -6,6 +6,7 @@ import { generateInvoicePdf, generateCustomerImageInvoiceWithProducts } from "..
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
+import { logChatMessage } from "../services/whatsapp-chat.service";
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import { logger } from "../utils/logger";
 import {
@@ -13,6 +14,7 @@ import {
   generateVerifyToken,
   getWhatsAppStatus,
   restartWhatsApp,
+  fetchCloudMedia,
   sendWhatsAppImage,
   sendWhatsAppPdf,
   sendWhatsAppTemplatePdf,
@@ -84,6 +86,106 @@ function metaSignatureValid(req: import("express").Request): boolean {
   }
 }
 
+type CloudInboundMessage = {
+  id?: string;
+  from?: string;
+  type?: string;
+  text?: { body?: string };
+  image?: { id?: string; mime_type?: string; caption?: string };
+  document?: { id?: string; mime_type?: string; filename?: string; caption?: string };
+  audio?: { id?: string; mime_type?: string };
+  video?: { id?: string; mime_type?: string; caption?: string };
+  sticker?: { id?: string; mime_type?: string };
+  location?: { latitude?: number; longitude?: number; name?: string; address?: string };
+  contacts?: Array<{ name?: { formatted_name?: string } }>;
+};
+
+/**
+ * Logs every NON-text inbound message type into the WhatsApp chat log — the
+ * bot/inbox pipeline (routeIncomingMessage) is text-command-driven only, so
+ * media never goes through it. Every branch always calls logChatMessage with
+ * at least a readable placeholder — nothing is ever silently dropped, even if
+ * the actual media download fails or the type is one Meta adds later.
+ */
+async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
+  const waMessageId = msg.id;
+  const base = { phone, direction: "IN" as const, waMessageId };
+
+  switch (msg.type) {
+    case "image": {
+      const media = msg.image?.id ? await fetchCloudMedia(msg.image.id) : null;
+      await logChatMessage({
+        ...base,
+        text: msg.image?.caption ?? "",
+        mediaType: "IMAGE",
+        mediaDataUrl: media?.dataUrl,
+        mediaMimeType: media?.mimeType ?? msg.image?.mime_type,
+      });
+      return;
+    }
+    case "document": {
+      const media = msg.document?.id ? await fetchCloudMedia(msg.document.id) : null;
+      await logChatMessage({
+        ...base,
+        text: msg.document?.caption ?? "",
+        mediaType: "DOCUMENT",
+        mediaDataUrl: media?.dataUrl,
+        mediaFilename: msg.document?.filename,
+        mediaMimeType: media?.mimeType ?? msg.document?.mime_type,
+      });
+      return;
+    }
+    case "audio": {
+      const media = msg.audio?.id ? await fetchCloudMedia(msg.audio.id) : null;
+      await logChatMessage({
+        ...base,
+        text: "",
+        mediaType: "AUDIO",
+        mediaDataUrl: media?.dataUrl,
+        mediaMimeType: media?.mimeType ?? msg.audio?.mime_type,
+      });
+      return;
+    }
+    case "video": {
+      const media = msg.video?.id ? await fetchCloudMedia(msg.video.id) : null;
+      await logChatMessage({
+        ...base,
+        text: msg.video?.caption ?? "",
+        mediaType: "VIDEO",
+        mediaDataUrl: media?.dataUrl,
+        mediaMimeType: media?.mimeType ?? msg.video?.mime_type,
+      });
+      return;
+    }
+    case "sticker": {
+      const media = msg.sticker?.id ? await fetchCloudMedia(msg.sticker.id) : null;
+      await logChatMessage({
+        ...base,
+        text: "",
+        mediaType: "STICKER",
+        mediaDataUrl: media?.dataUrl,
+        mediaMimeType: media?.mimeType ?? msg.sticker?.mime_type,
+      });
+      return;
+    }
+    case "location": {
+      const loc = msg.location;
+      const label = loc?.name || loc?.address || "";
+      const link = loc?.latitude != null && loc?.longitude != null ? `https://maps.google.com/?q=${loc.latitude},${loc.longitude}` : "";
+      await logChatMessage({ ...base, text: [label, link].filter(Boolean).join("\n"), mediaType: "LOCATION" });
+      return;
+    }
+    case "contacts": {
+      const names = (msg.contacts ?? []).map((c) => c.name?.formatted_name).filter(Boolean).join("، ");
+      await logChatMessage({ ...base, text: `👤 جهة اتصال مشتركة: ${names || "غير معروف"}` });
+      return;
+    }
+    default:
+      // reactions, interactive/button replies, or any future Meta message type.
+      await logChatMessage({ ...base, text: `📎 رسالة غير مدعومة (${msg.type ?? "unknown"})` });
+  }
+}
+
 /** POST — inbound Meta messages → the shared bot/inbox pipeline. Always 200. */
 export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
   try {
@@ -98,7 +200,7 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
       entry?: Array<{
         changes?: Array<{
           value?: {
-            messages?: Array<{ from?: string; type?: string; text?: { body?: string } }>;
+            messages?: CloudInboundMessage[];
           };
         }>;
       }>;
@@ -110,9 +212,15 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
       for (const change of entry.changes ?? []) {
         for (const msg of change.value?.messages ?? []) {
           const phone = (msg.from ?? "").replace(/\D/g, "");
-          const text = msg.type === "text" ? msg.text?.body ?? "" : "";
-          if (phone && text) {
-            await routeIncomingMessage(phone, text);
+          if (!phone) continue;
+
+          if (msg.type === "text") {
+            const text = msg.text?.body ?? "";
+            if (text) await routeIncomingMessage(phone, text, msg.id);
+          } else {
+            await logInboundMediaMessage(phone, msg).catch((err) =>
+              logger.warn(`[WhatsAppMeta] failed to log inbound ${msg.type} message: ${err instanceof Error ? err.message : String(err)}`)
+            );
           }
         }
       }

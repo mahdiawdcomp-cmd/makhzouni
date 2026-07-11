@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { logout } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { NotificationsBell } from "./NotificationsBell"
+import { WhatsappChatButton } from "./WhatsappChatButton"
 import { LanguageSwitcher } from "./LanguageSwitcher"
 
 function useCurrentPageLabel(): string {
@@ -105,6 +106,8 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
         </motion.button>
 
         <LanguageSwitcher />
+
+        <WhatsappChatButton />
 
         <NotificationsBell />
 

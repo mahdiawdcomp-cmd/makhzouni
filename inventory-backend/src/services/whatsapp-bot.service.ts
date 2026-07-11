@@ -6,6 +6,7 @@ import { getSettings } from "./settings.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { handleIncomingProspectReply } from "./prospect.service";
 import { hasFeature } from "../middleware/tenant.middleware";
+import { logChatMessage } from "./whatsapp-chat.service";
 
 function money(v: number | string | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)));
@@ -39,13 +40,17 @@ async function logInbound(input: {
 // prospect -> tries the group-link auto-reply first, otherwise the generic
 // "wait for admin" message + inbox entry; totally unknown number -> same
 // generic message + inbox entry.
-export async function routeIncomingMessage(rawPhone: string, text: string) {
+export async function routeIncomingMessage(rawPhone: string, text: string, waMessageId?: string) {
   const phone = normalizePhone(rawPhone);
   if (!phone || !text?.trim()) return;
 
   const settings = await getSettings();
   // Visibility log so we can confirm Green API actually reaches the server.
   logger.info(`[WhatsAppBot] incoming from ${phone}: ${text.slice(0, 80)}`);
+
+  // Full conversation log for the WhatsApp chat screen — unconditional, runs
+  // regardless of how the bot/inbox logic below ends up handling the message.
+  logChatMessage({ phone, direction: "IN", text, waMessageId }).catch(() => {});
 
   // SaaS entitlement gate — standalone (no TENANT_ID) and tenants with no
   // entitlements configured yet always resolve to true (see hasFeature()),

@@ -229,6 +229,7 @@ export const ROUTE_FEATURE_MAP: ReadonlyArray<RouteFeatureRule> = [
   { prefix: "/transfers", featureKey: "transfers", label: "/transfers" },
   { prefix: "/audit-logs", featureKey: "auditLog", label: "/audit-logs" },
   { prefix: "/inbound-messages", featureKey: "whatsappInbox", label: "/inbound-messages" },
+  { prefix: "/whatsapp-chat", featureKey: "whatsappCampaigns", label: "/whatsapp-chat" },
   { prefix: "/quotations", featureKey: "quotations", label: "/quotations" },
   // dailyClosing: the end-of-day cash-closing report only. Narrow exact prefix
   // so no other /reports/* endpoint is affected. profitReports is intentionally

@@ -188,6 +188,11 @@ enum InboundMessageSource {
   UNKNOWN
 }
 
+enum WhatsappMessageDirection {
+  IN
+  OUT
+}
+
 enum InboundMessageStatus {
   UNREAD
   READ
@@ -300,6 +305,7 @@ model User {
   landedCostBatchesApplied  LandedCostImportBatch[] @relation("LandedCostBatchAppliedBy")
   cycleCountSessionsCreated CycleCountSession[]     @relation("CycleCountSessionCreatedBy")
   cycleCountItemsApproved   CycleCountItem[]        @relation("CycleCountItemApprovedBy")
+  personalDebtsCreated      PersonalDebt[]
 
   @@map("users")
 }
@@ -508,6 +514,52 @@ model InboundMessage {
 
   @@index([status])
   @@map("inbound_messages")
+}
+
+// Full two-way WhatsApp conversation log (Meta Cloud API "messenger" screen) —
+// completely separate from InboundMessage above (which only logs messages the
+// bot couldn't auto-answer). Every outbound send (manual reply, bot reply,
+// invoice/campaign notification) and every inbound webhook message is logged
+// here via whatsapp-chat.service.ts's logChatMessage(), so a conversation
+// thread mirrors the real WhatsApp chat for that phone number.
+model WhatsappConversation {
+  id              String                   @id @default(uuid()) @db.Uuid
+  phone           String                   @unique
+  contactName     String?                  @map("contact_name")
+  customerId      String?                  @map("customer_id") @db.Uuid
+  lastMessageAt   DateTime                 @default(now()) @map("last_message_at")
+  lastMessageText String?                  @map("last_message_text")
+  lastDirection   WhatsappMessageDirection @map("last_direction")
+  unreadCount     Int                      @default(0) @map("unread_count")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  messages        WhatsappMessage[]
+
+  @@index([lastMessageAt])
+  @@map("whatsapp_conversations")
+}
+
+model WhatsappMessage {
+  id             String                   @id @default(uuid()) @db.Uuid
+  conversationId String                   @map("conversation_id") @db.Uuid
+  conversation   WhatsappConversation     @relation(fields: [conversationId], references: [id])
+  direction      WhatsappMessageDirection
+  // Always populated even for media-only messages (readable fallback label,
+  // e.g. "📷 صورة") so the conversation list preview never shows blank.
+  text           String
+  // Non-text content (image/document/audio/video/sticker/location received from
+  // Meta, or a PDF/image WE sent). NULL mediaType = plain text message. Media
+  // bytes are stored inline as a base64 data URL — same convention as product
+  // images (productImageSchema) — no separate file storage/CDN for this feature.
+  mediaType      String?                  @map("media_type")
+  mediaDataUrl   String?                  @db.Text @map("media_data_url")
+  mediaFilename  String?                  @map("media_filename")
+  mediaMimeType  String?                  @map("media_mime_type")
+  waMessageId    String?                  @unique @map("wa_message_id")
+  status         String                   @default("SENT")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  @@index([conversationId, createdAt])
+  @@map("whatsapp_messages")
 }
 
 // Drip marketing campaign — sends a randomized message to a list of recipients
@@ -924,6 +976,30 @@ model Setting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("settings")
+}
+
+// «الديون الشخصية» — personal debts unrelated to shop customers/accounting
+// (e.g. cash lent to a friend). Completely separate from Customer/Notification
+// models above — do not merge. One admin-facing reminder flow: a daily cron
+// (runPersonalDebtReminderJob) surfaces an AppNotification + WhatsApp message
+// for every non-PAID row whose dueDate has arrived, repeating once per day
+// (dedupeKey includes the day) until marked PAID.
+model PersonalDebt {
+  id            String    @id @default(uuid()) @db.Uuid
+  personName    String    @map("person_name")
+  amount        Decimal   @db.Decimal(12, 2)
+  dueDate       DateTime  @map("due_date")
+  status        String    @default("PENDING") // PENDING | PAID (OVERDUE is derived: PENDING + dueDate in the past)
+  notes         String?
+  paidAt        DateTime? @map("paid_at")
+  createdById   String?   @map("created_by") @db.Uuid
+  creator       User?     @relation(fields: [createdById], references: [id])
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, dueDate])
+  @@index([createdById])
+  @@map("personal_debts")
 }
 
 // Precomputed snapshots for the «المساعد الذكي اليومي» (Daily Smart Assistant).

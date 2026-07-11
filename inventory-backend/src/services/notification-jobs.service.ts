@@ -14,6 +14,7 @@ import {
 import { processCampaignsTick } from "./campaign.service";
 import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
+import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
 import {
   NotificationType,
@@ -360,6 +361,14 @@ export function startNotificationJobs() {
   cron.schedule("0 9 * * *", () => {
     runInactiveCustomerJob().catch((error) => {
       reportCronFailure("INACTIVE_CUSTOMER", error);
+    });
+  });
+
+  // «الديون الشخصية» — daily at 09:30, independent of the customer debt
+  // reminder above (unrelated feature, see personal-debt.service.ts).
+  cron.schedule("30 9 * * *", () => {
+    runPersonalDebtReminderJob().catch((error) => {
+      reportCronFailure("PERSONAL_DEBT_REMINDER", error);
     });
   });
 

@@ -123,6 +123,9 @@ export interface AppSettings {
   cycleCountItemLimit?: number;
   cycleCountStrategy?: "RANDOM" | "HIGH_VALUE" | "FAST_MOVING" | "LOW_STOCK" | "LEAST_RECENTLY_COUNTED";
   cycleCountLastRunAt?: string;
+  // «الديون الشخصية» — WhatsApp number that receives the daily due-date reminder.
+  // Sent through the same tenant WhatsApp provider as everything else above.
+  personalDebtReminderWhatsappNumber?: string;
 }
 
 export interface BotRule {

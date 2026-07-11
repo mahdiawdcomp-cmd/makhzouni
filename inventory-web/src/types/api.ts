@@ -20,6 +20,7 @@ export type UserPermission =
   | "VARIETY_CONVERT"
   // DENY marker: when present, hides profit & financial reports even from an ADMIN.
   | "HIDE_PROFIT_REPORTS"
+  | "ACCESS_WHATSAPP_CHAT"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -77,6 +78,38 @@ export interface Approval {
   reviewedAt?: string | null
   createdAt?: string
   requester?: User
+}
+
+// «الديون الشخصية» — unrelated to shop customers/accounting (e.g. cash lent
+// to a friend). See PersonalDebt model in inventory-backend/prisma/schema.prisma.
+export type PersonalDebtStatus = "PENDING" | "OVERDUE" | "PAID"
+
+export interface PersonalDebt {
+  id: string
+  personName: string
+  amount: number
+  dueDate: string
+  status: "PENDING" | "PAID"
+  computedStatus: PersonalDebtStatus
+  notes?: string | null
+  paidAt?: string | null
+  createdAt: string
+  updatedAt: string
+  creator?: { id: string; name: string } | null
+}
+
+export interface CreatePersonalDebtPayload {
+  personName: string
+  amount: number
+  dueDate: string
+  notes?: string
+}
+
+export interface UpdatePersonalDebtPayload {
+  personName?: string
+  amount?: number
+  dueDate?: string
+  notes?: string
 }
 
 export interface PagedResponse<T> {
@@ -988,6 +1021,7 @@ export interface AppSettings {
   invoiceDesign?: string   // visual invoice designer layout (JSON) — separate from WhatsApp text templates above
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
+  personalDebtReminderWhatsappNumber?: string
   shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
@@ -1078,6 +1112,36 @@ export interface InboundMessage {
   status: InboundMessageStatus
   replyText?: string | null
   repliedAt?: string | null
+  createdAt: string
+}
+
+export type WhatsappMessageDirection = "IN" | "OUT"
+
+export interface WhatsappConversation {
+  id: string
+  phone: string
+  contactName?: string | null
+  customerId?: string | null
+  lastMessageAt: string
+  lastMessageText?: string | null
+  lastDirection: WhatsappMessageDirection
+  unreadCount: number
+  createdAt: string
+}
+
+export type WhatsappMediaType = "IMAGE" | "DOCUMENT" | "AUDIO" | "VIDEO" | "STICKER" | "LOCATION"
+
+export interface WhatsappChatMessage {
+  id: string
+  conversationId: string
+  direction: WhatsappMessageDirection
+  text: string
+  mediaType?: WhatsappMediaType | null
+  mediaDataUrl?: string | null
+  mediaFilename?: string | null
+  mediaMimeType?: string | null
+  waMessageId?: string | null
+  status: string
   createdAt: string
 }
 

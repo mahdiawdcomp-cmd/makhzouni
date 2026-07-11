@@ -35,10 +35,12 @@ import stockLossRoutes from "./stock-loss.routes";
 import campaignsRoutes from "./campaigns.routes";
 import prospectsRoutes from "./prospects.routes";
 import inboundMessagesRoutes from "./inbound-messages.routes";
+import whatsappChatRoutes from "./whatsapp-chat.routes";
 import healthRoutes from "./health.routes";
 import errorLogsRoutes from "./error-logs.routes";
 import balanceMigrationRoutes from "./balance-migration.routes";
 import landedCostImportRoutes from "./landed-cost-import.routes";
+import personalDebtRoutes from "./personal-debt.routes";
 
 const router = Router();
 
@@ -49,6 +51,7 @@ router.use("/agent", agentRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);
 router.use("/approvals", approvalsRoutes);
+router.use("/personal-debts", personalDebtRoutes);
 router.use("/audit-logs", auditLogsRoutes);
 router.use("/branches", branchesRoutes);
 router.use("/customers", customersRoutes);
@@ -78,6 +81,7 @@ router.use("/stock-losses", stockLossRoutes);
 router.use("/campaigns", campaignsRoutes);
 router.use("/prospects", prospectsRoutes);
 router.use("/inbound-messages", inboundMessagesRoutes);
+router.use("/whatsapp-chat", whatsappChatRoutes);
 router.use("/health", healthRoutes);
 router.use("/error-logs", errorLogsRoutes);
 router.use("/balance-migration", balanceMigrationRoutes);

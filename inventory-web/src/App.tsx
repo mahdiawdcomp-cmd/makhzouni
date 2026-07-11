@@ -16,6 +16,7 @@ const lazyPage = <T extends Record<string, unknown>>(
 ) => lazy(() => loader().then((m) => ({ default: m[name] as React.ComponentType })))
 
 const ApprovalsPage = lazyPage(() => import("./pages/ApprovalsPage"), "ApprovalsPage")
+const PersonalDebtsPage = lazyPage(() => import("./pages/PersonalDebtsPage"), "PersonalDebtsPage")
 const AuditLogsPage = lazyPage(() => import("./pages/AuditLogsPage"), "AuditLogsPage")
 const AnalyzedErrorsPage = lazyPage(() => import("./pages/AnalyzedErrorsPage"), "AnalyzedErrorsPage")
 const BranchesPage = lazyPage(() => import("./pages/BranchesPage"), "BranchesPage")
@@ -51,6 +52,7 @@ const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), 
 const StaleProductsPage = lazyPage(() => import("./pages/StaleProductsPage"), "StaleProductsPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
 const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
+const WhatsappChatPage = lazyPage(() => import("./pages/WhatsappChatPage"), "WhatsappChatPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
@@ -138,6 +140,7 @@ const router = createBrowserRouter([
           { path: "customers", element: s(<CustomersPage />) },
           { path: "customers/broadcast", element: f("whatsappCampaigns", "حملات واتساب", <CustomerBroadcastPage />) },
           { path: "campaigns", element: f("whatsappCampaigns", "الحملات", <CampaignsPage />) },
+          { path: "whatsapp", element: f("whatsappCampaigns", "محادثات واتساب", <WhatsappChatPage />) },
           { path: "customers/:id", element: s(<CustomerDetailPage />) },
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: f("catalogWholesale", "كتلوگ الجملة", <CatalogManagementPage />) },
@@ -150,6 +153,7 @@ const router = createBrowserRouter([
             children: [
               { path: "users", element: s(<UsersPage />) },
               { path: "approvals", element: s(<ApprovalsPage />) },
+              { path: "personal-debts", element: s(<PersonalDebtsPage />) },
               { path: "audit-logs", element: f("auditLog", "سجل التدقيق", <AuditLogsPage />) },
               { path: "error-logs", element: s(<AnalyzedErrorsPage />) },
               { path: "branches", element: s(<BranchesPage />) },

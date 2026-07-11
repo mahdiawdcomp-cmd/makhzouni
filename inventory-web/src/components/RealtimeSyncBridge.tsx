@@ -22,6 +22,7 @@ type RealtimeResource =
   | "transfers"
   | "users"
   | "vouchers"
+  | "whatsapp-chat"
 
 type RealtimeEvent = {
   type: "connected" | "changed"
@@ -49,6 +50,7 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   transfers: ["transfers", "products", "branches"],
   users: ["users"],
   vouchers: ["vouchers", "voucher", "customers", "dashboard-report", "reports"],
+  "whatsapp-chat": ["whatsapp-conversations", "whatsapp-messages", "whatsapp-unread-count"],
 }
 
 function realtimeUrl(token: string): string | null {

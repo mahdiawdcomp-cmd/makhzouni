@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
+import { logChatMessage } from "./whatsapp-chat.service";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
 export type WhatsAppProvider = "web" | "cloud" | "greenapi" | "manual" | "disabled";
@@ -369,6 +370,56 @@ async function parseGraphError(response: Response) {
   }
 }
 
+// Media larger than this is never inlined as a base64 data URL (would bloat the
+// DB row) — the chat log still gets a readable placeholder, it just can't show
+// the content inline. WhatsApp's own per-type caps (images 5MB, audio/video
+// 16MB, documents 100MB) are all above what's sane to store as base64 text.
+const MAX_INLINE_MEDIA_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Downloads inbound Cloud API media (image/document/audio/video/sticker) by its
+ * Meta media id and returns it as a base64 data URL for inline storage in the
+ * chat log. Meta's media URLs are short-lived and auth-gated, so this must run
+ * synchronously while handling the webhook — there's no "fetch it later".
+ * Returns null (never throws) if the media is missing, too large, or the
+ * download fails — callers fall back to a text-only placeholder so an inbound
+ * message is never silently dropped just because the binary couldn't be fetched.
+ */
+export async function fetchCloudMedia(
+  mediaId: string
+): Promise<{ dataUrl: string; mimeType: string; sizeBytes: number } | null> {
+  try {
+    const { token } = cloudConfig();
+    const metaRes = await fetch(`https://graph.facebook.com/${graphVersion}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) {
+      logger.warn(`[WhatsAppMeta] media metadata fetch failed for ${mediaId}: ${await parseGraphError(metaRes)}`);
+      return null;
+    }
+    const meta = (await metaRes.json()) as { url?: string; mime_type?: string; file_size?: number };
+    if (!meta.url) return null;
+    if (meta.file_size && meta.file_size > MAX_INLINE_MEDIA_BYTES) {
+      logger.info(`[WhatsAppMeta] media ${mediaId} too large to inline (${meta.file_size} bytes) — placeholder only`);
+      return null;
+    }
+
+    const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!fileRes.ok) {
+      logger.warn(`[WhatsAppMeta] media download failed for ${mediaId}: ${fileRes.status}`);
+      return null;
+    }
+    const buf = Buffer.from(await fileRes.arrayBuffer());
+    if (buf.byteLength > MAX_INLINE_MEDIA_BYTES) return null;
+
+    const mimeType = meta.mime_type || "application/octet-stream";
+    return { dataUrl: `data:${mimeType};base64,${buf.toString("base64")}`, mimeType, sizeBytes: buf.byteLength };
+  } catch (err) {
+    logger.warn(`[WhatsAppMeta] fetchCloudMedia error for ${mediaId}: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
 async function sendCloudMessage(payload: Record<string, unknown>): Promise<string | undefined> {
   const { token, baseUrl } = cloudConfig();
   const response = await fetch(`${baseUrl}/messages`, {
@@ -704,6 +755,7 @@ export async function sendWhatsAppText(phone: string, message: string): Promise<
 
   if (prov === "greenapi") {
     const { idMessage } = await sendGreenApiText(phone, message);
+    await logChatMessage({ phone, direction: "OUT", text: message, waMessageId: idMessage }).catch(() => {});
     return { to: phone, message, idMessage };
   }
 
@@ -714,6 +766,7 @@ export async function sendWhatsAppText(phone: string, message: string): Promise<
       type: "text",
       text: { preview_url: false, body: message },
     });
+    await logChatMessage({ phone: to, direction: "OUT", text: message, waMessageId: idMessage }).catch(() => {});
     return { to, message, idMessage };
   }
 
@@ -722,6 +775,7 @@ export async function sendWhatsAppText(phone: string, message: string): Promise<
   try {
     const readyClient = requireReadyClient();
     await readyClient.sendMessage(to, message);
+    await logChatMessage({ phone: to, direction: "OUT", text: message }).catch(() => {});
     return { to, message };
   } catch (err) {
     if (isFrameDetachedError(err)) {
@@ -786,6 +840,18 @@ export async function sendWhatsAppTemplate(
       ...(components.length ? { components } : {}),
     },
   });
+
+  // Templates have no free-text body we can reconstruct exactly — log a
+  // readable summary (name + filled-in body params) so the send still shows
+  // up in the chat thread instead of vanishing silently. Skipped when a PDF
+  // header is attached — sendWhatsAppTemplatePdf logs the richer document
+  // version itself (same idMessage, so this would otherwise just be ignored
+  // as a dedup no-op — better to not race the two at all).
+  if (!options?.documentHeader) {
+    const summary = [`📋 ${templateName}`, ...(options?.bodyParams ?? [])].join(" — ");
+    await logChatMessage({ phone: to, direction: "OUT", text: summary, waMessageId: idMessage }).catch(() => {});
+  }
+
   return { to, idMessage };
 }
 
@@ -804,10 +870,30 @@ export async function sendWhatsAppTemplatePdf(
   bodyParams?: string[],
 ): Promise<{ to: string; idMessage?: string }> {
   const mediaId = await uploadCloudMedia(pdf, filename);
-  return sendWhatsAppTemplate(phone, templateName, languageCode, {
+  const result = await sendWhatsAppTemplate(phone, templateName, languageCode, {
     bodyParams,
     documentHeader: { mediaId, filename },
   });
+
+  const summary = [`📋 ${templateName}`, ...(bodyParams ?? [])].join(" — ");
+  await logChatMessage({
+    phone: result.to,
+    direction: "OUT",
+    text: summary,
+    waMessageId: result.idMessage,
+    mediaType: "DOCUMENT",
+    mediaDataUrl: outboundMediaDataUrl(pdf, "application/pdf"),
+    mediaFilename: filename,
+    mediaMimeType: "application/pdf",
+  }).catch(() => {});
+
+  return result;
+}
+
+/** Inline base64 data URL for outbound media, capped the same as inbound downloads — null if too large to store. */
+function outboundMediaDataUrl(buf: Buffer, mimeType: string): string | null {
+  if (buf.byteLength > MAX_INLINE_MEDIA_BYTES) return null;
+  return `data:${mimeType};base64,${buf.toString("base64")}`;
 }
 
 export async function sendWhatsAppPdf(
@@ -817,9 +903,20 @@ export async function sendWhatsAppPdf(
   filename: string,
 ): Promise<{ to: string; filename: string }> {
   const prov = assertCanSend();
+  const logPdf = (to: string) =>
+    logChatMessage({
+      phone: to,
+      direction: "OUT",
+      text: message,
+      mediaType: "DOCUMENT",
+      mediaDataUrl: outboundMediaDataUrl(pdf, "application/pdf"),
+      mediaFilename: filename,
+      mediaMimeType: "application/pdf",
+    }).catch(() => {});
 
   if (prov === "greenapi") {
     await sendGreenApiDocument(phone, pdf, filename, message);
+    await logPdf(phone);
     return { to: phone, filename };
   }
 
@@ -835,6 +932,7 @@ export async function sendWhatsAppPdf(
         caption: message,
       },
     });
+    await logPdf(to);
     return { to, filename };
   }
 
@@ -844,6 +942,7 @@ export async function sendWhatsAppPdf(
     const readyClient = requireReadyClient();
     const media = new MessageMedia("application/pdf", pdf.toString("base64"), filename);
     await readyClient.sendMessage(to, media, { caption: message });
+    await logPdf(to);
     return { to, filename };
   } catch (err) {
     if (isFrameDetachedError(err)) {
@@ -863,9 +962,20 @@ export async function sendWhatsAppImage(
   mime = "image/jpeg",
 ): Promise<{ to: string; idMessage?: string }> {
   const prov = assertCanSend();
+  const logImage = (to: string, idMessage?: string) =>
+    logChatMessage({
+      phone: to,
+      direction: "OUT",
+      text: message,
+      waMessageId: idMessage,
+      mediaType: "IMAGE",
+      mediaDataUrl: outboundMediaDataUrl(image, mime),
+      mediaMimeType: mime,
+    }).catch(() => {});
 
   if (prov === "greenapi") {
     const { idMessage } = await sendGreenApiImage(phone, image, mime, message);
+    await logImage(phone, idMessage);
     return { to: phone, idMessage };
   }
 
@@ -877,6 +987,7 @@ export async function sendWhatsAppImage(
       type: "image",
       image: { id: mediaId, caption: message },
     });
+    await logImage(to, idMessage);
     return { to, idMessage };
   }
 
@@ -885,6 +996,7 @@ export async function sendWhatsAppImage(
     const readyClient = requireReadyClient();
     const media = new MessageMedia(mime, image.toString("base64"), "image.jpg");
     await readyClient.sendMessage(to, media, { caption: message });
+    await logImage(to);
     return { to };
   } catch (err) {
     if (isFrameDetachedError(err)) {
