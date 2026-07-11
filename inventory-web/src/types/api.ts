@@ -1142,6 +1142,7 @@ export interface WhatsappChatMessage {
   mediaMimeType?: string | null
   waMessageId?: string | null
   status: string
+  statusError?: string | null
   createdAt: string
 }
 

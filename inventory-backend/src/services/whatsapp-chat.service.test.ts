@@ -70,6 +70,12 @@ const fakePrisma = {
       rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       return take ? rows.slice(0, take) : rows;
     },
+    update: async ({ where, data }: any) => {
+      const row = messages.find((m) => m.id === where.id);
+      if (!row) throw new Error("message not found");
+      Object.assign(row, data);
+      return row;
+    },
   },
 };
 
@@ -213,5 +219,42 @@ describe("whatsapp-chat.service", () => {
     const page = await svc.getMessages("9647709999998");
     assert.equal(page.hasMore, false);
     assert.equal(page.conversation, null);
+  });
+
+  it("updateMessageStatus walks the lifecycle SENT → DELIVERED → READ", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.1" });
+    let m = await svc.updateMessageStatus("wamid.1", "delivered");
+    assert.equal(m?.status, "DELIVERED");
+    m = await svc.updateMessageStatus("wamid.1", "read");
+    assert.equal(m?.status, "READ");
+  });
+
+  it("updateMessageStatus never downgrades READ back to DELIVERED (out-of-order webhook)", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.2" });
+    await svc.updateMessageStatus("wamid.2", "read");
+    const m = await svc.updateMessageStatus("wamid.2", "delivered");
+    assert.equal(m?.status, "READ");
+  });
+
+  it("updateMessageStatus FAILED always applies and keeps the error reason", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.3" });
+    await svc.updateMessageStatus("wamid.3", "read");
+    const m = await svc.updateMessageStatus("wamid.3", "failed", "Message failed: 24h window closed");
+    assert.equal(m?.status, "FAILED");
+    assert.equal(m?.statusError, "Message failed: 24h window closed");
+  });
+
+  it("updateMessageStatus is a silent no-op for unknown waMessageId or status", async () => {
+    assert.equal(await svc.updateMessageStatus("wamid.unknown", "delivered"), null);
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.4" });
+    assert.equal(await svc.updateMessageStatus("wamid.4", "weird_future_status"), null);
+  });
+
+  it("a status update publishes a realtime whatsapp-chat event", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.5" });
+    realtimeEvents = [];
+    await svc.updateMessageStatus("wamid.5", "delivered");
+    assert.equal(realtimeEvents.length, 1);
+    assert.equal(realtimeEvents[0].resource, "whatsapp-chat");
   });
 });

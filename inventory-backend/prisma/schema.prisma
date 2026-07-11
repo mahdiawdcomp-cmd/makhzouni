@@ -555,7 +555,10 @@ model WhatsappMessage {
   mediaFilename  String?                  @map("media_filename")
   mediaMimeType  String?                  @map("media_mime_type")
   waMessageId    String?                  @unique @map("wa_message_id")
+  // Delivery lifecycle from Meta status webhooks: SENT → DELIVERED → READ,
+  // or FAILED (statusError then holds Meta's human-readable reason).
   status         String                   @default("SENT")
+  statusError    String?                  @map("status_error")
   createdAt      DateTime                 @default(now()) @map("created_at")
 
   @@index([conversationId, createdAt])

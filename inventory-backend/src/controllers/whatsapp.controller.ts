@@ -6,7 +6,7 @@ import { generateInvoicePdf, generateCustomerImageInvoiceWithProducts } from "..
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
-import { logChatMessage } from "../services/whatsapp-chat.service";
+import { logChatMessage, updateMessageStatus } from "../services/whatsapp-chat.service";
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import { logger } from "../utils/logger";
 import {
@@ -203,6 +203,11 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
         changes?: Array<{
           value?: {
             messages?: CloudInboundMessage[];
+            statuses?: Array<{
+              id?: string;
+              status?: string;
+              errors?: Array<{ title?: string; message?: string; error_data?: { details?: string } }>;
+            }>;
           };
         }>;
       }>;
@@ -224,6 +229,17 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
               logger.warn(`[WhatsAppMeta] failed to log inbound ${msg.type} message: ${err instanceof Error ? err.message : String(err)}`)
             );
           }
+        }
+
+        // Delivery lifecycle of OUR outbound messages (sent/delivered/read/failed).
+        for (const st of change.value?.statuses ?? []) {
+          if (!st.id || !st.status) continue;
+          const err = st.errors?.[0];
+          const reason = err ? [err.title, err.error_data?.details ?? err.message].filter(Boolean).join(": ") : null;
+          if (st.status === "failed") logger.warn(`[WhatsAppMeta] outbound message ${st.id} failed: ${reason ?? "unknown"}`);
+          await updateMessageStatus(st.id, st.status, reason).catch((e) =>
+            logger.warn(`[WhatsAppMeta] failed to apply status ${st.status} for ${st.id}: ${e instanceof Error ? e.message : String(e)}`)
+          );
         }
       }
     }

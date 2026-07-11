@@ -100,6 +100,32 @@ export async function logChatMessage(input: {
   return message;
 }
 
+// Lifecycle order — a late/out-of-order webhook must never downgrade READ back
+// to DELIVERED. FAILED is terminal and always applies (Meta can fail after
+// "sent", e.g. 24h-window rejection).
+const STATUS_RANK: Record<string, number> = { SENT: 0, DELIVERED: 1, READ: 2, FAILED: 3 };
+
+/**
+ * Applies a Meta `statuses` webhook event to the matching outbound message.
+ * Unknown waMessageId (campaign sends predating chat log, other tenants'
+ * numbers) is a silent no-op — status events must never 500 the webhook.
+ */
+export async function updateMessageStatus(waMessageId: string, status: string, statusError?: string | null) {
+  const normalized = status.toUpperCase();
+  if (!(normalized in STATUS_RANK)) return null;
+
+  const message = await prisma.whatsappMessage.findUnique({ where: { waMessageId } });
+  if (!message) return null;
+  if (STATUS_RANK[normalized] <= (STATUS_RANK[message.status] ?? -1)) return message;
+
+  const updated = await prisma.whatsappMessage.update({
+    where: { id: message.id },
+    data: { status: normalized, statusError: normalized === "FAILED" ? statusError ?? null : null },
+  });
+  publishRealtimeChange({ resource: "whatsapp-chat", action: "status" });
+  return updated;
+}
+
 export async function getConversations(search?: string) {
   const term = search?.trim();
   const where = term

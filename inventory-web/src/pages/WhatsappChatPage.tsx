@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronUp, FileText, MessageCircle, Paperclip, Search, Send } from "lucide-react"
+import { AlertCircle, Check, CheckCheck, ChevronUp, FileText, MessageCircle, Paperclip, Search, Send } from "lucide-react"
 import {
   getWhatsappConversations,
   getWhatsappMessages,
@@ -129,21 +129,47 @@ function BubbleText({ m }: { m: WhatsappChatMessage }) {
   )
 }
 
+// WhatsApp-style delivery ticks for outbound messages: ✓ sent, ✓✓ delivered,
+// ✓✓ (blue) read, ⚠ failed. Statuses arrive via the Meta `statuses` webhook.
+function StatusTicks({ m }: { m: WhatsappChatMessage }) {
+  switch (m.status) {
+    case "READ":
+      return <CheckCheck className="h-3.5 w-3.5 text-sky-200" />
+    case "DELIVERED":
+      return <CheckCheck className="h-3.5 w-3.5 text-emerald-50/80" />
+    case "FAILED":
+      return <AlertCircle className="h-3.5 w-3.5 text-red-200" />
+    default:
+      return <Check className="h-3.5 w-3.5 text-emerald-50/80" />
+  }
+}
+
 function MessageBubble({ m }: { m: WhatsappChatMessage }) {
   const isOut = m.direction === "OUT"
+  const failed = isOut && m.status === "FAILED"
   return (
     <div className={cn("flex w-full", isOut ? "justify-end" : "justify-start")}>
       <div
         className={cn(
           "max-w-[70%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed shadow-sm",
           isOut
-            ? "rounded-tl-sm bg-emerald-500 text-white"
+            ? failed
+              ? "rounded-tl-sm bg-red-500 text-white"
+              : "rounded-tl-sm bg-emerald-500 text-white"
             : "rounded-tr-sm border bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
         )}
       >
         <MediaContent m={m} />
         <BubbleText m={m} />
-        <div className={cn("mt-1 text-[10px]", isOut ? "text-emerald-50/80" : "text-slate-400")}>{bubbleTime(m.createdAt)}</div>
+        {failed && (
+          <p className="mt-1 text-[11px] text-red-100">
+            ✗ فشل الإرسال{m.statusError ? ` — ${m.statusError}` : ""}
+          </p>
+        )}
+        <div className={cn("mt-1 flex items-center gap-1 text-[10px]", isOut ? "justify-end text-emerald-50/80" : "text-slate-400")}>
+          <span>{bubbleTime(m.createdAt)}</span>
+          {isOut && <StatusTicks m={m} />}
+        </div>
       </div>
     </div>
   )
