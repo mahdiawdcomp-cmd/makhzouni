@@ -40,7 +40,12 @@ async function logInbound(input: {
 // prospect -> tries the group-link auto-reply first, otherwise the generic
 // "wait for admin" message + inbox entry; totally unknown number -> same
 // generic message + inbox entry.
-export async function routeIncomingMessage(rawPhone: string, text: string, waMessageId?: string) {
+export async function routeIncomingMessage(
+  rawPhone: string,
+  text: string,
+  waMessageId?: string,
+  opts?: { replyToWaMessageId?: string | null },
+) {
   const phone = normalizePhone(rawPhone);
   if (!phone || !text?.trim()) return;
 
@@ -50,7 +55,7 @@ export async function routeIncomingMessage(rawPhone: string, text: string, waMes
 
   // Full conversation log for the WhatsApp chat screen — unconditional, runs
   // regardless of how the bot/inbox logic below ends up handling the message.
-  logChatMessage({ phone, direction: "IN", text, waMessageId }).catch(() => {});
+  logChatMessage({ phone, direction: "IN", text, waMessageId, replyToWaMessageId: opts?.replyToWaMessageId }).catch(() => {});
 
   // SaaS entitlement gate — standalone (no TENANT_ID) and tenants with no
   // entitlements configured yet always resolve to true (see hasFeature()),

@@ -1126,6 +1126,9 @@ export interface WhatsappConversation {
   lastMessageText?: string | null
   lastDirection: WhatsappMessageDirection
   unreadCount: number
+  isArchived?: boolean
+  isPinned?: boolean
+  internalNotes?: string | null
   createdAt: string
 }
 
@@ -1143,7 +1146,18 @@ export interface WhatsappChatMessage {
   waMessageId?: string | null
   status: string
   statusError?: string | null
+  replyToWaMessageId?: string | null
+  replyToText?: string | null
+  reactionEmoji?: string | null
   createdAt: string
+}
+
+export interface WhatsappQuickReply {
+  id: string
+  name: string
+  body: string
+  isActive: boolean
+  createdAt?: string
 }
 
 export interface MessageTemplate {

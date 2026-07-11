@@ -6,7 +6,7 @@ import { generateInvoicePdf, generateCustomerImageInvoiceWithProducts } from "..
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
-import { logChatMessage, updateMessageStatus } from "../services/whatsapp-chat.service";
+import { applyMessageReaction, fillConversationContactName, logChatMessage, updateMessageStatus } from "../services/whatsapp-chat.service";
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import { logger } from "../utils/logger";
 import {
@@ -92,6 +92,8 @@ type CloudInboundMessage = {
   id?: string;
   from?: string;
   type?: string;
+  context?: { id?: string };
+  reaction?: { message_id?: string; emoji?: string };
   text?: { body?: string };
   image?: { id?: string; mime_type?: string; caption?: string };
   document?: { id?: string; mime_type?: string; filename?: string; caption?: string };
@@ -111,7 +113,7 @@ type CloudInboundMessage = {
  */
 async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
   const waMessageId = msg.id;
-  const base = { phone, direction: "IN" as const, waMessageId };
+  const base = { phone, direction: "IN" as const, waMessageId, replyToWaMessageId: msg.context?.id ?? null };
 
   switch (msg.type) {
     case "image": {
@@ -202,6 +204,7 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
       entry?: Array<{
         changes?: Array<{
           value?: {
+            contacts?: Array<{ wa_id?: string; profile?: { name?: string } }>;
             messages?: CloudInboundMessage[];
             statuses?: Array<{
               id?: string;
@@ -217,13 +220,25 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
 
     for (const entry of body.entry ?? []) {
       for (const change of entry.changes ?? []) {
+        // Customer's WhatsApp profile name — fills the conversation title when
+        // the number matches no customer/prospect record.
+        const profile = change.value?.contacts?.[0];
+        if (profile?.wa_id && profile.profile?.name) {
+          await fillConversationContactName(profile.wa_id, profile.profile.name).catch(() => {});
+        }
+
         for (const msg of change.value?.messages ?? []) {
           const phone = (msg.from ?? "").replace(/\D/g, "");
           if (!phone) continue;
 
-          if (msg.type === "text") {
+          if (msg.type === "reaction") {
+            // Emoji on one of OUR messages — attach it to the target, not a new row.
+            if (msg.reaction?.message_id) {
+              await applyMessageReaction(msg.reaction.message_id, msg.reaction.emoji ?? null).catch(() => {});
+            }
+          } else if (msg.type === "text") {
             const text = msg.text?.body ?? "";
-            if (text) await routeIncomingMessage(phone, text, msg.id);
+            if (text) await routeIncomingMessage(phone, text, msg.id, { replyToWaMessageId: msg.context?.id });
           } else {
             await logInboundMediaMessage(phone, msg).catch((err) =>
               logger.warn(`[WhatsAppMeta] failed to log inbound ${msg.type} message: ${err instanceof Error ? err.message : String(err)}`)

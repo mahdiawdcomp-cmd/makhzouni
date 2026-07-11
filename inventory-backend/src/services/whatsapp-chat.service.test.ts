@@ -40,6 +40,7 @@ const fakePrisma = {
     },
     findMany: async ({ where, take }: any) => {
       let rows = [...conversations];
+      if (where?.isArchived === false) rows = rows.filter((r) => !r.isArchived);
       if (where?.OR) {
         rows = rows.filter((r) =>
           where.OR.some((cond: any) => {
@@ -262,5 +263,86 @@ describe("whatsapp-chat.service", () => {
     await svc.updateMessageStatus("wamid.5", "delivered");
     assert.equal(realtimeEvents.length, 1);
     assert.equal(realtimeEvents[0].resource, "whatsapp-chat");
+  });
+
+  it("logChatMessage stores a reply-to snapshot resolved from the quoted message's text", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "IN", text: "السعر شكد؟", waMessageId: "wamid.q1" });
+    const reply = await svc.logChatMessage({
+      phone: "9647701234567",
+      direction: "OUT",
+      text: "5000 دينار",
+      replyToWaMessageId: "wamid.q1",
+    });
+    assert.equal(reply?.replyToWaMessageId, "wamid.q1");
+    assert.equal(reply?.replyToText, "السعر شكد؟");
+  });
+
+  it("logChatMessage leaves replyToText null when the quoted wa id is unknown", async () => {
+    const reply = await svc.logChatMessage({
+      phone: "9647701234567",
+      direction: "IN",
+      text: "رد على شي مو موجود",
+      replyToWaMessageId: "wamid.missing",
+    });
+    assert.equal(reply?.replyToText, null);
+  });
+
+  it("applyMessageReaction attaches an emoji to the target message and publishes realtime", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.r1" });
+    realtimeEvents = [];
+    const updated = await svc.applyMessageReaction("wamid.r1", "👍");
+    assert.equal(updated?.reactionEmoji, "👍");
+    assert.equal(realtimeEvents[0]?.resource, "whatsapp-chat");
+  });
+
+  it("applyMessageReaction with a falsy emoji removes the reaction", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "OUT", text: "هلا", waMessageId: "wamid.r2" });
+    await svc.applyMessageReaction("wamid.r2", "❤️");
+    const cleared = await svc.applyMessageReaction("wamid.r2", null);
+    assert.equal(cleared?.reactionEmoji, null);
+  });
+
+  it("applyMessageReaction is a silent no-op for an unknown waMessageId", async () => {
+    assert.equal(await svc.applyMessageReaction("wamid.unknown", "👍"), null);
+  });
+
+  it("fillConversationContactName sets the name only when the conversation has none yet", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "IN", text: "هلا" });
+    await svc.fillConversationContactName("9647701234567", "زبون من ميتا");
+    let convs = await svc.getConversations();
+    assert.equal(convs[0].contactName, "زبون من ميتا");
+
+    await svc.fillConversationContactName("9647701234567", "اسم ثاني");
+    convs = await svc.getConversations();
+    assert.equal(convs[0].contactName, "زبون من ميتا"); // customer/prospect match still wins, first name sticks
+  });
+
+  it("setConversationArchived hides a conversation from the default list and restores it", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "IN", text: "هلا" });
+    await svc.setConversationArchived("9647701234567", true);
+    assert.equal((await svc.getConversations()).length, 0);
+    assert.equal((await svc.getConversations(undefined, { includeArchived: true })).length, 1);
+    await svc.setConversationArchived("9647701234567", false);
+    assert.equal((await svc.getConversations()).length, 1);
+  });
+
+  it("setConversationArchived throws for an unknown phone", async () => {
+    await assert.rejects(() => svc.setConversationArchived("9647709999999", true));
+  });
+
+  it("setConversationPinned sorts pinned conversations to the top", async () => {
+    await svc.logChatMessage({ phone: "9647701111111", direction: "IN", text: "a" });
+    await svc.logChatMessage({ phone: "9647702222222", direction: "IN", text: "b" });
+    await svc.setConversationPinned("9647701111111", true);
+    const convs = await svc.getConversations();
+    assert.equal(convs[0].phone, "9647701111111");
+  });
+
+  it("setConversationNotes trims and stores staff-only notes, blank clears them", async () => {
+    await svc.logChatMessage({ phone: "9647701234567", direction: "IN", text: "هلا" });
+    const withNote = await svc.setConversationNotes("9647701234567", "  زبون VIP  ");
+    assert.equal(withNote.internalNotes, "زبون VIP");
+    const cleared = await svc.setConversationNotes("9647701234567", "   ");
+    assert.equal(cleared.internalNotes, null);
   });
 });

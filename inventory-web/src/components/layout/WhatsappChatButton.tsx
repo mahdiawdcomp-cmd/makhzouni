@@ -34,6 +34,31 @@ function playWhatsappChime() {
   }
 }
 
+// Desktop notification for a new inbound WhatsApp message — no service worker
+// needed since it's shown from the already-open tab. Silently does nothing if
+// the browser doesn't support Notification or the user never grants it.
+function notifyNewWhatsappMessage(onClick: () => void) {
+  if (!("Notification" in window)) return
+  const show = () => {
+    const n = new Notification("رسالة واتساب جديدة", {
+      body: "وصلتك رسالة جديدة — اضغط للفتح",
+      icon: "/pwa-icon.svg",
+      tag: "whatsapp-chat", // collapses rapid-fire notifications into one
+    })
+    n.onclick = () => {
+      window.focus()
+      onClick()
+      n.close()
+    }
+  }
+  if (Notification.permission === "granted") show()
+  else if (Notification.permission === "default") {
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") show()
+    })
+  }
+}
+
 export function WhatsappChatButton() {
   const navigate = useNavigate()
   const hasPermission = useAuthStore((s) => s.hasPermission)
@@ -58,12 +83,19 @@ export function WhatsappChatButton() {
       prevCount.current = count
       return
     }
-    if (count > prevCount.current && !muted && Date.now() - lastPlayedAt.current > SOUND_COOLDOWN_MS) {
-      lastPlayedAt.current = Date.now()
-      playWhatsappChime()
+    if (count > prevCount.current) {
+      if (!muted && Date.now() - lastPlayedAt.current > SOUND_COOLDOWN_MS) {
+        lastPlayedAt.current = Date.now()
+        playWhatsappChime()
+      }
+      // Desktop notification only when the tab isn't the one the user is looking
+      // at right now — avoids a redundant popup while the chat is already open.
+      if (document.hidden || !window.location.pathname.startsWith("/whatsapp")) {
+        notifyNewWhatsappMessage(() => navigate("/whatsapp"))
+      }
     }
     prevCount.current = count
-  }, [count, muted, canAccess])
+  }, [count, muted, canAccess, navigate])
 
   function toggleMute(e: React.MouseEvent) {
     e.stopPropagation()

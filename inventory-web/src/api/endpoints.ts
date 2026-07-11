@@ -29,6 +29,7 @@ import type {
   InboundMessageStatus,
   WhatsappConversation,
   WhatsappChatMessage,
+  WhatsappQuickReply,
   Coupon,
   CreateInvoicePayload,
   CreateUserPayload,
@@ -253,8 +254,8 @@ export async function replyToInboundMessage(id: string, text: string) {
 }
 
 /* ── WhatsApp chat (Meta Cloud API messenger screen) ─────────────────── */
-export async function getWhatsappConversations(search?: string) {
-  const { data } = await api.get<ApiEnvelope<WhatsappConversation[]>>("/whatsapp-chat/conversations", { params: { search } })
+export async function getWhatsappConversations(search?: string, includeArchived?: boolean) {
+  const { data } = await api.get<ApiEnvelope<WhatsappConversation[]>>("/whatsapp-chat/conversations", { params: { search, includeArchived } })
   return data.data ?? []
 }
 
@@ -271,8 +272,8 @@ export async function getWhatsappMessages(phone: string, params?: { before?: str
   return data.data ?? { conversation: null, messages: [], hasMore: false, lastInboundAt: null }
 }
 
-export async function sendWhatsappChatMessage(phone: string, text: string) {
-  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text })
+export async function sendWhatsappChatMessage(phone: string, text: string, replyToWaMessageId?: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text, replyToWaMessageId })
   return data.data
 }
 
@@ -281,9 +282,43 @@ export async function sendWhatsappChatMedia(phone: string, payload: { dataUrl: s
   return data.data
 }
 
+export async function sendWhatsappChatReaction(phone: string, waMessageId: string, emoji: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/reaction`, { waMessageId, emoji })
+  return data.data
+}
+
 export async function markWhatsappConversationRead(phone: string) {
   const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/read`, {})
   return data.data
+}
+
+export async function archiveWhatsappConversation(phone: string, isArchived: boolean) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/archive`, { isArchived })
+  return data.data
+}
+
+export async function pinWhatsappConversation(phone: string, isPinned: boolean) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/pin`, { isPinned })
+  return data.data
+}
+
+export async function updateWhatsappConversationNotes(phone: string, notes: string) {
+  const { data } = await api.put<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/notes`, { notes })
+  return data.data
+}
+
+export async function getWhatsappQuickReplies() {
+  const { data } = await api.get<ApiEnvelope<WhatsappQuickReply[]>>("/whatsapp-chat/quick-replies")
+  return data.data ?? []
+}
+
+export async function createWhatsappQuickReply(name: string, body: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappQuickReply>>("/whatsapp-chat/quick-replies", { name, body })
+  return data.data
+}
+
+export async function deleteWhatsappQuickReply(id: string) {
+  await api.delete(`/whatsapp-chat/quick-replies/${id}`)
 }
 
 /* ── Prospects (زبائن محتملين) ──────────────────────────────────────── */

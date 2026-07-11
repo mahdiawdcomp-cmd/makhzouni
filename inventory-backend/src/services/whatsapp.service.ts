@@ -782,13 +782,19 @@ export async function restartWhatsApp() {
   initializeWhatsApp();
 }
 
-/** Send a text message. */
-export async function sendWhatsAppText(phone: string, message: string): Promise<{ to: string; message: string; idMessage?: string }> {
+/** Send a text message. opts.replyToWaMessageId quotes an earlier message
+ * (real WhatsApp reply on Cloud API; other providers just log the quote). */
+export async function sendWhatsAppText(
+  phone: string,
+  message: string,
+  opts?: { replyToWaMessageId?: string },
+): Promise<{ to: string; message: string; idMessage?: string }> {
   const prov = assertCanSend();
+  const replyToWaMessageId = opts?.replyToWaMessageId ?? null;
 
   if (prov === "greenapi") {
     const { idMessage } = await sendGreenApiText(phone, message);
-    await logChatMessage({ phone, direction: "OUT", text: message, waMessageId: idMessage }).catch(() => {});
+    await logChatMessage({ phone, direction: "OUT", text: message, waMessageId: idMessage, replyToWaMessageId }).catch(() => {});
     return { to: phone, message, idMessage };
   }
 
@@ -798,8 +804,9 @@ export async function sendWhatsAppText(phone: string, message: string): Promise<
       to,
       type: "text",
       text: { preview_url: false, body: message },
+      ...(replyToWaMessageId ? { context: { message_id: replyToWaMessageId } } : {}),
     });
-    await logChatMessage({ phone: to, direction: "OUT", text: message, waMessageId: idMessage }).catch(() => {});
+    await logChatMessage({ phone: to, direction: "OUT", text: message, waMessageId: idMessage, replyToWaMessageId }).catch(() => {});
     return { to, message, idMessage };
   }
 
@@ -999,6 +1006,43 @@ export async function sendWhatsAppPdf(
   filename: string,
 ): Promise<{ to: string; filename: string }> {
   return sendWhatsAppDocument(phone, message, pdf, filename, "application/pdf");
+}
+
+/** Send a voice note (Cloud API only — the chat screen is Cloud-based).
+ * Meta accepts aac/m4a/mp3/ogg-opus; the recorder picks a supported mime. */
+export async function sendWhatsAppAudio(
+  phone: string,
+  audio: Buffer,
+  mime: string,
+): Promise<{ to: string; idMessage?: string }> {
+  const prov = assertCanSend();
+  if (prov !== "cloud") {
+    throw new AppError("الرسائل الصوتية مدعومة فقط مع Meta Cloud API", 400, "WHATSAPP_AUDIO_CLOUD_ONLY");
+  }
+  const to = normalizeCloudPhone(phone);
+  const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") || mime.includes("m4a") ? "m4a" : mime.includes("mpeg") ? "mp3" : "aac";
+  const mediaId = await uploadCloudMedia(audio, `voice.${ext}`, mime);
+  const idMessage = await sendCloudMessage({ to, type: "audio", audio: { id: mediaId } });
+  await logChatMessage({
+    phone: to,
+    direction: "OUT",
+    text: "",
+    waMessageId: idMessage,
+    mediaType: "AUDIO",
+    mediaDataUrl: outboundMediaDataUrl(audio, mime),
+    mediaMimeType: mime,
+  }).catch(() => {});
+  return { to, idMessage };
+}
+
+/** React to a message with an emoji (empty string removes the reaction). */
+export async function sendWhatsAppReaction(phone: string, waMessageId: string, emoji: string): Promise<void> {
+  const prov = assertCanSend();
+  if (prov !== "cloud") {
+    throw new AppError("التفاعلات مدعومة فقط مع Meta Cloud API", 400, "WHATSAPP_REACTION_CLOUD_ONLY");
+  }
+  const to = normalizeCloudPhone(phone);
+  await sendCloudMessage({ to, type: "reaction", reaction: { message_id: waMessageId, emoji } });
 }
 
 export async function sendWhatsAppImage(

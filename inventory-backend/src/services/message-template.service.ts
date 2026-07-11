@@ -9,6 +9,32 @@ export async function listMessageTemplates() {
   });
 }
 
+
+const QUICK_REPLY_TYPE = "QUICK_REPLY";
+
+/** Canned replies for the WhatsApp chat composer — a filtered slice of the
+ * same MessageTemplate table used for automated triggers. */
+export async function listQuickReplies() {
+  return prisma.messageTemplate.findMany({
+    where: { type: QUICK_REPLY_TYPE, isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+export async function createQuickReply(name: string, body: string) {
+  return prisma.messageTemplate.create({
+    data: { name, body, type: QUICK_REPLY_TYPE, isActive: true },
+  });
+}
+
+export async function deleteQuickReply(id: string) {
+  const template = await prisma.messageTemplate.findUnique({ where: { id } });
+  if (!template || template.type !== QUICK_REPLY_TYPE) {
+    throw new AppError("الرد الجاهز غير موجود", 404, "TEMPLATE_NOT_FOUND");
+  }
+  await prisma.messageTemplate.delete({ where: { id } });
+}
+
 export async function updateMessageTemplate(
   id: string,
   input: {

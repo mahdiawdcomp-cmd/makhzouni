@@ -531,6 +531,11 @@ model WhatsappConversation {
   lastMessageText String?                  @map("last_message_text")
   lastDirection   WhatsappMessageDirection @map("last_direction")
   unreadCount     Int                      @default(0) @map("unread_count")
+  // Conversation management — archive out of the default list, pin to the
+  // top, and a staff-only note thread never sent to the customer.
+  isArchived      Boolean                  @default(false) @map("is_archived")
+  isPinned        Boolean                  @default(false) @map("is_pinned")
+  internalNotes   String?                  @db.Text @map("internal_notes")
   createdAt       DateTime                 @default(now()) @map("created_at")
   messages        WhatsappMessage[]
 
@@ -559,6 +564,12 @@ model WhatsappMessage {
   // or FAILED (statusError then holds Meta's human-readable reason).
   status         String                   @default("SENT")
   statusError    String?                  @map("status_error")
+  // Reply/quote: the quoted message's wa id + a denormalized text snapshot so
+  // the quote block renders even when the original is outside the loaded page.
+  replyToWaMessageId String?              @map("reply_to_wa_message_id")
+  replyToText        String?              @map("reply_to_text")
+  // Latest emoji reaction on this message (either side); null = none/removed.
+  reactionEmoji      String?              @map("reaction_emoji")
   createdAt      DateTime                 @default(now()) @map("created_at")
 
   @@index([conversationId, createdAt])

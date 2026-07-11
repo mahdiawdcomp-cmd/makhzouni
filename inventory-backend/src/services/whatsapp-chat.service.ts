@@ -45,6 +45,7 @@ export async function logChatMessage(input: {
   mediaDataUrl?: string | null;
   mediaFilename?: string | null;
   mediaMimeType?: string | null;
+  replyToWaMessageId?: string | null;
 }) {
   const phone = normalizePhone(input.phone);
   const text = input.text?.trim() || (input.mediaType ? mediaFallbackText(input.mediaType, input.mediaFilename) : "");
@@ -82,6 +83,17 @@ export async function logChatMessage(input: {
         });
       })();
 
+  // Quote snapshot: resolve the quoted message's text once at write time so
+  // the quote block renders even when the original falls off the loaded page.
+  let replyToText: string | null = null;
+  if (input.replyToWaMessageId) {
+    const quoted = await prisma.whatsappMessage.findUnique({
+      where: { waMessageId: input.replyToWaMessageId },
+      select: { text: true },
+    });
+    replyToText = quoted?.text ?? null;
+  }
+
   const message = await prisma.whatsappMessage.create({
     data: {
       conversationId: conv.id,
@@ -92,12 +104,70 @@ export async function logChatMessage(input: {
       mediaFilename: input.mediaFilename ?? null,
       mediaMimeType: input.mediaMimeType ?? null,
       waMessageId: input.waMessageId ?? null,
+      replyToWaMessageId: input.replyToWaMessageId ?? null,
+      replyToText,
     },
   });
 
   publishRealtimeChange({ resource: "whatsapp-chat", action: input.direction === "IN" ? "inbound" : "outbound" });
 
   return message;
+}
+
+/** Latest emoji reaction on a message (empty emoji = reaction removed). */
+export async function applyMessageReaction(waMessageId: string, emoji: string | null) {
+  const message = await prisma.whatsappMessage.findUnique({ where: { waMessageId } });
+  if (!message) return null;
+  const updated = await prisma.whatsappMessage.update({
+    where: { id: message.id },
+    data: { reactionEmoji: emoji || null },
+  });
+  publishRealtimeChange({ resource: "whatsapp-chat", action: "reaction" });
+  return updated;
+}
+
+/** Fills the conversation's contact name from Meta's inbound profile.name —
+ * only when we don't already have a name (customer/prospect match wins). */
+export async function fillConversationContactName(phone: string, profileName: string) {
+  const normalized = normalizePhone(phone);
+  const name = profileName.trim();
+  if (!normalized || !name) return;
+  const conversation = await prisma.whatsappConversation.findUnique({ where: { phone: normalized } });
+  if (!conversation || conversation.contactName) return;
+  await prisma.whatsappConversation.update({ where: { id: conversation.id }, data: { contactName: name } });
+}
+
+
+/** Archive/unarchive a conversation — hides it from the default list. */
+export async function setConversationArchived(phone: string, isArchived: boolean) {
+  const normalized = normalizePhone(phone);
+  const conversation = await prisma.whatsappConversation.findUnique({ where: { phone: normalized } });
+  if (!conversation) throw new AppError("المحادثة غير موجودة", 404, "WHATSAPP_CONVERSATION_NOT_FOUND");
+  const updated = await prisma.whatsappConversation.update({ where: { id: conversation.id }, data: { isArchived } });
+  publishRealtimeChange({ resource: "whatsapp-chat", action: "conversation-updated" });
+  return updated;
+}
+
+/** Pin/unpin a conversation to the top of the list. */
+export async function setConversationPinned(phone: string, isPinned: boolean) {
+  const normalized = normalizePhone(phone);
+  const conversation = await prisma.whatsappConversation.findUnique({ where: { phone: normalized } });
+  if (!conversation) throw new AppError("المحادثة غير موجودة", 404, "WHATSAPP_CONVERSATION_NOT_FOUND");
+  const updated = await prisma.whatsappConversation.update({ where: { id: conversation.id }, data: { isPinned } });
+  publishRealtimeChange({ resource: "whatsapp-chat", action: "conversation-updated" });
+  return updated;
+}
+
+/** Staff-only note on a conversation — never sent to the customer. */
+export async function setConversationNotes(phone: string, notes: string) {
+  const normalized = normalizePhone(phone);
+  const conversation = await prisma.whatsappConversation.findUnique({ where: { phone: normalized } });
+  if (!conversation) throw new AppError("المحادثة غير موجودة", 404, "WHATSAPP_CONVERSATION_NOT_FOUND");
+  const updated = await prisma.whatsappConversation.update({
+    where: { id: conversation.id },
+    data: { internalNotes: notes.trim() || null },
+  });
+  return updated;
 }
 
 // Lifecycle order — a late/out-of-order webhook must never downgrade READ back
@@ -126,17 +196,22 @@ export async function updateMessageStatus(waMessageId: string, status: string, s
   return updated;
 }
 
-export async function getConversations(search?: string) {
+export async function getConversations(search?: string, opts?: { includeArchived?: boolean }) {
   const term = search?.trim();
-  const where = term
-    ? {
-        OR: [
-          { phone: { contains: normalizePhone(term) || term } },
-          { contactName: { contains: term, mode: "insensitive" as const } },
-        ],
-      }
-    : {};
-  return prisma.whatsappConversation.findMany({ where, orderBy: { lastMessageAt: "desc" }, take: 200 });
+  const where = {
+    ...(opts?.includeArchived ? {} : { isArchived: false }),
+    ...(term
+      ? {
+          OR: [
+            { phone: { contains: normalizePhone(term) || term } },
+            { contactName: { contains: term, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+  const rows = await prisma.whatsappConversation.findMany({ where, orderBy: { lastMessageAt: "desc" }, take: 200 });
+  // Pinned conversations float to the top; each group keeps its recency order.
+  return [...rows].sort((a, b) => Number(b.isPinned) - Number(a.isPinned));
 }
 
 export async function getUnreadCount() {

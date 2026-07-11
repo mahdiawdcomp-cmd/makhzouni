@@ -289,6 +289,10 @@ export function InvoiceCreatePage() {
   // matching pending preparation and fills customer + items from it. Passing it
   // in the URL (not location.state) survives the tid redirect / refresh / new tab.
   const fromPrepId = searchParams.get("fromPrep")
+  // Customer id from the URL (?customerId=...) — used by "quick invoice" links
+  // elsewhere (e.g. the WhatsApp chat screen) to preselect the customer.
+  const urlCustomerId = searchParams.get("customerId")
+  const customerPrefillAppliedRef = useRef(false)
   const { data: pendingPreps } = useQuery({
     queryKey: ["order-preparations"],
     queryFn: getOrderPreparations,
@@ -535,6 +539,19 @@ export function InvoiceCreatePage() {
     if (newItems.length > 0) setItems(newItems)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customers, products, activeTid, pendingPreps, fromPrepId])
+
+  // ----- PREFILL customer from a quick-invoice link (?customerId=<id>) -----
+  useEffect(() => {
+    if (!urlCustomerId) return
+    if (fromPrepId) return // order-prep prefill takes priority when both are present
+    if (customerPrefillAppliedRef.current) return
+    if (customers.length === 0) return
+    const customer = customers.find((c) => c.id === urlCustomerId)
+    if (!customer) return
+    customerPrefillAppliedRef.current = true
+    setSelectedCustomer(customer)
+    setCustomerQuery(customer.name)
+  }, [customers, urlCustomerId, fromPrepId])
 
   useEffect(() => {
     if (!pendingCloseTabId || pendingCloseTabId !== activeTid) return
