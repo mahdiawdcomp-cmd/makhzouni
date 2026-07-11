@@ -264,11 +264,11 @@ export async function getWhatsappUnreadCount() {
 }
 
 export async function getWhatsappMessages(phone: string, params?: { before?: string; limit?: number }) {
-  const { data } = await api.get<ApiEnvelope<{ conversation: WhatsappConversation | null; messages: WhatsappChatMessage[]; hasMore: boolean }>>(
+  const { data } = await api.get<ApiEnvelope<{ conversation: WhatsappConversation | null; messages: WhatsappChatMessage[]; hasMore: boolean; lastInboundAt?: string | null }>>(
     `/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`,
     { params }
   )
-  return data.data ?? { conversation: null, messages: [], hasMore: false }
+  return data.data ?? { conversation: null, messages: [], hasMore: false, lastInboundAt: null }
 }
 
 export async function sendWhatsappChatMessage(phone: string, text: string) {

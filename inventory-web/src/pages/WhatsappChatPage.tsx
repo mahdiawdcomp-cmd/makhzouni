@@ -206,6 +206,12 @@ export function WhatsappChatPage() {
   const activeConversation =
     conversations.find((c) => c.phone === selectedPhone) ?? threadQuery.data?.conversation ?? null
 
+  // Meta's 24h reply window — opens on the customer's LAST inbound message.
+  const lastInboundAt = threadQuery.data?.lastInboundAt ?? null
+  const windowClosed = Boolean(
+    selectedPhone && threadQuery.data && (!lastInboundAt || Date.now() - new Date(lastInboundAt).getTime() > 24 * 60 * 60 * 1000)
+  )
+
   // Reset accumulated older pages whenever the open conversation changes, and
   // pick up the initial page's hasMore flag as the starting point.
   useEffect(() => {
@@ -462,6 +468,11 @@ export function WhatsappChatPage() {
               )}
             </div>
 
+            {windowClosed && (
+              <div className="flex items-center gap-2 border-t bg-amber-50 px-3 py-2 text-[11.5px] text-amber-700 dark:bg-amber-950 dark:text-amber-300" style={{ borderColor: "var(--theme-cardBorder)" }}>
+                ⏱ مضت أكثر من 24 ساعة على آخر رسالة من الزبون — واتساب قد يرفض الرسائل الحرة حتى يراسلك من جديد (الرسالة المرفوضة تظهر حمراء مع السبب).
+              </div>
+            )}
             {attachment && (
               <div className="flex items-center gap-2 border-t px-3 py-2" style={{ borderColor: "var(--theme-cardBorder)" }}>
                 {attachment.mime.startsWith("image/") ? (

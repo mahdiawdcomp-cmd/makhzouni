@@ -76,6 +76,12 @@ const fakePrisma = {
       Object.assign(row, data);
       return row;
     },
+    findFirst: async ({ where, orderBy }: any) => {
+      let rows = messages.filter((m) => m.conversationId === where.conversationId);
+      if (where.direction) rows = rows.filter((m) => m.direction === where.direction);
+      if (orderBy?.createdAt === "desc") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return rows[0] ?? null;
+    },
   },
 };
 

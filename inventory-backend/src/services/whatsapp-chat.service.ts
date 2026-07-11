@@ -147,7 +147,15 @@ export async function getUnreadCount() {
 export async function getMessages(phone: string, opts?: { before?: string; limit?: number }) {
   const normalized = normalizePhone(phone);
   const conversation = await prisma.whatsappConversation.findUnique({ where: { phone: normalized } });
-  if (!conversation) return { conversation: null, messages: [], hasMore: false };
+  if (!conversation) return { conversation: null, messages: [], hasMore: false, lastInboundAt: null };
+
+  // Meta's 24h customer-service window opens on each INBOUND message — the UI
+  // warns that free-text sends may be rejected once it has lapsed.
+  const lastInbound = await prisma.whatsappMessage.findFirst({
+    where: { conversationId: conversation.id, direction: "IN" },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true },
+  });
 
   const limit = Math.min(opts?.limit ?? MESSAGE_PAGE_SIZE, MESSAGE_PAGE_SIZE_MAX);
   const rows = await prisma.whatsappMessage.findMany({
@@ -160,7 +168,7 @@ export async function getMessages(phone: string, opts?: { before?: string; limit
   });
   const hasMore = rows.length > limit;
 
-  return { conversation, messages: rows.slice(0, limit).reverse(), hasMore };
+  return { conversation, messages: rows.slice(0, limit).reverse(), hasMore, lastInboundAt: lastInbound?.createdAt ?? null };
 }
 
 export async function markConversationRead(phone: string) {
