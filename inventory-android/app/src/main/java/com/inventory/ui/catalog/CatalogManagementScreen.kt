@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -64,6 +65,7 @@ import com.inventory.data.remote.dto.CatalogCustomerDto
 import com.inventory.ui.common.StatusBadge
 import com.inventory.ui.common.StatusType
 import com.inventory.ui.theme.AppColor
+import com.inventory.utils.sendWhatsApp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -170,6 +172,11 @@ fun CatalogManagementScreen(
                                     val link = "${getCatalogBaseUrl()}$token"
                                     clipboardManager.setPrimaryClip(ClipData.newPlainText("رابط الكتلوك", link))
                                     Toast.makeText(context, "تم نسخ الرابط", Toast.LENGTH_SHORT).show()
+                                },
+                                onSendWhatsApp = { token ->
+                                    val link = "${getCatalogBaseUrl()}$token"
+                                    val message = "مرحباً ${customer.name}، تفضل رابط الكتلوك الخاص بك:\n$link"
+                                    sendWhatsApp(context, customer.phone, message)
                                 }
                             )
                         }
@@ -188,7 +195,8 @@ private fun CatalogCustomerCard(
     onPatchAllowPrices: (Boolean) -> Unit,
     onPatchShowStock: (Boolean) -> Unit,
     onRevoke: () -> Unit,
-    onCopyLink: (token: String) -> Unit
+    onCopyLink: (token: String) -> Unit,
+    onSendWhatsApp: (token: String) -> Unit
 ) {
     var showGrantDialog by remember { mutableStateOf(false) }
     var showRevokeDialog by remember { mutableStateOf(false) }
@@ -269,6 +277,18 @@ private fun CatalogCustomerCard(
                         Text("الكميات", style = MaterialTheme.typography.labelMedium)
                         Switch(checked = customer.showStock, onCheckedChange = onPatchShowStock, modifier = Modifier.height(24.dp))
                     }
+                }
+
+                Button(
+                    onClick = { customer.token?.let(onSendWhatsApp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = customer.token != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = AppColor.Green600)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("إرسال عبر واتساب", style = MaterialTheme.typography.labelMedium)
                 }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -4,6 +4,10 @@ import com.inventory.data.remote.dto.ApiEnvelope
 import com.inventory.data.remote.dto.AgentChatRequest
 import com.inventory.data.remote.dto.AgentChatResponse
 import com.inventory.data.remote.dto.ApprovalDto
+import com.inventory.data.remote.dto.CreateCycleCountRequest
+import com.inventory.data.remote.dto.CycleCountSessionDto
+import com.inventory.data.remote.dto.CycleCountSessionDetailDto
+import com.inventory.data.remote.dto.UpdateCycleCountItemRequest
 import com.inventory.data.remote.dto.AppSettingsDto
 import com.inventory.data.remote.dto.UpdateAppSettingsRequest
 import com.inventory.data.remote.dto.AdjustStockRequest
@@ -483,4 +487,50 @@ interface InventoryApi {
     // ── Tenant entitlements ─────────────────────────────────────────────────────
     @GET("tenant-info")
     suspend fun getTenantInfo(): TenantInfoDto
+
+    // ── Cycle count (جدولة الجرد الذكي) — admin routes ─────────────────────────
+    @GET("cycle-count")
+    suspend fun getCycleCountSessions(): ApiEnvelope<List<CycleCountSessionDto>>
+
+    @POST("cycle-count")
+    suspend fun createCycleCountSession(@Body body: CreateCycleCountRequest): ApiEnvelope<CycleCountSessionDto>
+
+    @GET("cycle-count/{id}")
+    suspend fun getCycleCountSession(@Path("id") id: String): ApiEnvelope<CycleCountSessionDetailDto>
+
+    @PATCH("cycle-count/{id}/items")
+    suspend fun updateCycleCountItem(
+        @Path("id") id: String,
+        @Body body: UpdateCycleCountItemRequest,
+    ): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/submit")
+    suspend fun submitCycleCountSession(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/close")
+    suspend fun closeCycleCountSession(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/cancel")
+    suspend fun cancelCycleCountSession(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/reopen")
+    suspend fun reopenCycleCountSession(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/items/{itemId}/approve")
+    suspend fun approveCycleCountItem(
+        @Path("id") id: String,
+        @Path("itemId") itemId: String,
+    ): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/items/{itemId}/reject")
+    suspend fun rejectCycleCountItem(
+        @Path("id") id: String,
+        @Path("itemId") itemId: String,
+    ): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/approve-all")
+    suspend fun approveAllCycleCountItems(@Path("id") id: String): ApiEnvelope<Any>
+
+    @POST("cycle-count/{id}/reject-all")
+    suspend fun rejectAllCycleCountItems(@Path("id") id: String): ApiEnvelope<Any>
 }

@@ -512,6 +512,7 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                         onOcrInvoice = { navController.navigate(Routes.OcrInvoice) },
                         onRetailOrders = { navController.navigate(Routes.RetailOrders) },
                         onLosses = { navController.navigate(Routes.Losses) },
+                        onCycleCount = { navController.navigate(Routes.CycleCount) },
                         isAdmin = shellState.isAdmin,
                         permissions = shellState.permissions,
                         tenantFeatures = shellState.tenantFeatures
@@ -571,6 +572,12 @@ fun InventoryNavHost(shellViewModel: InventoryShellViewModel = hiltViewModel()) 
                     }
                 }
                 composable(Routes.Losses) { LossesScreen(hiltViewModel(), onBack = { navController.popBackStack() }) }
+                composable(Routes.CycleCount) {
+                    com.inventory.ui.operations.CycleCountScreen(
+                        viewModel = hiltViewModel(),
+                        onBack = { navController.popBackStack() }
+                    )
+                }
                 composable(Routes.Branches) {
                     BranchesScreen(
                         viewModel = hiltViewModel(),

@@ -1019,3 +1019,82 @@ data class TenantInfoDto(
     // off whichever shape actually comes back, without guessing wrong and crashing.
     val data: TenantInfoDto? = null,
 )
+
+// ── Cycle Count (جدولة الجرد الذكي) — independent from stocktake ───────────────
+// Mirrors inventory-backend cycle-count.service list/get shapes. See the web
+// CycleCountPage.tsx for the admin UI this parallels.
+
+data class NamedRefDto(
+    val id: String,
+    val name: String? = null,
+)
+
+data class CycleCountSessionDto(
+    val id: String,
+    val status: String,
+    val strategy: String,
+    val itemLimit: Int,
+    val source: String? = null,
+    val publicToken: String? = null,
+    val scheduledFor: String? = null,
+    val notes: String? = null,
+    val createdAt: String,
+    val submittedAt: String? = null,
+    val closedAt: String? = null,
+    val creator: NamedRefDto? = null,
+    val warehouse: NamedRefDto? = null,
+    val itemCount: Int = 0,
+)
+
+data class CycleCountItemDto(
+    val id: String,
+    val productId: String,
+    val productName: String,
+    val category: String? = null,
+    val systemQty: Int,
+    val actualQty: Int? = null,
+    val variance: Int? = null,
+    val notes: String? = null,
+    val approvalStatus: String? = null,
+    val approvedQty: Int? = null,
+    val approver: NamedRefDto? = null,
+    val approvedAt: String? = null,
+    val hasError: Boolean = false,
+)
+
+data class CycleCountStatsDto(
+    val total: Int = 0,
+    val filled: Int = 0,
+    val errors: Int = 0,
+)
+
+data class CycleCountSessionDetailDto(
+    val id: String,
+    val status: String,
+    val strategy: String,
+    val itemLimit: Int,
+    val source: String? = null,
+    val publicToken: String? = null,
+    val scheduledFor: String? = null,
+    val notes: String? = null,
+    val createdAt: String,
+    val submittedAt: String? = null,
+    val closedAt: String? = null,
+    val creator: NamedRefDto? = null,
+    val warehouse: NamedRefDto? = null,
+    val stats: CycleCountStatsDto = CycleCountStatsDto(),
+    val items: List<CycleCountItemDto> = emptyList(),
+)
+
+data class CreateCycleCountRequest(
+    val warehouseId: String? = null,
+    val strategy: String,
+    val itemLimit: Int,
+    val notes: String? = null,
+)
+
+data class UpdateCycleCountItemRequest(
+    val productId: String,
+    val actualQty: Int,
+    val notes: String? = null,
+)

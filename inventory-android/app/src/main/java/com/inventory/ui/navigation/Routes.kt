@@ -49,6 +49,7 @@ object Routes {
     const val AuditLogs = "operations/audit-logs"
     const val RetailOrders = "operations/retail-orders"
     const val Losses = "operations/losses"
+    const val CycleCount = "operations/cycle-count"
 
     fun productDetail(productId: String) = "products/$productId"
     fun productEdit(productId: String) = "products/$productId/edit"

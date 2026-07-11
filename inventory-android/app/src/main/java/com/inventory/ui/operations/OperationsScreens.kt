@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AssignmentReturn
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Delete
@@ -127,6 +128,7 @@ fun OperationsHubScreen(
     onOcrInvoice: () -> Unit = {},
     onRetailOrders: () -> Unit = {},
     onLosses: () -> Unit = {},
+    onCycleCount: () -> Unit = {},
     isAdmin: Boolean = true,
     permissions: List<String> = emptyList(),
     tenantFeatures: List<String> = emptyList(),
@@ -156,6 +158,7 @@ fun OperationsHubScreen(
         if (canSettings) {
             if (featureOn("transfers")) add(HubItem("التحويلات", "نقل مواد بين المخازن", Icons.Default.SwapHoriz, AppColor.Sky500, onTransfers))
             add(HubItem("التلف والخسائر", "تسجيل وإلغاء الهالك", Icons.Default.BrokenImage, AppColor.Red600, onLosses))
+            add(HubItem("الجرد الذكي", "جرد مجدول لعينة مواد", Icons.Default.Checklist, Color(0xFF0EA5E9), onCycleCount))
             add(HubItem("المخازن", "المحل والمخازن", Icons.Default.Warehouse, AppColor.Amber600, onBranches))
             add(HubItem("الكوبونات", "خصومات وعروض", Icons.Default.LocalOffer, Color(0xFF0F766E), onCoupons))
             if (featureOn("auditLog")) add(HubItem("سجل التدقيق", "من عدل ومتى", Icons.Default.History, AppColor.Gray700, onAudit))
