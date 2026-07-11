@@ -56,6 +56,8 @@ import {
   testWhatsAppPdf,
   checkWhatsAppWebhook,
   regenerateVerifyToken,
+  getWabaSubscribedApps,
+  subscribeAppToWaba,
   updateMessageTemplate,
   updateSettings,
   triggerManualBackup,
@@ -1891,6 +1893,11 @@ function WhatsAppProviderSettings({
     mutationFn: regenerateVerifyToken,
     onSuccess: (d) => { if (d) upd("whatsappCloudVerifyToken", d.verifyToken) },
   })
+  const wabaAppsCheck = useMutation({ mutationFn: () => getWabaSubscribedApps() })
+  const wabaAppsSubscribe = useMutation({
+    mutationFn: () => subscribeAppToWaba(),
+    onSuccess: () => wabaAppsCheck.mutate(),
+  })
 
   const anyTestPending = testText.isPending || testImage.isPending || testPdf.isPending
   const lastTestError =
@@ -2129,6 +2136,41 @@ function WhatsAppProviderSettings({
                 )}
               </div>
             )}
+
+            <div className="border-t pt-4 dark:border-slate-700">
+              <div className="mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                تغيير الرابط أعلاه لا يكفي وحده — رقمك لازم يكون <strong>مشترك بتطبيقنا تحديداً</strong> عند ميتا،
+                وإلا تضل الرسائل تروح لأداة ثانية (متل Chatwoot) كانت مشتركة سابقاً بنفس الرقم. اضغط «فحص» للتأكد.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => wabaAppsCheck.mutate()} disabled={wabaAppsCheck.isPending}>
+                  <Link2 className="h-4 w-4" />فحص اشتراك التطبيق بالرقم
+                </Button>
+                <Button type="button" variant="outline" onClick={() => wabaAppsSubscribe.mutate()} disabled={wabaAppsSubscribe.isPending}>
+                  <RefreshCw className={`h-4 w-4 ${wabaAppsSubscribe.isPending ? "animate-spin" : ""}`} />اشترك تطبيقنا الآن
+                </Button>
+              </div>
+              {wabaAppsCheck.data && (
+                <div className="mt-2 space-y-1">
+                  {wabaAppsCheck.data.apps.length === 0 ? (
+                    <p className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      ما فيه أي تطبيق مشترك بهذا الرقم — لازم تضغط «اشترك تطبيقنا الآن».
+                    </p>
+                  ) : (
+                    wabaAppsCheck.data.apps.map((a, i) => (
+                      <p key={i} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                        {a.whatsapp_business_api_data?.name ?? "تطبيق غير معروف"} (ID: {a.whatsapp_business_api_data?.id ?? "?"})
+                      </p>
+                    ))
+                  )}
+                </div>
+              )}
+              {wabaAppsSubscribe.isSuccess && (
+                <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ تم اشتراك التطبيق — جرّب ترسل رسالة اختبار الآن.</p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

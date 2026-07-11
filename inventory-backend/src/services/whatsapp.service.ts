@@ -89,6 +89,39 @@ export function getCloudWebhookConfig() {
   };
 }
 
+/**
+ * Lists which Meta Apps are currently subscribed to receive webhook events for
+ * this WABA (Business Account) — changing an App's Callback URL does NOT move
+ * this subscription. A number connected through a different tool (e.g.
+ * Chatwoot, which subscribes its OWN app to the WABA) will keep sending events
+ * to that tool's app even after the URL is changed here, until OUR app is
+ * explicitly (re-)subscribed via subscribeAppToWaba().
+ */
+export async function getWabaSubscribedApps(wabaId: string) {
+  const { token } = cloudConfig();
+  const response = await fetch(`https://graph.facebook.com/${graphVersion}/${wabaId}/subscribed_apps`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new AppError(`Failed to read WABA subscriptions: ${await parseGraphError(response)}`, 502, "WHATSAPP_WABA_SUBSCRIPTIONS_FAILED");
+  }
+  const data = (await response.json()) as { data?: Array<{ whatsapp_business_api_data?: { id?: string; name?: string; link?: string } }> };
+  return data.data ?? [];
+}
+
+/** Subscribes THIS app (the one behind our stored access token) to the WABA's webhook events. */
+export async function subscribeAppToWaba(wabaId: string) {
+  const { token } = cloudConfig();
+  const response = await fetch(`https://graph.facebook.com/${graphVersion}/${wabaId}/subscribed_apps`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new AppError(`Failed to subscribe app to WABA: ${await parseGraphError(response)}`, 502, "WHATSAPP_WABA_SUBSCRIBE_FAILED");
+  }
+  return (await response.json()) as { success?: boolean };
+}
+
 function hasGreenApiCreds() {
   return Boolean(
     (_greenApiInstanceId || process.env.GREENAPI_INSTANCE_ID?.trim()) &&

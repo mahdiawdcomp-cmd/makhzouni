@@ -11,6 +11,8 @@ import {
   testWhatsAppPdf,
   checkWhatsAppWebhook,
   regenerateVerifyToken,
+  getWhatsappSubscribedApps,
+  postWhatsappSubscribeApp,
 } from "../controllers/whatsapp.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { adminOnly } from "../middleware/admin-only.middleware";
@@ -46,5 +48,7 @@ router.post("/test/image", adminOnly, testWhatsAppImage);
 router.post("/test/pdf", adminOnly, testWhatsAppPdf);
 router.get("/webhook-check", adminOnly, checkWhatsAppWebhook);
 router.post("/verify-token/regenerate", adminOnly, regenerateVerifyToken);
+router.get("/waba-subscribed-apps", adminOnly, getWhatsappSubscribedApps);
+router.post("/waba-subscribed-apps", adminOnly, postWhatsappSubscribeApp);
 
 export default router;

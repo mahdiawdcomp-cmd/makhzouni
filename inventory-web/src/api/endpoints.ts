@@ -1314,6 +1314,20 @@ export async function regenerateVerifyToken() {
   return data.data
 }
 
+export interface WabaSubscribedApp {
+  whatsapp_business_api_data?: { id?: string; name?: string; link?: string }
+}
+
+export async function getWabaSubscribedApps(wabaId?: string) {
+  const { data } = await api.get<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { params: { wabaId } })
+  return data.data
+}
+
+export async function subscribeAppToWaba(wabaId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { wabaId })
+  return data.data
+}
+
 export interface TransferItemPayload {
   productId: string
   quantity: number

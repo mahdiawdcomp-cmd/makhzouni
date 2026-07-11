@@ -15,6 +15,8 @@ import {
   getWhatsAppStatus,
   restartWhatsApp,
   fetchCloudMedia,
+  getWabaSubscribedApps,
+  subscribeAppToWaba,
   sendWhatsAppImage,
   sendWhatsAppPdf,
   sendWhatsAppTemplatePdf,
@@ -469,4 +471,30 @@ export const regenerateVerifyToken = asyncHandler(async (_req, res) => {
   const token = generateVerifyToken();
   await updateSettings({ whatsappCloudVerifyToken: token });
   res.json({ success: true, message: "تم توليد Verify Token جديد", data: { verifyToken: token } });
+});
+
+/**
+ * Lists which Meta Apps are subscribed to this WABA's webhook events. Changing
+ * the Callback URL alone does NOT move this — a number set up through another
+ * tool (e.g. Chatwoot) will keep sending events to THAT tool's app until ours
+ * is explicitly (re-)subscribed via postWhatsappSubscribeApp below.
+ */
+export const getWhatsappSubscribedApps = asyncHandler(async (req, res) => {
+  const settings = await getSettings();
+  const wabaId = String(req.query.wabaId ?? settings.whatsappCloudBusinessAccountId ?? "").trim();
+  if (!wabaId) throw new AppError("Business Account ID (WABA) غير مضبوط", 400, "WABA_ID_MISSING");
+
+  const apps = await getWabaSubscribedApps(wabaId);
+  res.json({ success: true, data: { wabaId, apps } });
+});
+
+/** Subscribes OUR app (the one behind the stored Cloud access token) to the WABA. */
+export const postWhatsappSubscribeApp = asyncHandler(async (req, res) => {
+  const settings = await getSettings();
+  const wabaId = String(req.body?.wabaId ?? settings.whatsappCloudBusinessAccountId ?? "").trim();
+  if (!wabaId) throw new AppError("Business Account ID (WABA) غير مضبوط", 400, "WABA_ID_MISSING");
+
+  await subscribeAppToWaba(wabaId);
+  const apps = await getWabaSubscribedApps(wabaId);
+  res.json({ success: true, message: "تم اشتراك التطبيق بنجاح", data: { wabaId, apps } });
 });
