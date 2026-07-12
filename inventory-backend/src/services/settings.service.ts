@@ -166,7 +166,7 @@ export const defaultSettings: AppSettings = {
   voucherTemplate:
     "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nحسابكم السابق: {{previousBalance}} {{currency}}\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
   statementTemplate:
-    "كشف حساب {{customerName}} حتى {{date}}\n{{transactionsList}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
+    "كشف حساب {{customerName}} حتى {{date}}.\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
   // Matches the template name already live in Meta WhatsApp Manager for the
   // regular PDF invoice send — kept as the default so existing behavior is
   // unchanged for tenants who never open this setting.

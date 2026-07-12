@@ -31,23 +31,10 @@ import {
   transactionTone,
 } from "../utils/customerStatementExport"
 
+// Text statement is kept intentionally short — just the current balance. The
+// full transaction detail lives in the PDF send and the interactive portal link.
 const DEFAULT_STATEMENT_TEMPLATE =
-  "كشف حساب {{customerName}} حتى {{date}}\n{{transactionsList}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
-
-// Last N transactions (invoices + vouchers, oldest of the window first) as a
-// readable block — this becomes a single WhatsApp text/template parameter, so
-// it's capped short rather than dumping the customer's whole history.
-const STATEMENT_TRANSACTIONS_LIMIT = 10
-function buildTransactionsListText(rows: CustomerTransaction[], currency: string): string {
-  const relevant = mergeStatementRows(rows).filter(
-    (r) => r.status !== "CANCELLED" && String(r.type ?? "").toUpperCase() !== "EXPENSE"
-  )
-  const recent = relevant.slice(-STATEMENT_TRANSACTIONS_LIMIT)
-  if (!recent.length) return "لا توجد حركات."
-  return recent
-    .map((r) => `${translateRow(r)} ${r.referenceNumber} — ${String(r.date).slice(0, 10)} — ${money(r.amount)} ${currency}`)
-    .join("\n")
-}
+  "كشف حساب {{customerName}} حتى {{date}}.\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
 
 function money(value: number | undefined | null) { return fmt(value) }
 
@@ -135,12 +122,10 @@ export function CustomerDetailPage() {
     if (!customer) return
     if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
     const currency = settings?.currency ?? "د.ع"
-    const transactionsList = buildTransactionsListText(transactions, currency)
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: customer.name,
       date: localDateStr(),
-      transactionsList,
       currentBalance: money(customer.currentBalance),
       currency,
       storeName: settings?.storeName ?? "",
@@ -155,7 +140,6 @@ export function CustomerDetailPage() {
         bodyParams: [
           customer.name,
           localDateStr(),
-          transactionsList,
           money(customer.currentBalance),
           currency,
           settings?.storeName ?? "",
