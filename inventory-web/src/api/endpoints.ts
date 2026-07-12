@@ -307,6 +307,13 @@ export async function updateWhatsappConversationNotes(phone: string, notes: stri
   return data.data
 }
 
+// Generate + send the customer's account statement as a WhatsApp PDF document.
+// `date` (YYYY-MM-DD) caps movements up to that day; omit for full history.
+export async function sendCustomerStatementPdfWhatsapp(customerId: string, date?: string) {
+  const { data } = await api.post<ApiEnvelope<never>>(`/customers/${customerId}/statement-pdf-whatsapp`, { date })
+  return data
+}
+
 export async function getWhatsappQuickReplies() {
   const { data } = await api.get<ApiEnvelope<WhatsappQuickReply[]>>("/whatsapp-chat/quick-replies")
   return data.data ?? []
@@ -1279,6 +1286,19 @@ export async function sendInvoiceToWorkers(invoiceId: string, phones: string[]) 
 
 export async function sendWhatsAppMessage(payload: { phone: string; message: string }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
+  return data
+}
+
+// Same free-text fallback as sendWhatsAppMessage, but also tries the
+// Meta-approved template configured in Settings for this templateKind first
+// (survives the 24h reply-window restriction once a template is approved).
+export async function sendWhatsAppTemplatedMessage(payload: {
+  phone: string
+  message: string
+  templateKind: "voucher" | "statement" | "portal"
+  bodyParams: string[]
+}) {
+  const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send-templated", payload)
   return data
 }
 

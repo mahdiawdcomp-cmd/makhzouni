@@ -17,6 +17,19 @@ export interface AppSettings {
   invoiceDesign?: string;
   voucherTemplate: string;
   statementTemplate: string;
+  // Meta-approved Cloud API template names (WhatsApp Manager → your business
+  // account). Empty = not submitted/approved yet, sends fall back to the free
+  // text templates above (silently rejected by Meta once the customer's 24h
+  // reply window has closed). Once you create + get a template approved in
+  // Meta, paste its exact name here and sends start using it automatically —
+  // no further deploy needed. Cloud API only; ignored for other providers.
+  // Reused for both the regular PDF invoice and the customer-safe "فاتورة
+  // بالصور" send — both go out as a document (PDF) now, so one approved
+  // template covers both.
+  invoiceTemplateName?: string;
+  voucherTemplateName?: string;
+  statementTemplateName?: string;
+  portalLinkTemplateName?: string;
   // UI preferences
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
@@ -151,9 +164,16 @@ export const defaultSettings: AppSettings = {
     "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير",
   invoiceDesign: "",
   voucherTemplate:
-    "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
+    "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nحسابكم السابق: {{previousBalance}} {{currency}}\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
   statementTemplate:
-    "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
+    "كشف حساب {{customerName}} حتى {{date}}\n{{transactionsList}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
+  // Matches the template name already live in Meta WhatsApp Manager for the
+  // regular PDF invoice send — kept as the default so existing behavior is
+  // unchanged for tenants who never open this setting.
+  invoiceTemplateName: "invoice_notification",
+  voucherTemplateName: "",
+  statementTemplateName: "",
+  portalLinkTemplateName: "",
   themePreset: "classic",
   shopWarehouseId: "",
   catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",

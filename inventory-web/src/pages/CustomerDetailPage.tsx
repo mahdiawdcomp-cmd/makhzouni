@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, Link2, MessageCircle, Pencil, Send, Trash2 } from "lucide-react"
+import { ArrowRight, Copy, FileText, Link2, MessageCircle, Pencil, Send, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
@@ -11,7 +11,7 @@ import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/us
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { apiErrorMessage } from "../utils/apiError"
-import { sendWhatsAppMessage } from "../api/endpoints"
+import { sendWhatsAppTemplatedMessage, sendCustomerStatementPdfWhatsapp } from "../api/endpoints"
 import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
@@ -32,7 +32,22 @@ import {
 } from "../utils/customerStatementExport"
 
 const DEFAULT_STATEMENT_TEMPLATE =
-  "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
+  "كشف حساب {{customerName}} حتى {{date}}\n{{transactionsList}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
+
+// Last N transactions (invoices + vouchers, oldest of the window first) as a
+// readable block — this becomes a single WhatsApp text/template parameter, so
+// it's capped short rather than dumping the customer's whole history.
+const STATEMENT_TRANSACTIONS_LIMIT = 10
+function buildTransactionsListText(rows: CustomerTransaction[], currency: string): string {
+  const relevant = mergeStatementRows(rows).filter(
+    (r) => r.status !== "CANCELLED" && String(r.type ?? "").toUpperCase() !== "EXPENSE"
+  )
+  const recent = relevant.slice(-STATEMENT_TRANSACTIONS_LIMIT)
+  if (!recent.length) return "لا توجد حركات."
+  return recent
+    .map((r) => `${translateRow(r)} ${r.referenceNumber} — ${String(r.date).slice(0, 10)} — ${money(r.amount)} ${currency}`)
+    .join("\n")
+}
 
 function money(value: number | undefined | null) { return fmt(value) }
 
@@ -45,6 +60,8 @@ export function CustomerDetailPage() {
   const [receiptOpen, setReceiptOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+  const [pdfDate, setPdfDate] = useState(() => localDateStr())
   const queryClient = useQueryClient()
   const details = useCustomerDetails(id)
   const updateMutation = useUpdateCustomer(id)
@@ -117,17 +134,33 @@ export function CustomerDetailPage() {
   async function sendStatement() {
     if (!customer) return
     if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    const currency = settings?.currency ?? "د.ع"
+    const transactionsList = buildTransactionsListText(transactions, currency)
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: customer.name,
       date: localDateStr(),
-      openingBalance: money(customer.openingBalance),
+      transactionsList,
       currentBalance: money(customer.currentBalance),
-      currency: settings?.currency ?? "د.ع",
+      currency,
       storeName: settings?.storeName ?? "",
     })
     try {
-      await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: msg })
+      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+      // placeholders, in this order, if/once one is configured in Settings.
+      await sendWhatsAppTemplatedMessage({
+        phone: normalizePhone(customer.phone),
+        message: msg,
+        templateKind: "statement",
+        bodyParams: [
+          customer.name,
+          localDateStr(),
+          transactionsList,
+          money(customer.currentBalance),
+          currency,
+          settings?.storeName ?? "",
+        ],
+      })
       toast({ title: "✓ تم إرسال الكشف عبر واتساب." })
     } catch {
       toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
@@ -138,6 +171,17 @@ export function CustomerDetailPage() {
     if (!customer) return
     await portalMutation.mutateAsync(!portalEnabled)
   }
+
+  // "إرسال PDF" — server renders the full account statement up to the picked
+  // date and sends it as a WhatsApp document.
+  const sendStatementPdfMutation = useMutation({
+    mutationFn: (date: string) => sendCustomerStatementPdfWhatsapp(id!, date),
+    onSuccess: () => {
+      setPdfDialogOpen(false)
+      toast({ title: "✓ تم إرسال كشف PDF عبر واتساب." })
+    },
+    onError: () => toast({ title: "✗ تعذر إرسال الـ PDF. تحقق من إعدادات واتساب.", variant: "destructive" }),
+  })
 
   // Sending always mints a FRESH link — once a link is revoked or already
   // sent, its plain token can never be recovered (only its hash is stored),
@@ -150,7 +194,14 @@ export function CustomerDetailPage() {
       const url = `${window.location.origin}${link.urlPath}`
       const msg = `مرحباً ${customer.name}،\nهذا رابطك الخاص لمتابعة حسابك وفواتيرك في أي وقت:\n${url}`
       try {
-        await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: msg })
+        // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+        // placeholders, in this order, if/once one is configured in Settings.
+        await sendWhatsAppTemplatedMessage({
+          phone: normalizePhone(customer.phone),
+          message: msg,
+          templateKind: "portal",
+          bodyParams: [customer.name, url],
+        })
         toast({ title: "✓ تم إرسال رابط العميل عبر واتساب." })
       } catch {
         toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله. تحقق من إعدادات واتساب.", variant: "destructive" })
@@ -208,6 +259,14 @@ export function CustomerDetailPage() {
           </Button>
           <Button variant="outline" onClick={() => void sendStatement()} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => { setPdfDate(localDateStr()); setPdfDialogOpen(true) }}
+            disabled={!customer.phone}
+            title="يرسل كشف الحساب كملف PDF حسب التاريخ"
+          >
+            <FileText className="h-4 w-4 text-rose-600" /> إرسال PDF
           </Button>
           <Button
             variant={portalEnabled ? "default" : "outline"}
@@ -310,6 +369,30 @@ export function CustomerDetailPage() {
       </Card>
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
+
+      <ModalForm
+        open={pdfDialogOpen}
+        onOpenChange={setPdfDialogOpen}
+        title="إرسال كشف حساب PDF"
+        description="يُرسل ملف PDF فيه كل حركات الزبون (فواتير وسندات) لحد التاريخ المختار."
+      >
+        <div className="space-y-3">
+          <div>
+            <Label>التاريخ (كل الحركات لحد هذا اليوم)</Label>
+            <Input type="date" value={pdfDate} onChange={(e) => setPdfDate(e.target.value)} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPdfDialogOpen(false)}>إلغاء</Button>
+            <Button
+              onClick={() => sendStatementPdfMutation.mutate(pdfDate)}
+              disabled={sendStatementPdfMutation.isPending || !pdfDate}
+            >
+              <Send className={`h-4 w-4 ${sendStatementPdfMutation.isPending ? "animate-pulse" : ""}`} />
+              {sendStatementPdfMutation.isPending ? "جاري الإرسال..." : "إرسال PDF"}
+            </Button>
+          </div>
+        </div>
+      </ModalForm>
       <EditCustomerModal
         open={editOpen}
         onOpenChange={setEditOpen}

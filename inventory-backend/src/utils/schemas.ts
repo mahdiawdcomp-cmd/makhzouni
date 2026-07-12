@@ -117,6 +117,23 @@ export const portalTokenSchema = z.object({
   }),
 });
 
+// Zod strips params not declared in the schema, and validate() overwrites
+// req.params with the parsed result — so any route with an EXTRA path param
+// beyond :token must declare it here, otherwise it arrives as undefined.
+export const portalInvoiceSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(128),
+    invoiceId: z.string().uuid(),
+  }),
+});
+
+export const portalArrivalDeleteSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(128),
+    subId: z.string().uuid(),
+  }),
+});
+
 export const createPortalLinkSchema = z.object({
   params: uuidParam,
   body: z.object({
@@ -404,6 +421,13 @@ export const createStockLossSchema = z.object({
 
 export const cancelStockLossSchema = z.object({
   params: uuidParam,
+});
+
+export const sendStatementPdfSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    date: dateString.optional(),
+  }),
 });
 
 export const customerTransactionsSchema = z.object({
@@ -729,6 +753,15 @@ export const sendWhatsAppSchema = z.object({
   body: z.object({
     phone: z.string().trim().min(5),
     message: z.string().trim().min(1),
+  }),
+});
+
+export const sendWhatsAppTemplatedSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(5),
+    message: z.string().trim().min(1),
+    templateKind: z.enum(["voucher", "statement", "portal"]),
+    bodyParams: z.array(z.string()).default([]),
   }),
 });
 

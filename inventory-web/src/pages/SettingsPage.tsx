@@ -127,6 +127,10 @@ const fallbackSettings: AppSettings = {
   invoiceTemplate: "",
   voucherTemplate: "",
   statementTemplate: "",
+  invoiceTemplateName: "",
+  voucherTemplateName: "",
+  statementTemplateName: "",
+  portalLinkTemplateName: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
@@ -658,6 +662,58 @@ export function SettingsPage() {
                 invoiceTemplate: settings.invoiceTemplate,
                 voucherTemplate: settings.voucherTemplate,
                 statementTemplate: settings.statementTemplate,
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+
+            <hr className="border-slate-200 dark:border-slate-700" />
+            <SectionTitle>أسماء قوالب واتساب المعتمدة من ميتا</SectionTitle>
+            <p className="text-xs text-slate-500">
+              واتساب يرفض إرسال نص حر للزبون بعد مرور 24 ساعة على آخر رسالة منه — القوالب فوق تفشل بصمت بهذه الحالة.
+              لو أنشأت قالباً بنفس الغرض ووافقت عليه ميتا من Business Manager، اكتب اسمه بالضبط هنا وراح يترسل هو أول
+              (وإذا فشل أو ما كان موجود، يرجع تلقائياً للنص الحر فوق — بدون أي تغيير بالسلوك الحالي).
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="قالب الفاتورة (عادية + مصوّرة)">
+                <Input
+                  value={settings.invoiceTemplateName ?? ""}
+                  onChange={(e) => upd("invoiceTemplateName", e.target.value)}
+                  placeholder="invoice_notification"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب السند">
+                <Input
+                  value={settings.voucherTemplateName ?? ""}
+                  onChange={(e) => upd("voucherTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب كشف الحساب">
+                <Input
+                  value={settings.statementTemplateName ?? ""}
+                  onChange={(e) => upd("statementTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب رابط العميل الإلكتروني">
+                <Input
+                  value={settings.portalLinkTemplateName ?? ""}
+                  onChange={(e) => upd("portalLinkTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                invoiceTemplateName: settings.invoiceTemplateName,
+                voucherTemplateName: settings.voucherTemplateName,
+                statementTemplateName: settings.statementTemplateName,
+                portalLinkTemplateName: settings.portalLinkTemplateName,
               })}
               isPending={saveSettings.isPending}
               saved={saved}

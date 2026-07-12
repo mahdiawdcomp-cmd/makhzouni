@@ -883,10 +883,10 @@ export async function sendWhatsAppTemplate(
 
   // Templates have no free-text body we can reconstruct exactly — log a
   // readable summary (name + filled-in body params) so the send still shows
-  // up in the chat thread instead of vanishing silently. Skipped when a PDF
-  // header is attached — sendWhatsAppTemplatePdf logs the richer document
-  // version itself (same idMessage, so this would otherwise just be ignored
-  // as a dedup no-op — better to not race the two at all).
+  // up in the chat thread instead of vanishing silently. Skipped when a
+  // document header is attached — sendWhatsAppTemplatePdf logs the richer
+  // document version itself (same idMessage, so this would otherwise just be
+  // ignored as a dedup no-op — better to not race the two at all).
   if (!options?.documentHeader) {
     const summary = [`📋 ${templateName}`, ...(options?.bodyParams ?? [])].join(" — ");
     await logChatMessage({ phone: to, direction: "OUT", text: summary, waMessageId: idMessage }).catch(() => {});
@@ -929,6 +929,7 @@ export async function sendWhatsAppTemplatePdf(
 
   return result;
 }
+
 
 /** Inline base64 data URL for outbound media, capped the same as inbound downloads — null if too large to store. */
 function outboundMediaDataUrl(buf: Buffer, mimeType: string): string | null {

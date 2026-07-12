@@ -1019,6 +1019,14 @@ export interface AppSettings {
   voucherTemplate?: string
   statementTemplate?: string
   invoiceDesign?: string   // visual invoice designer layout (JSON) — separate from WhatsApp text templates above
+  // Meta-approved Cloud API template names — empty means not configured yet,
+  // sends fall back to the free-text templates above. invoiceTemplateName is
+  // reused for both the regular PDF invoice and the customer-safe "فاتورة
+  // بالصور" send — both go out as a document (PDF) now.
+  invoiceTemplateName?: string
+  voucherTemplateName?: string
+  statementTemplateName?: string
+  portalLinkTemplateName?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   personalDebtReminderWhatsappNumber?: string

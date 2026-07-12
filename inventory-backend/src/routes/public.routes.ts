@@ -54,6 +54,8 @@ import {
   createGuestCatalogOrderSchema,
   guestCatalogProductImageSchema,
   portalTokenSchema,
+  portalInvoiceSchema,
+  portalArrivalDeleteSchema,
   sendOtpSchema,
   verifyOtpSchema,
   checkVerifiedSchema,
@@ -134,11 +136,11 @@ router.post("/retail/ai-chat", catalogLimiter, postPublicRetailAiChat);
 
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);
-router.get("/client/:token/invoice/:invoiceId", validate(portalTokenSchema), getClientPortalInvoice);
+router.get("/client/:token/invoice/:invoiceId", validate(portalInvoiceSchema), getClientPortalInvoice);
 router.get("/client/:token/orders", validate(portalTokenSchema), getClientPortalOrders);
 router.get("/client/:token/arrivals", validate(portalTokenSchema), getArrivalSubscriptions);
 router.post("/client/:token/arrivals", validate(portalTokenSchema), postArrivalSubscribe);
-router.delete("/client/:token/arrivals/:subId", validate(portalTokenSchema), deleteArrivalSubscription);
+router.delete("/client/:token/arrivals/:subId", validate(portalArrivalDeleteSchema), deleteArrivalSubscription);
 router.get("/vapid-key", getVapidKey);
 
 // Store display screen — returns basic product info for a TV/display

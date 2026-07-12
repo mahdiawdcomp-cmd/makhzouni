@@ -22,7 +22,7 @@ import {
   getVoucher,
   getVouchers,
   restoreVoucher as restoreVoucherApi,
-  sendWhatsAppMessage,
+  sendWhatsAppTemplatedMessage,
   updateVoucher,
   voucherImageObjectUrl,
   voucherPdfObjectUrl,
@@ -51,7 +51,7 @@ const typeMeta: Record<Voucher["type"], { label: string; bg: string; icon: typeo
 }
 
 const DEFAULT_TEMPLATE =
-  "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nشكراً، {{storeName}}."
+  "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nحسابكم السابق: {{previousBalance}} {{currency}}\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}."
 
 export function VoucherDetailPage() {
   const { id } = useParams()
@@ -161,19 +161,41 @@ export function VoucherDetailPage() {
     }
     const phone = voucher.customer?.phone
     if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    // Sign convention (matches getCustomerBalance on the backend): RECEIPT
+    // reduces what the customer owes, PAYMENT increases it — so "before this
+    // voucher" is the opposite adjustment of what currentBalance already reflects.
+    const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
+    const previousBalance = currentBalance + (voucher.type === "RECEIPT" ? Number(voucher.amount) : -Number(voucher.amount))
     const tpl = settings?.voucherTemplate || DEFAULT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: voucher.customer?.name ?? "",
       voucherNumber: voucher.voucherNumber,
       amount: money(voucher.amount),
       date: String(voucher.date).slice(0, 10),
+      previousBalance: money(previousBalance),
       currentBalance: money(voucher.customer?.currentBalance),
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
     setWaSending(true)
     try {
-      await sendWhatsAppMessage({ phone: normalizePhone(phone), message: msg })
+      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+      // placeholders, in this order, if/once one is configured in Settings.
+      await sendWhatsAppTemplatedMessage({
+        phone: normalizePhone(phone),
+        message: msg,
+        templateKind: "voucher",
+        bodyParams: [
+          voucher.customer?.name ?? "",
+          money(voucher.amount),
+          settings?.currency ?? "د.ع",
+          voucher.voucherNumber,
+          String(voucher.date).slice(0, 10),
+          money(previousBalance),
+          money(voucher.customer?.currentBalance),
+          settings?.storeName ?? "",
+        ],
+      })
       toast({ title: "✓ تم إرسال السند عبر واتساب." })
     } catch {
       toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })

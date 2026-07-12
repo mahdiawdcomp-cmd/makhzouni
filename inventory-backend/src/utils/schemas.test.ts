@@ -6,7 +6,36 @@ import {
   listInvoicesSchema,
   listQuotationsSchema,
   listVouchersSchema,
+  portalInvoiceSchema,
+  portalTokenSchema,
+  portalArrivalDeleteSchema,
 } from "./schemas";
+
+// ── client portal params (regression: validate() overwrites req.params with
+//    the parsed result, so any extra path param MUST be declared or it's
+//    silently dropped → the handler received `undefined` and 404'd) ──────────
+const TOKEN = "a".repeat(24);
+const UUID = "11111111-1111-1111-1111-111111111111";
+
+test("portal: token-only schema strips extra params (the original bug)", () => {
+  const result = portalTokenSchema.parse({ params: { token: TOKEN, invoiceId: UUID } });
+  assert.equal((result.params as Record<string, unknown>).invoiceId, undefined);
+});
+
+test("portal: invoice schema keeps both token and invoiceId", () => {
+  const result = portalInvoiceSchema.parse({ params: { token: TOKEN, invoiceId: UUID } });
+  assert.equal(result.params.token, TOKEN);
+  assert.equal(result.params.invoiceId, UUID);
+});
+
+test("portal: invoice schema rejects a non-uuid invoiceId", () => {
+  assert.throws(() => portalInvoiceSchema.parse({ params: { token: TOKEN, invoiceId: "not-a-uuid" } }));
+});
+
+test("portal: arrival-delete schema keeps both token and subId", () => {
+  const result = portalArrivalDeleteSchema.parse({ params: { token: TOKEN, subId: UUID } });
+  assert.equal(result.params.subId, UUID);
+});
 
 // ── customers ───────────────────────────────────────────────────────────────
 

@@ -15,6 +15,7 @@ import {
   getLastTransaction,
   getTransactions,
   getWalkInCustomer,
+  sendStatementPdfWhatsapp,
   patchCustomerTag,
   postCatalogLinkBroadcast,
   postCustomerBroadcast,
@@ -42,6 +43,7 @@ import {
   customerTagDeleteSchema,
   customerTagRenameSchema,
   customerTransactionsSchema,
+  sendStatementPdfSchema,
   idParamSchema,
   inactiveCustomersSchema,
   listCustomersSchema,
@@ -79,6 +81,7 @@ router.get(
   validate(customerTransactionsSchema),
   getTransactions
 );
+router.post("/:id/statement-pdf-whatsapp", validate(sendStatementPdfSchema), sendStatementPdfWhatsapp);
 router.get("/:id/last-transaction", validate(idParamSchema), getLastTransaction);
 router.get("/:id/balance", validate(idParamSchema), getBalance);
 

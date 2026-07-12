@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import { getInvoiceById } from "../services/invoice.service";
-import { generateInvoicePdf, generateCustomerImageInvoiceWithProducts } from "../services/invoice-export.service";
+import { generateInvoicePdf, generateCustomerImagePdf } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
@@ -19,37 +19,71 @@ import {
   subscribeAppToWaba,
   sendWhatsAppImage,
   sendWhatsAppPdf,
+  sendWhatsAppTemplate,
   sendWhatsAppTemplatePdf,
   sendWhatsAppText,
 } from "../services/whatsapp.service";
 
-// Utility-category template awaiting Meta approval for cold/first-contact
-// invoice sends (Cloud API rejects free text outside the 24h session window —
-// see sendInvoiceViaCloudSafe below). Update once the approved name differs.
-const INVOICE_TEMPLATE_NAME = "invoice_notification";
-const INVOICE_TEMPLATE_LANG = "ar";
+// Meta template language for every template-or-fallback send below — all of
+// them (invoice, voucher, statement, portal link) are Arabic for this tenant.
+const CLOUD_TEMPLATE_LANG = "ar";
 
-// Cloud API: try the approved template first (works regardless of session
-// state), and only fall back to free text if the template call fails (e.g.
-// not approved yet) — never worse than the pre-template behavior, and starts
-// working the moment Meta approves the template, with no further deploy.
-async function sendInvoiceViaCloudSafe(
-  phone: string,
-  message: string,
-  pdf: Buffer,
-  filename: string,
-  bodyParams: string[],
-) {
+// Cloud API: try the Meta-approved template first (works regardless of 24h
+// session state), and only fall back to the free-text send if the template
+// call fails (not configured, not yet approved, wrong param count, etc.) —
+// never worse than the pre-template behavior, and starts working the moment
+// a template is approved and its name is saved in Settings, no deploy needed.
+async function withTemplateFallback<T>(
+  templateName: string | undefined,
+  tryTemplate: () => Promise<T>,
+  fallback: () => Promise<T>,
+): Promise<T> {
   const status = getWhatsAppStatus();
-  if (status.activeProvider !== "cloud") {
-    return sendWhatsAppPdf(phone, message, pdf, filename);
+  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
+    return fallback();
   }
   try {
-    return await sendWhatsAppTemplatePdf(phone, INVOICE_TEMPLATE_NAME, INVOICE_TEMPLATE_LANG, pdf, filename, bodyParams);
+    return await tryTemplate();
   } catch (err) {
-    logger.warn(`[WhatsApp] Invoice template send failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
-    return sendWhatsAppPdf(phone, message, pdf, filename);
+    logger.warn(`[WhatsApp] template "${templateName}" send failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return fallback();
   }
+}
+
+function sendInvoiceViaCloudSafe(phone: string, templateName: string | undefined, message: string, pdf: Buffer, filename: string, bodyParams: string[]) {
+  return withTemplateFallback(
+    templateName,
+    () => sendWhatsAppTemplatePdf(phone, templateName as string, CLOUD_TEMPLATE_LANG, pdf, filename, bodyParams),
+    () => sendWhatsAppPdf(phone, message, pdf, filename),
+  );
+}
+
+// Shared by the regular PDF invoice and the customer-safe image invoice —
+// both are now sent as a document (PDF) so a single approved Meta template
+// covers both, and use the same body shape: {{1}} customerName, {{2}} invoiceNumber, {{3}} date,
+// {{4}} totalAmount, {{5}} paidAmount, {{6}} remainingAmount, {{7}} previousBalance,
+// {{8}} finalBalance, {{9}} currency, {{10}} storeName.
+function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof getInvoiceById>>, storeName: string): string[] {
+  return [
+    invoice.customer.name,
+    invoice.invoiceNumber,
+    new Date(invoice.date).toLocaleDateString(),
+    String(invoice.totalAmount),
+    String(invoice.paidAmount),
+    String(invoice.remainingAmount),
+    String(invoice.previousBalance),
+    String(invoice.finalBalance),
+    "د.ع",
+    storeName,
+  ];
+}
+
+function sendTextViaCloudSafe(phone: string, templateName: string | undefined, message: string, bodyParams: string[]) {
+  return withTemplateFallback(
+    templateName,
+    () => sendWhatsAppTemplate(phone, templateName as string, CLOUD_TEMPLATE_LANG, { bodyParams }),
+    () => sendWhatsAppText(phone, message),
+  );
 }
 
 // ── Meta WhatsApp Cloud API webhook ────────────────────────────────────────
@@ -326,6 +360,37 @@ export const sendMessage = asyncHandler(async (req, res) => {
   });
 });
 
+// Shared template-or-fallback send for screens that already build their own
+// free-text message client-side (voucher receipt, customer statement, portal
+// link) — the client sends the exact fallback text plus the raw values as
+// bodyParams; the server picks the matching Meta template name from Settings
+// (never a client-supplied template name) and tries it first.
+const TEMPLATE_KIND_SETTING = {
+  voucher: "voucherTemplateName",
+  statement: "statementTemplateName",
+  portal: "portalLinkTemplateName",
+} as const;
+type TemplateKind = keyof typeof TEMPLATE_KIND_SETTING;
+
+export const sendTemplatedMessage = asyncHandler(async (req, res) => {
+  const phone = String(req.body?.phone ?? "");
+  const message = String(req.body?.message ?? "");
+  const kind = String(req.body?.templateKind ?? "") as TemplateKind;
+  const bodyParams = Array.isArray(req.body?.bodyParams) ? (req.body.bodyParams as unknown[]).map(String) : [];
+  if (!phone || !message) throw new AppError("رقم الهاتف والنص مطلوبان", 400, "SEND_TEMPLATED_INVALID");
+  if (!(kind in TEMPLATE_KIND_SETTING)) throw new AppError("نوع القالب غير معروف", 400, "SEND_TEMPLATED_UNKNOWN_KIND");
+
+  const settings = await getSettings();
+  const templateName = settings[TEMPLATE_KIND_SETTING[kind]];
+  const result = await sendTextViaCloudSafe(phone, templateName, message, bodyParams);
+
+  res.json({
+    success: true,
+    message: "WhatsApp message sent successfully",
+    data: result,
+  });
+});
+
 export const sendInvoice = asyncHandler(async (req, res) => {
   const invoiceId = String(req.params.invoiceId);
   const [invoice, pdf, settings] = await Promise.all([
@@ -343,19 +408,16 @@ export const sendInvoice = asyncHandler(async (req, res) => {
     date: new Date(invoice.date).toLocaleDateString(),
   });
 
+  // Order matches the {{1}}..{{10}} placeholders in the Meta template body —
+  // keep in sync with the template text configured in WhatsApp Manager.
+  const bodyParams = invoiceTemplateBodyParams(invoice, settings.storeName);
   const result = await sendInvoiceViaCloudSafe(
     invoice.customer.phone,
+    settings.invoiceTemplateName,
     message,
     pdf,
     `${invoice.invoiceNumber}.pdf`,
-    [
-      invoice.customer.name,
-      invoice.invoiceNumber,
-      new Date(invoice.date).toLocaleDateString(),
-      String(invoice.remainingAmount),
-      "د.ع",
-      settings.storeName,
-    ],
+    bodyParams,
   );
 
   res.json({
@@ -365,14 +427,16 @@ export const sendInvoice = asyncHandler(async (req, res) => {
   });
 });
 
-// New, separate option: "إرسال فاتورة بالصور" — sends a customer-safe image
-// invoice (product thumbnails, no purchase price/cost/profit) instead of the
-// existing PDF above. Does not replace or change the sendInvoice flow.
+// New, separate option: "إرسال فاتورة بالصور" — sends a customer-safe invoice
+// (product thumbnails, no purchase price/cost/profit) instead of the existing
+// PDF above. Same visual, wrapped as a PDF (not a raw image) so it can reuse
+// the SAME approved Meta template as the regular invoice — one template
+// covers both sends, only the attached file's content differs.
 export const sendInvoiceImage = asyncHandler(async (req, res) => {
   const invoiceId = String(req.params.invoiceId);
-  const [invoice, png, settings] = await Promise.all([
+  const [invoice, pdf, settings] = await Promise.all([
     getInvoiceById(invoiceId),
-    generateCustomerImageInvoiceWithProducts(invoiceId),
+    generateCustomerImagePdf(invoiceId),
     getSettings(),
   ]);
 
@@ -385,7 +449,14 @@ export const sendInvoiceImage = asyncHandler(async (req, res) => {
     date: new Date(invoice.date).toLocaleDateString(),
   });
 
-  const result = await sendWhatsAppImage(invoice.customer.phone, message, png, "image/png");
+  const result = await sendInvoiceViaCloudSafe(
+    invoice.customer.phone,
+    settings.invoiceTemplateName,
+    message,
+    pdf,
+    `${invoice.invoiceNumber}-صور.pdf`,
+    invoiceTemplateBodyParams(invoice, settings.storeName),
+  );
 
   res.json({
     success: true,

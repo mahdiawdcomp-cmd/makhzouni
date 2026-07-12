@@ -29,6 +29,8 @@ import {
   getDeletedCustomers,
   restoreCustomer,
 } from "../services/customer.service";
+import { generateCustomerStatementPdf } from "../services/statement-export.service";
+import { sendWhatsAppPdf } from "../services/whatsapp.service";
 import { hasPermission } from "../middleware/permission.middleware";
 import { logger } from "../utils/logger";
 
@@ -188,6 +190,31 @@ export const getBalance = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     data: balance,
+  });
+});
+
+// Generate the customer's account-statement PDF (all movements up to the given
+// date, or the full history if none) and send it as a WhatsApp document.
+export const sendStatementPdfWhatsapp = asyncHandler(async (req, res) => {
+  const id = String(req.params.id);
+  const date = typeof req.body?.date === "string" ? req.body.date : undefined;
+
+  const customer = await getCustomerById(id);
+  if (!customer.phone) {
+    throw new AppError("رقم هاتف الزبون غير متوفر", 400, "CUSTOMER_PHONE_MISSING");
+  }
+
+  const pdf = await generateCustomerStatementPdf(id, date);
+  const dateLabel = date ? new Date(date).toLocaleDateString("en-GB") : new Date().toLocaleDateString("en-GB");
+  const caption = `كشف حساب ${customer.name} حتى ${dateLabel}`;
+  const filename = `statement-${customer.name}.pdf`;
+
+  const result = await sendWhatsAppPdf(customer.phone, caption, pdf, filename);
+
+  res.json({
+    success: true,
+    message: "تم إرسال كشف الحساب PDF عبر واتساب",
+    data: result,
   });
 });
 

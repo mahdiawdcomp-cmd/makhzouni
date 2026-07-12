@@ -4,6 +4,7 @@ import {
   sendInvoiceImage,
   sendInvoiceToWorkersCtrl,
   sendMessage,
+  sendTemplatedMessage,
   whatsappRestart,
   whatsappStatus,
   testWhatsAppText,
@@ -17,7 +18,7 @@ import {
 import { authMiddleware } from "../middleware/auth.middleware";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import { validate } from "../middleware/validate";
-import { invoiceIdParamSchema, sendWhatsAppSchema } from "../utils/schemas";
+import { invoiceIdParamSchema, sendWhatsAppSchema, sendWhatsAppTemplatedSchema } from "../utils/schemas";
 
 const router = Router();
 
@@ -26,6 +27,7 @@ router.use(authMiddleware);
 router.get("/status", whatsappStatus);
 router.post("/restart", whatsappRestart);
 router.post("/send", validate(sendWhatsAppSchema), sendMessage);
+router.post("/send-templated", validate(sendWhatsAppTemplatedSchema), sendTemplatedMessage);
 router.post(
   "/send-invoice/:invoiceId",
   validate(invoiceIdParamSchema),
