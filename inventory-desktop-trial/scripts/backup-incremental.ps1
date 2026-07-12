@@ -106,15 +106,29 @@ function Fail-Backup {
 # ── Download helper (streams to disk; avoids Railway timeout) ───────────────
 function Invoke-Download {
   param([string]$Uri, [string]$OutFile)
-  try {
-    $wc = New-Object System.Net.WebClient
-    $wc.Headers.Add('User-Agent', 'MakhzouniIncBackup/1.0')
-    $wc.DownloadFile($Uri, $OutFile)
-  } catch {
-    $code = $null
-    try { $code = [int]$_.Exception.InnerException.Response.StatusCode } catch {}
-    if ($code) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
-    else { Fail-Backup "Download failed (network/timeout): $($_.Exception.Message)" }
+  # Retry transient failures (DNS blips, connection resets, 502/503/504) up to
+  # 3 attempts with backoff. Do NOT retry auth errors (401/403).
+  $maxAttempts = 3
+  $retryDelaysSec = @(15, 45)
+  for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    try {
+      $wc = New-Object System.Net.WebClient
+      $wc.Headers.Add('User-Agent', 'MakhzouniIncBackup/1.0')
+      $wc.DownloadFile($Uri, $OutFile)
+      return
+    } catch {
+      $code = $null
+      try { $code = [int]$_.Exception.InnerException.Response.StatusCode } catch {}
+      if ($code -eq 401 -or $code -eq 403) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
+      $msg = if ($code) { "Download failed (HTTP $code): $($_.Exception.Message)" }
+             else { "Download failed (network/timeout): $($_.Exception.Message)" }
+      if ($attempt -lt $maxAttempts) {
+        Write-Log "$msg — retrying in $($retryDelaysSec[$attempt-1])s (attempt $attempt/$maxAttempts)" 'WARN'
+        Start-Sleep -Seconds $retryDelaysSec[$attempt-1]
+      } else {
+        Fail-Backup $msg
+      }
+    }
   }
 }
 

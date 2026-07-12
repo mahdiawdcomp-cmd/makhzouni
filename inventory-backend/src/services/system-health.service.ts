@@ -2,7 +2,7 @@ import prisma from "../config/database";
 import { CampaignRecipientStatus, CampaignStatus } from "@prisma/client";
 import { getWhatsAppStatus, getGreenApiStateCached } from "./whatsapp.service";
 import { getLastCampaignTickAt } from "./campaign-heartbeat";
-import { getBackupStatus } from "./backup-status.service";
+import { getBackupStatusForKind } from "./backup-status.service";
 
 // System Health Bar backing data. Cached so the bar (polled every 30-60s by
 // every logged-in client) never hammers the DB or Green API. All queries here
@@ -119,6 +119,11 @@ export async function getSystemHealth(): Promise<SystemHealth> {
   // (/settings/backup/download + /changes), so every attempt is recorded by
   // backup-status.service. Healthy = a successful backup in the last 26h
   // (daily task runs at 03:00 Asia/Baghdad + slack).
+  //
+  // Tracks the "download" kind SPECIFICALLY (the full/restorable export), not
+  // the aggregate across all kinds. A healthy daily incremental ("changes")
+  // run must never mask a broken full download — that silently hid a 5-day
+  // 502 outage on the full backup because the incremental kept succeeding.
   let backup: SystemHealth["backup"] = {
     level: "unknown",
     tracked: false,
@@ -130,7 +135,7 @@ export async function getSystemHealth(): Promise<SystemHealth> {
     sizeBytes: null,
   };
   try {
-    const st = await getBackupStatus();
+    const st = await getBackupStatusForKind("download");
     if (st.lastAttemptAt) {
       const successAgeH = st.lastSuccessAt
         ? (now - new Date(st.lastSuccessAt).getTime()) / 3_600_000

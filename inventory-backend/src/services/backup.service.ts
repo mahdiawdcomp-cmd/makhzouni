@@ -22,7 +22,9 @@ function stripBase64Images(value: unknown, fieldName?: string): unknown {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((v) => stripBase64Images(v));
+    // Propagate fieldName through arrays so e.g. `images: [<base64>, ...]` is
+    // still recognized as an image field per-element (map() previously lost it).
+    return value.map((v) => stripBase64Images(v, fieldName));
   }
   if (typeof value === "object") {
     const out: Record<string, unknown> = {};
@@ -78,8 +80,13 @@ export interface BackupData {
   auditLogs: unknown[];
 }
 
-/** AuditLog is history-only and can grow huge; cap it but record the cap in meta. */
-const AUDIT_LOG_LIMIT = 2000;
+/** AuditLog is history-only and can grow huge; cap it but record the cap in meta.
+ *  Kept low: individual snapshots can embed near-full record copies (e.g. a
+ *  product's before/after with its image fields), so even a few hundred rows
+ *  can be tens of MB. 2000 rows was observed to decode to ~390MB and OOM-crash
+ *  the backup export (JSON.parse of the DB result, before any lean stripping
+ *  even runs) — see backup-status "download" outage 2026-07-08..07-12. */
+const AUDIT_LOG_LIMIT = 200;
 
 /**
  * Exports every table for a complete, restorable backup.
@@ -89,7 +96,7 @@ const AUDIT_LOG_LIMIT = 2000;
  * - auditLogs: capped to the most recent AUDIT_LOG_LIMIT (history only; not needed
  *   to restore state) — the cap and totals are reported in meta.
  */
-export async function generateFullBackup(lean = false): Promise<BackupData> {
+export async function generateFullBackup(_lean = false): Promise<BackupData> {
   const settings = await getSettings();
 
   const [
@@ -193,7 +200,10 @@ export async function generateFullBackup(lean = false): Promise<BackupData> {
     settings: settingsRows,
     stockMovements,
     transfers,
-    auditLogs: lean ? leanAuditLogs(auditLogs as Array<Record<string, unknown>>) : auditLogs,
+    // Always stripped (not gated behind `lean`): audit snapshots can embed
+    // near-full record copies incl. image fields, and callers weren't passing
+    // ?lean=1 anyway. AuditLog is history-only — never needed to restore state.
+    auditLogs: leanAuditLogs(auditLogs as Array<Record<string, unknown>>),
   };
 }
 
@@ -232,7 +242,7 @@ export interface ChangesData {
  *    AuditLog): createdAt > since
  *  - child tables: included via parent's `include` (no independent filter).
  */
-export async function generateChangesSince(since: Date, lean = false): Promise<ChangesData> {
+export async function generateChangesSince(since: Date, _lean = false): Promise<ChangesData> {
   const settings = await getSettings();
 
   const [
@@ -342,7 +352,8 @@ export async function generateChangesSince(since: Date, lean = false): Promise<C
     settings: settingsRows,
     stockMovements,
     transfers,
-    auditLogs: lean ? leanAuditLogs(auditLogs as Array<Record<string, unknown>>) : auditLogs,
+    // Always stripped — see comment in generateFullBackup.
+    auditLogs: leanAuditLogs(auditLogs as Array<Record<string, unknown>>),
   };
 }
 

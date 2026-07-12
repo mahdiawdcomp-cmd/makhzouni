@@ -109,31 +109,51 @@ if ([string]::IsNullOrWhiteSpace($secret)) {
 # ── 2. Download to staging (read-only GET, timed out) ──────────────────────
 New-Item -ItemType Directory -Path $StagingDir -Force | Out-Null
 $jsonStaged = Join-Path $StagingDir $JsonFileName
-$requestUri = "$ApiUrl`?secret=$([uri]::EscapeDataString($secret))"
-try {
-  # WebClient streams directly to disk (no in-memory buffer for the full response),
-  # which avoids Railway's HTTP idle/streaming timeout on large responses.
-  # First do a HEAD-equivalent probe via a tiny GET to surface 401/404 fast.
-  $probe = [System.Net.HttpWebRequest]::Create($requestUri)
-  $probe.Method = 'GET'; $probe.Timeout = 30000
+# lean=1 strips base64 images from audit-log snapshots server-side (export only).
+# The server now always strips these regardless of this flag (2026-07-13 OOM
+# fix), but pass it for clarity/back-compat with older server versions.
+$requestUri = "$ApiUrl`?secret=$([uri]::EscapeDataString($secret))&lean=1"
+
+# Retry transient failures (DNS blips, connection resets, 502/503/504) up to
+# 3 attempts with backoff. Do NOT retry auth errors (401/403) — those are
+# real, not transient, and retrying just delays the failure notification.
+$maxAttempts = 3
+$retryDelaysSec = @(15, 45)
+$lastErrorMessage = $null
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+  $lastErrorMessage = $null
   try {
-    $probeResp = $probe.GetResponse()
-    $probeResp.Close()
-  } catch [System.Net.WebException] {
+    # WebClient streams directly to disk (no in-memory buffer for the full response),
+    # which avoids Railway's HTTP idle/streaming timeout on large responses.
+    # First do a HEAD-equivalent probe via a tiny GET to surface 401/404 fast.
+    $probe = [System.Net.HttpWebRequest]::Create($requestUri)
+    $probe.Method = 'GET'; $probe.Timeout = 30000
+    $probeCode = $null
+    try {
+      $probeResp = $probe.GetResponse()
+      $probeResp.Close()
+    } catch [System.Net.WebException] {
+      try { $probeCode = [int]$_.Exception.Response.StatusCode } catch { }
+      if ($probeCode -eq 401 -or $probeCode -eq 403) { Fail-Backup "Download failed (HTTP $probeCode): $($_.Exception.Message)" }
+      # Other codes (or no code = network-level) fall through to the WebClient attempt below.
+    }
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add('User-Agent', 'MakhzouniBackup/1.0')
+    $wc.DownloadFile($requestUri, $jsonStaged)
+    break
+  } catch {
     $code = $null
-    try { $code = [int]$_.Exception.Response.StatusCode } catch { }
-    if ($code -and $code -ne 200) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
-    # If probe itself fails for other reasons fall through to WebClient attempt
+    try { $code = [int]$_.Exception.InnerException.Response.StatusCode } catch { }
+    if ($code -eq 401 -or $code -eq 403) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
+    $lastErrorMessage = if ($code) { "Download failed (HTTP $code): $($_.Exception.Message)" }
+                        else { "Download failed (network/timeout): $($_.Exception.Message)" }
+    if ($attempt -lt $maxAttempts) {
+      Write-Log "$lastErrorMessage — retrying in $($retryDelaysSec[$attempt-1])s (attempt $attempt/$maxAttempts)" 'WARN'
+      Start-Sleep -Seconds $retryDelaysSec[$attempt-1]
+    }
   }
-  $wc = New-Object System.Net.WebClient
-  $wc.Headers.Add('User-Agent', 'MakhzouniBackup/1.0')
-  $wc.DownloadFile($requestUri, $jsonStaged)
-} catch {
-  $code = $null
-  try { $code = [int]$_.Exception.InnerException.Response.StatusCode } catch { }
-  if ($code) { Fail-Backup "Download failed (HTTP $code): $($_.Exception.Message)" }
-  else { Fail-Backup "Download failed (network/timeout): $($_.Exception.Message)" }
 }
+if ($lastErrorMessage) { Fail-Backup $lastErrorMessage }
 
 # ── 3. Validate the downloaded file ────────────────────────────────────────
 if (-not (Test-Path $jsonStaged)) { Fail-Backup "No file was downloaded." }

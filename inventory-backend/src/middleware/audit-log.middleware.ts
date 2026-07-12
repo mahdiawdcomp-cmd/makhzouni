@@ -12,6 +12,19 @@ const sensitiveKeys = new Set([
   "authorization",
 ]);
 
+// Product create/update requests and responses embed full base64 images
+// (imageUrl/thumbnailUrl). Without this, every edit permanently duplicates the
+// image into audit_logs (before/after/metadata.requestBody — up to 3x), which
+// grew the table to 600MB+ and OOM-crashed the daily full-backup export
+// (JSON.parse of a ~2000-row query alone hit ~400MB). Strip at write time so
+// the table never re-bloats; export-side stripping alone was too late — the
+// crash happened while Prisma read the rows, before export code ever ran.
+const BASE64_LEN_THRESHOLD = 500;
+
+function isBase64Blob(value: string): boolean {
+  return value.startsWith("data:") || value.length > BASE64_LEN_THRESHOLD;
+}
+
 function redact(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(redact);
@@ -28,13 +41,24 @@ function redact(value: unknown): unknown {
     const entries: Array<[string, unknown]> = [];
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
       if (typeof item === "function" || typeof item === "symbol" || item === undefined) continue;
-      entries.push([key, sensitiveKeys.has(key) ? "[REDACTED]" : redact(item)]);
+      if (sensitiveKeys.has(key)) {
+        entries.push([key, "[REDACTED]"]);
+        continue;
+      }
+      if (typeof item === "string" && isBase64Blob(item)) {
+        entries.push([key, { $omitted: "large-string", len: item.length }]);
+        continue;
+      }
+      entries.push([key, redact(item)]);
     }
     return Object.fromEntries(entries);
   }
 
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "function" || typeof value === "symbol") return undefined;
+  if (typeof value === "string" && isBase64Blob(value)) {
+    return { $omitted: "large-string", len: value.length };
+  }
   return value;
 }
 
