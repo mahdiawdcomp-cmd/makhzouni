@@ -930,6 +930,33 @@ export async function sendWhatsAppTemplatePdf(
   return result;
 }
 
+/**
+ * Send a PDF document, trying an approved Meta document-header template first
+ * (survives the 24h window) and falling back to a plain PDF caption send when
+ * the template isn't configured/approved or the provider isn't Cloud. Same
+ * safety contract as the invoice send — never worse than the free-text path.
+ */
+export async function sendPdfWithTemplateFallback(
+  phone: string,
+  templateName: string | undefined,
+  languageCode: string,
+  caption: string,
+  pdf: Buffer,
+  filename: string,
+  bodyParams: string[],
+): Promise<{ to: string; idMessage?: string }> {
+  const status = getWhatsAppStatus();
+  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
+    return sendWhatsAppPdf(phone, caption, pdf, filename);
+  }
+  try {
+    return await sendWhatsAppTemplatePdf(phone, templateName, languageCode, pdf, filename, bodyParams);
+  } catch (err) {
+    logger.warn(`[WhatsApp] PDF template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return sendWhatsAppPdf(phone, caption, pdf, filename);
+  }
+}
+
 
 /** Inline base64 data URL for outbound media, capped the same as inbound downloads — null if too large to store. */
 function outboundMediaDataUrl(buf: Buffer, mimeType: string): string | null {

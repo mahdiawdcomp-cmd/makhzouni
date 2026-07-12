@@ -1027,6 +1027,7 @@ export interface AppSettings {
   voucherTemplateName?: string
   statementTemplateName?: string
   portalLinkTemplateName?: string
+  statementPdfTemplateName?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   personalDebtReminderWhatsappNumber?: string

@@ -131,6 +131,7 @@ const fallbackSettings: AppSettings = {
   voucherTemplateName: "",
   statementTemplateName: "",
   portalLinkTemplateName: "",
+  statementPdfTemplateName: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
@@ -707,6 +708,14 @@ export function SettingsPage() {
                   dir="ltr"
                 />
               </Field>
+              <Field label="قالب كشف الحساب PDF (مستند)">
+                <Input
+                  value={settings.statementPdfTemplateName ?? ""}
+                  onChange={(e) => upd("statementPdfTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
             </div>
             <SaveRow
               onSave={() => saveSettings.mutate({
@@ -714,6 +723,7 @@ export function SettingsPage() {
                 voucherTemplateName: settings.voucherTemplateName,
                 statementTemplateName: settings.statementTemplateName,
                 portalLinkTemplateName: settings.portalLinkTemplateName,
+                statementPdfTemplateName: settings.statementPdfTemplateName,
               })}
               isPending={saveSettings.isPending}
               saved={saved}

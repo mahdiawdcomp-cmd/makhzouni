@@ -30,7 +30,8 @@ import {
   restoreCustomer,
 } from "../services/customer.service";
 import { generateCustomerStatementPdf } from "../services/statement-export.service";
-import { sendWhatsAppPdf } from "../services/whatsapp.service";
+import { sendPdfWithTemplateFallback } from "../services/whatsapp.service";
+import { getSettings } from "../services/settings.service";
 import { hasPermission } from "../middleware/permission.middleware";
 import { logger } from "../utils/logger";
 
@@ -199,17 +200,28 @@ export const sendStatementPdfWhatsapp = asyncHandler(async (req, res) => {
   const id = String(req.params.id);
   const date = typeof req.body?.date === "string" ? req.body.date : undefined;
 
-  const customer = await getCustomerById(id);
+  const [customer, settings] = await Promise.all([getCustomerById(id), getSettings()]);
   if (!customer.phone) {
     throw new AppError("رقم هاتف الزبون غير متوفر", 400, "CUSTOMER_PHONE_MISSING");
   }
 
   const pdf = await generateCustomerStatementPdf(id, date);
   const dateLabel = date ? new Date(date).toLocaleDateString("en-GB") : new Date().toLocaleDateString("en-GB");
+  const currency = settings.currency ?? "د.ع";
   const caption = `كشف حساب ${customer.name} حتى ${dateLabel}`;
   const filename = `statement-${customer.name}.pdf`;
 
-  const result = await sendWhatsAppPdf(customer.phone, caption, pdf, filename);
+  // Tries the approved Meta document template first (survives the 24h window),
+  // falls back to a plain PDF send. bodyParams order must match the template.
+  const result = await sendPdfWithTemplateFallback(
+    customer.phone,
+    settings.statementPdfTemplateName,
+    "ar",
+    caption,
+    pdf,
+    filename,
+    [customer.name, dateLabel, String(customer.currentBalance ?? 0), currency, settings.storeName],
+  );
 
   res.json({
     success: true,

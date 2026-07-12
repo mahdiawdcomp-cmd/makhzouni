@@ -30,6 +30,9 @@ export interface AppSettings {
   voucherTemplateName?: string;
   statementTemplateName?: string;
   portalLinkTemplateName?: string;
+  // Document-header template for the "إرسال PDF" statement send — lets the PDF
+  // reach a customer even outside the 24h window. Empty = plain PDF send.
+  statementPdfTemplateName?: string;
   // UI preferences
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
@@ -174,6 +177,7 @@ export const defaultSettings: AppSettings = {
   voucherTemplateName: "",
   statementTemplateName: "",
   portalLinkTemplateName: "",
+  statementPdfTemplateName: "",
   themePreset: "classic",
   shopWarehouseId: "",
   catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
