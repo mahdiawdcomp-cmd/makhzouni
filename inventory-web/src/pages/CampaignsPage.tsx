@@ -474,6 +474,7 @@ function SendTab() {
             useTemplate: editTarget.useTemplate,
             templateName: editTarget.templateName ?? "",
             templateLanguage: editTarget.templateLanguage ?? "ar",
+            templateBodyParams: editTarget.templateBodyParams ?? [],
           }}
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); qc.invalidateQueries({ queryKey: ["campaigns"] }) }} />
@@ -549,10 +550,12 @@ function CampaignForm({ onClose, onSaved, initial, campaignId }: {
   const readOnly = useReadOnly()
   const [form, setForm] = useState<CampaignPayload>(initial ?? emptyForm)
   const [messagesText, setMessagesText] = useState((initial?.messages ?? []).join("\n---\n"))
+  const [templateParamsText, setTemplateParamsText] = useState((initial?.templateBodyParams ?? []).join("\n"))
   const saveMut = useMutation({
     mutationFn: () => {
       const messages = messagesText.split(/\n-{2,}\n/).map((m) => m.trim()).filter(Boolean)
-      return campaignId ? updateCampaign(campaignId, { ...form, messages }) : createCampaign({ ...form, messages })
+      const templateBodyParams = templateParamsText.split("\n").map((p) => p.trim()).filter(Boolean)
+      return campaignId ? updateCampaign(campaignId, { ...form, messages, templateBodyParams }) : createCampaign({ ...form, messages, templateBodyParams })
     },
     onSuccess: onSaved,
   })
@@ -585,6 +588,15 @@ function CampaignForm({ onClose, onSaved, initial, campaignId }: {
               <input value={form.templateLanguage ?? "ar"} onChange={(e) => set("templateLanguage", e.target.value)}
                 placeholder="ar" dir="ltr"
                 className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-bold text-gray-600">
+                قيم متغيّرات القالب {"{{1}}"}..{"{{n}}"} — قيمة بكل سطر، بنفس الترتيب
+              </label>
+              <textarea value={templateParamsText} onChange={(e) => setTemplateParamsText(e.target.value)} rows={3}
+                placeholder={"عرض الصيف\n20%"}
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400" />
+              <p className="mt-1 text-[11px] text-gray-400">اتركه فارغ إذا القالب بدون متغيّرات. نفس القيم تنرسل لكل المستلمين.</p>
             </div>
             <p className="text-[11px] text-gray-400">لازم يكون القالب موافق عليه من ميتا مسبقاً. الرسالة تنرسل كما وافقت عليها ميتا، بدون تغيير.</p>
           </div>

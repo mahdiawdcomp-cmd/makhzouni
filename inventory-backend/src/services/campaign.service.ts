@@ -102,6 +102,7 @@ export interface CampaignInput {
   useTemplate?: boolean;
   templateName?: string;
   templateLanguage?: string;
+  templateBodyParams?: string[];
 }
 
 function sanitize(input: CampaignInput) {
@@ -126,6 +127,7 @@ function sanitize(input: CampaignInput) {
     useTemplate: input.useTemplate ?? false,
     templateName: input.templateName?.trim() || null,
     templateLanguage: input.templateLanguage?.trim() || "ar",
+    templateBodyParams: (input.templateBodyParams ?? []).map((p) => p.trim()).filter(Boolean),
   };
 }
 
@@ -213,6 +215,7 @@ async function sendOneMessage(
     useTemplate: boolean;
     templateName: string | null;
     templateLanguage: string | null;
+    templateBodyParams: string[];
   },
   recipient: { phone: string },
 ): Promise<{ variant: string; messageId?: string }> {
@@ -220,7 +223,9 @@ async function sendOneMessage(
     if (!campaign.templateName?.trim()) {
       throw new AppError("حدد اسم القالب المعتمد قبل التشغيل", 400, "CAMPAIGN_NO_TEMPLATE");
     }
-    const res = await sendWhatsAppTemplate(recipient.phone, campaign.templateName, campaign.templateLanguage || "ar");
+    const res = await sendWhatsAppTemplate(recipient.phone, campaign.templateName, campaign.templateLanguage || "ar", {
+      bodyParams: campaign.templateBodyParams,
+    });
     return { variant: campaign.templateName, messageId: res.idMessage };
   }
 

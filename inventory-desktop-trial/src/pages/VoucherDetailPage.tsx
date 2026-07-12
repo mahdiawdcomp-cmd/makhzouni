@@ -22,7 +22,7 @@ import {
   getVoucher,
   getVouchers,
   restoreVoucher as restoreVoucherApi,
-  sendWhatsAppMessage,
+  sendWhatsAppTemplatedMessage,
   updateVoucher,
   voucherImageObjectUrl,
   voucherPdfObjectUrl,
@@ -173,7 +173,22 @@ export function VoucherDetailPage() {
     })
     setWaSending(true)
     try {
-      await sendWhatsAppMessage({ phone: normalizePhone(phone), message: msg })
+      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+      // placeholders, in this order, if/once one is configured in Settings.
+      await sendWhatsAppTemplatedMessage({
+        phone: normalizePhone(phone),
+        message: msg,
+        templateKind: "voucher",
+        bodyParams: [
+          voucher.customer?.name ?? "",
+          money(voucher.amount),
+          settings?.currency ?? "د.ع",
+          voucher.voucherNumber,
+          String(voucher.date).slice(0, 10),
+          money(voucher.customer?.currentBalance),
+          settings?.storeName ?? "",
+        ],
+      })
       toast({ title: "✓ تم إرسال السند عبر واتساب." })
     } catch {
       toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })

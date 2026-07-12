@@ -22,6 +22,7 @@ import {
   sendWhatsAppTemplate,
   sendWhatsAppTemplatePdf,
   sendWhatsAppText,
+  invoiceTemplateBodyParams,
 } from "../services/whatsapp.service";
 
 // Meta template language for every template-or-fallback send below — all of
@@ -56,26 +57,6 @@ function sendInvoiceViaCloudSafe(phone: string, templateName: string | undefined
     () => sendWhatsAppTemplatePdf(phone, templateName as string, CLOUD_TEMPLATE_LANG, pdf, filename, bodyParams),
     () => sendWhatsAppPdf(phone, message, pdf, filename),
   );
-}
-
-// Shared by the regular PDF invoice and the customer-safe image invoice —
-// both are now sent as a document (PDF) so a single approved Meta template
-// covers both, and use the same body shape: {{1}} customerName, {{2}} invoiceNumber, {{3}} date,
-// {{4}} totalAmount, {{5}} paidAmount, {{6}} remainingAmount, {{7}} previousBalance,
-// {{8}} finalBalance, {{9}} currency, {{10}} storeName.
-function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof getInvoiceById>>, storeName: string): string[] {
-  return [
-    invoice.customer.name,
-    invoice.invoiceNumber,
-    new Date(invoice.date).toLocaleDateString(),
-    String(invoice.totalAmount),
-    String(invoice.paidAmount),
-    String(invoice.remainingAmount),
-    String(invoice.previousBalance),
-    String(invoice.finalBalance),
-    "د.ع",
-    storeName,
-  ];
 }
 
 function sendTextViaCloudSafe(phone: string, templateName: string | undefined, message: string, bodyParams: string[]) {
@@ -369,6 +350,8 @@ const TEMPLATE_KIND_SETTING = {
   voucher: "voucherTemplateName",
   statement: "statementTemplateName",
   portal: "portalLinkTemplateName",
+  debtReminder: "debtReminderTemplateName",
+  inactiveCustomer: "inactiveCustomerTemplateName",
 } as const;
 type TemplateKind = keyof typeof TEMPLATE_KIND_SETTING;
 

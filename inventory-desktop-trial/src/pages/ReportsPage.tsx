@@ -15,7 +15,7 @@ import { normalizePhone } from "../utils/whatsapp"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, sendWhatsAppMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { getProfitReport, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -23,7 +23,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "archive"
+type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "assistant",    label: "المساعد الذكي",   emoji: "🤖" },
@@ -34,6 +34,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "end-of-day",   label: "نهاية اليوم",     emoji: "🌙" },
   { id: "inventory",    label: "المخزون",         emoji: "📦" },
   { id: "debts",        label: "الديون",          emoji: "🔔" },
+  { id: "inactive",     label: "غير نشطين",       emoji: "💤" },
   { id: "archive",      label: "الأرشيف",         emoji: "🗄️" },
 ]
 
@@ -83,6 +84,7 @@ export function ReportsPage() {
       {activeTab === "end-of-day"    && <EndOfDayTab />}
       {activeTab === "inventory"     && <InventoryTab />}
       {activeTab === "debts"         && <DebtsTab />}
+      {activeTab === "inactive"      && <InactiveTab />}
       {activeTab === "archive"       && <ArchiveTab />}
     </div>
   )
@@ -915,7 +917,13 @@ function DebtsTab() {
                   </TD>
                   <TD>
                     <Button size="sm" variant="outline" onClick={() => {
-                      void sendWhatsAppMessage({ phone: normalizePhone(r.phone), message: `مرحباً ${r.name}، رصيدك لدينا: ${fmt(r.currentBalance)} د.ع` })
+                      const balanceStr = fmt(r.currentBalance)
+                      void sendWhatsAppTemplatedMessage({
+                        phone: normalizePhone(r.phone),
+                        message: `مرحباً ${r.name}، رصيدك لدينا: ${balanceStr} د.ع`,
+                        templateKind: "debtReminder",
+                        bodyParams: [r.name, balanceStr, "د.ع"],
+                      })
                         .then(() => toast({ title: `✓ تم إرسال التذكير لـ ${r.name}` }))
                         .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
                     }}>
@@ -925,6 +933,134 @@ function DebtsTab() {
                 </TR>
               ))}
               {rows.length === 0 ? <TR><TD colSpan={6} className="py-6 text-center text-slate-400">لا توجد ديون في هذه الفترة</TD></TR> : null}
+            </TBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+// ─── Inactive Customers Tab ─────────────────────────────────────────────────────
+function InactiveTab() {
+  const [minDays, setMinDays] = useState(30)
+  const [customDays, setCustomDays] = useState("")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sendMsg, setSendMsg] = useState("")
+
+  const effectiveDays = customDays !== "" ? Number(customDays) : minDays
+
+  const reminderQ = useQuery({
+    queryKey: ["inactive-reminder-list", effectiveDays],
+    queryFn: () => getInactiveReminderList(effectiveDays),
+  })
+  const rows = [...(reminderQ.data ?? [])].sort((a, b) => b.inactiveDays - a.inactiveDays)
+
+  const sendMut = useMutation({
+    mutationFn: () => sendInactiveReminder({ customerIds: Array.from(selected), minDays: effectiveDays }),
+    onSuccess: (d) => setSendMsg(`✓ تم الإرسال لـ ${d.sent} زبون${d.failed > 0 ? ` / فشل ${d.failed}` : ""}`),
+    onError: () => setSendMsg("✗ فشل الإرسال"),
+  })
+
+  function toggleAll(checked: boolean) {
+    setSelected(checked ? new Set(rows.map((r) => r.id)) : new Set())
+  }
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium">غياب أكثر من:</span>
+        {[7, 14, 30, 60, 90].map((days) => (
+          <Button key={days} size="sm" variant={effectiveDays === days && customDays === "" ? "default" : "outline"}
+            onClick={() => { setMinDays(days); setCustomDays("") }}>
+            {`${days} يوم`}
+          </Button>
+        ))}
+        <div className="flex items-center gap-1">
+          <input
+            type="number" min={0} placeholder="عدد مخصص"
+            className="w-24 rounded-md border px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-950"
+            value={customDays}
+            onChange={(e) => setCustomDays(e.target.value)}
+          />
+          <span className="text-xs text-slate-400">يوم</span>
+        </div>
+      </div>
+
+      {rows.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+          <span className="text-sm font-medium">{selected.size} مختار من {rows.length}</span>
+          <Button size="sm"
+            onClick={() => { setSendMsg(""); sendMut.mutate() }}
+            disabled={selected.size === 0 || sendMut.isPending}>
+            📲 {sendMut.isPending ? "جاري الإرسال..." : `إرسال واتساب للمختارين`}
+          </Button>
+          {sendMsg && (
+            <span className={`text-sm font-medium ${sendMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
+              {sendMsg}
+            </span>
+          )}
+        </div>
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>💤 الزبائن غير النشطين</CardTitle>
+            <span className="text-sm text-slate-500">{rows.length} زبون</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <THead>
+              <TR>
+                <TH>
+                  <input type="checkbox" checked={selected.size === rows.length && rows.length > 0}
+                    onChange={(e) => toggleAll(e.target.checked)} />
+                </TH>
+                <TH>الاسم</TH><TH>الرصيد</TH><TH>آخر تعامل</TH><TH>مدة الغياب</TH><TH>واتساب</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {rows.map((r) => (
+                <TR key={r.id}>
+                  <TD>
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} />
+                  </TD>
+                  <TD className="font-medium">{r.name}</TD>
+                  <TD className="text-slate-600">{fmt(r.currentBalance)}</TD>
+                  <TD className="text-slate-500 text-xs">{r.lastTransactionAt?.slice(0, 10) ?? "-"}</TD>
+                  <TD>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      r.inactiveDays > 90 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" :
+                      r.inactiveDays > 30 ? "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300" :
+                      "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+                    }`}>{r.inactiveDays} يوم</span>
+                  </TD>
+                  <TD>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      void sendWhatsAppTemplatedMessage({
+                        phone: normalizePhone(r.phone),
+                        message: `مرحباً ${r.name}، اشتقنا لك! مر وقت طويل من آخر تعامل معنا، تعال شوف عروضنا الجديدة.`,
+                        templateKind: "inactiveCustomer",
+                        bodyParams: [r.name],
+                      })
+                        .then(() => toast({ title: `✓ تم إرسال التذكير لـ ${r.name}` }))
+                        .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
+                    }}>
+                      فردي
+                    </Button>
+                  </TD>
+                </TR>
+              ))}
+              {rows.length === 0 ? <TR><TD colSpan={6} className="py-6 text-center text-slate-400">لا يوجد زبائن غير نشطين بهذه الفترة</TD></TR> : null}
             </TBody>
           </Table>
         </CardContent>

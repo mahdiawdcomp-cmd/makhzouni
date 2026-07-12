@@ -4,9 +4,11 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppPdf, sendWhatsAppText } from "./whatsapp.service";
-import { createInvoice } from "./invoice.service";
+import { sendWhatsAppPdf, sendWhatsAppText, sendPdfWithTemplateFallback, sendTextWithTemplateFallback, invoiceTemplateBodyParams } from "./whatsapp.service";
+import { createInvoice, getInvoiceById } from "./invoice.service";
 import { resolveWarehouseId } from "./warehouse-stock.service";
+
+const CLOUD_TEMPLATE_LANG = "ar";
 
 type PreparationItem = {
   productId: string;
@@ -110,6 +112,38 @@ async function safeSendInvoicePdf(phone: string, message: string, invoiceId: str
     logger.warn(`[WhatsApp] Invoice PDF send failed to ${phone}: ${msg}`);
     await safeSendWA(phone, message);
     scheduleInvoiceRetry(phone, message, invoiceId, invoiceNumber);
+  }
+}
+
+// Customer-facing sibling of safeSendInvoicePdf — reuses the same approved
+// invoice template as the regular PDF invoice send (settings.invoiceTemplateName).
+async function safeSendInvoicePdfTemplated(phone: string, message: string, invoiceId: string, invoiceNumber: string) {
+  try {
+    const [pdf, settings, invoice] = await Promise.all([
+      generateInvoicePdf(invoiceId),
+      getSettings().catch(() => null),
+      getInvoiceById(invoiceId),
+    ]);
+    const bodyParams = invoiceTemplateBodyParams(invoice, settings?.storeName || "المتجر");
+    await sendPdfWithTemplateFallback(phone, settings?.invoiceTemplateName, CLOUD_TEMPLATE_LANG, message, pdf, `${invoiceNumber}.pdf`, bodyParams);
+    logger.info(`[WhatsApp] Invoice PDF sent to ${phone}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] Invoice PDF send failed to ${phone}: ${msg}`);
+    await safeSendWA(phone, message);
+    scheduleInvoiceRetry(phone, message, invoiceId, invoiceNumber);
+  }
+}
+
+// Customer-facing sibling of safeSendWA.
+async function safeSendWATemplated(phone: string, message: string, templateName: string | undefined, bodyParams: string[] = []) {
+  try {
+    await sendTextWithTemplateFallback(phone, templateName, CLOUD_TEMPLATE_LANG, message, bodyParams);
+    logger.info(`[WhatsApp] Sent to ${phone}`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] Send failed to ${phone}: ${msg}`);
+    scheduleTextRetry(phone, message);
   }
 }
 
@@ -340,7 +374,7 @@ export async function markPrepared(
   ].filter(Boolean).join("\n");
 
   if (invoiceId && invoiceNumber) {
-    await safeSendInvoicePdf(prep.customerPhone, customerMsg, invoiceId, invoiceNumber);
+    await safeSendInvoicePdfTemplated(prep.customerPhone, customerMsg, invoiceId, invoiceNumber);
   } else {
     await safeSendWA(prep.customerPhone, customerMsg);
   }
@@ -357,7 +391,7 @@ export async function notifyCatalogAccessRequested(
   const settings = await getSettings().catch(() => null);
   const admin = adminPhone(settings);
 
-  await safeSendWA(customerPhone, "لقد تم تقديم طلبك للدخول الى المتجر الالكتروني");
+  await safeSendWATemplated(customerPhone, "لقد تم تقديم طلبك للدخول الى المتجر الالكتروني", settings?.catalogAccessRequestedTemplateName);
 
   if (admin) {
     const parts = [
@@ -382,9 +416,11 @@ export async function notifyCatalogAccessApproved(
 ) {
   const settings = await getSettings().catch(() => null);
   const url = catalogUrl(settings, urlPath);
-  await safeSendWA(
+  await safeSendWATemplated(
     customerPhone,
     `لقد تم الموافقه على طلبك يمكنك الدخول عبر الرابط\n${url}`,
+    settings?.catalogAccessApprovedTemplateName,
+    [url],
   );
 }
 
@@ -396,7 +432,7 @@ export async function notifyCatalogOrderSubmitted(
   const settings = await getSettings().catch(() => null);
   const admin = adminPhone(settings);
 
-  await safeSendWA(customerPhone, "تم تثبيت الفاتورة وفي انتضار الموافقه والتجهيز");
+  await safeSendWATemplated(customerPhone, "تم تثبيت الفاتورة وفي انتضار الموافقه والتجهيز", settings?.orderSubmittedTemplateName);
 
   if (admin) {
     await safeSendWA(
@@ -441,7 +477,7 @@ export async function notifyCatalogOrderApproved(
   ].join("\n");
 
   // Send the invoice PDF to the customer
-  await safeSendInvoicePdf(customerPhone, message, invoiceId, invoiceNumber);
+  await safeSendInvoicePdfTemplated(customerPhone, message, invoiceId, invoiceNumber);
 }
 
 export async function notifyPreparationStaffPending(

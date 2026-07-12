@@ -19,6 +19,10 @@ function cutoffDate(days: number) {
   return date;
 }
 
+// Alert-only — never sends WhatsApp automatically. The actual send happens
+// on demand from the "لوحة الديون" tab (فردي button or bulk select), which
+// the shop owner triggers themselves so it never turns into an unbounded
+// daily re-send to the same non-paying customer.
 export async function runDebtReminderJob() {
   const settings = await getSettings();
   const cutoff = cutoffDate(settings.debtReminderDays);
@@ -40,19 +44,12 @@ export async function runDebtReminderJob() {
       date: new Date().toLocaleDateString(),
     });
 
-    let sentAt: Date | null = null;
-
-    if (settings.autoSendDebtReminder) {
-      await sendWhatsAppText(customer.phone, message);
-      sentAt = new Date();
-    }
-
     await prisma.notification.create({
       data: {
         customerId: customer.id,
         type: "DEBT_REMINDER",
         message,
-        sentAt,
+        sentAt: null,
       },
     });
   }
@@ -62,6 +59,7 @@ export async function runDebtReminderJob() {
   };
 }
 
+// Alert-only, same reasoning as runDebtReminderJob above.
 export async function runInactiveCustomerJob() {
   const settings = await getSettings();
   const cutoff = cutoffDate(settings.inactiveCustomerDays);
@@ -83,19 +81,12 @@ export async function runInactiveCustomerJob() {
       date: new Date().toLocaleDateString(),
     });
 
-    let sentAt: Date | null = null;
-
-    if (settings.autoSendInactiveMessage) {
-      await sendWhatsAppText(customer.phone, message);
-      sentAt = new Date();
-    }
-
     await prisma.notification.create({
       data: {
         customerId: customer.id,
         type: "INACTIVE_CUSTOMER",
         message,
-        sentAt,
+        sentAt: null,
       },
     });
   }

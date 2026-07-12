@@ -2,7 +2,9 @@ import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { getCustomerTransactions } from "./customer.service";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppText } from "./whatsapp.service";
+import { sendTextWithTemplateFallback } from "./whatsapp.service";
+
+const CLOUD_TEMPLATE_LANG = "ar";
 import { sendPushNotification } from "../utils/push-notify";
 import { AppError } from "../utils/app-error";
 
@@ -264,7 +266,7 @@ export async function notifyProductArrival(productId: string, productName: strin
       const msg = `مرحباً، المنتج "${productName}" أصبح متوفراً الآن في ${storeName}. تفضل بزيارتنا!`;
       // WhatsApp notification
       if (sub.phone) {
-        sendWhatsAppText(sub.phone, msg).catch(() => null);
+        sendTextWithTemplateFallback(sub.phone, settings.productArrivalTemplateName, CLOUD_TEMPLATE_LANG, msg, [productName, storeName]).catch(() => null);
       }
       // Browser push notification
       if (sub.pushSubscription) {

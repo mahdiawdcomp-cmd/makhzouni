@@ -33,6 +33,21 @@ export interface AppSettings {
   // Document-header template for the "إرسال PDF" statement send — lets the PDF
   // reach a customer even outside the 24h window. Empty = plain PDF send.
   statementPdfTemplateName?: string;
+  // Cold-send template names — every one of these is a business-initiated
+  // WhatsApp send the customer did not just message about, so it is almost
+  // always outside Meta's 24h free-text window. Empty = falls back to the
+  // existing free text (silently rejected by Cloud API past 24h, unchanged
+  // behavior for tenants who never fill these in).
+  otpTemplateName?: string;
+  catalogAccessRequestedTemplateName?: string;
+  catalogAccessApprovedTemplateName?: string;
+  orderSubmittedTemplateName?: string;
+  productArrivalTemplateName?: string;
+  // Debt/inactive reminders are never auto-sent (see runDebtReminderJob /
+  // runInactiveCustomerJob) — these only fire on the manual "send from shop
+  // number" button, via POST /whatsapp/send-templated.
+  debtReminderTemplateName?: string;
+  inactiveCustomerTemplateName?: string;
   // UI preferences
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
@@ -178,6 +193,13 @@ export const defaultSettings: AppSettings = {
   statementTemplateName: "",
   portalLinkTemplateName: "",
   statementPdfTemplateName: "",
+  otpTemplateName: "",
+  catalogAccessRequestedTemplateName: "",
+  catalogAccessApprovedTemplateName: "",
+  orderSubmittedTemplateName: "",
+  productArrivalTemplateName: "",
+  debtReminderTemplateName: "",
+  inactiveCustomerTemplateName: "",
   themePreset: "classic",
   shopWarehouseId: "",
   catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",

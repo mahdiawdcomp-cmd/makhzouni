@@ -67,6 +67,7 @@ import type {
   StoreBrainReport,
   DailyAssistantReport,
   DebtCustomer,
+  InactiveCustomer,
   StocktakeSessionSummary,
   StocktakeSessionDetail,
   CycleCountSessionSummary,
@@ -1114,6 +1115,19 @@ export async function sendWhatsAppMessage(payload: { phone: string; message: str
   return data
 }
 
+// Same free-text fallback as sendWhatsAppMessage, but also tries the
+// Meta-approved template configured in Settings for this templateKind first
+// (survives the 24h reply-window restriction once a template is approved).
+export async function sendWhatsAppTemplatedMessage(payload: {
+  phone: string
+  message: string
+  templateKind: "voucher" | "statement" | "portal" | "debtReminder" | "inactiveCustomer"
+  bodyParams: string[]
+}) {
+  const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send-templated", payload)
+  return data
+}
+
 export type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR"
 export type WhatsAppProvider = "manual" | "greenapi" | "cloud" | "web" | "disabled"
 export type WhatsAppStatusCode = "ready" | "missing_settings" | "failed" | "disabled" | "manual_only"
@@ -1386,6 +1400,17 @@ export async function getDebtReminderList(minDays: number) {
 
 export async function sendDebtReminder(payload: { customerIds?: string[]; minDays?: number }) {
   const { data } = await api.post<ApiEnvelope<{ sent: number; failed: number; errors: string[] }>>("/reports/debt-reminder/send", payload)
+  return data.data!
+}
+
+// ── Inactive Customer Reminder ────────────────────────────────────────────────
+export async function getInactiveReminderList(minDays: number) {
+  const { data } = await api.get<ApiEnvelope<InactiveCustomer[]>>("/reports/inactive-reminder", { params: { minDays } })
+  return data.data ?? []
+}
+
+export async function sendInactiveReminder(payload: { customerIds?: string[]; minDays?: number }) {
+  const { data } = await api.post<ApiEnvelope<{ sent: number; failed: number; errors: string[] }>>("/reports/inactive-reminder/send", payload)
   return data.data!
 }
 

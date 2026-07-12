@@ -11,11 +11,14 @@ import {
   getTopCustomersReport,
   getProfitReport,
   getDebtCustomersForReminder,
+  getInactiveCustomersForReminder,
   getCustomerRatings,
   getDebtAging,
 } from "../services/report.service";
-import { sendWhatsAppText } from "../services/whatsapp.service";
+import { sendTextWithTemplateFallback } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
+
+const CLOUD_TEMPLATE_LANG = "ar";
 
 export const dashboardReport = asyncHandler(async (_req, res) => {
   const data = await getDashboardReport();
@@ -132,9 +135,13 @@ export const sendDebtReminder = asyncHandler(async (req, res) => {
 
   for (const customer of targets) {
     try {
-      await sendWhatsAppText(
+      const balanceStr = customer.currentBalance.toLocaleString("en-US");
+      await sendTextWithTemplateFallback(
         customer.phone,
-        `مرحباً ${customer.name}،\nلديك رصيد مستحق بمقدار ${customer.currentBalance.toLocaleString("en-US")} ${currency}.\nنرجو التكرم بالتسوية في أقرب وقت.\nشكراً لتعاملكم معنا.`,
+        settings?.debtReminderTemplateName,
+        CLOUD_TEMPLATE_LANG,
+        `مرحباً ${customer.name}،\nلديك رصيد مستحق بمقدار ${balanceStr} ${currency}.\nنرجو التكرم بالتسوية في أقرب وقت.\nشكراً لتعاملكم معنا.`,
+        [customer.name, balanceStr, currency],
       );
       sent++;
     } catch (err) {
@@ -144,4 +151,44 @@ export const sendDebtReminder = asyncHandler(async (req, res) => {
   }
 
   res.json({ success: true, data: { sent, failed, errors } });
+});
+
+// GET /api/reports/inactive-reminder?minDays=X — returns eligible inactive customers
+export const inactiveReminderList = asyncHandler(async (req, res) => {
+  const minDays = Number((req.query as Record<string, string>).minDays ?? 0);
+  const data = await getInactiveCustomersForReminder(minDays);
+  res.json({ success: true, data });
+});
+
+// POST /api/reports/inactive-reminder/send — send WhatsApp to selected inactive customers
+export const sendInactiveReminder = asyncHandler(async (req, res) => {
+  const { customerIds, minDays } = req.body as { customerIds?: string[]; minDays?: number };
+  const settings = await getSettings().catch(() => null);
+
+  const eligible = await getInactiveCustomersForReminder(minDays ?? 0);
+  const targets = customerIds?.length
+    ? eligible.filter((c) => customerIds.includes(c.id))
+    : eligible;
+
+  let sentCount = 0;
+  let failedCount = 0;
+  const errors: string[] = [];
+
+  for (const customer of targets) {
+    try {
+      await sendTextWithTemplateFallback(
+        customer.phone,
+        settings?.inactiveCustomerTemplateName,
+        CLOUD_TEMPLATE_LANG,
+        `مرحباً ${customer.name}،\nاشتقنا لك! مر وقت طويل من آخر تعامل معنا، تعال شوف عروضنا الجديدة.\nبانتظارك.`,
+        [customer.name],
+      );
+      sentCount++;
+    } catch (err) {
+      failedCount++;
+      errors.push(`${customer.name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  res.json({ success: true, data: { sent: sentCount, failed: failedCount, errors } });
 });

@@ -3,6 +3,7 @@ import {
   sendInvoice,
   sendInvoiceToWorkersCtrl,
   sendMessage,
+  sendTemplatedMessage,
   whatsappRestart,
   whatsappStatus,
   testWhatsAppText,
@@ -23,6 +24,7 @@ router.use(authMiddleware);
 router.get("/status", whatsappStatus);
 router.post("/restart", whatsappRestart);
 router.post("/send", validate(sendWhatsAppSchema), sendMessage);
+router.post("/send-templated", sendTemplatedMessage);
 router.post(
   "/send-invoice/:invoiceId",
   validate(invoiceIdParamSchema),

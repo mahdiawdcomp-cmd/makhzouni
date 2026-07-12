@@ -1,7 +1,10 @@
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
 import { canSendOtp, generateOtp, isVerified, markVerified, verifyOtp } from "../services/otp.service";
-import { sendWhatsAppText } from "../services/whatsapp.service";
+import { sendTextWithTemplateFallback } from "../services/whatsapp.service";
+import { getSettings } from "../services/settings.service";
+
+const CLOUD_TEMPLATE_LANG = "ar";
 
 function normalizePhone(input: string) {
   let digits = input.replace(/[^\d]/g, "");
@@ -24,12 +27,11 @@ export const sendOtp = asyncHandler(async (req, res) => {
   }
 
   const code = generateOtp(normalized);
+  const message = `مرحباً 👋\nرمز التحقق لدخول كتالوج المتجر:\n\n*${code}*\n\nصالح لمدة 5 دقائق فقط.\nلا تشاركه مع أحد.`;
 
   try {
-    await sendWhatsAppText(
-      normalized,
-      `مرحباً 👋\nرمز التحقق لدخول كتالوج المتجر:\n\n*${code}*\n\nصالح لمدة 5 دقائق فقط.\nلا تشاركه مع أحد.`,
-    );
+    const settings = await getSettings().catch(() => null);
+    await sendTextWithTemplateFallback(normalized, settings?.otpTemplateName, CLOUD_TEMPLATE_LANG, message, [code]);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new AppError(`فشل إرسال الرمز: ${msg}`, 503, "OTP_SEND_FAILED");

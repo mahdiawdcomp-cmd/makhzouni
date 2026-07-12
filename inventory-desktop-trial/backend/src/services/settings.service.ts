@@ -17,6 +17,28 @@ export interface AppSettings {
   invoiceDesign?: string;
   voucherTemplate: string;
   statementTemplate: string;
+  // Meta-approved Cloud API template names (WhatsApp Manager → your business
+  // account). Empty = not submitted/approved yet, sends fall back to the free
+  // text templates above (silently rejected by Meta once the customer's 24h
+  // reply window has closed). Cloud API only; ignored for other providers.
+  invoiceTemplateName?: string;
+  voucherTemplateName?: string;
+  statementTemplateName?: string;
+  portalLinkTemplateName?: string;
+  statementPdfTemplateName?: string;
+  // Cold-send template names — every one of these is a business-initiated
+  // WhatsApp send the customer did not just message about, so it is almost
+  // always outside Meta's 24h free-text window.
+  otpTemplateName?: string;
+  catalogAccessRequestedTemplateName?: string;
+  catalogAccessApprovedTemplateName?: string;
+  orderSubmittedTemplateName?: string;
+  productArrivalTemplateName?: string;
+  // Debt/inactive reminders are never auto-sent (see runDebtReminderJob /
+  // runInactiveCustomerJob) — these only fire on a manual "send from shop
+  // number" action, via POST /whatsapp/send-templated.
+  debtReminderTemplateName?: string;
+  inactiveCustomerTemplateName?: string;
   // UI preferences
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
@@ -91,6 +113,18 @@ export const defaultSettings: AppSettings = {
     "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
   statementTemplate:
     "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
+  invoiceTemplateName: "",
+  voucherTemplateName: "",
+  statementTemplateName: "",
+  portalLinkTemplateName: "",
+  statementPdfTemplateName: "",
+  otpTemplateName: "",
+  catalogAccessRequestedTemplateName: "",
+  catalogAccessApprovedTemplateName: "",
+  orderSubmittedTemplateName: "",
+  productArrivalTemplateName: "",
+  debtReminderTemplateName: "",
+  inactiveCustomerTemplateName: "",
   themePreset: "classic",
   shopWarehouseId: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",

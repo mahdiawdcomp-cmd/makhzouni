@@ -6,6 +6,7 @@ import path from "node:path";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { logChatMessage } from "./whatsapp-chat.service";
+import type { getInvoiceById } from "./invoice.service";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
 export type WhatsAppProvider = "web" | "cloud" | "greenapi" | "manual" | "disabled";
@@ -954,6 +955,55 @@ export async function sendPdfWithTemplateFallback(
   } catch (err) {
     logger.warn(`[WhatsApp] PDF template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
     return sendWhatsAppPdf(phone, caption, pdf, filename);
+  }
+}
+
+/**
+ * Send a plain text message, trying an approved Meta text template first
+ * (survives the 24h window) and falling back to free text when the template
+ * isn't configured/approved or the provider isn't Cloud. Text-only sibling of
+ * sendPdfWithTemplateFallback — shared by every non-PDF notification send
+ * outside whatsapp.controller.ts (OTP, catalog access, order status, product
+ * arrival, debt/inactive reminders) so none of them duplicate the try/catch.
+ */
+// Shared by every send that reuses the single approved invoice template
+// (regular invoice, customer-safe image invoice, order-approved, and
+// order-prepared notifications) — a Meta template has one fixed body shape,
+// so all four call sites must supply params in this exact order:
+// {{1}} customerName, {{2}} invoiceNumber, {{3}} date, {{4}} totalAmount,
+// {{5}} paidAmount, {{6}} remainingAmount, {{7}} previousBalance,
+// {{8}} finalBalance, {{9}} currency, {{10}} storeName.
+export function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof getInvoiceById>>, storeName: string): string[] {
+  return [
+    invoice.customer.name,
+    invoice.invoiceNumber,
+    new Date(invoice.date).toLocaleDateString(),
+    String(invoice.totalAmount),
+    String(invoice.paidAmount),
+    String(invoice.remainingAmount),
+    String(invoice.previousBalance),
+    String(invoice.finalBalance),
+    "د.ع",
+    storeName,
+  ];
+}
+
+export async function sendTextWithTemplateFallback(
+  phone: string,
+  templateName: string | undefined,
+  languageCode: string,
+  message: string,
+  bodyParams: string[] = [],
+): Promise<{ to: string; idMessage?: string }> {
+  const status = getWhatsAppStatus();
+  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
+    return sendWhatsAppText(phone, message);
+  }
+  try {
+    return await sendWhatsAppTemplate(phone, templateName, languageCode, { bodyParams });
+  } catch (err) {
+    logger.warn(`[WhatsApp] text template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return sendWhatsAppText(phone, message);
   }
 }
 

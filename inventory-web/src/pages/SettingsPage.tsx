@@ -132,6 +132,13 @@ const fallbackSettings: AppSettings = {
   statementTemplateName: "",
   portalLinkTemplateName: "",
   statementPdfTemplateName: "",
+  otpTemplateName: "",
+  catalogAccessRequestedTemplateName: "",
+  catalogAccessApprovedTemplateName: "",
+  orderSubmittedTemplateName: "",
+  productArrivalTemplateName: "",
+  debtReminderTemplateName: "",
+  inactiveCustomerTemplateName: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
@@ -716,6 +723,62 @@ export function SettingsPage() {
                   dir="ltr"
                 />
               </Field>
+              <Field label="قالب رمز التحقق OTP">
+                <Input
+                  value={settings.otpTemplateName ?? ""}
+                  onChange={(e) => upd("otpTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب طلب الوصول للكتلوك">
+                <Input
+                  value={settings.catalogAccessRequestedTemplateName ?? ""}
+                  onChange={(e) => upd("catalogAccessRequestedTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب الموافقة على الوصول للكتلوك">
+                <Input
+                  value={settings.catalogAccessApprovedTemplateName ?? ""}
+                  onChange={(e) => upd("catalogAccessApprovedTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تثبيت طلب الكتلوك">
+                <Input
+                  value={settings.orderSubmittedTemplateName ?? ""}
+                  onChange={(e) => upd("orderSubmittedTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب وصول المنتج المطلوب">
+                <Input
+                  value={settings.productArrivalTemplateName ?? ""}
+                  onChange={(e) => upd("productArrivalTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تذكير الديون (إرسال يدوي)">
+                <Input
+                  value={settings.debtReminderTemplateName ?? ""}
+                  onChange={(e) => upd("debtReminderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تذكير الزبائن غير النشطين (إرسال يدوي)">
+                <Input
+                  value={settings.inactiveCustomerTemplateName ?? ""}
+                  onChange={(e) => upd("inactiveCustomerTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
             </div>
             <SaveRow
               onSave={() => saveSettings.mutate({
@@ -724,6 +787,13 @@ export function SettingsPage() {
                 statementTemplateName: settings.statementTemplateName,
                 portalLinkTemplateName: settings.portalLinkTemplateName,
                 statementPdfTemplateName: settings.statementPdfTemplateName,
+                otpTemplateName: settings.otpTemplateName,
+                catalogAccessRequestedTemplateName: settings.catalogAccessRequestedTemplateName,
+                catalogAccessApprovedTemplateName: settings.catalogAccessApprovedTemplateName,
+                orderSubmittedTemplateName: settings.orderSubmittedTemplateName,
+                productArrivalTemplateName: settings.productArrivalTemplateName,
+                debtReminderTemplateName: settings.debtReminderTemplateName,
+                inactiveCustomerTemplateName: settings.inactiveCustomerTemplateName,
               })}
               isPending={saveSettings.isPending}
               saved={saved}
@@ -762,12 +832,13 @@ export function SettingsPage() {
           <Card>
             <CardContent className="p-5 space-y-4">
               <SectionTitle>التنبيهات الذكية</SectionTitle>
+              <p className="text-sm text-slate-500">
+                هذي تنبيهات داخل النظام بس — ما ترسل واتساب تلقائياً. الإرسال يصير يدوياً من لوحة الديون وصفحة الزبائن غير النشطين.
+              </p>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Toggle label="تفعيل تذكير الديون" checked={settings.autoSendDebtReminder} onChange={(v) => upd("autoSendDebtReminder", v)} />
                 <Field label="عدد أيام التأخر للتذكير">
                   <Input type="number" value={settings.debtReminderDays} onChange={(e) => upd("debtReminderDays", Number(e.target.value))} />
                 </Field>
-                <Toggle label="تفعيل تنبيه الغياب" checked={settings.autoSendInactiveMessage} onChange={(v) => upd("autoSendInactiveMessage", v)} />
                 <Field label="عدد أيام الغياب للتنبيه">
                   <Input type="number" value={settings.inactiveCustomerDays} onChange={(e) => upd("inactiveCustomerDays", Number(e.target.value))} />
                 </Field>

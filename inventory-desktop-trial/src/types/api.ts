@@ -177,6 +177,15 @@ export interface DebtCustomer {
   lastTransactionAt: string | null
 }
 
+export interface InactiveCustomer {
+  id: string
+  name: string
+  phone: string
+  currentBalance: number
+  inactiveDays: number
+  lastTransactionAt: string | null
+}
+
 // ── «المساعد الذكي اليومي» (Daily Smart Assistant) ────────────────────────────
 export interface AssistantSuggestion {
   type: string
@@ -851,6 +860,20 @@ export interface AppSettings {
   voucherTemplate?: string
   statementTemplate?: string
   invoiceDesign?: string   // visual invoice designer layout (JSON) — separate from WhatsApp text templates above
+  // Meta-approved Cloud API template names — empty means not configured yet,
+  // sends fall back to the free-text templates above.
+  invoiceTemplateName?: string
+  voucherTemplateName?: string
+  statementTemplateName?: string
+  portalLinkTemplateName?: string
+  statementPdfTemplateName?: string
+  otpTemplateName?: string
+  catalogAccessRequestedTemplateName?: string
+  catalogAccessApprovedTemplateName?: string
+  orderSubmittedTemplateName?: string
+  productArrivalTemplateName?: string
+  debtReminderTemplateName?: string
+  inactiveCustomerTemplateName?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   shopWarehouseId?: string

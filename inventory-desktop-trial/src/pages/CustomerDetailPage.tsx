@@ -10,7 +10,7 @@ import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
-import { sendWhatsAppMessage } from "../api/endpoints"
+import { sendWhatsAppTemplatedMessage } from "../api/endpoints"
 import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
@@ -123,7 +123,20 @@ export function CustomerDetailPage() {
       storeName: settings?.storeName ?? "",
     })
     try {
-      await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: msg })
+      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+      // placeholders, in this order, if/once one is configured in Settings.
+      await sendWhatsAppTemplatedMessage({
+        phone: normalizePhone(customer.phone),
+        message: msg,
+        templateKind: "statement",
+        bodyParams: [
+          customer.name,
+          localDateStr(),
+          money(customer.currentBalance),
+          settings?.currency ?? "د.ع",
+          settings?.storeName ?? "",
+        ],
+      })
       toast({ title: "✓ تم إرسال الكشف عبر واتساب." })
     } catch {
       toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
@@ -137,7 +150,14 @@ export function CustomerDetailPage() {
     const fullUrl = `${window.location.origin}${link.urlPath}`
     await navigator.clipboard?.writeText(fullUrl)
     try {
-      await sendWhatsAppMessage({ phone: normalizePhone(customer.phone), message: `رابط كشف حسابك:\n${fullUrl}` })
+      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+      // placeholders, in this order, if/once one is configured in Settings.
+      await sendWhatsAppTemplatedMessage({
+        phone: normalizePhone(customer.phone),
+        message: `رابط كشف حسابك:\n${fullUrl}`,
+        templateKind: "portal",
+        bodyParams: [customer.name, fullUrl],
+      })
     } catch {
       toast({ title: "تم نسخ الرابط. تعذر الإرسال التلقائي." })
     }

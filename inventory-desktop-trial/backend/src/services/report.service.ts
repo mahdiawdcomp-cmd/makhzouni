@@ -1118,6 +1118,31 @@ export async function getDebtCustomersForReminder(minDays: number) {
     .filter((c) => c.debtAgeDays >= minDays);
 }
 
+// ── Bulk Inactive-Customer Reminder ───────────────────────────────────────────
+
+export async function getInactiveCustomersForReminder(minDays: number) {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null },
+    orderBy: { lastTransactionAt: "asc" },
+  });
+
+  const now = Date.now();
+  return customers
+    .map((c) => {
+      const lastDate = c.lastTransactionAt ?? c.createdAt;
+      const inactiveDays = Math.floor((now - lastDate.getTime()) / 86400000);
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        currentBalance: toNumber(c.currentBalance),
+        inactiveDays,
+        lastTransactionAt: c.lastTransactionAt?.toISOString() ?? null,
+      };
+    })
+    .filter((c) => c.inactiveDays >= minDays);
+}
+
 // ── Customer Ratings (A/B/C) ──────────────────────────────────────────────────
 
 export type CustomerRating = "A" | "B" | "C";

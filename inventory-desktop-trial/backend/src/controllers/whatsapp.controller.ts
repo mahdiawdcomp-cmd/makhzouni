@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { logger } from "../utils/logger";
 import { getInvoiceById } from "../services/invoice.service";
 import { generateInvoicePdf } from "../services/invoice-export.service";
 import { renderTemplateByType } from "../services/message-template.service";
@@ -13,7 +14,60 @@ import {
   sendWhatsAppImage,
   sendWhatsAppPdf,
   sendWhatsAppText,
+  sendWhatsAppTemplate,
+  sendPdfWithTemplateFallback,
+  invoiceTemplateBodyParams,
 } from "../services/whatsapp.service";
+
+// Meta template language for every template-or-fallback send below.
+const CLOUD_TEMPLATE_LANG = "ar";
+
+// Cloud API: try the Meta-approved template first (works regardless of 24h
+// session state), and only fall back to the free-text send if the template
+// call fails (not configured, not yet approved, wrong param count, etc.) —
+// never worse than the pre-template behavior.
+async function withTemplateFallback<T>(
+  templateName: string | undefined,
+  tryTemplate: () => Promise<T>,
+  fallback: () => Promise<T>,
+): Promise<T> {
+  const status = getWhatsAppStatus();
+  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
+    return fallback();
+  }
+  try {
+    return await tryTemplate();
+  } catch (err) {
+    logger.warn(`[WhatsApp] template "${templateName}" send failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return fallback();
+  }
+}
+
+function sendInvoiceViaCloudSafe(phone: string, templateName: string | undefined, message: string, pdf: Buffer, filename: string, bodyParams: string[]) {
+  return sendPdfWithTemplateFallback(phone, templateName, CLOUD_TEMPLATE_LANG, message, pdf, filename, bodyParams);
+}
+
+function sendTextViaCloudSafe(phone: string, templateName: string | undefined, message: string, bodyParams: string[]) {
+  return withTemplateFallback(
+    templateName,
+    () => sendWhatsAppTemplate(phone, templateName as string, CLOUD_TEMPLATE_LANG, { bodyParams }),
+    () => sendWhatsAppText(phone, message),
+  );
+}
+
+// Shared by screens that already build their own free-text message
+// client-side (voucher receipt, customer statement, debt/inactive reminders)
+// — the client sends the exact fallback text plus the raw values as
+// bodyParams; the server picks the matching Meta template name from Settings
+// (never a client-supplied template name) and tries it first.
+const TEMPLATE_KIND_SETTING = {
+  voucher: "voucherTemplateName",
+  statement: "statementTemplateName",
+  portal: "portalLinkTemplateName",
+  debtReminder: "debtReminderTemplateName",
+  inactiveCustomer: "inactiveCustomerTemplateName",
+} as const;
+type TemplateKind = keyof typeof TEMPLATE_KIND_SETTING;
 
 export const whatsappStatus = asyncHandler(async (_req, res) => {
   res.json({
@@ -30,6 +84,30 @@ export const whatsappRestart = asyncHandler(async (_req, res) => {
 export const sendMessage = asyncHandler(async (req, res) => {
   const { phone, message } = req.body as { phone: string; message: string };
   const result = await sendWhatsAppText(phone, message);
+
+  res.json({
+    success: true,
+    message: "WhatsApp message sent successfully",
+    data: result,
+  });
+});
+
+// Shared template-or-fallback send for screens that already build their own
+// free-text message client-side (voucher receipt, customer statement, debt/
+// inactive reminders) — the client sends the exact fallback text plus the raw
+// values as bodyParams; the server picks the matching Meta template name from
+// Settings (never a client-supplied template name) and tries it first.
+export const sendTemplatedMessage = asyncHandler(async (req, res) => {
+  const phone = String(req.body?.phone ?? "");
+  const message = String(req.body?.message ?? "");
+  const kind = String(req.body?.templateKind ?? "") as TemplateKind;
+  const bodyParams = Array.isArray(req.body?.bodyParams) ? (req.body.bodyParams as unknown[]).map(String) : [];
+  if (!phone || !message) throw new AppError("رقم الهاتف والنص مطلوبان", 400, "SEND_TEMPLATED_INVALID");
+  if (!(kind in TEMPLATE_KIND_SETTING)) throw new AppError("نوع القالب غير معروف", 400, "SEND_TEMPLATED_UNKNOWN_KIND");
+
+  const settings = await getSettings();
+  const templateName = settings[TEMPLATE_KIND_SETTING[kind]];
+  const result = await sendTextViaCloudSafe(phone, templateName, message, bodyParams);
 
   res.json({
     success: true,
@@ -55,11 +133,16 @@ export const sendInvoice = asyncHandler(async (req, res) => {
     date: new Date(invoice.date).toLocaleDateString(),
   });
 
-  const result = await sendWhatsAppPdf(
+  // Order matches the {{1}}..{{10}} placeholders in the Meta template body —
+  // keep in sync with the template text configured in WhatsApp Manager.
+  const bodyParams = invoiceTemplateBodyParams(invoice, settings.storeName);
+  const result = await sendInvoiceViaCloudSafe(
     invoice.customer.phone,
+    settings.invoiceTemplateName,
     message,
     pdf,
-    `${invoice.invoiceNumber}.pdf`
+    `${invoice.invoiceNumber}.pdf`,
+    bodyParams,
   );
 
   res.json({

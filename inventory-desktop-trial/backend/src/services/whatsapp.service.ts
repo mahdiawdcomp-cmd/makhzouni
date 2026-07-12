@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
+import type { getInvoiceById } from "./invoice.service";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
 export type WhatsAppProvider = "web" | "cloud" | "greenapi" | "manual" | "disabled";
@@ -701,6 +702,144 @@ export async function sendWhatsAppPdf(
     }
     throw err;
   }
+}
+
+/**
+ * Send an approved Meta template — the only send type that survives Meta's
+ * 24h reply-window restriction (a plain free-text send to a customer who
+ * hasn't messaged recently is rejected outright by Cloud API). Cloud API only.
+ */
+export async function sendWhatsAppTemplate(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+  options?: {
+    bodyParams?: string[];
+    documentHeader?: { mediaId: string; filename: string };
+  },
+): Promise<{ to: string }> {
+  const prov = assertCanSend();
+  if (prov !== "cloud") {
+    throw new AppError(
+      "قوالب الرسائل (Templates) مدعومة بس مع Meta Cloud API — المزوّد الحالي لا يدعمها",
+      400,
+      "WHATSAPP_TEMPLATE_REQUIRES_CLOUD",
+    );
+  }
+
+  const components: Record<string, unknown>[] = [];
+  if (options?.documentHeader) {
+    components.push({
+      type: "header",
+      parameters: [{
+        type: "document",
+        document: { id: options.documentHeader.mediaId, filename: options.documentHeader.filename },
+      }],
+    });
+  }
+  if (options?.bodyParams?.length) {
+    components.push({
+      type: "body",
+      parameters: options.bodyParams.map((text) => ({ type: "text", text })),
+    });
+  }
+
+  const to = normalizeCloudPhone(phone);
+  await sendCloudMessage({
+    to,
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      ...(components.length ? { components } : {}),
+    },
+  });
+
+  return { to };
+}
+
+/** Upload a PDF and send it as the document header of an approved template. */
+export async function sendWhatsAppTemplatePdf(
+  phone: string,
+  templateName: string,
+  languageCode: string,
+  pdf: Buffer,
+  filename: string,
+  bodyParams?: string[],
+): Promise<{ to: string }> {
+  const mediaId = await uploadCloudMedia(pdf, filename);
+  return sendWhatsAppTemplate(phone, templateName, languageCode, {
+    bodyParams,
+    documentHeader: { mediaId, filename },
+  });
+}
+
+/**
+ * Send a PDF document, trying an approved Meta document-header template first
+ * and falling back to a plain PDF caption send when the template isn't
+ * configured/approved or the provider isn't Cloud. Never worse than the
+ * free-text path.
+ */
+export async function sendPdfWithTemplateFallback(
+  phone: string,
+  templateName: string | undefined,
+  languageCode: string,
+  caption: string,
+  pdf: Buffer,
+  filename: string,
+  bodyParams: string[],
+): Promise<{ to: string }> {
+  const status = getWhatsAppStatus();
+  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
+    return sendWhatsAppPdf(phone, caption, pdf, filename);
+  }
+  try {
+    return await sendWhatsAppTemplatePdf(phone, templateName, languageCode, pdf, filename, bodyParams);
+  } catch (err) {
+    logger.warn(`[WhatsApp] PDF template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return sendWhatsAppPdf(phone, caption, pdf, filename);
+  }
+}
+
+/** Text-only sibling of sendPdfWithTemplateFallback. */
+export async function sendTextWithTemplateFallback(
+  phone: string,
+  templateName: string | undefined,
+  languageCode: string,
+  message: string,
+  bodyParams: string[] = [],
+): Promise<{ to: string }> {
+  const status = getWhatsAppStatus();
+  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
+    return sendWhatsAppText(phone, message);
+  }
+  try {
+    return await sendWhatsAppTemplate(phone, templateName, languageCode, { bodyParams });
+  } catch (err) {
+    logger.warn(`[WhatsApp] text template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    return sendWhatsAppText(phone, message);
+  }
+}
+
+// Shared by every send that reuses the single approved invoice template
+// (regular invoice, order-approved, order-prepared notifications) — a Meta
+// template has one fixed body shape, so every call site must supply params
+// in this exact order: {{1}} customerName, {{2}} invoiceNumber, {{3}} date,
+// {{4}} totalAmount, {{5}} paidAmount, {{6}} remainingAmount,
+// {{7}} previousBalance, {{8}} finalBalance, {{9}} currency, {{10}} storeName.
+export function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof getInvoiceById>>, storeName: string): string[] {
+  return [
+    invoice.customer.name,
+    invoice.invoiceNumber,
+    new Date(invoice.date).toLocaleDateString(),
+    String(invoice.totalAmount),
+    String(invoice.paidAmount),
+    String(invoice.remainingAmount),
+    String(invoice.previousBalance),
+    String(invoice.finalBalance),
+    "د.ع",
+    storeName,
+  ];
 }
 
 export async function sendWhatsAppImage(

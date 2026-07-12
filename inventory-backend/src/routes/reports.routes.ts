@@ -10,12 +10,14 @@ import {
   debtAgingReport,
   debtReminderList,
   endOfDayReport,
+  inactiveReminderList,
   inventoryValuationReport,
   productMovementReport,
   profitReport,
   storeBrainReport,
   salesReport,
   sendDebtReminder,
+  sendInactiveReminder,
   topCustomersReport,
 } from "../controllers/reports.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -55,5 +57,7 @@ router.get("/store-brain", requireProfitReports(), validate(storeBrainReportSche
 router.get("/daily-assistant", requireProfitReports(), validate(dailyAssistantSchema), dailyAssistantReport);
 router.get("/debt-reminder", debtReminderList);
 router.post("/debt-reminder/send", sendDebtReminder);
+router.get("/inactive-reminder", inactiveReminderList);
+router.post("/inactive-reminder/send", sendInactiveReminder);
 
 export default router;

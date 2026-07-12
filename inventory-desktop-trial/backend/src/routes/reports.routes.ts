@@ -8,11 +8,13 @@ import {
   debtAgingReport,
   debtReminderList,
   endOfDayReport,
+  inactiveReminderList,
   inventoryValuationReport,
   productMovementReport,
   profitReport,
   salesReport,
   sendDebtReminder,
+  sendInactiveReminder,
   topCustomersReport,
 } from "../controllers/reports.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -42,5 +44,7 @@ router.get("/customers/debt-aging", debtAgingReport);
 router.get("/profit", validate(profitReportSchema), profitReport);
 router.get("/debt-reminder", debtReminderList);
 router.post("/debt-reminder/send", sendDebtReminder);
+router.get("/inactive-reminder", inactiveReminderList);
+router.post("/inactive-reminder/send", sendInactiveReminder);
 
 export default router;

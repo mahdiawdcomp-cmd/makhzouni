@@ -594,6 +594,10 @@ model Campaign {
   useTemplate        Boolean             @default(false) @map("use_template")
   templateName       String?             @map("template_name")
   templateLanguage   String?             @default("ar") @map("template_language")
+  // Static {{1}}..{{n}} values for the template body, same for every recipient
+  // (e.g. an offer name/date) — a template send with unfilled variables is
+  // rejected outright by Meta, so this must be set whenever the template has any.
+  templateBodyParams String[]            @default([]) @map("template_body_params")
   // Randomization windows.
   minDelaySec        Int                 @default(90) @map("min_delay_sec")
   maxDelaySec        Int                 @default(240) @map("max_delay_sec")

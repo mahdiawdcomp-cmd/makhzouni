@@ -210,6 +210,15 @@ export interface DebtCustomer {
   lastTransactionAt: string | null
 }
 
+export interface InactiveCustomer {
+  id: string
+  name: string
+  phone: string
+  currentBalance: number
+  inactiveDays: number
+  lastTransactionAt: string | null
+}
+
 // ── «المساعد الذكي اليومي» (Daily Smart Assistant) ────────────────────────────
 export interface AssistantSuggestion {
   type: string
@@ -402,6 +411,7 @@ export interface Campaign {
   useTemplate: boolean
   templateName?: string | null
   templateLanguage?: string | null
+  templateBodyParams?: string[]
   sentToday: number
   dailyCapToday: number
   lastSentAt?: string | null
@@ -485,6 +495,7 @@ export interface CampaignPayload {
   useTemplate?: boolean
   templateName?: string
   templateLanguage?: string
+  templateBodyParams?: string[]
 }
 
 export interface PublicCatalogProduct {
@@ -1028,6 +1039,13 @@ export interface AppSettings {
   statementTemplateName?: string
   portalLinkTemplateName?: string
   statementPdfTemplateName?: string
+  otpTemplateName?: string
+  catalogAccessRequestedTemplateName?: string
+  catalogAccessApprovedTemplateName?: string
+  orderSubmittedTemplateName?: string
+  productArrivalTemplateName?: string
+  debtReminderTemplateName?: string
+  inactiveCustomerTemplateName?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   personalDebtReminderWhatsappNumber?: string
