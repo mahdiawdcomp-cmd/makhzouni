@@ -184,30 +184,37 @@ export function InvoicesPage() {
   })
 
   const invoices = invoicesQuery.data ?? []
-  const filtered = invoices
-    .filter((invoice) => {
-      const paid = Number(invoice.remainingAmount ?? 0) <= 0
-      const matchesStatus =
-        appliedFilters.status === "all" ||
-        appliedFilters.status === "ACTIVE" ||
-        appliedFilters.status === "CANCELLED" ||
-        (appliedFilters.status === "paid" && paid && invoice.status !== "CANCELLED") ||
-        (appliedFilters.status === "unpaid" && !paid && invoice.status !== "CANCELLED")
-      const search = debouncedQuery.trim().toLowerCase()
-      const matchesSearch =
-        search === "" ||
-        invoice.invoiceNumber.toLowerCase().includes(search) ||
-        invoiceParty(invoice).toLowerCase().includes(search)
-      return matchesStatus && matchesSearch
-    })
-    .sort((a, b) => {
-      if (sortBy === "updatedDesc") return dateValue(b.updatedAt) - dateValue(a.updatedAt)
-      if (sortBy === "dateDesc") return dateValue(b.date) - dateValue(a.date)
-      if (sortBy === "totalDesc") return Number(b.totalAmount) - Number(a.totalAmount)
-      if (sortBy === "remainingDesc") return Number(b.remainingAmount) - Number(a.remainingAmount)
-      if (sortBy === "paidDesc") return Number(b.paidAmount) - Number(a.paidAmount)
-      return dateValue(b.createdAt ?? b.date) - dateValue(a.createdAt ?? a.date)
-    })
+  // Was recomputed (filter+sort over up to 500 rows) on every render, including
+  // ones triggered by unrelated state (dialogs, hover) — memoize on the actual
+  // inputs so it only reruns when the data or filters actually change.
+  const filtered = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => {
+          const paid = Number(invoice.remainingAmount ?? 0) <= 0
+          const matchesStatus =
+            appliedFilters.status === "all" ||
+            appliedFilters.status === "ACTIVE" ||
+            appliedFilters.status === "CANCELLED" ||
+            (appliedFilters.status === "paid" && paid && invoice.status !== "CANCELLED") ||
+            (appliedFilters.status === "unpaid" && !paid && invoice.status !== "CANCELLED")
+          const search = debouncedQuery.trim().toLowerCase()
+          const matchesSearch =
+            search === "" ||
+            invoice.invoiceNumber.toLowerCase().includes(search) ||
+            invoiceParty(invoice).toLowerCase().includes(search)
+          return matchesStatus && matchesSearch
+        })
+        .sort((a, b) => {
+          if (sortBy === "updatedDesc") return dateValue(b.updatedAt) - dateValue(a.updatedAt)
+          if (sortBy === "dateDesc") return dateValue(b.date) - dateValue(a.date)
+          if (sortBy === "totalDesc") return Number(b.totalAmount) - Number(a.totalAmount)
+          if (sortBy === "remainingDesc") return Number(b.remainingAmount) - Number(a.remainingAmount)
+          if (sortBy === "paidDesc") return Number(b.paidAmount) - Number(a.paidAmount)
+          return dateValue(b.createdAt ?? b.date) - dateValue(a.createdAt ?? a.date)
+        }),
+    [invoices, appliedFilters.status, debouncedQuery, sortBy]
+  )
 
   const columns = useMemo<ColumnDef<Invoice>[]>(
     () => [

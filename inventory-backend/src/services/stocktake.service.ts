@@ -20,7 +20,9 @@ export async function createStocktakeSession(
   const warehouseId = await resolveWarehouseId(prisma, branchId);
   const stocks = await prisma.productWarehouseStock.findMany({
     where: { warehouseId, product: { deletedAt: null } },
-    include: { product: true },
+    // Only id/name are snapshotted into stocktakeItem below — a full include
+    // pulls every product's base64 image for the whole warehouse catalog.
+    include: { product: { select: { id: true, name: true } } },
     orderBy: [{ product: { category: "asc" } }, { product: { name: "asc" } }],
   });
 

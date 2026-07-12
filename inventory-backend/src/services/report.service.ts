@@ -103,8 +103,11 @@ async function getInvoiceItemsForProfit(where: Prisma.InvoiceWhereInput) {
       invoice: where,
     },
     include: {
-      product: true,
-      invoice: true,
+      // calculateProfit()/itemCostPrice() below only touch these fields —
+      // full includes here pulled base64 product images + the whole invoice
+      // row for every line item feeding profit calculations.
+      product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true } },
+      invoice: { select: { date: true, subtotal: true, totalAmount: true } },
     },
   });
 }
@@ -191,7 +194,13 @@ export async function getDashboardReport() {
       },
       _sum: { currentBalance: true },
     }),
-    prisma.product.findMany({ where: { deletedAt: null } }),
+    prisma.product.findMany({
+      where: { deletedAt: null },
+      // Only used for the low-stock count (currentStock() below) — a full
+      // row pulls every product's base64 imageUrl/thumbnailUrl on every
+      // dashboard load, which is the single most-hit endpoint in the app.
+      select: { openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true },
+    }),
     prisma.invoiceItem.findMany({
       where: {
         invoice: {
@@ -749,7 +758,12 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
       where: { type: "RECEIPT", date: { gte: todayStart, lte: todayEnd }, archivedAt: null, cancelledAt: null },
       _sum: { amount: true },
     }),
-    prisma.product.findMany({ where: { deletedAt: null } }),
+    prisma.product.findMany({
+      where: { deletedAt: null },
+      // Only used for the low-stock count/names below — same rationale as
+      // getDashboardReport's identical query above.
+      select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true },
+    }),
     prisma.invoiceItem.findMany({
       where: {
         invoice: {
@@ -1011,7 +1025,13 @@ export async function getProfitReport(query: ProfitReportQuery) {
           ...(df ? { date: df } : {}),
         },
       },
-      include: { product: true, invoice: { select: { date: true, subtotal: true, totalAmount: true } } },
+      include: {
+        // itemCostPrice()/amountInPieces() only need these 4 fields — a full
+        // `product: true` pulls base64 images per line item over the whole
+        // report date range (unbounded — can be a full year of invoices).
+        product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
+        invoice: { select: { date: true, subtotal: true, totalAmount: true } },
+      },
     }),
     prisma.invoiceItem.findMany({
       where: {
@@ -1021,7 +1041,13 @@ export async function getProfitReport(query: ProfitReportQuery) {
           ...(df ? { date: df } : {}),
         },
       },
-      include: { product: true, invoice: { select: { date: true, subtotal: true, totalAmount: true } } },
+      include: {
+        // itemCostPrice()/amountInPieces() only need these 4 fields — a full
+        // `product: true` pulls base64 images per line item over the whole
+        // report date range (unbounded — can be a full year of invoices).
+        product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
+        invoice: { select: { date: true, subtotal: true, totalAmount: true } },
+      },
     }),
   ]);
 
@@ -1187,7 +1213,8 @@ export async function getStoreBrainReport(query: StoreBrainQuery) {
   const to = query.to ?? iso(curEnd);
   const df = dateFilter(from, to);
   const include = {
-    product: true,
+    // itemCostPrice()/amountInPieces() below only touch these 4 fields.
+    product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
     invoice: {
       select: {
         date: true, subtotal: true, totalAmount: true, createdBy: true, customerId: true,

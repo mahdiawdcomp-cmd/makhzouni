@@ -36,6 +36,27 @@ import {
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
 
+// Fields actually needed for stock/cost math on the invoice write path.
+// Deliberately excludes imageUrl/thumbnailUrl (base64 text, often 100s of KB):
+// this runs once PER LINE ITEM on every invoice create/edit/cancel/reactivate,
+// so a full `product: true` include there multiplies image payload by item count.
+const STOCK_PRODUCT_SELECT = {
+  id: true,
+  name: true,
+  itemNumber: true,
+  deletedAt: true,
+  branchId: true,
+  pcsPerCarton: true,
+  boxPieces: true,
+  purchasePrice: true,
+  salePrice: true,
+  costPrice: true,
+  openingBalancePcs: true,
+  cartonsAvailable: true,
+  storageLocation: true,
+  minStock: true,
+} satisfies Prisma.ProductSelect;
+
 export interface ListInvoicesQuery {
   customerId?: string;
   status?: InvoiceStatus;
@@ -333,6 +354,7 @@ async function applyStockMovement(
 ) {
   const product = await tx.product.findUnique({
     where: { id: item.productId },
+    select: STOCK_PRODUCT_SELECT,
   });
 
   if (!product || product.deletedAt) {
@@ -528,6 +550,7 @@ async function adjustProductStock(
 ) {
   const product = await tx.product.findUnique({
     where: { id: productId },
+    select: STOCK_PRODUCT_SELECT,
   });
 
   if (!product) return;
@@ -559,7 +582,10 @@ async function reversePurchaseWacCost(
   quantityInPieces: number,
   lineTotalCost: number
 ) {
-  const product = await tx.product.findUnique({ where: { id: productId } });
+  const product = await tx.product.findUnique({
+    where: { id: productId },
+    select: { costPrice: true, purchasePrice: true },
+  });
   if (!product) return;
   const agg = await tx.productWarehouseStock.aggregate({
     where: { productId },
@@ -584,7 +610,7 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
     where: { id: invoiceId },
     include: {
       items: {
-        include: { product: true },
+        include: { product: { select: { pcsPerCarton: true, boxPieces: true } } },
       },
     },
   });
@@ -1294,7 +1320,12 @@ export async function getInvoiceById(id: string) {
       customer: true,
       items: {
         include: {
-          product: true,
+          // Frontend only reads itemNumber/pcsPerCarton (legacy fallback for
+          // rows predating the itemNumber snapshot column) — never the full
+          // product, and never its image fields. A full `product: true` here
+          // pulled base64 imageUrl/thumbnailUrl per line item on every invoice
+          // open, which is what made opening an invoice slow.
+          product: { select: { id: true, name: true, itemNumber: true, pcsPerCarton: true, boxPieces: true } },
           warehouse: { select: { id: true, name: true } },
         },
       },

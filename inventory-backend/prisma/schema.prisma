@@ -765,6 +765,9 @@ model Invoice {
   @@index([couponId])
   @@index([originalInvoiceId])
   @@index([archivedAt])
+  // Report/dashboard queries repeatedly filter status+type+date together
+  // (getDashboardReport, getDailySummaryData, getProfitReport, StoreBrain).
+  @@index([status, type, date])
   @@map("invoices")
 }
 
@@ -1094,6 +1097,8 @@ model AuditLog {
   @@index([entity])
   @@index([recordId])
   @@index([createdAt])
+  // customer-statement lookups filter recordId IN (...) + entity IN (...) together.
+  @@index([entity, recordId])
   @@map("audit_logs")
 }
 

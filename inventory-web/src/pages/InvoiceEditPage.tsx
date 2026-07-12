@@ -70,6 +70,9 @@ export function InvoiceEditPage() {
   const invoice = invoiceQuery.data
   const { productsQuery } = useProducts()
   const allProducts = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
+  // allProducts.find() per item was O(items x products) on every keystroke
+  // that touched quantities/units — a Map lookup is O(1) per item instead.
+  const productById = useMemo(() => new Map(allProducts.map((p) => [p.id, p])), [allProducts])
   const { customersQuery } = useCustomers()
 
   usePageTitle(invoice ? `تعديل الفاتورة ${invoice.invoiceNumber}` : "تعديل الفاتورة")
@@ -98,7 +101,7 @@ export function InvoiceEditPage() {
     setCustomerId(invoice.customerId)
     setItems((invoice.items ?? []).map((it) => {
       const wsId = it.warehouseId
-      const product = allProducts.find((p) => p.id === it.productId)
+      const product = productById.get(it.productId)
       const wsName = wsId
         ? product?.warehouseStocks?.find((ws) => ws.warehouseId === wsId)?.warehouse?.name
         : undefined
@@ -185,7 +188,7 @@ export function InvoiceEditPage() {
     const pcsByProduct = (rows: Array<{ productId: string; unit: Unit; quantity: number }>) => {
       const acc: Record<string, number> = {}
       for (const it of rows) {
-        const prod = allProducts.find((p) => p.id === it.productId)
+        const prod = productById.get(it.productId)
         if (!prod) continue
         acc[it.productId] = (acc[it.productId] ?? 0) + unitToPieces(it.unit, it.quantity, prod)
       }
@@ -200,14 +203,14 @@ export function InvoiceEditPage() {
     for (const it of items) {
       if (seen.has(it.productId)) continue
       seen.add(it.productId)
-      const prod = allProducts.find((p) => p.id === it.productId)
+      const prod = productById.get(it.productId)
       if (!prod) continue
       const shop = prod.shopStock ?? 0
       const projected = shop + (originalPcs[it.productId] ?? 0) - (newPcs[it.productId] ?? 0)
       if (projected < 0) warnings.push(`${it.productName} — سيصبح المحل ${projected} قطعة بعد التعديل`)
     }
     return warnings
-  }, [invoice, allProducts, items])
+  }, [invoice, productById, items])
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -385,7 +388,7 @@ export function InvoiceEditPage() {
             </THead>
             <TBody>
               {items.map((it, i) => {
-                const itemProduct = allProducts.find((p) => p.id === it.productId)
+                const itemProduct = productById.get(it.productId)
                 return (
                 <TR key={i}>
                   <TD className="text-sm font-medium">
@@ -403,7 +406,7 @@ export function InvoiceEditPage() {
                       value={it.unit}
                       onChange={(e) => {
                         const nextUnit = e.target.value as Unit
-                        const product = allProducts.find((p) => p.id === it.productId)
+                        const product = productById.get(it.productId)
                         setItems((p) => p.map((x, j) => {
                           if (j !== i) return x
                           // Re-derive the default price for the new unit (piece price × pieces in unit).
@@ -421,7 +424,7 @@ export function InvoiceEditPage() {
                       {UNIT_LABELS.filter(([val]) => {
                         // Hidden units stay selectable only if this line already uses them.
                         if (val === it.unit) return true
-                        const product = allProducts.find((p) => p.id === it.productId)
+                        const product = productById.get(it.productId)
                         return product ? visibleUnits(product).includes(val) : true
                       }).map(([val, label]) => (
                         <option key={val} value={val}>

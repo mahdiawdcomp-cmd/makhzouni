@@ -17,7 +17,15 @@ export function useProducts() {
   const productsQuery = useQuery({
     queryKey: QUERY_KEY,
     queryFn: () => getProducts({ limit: 5000 }),
-    staleTime: 60_000,
+    // Mutations already patch this cache directly (see onSuccess below) instead
+    // of refetching, so a longer staleTime only affects how soon OTHER users'
+    // concurrent changes are picked up — not correctness for this user's own
+    // edits. Measured on production: ~4.75MB / ~200ms server time for 481
+    // products (thumbnails only, full images already omitted server-side).
+    // Not the "huge base64 image" issue the comments below describe — that
+    // was already fixed — but still real bytes worth not re-fetching every
+    // 60s during an active session.
+    staleTime: 5 * 60_000,
   })
 
   const createMutation = useMutation({
@@ -36,7 +44,7 @@ export function useProducts() {
       if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
     },
     // Use the server's authoritative product to replace the placeholder — do NOT
-    // refetch the whole list (it carries every product's base64 image and is huge).
+    // refetch the whole list, just to avoid an unnecessary ~5MB round trip.
     onSuccess: (res) => {
       const created = res?.data
       if (!created) { void qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }); return }
@@ -62,8 +70,8 @@ export function useProducts() {
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
     },
-    // Merge the server's authoritative product into the cache instead of refetching
-    // the entire (image-heavy) list — this is what made add/edit "load forever".
+    // Merge the server's authoritative product into the cache instead of
+    // refetching the entire ~5MB list on every edit.
     onSuccess: (res, vars) => {
       const updated = res?.data
       qc.setQueryData<Product[]>(QUERY_KEY, (old) =>

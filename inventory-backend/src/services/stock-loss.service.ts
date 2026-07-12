@@ -85,7 +85,13 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
     });
 
     for (const item of input.items) {
-      const product = await tx.product.findUnique({ where: { id: item.productId } });
+      const product = await tx.product.findUnique({
+        where: { id: item.productId },
+        select: {
+          id: true, name: true, pcsPerCarton: true, costPrice: true, purchasePrice: true,
+          branchId: true, openingBalancePcs: true, cartonsAvailable: true, storageLocation: true, minStock: true,
+        },
+      });
       if (!product) throw new AppError(`المادة غير موجودة: ${item.productId}`, 404, "PRODUCT_NOT_FOUND");
 
       // Strict conversion: rejects zero/negative/NaN quantities and bad units so a
@@ -192,7 +198,18 @@ export async function cancelStockLoss(id: string) {
 
     const loss = await tx.stockLoss.findUnique({
       where: { id },
-      include: { items: { include: { product: true } } },
+      include: {
+        items: {
+          include: {
+            product: {
+              select: {
+                id: true, branchId: true, pcsPerCarton: true,
+                openingBalancePcs: true, cartonsAvailable: true, storageLocation: true, minStock: true,
+              },
+            },
+          },
+        },
+      },
     });
     if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
 
