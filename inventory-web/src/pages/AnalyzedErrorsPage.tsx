@@ -42,6 +42,13 @@ const HEALTH_LABELS: Record<HealthLevel, { label: string; color: string }> = {
   unknown: { label: "غير معروف", color: "#94A3B8" },
 }
 
+function errorContextLine(context: unknown): string | null {
+  if (!context || typeof context !== "object") return null
+  const ctx = context as { method?: string; path?: string }
+  if (!ctx.method && !ctx.path) return null
+  return [ctx.method, ctx.path].filter(Boolean).join(" ")
+}
+
 function AiAnalyzeButton({ aiEnabled, analyzing, onClick, compact, disabledReason }: {
   aiEnabled: boolean
   analyzing: boolean
@@ -306,6 +313,12 @@ export function AnalyzedErrorsPage() {
                 <div className="mt-2 break-words text-[13.5px] leading-relaxed" style={{ color: "var(--theme-textPrimary)" }} dir="ltr">
                   {log.message}
                 </div>
+
+                {errorContextLine(log.context) && (
+                  <div className="mt-1 break-words font-mono text-[11.5px] opacity-70" style={{ color: "var(--theme-textSecondary)" }} dir="ltr">
+                    {errorContextLine(log.context)}
+                  </div>
+                )}
 
                 {analysis && <AnalysisBox analysis={analysis} />}
 

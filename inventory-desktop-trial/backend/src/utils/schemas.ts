@@ -106,6 +106,13 @@ export const portalTokenSchema = z.object({
   }),
 });
 
+export const portalInvoiceSchema = z.object({
+  params: z.object({
+    token: z.string().trim().min(16).max(128),
+    invoiceId: z.string().uuid(),
+  }),
+});
+
 export const createPortalLinkSchema = z.object({
   params: uuidParam,
   body: z.object({

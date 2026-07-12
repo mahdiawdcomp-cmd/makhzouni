@@ -32,6 +32,7 @@ import {
   catalogAccessStatusSchema,
   createCatalogOrderSchema,
   portalTokenSchema,
+  portalInvoiceSchema,
   sendOtpSchema,
   verifyOtpSchema,
   checkVerifiedSchema,
@@ -70,7 +71,7 @@ router.post("/retail/ai-chat", catalogLimiter, postPublicRetailAiChat);
 
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);
-router.get("/client/:token/invoice/:invoiceId", validate(portalTokenSchema), getClientPortalInvoice);
+router.get("/client/:token/invoice/:invoiceId", validate(portalInvoiceSchema), getClientPortalInvoice);
 
 // Store display screen — returns basic product info for a TV/display
 router.get("/display-products", catalogLimiter, asyncHandler(async (_req, res) => {
