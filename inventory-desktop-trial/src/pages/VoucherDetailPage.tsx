@@ -161,6 +161,8 @@ export function VoucherDetailPage() {
     }
     const phone = voucher.customer?.phone
     if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
+    const previousBalance = currentBalance + (voucher.type === "RECEIPT" ? Number(voucher.amount) : -Number(voucher.amount))
     const tpl = settings?.voucherTemplate || DEFAULT_TEMPLATE
     const msg = fillTemplate(tpl, {
       customerName: voucher.customer?.name ?? "",
@@ -185,7 +187,8 @@ export function VoucherDetailPage() {
           settings?.currency ?? "د.ع",
           voucher.voucherNumber,
           String(voucher.date).slice(0, 10),
-          money(voucher.customer?.currentBalance),
+          money(previousBalance),
+          money(currentBalance),
           settings?.storeName ?? "",
         ],
       })

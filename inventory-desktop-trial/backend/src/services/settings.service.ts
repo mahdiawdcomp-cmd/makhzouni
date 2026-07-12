@@ -113,18 +113,23 @@ export const defaultSettings: AppSettings = {
     "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nالحساب الحالي: {{currentBalance}} {{currency}}.\nشكراً، {{storeName}}.",
   statementTemplate:
     "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}.",
-  invoiceTemplateName: "",
-  voucherTemplateName: "",
-  statementTemplateName: "",
-  portalLinkTemplateName: "",
-  statementPdfTemplateName: "",
+  // Matches the template names already live (pending Meta review as of
+  // 2026-07-13) in WhatsApp Manager for this same shop's WhatsApp number —
+  // kept as the default so this stays in sync with the web app. Every send
+  // still falls back to free text if the name doesn't match an approved
+  // template, so this is safe even before Meta finishes reviewing them.
+  invoiceTemplateName: "invoice_notification_v3",
+  voucherTemplateName: "voucher_receipt_notification_v2",
+  statementTemplateName: "statement_notification",
+  portalLinkTemplateName: "portal_link_notification",
+  statementPdfTemplateName: "statement_pdf_notification",
   otpTemplateName: "",
-  catalogAccessRequestedTemplateName: "",
-  catalogAccessApprovedTemplateName: "",
-  orderSubmittedTemplateName: "",
+  catalogAccessRequestedTemplateName: "catalog_access_requested",
+  catalogAccessApprovedTemplateName: "catalog_access_approved",
+  orderSubmittedTemplateName: "order_submitted_pending",
   productArrivalTemplateName: "",
-  debtReminderTemplateName: "",
-  inactiveCustomerTemplateName: "",
+  debtReminderTemplateName: "debt_reminder",
+  inactiveCustomerTemplateName: "inactive_customer_reminder",
   themePreset: "classic",
   shopWarehouseId: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
