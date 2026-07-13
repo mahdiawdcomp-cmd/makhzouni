@@ -91,7 +91,7 @@ export function InstagramSettings() {
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
         <p className="font-medium">⚠️ متطلبات ميتا قبل ما يشتغل النشر الفعلي:</p>
         <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
-          <li>صفحة فيسبوك بزنس + حساب انستغرام احترافي (Business/Creator) مربوط بيها</li>
+          <li>حساب انستغرام احترافي (Business/Creator)</li>
           <li>توثيق البزنس + موافقة مراجعة التطبيق (App Review) على صلاحيات النشر</li>
           <li>هاي خطوات يدوية من حسابك بميتا — الربط هنا جاهز ويشتغل فوراً لحظة اكتمالها</li>
         </ul>
@@ -100,10 +100,13 @@ export function InstagramSettings() {
       {/* Meta app credentials */}
       <Card>
         <CardContent className="space-y-2 p-3">
-          <p className="text-sm font-medium">تطبيق ميتا (App ID / App Secret)</p>
+          <p className="text-sm font-medium">Instagram App ID / App Secret</p>
+          <p className="text-xs text-slate-500">
+            من لوحة تطبيقك بـ developers.facebook.com ← اختر منتج <b>Instagram</b> ← <b>API setup with Instagram login</b> — انسخ Instagram App ID و Instagram App Secret من هناك (مو من "إعدادات التطبيق ← أساسي" العامة).
+          </p>
           <div className="grid gap-2 sm:grid-cols-3">
-            <Input placeholder="App ID" value={appId} onChange={(e) => setAppId(e.target.value)} dir="ltr" />
-            <Input placeholder={appConfig?.hasAppSecret ? "App Secret (محفوظ — اتركه فارغ)" : "App Secret"} value={appSecret} onChange={(e) => setAppSecret(e.target.value)} type="password" dir="ltr" />
+            <Input placeholder="Instagram App ID" value={appId} onChange={(e) => setAppId(e.target.value)} dir="ltr" />
+            <Input placeholder={appConfig?.hasAppSecret ? "App Secret (محفوظ — اتركه فارغ)" : "Instagram App Secret"} value={appSecret} onChange={(e) => setAppSecret(e.target.value)} type="password" dir="ltr" />
             <Button onClick={() => void saveApp()} disabled={busy === "app"}>
               {busy === "app" ? <Loader2 className="h-4 w-4 animate-spin" /> : "حفظ"}
             </Button>

@@ -12,7 +12,13 @@ import { publicMediaUrl } from "./media-asset.service";
 // container exists and igMediaId the moment media_publish returns, so a retry
 // after a late-stage failure NEVER creates a duplicate live post.
 
-const GRAPH = "https://graph.facebook.com/v21.0";
+// Meta retired the old Facebook-Login-based Instagram Graph API path for new
+// apps; the "Manage messaging and content on Instagram" use case provisions
+// the newer "Instagram API with Instagram Login" instead. That flow talks
+// directly to Instagram (no Facebook Page indirection): auth at
+// instagram.com, token exchange at api.instagram.com, everything else at
+// graph.instagram.com. The IG account itself is the top-level entity.
+const GRAPH = "https://graph.instagram.com/v21.0";
 
 // ── App credentials (per-tenant DB override → env fallback) ─────────────────
 
@@ -65,11 +71,10 @@ function accountToken(account: { accessTokenEnc: string }): string {
 // ── OAuth / connection ───────────────────────────────────────────────────────
 
 const OAUTH_SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-  "pages_show_list",
-  "pages_read_engagement",
-  "business_management",
+  "instagram_business_basic",
+  "instagram_business_content_publish",
+  "instagram_business_manage_messages",
+  "instagram_business_manage_comments",
 ].join(",");
 
 export function oauthRedirectUri(): string {
@@ -81,7 +86,7 @@ export async function getOauthUrl(returnTo: string): Promise<string> {
   const { appId } = await getInstagramAppConfig();
   if (!appId) {
     throw new AppError(
-      "لم يتم إعداد تطبيق ميتا بعد — أدخل App ID و App Secret في الإعدادات أولاً",
+      "لم يتم إعداد تطبيق ميتا بعد — أدخل Instagram App ID و App Secret في الإعدادات أولاً",
       400,
       "INSTAGRAM_APP_NOT_CONFIGURED"
     );
@@ -93,91 +98,76 @@ export async function getOauthUrl(returnTo: string): Promise<string> {
     response_type: "code",
     state: Buffer.from(JSON.stringify({ returnTo })).toString("base64url"),
   });
-  return `https://www.facebook.com/v21.0/dialog/oauth?${qs}`;
+  return `https://www.instagram.com/oauth/authorize?${qs}`;
 }
 
-async function exchangeToLongLived(shortToken: string): Promise<{ token: string; expiresAt: Date | null }> {
-  const { appId, appSecret } = await getInstagramAppConfig();
-  if (!appId || !appSecret) return { token: shortToken, expiresAt: null };
-  try {
-    const json = await graphFetch<{ access_token: string; expires_in?: number }>("oauth/access_token", {
-      grant_type: "fb_exchange_token",
-      client_id: appId,
-      client_secret: appSecret,
-      fb_exchange_token: shortToken,
-    });
-    return {
-      token: json.access_token,
-      expiresAt: json.expires_in ? new Date(Date.now() + json.expires_in * 1000) : null,
-    };
-  } catch {
-    // Manual tokens may already be long-lived / system-user tokens — keep as-is.
-    return { token: shortToken, expiresAt: null };
-  }
-}
-
-/** Discover IG business accounts reachable from a user token and upsert them. */
-export async function connectWithToken(userAccessToken: string) {
-  const { token, expiresAt } = await exchangeToLongLived(userAccessToken.trim());
-  const pages = await graphFetch<{ data: Array<{ id: string; name: string; access_token: string; instagram_business_account?: { id: string } }> }>(
-    "me/accounts",
-    { access_token: token, fields: "id,name,access_token,instagram_business_account" }
+/** Register (or refresh) an account from a long-lived Instagram User Access Token. */
+async function upsertAccountFromToken(token: string, expiresAt: Date | null) {
+  const profile = await graphFetch<{ user_id: string; username: string; name?: string; profile_picture_url?: string }>(
+    "me",
+    { access_token: token, fields: "user_id,username,name,profile_picture_url" }
   );
-  const found = (pages.data || []).filter((p) => p.instagram_business_account?.id);
-  if (found.length === 0) {
-    throw new AppError(
-      "ما لكينا أي حساب انستغرام Business مربوط بصفحة فيسبوك على هذا التوكن — تأكد من ربط الحساب بالصفحة وتحويله لحساب احترافي",
-      400,
-      "NO_IG_BUSINESS_ACCOUNT"
-    );
+  const data = {
+    username: profile.username,
+    name: profile.name,
+    profilePictureUrl: profile.profile_picture_url,
+    accessTokenEnc: encryptSecret(token),
+    tokenExpiresAt: expiresAt,
+    status: "connected" as const,
+    lastError: null,
+  };
+  return prisma.instagramAccount.upsert({
+    where: { igUserId: profile.user_id },
+    create: { igUserId: profile.user_id, ...data },
+    update: data,
+  });
+}
+
+/** Manual-token connect path (pre-App-Review testing): token must already be
+ *  an Instagram User Access Token (short or long-lived) for a Business/Creator
+ *  account — obtained via the Instagram Login OAuth dialog. */
+export async function connectWithToken(userAccessToken: string) {
+  const { appSecret } = await getInstagramAppConfig();
+  const token = userAccessToken.trim();
+  let longToken = token;
+  let expiresAt: Date | null = null;
+  if (appSecret) {
+    try {
+      const long = await graphFetch<{ access_token: string; expires_in: number }>("access_token", {
+        grant_type: "ig_exchange_token",
+        client_secret: appSecret,
+        access_token: token,
+      });
+      longToken = long.access_token;
+      expiresAt = new Date(Date.now() + long.expires_in * 1000);
+    } catch {
+      // Token may already be long-lived — proceed with it as-is.
+    }
   }
-  const connected = [];
-  for (const page of found) {
-    const igId = page.instagram_business_account!.id;
-    const profile = await graphFetch<{ id: string; username: string; name?: string; profile_picture_url?: string }>(
-      igId,
-      { access_token: page.access_token, fields: "id,username,name,profile_picture_url" }
-    );
-    const account = await prisma.instagramAccount.upsert({
-      where: { igUserId: igId },
-      create: {
-        igUserId: igId,
-        username: profile.username,
-        name: profile.name,
-        profilePictureUrl: profile.profile_picture_url,
-        accessTokenEnc: encryptSecret(page.access_token),
-        tokenExpiresAt: expiresAt,
-        pageId: page.id,
-        pageName: page.name,
-        status: "connected",
-        lastError: null,
-      },
-      update: {
-        username: profile.username,
-        name: profile.name,
-        profilePictureUrl: profile.profile_picture_url,
-        accessTokenEnc: encryptSecret(page.access_token),
-        tokenExpiresAt: expiresAt,
-        pageId: page.id,
-        pageName: page.name,
-        status: "connected",
-        lastError: null,
-      },
-    });
-    connected.push(account);
-  }
-  return connected.map(serializeAccount);
+  const account = await upsertAccountFromToken(longToken, expiresAt);
+  return [serializeAccount(account)];
 }
 
 export async function handleOauthCallback(code: string, state: string): Promise<string> {
   const { appId, appSecret } = await getInstagramAppConfig();
-  const json = await graphFetch<{ access_token: string }>("oauth/access_token", {
+  const form = new URLSearchParams({
     client_id: appId,
     client_secret: appSecret,
+    grant_type: "authorization_code",
     redirect_uri: oauthRedirectUri(),
     code,
   });
-  await connectWithToken(json.access_token);
+  const res = await fetch("https://api.instagram.com/oauth/access_token", { method: "POST", body: form });
+  const shortJson = (await res.json().catch(() => ({}))) as { access_token?: string; error_message?: string };
+  if (!res.ok || !shortJson.access_token) {
+    throw new AppError(`Meta API: ${shortJson.error_message ?? "فشل تبادل رمز الدخول"}`, 502, "META_API_ERROR");
+  }
+  const long = await graphFetch<{ access_token: string; expires_in: number }>("access_token", {
+    grant_type: "ig_exchange_token",
+    client_secret: appSecret,
+    access_token: shortJson.access_token,
+  });
+  await upsertAccountFromToken(long.access_token, new Date(Date.now() + long.expires_in * 1000));
   let returnTo = "/settings";
   try {
     returnTo = (JSON.parse(Buffer.from(state, "base64url").toString()) as { returnTo?: string }).returnTo || returnTo;
