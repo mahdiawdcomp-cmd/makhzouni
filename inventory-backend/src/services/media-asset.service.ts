@@ -11,7 +11,9 @@ export const ALLOWED_VIDEO_MIMES = ["video/mp4", "video/quicktime"];
 
 export function publicMediaUrl(publicToken: string): string {
   const base = (process.env.BACKEND_PUBLIC_URL?.trim() || "https://api.mazbwoni.com").replace(/\/$/, "");
-  return `${base}/public/media/${publicToken}`;
+  // All routers are mounted under /api in server.ts — this MUST match or the
+  // URL 404s at the generic catch-all and Meta's media fetch fails silently.
+  return `${base}/api/public/media/${publicToken}`;
 }
 
 export async function saveVideoAsset(input: {

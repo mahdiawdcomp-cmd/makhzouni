@@ -94,7 +94,9 @@ const OAUTH_SCOPES = [
 
 export function oauthRedirectUri(): string {
   const base = (process.env.BACKEND_PUBLIC_URL?.trim() || "https://api.mazbwoni.com").replace(/\/$/, "");
-  return `${base}/public/instagram/oauth-callback`;
+  // All routers are mounted under /api in server.ts (see publicMediaUrl) —
+  // this must be re-registered in Meta's "Valid OAuth Redirect URIs" too.
+  return `${base}/api/public/instagram/oauth-callback`;
 }
 
 export async function getOauthUrl(returnTo: string): Promise<string> {
