@@ -39,6 +39,9 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "INVENTORY_MANAGE",    label: "جرد المخزون",        hint: "يفتح ويدير جلسات الجرد (الستوكتيك)", group: "transfer" },
   { id: "VARIETY_CONVERT",     label: "تحويل الصنف",        hint: "صلاحية محدودة لصفحة تحويل الأصناف بدون رؤية الأسعار", group: "transfer" },
   { id: "ACCESS_WHATSAPP_CHAT", label: "محادثات الواتساب",  hint: "يفتح شاشة الواتساب ويرسل ويستقبل رسائل باسم المحل" },
+  // Instagram auto-publish
+  { id: "MANAGE_INSTAGRAM",    label: "تجهيز منشورات انستغرام", hint: "يجهز المنشورات ويحفظها كمسودات فقط بدون نشر", group: "instagram" },
+  { id: "PUBLISH_INSTAGRAM",   label: "نشر انستغرام",       hint: "ينشر فعلياً على انستغرام ويدير الطوابير المجدولة (مدير)", group: "instagram" },
 ]
 
 const fullPermissions = allPermissions.map((permission) => permission.id)

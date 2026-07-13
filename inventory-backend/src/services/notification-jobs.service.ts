@@ -15,6 +15,7 @@ import { processCampaignsTick } from "./campaign.service";
 import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
+import { runInstagramQueueTick } from "./instagram-queue.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
 import {
   NotificationType,
@@ -389,6 +390,15 @@ export function startNotificationJobs() {
   cron.schedule("* * * * *", () => {
     processCampaignsTick().catch((error) => {
       reportCronFailure("CAMPAIGN_TICK", error);
+    });
+  });
+
+  // Instagram scheduled queues («كتلوك المفرد» auto-publish) — tick every
+  // minute; cheap when no ACTIVE queue exists. Baghdad-time schedule logic
+  // lives in instagram-queue.service.
+  cron.schedule("* * * * *", () => {
+    runInstagramQueueTick().catch((error) => {
+      reportCronFailure("INSTAGRAM_QUEUE_TICK", error);
     });
   });
 

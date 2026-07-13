@@ -21,6 +21,8 @@ export type UserPermission =
   // DENY marker: when present, hides profit & financial reports even from an ADMIN.
   | "HIDE_PROFIT_REPORTS"
   | "ACCESS_WHATSAPP_CHAT"
+  | "MANAGE_INSTAGRAM"
+  | "PUBLISH_INSTAGRAM"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -1327,6 +1329,12 @@ export interface RetailItem {
   lowStockBadge: boolean
   isActive: boolean
   currentStock: number
+  // Instagram auto-publish (one optional video per product)
+  videoAssetId?: string | null
+  video?: { id: string; mime: string; sizeBytes: number; duration?: number | null; publicToken: string } | null
+  instagramPublishedAt?: string | null
+  instagramPermalink?: string | null
+  instagramAccountName?: string | null
   createdAt?: string
 }
 

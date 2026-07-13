@@ -21,7 +21,9 @@ import {
   Trash2,
   Users,
   X,
+  Film,
 } from "lucide-react"
+import { Instagram } from "../components/instagram/InstagramIcon"
 import {
   broadcastToRetailCustomers,
   cancelRetailOrder,
@@ -46,6 +48,9 @@ import {
 } from "../api/endpoints"
 import type { Product, RetailCategory, RetailCoupon, RetailItem, RetailOrder } from "../types/api"
 import { useSettings, useUpdateSettings } from "../hooks/useSettings"
+import { uploadRetailItemVideo, deleteRetailItemVideo } from "../api/endpoints"
+import { useAuthStore } from "../store/authStore"
+import { InstagramPrepareModal } from "../components/instagram/InstagramPrepareModal"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -166,6 +171,9 @@ function ProductsTab() {
   const [editing, setEditing] = useState<RetailItem | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [igItem, setIgItem] = useState<RetailItem | null>(null)
+  const hasPermission = useAuthStore((st) => st.hasPermission)
+  const canPrepareIg = hasPermission("MANAGE_INSTAGRAM") || hasPermission("PUBLISH_INSTAGRAM")
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteRetailItem(id),
@@ -233,6 +241,8 @@ function ProductsTab() {
                 <span className={cn("absolute left-1 top-1 rounded px-1 text-[8px] font-bold text-white", item.currentStock > 0 ? "bg-emerald-500" : "bg-rose-500")}>
                   {item.currentStock > 0 ? item.currentStock : "نفذ"}
                 </span>
+                {item.instagramPublishedAt ? <span className="absolute bottom-1 right-1 rounded bg-pink-600 px-1 text-[8px] font-bold text-white">IG ✓</span> : null}
+                {item.video ? <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[8px] text-white">🎬</span> : null}
               </button>
               <div className="p-1.5">
                 <div className="line-clamp-1 text-xs font-bold leading-tight">{item.title ?? item.productName}</div>
@@ -243,12 +253,24 @@ function ProductsTab() {
                 <div className="mt-1 flex items-center gap-0.5">
                   <button type="button" title="تعديل" onClick={() => { setEditing(item); setDialogOpen(true) }} className="flex-1 rounded bg-slate-100 py-1 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"><Pencil className="mx-auto h-3 w-3" /></button>
                   <button type="button" title={item.isActive ? "إخفاء" : "إظهار"} onClick={() => toggleActive.mutate({ id: item.id, isActive: !item.isActive })} className="flex-1 rounded bg-slate-100 py-1 text-[9px] font-semibold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300">{item.isActive ? "إخفاء" : "إظهار"}</button>
+                  {canPrepareIg && (
+                    <button type="button" title={item.instagramPublishedAt ? "منشور على انستغرام - إعادة نشر" : "نشر على انستغرام"} onClick={() => setIgItem(item)} className={cn("flex-1 rounded py-1", item.instagramPublishedAt ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100" : "bg-pink-50 text-pink-600 hover:bg-pink-100")}><Instagram className="mx-auto h-3 w-3" /></button>
+                  )}
                   <button type="button" title="حذف" onClick={() => setDeleteId(item.id)} className="flex-1 rounded bg-rose-50 py-1 text-rose-600 hover:bg-rose-100"><Trash2 className="mx-auto h-3 w-3" /></button>
                 </div>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {igItem && (
+        <InstagramPrepareModal
+          item={igItem}
+          mode={{ type: hasPermission("PUBLISH_INSTAGRAM") ? "publish" : "draft" }}
+          onClose={() => setIgItem(null)}
+          onDone={() => { setIgItem(null); void qc.invalidateQueries({ queryKey: ["retail-items"] }) }}
+        />
       )}
 
       {dialogOpen && (
@@ -298,6 +320,33 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
   const [sortOrder, setSortOrder] = useState(item ? String(item.sortOrder) : "0")
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  // Phase 0: exactly one optional video per product
+  const videoRef = useRef<HTMLInputElement | null>(null)
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [videoMeta, setVideoMeta] = useState<{ duration: number; width: number; height: number } | null>(null)
+  const [existingVideo, setExistingVideo] = useState(item?.video ?? null)
+  const [videoBusy, setVideoBusy] = useState(false)
+
+  async function onPickVideo(files: FileList | null) {
+    const file = files?.[0]
+    if (!file) return
+    if (file.size > 100 * 1024 * 1024) { toast({ title: "حجم الفيديو يتجاوز 100 ميغابايت", variant: "destructive" }); return }
+    if (!["video/mp4", "video/quicktime"].includes(file.type)) { toast({ title: "المسموح MP4 أو MOV فقط", variant: "destructive" }); return }
+    const url = URL.createObjectURL(file)
+    const meta = await new Promise<{ duration: number; width: number; height: number } | null>((resolve) => {
+      const v = document.createElement("video")
+      v.preload = "metadata"
+      v.onloadedmetadata = () => resolve({ duration: v.duration, width: v.videoWidth, height: v.videoHeight })
+      v.onerror = () => resolve(null)
+      v.src = url
+    })
+    URL.revokeObjectURL(url)
+    if (videoRef.current) videoRef.current.value = ""
+    if (!meta) { toast({ title: "تعذر قراءة الفيديو", variant: "destructive" }); return }
+    if (meta.duration >= 40) { toast({ title: `مدة الفيديو ${Math.round(meta.duration)} ثانية — المسموح أقل من 40 ثانية`, variant: "destructive" }); return }
+    setVideoFile(file)
+    setVideoMeta(meta)
+  }
 
   const selectedProduct = products.find((p) => p.id === productId)
   const filteredProducts = productSearch.trim()
@@ -332,7 +381,19 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
       }
       return isEdit ? updateRetailItem(item!.id, payload) : createRetailItem({ productId, ...payload })
     },
-    onSuccess: onSaved,
+    onSuccess: async (saved) => {
+      if (videoFile && videoMeta) {
+        setVideoBusy(true)
+        try {
+          await uploadRetailItemVideo(saved.id, videoFile, videoMeta)
+        } catch (error) {
+          toast({ title: `انحفظت المادة لكن فشل رفع الفيديو: ${apiErrorMessage(error)}`, variant: "destructive" })
+        } finally {
+          setVideoBusy(false)
+        }
+      }
+      onSaved()
+    },
   })
 
   async function onPickFiles(files: FileList | null) {
@@ -487,6 +548,35 @@ function ItemDialog({ item, onClose, onSaved }: { item: RetailItem | null; onClo
               )}
             </div>
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void onPickFiles(e.target.files)} />
+          </div>
+
+          {/* Video (one per product — used for Instagram Reels) */}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">٦. فيديو المنتج (واحد فقط — حد أقصى 100MB وأقل من 40 ثانية)</label>
+            {existingVideo && !videoFile ? (
+              <div className="flex items-center gap-2 rounded-lg border border-slate-200 p-2 text-sm dark:border-slate-700">
+                <Film className="h-4 w-4 text-pink-600" />
+                <span className="flex-1">فيديو محفوظ ({Math.round((existingVideo.sizeBytes ?? 0) / 1024 / 1024)}MB{existingVideo.duration ? ` • ${Math.round(existingVideo.duration)} ثانية` : ""})</span>
+                <button type="button" disabled={videoBusy} onClick={async () => {
+                  if (!window.confirm("حذف الفيديو من المنتج؟")) return
+                  setVideoBusy(true)
+                  try { await deleteRetailItemVideo(item!.id); setExistingVideo(null) }
+                  catch (error) { toast({ title: apiErrorMessage(error), variant: "destructive" }) }
+                  finally { setVideoBusy(false) }
+                }} className="rounded bg-rose-50 px-2 py-1 text-xs text-rose-600 hover:bg-rose-100">حذف</button>
+              </div>
+            ) : videoFile ? (
+              <div className="flex items-center gap-2 rounded-lg border border-pink-200 bg-pink-50 p-2 text-sm dark:border-pink-800 dark:bg-pink-950/30">
+                <Film className="h-4 w-4 text-pink-600" />
+                <span className="flex-1">{videoFile.name} ({Math.round(videoFile.size / 1024 / 1024)}MB • {Math.round(videoMeta?.duration ?? 0)} ثانية) — يُرفع عند الحفظ</span>
+                <button type="button" onClick={() => { setVideoFile(null); setVideoMeta(null) }} className="rounded bg-rose-50 px-2 py-1 text-xs text-rose-600">إلغاء</button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => videoRef.current?.click()} className="flex h-14 w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 text-sm text-slate-400 hover:border-pink-400 hover:text-pink-500 dark:border-slate-600">
+                <Film className="h-4 w-4" /> إضافة فيديو
+              </button>
+            )}
+            <input ref={videoRef} type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={(e) => void onPickVideo(e.target.files)} />
           </div>
 
           {/* Collections / badges */}

@@ -54,6 +54,7 @@ const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPa
 const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
 const WhatsappChatPage = lazyPage(() => import("./pages/WhatsappChatPage"), "WhatsappChatPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
+const InstagramPage = lazyPage(() => import("./pages/InstagramPage"), "InstagramPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
 const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCountPage")
@@ -145,6 +146,7 @@ const router = createBrowserRouter([
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: f("catalogWholesale", "كتلوگ الجملة", <CatalogManagementPage />) },
           { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
+          { path: "instagram", element: f("retailShop", "إدارة إنستغرام", <InstagramPage />) },
           { path: "reports", element: s(<ReportsPage />) },
           { path: "settings", element: s(<SettingsPage />) },
           { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },

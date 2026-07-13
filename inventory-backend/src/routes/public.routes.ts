@@ -74,6 +74,57 @@ router.post("/whatsapp/incoming-webhook", whatsappIncomingWebhook);
 router.get("/whatsapp/meta-webhook", whatsappMetaWebhookVerify);
 router.post("/whatsapp/meta-webhook", whatsappMetaWebhookReceive);
 
+// Public media by unguessable token — video playback in the catalog admin and
+// the URL Meta pulls Instagram media from (images are ephemeral JPEG copies).
+// Range support so <video> seeking works in the browser.
+router.get("/media/:token", asyncHandler(async (req, res) => {
+  const { getMediaAssetByToken } = await import("../services/media-asset.service");
+  const asset = await getMediaAssetByToken(String(req.params.token));
+  if (!asset) { res.status(404).json({ message: "Not found" }); return; }
+  const total = asset.bytes.length;
+  res.setHeader("Content-Type", asset.mime);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Cache-Control", "public, max-age=3600");
+  const range = req.headers.range;
+  if (range) {
+    const match = /bytes=(\d*)-(\d*)/.exec(range);
+    const start = match?.[1] ? parseInt(match[1], 10) : 0;
+    const end = match?.[2] ? Math.min(parseInt(match[2], 10), total - 1) : total - 1;
+    if (start >= total || start > end) { res.status(416).setHeader("Content-Range", `bytes */${total}`).end(); return; }
+    res.status(206);
+    res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+    res.setHeader("Content-Length", end - start + 1);
+    res.end(Buffer.from(asset.bytes.subarray(start, end + 1)));
+    return;
+  }
+  res.setHeader("Content-Length", total);
+  res.end(Buffer.from(asset.bytes));
+}));
+
+// Instagram OAuth callback (Meta redirects here) → connects accounts, then
+// bounces the admin back to the web settings page.
+router.get("/instagram/oauth-callback", asyncHandler(async (req, res) => {
+  const { handleOauthCallback } = await import("../services/instagram.service");
+  // returnTo is a FULL https URL sent by the tenant's own web app (kept in
+  // state) — never hardcode a tenant domain here.
+  const fallback = process.env.FRONTEND_PUBLIC_URL?.trim() || "";
+  const safeUrl = (u: string) => (/^https:\/\/[\w.-]+(\/|$)/.test(u) ? u : fallback);
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  try {
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    if (!code) throw new Error("missing code");
+    const returnTo = safeUrl(await handleOauthCallback(code, state));
+    res.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}igconnect=ok`);
+  } catch (error) {
+    let returnTo = fallback;
+    try {
+      returnTo = safeUrl((JSON.parse(Buffer.from(state, "base64url").toString()) as { returnTo?: string }).returnTo || fallback);
+    } catch { /* keep fallback */ }
+    const msg = encodeURIComponent(error instanceof Error ? error.message : "connect failed");
+    res.redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}igconnect=error&igerror=${msg}`);
+  }
+}));
+
 // OTP verification (strict rate limit on send)
 router.post("/otp/send", otpLimiter, validate(sendOtpSchema), sendOtp);
 router.post("/otp/verify", catalogLimiter, validate(verifyOtpSchema), confirmOtp);

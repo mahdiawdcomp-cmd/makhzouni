@@ -535,7 +535,7 @@ model WhatsappConversation {
   // top, and a staff-only note thread never sent to the customer.
   isArchived      Boolean                  @default(false) @map("is_archived")
   isPinned        Boolean                  @default(false) @map("is_pinned")
-  internalNotes   String?                  @db.Text @map("internal_notes")
+  internalNotes   String?                  @map("internal_notes") @db.Text
   createdAt       DateTime                 @default(now()) @map("created_at")
   messages        WhatsappMessage[]
 
@@ -544,33 +544,33 @@ model WhatsappConversation {
 }
 
 model WhatsappMessage {
-  id             String                   @id @default(uuid()) @db.Uuid
-  conversationId String                   @map("conversation_id") @db.Uuid
-  conversation   WhatsappConversation     @relation(fields: [conversationId], references: [id])
-  direction      WhatsappMessageDirection
+  id                 String                   @id @default(uuid()) @db.Uuid
+  conversationId     String                   @map("conversation_id") @db.Uuid
+  conversation       WhatsappConversation     @relation(fields: [conversationId], references: [id])
+  direction          WhatsappMessageDirection
   // Always populated even for media-only messages (readable fallback label,
   // e.g. "📷 صورة") so the conversation list preview never shows blank.
-  text           String
+  text               String
   // Non-text content (image/document/audio/video/sticker/location received from
   // Meta, or a PDF/image WE sent). NULL mediaType = plain text message. Media
   // bytes are stored inline as a base64 data URL — same convention as product
   // images (productImageSchema) — no separate file storage/CDN for this feature.
-  mediaType      String?                  @map("media_type")
-  mediaDataUrl   String?                  @db.Text @map("media_data_url")
-  mediaFilename  String?                  @map("media_filename")
-  mediaMimeType  String?                  @map("media_mime_type")
-  waMessageId    String?                  @unique @map("wa_message_id")
+  mediaType          String?                  @map("media_type")
+  mediaDataUrl       String?                  @map("media_data_url") @db.Text
+  mediaFilename      String?                  @map("media_filename")
+  mediaMimeType      String?                  @map("media_mime_type")
+  waMessageId        String?                  @unique @map("wa_message_id")
   // Delivery lifecycle from Meta status webhooks: SENT → DELIVERED → READ,
   // or FAILED (statusError then holds Meta's human-readable reason).
-  status         String                   @default("SENT")
-  statusError    String?                  @map("status_error")
+  status             String                   @default("SENT")
+  statusError        String?                  @map("status_error")
   // Reply/quote: the quoted message's wa id + a denormalized text snapshot so
   // the quote block renders even when the original is outside the loaded page.
-  replyToWaMessageId String?              @map("reply_to_wa_message_id")
-  replyToText        String?              @map("reply_to_text")
+  replyToWaMessageId String?                  @map("reply_to_wa_message_id")
+  replyToText        String?                  @map("reply_to_text")
   // Latest emoji reaction on this message (either side); null = none/removed.
-  reactionEmoji      String?              @map("reaction_emoji")
-  createdAt      DateTime                 @default(now()) @map("created_at")
+  reactionEmoji      String?                  @map("reaction_emoji")
+  createdAt          DateTime                 @default(now()) @map("created_at")
 
   @@index([conversationId, createdAt])
   @@map("whatsapp_messages")
@@ -1006,17 +1006,17 @@ model Setting {
 // for every non-PAID row whose dueDate has arrived, repeating once per day
 // (dedupeKey includes the day) until marked PAID.
 model PersonalDebt {
-  id            String    @id @default(uuid()) @db.Uuid
-  personName    String    @map("person_name")
-  amount        Decimal   @db.Decimal(12, 2)
-  dueDate       DateTime  @map("due_date")
-  status        String    @default("PENDING") // PENDING | PAID (OVERDUE is derived: PENDING + dueDate in the past)
-  notes         String?
-  paidAt        DateTime? @map("paid_at")
-  createdById   String?   @map("created_by") @db.Uuid
-  creator       User?     @relation(fields: [createdById], references: [id])
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id          String    @id @default(uuid()) @db.Uuid
+  personName  String    @map("person_name")
+  amount      Decimal   @db.Decimal(12, 2)
+  dueDate     DateTime  @map("due_date")
+  status      String    @default("PENDING") // PENDING | PAID (OVERDUE is derived: PENDING + dueDate in the past)
+  notes       String?
+  paidAt      DateTime? @map("paid_at")
+  createdById String?   @map("created_by") @db.Uuid
+  creator     User?     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   @@index([status, dueDate])
   @@index([createdById])
@@ -1165,25 +1165,34 @@ model OrderPreparation {
 // is independent of the wholesale catalog.
 
 model RetailCatalogItem {
-  id            String   @id @default(uuid()) @db.Uuid
-  productId     String   @map("product_id") @db.Uuid
-  product       Product  @relation("RetailItemProduct", fields: [productId], references: [id])
-  title         String?
-  description   String?
-  price         Decimal  @db.Decimal(12, 2)
-  oldPrice      Decimal? @map("old_price") @db.Decimal(12, 2)
-  categories    String[] @default([])
-  subCategories String[] @default([]) @map("sub_categories")
-  images        Json     @default("[]")
-  sortOrder     Int      @default(0) @map("sort_order")
-  featured      Boolean  @default(false)
-  isBestSeller  Boolean  @default(false) @map("is_best_seller")
-  isNew         Boolean  @default(false) @map("is_new")
-  isOffer       Boolean  @default(false) @map("is_offer")
-  lowStockBadge Boolean  @default(false) @map("low_stock_badge")
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id                   String          @id @default(uuid()) @db.Uuid
+  productId            String          @map("product_id") @db.Uuid
+  product              Product         @relation("RetailItemProduct", fields: [productId], references: [id])
+  title                String?
+  description          String?
+  price                Decimal         @db.Decimal(12, 2)
+  oldPrice             Decimal?        @map("old_price") @db.Decimal(12, 2)
+  categories           String[]        @default([])
+  subCategories        String[]        @default([]) @map("sub_categories")
+  images               Json            @default("[]")
+  sortOrder            Int             @default(0) @map("sort_order")
+  featured             Boolean         @default(false)
+  isBestSeller         Boolean         @default(false) @map("is_best_seller")
+  isNew                Boolean         @default(false) @map("is_new")
+  isOffer              Boolean         @default(false) @map("is_offer")
+  lowStockBadge        Boolean         @default(false) @map("low_stock_badge")
+  isActive             Boolean         @default(true) @map("is_active")
+  // Exactly ONE optional video per product (locked decision) — bytes live in MediaAsset.
+  videoAssetId         String?         @unique @map("video_asset_id") @db.Uuid
+  videoAsset           MediaAsset?     @relation(fields: [videoAssetId], references: [id], onDelete: SetNull)
+  // Instagram publish summary (fast display on the catalog admin grid);
+  // full history lives in InstagramPost.
+  instagramPublishedAt DateTime?       @map("instagram_published_at")
+  instagramPermalink   String?         @map("instagram_permalink")
+  instagramAccountName String?         @map("instagram_account_name")
+  instagramPosts       InstagramPost[]
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
 
   @@index([isActive])
   @@index([productId])
@@ -1518,4 +1527,140 @@ model ProductArrivalSubscription {
   @@index([customerId])
   @@index([productId])
   @@map("product_arrival_subscriptions")
+}
+
+// ── Instagram auto-publish for «كتلوك المفرد» ────────────────────────────────
+// Videos are stored in Postgres (MediaAsset.bytes) because Railway app disks are
+// ephemeral; Meta pulls media from a public tokenized URL served by the backend.
+
+enum InstagramPostStatus {
+  DRAFT // prepared, saved by MANAGE_INSTAGRAM (no publish right) or explicitly saved
+  QUEUED // waiting inside a scheduled queue
+  PREPARING // جاري التجهيز — building Meta containers
+  UPLOADING // جاري الرفع — containers created, waiting/publishing
+  PUBLISHED // تم النشر
+  FAILED // فشل — errorMessage holds the reason
+}
+
+enum InstagramPostType {
+  IMAGE
+  CAROUSEL
+  REEL
+}
+
+enum InstagramQueueStatus {
+  ACTIVE
+  PAUSED
+  DONE
+}
+
+enum InstagramScheduleType {
+  FIXED_TIMES // explicit clock times (Baghdad time)
+  INTERVAL // every N minutes
+}
+
+model MediaAsset {
+  id          String   @id @default(uuid()) @db.Uuid
+  kind        String   @default("video")
+  mime        String
+  sizeBytes   Int      @map("size_bytes")
+  duration    Float?
+  width       Int?
+  height      Int?
+  bytes       Bytes
+  publicToken String   @unique @default(uuid()) @map("public_token")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  retailItem RetailCatalogItem?
+
+  @@map("media_assets")
+}
+
+model InstagramAccount {
+  id                String    @id @default(uuid()) @db.Uuid
+  igUserId          String    @unique @map("ig_user_id")
+  username          String
+  name              String?
+  profilePictureUrl String?   @map("profile_picture_url")
+  // AES-256-GCM encrypted long-lived token (see utils/crypto.ts)
+  accessTokenEnc    String    @map("access_token_enc")
+  tokenExpiresAt    DateTime? @map("token_expires_at")
+  pageId            String?   @map("page_id")
+  pageName          String?   @map("page_name")
+  status            String    @default("connected") // connected | error | disconnected
+  lastError         String?   @map("last_error")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  posts  InstagramPost[]
+  queues InstagramQueue[]
+
+  @@map("instagram_accounts")
+}
+
+model InstagramQueue {
+  id              String                @id @default(uuid()) @db.Uuid
+  accountId       String                @map("account_id") @db.Uuid
+  account         InstagramAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  name            String?
+  status          InstagramQueueStatus  @default(ACTIVE)
+  scheduleType    InstagramScheduleType @map("schedule_type")
+  // FIXED_TIMES: ["09:00","18:30"] Baghdad time. INTERVAL: intervalMinutes.
+  times           String[]              @default([])
+  intervalMinutes Int?                  @map("interval_minutes")
+  postsPerDay     Int                   @default(1) @map("posts_per_day")
+  publishedToday  Int                   @default(0) @map("published_today")
+  todayKey        String?               @map("today_key") // Baghdad YYYY-MM-DD for publishedToday reset
+  lastPublishedAt DateTime?             @map("last_published_at")
+  createdById     String?               @map("created_by_id") @db.Uuid
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  posts InstagramPost[]
+
+  @@index([status])
+  @@map("instagram_queues")
+}
+
+model InstagramPost {
+  id           String              @id @default(uuid()) @db.Uuid
+  retailItemId String?             @map("retail_item_id") @db.Uuid
+  retailItem   RetailCatalogItem?  @relation(fields: [retailItemId], references: [id], onDelete: SetNull)
+  productTitle String              @map("product_title") // snapshot, survives item deletion
+  accountId    String              @map("account_id") @db.Uuid
+  account      InstagramAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  queueId      String?             @map("queue_id") @db.Uuid
+  queue        InstagramQueue?     @relation(fields: [queueId], references: [id], onDelete: SetNull)
+  position     Int                 @default(0)
+  postType     InstagramPostType   @map("post_type")
+  status       InstagramPostStatus @default(DRAFT)
+  caption      String              @default("")
+  // Ordered media plan chosen in the prep modal:
+  // { media: [{ kind: "image", imageIndex: 0 } | { kind: "video" }], coverImageIndex?: number }
+  mediaPlan    Json                @map("media_plan")
+  igCreationId String?             @map("ig_creation_id") // container id — stored ASAP for idempotent retry
+  igMediaId    String?             @map("ig_media_id") // published media id — stored ASAP, retry never double-posts
+  permalink    String?
+  errorMessage String?             @map("error_message")
+  attemptCount Int                 @default(0) @map("attempt_count")
+  publishedAt  DateTime?           @map("published_at")
+  createdById  String?             @map("created_by_id") @db.Uuid
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([retailItemId])
+  @@index([queueId, position])
+  @@map("instagram_posts")
+}
+
+model InstagramHashtagGroup {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  category  String?
+  hashtags  String[] @default([])
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("instagram_hashtag_groups")
 }

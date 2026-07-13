@@ -32,6 +32,7 @@ import {
   Wallet,
   Zap,
 } from "lucide-react"
+import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
 import { getApprovals, getInboundMessages } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
@@ -59,6 +60,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/catalog-management")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/campaigns")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
+  if (path.startsWith("/instagram")) return "MANAGE_INSTAGRAM"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
   return null
@@ -72,6 +74,7 @@ function featureKeyForItem(item: Item): string | null {
   const path = "basePath" in item ? item.basePath : item.to.split("?")[0]
   if (path === "/catalog-management") return "catalogWholesale"
   if (path === "/retail-catalog") return "retailShop"
+  if (path === "/instagram") return "retailShop"
   if (path === "/campaigns") return "whatsappCampaigns"
   if (path === "/customers/broadcast") return "whatsappCampaigns"
   if (path === "/quotations") return "quotations"
@@ -143,6 +146,7 @@ const navItems: Item[] = [
   { to: "/account/statement-export", label: "حفظ الكشف العام", icon: Download },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
+  { to: "/instagram", label: "إدارة إنستغرام", icon: Instagram },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },

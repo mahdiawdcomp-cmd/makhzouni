@@ -41,6 +41,7 @@ import errorLogsRoutes from "./error-logs.routes";
 import balanceMigrationRoutes from "./balance-migration.routes";
 import landedCostImportRoutes from "./landed-cost-import.routes";
 import personalDebtRoutes from "./personal-debt.routes";
+import instagramRoutes from "./instagram.routes";
 
 const router = Router();
 
@@ -52,6 +53,7 @@ router.use("/auth", authRoutes);
 router.use("/users", usersRoutes);
 router.use("/approvals", approvalsRoutes);
 router.use("/personal-debts", personalDebtRoutes);
+router.use("/instagram", instagramRoutes);
 router.use("/audit-logs", auditLogsRoutes);
 router.use("/branches", branchesRoutes);
 router.use("/customers", customersRoutes);

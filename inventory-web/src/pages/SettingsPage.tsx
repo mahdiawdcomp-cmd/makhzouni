@@ -39,6 +39,7 @@ import {
   WifiOff,
   XCircle,
 } from "lucide-react"
+import { Instagram as InstagramIcon } from "../components/instagram/InstagramIcon"
 import {
   getCustomers,
   getBranches,
@@ -77,6 +78,7 @@ import {
   resolveShortcuts,
   type ShortcutOverride,
 } from "../hooks/useGlobalShortcuts"
+import { InstagramSettings } from "../components/settings/InstagramSettings"
 import { Button } from "../components/ui/button"
 import { Card, CardContent } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -180,12 +182,13 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
+type SettingsTab = "store" | "theme" | "whatsapp" | "instagram" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "store",     label: "المتجر",           icon: Building2 },
   { id: "theme",     label: "المظهر",           icon: Palette },
   { id: "whatsapp",  label: "واتساب",           icon: MessageCircle },
+  { id: "instagram", label: "انستغرام",         icon: InstagramIcon },
   { id: "alerts",    label: "التنبيهات",        icon: BellRing },
   { id: "security",  label: "الأمان",           icon: KeyRound },
   { id: "backup",    label: "النسخ الاحتياطي",  icon: Download },
@@ -561,6 +564,11 @@ export function SettingsPage() {
           </CardContent>
         </Card>
         </>
+      )}
+
+      {/* ── INSTAGRAM ──────────────────────────────────────── */}
+      {activeTab === "instagram" && (
+        <Card><CardContent className="p-4"><InstagramSettings /></CardContent></Card>
       )}
 
       {/* ── WHATSAPP ───────────────────────────────────────── */}

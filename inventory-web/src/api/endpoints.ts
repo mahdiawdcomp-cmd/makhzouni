@@ -2325,3 +2325,209 @@ export async function voiceExecute(plan: VoiceParsedPlan["plan"]) {
   const { data } = await api.post<ApiEnvelope<{ invoiceId?: string; invoiceNumber?: string; voucherId?: string }>>("/voice/execute", { plan })
   return data.data!
 }
+
+// ── Instagram auto-publish («كتلوك المفرد») ───────────────────────────────────
+
+export interface InstagramAccount {
+  id: string
+  igUserId: string
+  username: string
+  name?: string | null
+  profilePictureUrl?: string | null
+  pageName?: string | null
+  status: "connected" | "error" | "disconnected"
+  lastError?: string | null
+  tokenExpiresAt?: string | null
+  tokenExpiringSoon?: boolean
+  createdAt: string
+}
+
+export type InstagramMediaPlan = {
+  media: Array<{ kind: "image"; imageIndex: number } | { kind: "video" }>
+  coverImageIndex?: number
+}
+
+export interface InstagramPost {
+  id: string
+  retailItemId?: string | null
+  productTitle: string
+  accountId: string
+  queueId?: string | null
+  position: number
+  postType: "IMAGE" | "CAROUSEL" | "REEL"
+  status: "DRAFT" | "QUEUED" | "PREPARING" | "UPLOADING" | "PUBLISHED" | "FAILED"
+  caption: string
+  mediaPlan: InstagramMediaPlan
+  permalink?: string | null
+  errorMessage?: string | null
+  attemptCount: number
+  publishedAt?: string | null
+  createdAt: string
+  account?: { username: string; profilePictureUrl?: string | null }
+  queue?: { id: string; name?: string | null } | null
+}
+
+export interface InstagramQueue {
+  id: string
+  accountId: string
+  name?: string | null
+  status: "ACTIVE" | "PAUSED" | "DONE"
+  scheduleType: "FIXED_TIMES" | "INTERVAL"
+  times: string[]
+  intervalMinutes?: number | null
+  postsPerDay: number
+  publishedToday: number
+  lastPublishedAt?: string | null
+  createdAt: string
+  account?: { username: string; profilePictureUrl?: string | null; status: string }
+  pendingCount?: number
+}
+
+export interface InstagramHashtagGroup {
+  id: string
+  name: string
+  category?: string | null
+  hashtags: string[]
+}
+
+export async function getInstagramAppConfig() {
+  const { data } = await api.get<ApiEnvelope<{ appId: string; hasAppSecret: boolean }>>("/instagram/app-config")
+  return data.data!
+}
+
+export async function saveInstagramAppConfig(payload: { appId?: string; appSecret?: string }) {
+  const { data } = await api.put<ApiEnvelope<{ appId: string; hasAppSecret: boolean }>>("/instagram/app-config", payload)
+  return data.data!
+}
+
+export async function getInstagramAccounts() {
+  const { data } = await api.get<ApiEnvelope<InstagramAccount[]>>("/instagram/accounts")
+  return data.data ?? []
+}
+
+export async function getInstagramOauthUrl(returnTo: string) {
+  const { data } = await api.get<ApiEnvelope<{ url: string }>>("/instagram/oauth-url", { params: { returnTo } })
+  return data.data!.url
+}
+
+export async function connectInstagramManual(accessToken: string) {
+  const { data } = await api.post<ApiEnvelope<InstagramAccount[]>>("/instagram/accounts/manual", { accessToken })
+  return data.data ?? []
+}
+
+export async function checkInstagramAccount(id: string) {
+  const { data } = await api.post<ApiEnvelope<InstagramAccount>>(`/instagram/accounts/${id}/check`)
+  return data.data!
+}
+
+export async function disconnectInstagramAccount(id: string) {
+  await api.post(`/instagram/accounts/${id}/disconnect`)
+}
+
+export async function deleteInstagramAccount(id: string) {
+  await api.delete(`/instagram/accounts/${id}`)
+}
+
+export async function getInstagramQuota(accountId: string) {
+  const { data } = await api.get<ApiEnvelope<{ used: number; total: number }>>(`/instagram/accounts/${accountId}/quota`)
+  return data.data!
+}
+
+export async function uploadRetailItemVideo(itemId: string, file: File, meta: { duration?: number; width?: number; height?: number }) {
+  const form = new FormData()
+  form.append("video", file)
+  if (meta.duration) form.append("duration", String(meta.duration))
+  if (meta.width) form.append("width", String(meta.width))
+  if (meta.height) form.append("height", String(meta.height))
+  const { data } = await api.post<ApiEnvelope<{ id: string; url: string; duration?: number }>>(
+    `/instagram/catalog-items/${itemId}/video`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 300000 }
+  )
+  return data.data!
+}
+
+export async function deleteRetailItemVideo(itemId: string) {
+  await api.delete(`/instagram/catalog-items/${itemId}/video`)
+}
+
+export async function getInstagramHashtagGroups() {
+  const { data } = await api.get<ApiEnvelope<InstagramHashtagGroup[]>>("/instagram/hashtag-groups")
+  return data.data ?? []
+}
+
+export async function createInstagramHashtagGroup(payload: { name: string; category?: string; hashtags: string[] }) {
+  const { data } = await api.post<ApiEnvelope<InstagramHashtagGroup>>("/instagram/hashtag-groups", payload)
+  return data.data!
+}
+
+export async function updateInstagramHashtagGroup(id: string, payload: { name?: string; category?: string; hashtags?: string[] }) {
+  const { data } = await api.put<ApiEnvelope<InstagramHashtagGroup>>(`/instagram/hashtag-groups/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteInstagramHashtagGroup(id: string) {
+  await api.delete(`/instagram/hashtag-groups/${id}`)
+}
+
+export async function validateInstagramMedia(retailItemId: string, mediaPlan: InstagramMediaPlan) {
+  const { data } = await api.post<ApiEnvelope<{ warnings: string[] }>>("/instagram/validate-media", { retailItemId, mediaPlan })
+  return data.data!
+}
+
+export async function saveInstagramDraft(payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan }) {
+  const { data } = await api.post<ApiEnvelope<InstagramPost>>("/instagram/posts/draft", payload)
+  return data.data!
+}
+
+export async function publishInstagramPost(payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan; draftId?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>("/instagram/posts/publish", payload)
+  return data.data!
+}
+
+export async function retryInstagramPost(id: string) {
+  await api.post(`/instagram/posts/${id}/retry`)
+}
+
+export async function getInstagramPosts(params?: { status?: string; retailItemId?: string }) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>("/instagram/posts", { params })
+  return data.data ?? []
+}
+
+export async function getInstagramPost(id: string) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost>>(`/instagram/posts/${id}`)
+  return data.data!
+}
+
+export async function deleteInstagramPost(id: string) {
+  await api.delete(`/instagram/posts/${id}`)
+}
+
+export async function getInstagramQueues() {
+  const { data } = await api.get<ApiEnvelope<InstagramQueue[]>>("/instagram/queues")
+  return data.data ?? []
+}
+
+export async function createInstagramQueue(payload: { accountId: string; name?: string; scheduleType: "FIXED_TIMES" | "INTERVAL"; times?: string[]; intervalMinutes?: number; postsPerDay: number }) {
+  const { data } = await api.post<ApiEnvelope<InstagramQueue>>("/instagram/queues", payload)
+  return data.data!
+}
+
+export async function updateInstagramQueue(id: string, payload: Partial<{ name: string; status: "ACTIVE" | "PAUSED"; scheduleType: "FIXED_TIMES" | "INTERVAL"; times: string[]; intervalMinutes: number; postsPerDay: number }>) {
+  const { data } = await api.put<ApiEnvelope<InstagramQueue>>(`/instagram/queues/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteInstagramQueue(id: string) {
+  await api.delete(`/instagram/queues/${id}`)
+}
+
+export async function addPostToInstagramQueue(queueId: string, payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan }) {
+  const { data } = await api.post<ApiEnvelope<InstagramPost>>(`/instagram/queues/${queueId}/posts`, payload)
+  return data.data!
+}
+
+export async function getInstagramQueuePosts(queueId: string) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>(`/instagram/queues/${queueId}/posts`)
+  return data.data ?? []
+}

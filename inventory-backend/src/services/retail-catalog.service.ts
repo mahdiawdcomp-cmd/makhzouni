@@ -135,6 +135,20 @@ function serializeItem(item: any) {
     lowStockBadge: item.lowStockBadge,
     isActive: item.isActive,
     currentStock: stock,
+    // One optional video per product (Instagram auto-publish, Phase 0)
+    videoAssetId: item.videoAssetId ?? null,
+    video: item.videoAsset
+      ? {
+          id: item.videoAsset.id,
+          mime: item.videoAsset.mime,
+          sizeBytes: item.videoAsset.sizeBytes,
+          duration: item.videoAsset.duration,
+          publicToken: item.videoAsset.publicToken,
+        }
+      : null,
+    instagramPublishedAt: item.instagramPublishedAt ?? null,
+    instagramPermalink: item.instagramPermalink ?? null,
+    instagramAccountName: item.instagramAccountName ?? null,
     createdAt: item.createdAt,
   };
 }
@@ -145,6 +159,7 @@ export async function listRetailItems() {
       product: {
         select: { name: true, itemNumber: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, warehouseStocks: { select: { quantityPieces: true } } },
       },
+      videoAsset: { select: { id: true, mime: true, sizeBytes: true, duration: true, publicToken: true } },
     },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
   });
