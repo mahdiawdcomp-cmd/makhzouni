@@ -46,7 +46,14 @@ export async function saveInstagramAppConfig(input: { appId?: string; appSecret?
 
 // ── Graph helpers ────────────────────────────────────────────────────────────
 
-type GraphError = { message: string; code?: number; error_subcode?: number };
+type GraphError = {
+  message: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+  error_user_msg?: string;
+  fbtrace_id?: string;
+};
 
 async function graphFetch<T>(path: string, params: Record<string, string>, method: "GET" | "POST" = "GET"): Promise<T> {
   const qs = new URLSearchParams(params);
@@ -55,8 +62,16 @@ async function graphFetch<T>(path: string, params: Record<string, string>, metho
   const json = (await res.json().catch(() => ({}))) as { error?: GraphError } & T;
   if (!res.ok || json.error) {
     const err = json.error;
+    if (err) {
+      console.error("[instagram] Graph API error", { path, params: { ...params, access_token: "***" }, error: err, status: res.status });
+    }
+    const detail = err
+      ? [err.error_user_msg, err.message, err.type, err.code !== undefined ? `code=${err.code}` : null, err.error_subcode !== undefined ? `sub=${err.error_subcode}` : null]
+          .filter(Boolean)
+          .join(" | ")
+      : null;
     throw new AppError(
-      err?.message ? `Meta API: ${err.message}` : `Meta API request failed (${res.status})`,
+      detail ? `Meta API: ${detail}` : `Meta API request failed (${res.status})`,
       502,
       "META_API_ERROR"
     );
