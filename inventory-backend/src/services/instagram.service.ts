@@ -448,6 +448,7 @@ export async function publishPost(postId: string): Promise<void> {
             tempImageAssets.push(img.id);
             const c = await graphFetch<{ id: string }>(`${igUserId}/media`, {
               access_token: token,
+              media_type: "IMAGE",
               image_url: img.url,
               is_carousel_item: "true",
             }, "POST");
