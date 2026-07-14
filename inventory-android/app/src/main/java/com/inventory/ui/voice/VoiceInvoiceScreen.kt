@@ -427,7 +427,7 @@ private fun ConfirmationCard(
 ) {
     val plan = state.plan
 
-    fun unitLabel(u: String?) = when (u) { "CARTON" -> "كرتون"; "DOZEN" -> "درزن"; else -> "قطعة" }
+    fun unitLabel(u: String?) = when (u) { "CARTON" -> "كرتون"; "BOX" -> "علبة"; "DOZEN" -> "درزن"; else -> "قطعة" }
     fun payLabel(p: String?)  = when (p) { "CASH" -> "نقداً"; "CREDIT" -> "دين"; "PARTIAL" -> "جزئي"; else -> p ?: "" }
     fun vouLabel(v: String?)  = if (v == "PAYMENT") "دفع" else "قبض"
 
@@ -573,7 +573,7 @@ private fun SuccessCard(
     onOpenInvoice: () -> Unit,
     onNewCommand: () -> Unit,
 ) {
-    fun unitLabel(u: String) = when (u) { "CARTON" -> "كرتون"; "DOZEN" -> "درزن"; else -> "قطعة" }
+    fun unitLabel(u: String) = when (u) { "CARTON" -> "كرتون"; "BOX" -> "علبة"; "DOZEN" -> "درزن"; else -> "قطعة" }
     fun payLabel(p: String)  = when (p) { "CASH" -> "نقداً"; "CREDIT" -> "دين"; "PARTIAL" -> "جزئي"; else -> p }
 
     Surface(

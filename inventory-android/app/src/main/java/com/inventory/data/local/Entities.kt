@@ -27,6 +27,7 @@ data class ProductEntity(
     val openingBalancePcs: Int,
     val cartonsAvailable: Int,
     val pcsPerCarton: Int,
+    val boxPieces: Int? = null,
     val purchasePrice: Double,
     val salePrice: Double,
     val retailPrice: Double = 0.0,

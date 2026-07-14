@@ -445,6 +445,7 @@ private fun OcrTextField(
 
 private fun unitLabel(unit: String) = when (unit) {
     "CARTON" -> "كرتون"
+    "BOX"    -> "علبة"
     "DOZEN"  -> "درزن"
     else     -> "قطعة"
 }

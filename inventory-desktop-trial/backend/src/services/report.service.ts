@@ -113,16 +113,16 @@ function itemCostPrice(item: {
   unit: Unit;
   quantity: number;
   costPrice: DecimalLike;
-  product: { costPrice: DecimalLike; purchasePrice: DecimalLike; pcsPerCarton: number };
+  product: { costPrice: DecimalLike; purchasePrice: DecimalLike; pcsPerCarton: number; boxPieces?: number | null };
 }) {
   // Use the snapshot costPrice if non-zero, else fall back to product.costPrice, else purchasePrice
   const snapshotCost = toNumber(item.costPrice);
   const productCost = toNumber(item.product.costPrice);
   const purchaseCost = toNumber(item.product.purchasePrice);
   const baseCost = snapshotCost > 0 ? snapshotCost : productCost > 0 ? productCost : purchaseCost;
-  if (item.unit === Unit.CARTON) return baseCost * item.product.pcsPerCarton * item.quantity;
-  if (item.unit === Unit.DOZEN) return baseCost * 12 * item.quantity;
-  return baseCost * item.quantity;
+  // baseCost is always a per-PIECE cost; amountInPieces covers all four units
+  // (BOX resolves through effectiveBoxPieces — manual override or half carton).
+  return baseCost * amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
 }
 
 function calculateProfit(items: Awaited<ReturnType<typeof getInvoiceItemsForProfit>>) {
@@ -192,7 +192,7 @@ export async function getDashboardReport() {
       },
       include: {
         invoice: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.invoiceItem.findMany({
@@ -205,7 +205,7 @@ export async function getDashboardReport() {
       },
       include: {
         invoice: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.invoice.findMany({
@@ -261,7 +261,7 @@ export async function getDashboardReport() {
       quantitySold: 0,
       totalSales: 0,
     };
-    current.quantitySold += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    current.quantitySold += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     current.totalSales += toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
@@ -272,7 +272,7 @@ export async function getDashboardReport() {
       quantitySold: 0,
       totalSales: 0,
     };
-    current.quantitySold -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    current.quantitySold -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     current.totalSales -= toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
     topProductMap.set(item.productId, current);
   }
@@ -384,7 +384,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
             customer: true,
           },
         },
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.transferItem.findMany({
@@ -486,7 +486,7 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
     rows,
     totals: {
       quantitySold: items.reduce(
-        (sum, item) => sum + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+        (sum, item) => sum + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces),
         0
       ),
       totalRevenue: items.reduce(
@@ -744,7 +744,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
         productName: true,
         quantity: true,
         unit: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.invoiceItem.findMany({
@@ -760,7 +760,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
         productName: true,
         quantity: true,
         unit: true,
-        product: { select: { pcsPerCarton: true } },
+        product: { select: { pcsPerCarton: true, boxPieces: true } },
       },
     }),
     prisma.customer.findMany({
@@ -804,12 +804,12 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
   const topProductMap = new Map<string, { name: string; quantity: number }>();
   for (const item of topItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
-    cur.quantity += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    cur.quantity += amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     topProductMap.set(item.productId, cur);
   }
   for (const item of topReturnItemsToday) {
     const cur = topProductMap.get(item.productId) ?? { name: item.productName, quantity: 0 };
-    cur.quantity -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+    cur.quantity -= amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
     topProductMap.set(item.productId, cur);
   }
   const topProduct = topProductMap.size > 0
@@ -1049,7 +1049,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
       name: item.productName,
       revenue: existing.revenue + revenue,
       cost: existing.cost + cost,
-      qty: existing.qty + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+      qty: existing.qty + amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces),
     });
   }
   for (const item of returnItems) {
@@ -1060,7 +1060,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
       name: item.productName,
       revenue: existing.revenue - revenue,
       cost: existing.cost - cost,
-      qty: existing.qty - amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton),
+      qty: existing.qty - amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces),
     });
   }
 

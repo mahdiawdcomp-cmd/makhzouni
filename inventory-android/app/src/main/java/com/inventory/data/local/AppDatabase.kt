@@ -30,6 +30,12 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
     }
 }
 
+val MIGRATION_12_13 = object : Migration(12, 13) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE products ADD COLUMN boxPieces INTEGER DEFAULT NULL")
+    }
+}
+
 @Database(
     entities = [
         UserEntity::class,
@@ -45,7 +51,7 @@ val MIGRATION_11_12 = object : Migration(11, 12) {
         SettingEntity::class,
         PendingSyncOperationEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

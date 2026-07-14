@@ -45,6 +45,15 @@ data class WarehouseStock(
     val minStock: Int? = null
 )
 
+/**
+ * Pieces inside one BOX («علبة»): manual per-product override, or half the
+ * carton rounded up when no override is set. Mirrors the backend's
+ * effectiveBoxPieces in utils/financial.ts — keep the two in sync.
+ */
+fun effectiveBoxPieces(pcsPerCarton: Int, boxPieces: Int?): Int =
+    if (boxPieces != null && boxPieces > 0) boxPieces
+    else (maxOf(1, pcsPerCarton) + 1) / 2
+
 data class Product(
     val id: String,
     val itemNumber: String,
@@ -62,6 +71,7 @@ data class Product(
     val openingBalancePcs: Int,
     val cartonsAvailable: Int,
     val pcsPerCarton: Int,
+    val boxPieces: Int? = null,
     val purchasePrice: Double,
     val salePrice: Double,
     val retailPrice: Double = 0.0,

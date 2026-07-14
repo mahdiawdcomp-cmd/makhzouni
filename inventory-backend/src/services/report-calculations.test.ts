@@ -157,3 +157,30 @@ test("SalesReport type uses grossProfit, not netProfit (structural check)", () =
   assert.ok(!("netProfit" in mockReport.chart[0]),         "chart item has no netProfit");
   assert.equal(mockReport.grossProfit, 2500);
 });
+
+// ── itemCostPrice — BOX unit regression (audit 2026-07-14) ────────────────────
+// A BOX sale line used to be costed as single pieces (COGS understated → profit
+// overstated). itemCostPrice now routes through amountInPieces so all four
+// units cost correctly; BOX resolves via effectiveBoxPieces (manual override,
+// else half a carton rounded up).
+
+import { itemCostPrice } from "./report.service";
+
+test("itemCostPrice costs BOX lines by box pieces, not as single pieces", () => {
+  const product = { costPrice: 100, purchasePrice: 90, pcsPerCarton: 24, boxPieces: 6 };
+  // 2 boxes × 6 pieces × 100 = 1200 (the old bug returned 200)
+  assert.equal(itemCostPrice({ unit: "BOX", quantity: 2, costPrice: 100, product }), 1200);
+});
+
+test("itemCostPrice BOX falls back to half a carton (rounded up) without an override", () => {
+  const product = { costPrice: 50, purchasePrice: 40, pcsPerCarton: 9, boxPieces: null };
+  // ceil(9/2) = 5 pieces per box → 1 box × 5 × 50 = 250
+  assert.equal(itemCostPrice({ unit: "BOX", quantity: 1, costPrice: 50, product }), 250);
+});
+
+test("itemCostPrice CARTON/DOZEN/PIECE math is unchanged", () => {
+  const product = { costPrice: 10, purchasePrice: 8, pcsPerCarton: 12, boxPieces: null };
+  assert.equal(itemCostPrice({ unit: "CARTON", quantity: 2, costPrice: 10, product }), 240);
+  assert.equal(itemCostPrice({ unit: "DOZEN", quantity: 3, costPrice: 10, product }), 360);
+  assert.equal(itemCostPrice({ unit: "PIECE", quantity: 7, costPrice: 10, product }), 70);
+});

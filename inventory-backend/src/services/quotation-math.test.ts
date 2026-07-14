@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { roundMoney } from "../utils/financial";
+import { effectiveBoxPieces, roundMoney } from "../utils/financial";
 
 // ── helpers mirroring quotation.service.ts internals ─────────────────────────
 
@@ -14,9 +14,13 @@ function toNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function unitPriceFor(product: { salePrice: unknown; pcsPerCarton: number }, unit: string): number {
+function unitPriceFor(
+  product: { salePrice: unknown; pcsPerCarton: number; boxPieces?: number | null },
+  unit: string
+): number {
   const price = toNumber(product.salePrice);
   if (unit === "CARTON") return roundMoney(price * product.pcsPerCarton);
+  if (unit === "BOX") return roundMoney(price * effectiveBoxPieces(product.pcsPerCarton, product.boxPieces));
   if (unit === "DOZEN") return roundMoney(price * 12);
   return roundMoney(price);
 }
@@ -53,6 +57,11 @@ test("PIECE unit returns the sale price rounded", () => {
 test("CARTON unit multiplies by pcsPerCarton and rounds", () => {
   assert.equal(unitPriceFor({ salePrice: "500", pcsPerCarton: 24 }, "CARTON"), 12_000);
   assert.equal(unitPriceFor({ salePrice: "333.33", pcsPerCarton: 12 }, "CARTON"), 3999.96);
+});
+
+test("BOX unit multiplies by effectiveBoxPieces (override, else half carton rounded up)", () => {
+  assert.equal(unitPriceFor({ salePrice: "500", pcsPerCarton: 24, boxPieces: 6 }, "BOX"), 3_000);
+  assert.equal(unitPriceFor({ salePrice: "500", pcsPerCarton: 24, boxPieces: null }, "BOX"), 6_000);
 });
 
 test("DOZEN unit multiplies by 12 regardless of pcsPerCarton", () => {

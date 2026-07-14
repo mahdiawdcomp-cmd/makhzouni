@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inventory.domain.model.Invoice
+import com.inventory.domain.model.effectiveBoxPieces
 import com.inventory.ui.common.*
 import com.inventory.ui.theme.AppColor
 import com.inventory.utils.sendWhatsApp
@@ -709,6 +710,7 @@ private fun InvoiceItemRow(
     val totalFocus = remember { FocusRequester() }
     val quantityInPieces = when (item.unit) {
         "CARTON" -> item.quantity * item.product.pcsPerCarton
+        "BOX" -> item.quantity * effectiveBoxPieces(item.product.pcsPerCarton, item.product.boxPieces)
         "DOZEN" -> item.quantity * 12
         else -> item.quantity
     }
@@ -807,7 +809,7 @@ private fun InvoiceItemRow(
             // Unit
             ExposedDropdownMenuBox(expanded = unitExpanded, onExpandedChange = { unitExpanded = !unitExpanded }, modifier = Modifier.weight(1f)) {
                 OutlinedTextField(
-                    value = when (item.unit) { "DOZEN" -> "درزن"; "CARTON" -> "كرتونة"; else -> "قطعة" },
+                    value = when (item.unit) { "DOZEN" -> "درزن"; "BOX" -> "علبة"; "CARTON" -> "كرتونة"; else -> "قطعة" },
                     onValueChange = {}, readOnly = true,
                     modifier = Modifier.menuAnchor().fillMaxWidth(),
                     label = { Text("الوحدة", fontSize = 11.sp) },
@@ -815,7 +817,7 @@ private fun InvoiceItemRow(
                     shape = RoundedCornerShape(8.dp),
                 )
                 ExposedDropdownMenu(expanded = unitExpanded, onDismissRequest = { unitExpanded = false }) {
-                    listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "CARTON" to "كرتونة").forEach { (v, label) ->
+                    listOf("PIECE" to "قطعة", "DOZEN" to "درزن", "BOX" to "علبة", "CARTON" to "كرتونة").forEach { (v, label) ->
                         DropdownMenuItem(text = { Text(label) }, onClick = { onUnit(v); unitExpanded = false })
                     }
                 }

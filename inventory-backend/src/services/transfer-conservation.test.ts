@@ -73,7 +73,7 @@ function makeTx(): any {
       findMany: async ({ where }: any) =>
         (where.id.in as string[])
           .filter((id) => id === PROD)
-          .map((id) => ({ id, name: "منتج", pcsPerCarton: 12, deletedAt: null })),
+          .map((id) => ({ id, name: "منتج", pcsPerCarton: 12, boxPieces: 4, deletedAt: null })),
     },
     inventoryTransfer: {
       create: async ({ data }: any) => ({ id: "trf-1", ...data }),
@@ -120,6 +120,18 @@ describe("transfer.service — warehouse conservation", () => {
     );
     assert.equal(stockOf(PROD, FROM), 76, "100 − 24");
     assert.equal(stockOf(PROD, TO), 24, "0 + 24");
+  });
+
+  it("converts BOX quantity using boxPieces (3 × 4 = 12) — was 1 piece per box before the fix", async () => {
+    await executeTransferWithin(
+      makeTx(),
+      { fromBranchId: FROM, toBranchId: TO, items: [{ productId: PROD, quantity: 3, unit: Unit.BOX }] },
+      "user-1",
+      false
+    );
+    assert.equal(stockOf(PROD, FROM), 88, "100 − 12");
+    assert.equal(stockOf(PROD, TO), 12, "0 + 12");
+    assert.equal(totalOf(PROD), 100, "total pieces conserved");
   });
 
   it("records paired OUT (source) + IN (destination) movements", async () => {

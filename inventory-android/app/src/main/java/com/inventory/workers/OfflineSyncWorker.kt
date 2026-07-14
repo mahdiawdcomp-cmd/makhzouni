@@ -209,6 +209,7 @@ private fun ProductDto.toEntity() = ProductEntity(
     openingBalancePcs = openingBalancePcs,
     cartonsAvailable = cartonsAvailable,
     pcsPerCarton = pcsPerCarton,
+    boxPieces = boxPieces,
     purchasePrice = purchasePrice,
     salePrice = salePrice,
     retailPrice = retailPrice,

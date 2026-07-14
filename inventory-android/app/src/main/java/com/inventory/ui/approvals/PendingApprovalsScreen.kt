@@ -278,6 +278,7 @@ private fun typeLabel(type: String) = when (type) {
 
 private fun unitLabel(unit: String) = when (unit) {
     "CARTON" -> "كارتون"
+    "BOX" -> "علبة"
     "DOZEN" -> "درزن"
     else -> "قطعة"
 }

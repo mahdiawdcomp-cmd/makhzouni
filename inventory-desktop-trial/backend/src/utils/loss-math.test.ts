@@ -12,6 +12,12 @@ describe("lossUnitToPieces — conversion", () => {
     assert.equal(lossUnitToPieces("PIECE", 7, 240), 7);
   });
 
+  it("converts boxes using the manual boxPieces override, else half a carton rounded up", () => {
+    assert.equal(lossUnitToPieces("BOX", 2, 240, 50), 100); // manual override
+    assert.equal(lossUnitToPieces("BOX", 2, 240), 240); // auto: ceil(240/2) = 120
+    assert.equal(lossUnitToPieces("BOX", 1, 9, null), 5); // auto: ceil(9/2) = 5
+  });
+
   it("falls back to pcsPerCarton=1 when the product has a bad pcsPerCarton", () => {
     assert.equal(lossUnitToPieces("CARTON", 5, 0), 5);
     assert.equal(lossUnitToPieces("CARTON", 5, -10), 5);
@@ -40,7 +46,7 @@ describe("lossUnitToPieces — rejects non-positive / non-finite quantities", ()
 describe("lossUnitToPieces — rejects unknown units", () => {
   it("throws INVALID_LOSS_UNIT for an unrecognised unit", () => {
     assert.throws(
-      () => lossUnitToPieces("BOX" as unknown as "PIECE", 3, 240),
+      () => lossUnitToPieces("PACKET" as unknown as "PIECE", 3, 240),
       /INVALID_LOSS_UNIT|وحدة/
     );
   });

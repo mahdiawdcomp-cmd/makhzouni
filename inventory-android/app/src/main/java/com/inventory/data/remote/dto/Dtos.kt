@@ -257,6 +257,7 @@ data class ProductDto(
     val openingBalancePcs: Int = 0,
     val cartonsAvailable: Int = 0,
     val pcsPerCarton: Int = 1,
+    val boxPieces: Int? = null,
     val purchasePrice: Double = 0.0,
     val salePrice: Double = 0.0,
     val retailPrice: Double = 0.0,

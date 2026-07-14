@@ -90,7 +90,7 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
 
       // Strict conversion: rejects zero/negative/NaN quantities and bad units so a
       // loss can never *raise* stock. (Also enforced by the zod route schema.)
-      const pcs = lossUnitToPieces(item.unit, item.quantity, product.pcsPerCarton);
+      const pcs = lossUnitToPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
 
       await ensureLegacyWarehouseStock(tx as typeof prisma, product);
       const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx as typeof prisma, {
@@ -187,7 +187,7 @@ export async function cancelStockLoss(id: string) {
     if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
 
     for (const item of loss.items) {
-      const pcs = lossUnitToPieces(item.unit, item.quantity, item.product.pcsPerCarton);
+      const pcs = lossUnitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
       await ensureLegacyWarehouseStock(tx as typeof prisma, item.product);
       const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx as typeof prisma, {
         productId: item.productId,

@@ -1,7 +1,7 @@
 import { Prisma, QuotationStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { roundMoney } from "../utils/financial";
+import { effectiveBoxPieces, roundMoney } from "../utils/financial";
 import { createInvoice } from "./invoice.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -24,9 +24,13 @@ function toNumber(value: unknown) {
   return Number(value);
 }
 
-function unitPriceFor(product: { salePrice: unknown; pcsPerCarton: number }, unit: string) {
+function unitPriceFor(
+  product: { salePrice: unknown; pcsPerCarton: number; boxPieces?: number | null },
+  unit: string
+) {
   const price = toNumber(product.salePrice);
   if (unit === "CARTON") return roundMoney(price * product.pcsPerCarton);
+  if (unit === "BOX") return roundMoney(price * effectiveBoxPieces(product.pcsPerCarton, product.boxPieces));
   if (unit === "DOZEN") return roundMoney(price * 12);
   return roundMoney(price);
 }

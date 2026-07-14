@@ -46,3 +46,8 @@ inventory-android/gradle_err.txt
 inventory-android/gradle_out.txt
 
 .vercel
+
+# Gradle local build state — never track
+inventory-android/.gradle/
+inventory-android/.idea/caches/
+__pycache__/

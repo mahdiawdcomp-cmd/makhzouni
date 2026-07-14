@@ -1,6 +1,7 @@
 import { Prisma, TransferStatus, Unit, StockMovementType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { amountInPieces } from "../utils/financial";
 import { logger } from "../utils/logger";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { getSettings } from "./settings.service";
@@ -90,12 +91,15 @@ export async function getTransferById(id: string) {
   return transfer;
 }
 
-function pieces(item: TransferItemInput, pcsPerCarton: number) {
-  return item.unit === Unit.CARTON
-    ? item.quantity * pcsPerCarton
-    : item.unit === Unit.DOZEN
-      ? item.quantity * 12
-      : item.quantity;
+function pieces(item: TransferItemInput, pcsPerCarton: number, boxPieces?: number | null) {
+  return amountInPieces(item.unit, item.quantity, pcsPerCarton, boxPieces);
+}
+
+function unitLabel(unit: string) {
+  if (unit === "CARTON") return "كرتون";
+  if (unit === "BOX") return "علبة";
+  if (unit === "DOZEN") return "درزن";
+  return "قطعة";
 }
 
 // Snapshot the source-warehouse availability for each item so the approval can
@@ -106,7 +110,7 @@ export async function buildTransferSnapshot(input: CreateTransferInput) {
     prisma.branch.findFirst({ where: { id: input.toBranchId }, select: { id: true, name: true } }),
     prisma.product.findMany({
       where: { id: { in: input.items.map((i) => i.productId) }, deletedAt: null },
-      select: { id: true, name: true, itemNumber: true, pcsPerCarton: true },
+      select: { id: true, name: true, itemNumber: true, pcsPerCarton: true, boxPieces: true },
     }),
   ]);
   const productMap = new Map(products.map((p) => [p.id, p]));
@@ -118,7 +122,7 @@ export async function buildTransferSnapshot(input: CreateTransferInput) {
 
   const items = input.items.map((it) => {
     const p = productMap.get(it.productId);
-    const requestedPieces = p ? pieces(it, p.pcsPerCarton) : it.quantity;
+    const requestedPieces = p ? pieces(it, p.pcsPerCarton, p.boxPieces) : it.quantity;
     const availablePieces = stockMap.get(it.productId) ?? 0;
     return {
       productId: it.productId,
@@ -145,7 +149,7 @@ async function notifyTransferRequested(requesterName: string, snapshot: Awaited<
   const settings = await getSettings().catch(() => null);
   const target = settings?.adminApprovalWhatsappNumber?.trim() || settings?.storePhone?.trim();
   const lines = snapshot.items
-    .map((i) => `• ${i.productName}: ${i.quantity} ${i.unit === "CARTON" ? "كرتون" : "قطعة"}${i.exceedsStock ? " ⚠️ أكبر من المتوفر" : ""}`)
+    .map((i) => `• ${i.productName}: ${i.quantity} ${unitLabel(i.unit)}${i.exceedsStock ? " ⚠️ أكبر من المتوفر" : ""}`)
     .join("\n");
   const message =
     `🔄 طلب تحويل جديد\n` +
@@ -169,7 +173,7 @@ export async function notifyTransferReviewed(
   const snap = data.snapshot ?? {};
   const verb = status === "APPROVED" ? "تمت الموافقة على" : "تم رفض";
   const lines = (snap.items ?? [])
-    .map((i) => `• ${i.productName}: ${i.quantity} ${i.unit === "CARTON" ? "كرتون" : "قطعة"}`)
+    .map((i) => `• ${i.productName}: ${i.quantity} ${unitLabel(i.unit)}`)
     .join("\n");
   const message =
     `${status === "APPROVED" ? "✅" : "❌"} ${verb} طلب التحويل\n` +
@@ -318,12 +322,12 @@ export async function executeTransferWithin(
     for (const item of normalizedItems) {
       const product = productMap.get(item.productId)!;
       await ensureLegacyWarehouseStock(tx, product);
-      const quantityInPieces =
-        item.unit === Unit.CARTON
-          ? item.quantity * product.pcsPerCarton
-          : item.unit === Unit.DOZEN
-            ? item.quantity * 12
-            : item.quantity;
+      const quantityInPieces = amountInPieces(
+        item.unit,
+        item.quantity,
+        product.pcsPerCarton,
+        product.boxPieces
+      );
 
       const source = await adjustWarehouseStock(tx, {
         productId: product.id,

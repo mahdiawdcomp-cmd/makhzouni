@@ -374,6 +374,7 @@ private fun ConfirmInvoiceDialog(
 
 private fun unitLabel(unit: String) = when (unit) {
     "DOZEN" -> "درزن"
+    "BOX" -> "علبة"
     "CARTON" -> "كارتون"
     else -> "قطعة"
 }

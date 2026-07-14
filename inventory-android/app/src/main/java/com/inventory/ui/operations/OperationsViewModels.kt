@@ -29,6 +29,7 @@ import com.inventory.domain.finance.calculateInvoiceFinancials
 import com.inventory.domain.finance.roundMoney
 import com.inventory.domain.model.Customer
 import com.inventory.domain.model.Product
+import com.inventory.domain.model.effectiveBoxPieces
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -438,6 +439,7 @@ class AdminOperationsViewModel @Inject constructor(
             val available = product?.warehouseStocks?.firstOrNull { it.warehouseId == from }?.quantityPieces ?: 0
             val requestedPieces = when (unit) {
                 "CARTON" -> quantity * (product?.pcsPerCarton ?: 1)
+                "BOX" -> quantity * effectiveBoxPieces(product?.pcsPerCarton ?: 1, product?.boxPieces)
                 "DOZEN" -> quantity * 12
                 else -> quantity
             }
@@ -500,6 +502,7 @@ private fun unitPriceFor(product: Product, unit: String, useRetail: Boolean = fa
     val base = if (useRetail && product.retailPrice > 0.0) product.retailPrice else product.salePrice
     return when (unit) {
         "CARTON" -> base * product.pcsPerCarton
+        "BOX" -> base * effectiveBoxPieces(product.pcsPerCarton, product.boxPieces)
         "DOZEN" -> base * 12
         else -> base
     }

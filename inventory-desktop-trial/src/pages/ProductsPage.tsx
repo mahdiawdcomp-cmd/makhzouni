@@ -31,6 +31,14 @@ import { matchProduct } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
+// Accounting unit cost for stock valuation: WAC costPrice first, falling back
+// to purchasePrice ("last purchase price") for products never re-averaged.
+// Mirrors accountingUnitCost in the backend report layer.
+function accountingCostOf(product: Product) {
+  const cost = Number(product.costPrice ?? 0)
+  return cost > 0 ? cost : Number(product.purchasePrice ?? 0)
+}
+
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
 }
@@ -217,7 +225,7 @@ function exportInventoryDesignedHtml(products: Product[]) {
   const today = new Date().toLocaleDateString("ar-IQ")
   const rows = products.map((p, index) => {
     const total = stockOf(p)
-    const totalCost = total * Number(p.purchasePrice ?? 0)
+    const totalCost = total * accountingCostOf(p)
     const status = inventoryStatus(p)
     return `
       <tr class="${status.rowClass}">
@@ -238,7 +246,7 @@ function exportInventoryDesignedHtml(products: Product[]) {
 
   const totalCartons = products.reduce((sum, p) => sum + p.cartonsAvailable, 0)
   const totalPieces = products.reduce((sum, p) => sum + stockOf(p), 0)
-  const totalCost = products.reduce((sum, p) => sum + stockOf(p) * Number(p.purchasePrice ?? 0), 0)
+  const totalCost = products.reduce((sum, p) => sum + stockOf(p) * accountingCostOf(p), 0)
 
   const html = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -461,7 +469,7 @@ export function ProductsPage() {
     if (sortBy === "stockAsc") return stockOf(a) - stockOf(b)
     if (sortBy === "purchaseDesc") return Number(b.purchasePrice) - Number(a.purchasePrice)
     if (sortBy === "saleDesc") return Number(b.salePrice) - Number(a.salePrice)
-    if (sortBy === "valueDesc") return stockOf(b) * Number(b.purchasePrice ?? 0) - stockOf(a) * Number(a.purchasePrice ?? 0)
+    if (sortBy === "valueDesc") return stockOf(b) * accountingCostOf(b) - stockOf(a) * accountingCostOf(a)
     return dateValue(b.updatedAt) - dateValue(a.updatedAt)
   })
 
@@ -1049,7 +1057,7 @@ export function ProductsPage() {
                   </td>
                   <td colSpan={2} className="py-3 px-3 border-l border-gray-600"></td>
                   <td className="py-3 px-3 text-center text-yellow-400 border-l border-gray-600">
-                    {filtered.reduce((s, p) => s + stockOf(p) * Number(p.purchasePrice ?? 0), 0).toLocaleString("en-US")}
+                    {filtered.reduce((s, p) => s + stockOf(p) * accountingCostOf(p), 0).toLocaleString("en-US")}
                   </td>
                   <td colSpan={2}></td>
                 </tr>

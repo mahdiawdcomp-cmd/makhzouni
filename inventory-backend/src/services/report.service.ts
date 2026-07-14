@@ -106,7 +106,7 @@ async function getInvoiceItemsForProfit(where: Prisma.InvoiceWhereInput) {
       // calculateProfit()/itemCostPrice() below only touch these fields —
       // full includes here pulled base64 product images + the whole invoice
       // row for every line item feeding profit calculations.
-      product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true } },
+      product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
       invoice: { select: { date: true, subtotal: true, totalAmount: true } },
     },
   });
@@ -116,16 +116,16 @@ export function itemCostPrice(item: {
   unit: Unit;
   quantity: number;
   costPrice: DecimalLike;
-  product: { costPrice: DecimalLike; purchasePrice: DecimalLike; pcsPerCarton: number };
+  product: { costPrice: DecimalLike; purchasePrice: DecimalLike; pcsPerCarton: number; boxPieces?: number | null };
 }) {
   // Use the snapshot costPrice if non-zero, else fall back to product.costPrice, else purchasePrice
   const snapshotCost = toNumber(item.costPrice);
   const productCost = toNumber(item.product.costPrice);
   const purchaseCost = toNumber(item.product.purchasePrice);
   const baseCost = snapshotCost > 0 ? snapshotCost : productCost > 0 ? productCost : purchaseCost;
-  if (item.unit === Unit.CARTON) return baseCost * item.product.pcsPerCarton * item.quantity;
-  if (item.unit === Unit.DOZEN) return baseCost * 12 * item.quantity;
-  return baseCost * item.quantity;
+  // baseCost is always a per-PIECE cost; amountInPieces covers all four units
+  // (BOX resolves through effectiveBoxPieces — manual override or half carton).
+  return baseCost * amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
 }
 
 // Accounting unit cost for valuing ON-HAND or DAMAGED stock: costPrice first

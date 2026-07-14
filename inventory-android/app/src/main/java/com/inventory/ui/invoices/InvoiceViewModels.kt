@@ -13,6 +13,7 @@ import com.inventory.domain.model.Customer
 import com.inventory.domain.model.Invoice
 import com.inventory.domain.model.InvoiceItem
 import com.inventory.domain.model.Product
+import com.inventory.domain.model.effectiveBoxPieces
 import com.inventory.domain.finance.FinancialInvoiceType
 import com.inventory.domain.finance.calculateInvoiceFinancials
 import com.inventory.domain.finance.roundMoney
@@ -187,13 +188,15 @@ private fun unitPriceFor(product: Product, unit: String, useRetail: Boolean = fa
     val base = if (useRetail && product.retailPrice > 0.0) product.retailPrice else product.salePrice
     return when (unit) {
         "CARTON" -> base * product.pcsPerCarton
+        "BOX" -> base * effectiveBoxPieces(product.pcsPerCarton, product.boxPieces)
         "DOZEN" -> base * 12
         else -> base
     }
 }
 
-private fun quantityInPieces(unit: String, quantity: Int, pcsPerCarton: Int): Int = when (unit) {
+private fun quantityInPieces(unit: String, quantity: Int, pcsPerCarton: Int, boxPieces: Int? = null): Int = when (unit) {
     "CARTON" -> quantity * pcsPerCarton
+    "BOX" -> quantity * effectiveBoxPieces(pcsPerCarton, boxPieces)
     "DOZEN" -> quantity * 12
     else -> quantity
 }
@@ -213,7 +216,7 @@ private fun effectiveAvailablePcs(item: InvoiceDraftItem): Int {
 // negative — it records a deficit for manager review instead of blocking the sale.
 fun invoiceLineGoesNegative(item: InvoiceDraftItem, invoiceType: String): Boolean {
     if (invoiceType != "SALE") return false
-    val pcs = quantityInPieces(item.unit, item.quantity, item.product.pcsPerCarton)
+    val pcs = quantityInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces)
     return pcs > effectiveAvailablePcs(item) || pcs > item.product.currentStock
 }
 
