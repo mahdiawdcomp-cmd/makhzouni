@@ -969,10 +969,15 @@ export async function sendPdfWithTemplateFallback(
 // Shared by every send that reuses the single approved invoice template
 // (regular invoice, customer-safe image invoice, order-approved, and
 // order-prepared notifications) — a Meta template has one fixed body shape,
-// so all four call sites must supply params in this exact order:
+// so all four call sites must supply params in this exact order.
+// The approved Meta template has exactly 9 variables — currency is baked
+// into the template text (د.ع), NOT a variable, so it is NOT sent here.
+// Sending a 10th param triggers Meta error #132000 (param count mismatch),
+// which silently falls back to free text and then vanishes outside the 24h
+// window. Keep this at 9 params matching the template:
 // {{1}} customerName, {{2}} invoiceNumber, {{3}} date, {{4}} totalAmount,
 // {{5}} paidAmount, {{6}} remainingAmount, {{7}} previousBalance,
-// {{8}} finalBalance, {{9}} currency, {{10}} storeName.
+// {{8}} finalBalance, {{9}} storeName.
 export function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof getInvoiceById>>, storeName: string): string[] {
   return [
     invoice.customer.name,
@@ -983,7 +988,6 @@ export function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof get
     String(invoice.remainingAmount),
     String(invoice.previousBalance),
     String(invoice.finalBalance),
-    "د.ع",
     storeName,
   ];
 }
