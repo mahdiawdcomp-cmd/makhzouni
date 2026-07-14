@@ -9,6 +9,8 @@ import { routeIncomingMessage } from "../services/whatsapp-bot.service";
 import { applyMessageReaction, fillConversationContactName, logChatMessage, updateMessageStatus } from "../services/whatsapp-chat.service";
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import { logger } from "../utils/logger";
+import { recordError } from "../services/error-log.service";
+import { ErrorLogSource } from "@prisma/client";
 import {
   getCloudWebhookConfig,
   generateVerifyToken,
@@ -46,7 +48,14 @@ async function withTemplateFallback<T>(
   try {
     return await tryTemplate();
   } catch (err) {
-    logger.warn(`[WhatsApp] template "${templateName}" send failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    const detail = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] template "${templateName}" send failed, falling back to free text: ${detail}`);
+    await recordError({
+      source: ErrorLogSource.WHATSAPP,
+      code: "WHATSAPP_TEMPLATE_FAILED",
+      message: `فشل قالب "${templateName}" — ${detail}`,
+      context: { templateName },
+    }).catch(() => {});
     return fallback();
   }
 }

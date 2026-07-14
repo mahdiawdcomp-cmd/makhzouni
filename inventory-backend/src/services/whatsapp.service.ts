@@ -6,6 +6,8 @@ import path from "node:path";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { logChatMessage } from "./whatsapp-chat.service";
+import { recordError } from "./error-log.service";
+import { ErrorLogSource } from "@prisma/client";
 import type { getInvoiceById } from "./invoice.service";
 
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
@@ -953,7 +955,14 @@ export async function sendPdfWithTemplateFallback(
   try {
     return await sendWhatsAppTemplatePdf(phone, templateName, languageCode, pdf, filename, bodyParams);
   } catch (err) {
-    logger.warn(`[WhatsApp] PDF template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    const detail = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] PDF template "${templateName}" failed, falling back to free text: ${detail}`);
+    await recordError({
+      source: ErrorLogSource.WHATSAPP,
+      code: "WHATSAPP_TEMPLATE_FAILED",
+      message: `فشل قالب "${templateName}" — ${detail}`,
+      context: { templateName, kind: "pdf" },
+    }).catch(() => {});
     return sendWhatsAppPdf(phone, caption, pdf, filename);
   }
 }
@@ -1006,7 +1015,14 @@ export async function sendTextWithTemplateFallback(
   try {
     return await sendWhatsAppTemplate(phone, templateName, languageCode, { bodyParams });
   } catch (err) {
-    logger.warn(`[WhatsApp] text template "${templateName}" failed, falling back to free text: ${err instanceof Error ? err.message : String(err)}`);
+    const detail = err instanceof Error ? err.message : String(err);
+    logger.warn(`[WhatsApp] text template "${templateName}" failed, falling back to free text: ${detail}`);
+    await recordError({
+      source: ErrorLogSource.WHATSAPP,
+      code: "WHATSAPP_TEMPLATE_FAILED",
+      message: `فشل قالب "${templateName}" — ${detail}`,
+      context: { templateName, kind: "text" },
+    }).catch(() => {});
     return sendWhatsAppText(phone, message);
   }
 }
