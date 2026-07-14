@@ -185,10 +185,12 @@ export function VoucherDetailPage() {
         phone: normalizePhone(phone),
         message: msg,
         templateKind: "voucher",
+        // Currency is baked into the template text (دع), NOT a variable —
+        // template has exactly 7 vars. Do NOT send currency here or Meta
+        // rejects with #132000 and the send silently vanishes.
         bodyParams: [
           voucher.customer?.name ?? "",
           money(voucher.amount),
-          settings?.currency ?? "د.ع",
           voucher.voucherNumber,
           String(voucher.date).slice(0, 10),
           money(previousBalance),

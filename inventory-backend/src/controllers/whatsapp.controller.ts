@@ -391,7 +391,7 @@ export const sendInvoice = asyncHandler(async (req, res) => {
     date: new Date(invoice.date).toLocaleDateString(),
   });
 
-  // Order matches the {{1}}..{{10}} placeholders in the Meta template body —
+  // Order matches the {{1}}..{{9}} placeholders in the Meta template body —
   // keep in sync with the template text configured in WhatsApp Manager.
   const bodyParams = invoiceTemplateBodyParams(invoice, settings.storeName);
   const result = await sendInvoiceViaCloudSafe(
