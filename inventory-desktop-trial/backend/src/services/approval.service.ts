@@ -2,6 +2,7 @@ import { ApprovalStatus, Prisma } from "@prisma/client";
 import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { amountInPieces } from "../utils/financial";
 import {
   createCustomer,
   softDeleteCustomer,
@@ -443,15 +444,46 @@ async function executeApprovedRequest(
         reviewerId,
         typeof data.reason === "string" ? data.reason : undefined
       );
-    case approvalRequestTypes.CREATE_TRANSFER:
+    case approvalRequestTypes.CREATE_TRANSFER: {
       // Approved transfers always go through, even into negative stock — the
-      // deficit will surface in the stocktake (per spec).
-      return executeTransferWithin(
-        tx,
-        data.body as Parameters<typeof executeTransferWithin>[1],
-        reviewerId,
-        true
-      );
+      // deficit will surface in the stocktake (per spec). But the manager
+      // approved the SNAPSHOT numbers, which may be hours old — so re-check the
+      // source stock at execution time and stamp any shortfall into the transfer
+      // notes so it is visible on the transfer record instead of silently
+      // driving the source warehouse negative.
+      const body = data.body as Parameters<typeof executeTransferWithin>[1] & { notes?: string };
+      const stocks = await tx.productWarehouseStock.findMany({
+        where: {
+          warehouseId: body.fromBranchId,
+          productId: { in: body.items.map((i) => i.productId) },
+        },
+        select: { productId: true, quantityPieces: true },
+      });
+      const stockMap = new Map(stocks.map((s) => [s.productId, s.quantityPieces]));
+      const products = await tx.product.findMany({
+        where: { id: { in: body.items.map((i) => i.productId) } },
+        select: { id: true, name: true, pcsPerCarton: true, boxPieces: true },
+      });
+      const productMap = new Map(products.map((p) => [p.id, p]));
+      const shortfalls = body.items
+        .map((i) => {
+          const p = productMap.get(i.productId);
+          const need = p ? amountInPieces(i.unit, i.quantity, p.pcsPerCarton, p.boxPieces) : i.quantity;
+          const have = Number(stockMap.get(i.productId) ?? 0);
+          return need > have ? `${p?.name ?? i.productId}: مطلوب ${need} والمتوفر الآن ${have}` : null;
+        })
+        .filter(Boolean);
+      const execBody =
+        shortfalls.length > 0
+          ? {
+              ...body,
+              notes: [body.notes, `⚠️ نُفّذ بالموافقة والرصيد تغيّر عن وقت الطلب — ${shortfalls.join("، ")}`]
+                .filter(Boolean)
+                .join(" | "),
+            }
+          : body;
+      return executeTransferWithin(tx, execBody, reviewerId, true);
+    }
     case approvalRequestTypes.NEGATIVE_STOCK_SALE:
       // Acknowledgment only: the sale already completed and stock already moved.
       // Approving simply marks the shortage as reviewed by the manager; the deficit

@@ -345,6 +345,11 @@ async function applyStockMovement(
   // first — recorded as a real transfer — then deduct the sale from المحل. So a
   // depot pull leaves a proper transfer trail instead of a silent depot sale.
   let warehouseId: string;
+  // A depot pull whose source warehouse fully covered the quantity: the sale is
+  // funded by the auto-transfer, so the shop pre-check below must NOT re-block it
+  // (an OLD shop deficit would swallow part of the transferred pieces and make the
+  // shop ledger look short even though the chosen depot had the full amount).
+  let depotCoveredSale = false;
   if (isSale) {
     const shopId = await resolveShopWarehouseId(tx);
     const requestedId = item.warehouseId ? await resolveWarehouseId(tx, item.warehouseId) : shopId;
@@ -363,6 +368,7 @@ async function applyStockMovement(
             "INSUFFICIENT_SHOP_STOCK"
           );
         }
+        depotCoveredSale = true;
       }
       await executeTransferWithin(
         tx,
@@ -377,12 +383,17 @@ async function applyStockMovement(
       );
     }
     warehouseId = shopId;
+  } else if (invoiceType === InvoiceType.SALES_RETURN && !item.warehouseId) {
+    // A return with no explicit warehouse restocks المحل (the mirror of "sales
+    // always come out of المحل") — never the legacy branch chain, whose final
+    // fallback is the OLDEST warehouse and may be a depot like شارع العباس.
+    warehouseId = await resolveShopWarehouseId(tx);
   } else {
     warehouseId = await resolveWarehouseId(tx, item.warehouseId ?? branchId ?? product.branchId);
   }
 
   // Pre-check المحل stock so the user gets a clear Arabic message instead of a generic DB error.
-  if (isSale && !allowNegativeSale) {
+  if (isSale && !allowNegativeSale && !depotCoveredSale) {
     const whStock = await tx.productWarehouseStock.findUnique({
       where: { productId_warehouseId: { productId: product.id, warehouseId } },
       select: { quantityPieces: true },
@@ -413,13 +424,20 @@ async function applyStockMovement(
   const movement = await adjustWarehouseStock(tx, {
     productId: product.id,
     warehouseId,
+    // depotCoveredSale: the ledger may still dip below zero here when an OLD shop
+    // deficit swallows part of the just-transferred pieces — that deficit belongs
+    // to its original invoice, not this one, so the deduction must not be blocked.
+    allowNegative: isSale ? allowNegativeSale || depotCoveredSale : !addsStock,
     deltaPieces: addsStock ? quantityInPieces : -quantityInPieces,
-    allowNegative: isSale ? allowNegativeSale : !addsStock,
   });
   await syncProductTotalStock(tx, product.id);
   // A SALE line that ended below zero is a recorded shortage to surface for review.
-  const deficitPieces = movement.balanceAfter < 0 ? -movement.balanceAfter : 0;
-  const wentNegative = isSale && deficitPieces > 0;
+  // Only count the deficit this line CREATED (balance drop below the pre-line
+  // level), not an old deficit that was already pending — otherwise a fully-funded
+  // depot pull on a shop with an old shortage would re-flag the same deficit.
+  const deficitPieces =
+    movement.balanceAfter < 0 ? Math.min(-movement.balanceAfter, quantityInPieces) : 0;
+  const wentNegative = isSale && deficitPieces > 0 && !depotCoveredSale;
 
   // Normalize carton / piece split so the display always reflects reality.
   // If stock is negative we keep cartonsAvailable = 0 and openingBalancePcs carries the deficit.
@@ -605,7 +623,11 @@ async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {
       },
       invoice.type,
       invoice.branchId,
-      invoice.createdBy ?? "system"
+      invoice.createdBy ?? "system",
+      // Trusted re-apply (reactivate / restore-from-archive): the sale already
+      // happened once, so re-applying must never 409 on today's shop level —
+      // like edits, it may dip negative and the deficit settles on next arrival.
+      true
     );
   }
 }

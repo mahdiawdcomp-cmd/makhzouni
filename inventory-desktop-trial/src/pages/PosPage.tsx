@@ -847,10 +847,17 @@ export function POSPage() {
     onSuccess: async (response) => {
       // If the customer paid more than the total, record the surplus as a receipt
       // voucher (matches the regular invoice flow instead of only showing "راجع").
-      if (change > 0 && selectedCustomer) {
+      // NOT for the walk-in account: its change is handed back in cash at the
+      // counter, and recording it would drift the walk-in balance negative forever.
+      const walkIn = /^0+$/.test((selectedCustomer?.phone ?? "").replace(/\D/g, "") || "x")
+      if (change > 0 && selectedCustomer && !walkIn) {
         try {
           await createReceipt({ customerId: selectedCustomer.id, amount: change, type: "RECEIPT" })
-        } catch { /* receipt failure shouldn't block the sale */ }
+        } catch {
+          // The sale saved but the surplus receipt didn't — surface it so the
+          // cashier records it manually instead of overstating the debt.
+          setMessage(`⚠️ البيعة انحفظت لكن سند الزيادة (${fmt(change)}) فشل — سجّله يدوياً للزبون ${selectedCustomer.name}`)
+        }
       }
       // Track sales counts
       const newCounts = { ...posConfigRef.current.salesCounts }

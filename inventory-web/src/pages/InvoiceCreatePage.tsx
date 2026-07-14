@@ -87,6 +87,15 @@ function hasRealPhone(phone?: string | null): boolean {
   return digits.length > 0 && !/^0+$/.test(digits)
 }
 
+// The shared walk-in (الزبون النقدي) account: its all-zero phone is the sentinel.
+// Change for a walk-in is handed back physically at the counter, so it must NOT
+// be recorded as a receipt voucher — that would drift the account negative.
+function isWalkInCustomer(phone?: string | null): boolean {
+  if (!phone) return false
+  const digits = phone.replace(/\D/g, "")
+  return digits.length > 0 && /^0+$/.test(digits)
+}
+
 function itemQuantityInPieces(item: DraftItem) {
   return unitToPieces(item.unit, item.quantity, item.product)
 }
@@ -840,7 +849,9 @@ export function InvoiceCreatePage() {
       ?? shopWh?.quantityPieces
       ?? 0
     const itemPcs = unitToPieces(item.unit, item.quantity, item.product)
-    if (itemPcs <= shopPcs || shopPcs <= 0) return
+    // Works from any starting state: shop may be EMPTY (all pieces come from
+    // depots) and the line may already point at a specific warehouse.
+    if (itemPcs <= shopPcs) return
 
     // The new lines are all in PIECE units, so the (possibly hand-edited) carton/
     // dozen unit price MUST be converted down to a per-piece price — otherwise each
@@ -872,20 +883,28 @@ export function InvoiceCreatePage() {
     }
 
     // If total stock still can't cover the request, keep the leftover on the first
-    // (shop) line so NO quantity is silently dropped — the backend will then surface
-    // an honest "insufficient stock" instead of the cart quietly shrinking.
-    if (remaining > 0) allocations[0].pcs += remaining
+    // (shop) line so NO quantity is silently dropped — that line then sells the
+    // leftover negative with the seller's explicit acknowledgment.
+    if (remaining > 0) {
+      allocations[0].pcs += remaining
+    }
 
     setItems((current) => {
       const next = [...current]
-      const newLines: DraftItem[] = allocations.map((a) => ({
-        product: item.product,
-        unit: "PIECE" as Unit,
-        quantity: a.pcs,
-        unitPrice: roundedPiecePrice,
-        warehouseId: a.warehouseId,
-        warehouseName: a.warehouseName,
-      }))
+      const newLines: DraftItem[] = allocations
+        .filter((a) => a.pcs > 0) // an empty shop contributes nothing — drop its zero line
+        .map((a) => ({
+          product: item.product,
+          unit: "PIECE" as Unit,
+          quantity: a.pcs,
+          unitPrice: roundedPiecePrice,
+          warehouseId: a.warehouseId,
+          warehouseName: a.warehouseName,
+          // The split itself covered the shortage; if a leftover stayed on the
+          // shop line the seller already saw the shortage row, so mark it
+          // acknowledged rather than re-warning on the fresh lines.
+          allowNegativeStock: remaining > 0 && a.warehouseId === shopId ? true : undefined,
+        }))
       next.splice(index, 1, ...newLines)
       return next
     })
@@ -1183,11 +1202,21 @@ export function InvoiceCreatePage() {
     })
       const id = response.data?.id ?? null
       if (id) {
-      // If customer paid more than the invoice total, create a receipt voucher for the difference
-      if (overpayment > 0 && selectedCustomer) {
+      // If customer paid more than the invoice total, create a receipt voucher for
+      // the difference — except for the walk-in account, whose change is handed
+      // back in cash and must not accumulate as a credit balance.
+      if (overpayment > 0 && selectedCustomer && !isWalkInCustomer(selectedCustomer.phone)) {
         try {
           await createReceipt({ customerId: selectedCustomer.id, amount: overpayment, type: "RECEIPT", date })
-        } catch { /* receipt failure shouldn't block invoice */ }
+        } catch {
+          // The invoice itself saved — but the surplus receipt didn't. Say so
+          // instead of silently overstating the customer's debt.
+          toast({
+            title: "الفاتورة انحفظت لكن سند الزيادة فشل",
+            description: `سجّل سند قبض يدوي بمبلغ ${fmt(overpayment)} للزبون ${selectedCustomer.name}.`,
+            variant: "destructive",
+          })
+        }
       }
       setSavedInvoiceId(id)
       clearDraft()
@@ -1595,18 +1624,24 @@ export function InvoiceCreatePage() {
                   const rowKey = `${index}`
                   const stockAfterLine = isPurchase ? stockOf(item.product) + itemQuantityInPieces(item) : stockOf(item.product) - itemQuantityInPieces(item)
                   const hasNegativeStock = stockOf(item.product) < 0 || stockAfterLine < 0
-                  // Derive shop stock: use the dedicated field when populated; fall back to finding المحل by name
-                  const shopPcs = item.product.shopStock
-                    ?? (item.product.warehouseStocks ?? []).find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
-                    ?? 0
                   const lineQtyPcs = itemQuantityInPieces(item)
-                  // Show split banner: sale, no explicit warehouse chosen, qty exceeds shop stock, shop has some, other wh has stock
-                  const canSplit = !isPurchase && !item.warehouseId && shopPcs > 0 && lineQtyPcs > shopPcs
-                    && (item.product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0 && ws.warehouse.name !== (item.product.warehouseStocks ?? []).find(w => w.warehouse.name.includes("محل"))?.warehouse.name)
-                  // Out of stock for this sale line: the warehouse it pulls from can't cover it AND it
-                  // can't be split onto another warehouse. The sale is still allowed — it records a
-                  // deficit (negative stock) for manager review.
-                  const lineOutOfStock = !isPurchase && !canSplit && lineQtyPcs > effectiveAvailablePcs(item)
+                  // Shortage row: any sale line the warehouse it pulls from can't fully
+                  // cover. Shown INLINE under the line (never a blocking dialog) with the
+                  // seller's three choices: pull/split from other warehouses, sell negative,
+                  // or remove the line. Ignoring it keeps today's default: sell negative.
+                  const linePullPcs = effectiveAvailablePcs(item)
+                  const lineShort = !isPurchase && lineQtyPcs > linePullPcs
+                  const shortageAcknowledged = Boolean(item.allowNegativeStock)
+                  const stocksList = item.product.warehouseStocks ?? []
+                  const shopWhRow = stocksList.find((ws) => ws.warehouse.name.includes("محل"))
+                  const otherWhs = stocksList
+                    .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopWhRow?.warehouseId && ws.warehouseId !== item.warehouseId)
+                    .sort((a, b) => b.quantityPieces - a.quantityPieces)
+                  // A single other warehouse that covers the WHOLE line → offer a direct pull.
+                  const fullCoverWh = otherWhs.find((ws) => ws.quantityPieces >= lineQtyPcs)
+                  // Splitting helps whenever the others hold anything at all.
+                  const canSplit = lineShort && !isPurchase && otherWhs.length > 0
+                  const lineOutOfStock = lineShort && !canSplit && !fullCoverWh
                   return (
                     <Fragment key={index}>
                     <TR>
@@ -1739,20 +1774,53 @@ export function InvoiceCreatePage() {
                         </Button>
                       </TD>
                     </TR>
-                    {canSplit && (
+                    {lineShort && !shortageAcknowledged && (
                       <TR>
                         <TD colSpan={hidePrice ? 6 : 8} className="p-0 pb-1">
-                          <div className="mx-2 flex items-center justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-700/50 dark:bg-sky-950/30">
-                            <div className="text-[12px] text-sky-800 dark:text-sky-300">
-                              ⚡ <strong>المحل عنده {shopPcs} قطعة فقط</strong> — الكمية المطلوبة {lineQtyPcs} قطعة. هل تريد التقسيم على مخازن؟
+                          <div className="mx-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700/50 dark:bg-amber-950/30">
+                            <div className="text-[12px] text-amber-800 dark:text-amber-300">
+                              ⚠️ <strong>{item.warehouseName ?? "المحل"} عنده {linePullPcs} قطعة</strong> — المطلوب {lineQtyPcs} قطعة.
+                              {otherWhs.length > 0
+                                ? ` متوفر بمخازن أخرى: ${otherWhs.map((ws) => `${ws.warehouse.name} (${ws.quantityPieces})`).join("، ")}.`
+                                : " لا يوجد رصيد بمخازن أخرى."}
+                              {" "}إذا تكمل بدون إجراء، النقص ينباع بالسالب.
                             </div>
-                            <Button
-                              size="sm"
-                              className="h-7 shrink-0 bg-sky-600 px-3 text-xs text-white hover:bg-sky-700"
-                              onClick={() => splitLineAcrossWarehouses(index)}
-                            >
-                              تقسيم تلقائي
-                            </Button>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {fullCoverWh && (
+                                <Button
+                                  size="sm"
+                                  className="h-7 bg-sky-600 px-2.5 text-xs text-white hover:bg-sky-700"
+                                  onClick={() => updateItem(index, { warehouseId: fullCoverWh.warehouseId, warehouseName: fullCoverWh.warehouse.name })}
+                                >
+                                  🔄 تحويل من {fullCoverWh.warehouse.name}
+                                </Button>
+                              )}
+                              {canSplit && !fullCoverWh && (
+                                <Button
+                                  size="sm"
+                                  className="h-7 bg-sky-600 px-2.5 text-xs text-white hover:bg-sky-700"
+                                  onClick={() => splitLineAcrossWarehouses(index)}
+                                >
+                                  ⚡ تقسيم تلقائي
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 border-amber-400 px-2.5 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+                                onClick={() => updateItem(index, { allowNegativeStock: true })}
+                              >
+                                بيع بالسالب
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 px-2 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                onClick={() => removeItem(index)}
+                              >
+                                إلغاء المادة
+                              </Button>
+                            </div>
                           </div>
                         </TD>
                       </TR>
