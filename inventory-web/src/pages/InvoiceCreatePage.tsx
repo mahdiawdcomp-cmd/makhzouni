@@ -8,6 +8,8 @@ import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
 import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
+import { fillTemplate } from "../utils/whatsapp"
+import { useSettings } from "../hooks/useSettings"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -82,6 +84,11 @@ function effectiveAvailablePcs(item: DraftItem): number {
 // The walk-in (الزبون النقدي) customer carries a sentinel phone of all zeros.
 // A "real" phone is non-empty and not the placeholder, so we never offer to
 // send a WhatsApp invoice to a walk-in.
+// Same wording as the Meta invoice template (and InvoiceDetailPage) — the
+// wa.me web channel can't attach the PDF, so the text must carry the numbers.
+const DEFAULT_INVOICE_TEMPLATE =
+  "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير"
+
 function hasRealPhone(phone?: string | null): boolean {
   if (!phone) return false
   const digits = phone.replace(/\D/g, "")
@@ -237,6 +244,9 @@ export function InvoiceCreatePage() {
   // Channel picker step after "نعم، أرسل" — official / personal / wa.me web.
   const [waChannelInvoiceId, setWaChannelInvoiceId] = useState<string | null>(null)
   const [whatsappBusy, setWhatsappBusy] = useState(false)
+  // Invoice number of the just-created invoice — for the wa.me web message.
+  const [waPromptInvoiceNumber, setWaPromptInvoiceNumber] = useState("")
+  const waSettings = useSettings().data
   const [workerModalId, setWorkerModalId] = useState<string | null>(null)
   const [walkInLoading, setWalkInLoading] = useState(false)
 
@@ -1233,7 +1243,10 @@ export function InvoiceCreatePage() {
         } catch { /* don't block the invoice if completing the prep fails */ }
       }
       const customerHasPhone = hasRealPhone(selectedCustomer?.phone)
-      if (showWhatsAppPrompt && !isPurchase && customerHasPhone) setWhatsappPromptId(id)
+      if (showWhatsAppPrompt && !isPurchase && customerHasPhone) {
+        setWaPromptInvoiceNumber((response.data as { invoiceNumber?: string } | undefined)?.invoiceNumber ?? "")
+        setWhatsappPromptId(id)
+      }
       if (navigateAfterSave && !(!isPurchase && customerHasPhone)) navigate(`/invoices/${id}`)
       }
       return id
@@ -2560,7 +2573,23 @@ export function InvoiceCreatePage() {
         }}
         sending={whatsappBusy}
         phone={selectedCustomer?.phone}
-        webMessage={`مرحباً ${selectedCustomer?.name ?? ""}، تم إصدار فاتورتك. شكراً لتعاملكم معنا.`}
+        webMessage={fillTemplate(
+          (waSettings?.invoiceTemplate ?? "").trim() && !(waSettings?.invoiceTemplate ?? "").trim().startsWith("{") && !(waSettings?.invoiceTemplate ?? "").trim().startsWith("[")
+            ? (waSettings?.invoiceTemplate as string)
+            : DEFAULT_INVOICE_TEMPLATE,
+          {
+            customerName: selectedCustomer?.name ?? "",
+            invoiceNumber: waPromptInvoiceNumber,
+            date,
+            total: fmt(total),
+            paid: fmt(effectivePaid),
+            remaining: fmt(remaining),
+            previousBalance: fmt(previousBalance),
+            finalBalance: fmt(finalBalance),
+            currency: waSettings?.currency ?? "د.ع",
+            storeName: waSettings?.storeName ?? "",
+          },
+        )}
         title="إرسال الفاتورة عبر واتساب"
         onSend={async (channel) => {
           const id = waChannelInvoiceId
