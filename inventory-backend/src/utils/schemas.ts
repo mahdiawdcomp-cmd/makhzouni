@@ -667,6 +667,7 @@ export const createVoucherSchema = z.object({
       branchId: z.string().uuid().optional(),
       amount: z.coerce.number().positive(),
       type: z.enum(["RECEIPT", "PAYMENT", "EXPENSE"]),
+      clientRequestId: z.string().min(8).max(100).optional(),
       notes: z.string().trim().optional(),
       // EXPENSE vouchers carry a short label (e.g. "أجور مولّدة"). Optional for the others.
       description: z.string().trim().optional(),

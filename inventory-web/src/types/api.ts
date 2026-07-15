@@ -908,6 +908,7 @@ export interface VoucherPayload {
   customerId?: string
   amount: number
   type: "RECEIPT" | "PAYMENT" | "EXPENSE"
+  clientRequestId?: string
   date?: string
   notes?: string
   description?: string

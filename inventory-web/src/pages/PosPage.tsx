@@ -852,7 +852,7 @@ export function POSPage() {
       const walkIn = /^0+$/.test((selectedCustomer?.phone ?? "").replace(/\D/g, "") || "x")
       if (change > 0 && selectedCustomer && !walkIn) {
         try {
-          await createReceipt({ customerId: selectedCustomer.id, amount: change, type: "RECEIPT" })
+          await createReceipt({ customerId: selectedCustomer.id, amount: change, type: "RECEIPT", clientRequestId: `${clientRequestIdRef.current}:overpay` })
         } catch {
           // The sale saved but the surplus receipt didn't — surface it so the
           // cashier records it manually instead of overstating the debt.
@@ -909,9 +909,9 @@ export function POSPage() {
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
       setTimeout(() => barcodeInputRef.current?.focus(), 0)
     },
-    onError: () => {
-      clientRequestIdRef.current = crypto.randomUUID()
-    },
+    // On error the SAME clientRequestId must be kept: if the request actually
+    // reached the server (timeout, dropped response), a retry with the same key
+    // returns the existing invoice instead of creating a duplicate.
   })
 
   function printReceipt(data: { inv: PrintInvoice; store: PrintStore }) {

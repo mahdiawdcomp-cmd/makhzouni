@@ -103,7 +103,12 @@ export function VouchersPage() {
     setSearchParams(searchParams, { replace: true })
   }
 
+  // One idempotency key per form-fill: double-clicks or retries of the same
+  // dialog reuse the key, so the backend won't create the voucher twice.
+  const clientRequestIdRef = useRef(crypto.randomUUID())
+
   function openCreate(t: Type) {
+    clientRequestIdRef.current = crypto.randomUUID()
     setType(t)
     setCustomerId("")
     setCustomerQuery("")
@@ -155,6 +160,7 @@ export function VouchersPage() {
     mutationFn: () =>
       createVoucher({
         type,
+        clientRequestId: clientRequestIdRef.current,
         customerId: type === "EXPENSE" ? undefined : customerId,
         amount: Number(amount.replace(/,/g, "")),
         notes: notes || undefined,

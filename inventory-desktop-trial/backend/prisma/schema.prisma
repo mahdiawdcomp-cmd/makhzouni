@@ -416,6 +416,9 @@ model InvoiceItem {
 model PaymentVoucher {
   id            String      @id @default(uuid())
   voucherNumber String      @unique @map("voucher_number")
+  // Client idempotency key: retries/double-submits of the same form return the
+  // already-created voucher instead of creating a duplicate.
+  clientRequestId String?   @unique @map("client_request_id")
   // Nullable: EXPENSE vouchers have no customer (e.g. generator fuel)
   customerId    String?     @map("customer_id")
   customer      Customer?   @relation(fields: [customerId], references: [id])

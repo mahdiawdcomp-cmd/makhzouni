@@ -130,6 +130,10 @@ interface PersistedDraft {
   discount: number
   paidAmount: number
   savedAt: number
+  // Idempotency key stored with the draft: if this exact draft is restored and
+  // saved again (back-navigation, crash recovery), the backend recognizes the
+  // key and returns the already-created invoice instead of duplicating it.
+  clientRequestId?: string
 }
 
 function extractErrorMessage(err: unknown): string {
@@ -275,6 +279,7 @@ export function InvoiceCreatePage() {
     setDate(localDateStr())
     setPaymentMode("CREDIT")
     clientRequestIdRef.current = crypto.randomUUID()
+    invoiceSavedRef.current = false
     // Draft loading will run separately via the draftKey effect
   }, [activeTid])
 
@@ -307,7 +312,9 @@ export function InvoiceCreatePage() {
   const scanBufRef = useRef("")
   const scanLastKeyRef = useRef(0)
   const scanSnapRef = useRef<{ el: HTMLInputElement | HTMLTextAreaElement; val: string } | null>(null)
-  const clientRequestIdRef = useRef(crypto.randomUUID())
+  const clientRequestIdRef = useRef<string>(crypto.randomUUID())
+  // Synchronous "already saved" flag — see the autosave interval guard.
+  const invoiceSavedRef = useRef(false)
   const prefillAppliedRef = useRef(false)
   // Order-preparation id from the URL (?fromPrep=...). The page fetches the
   // matching pending preparation and fills customer + items from it. Passing it
@@ -455,6 +462,7 @@ export function InvoiceCreatePage() {
       if (!raw) return
       const draft: PersistedDraft = JSON.parse(raw)
       if (Date.now() - draft.savedAt > 7 * 86_400_000) return
+      if (draft.clientRequestId) clientRequestIdRef.current = draft.clientRequestId
       setDate(draft.date)
       setPaymentMode(draft.paymentMode)
       setDiscount(draft.discount ?? 0)
@@ -590,6 +598,10 @@ export function InvoiceCreatePage() {
   useEffect(() => {
     if (savedInvoiceId) return
     const id = window.setInterval(() => {
+      // invoiceSavedRef flips synchronously on save success; the state-based
+      // guard above only kicks in after the next render, so a pending tick
+      // could resurrect the draft that clearDraft() just removed.
+      if (invoiceSavedRef.current) return
       if (items.length === 0 && !selectedCustomer) return
       const draft: PersistedDraft = {
         customerId: selectedCustomer?.id ?? null,
@@ -605,6 +617,7 @@ export function InvoiceCreatePage() {
         discount,
         paidAmount,
         savedAt: Date.now(),
+        clientRequestId: clientRequestIdRef.current,
       }
       try {
         localStorage.setItem(draftKey, JSON.stringify(draft))
@@ -1217,12 +1230,13 @@ export function InvoiceCreatePage() {
     })
       const id = response.data?.id ?? null
       if (id) {
+      invoiceSavedRef.current = true
       // If customer paid more than the invoice total, create a receipt voucher for
       // the difference — except for the walk-in account, whose change is handed
       // back in cash and must not accumulate as a credit balance.
       if (overpayment > 0 && selectedCustomer && !isWalkInCustomer(selectedCustomer.phone)) {
         try {
-          await createReceipt({ customerId: selectedCustomer.id, amount: overpayment, type: "RECEIPT", date })
+          await createReceipt({ customerId: selectedCustomer.id, amount: overpayment, type: "RECEIPT", date, clientRequestId: `${clientRequestIdRef.current}:overpay` })
         } catch {
           // The invoice itself saved — but the surplus receipt didn't. Say so
           // instead of silently overstating the customer's debt.

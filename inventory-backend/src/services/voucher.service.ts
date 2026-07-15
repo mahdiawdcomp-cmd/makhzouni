@@ -25,6 +25,7 @@ export interface CreateVoucherInput {
   date?: string;
   notes?: string;
   description?: string;
+  clientRequestId?: string;
 }
 
 export interface UpdateVoucherInput {
@@ -215,6 +216,19 @@ async function createVoucherInTransaction(
   input: CreateVoucherInput,
   createdBy: string
 ) {
+  // Idempotency: if this exact client request already created a voucher,
+  // return it instead of creating a duplicate (double-submit / retry safety).
+  if (input.clientRequestId) {
+    const existing = await tx.paymentVoucher.findUnique({
+      where: { clientRequestId: input.clientRequestId },
+      include: {
+        customer: true,
+        creator: { select: { id: true, name: true, username: true, role: true } },
+      },
+    });
+    if (existing) return serializeVoucher(existing);
+  }
+
   const date = input.date ? new Date(input.date) : new Date();
   const voucherNumber = await generateVoucherNumber(tx, input.type, date);
 
@@ -223,6 +237,7 @@ async function createVoucherInTransaction(
     const voucher = await tx.paymentVoucher.create({
       data: {
         voucherNumber,
+        clientRequestId: input.clientRequestId,
         customerId: null,
         branchId: input.branchId ?? null,
         amount: input.amount,
@@ -257,6 +272,7 @@ async function createVoucherInTransaction(
   const voucher = await tx.paymentVoucher.create({
     data: {
       voucherNumber,
+      clientRequestId: input.clientRequestId,
       customerId: input.customerId,
       branchId: input.branchId ?? customer.branchId,
       amount: input.amount,
