@@ -19,7 +19,7 @@ import {
   Trash2,
   Users,
 } from "lucide-react"
-import { cancelInvoice, downloadCustomerImageInvoiceExcelBlob, downloadCustomerImageInvoicePdfBlob, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice, type WhatsAppSendChannel } from "../api/endpoints"
+import { cancelInvoice, downloadCustomerImageInvoiceExcelBlob, downloadCustomerImageInvoicePdfBlob, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice, downloadInvoicePdfBlob, type WhatsAppSendChannel } from "../api/endpoints"
 import { apiErrorMessage } from "../utils/apiError"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
@@ -771,6 +771,26 @@ export function InvoiceDetailPage() {
         onSend={(channel) => {
           if (waChannelFor === "invoiceImage") void sendWaImageInvoice(channel)
           else void sendWaMessage(channel)
+        }}
+        onWebOpen={() => {
+          // wa.me can't attach files — download the same PDF the Meta send
+          // attaches so the employee drags it into the opened chat.
+          const mode = waChannelFor
+          void (async () => {
+            try {
+              const blob = mode === "invoiceImage"
+                ? await downloadCustomerImageInvoicePdfBlob(invoice.id)
+                : await downloadInvoicePdfBlob(invoice.id)
+              const url = URL.createObjectURL(blob)
+              downloadBlobUrl(url, mode === "invoiceImage"
+                ? customerImageInvoiceFilename(invoice.invoiceNumber, "pdf")
+                : `${invoice.invoiceNumber}.pdf`)
+              setTimeout(() => URL.revokeObjectURL(url), 5000)
+              toast({ title: "انفتحت المحادثة ونزل ملف PDF", description: "اسحب الملف المنزّل إلى المحادثة قبل الإرسال." })
+            } catch {
+              toast({ title: "انفتحت المحادثة لكن تعذر تنزيل الـ PDF", variant: "destructive" })
+            }
+          })()
         }}
       />
 

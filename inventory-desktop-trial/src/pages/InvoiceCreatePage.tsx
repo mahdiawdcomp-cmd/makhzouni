@@ -6,10 +6,11 @@ import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, Sca
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
+import { downloadBlobUrl } from "../utils/download"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -2591,6 +2592,23 @@ export function InvoiceCreatePage() {
           },
         )}
         title="إرسال الفاتورة عبر واتساب"
+        onWebOpen={() => {
+          // wa.me can't attach files — download the same PDF the Meta send
+          // attaches so the employee drags it into the opened chat.
+          const id = waChannelInvoiceId
+          if (!id) return
+          void (async () => {
+            try {
+              const blob = await downloadInvoicePdfBlob(id)
+              const url = URL.createObjectURL(blob)
+              downloadBlobUrl(url, `${waPromptInvoiceNumber || id}.pdf`)
+              setTimeout(() => URL.revokeObjectURL(url), 5000)
+              toast({ title: "انفتحت المحادثة ونزل ملف PDF", description: "اسحب الملف المنزّل إلى المحادثة قبل الإرسال." })
+            } catch {
+              toast({ title: "انفتحت المحادثة لكن تعذر تنزيل الـ PDF", variant: "destructive" })
+            }
+          })()
+        }}
         onSend={async (channel) => {
           const id = waChannelInvoiceId
           if (!id) return

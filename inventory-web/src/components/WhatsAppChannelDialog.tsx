@@ -39,6 +39,7 @@ export function WhatsAppChannelDialog({
   phone,
   webMessage,
   title,
+  onWebOpen,
 }: {
   open: boolean
   onClose: () => void
@@ -49,6 +50,9 @@ export function WhatsAppChannelDialog({
   phone?: string | null
   webMessage?: string
   title?: string
+  /** Extra action when the web channel is picked (e.g. download the PDF the
+   * Meta send would attach, since wa.me links can't carry files). */
+  onWebOpen?: () => void
 }) {
   const statusQuery = useQuery({ queryKey: ["whatsapp-status"], queryFn: getWhatsAppStatus, enabled: open, staleTime: 30_000 })
   const channels = statusQuery.data?.channels
@@ -101,6 +105,7 @@ export function WhatsAppChannelDialog({
         return
       }
       openWhatsApp(phone, webMessage ?? "")
+      onWebOpen?.()
       onClose()
       return
     }

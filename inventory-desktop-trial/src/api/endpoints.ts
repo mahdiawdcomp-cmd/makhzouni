@@ -739,6 +739,14 @@ export function invoicePdfUrl(id: string) {
   return `${api.defaults.baseURL}/invoices/${id}/pdf`
 }
 
+// Regular invoice PDF as a Blob — used by the wa.me web channel to hand the
+// employee the same file the Meta send attaches, since wa.me links can't
+// carry attachments.
+export async function downloadInvoicePdfBlob(id: string) {
+  const { data } = await api.get(`/invoices/${id}/pdf`, { responseType: "blob" })
+  return data as Blob
+}
+
 export function invoiceImageUrl(id: string) {
   return `${api.defaults.baseURL}/invoices/${id}/image`
 }
