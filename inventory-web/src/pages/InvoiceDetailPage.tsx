@@ -207,7 +207,11 @@ export function InvoiceDetailPage() {
   const [waChannelFor, setWaChannelFor] = useState<null | "invoice" | "invoiceImage">(null)
   function buildWaMessage() {
     if (!invoice) return ""
-    const tpl = settings?.invoiceTemplate || DEFAULT_INVOICE_TEMPLATE
+    // settings.invoiceTemplate is dual-purpose: the print designer stores its
+    // layout JSON in the same key (see print/invoiceDesign.ts). A JSON value
+    // must never leak into the WhatsApp message — fall back to the default text.
+    const raw = (settings?.invoiceTemplate ?? "").trim()
+    const tpl = raw && !raw.startsWith("{") && !raw.startsWith("[") ? raw : DEFAULT_INVOICE_TEMPLATE
     return fillTemplate(tpl, {
       customerName: invoice.customer?.name ?? "",
       invoiceNumber: invoice.invoiceNumber,
