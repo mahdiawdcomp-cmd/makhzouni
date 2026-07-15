@@ -7,6 +7,7 @@ import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
 import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice } from "../api/endpoints"
+import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -233,6 +234,9 @@ export function InvoiceCreatePage() {
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
   const [whatsappPromptId, setWhatsappPromptId] = useState<string | null>(null)
   const [whatsappSending, setWhatsappSending] = useState(false)
+  // Channel picker step after "نعم، أرسل" — official / personal / wa.me web.
+  const [waChannelInvoiceId, setWaChannelInvoiceId] = useState<string | null>(null)
+  const [whatsappBusy, setWhatsappBusy] = useState(false)
   const [workerModalId, setWorkerModalId] = useState<string | null>(null)
   const [walkInLoading, setWalkInLoading] = useState(false)
 
@@ -2509,26 +2513,17 @@ export function InvoiceCreatePage() {
           <div className="flex gap-3 justify-center">
             <Button
               disabled={whatsappSending}
-              onClick={async () => {
+              onClick={() => {
                 const id = whatsappPromptId
                 if (!id) return
+                // Keep whatsappSending=true while swapping dialogs so the
+                // prompt's onOpenChange doesn't navigate away mid-flow.
                 setWhatsappSending(true)
-                try {
-                  await sendWhatsAppInvoice(id)
-                  toast({ title: "تم الإرسال على واتساب ✓" })
-                } catch (err) {
-                  toast({
-                    title: "فشل إرسال واتساب",
-                    description: apiErrorMessage(err, "تحقق من إعدادات واتساب في الإعدادات"),
-                    variant: "destructive",
-                  })
-                }
-                // Keep whatsappSending=true while closing to prevent onOpenChange double-navigate
                 setWhatsappPromptId(null)
-                navigate(`/invoices/${id}`)
+                setWaChannelInvoiceId(id)
               }}
             >
-              {whatsappSending ? "جاري الإرسال..." : "نعم، أرسل"}
+              نعم، أرسل
             </Button>
             <Button
               variant="outline"
@@ -2553,6 +2548,40 @@ export function InvoiceCreatePage() {
           </Button>
         </DialogContent>
       </Dialog>
+
+      {/* Channel picker — step 2 of the post-create WhatsApp prompt */}
+      <WhatsAppChannelDialog
+        open={!!waChannelInvoiceId}
+        onClose={() => {
+          const id = waChannelInvoiceId
+          setWaChannelInvoiceId(null)
+          setWhatsappSending(false)
+          if (id) navigate(`/invoices/${id}`)
+        }}
+        sending={whatsappBusy}
+        phone={selectedCustomer?.phone}
+        webMessage={`مرحباً ${selectedCustomer?.name ?? ""}، تم إصدار فاتورتك. شكراً لتعاملكم معنا.`}
+        title="إرسال الفاتورة عبر واتساب"
+        onSend={async (channel) => {
+          const id = waChannelInvoiceId
+          if (!id) return
+          setWhatsappBusy(true)
+          try {
+            await sendWhatsAppInvoice(id, channel)
+            toast({ title: "تم الإرسال على واتساب ✓" })
+          } catch (err) {
+            toast({
+              title: "فشل إرسال واتساب",
+              description: apiErrorMessage(err, "تحقق من إعدادات واتساب في الإعدادات"),
+              variant: "destructive",
+            })
+          }
+          setWhatsappBusy(false)
+          setWaChannelInvoiceId(null)
+          setWhatsappSending(false)
+          navigate(`/invoices/${id}`)
+        }}
+      />
 
       <WorkerSendModal
         invoiceId={workerModalId}
