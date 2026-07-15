@@ -10,7 +10,9 @@ import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
-import { sendWhatsAppTemplatedMessage } from "../api/endpoints"
+import { sendWhatsAppTemplatedMessage, type WhatsAppSendChannel } from "../api/endpoints"
+import { apiErrorMessage } from "../utils/apiError"
+import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
@@ -110,11 +112,14 @@ export function CustomerDetailPage() {
     .filter((v) => v.type === "RECEIPT")
     .reduce((sum, v) => sum + Number(v.amount ?? 0), 0)
 
-  async function sendStatement() {
-    if (!customer) return
-    if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+  // Channel picker for the statement send (official / personal / web).
+  const [waChannelOpen, setWaChannelOpen] = useState(false)
+  const [waSending, setWaSending] = useState(false)
+
+  function buildStatementMessage() {
+    if (!customer) return ""
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
-    const msg = fillTemplate(tpl, {
+    return fillTemplate(tpl, {
       customerName: customer.name,
       date: localDateStr(),
       openingBalance: money(customer.openingBalance),
@@ -122,6 +127,13 @@ export function CustomerDetailPage() {
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
+  }
+
+  async function sendStatement(channel: WhatsAppSendChannel) {
+    if (!customer) return
+    if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    const msg = buildStatementMessage()
+    setWaSending(true)
     try {
       // bodyParams order must match the approved Meta template's {{1}}..{{n}}
       // placeholders, in this order, if/once one is configured in Settings.
@@ -136,10 +148,14 @@ export function CustomerDetailPage() {
           settings?.currency ?? "د.ع",
           settings?.storeName ?? "",
         ],
+        channel,
       })
+      setWaChannelOpen(false)
       toast({ title: "✓ تم إرسال الكشف عبر واتساب." })
-    } catch {
-      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
+    } catch (err) {
+      toast({ title: "✗ تعذر الإرسال.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
+    } finally {
+      setWaSending(false)
     }
   }
 
@@ -210,7 +226,7 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={() => setDeleteOpen(true)}>
             <Trash2 className="h-4 w-4 text-rose-600" /> حذف الزبون
           </Button>
-          <Button variant="outline" onClick={() => void sendStatement()} disabled={!customer.phone}>
+          <Button variant="outline" onClick={() => setWaChannelOpen(true)} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
           <Button variant="outline" onClick={createPortalLinkAndShare} disabled={portalMutation.isPending || !customer.phone}>
@@ -303,6 +319,16 @@ export function CustomerDetailPage() {
       </Card>
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
+      {/* Channel picker — official / personal / open in WhatsApp Web */}
+      <WhatsAppChannelDialog
+        open={waChannelOpen}
+        onClose={() => setWaChannelOpen(false)}
+        sending={waSending}
+        phone={customer.phone}
+        webMessage={buildStatementMessage()}
+        title="إرسال كشف الحساب"
+        onSend={(channel) => void sendStatement(channel)}
+      />
       <EditCustomerModal
         open={editOpen}
         onOpenChange={setEditOpen}

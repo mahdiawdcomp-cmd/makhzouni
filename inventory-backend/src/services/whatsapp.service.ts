@@ -3,6 +3,7 @@ import qrcode from "qrcode";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { logChatMessage } from "./whatsapp-chat.service";
@@ -13,6 +14,10 @@ import type { getInvoiceById } from "./invoice.service";
 type WhatsAppState = "INITIALIZING" | "QR" | "READY" | "AUTH_FAILURE" | "DISCONNECTED" | "ERROR";
 export type WhatsAppProvider = "web" | "cloud" | "greenapi" | "manual" | "disabled";
 export type WhatsAppStatusCode = "ready" | "missing_settings" | "failed" | "disabled" | "manual_only";
+// Explicit per-send channel picked by staff in the UI (the third channel,
+// "web"/wa.me, never reaches the server — it opens in the employee's browser).
+// undefined = legacy behavior: the tenant's default provider decides.
+export type WhatsAppSendChannel = "official" | "personal";
 
 let client: Client | null = null;
 let state: WhatsAppState = "DISCONNECTED";
@@ -36,6 +41,10 @@ let _dbGreenBaseUrl = "";
 let _dbCloudBusinessAccountId = "";
 let _dbCloudVerifyToken = "";
 let _dbCloudAppSecret = "";
+// Personal channel (Green API as a PARALLEL channel, not the default provider)
+let _personalChannelEnabled = false;
+let _personalDailyLimit = 100;
+let _webChannelEnabled = true;
 
 /** Called by settings service when credentials change, and at server startup */
 export function setCloudCredentials(token: string, phoneNumberId: string, providerOverride?: string) {
@@ -70,6 +79,9 @@ export function syncWhatsAppSettings(s: {
   greenApiInstanceId?: string;
   greenApiToken?: string;
   greenApiBaseUrl?: string;
+  personalChannelEnabled?: boolean;
+  personalChannelDailyLimit?: number;
+  webChannelEnabled?: boolean;
 }) {
   setCloudCredentials(s.whatsappCloudToken ?? "", s.whatsappCloudPhoneNumberId ?? "", s.whatsappProvider);
   setGreenApiCredentials(s.greenApiInstanceId ?? "", s.greenApiToken ?? "");
@@ -77,6 +89,11 @@ export function syncWhatsAppSettings(s: {
   _dbCloudBusinessAccountId = s.whatsappCloudBusinessAccountId?.trim() ?? "";
   _dbCloudVerifyToken = s.whatsappCloudVerifyToken?.trim() ?? "";
   _dbCloudAppSecret = s.whatsappCloudAppSecret?.trim() ?? "";
+  _personalChannelEnabled = s.personalChannelEnabled === true;
+  _personalDailyLimit = typeof s.personalChannelDailyLimit === "number" && s.personalChannelDailyLimit >= 0
+    ? s.personalChannelDailyLimit
+    : 100;
+  _webChannelEnabled = s.webChannelEnabled !== false;
 }
 
 /** Random opaque token for the Meta webhook verify handshake. */
@@ -207,6 +224,68 @@ function assertCanSend(): WhatsAppProvider {
     throw new AppError("WhatsApp is disabled. Set ENABLE_WHATSAPP=true", 503, "WHATSAPP_DISABLED");
   }
   return prov;
+}
+
+/**
+ * Resolves the provider for an explicit per-send channel choice from the UI.
+ * No channel → legacy path (tenant default provider). The personal channel is
+ * usable even when the tenant's default provider is Cloud — that's the whole
+ * point of parallel channels.
+ */
+function resolveSendProvider(channel?: WhatsAppSendChannel): WhatsAppProvider {
+  if (!channel) return assertCanSend();
+  if (channel === "official") {
+    if (!hasCloudCreds()) {
+      throw new AppError("القناة الرسمية (Meta Cloud API) غير مضبوطة", 503, "OFFICIAL_CHANNEL_NOT_CONFIGURED");
+    }
+    return "cloud";
+  }
+  if (!_personalChannelEnabled) {
+    throw new AppError("قناة الرقم الشخصي غير مفعّلة من الإعدادات", 400, "PERSONAL_CHANNEL_DISABLED");
+  }
+  if (!hasGreenApiCreds()) {
+    throw new AppError("بيانات Green API غير مضبوطة لقناة الرقم الشخصي", 503, "GREENAPI_NOT_CONFIGURED");
+  }
+  return "greenapi";
+}
+
+// ── Personal channel daily limit ────────────────────────────────────────────
+// The personal number was banned once before — the daily cap keeps manual
+// sends from ever looking like bulk traffic. Persisted in the Setting table
+// (underscore key = internal, skipped by getSettings) so restarts don't reset
+// it; mirrored in memory so getWhatsAppStatus stays synchronous.
+const PERSONAL_COUNTER_KEY = "_personalChannelCounter";
+let _personalCounter: { date: string; count: number } | null = null;
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function getPersonalSentToday(): number {
+  return _personalCounter?.date === todayKey() ? _personalCounter.count : 0;
+}
+
+async function takePersonalSendSlot() {
+  const today = todayKey();
+  if (!_personalCounter || _personalCounter.date !== today) {
+    const row = await prisma.setting.findUnique({ where: { key: PERSONAL_COUNTER_KEY } }).catch(() => null);
+    const v = (row?.value ?? null) as { date?: string; count?: number } | null;
+    _personalCounter = v?.date === today ? { date: today, count: v.count ?? 0 } : { date: today, count: 0 };
+  }
+  if (_personalDailyLimit > 0 && _personalCounter.count >= _personalDailyLimit) {
+    throw new AppError(
+      `وصلت الحد اليومي للإرسال من الرقم الشخصي (${_personalDailyLimit} رسالة) — استخدم القناة الرسمية أو الويب`,
+      429,
+      "PERSONAL_CHANNEL_DAILY_LIMIT",
+    );
+  }
+  _personalCounter = { date: today, count: _personalCounter.count + 1 };
+  const value = _personalCounter;
+  await prisma.setting.upsert({
+    where: { key: PERSONAL_COUNTER_KEY },
+    create: { key: PERSONAL_COUNTER_KEY, value },
+    update: { value },
+  }).catch(() => {});
 }
 
 // ── Green API ────────────────────────────────────────────────────────────────
@@ -721,6 +800,17 @@ export function getWhatsAppStatus() {
   return {
     provider: currentProvider,
     activeProvider: currentProvider,
+    // Parallel send channels (independent of the default provider above).
+    channels: {
+      official: { configured: cloudConfigured },
+      personal: {
+        enabled: _personalChannelEnabled,
+        configured: greenConfigured,
+        dailyLimit: _personalDailyLimit,
+        sentToday: getPersonalSentToday(),
+      },
+      web: { enabled: _webChannelEnabled },
+    },
     selectedProvider,
     providerSource,
     missingFields,
@@ -790,9 +880,10 @@ export async function restartWhatsApp() {
 export async function sendWhatsAppText(
   phone: string,
   message: string,
-  opts?: { replyToWaMessageId?: string },
+  opts?: { replyToWaMessageId?: string; channel?: WhatsAppSendChannel },
 ): Promise<{ to: string; message: string; idMessage?: string }> {
-  const prov = assertCanSend();
+  const prov = resolveSendProvider(opts?.channel);
+  if (opts?.channel === "personal") await takePersonalSendSlot();
   const replyToWaMessageId = opts?.replyToWaMessageId ?? null;
 
   if (prov === "greenapi") {
@@ -947,10 +1038,16 @@ export async function sendPdfWithTemplateFallback(
   pdf: Buffer,
   filename: string,
   bodyParams: string[],
+  channel?: WhatsAppSendChannel,
 ): Promise<{ to: string; idMessage?: string }> {
+  // Personal channel = Green API — templates are Cloud-only, go straight to
+  // the plain PDF send through the personal number.
+  if (channel === "personal") {
+    return sendWhatsAppPdf(phone, caption, pdf, filename, { channel });
+  }
   const status = getWhatsAppStatus();
-  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
-    return sendWhatsAppPdf(phone, caption, pdf, filename);
+  if ((channel !== "official" && status.activeProvider !== "cloud") || !templateName?.trim()) {
+    return sendWhatsAppPdf(phone, caption, pdf, filename, { channel });
   }
   try {
     return await sendWhatsAppTemplatePdf(phone, templateName, languageCode, pdf, filename, bodyParams);
@@ -963,7 +1060,7 @@ export async function sendPdfWithTemplateFallback(
       message: `فشل قالب "${templateName}" — ${detail}`,
       context: { templateName, kind: "pdf" },
     }).catch(() => {});
-    return sendWhatsAppPdf(phone, caption, pdf, filename);
+    return sendWhatsAppPdf(phone, caption, pdf, filename, { channel });
   }
 }
 
@@ -1007,10 +1104,14 @@ export async function sendTextWithTemplateFallback(
   languageCode: string,
   message: string,
   bodyParams: string[] = [],
+  channel?: WhatsAppSendChannel,
 ): Promise<{ to: string; idMessage?: string }> {
+  if (channel === "personal") {
+    return sendWhatsAppText(phone, message, { channel });
+  }
   const status = getWhatsAppStatus();
-  if (status.activeProvider !== "cloud" || !templateName?.trim()) {
-    return sendWhatsAppText(phone, message);
+  if ((channel !== "official" && status.activeProvider !== "cloud") || !templateName?.trim()) {
+    return sendWhatsAppText(phone, message, { channel });
   }
   try {
     return await sendWhatsAppTemplate(phone, templateName, languageCode, { bodyParams });
@@ -1023,7 +1124,7 @@ export async function sendTextWithTemplateFallback(
       message: `فشل قالب "${templateName}" — ${detail}`,
       context: { templateName, kind: "text" },
     }).catch(() => {});
-    return sendWhatsAppText(phone, message);
+    return sendWhatsAppText(phone, message, { channel });
   }
 }
 
@@ -1042,8 +1143,10 @@ export async function sendWhatsAppDocument(
   doc: Buffer,
   filename: string,
   mime = "application/pdf",
+  opts?: { channel?: WhatsAppSendChannel },
 ): Promise<{ to: string; filename: string; idMessage?: string }> {
-  const prov = assertCanSend();
+  const prov = resolveSendProvider(opts?.channel);
+  if (opts?.channel === "personal") await takePersonalSendSlot();
   const logDoc = (to: string, idMessage?: string) =>
     logChatMessage({
       phone: to,
@@ -1102,8 +1205,9 @@ export async function sendWhatsAppPdf(
   message: string,
   pdf: Buffer,
   filename: string,
+  opts?: { channel?: WhatsAppSendChannel },
 ): Promise<{ to: string; filename: string }> {
-  return sendWhatsAppDocument(phone, message, pdf, filename, "application/pdf");
+  return sendWhatsAppDocument(phone, message, pdf, filename, "application/pdf", opts);
 }
 
 /** Send a voice note (Cloud API only — the chat screen is Cloud-based).
@@ -1148,8 +1252,10 @@ export async function sendWhatsAppImage(
   message: string,
   image: Buffer,
   mime = "image/jpeg",
+  opts?: { channel?: WhatsAppSendChannel },
 ): Promise<{ to: string; idMessage?: string }> {
-  const prov = assertCanSend();
+  const prov = resolveSendProvider(opts?.channel);
+  if (opts?.channel === "personal") await takePersonalSendSlot();
   const logImage = (to: string, idMessage?: string) =>
     logChatMessage({
       phone: to,

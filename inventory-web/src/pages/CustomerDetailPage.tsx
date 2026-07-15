@@ -11,7 +11,8 @@ import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/us
 import { useSettings } from "../hooks/useSettings"
 import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { apiErrorMessage } from "../utils/apiError"
-import { sendWhatsAppTemplatedMessage, sendCustomerStatementPdfWhatsapp } from "../api/endpoints"
+import { sendWhatsAppTemplatedMessage, sendCustomerStatementPdfWhatsapp, type WhatsAppSendChannel } from "../api/endpoints"
+import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
@@ -118,18 +119,30 @@ export function CustomerDetailPage() {
     .filter((v) => v.type === "RECEIPT")
     .reduce((sum, v) => sum + Number(v.amount ?? 0), 0)
 
-  async function sendStatement() {
-    if (!customer) return
-    if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
-    const currency = settings?.currency ?? "د.ع"
+  // Channel picker context — which send it confirms.
+  const [waChannel, setWaChannel] = useState<
+    null | { mode: "statement" } | { mode: "statementPdf"; date: string } | { mode: "portal" }
+  >(null)
+  const [waSending, setWaSending] = useState(false)
+
+  function buildStatementMessage() {
+    if (!customer) return ""
     const tpl = settings?.statementTemplate || DEFAULT_STATEMENT_TEMPLATE
-    const msg = fillTemplate(tpl, {
+    return fillTemplate(tpl, {
       customerName: customer.name,
       date: localDateStr(),
       currentBalance: money(customer.currentBalance),
-      currency,
+      currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
+  }
+
+  async function sendStatement(channel: WhatsAppSendChannel) {
+    if (!customer) return
+    if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    const currency = settings?.currency ?? "د.ع"
+    const msg = buildStatementMessage()
+    setWaSending(true)
     try {
       // bodyParams order must match the approved Meta template's {{1}}..{{n}}
       // placeholders, in this order, if/once one is configured in Settings.
@@ -144,10 +157,14 @@ export function CustomerDetailPage() {
           currency,
           settings?.storeName ?? "",
         ],
+        channel,
       })
+      setWaChannel(null)
       toast({ title: "✓ تم إرسال الكشف عبر واتساب." })
-    } catch {
-      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
+    } catch (err) {
+      toast({ title: "✗ تعذر الإرسال.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
+    } finally {
+      setWaSending(false)
     }
   }
 
@@ -159,21 +176,24 @@ export function CustomerDetailPage() {
   // "إرسال PDF" — server renders the full account statement up to the picked
   // date and sends it as a WhatsApp document.
   const sendStatementPdfMutation = useMutation({
-    mutationFn: (date: string) => sendCustomerStatementPdfWhatsapp(id!, date),
+    mutationFn: ({ date, channel }: { date: string; channel: WhatsAppSendChannel }) =>
+      sendCustomerStatementPdfWhatsapp(id!, date, channel),
     onSuccess: () => {
+      setWaChannel(null)
       setPdfDialogOpen(false)
       toast({ title: "✓ تم إرسال كشف PDF عبر واتساب." })
     },
-    onError: () => toast({ title: "✗ تعذر إرسال الـ PDF. تحقق من إعدادات واتساب.", variant: "destructive" }),
+    onError: (err) => toast({ title: "✗ تعذر إرسال الـ PDF.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" }),
   })
 
   // Sending always mints a FRESH link — once a link is revoked or already
   // sent, its plain token can never be recovered (only its hash is stored),
   // so there's no "old link" to resend. This also activates the portal.
   const sendPortalLinkMutation = useMutation({
-    mutationFn: () => createCustomerPortalLink(id!),
-    onSuccess: async (link) => {
+    mutationFn: async (channel: WhatsAppSendChannel) => ({ link: await createCustomerPortalLink(id!), channel }),
+    onSuccess: async ({ link, channel }) => {
       setPortalEnabled(true)
+      setWaChannel(null)
       if (!customer?.phone || !link) return
       const url = `${window.location.origin}${link.urlPath}`
       const msg = `مرحباً ${customer.name}،\nهذا رابطك الخاص لمتابعة حسابك وفواتيرك في أي وقت:\n${url}`
@@ -185,10 +205,11 @@ export function CustomerDetailPage() {
           message: msg,
           templateKind: "portal",
           bodyParams: [customer.name, url],
+          channel,
         })
         toast({ title: "✓ تم إرسال رابط العميل عبر واتساب." })
-      } catch {
-        toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله. تحقق من إعدادات واتساب.", variant: "destructive" })
+      } catch (err) {
+        toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
       }
     },
     onError: () => toast({ title: "✗ تعذر إنشاء الرابط.", variant: "destructive" }),
@@ -241,7 +262,7 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={() => setDeleteOpen(true)}>
             <Trash2 className="h-4 w-4 text-rose-600" /> حذف الزبون
           </Button>
-          <Button variant="outline" onClick={() => void sendStatement()} disabled={!customer.phone}>
+          <Button variant="outline" onClick={() => setWaChannel({ mode: "statement" })} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
           <Button
@@ -268,7 +289,7 @@ export function CustomerDetailPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => sendPortalLinkMutation.mutate()}
+            onClick={() => setWaChannel({ mode: "portal" })}
             disabled={sendPortalLinkMutation.isPending || !customer.phone}
             title="ينشئ رابطاً جديداً ويرسله عبر واتساب"
           >
@@ -368,7 +389,7 @@ export function CustomerDetailPage() {
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setPdfDialogOpen(false)}>إلغاء</Button>
             <Button
-              onClick={() => sendStatementPdfMutation.mutate(pdfDate)}
+              onClick={() => setWaChannel({ mode: "statementPdf", date: pdfDate })}
               disabled={sendStatementPdfMutation.isPending || !pdfDate}
             >
               <Send className={`h-4 w-4 ${sendStatementPdfMutation.isPending ? "animate-pulse" : ""}`} />
@@ -377,6 +398,28 @@ export function CustomerDetailPage() {
           </div>
         </div>
       </ModalForm>
+
+      {/* Channel picker — official / personal / open in WhatsApp Web.
+          Portal-link sends hide the web option (the link is minted server-side
+          only after a channel is confirmed, so there's no message to prefill). */}
+      <WhatsAppChannelDialog
+        open={waChannel !== null}
+        onClose={() => setWaChannel(null)}
+        sending={waSending || sendStatementPdfMutation.isPending || sendPortalLinkMutation.isPending}
+        phone={waChannel?.mode === "portal" ? undefined : customer.phone}
+        webMessage={buildStatementMessage()}
+        title={
+          waChannel?.mode === "portal" ? "إرسال رابط العميل"
+          : waChannel?.mode === "statementPdf" ? "إرسال كشف حساب PDF"
+          : "إرسال كشف الحساب"
+        }
+        onSend={(channel) => {
+          if (!waChannel) return
+          if (waChannel.mode === "statement") void sendStatement(channel)
+          else if (waChannel.mode === "statementPdf") sendStatementPdfMutation.mutate({ date: waChannel.date, channel })
+          else sendPortalLinkMutation.mutate(channel)
+        }}
+      />
       <EditCustomerModal
         open={editOpen}
         onOpenChange={setEditOpen}

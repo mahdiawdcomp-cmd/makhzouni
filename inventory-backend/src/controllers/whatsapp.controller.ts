@@ -25,7 +25,13 @@ import {
   sendWhatsAppTemplatePdf,
   sendWhatsAppText,
   invoiceTemplateBodyParams,
+  type WhatsAppSendChannel,
 } from "../services/whatsapp.service";
+
+/** Per-send channel from the UI picker. undefined = tenant default provider. */
+function parseChannel(v: unknown): WhatsAppSendChannel | undefined {
+  return v === "official" || v === "personal" ? v : undefined;
+}
 
 // Meta template language for every template-or-fallback send below — all of
 // them (invoice, voucher, statement, portal link) are Arabic for this tenant.
@@ -60,19 +66,26 @@ async function withTemplateFallback<T>(
   }
 }
 
-function sendInvoiceViaCloudSafe(phone: string, templateName: string | undefined, message: string, pdf: Buffer, filename: string, bodyParams: string[]) {
+function sendInvoiceViaCloudSafe(phone: string, templateName: string | undefined, message: string, pdf: Buffer, filename: string, bodyParams: string[], channel?: WhatsAppSendChannel) {
+  // Personal channel (Green API) has no templates — plain PDF through it.
+  if (channel === "personal") {
+    return sendWhatsAppPdf(phone, message, pdf, filename, { channel });
+  }
   return withTemplateFallback(
     templateName,
     () => sendWhatsAppTemplatePdf(phone, templateName as string, CLOUD_TEMPLATE_LANG, pdf, filename, bodyParams),
-    () => sendWhatsAppPdf(phone, message, pdf, filename),
+    () => sendWhatsAppPdf(phone, message, pdf, filename, { channel }),
   );
 }
 
-function sendTextViaCloudSafe(phone: string, templateName: string | undefined, message: string, bodyParams: string[]) {
+function sendTextViaCloudSafe(phone: string, templateName: string | undefined, message: string, bodyParams: string[], channel?: WhatsAppSendChannel) {
+  if (channel === "personal") {
+    return sendWhatsAppText(phone, message, { channel });
+  }
   return withTemplateFallback(
     templateName,
     () => sendWhatsAppTemplate(phone, templateName as string, CLOUD_TEMPLATE_LANG, { bodyParams }),
-    () => sendWhatsAppText(phone, message),
+    () => sendWhatsAppText(phone, message, { channel }),
   );
 }
 
@@ -341,7 +354,8 @@ export const whatsappRestart = asyncHandler(async (_req, res) => {
 
 export const sendMessage = asyncHandler(async (req, res) => {
   const { phone, message } = req.body as { phone: string; message: string };
-  const result = await sendWhatsAppText(phone, message);
+  const channel = parseChannel((req.body as { channel?: unknown })?.channel);
+  const result = await sendWhatsAppText(phone, message, { channel });
 
   res.json({
     success: true,
@@ -374,7 +388,8 @@ export const sendTemplatedMessage = asyncHandler(async (req, res) => {
 
   const settings = await getSettings();
   const templateName = settings[TEMPLATE_KIND_SETTING[kind]];
-  const result = await sendTextViaCloudSafe(phone, templateName, message, bodyParams);
+  const channel = parseChannel(req.body?.channel);
+  const result = await sendTextViaCloudSafe(phone, templateName, message, bodyParams, channel);
 
   res.json({
     success: true,
@@ -410,6 +425,7 @@ export const sendInvoice = asyncHandler(async (req, res) => {
     pdf,
     `${invoice.invoiceNumber}.pdf`,
     bodyParams,
+    parseChannel((req.body as { channel?: unknown })?.channel),
   );
 
   res.json({
@@ -448,6 +464,7 @@ export const sendInvoiceImage = asyncHandler(async (req, res) => {
     pdf,
     `${invoice.invoiceNumber}-صور.pdf`,
     invoiceTemplateBodyParams(invoice, settings.storeName),
+    parseChannel((req.body as { channel?: unknown })?.channel),
   );
 
   res.json({

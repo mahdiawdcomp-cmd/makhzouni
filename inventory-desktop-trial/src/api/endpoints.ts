@@ -1084,15 +1084,22 @@ export async function updateMessageTemplate(id: string, payload: Partial<Message
   return data
 }
 
-export async function sendWhatsAppInvoice(invoiceId: string) {
-  const { data } = await api.post<ApiEnvelope<{ to: string; filename: string }>>(`/whatsapp/send-invoice/${invoiceId}`)
+// Per-send WhatsApp channel picked by staff:
+//   official → Meta Cloud API (shop number)
+//   personal → Green API (owner's personal number, daily-limited)
+// The third channel ("web" / wa.me) never reaches the server — the page opens
+// the link itself. undefined = tenant default provider (legacy behavior).
+export type WhatsAppSendChannel = "official" | "personal"
+
+export async function sendWhatsAppInvoice(invoiceId: string, channel?: WhatsAppSendChannel) {
+  const { data } = await api.post<ApiEnvelope<{ to: string; filename: string }>>(`/whatsapp/send-invoice/${invoiceId}`, { channel })
   return data.data
 }
 
 // New, separate option — sends a customer-safe image invoice (product photos,
 // no purchase price/cost/profit). Does not replace sendWhatsAppInvoice above.
-export async function sendWhatsAppInvoiceImage(invoiceId: string) {
-  const { data } = await api.post<ApiEnvelope<{ to: string; idMessage?: string }>>(`/whatsapp/send-invoice-image/${invoiceId}`)
+export async function sendWhatsAppInvoiceImage(invoiceId: string, channel?: WhatsAppSendChannel) {
+  const { data } = await api.post<ApiEnvelope<{ to: string; idMessage?: string }>>(`/whatsapp/send-invoice-image/${invoiceId}`, { channel })
   return data.data
 }
 
@@ -1110,7 +1117,7 @@ export async function sendInvoiceToWorkers(invoiceId: string, phones: string[]) 
   return data
 }
 
-export async function sendWhatsAppMessage(payload: { phone: string; message: string }) {
+export async function sendWhatsAppMessage(payload: { phone: string; message: string; channel?: WhatsAppSendChannel }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
   return data
 }
@@ -1123,6 +1130,7 @@ export async function sendWhatsAppTemplatedMessage(payload: {
   message: string
   templateKind: "voucher" | "statement" | "portal" | "debtReminder" | "inactiveCustomer"
   bodyParams: string[]
+  channel?: WhatsAppSendChannel
 }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send-templated", payload)
   return data
@@ -1133,9 +1141,16 @@ export type WhatsAppProvider = "manual" | "greenapi" | "cloud" | "web" | "disabl
 export type WhatsAppStatusCode = "ready" | "missing_settings" | "failed" | "disabled" | "manual_only"
 export type WhatsAppProviderSource = "env" | "db" | "default"
 
+export interface WhatsAppChannelsStatus {
+  official: { configured: boolean }
+  personal: { enabled: boolean; configured: boolean; dailyLimit: number; sentToday: number }
+  web: { enabled: boolean }
+}
+
 export interface WhatsAppStatus {
   provider: WhatsAppProvider
   activeProvider: WhatsAppProvider
+  channels?: WhatsAppChannelsStatus
   selectedProvider: WhatsAppProvider | null
   providerSource: WhatsAppProviderSource
   missingFields: string[]
@@ -1156,6 +1171,21 @@ export interface WhatsAppStatus {
 
 export async function getWhatsAppStatus() {
   const { data } = await api.get<ApiEnvelope<WhatsAppStatus>>("/whatsapp/status")
+  return data.data
+}
+
+export interface WabaSubscribedApp {
+  whatsapp_business_api_data?: { id?: string; name?: string; link?: string }
+}
+
+// Which Meta Apps are subscribed to this WABA's webhook events.
+export async function getWabaSubscribedApps(wabaId?: string) {
+  const { data } = await api.get<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { params: { wabaId } })
+  return data.data
+}
+
+export async function subscribeAppToWaba(wabaId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ wabaId: string; apps: WabaSubscribedApp[] }>>("/whatsapp/waba-subscribed-apps", { wabaId })
   return data.data
 }
 

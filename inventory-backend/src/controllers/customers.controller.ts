@@ -221,6 +221,7 @@ export const sendStatementPdfWhatsapp = asyncHandler(async (req, res) => {
     pdf,
     filename,
     [customer.name, dateLabel, String(customer.currentBalance ?? 0), currency, settings.storeName],
+    req.body?.channel === "official" || req.body?.channel === "personal" ? req.body.channel : undefined,
   );
 
   res.json({

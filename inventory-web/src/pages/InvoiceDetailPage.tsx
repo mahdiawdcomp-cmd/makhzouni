@@ -19,7 +19,8 @@ import {
   Trash2,
   Users,
 } from "lucide-react"
-import { cancelInvoice, downloadCustomerImageInvoiceExcelBlob, downloadCustomerImageInvoicePdfBlob, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice } from "../api/endpoints"
+import { cancelInvoice, downloadCustomerImageInvoiceExcelBlob, downloadCustomerImageInvoicePdfBlob, getBranches, getInvoiceAuditTrail, permanentDeleteInvoice, reactivateInvoice, sendWhatsAppInvoice, sendWhatsAppInvoiceImage, sendWhatsAppMessage, updateInvoice, type WhatsAppSendChannel } from "../api/endpoints"
+import { apiErrorMessage } from "../utils/apiError"
 import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
@@ -37,6 +38,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { ErrorExplain } from "../components/ui/error-explain"
 import { RecordNavigator } from "../components/RecordNavigator"
 import { WorkerSendModal } from "../components/WorkerSendModal"
+import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 
 function money(v: number | undefined) { return fmt(v) }
@@ -201,10 +203,12 @@ export function InvoiceDetailPage() {
   const [waPreview, setWaPreview] = useState(false)
   const [waMessage, setWaMessage] = useState("")
   const [waSending, setWaSending] = useState(false)
-  function openWaPreview() {
-    if (!invoice) return
+  // Which send the channel picker confirms: regular PDF invoice or image invoice.
+  const [waChannelFor, setWaChannelFor] = useState<null | "invoice" | "invoiceImage">(null)
+  function buildWaMessage() {
+    if (!invoice) return ""
     const tpl = settings?.invoiceTemplate || DEFAULT_INVOICE_TEMPLATE
-    setWaMessage(fillTemplate(tpl, {
+    return fillTemplate(tpl, {
       customerName: invoice.customer?.name ?? "",
       invoiceNumber: invoice.invoiceNumber,
       date: String(invoice.date).slice(0, 10),
@@ -215,10 +219,14 @@ export function InvoiceDetailPage() {
       finalBalance: money(invoice.finalBalance),
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "مهدي عوض",
-    }))
+    })
+  }
+  function openWaPreview() {
+    if (!invoice) return
+    setWaMessage(buildWaMessage())
     setWaPreview(true)
   }
-  async function sendWaMessage() {
+  async function sendWaMessage(channel: WhatsAppSendChannel) {
     if (!invoice) return
     const phone = invoice.customer?.phone
     if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
@@ -226,14 +234,15 @@ export function InvoiceDetailPage() {
     try {
       // Try to send PDF with text caption; fall back to text-only if PDF fails
       try {
-        await sendWhatsAppInvoice(invoice.id)
+        await sendWhatsAppInvoice(invoice.id, channel)
       } catch {
-        await sendWhatsAppMessage({ phone: normalizePhone(phone), message: waMessage })
+        await sendWhatsAppMessage({ phone: normalizePhone(phone), message: waMessage, channel })
       }
+      setWaChannelFor(null)
       setWaPreview(false)
       toast({ title: "✓ تم إرسال الفاتورة عبر واتساب." })
-    } catch {
-      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
+    } catch (err) {
+      toast({ title: "✗ تعذر الإرسال.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
     } finally {
       setWaSending(false)
     }
@@ -242,19 +251,25 @@ export function InvoiceDetailPage() {
   // New, separate option: send a customer-safe image invoice (product photos,
   // no purchase price/cost/profit). Does not touch the sendWaMessage flow above.
   const [waImageSending, setWaImageSending] = useState(false)
-  async function sendWaImageInvoice() {
+  function openWaImageChannel() {
     if (!invoice) return
     if (invoice.type !== "SALE") {
       toast({ title: "صور الفاتورة بالمنتجات متاحة لفواتير البيع فقط.", variant: "destructive" })
       return
     }
     if (!invoice.customer?.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    setWaMessage(buildWaMessage())
+    setWaChannelFor("invoiceImage")
+  }
+  async function sendWaImageInvoice(channel: WhatsAppSendChannel) {
+    if (!invoice) return
     setWaImageSending(true)
     try {
-      await sendWhatsAppInvoiceImage(invoice.id)
+      await sendWhatsAppInvoiceImage(invoice.id, channel)
+      setWaChannelFor(null)
       toast({ title: "✓ تم إرسال الفاتورة بالصور عبر واتساب." })
-    } catch {
-      toast({ title: "✗ تعذر إرسال الفاتورة بالصور. تحقق من إعدادات واتساب.", variant: "destructive" })
+    } catch (err) {
+      toast({ title: "✗ تعذر إرسال الفاتورة بالصور.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
     } finally {
       setWaImageSending(false)
     }
@@ -490,7 +505,7 @@ export function InvoiceDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void sendWaImageInvoice()}
+              onClick={openWaImageChannel}
               disabled={readOnly || waImageSending}
               title={readOnly ? READ_ONLY_MESSAGE : "إرسال فاتورة بالصور — بدون سعر الشراء أو الأرباح"}
             >
@@ -733,13 +748,27 @@ export function InvoiceDetailPage() {
           <DialogHeader><DialogTitle>معاينة رسالة واتساب</DialogTitle></DialogHeader>
           <div className="rounded-xl bg-emerald-50 p-4 text-sm whitespace-pre-wrap">{waMessage}</div>
           <div className="flex gap-2">
-            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => void sendWaMessage()} disabled={waSending}>
+            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => setWaChannelFor("invoice")} disabled={waSending}>
               <MessageCircle className="h-4 w-4" /> {waSending ? "جاري الإرسال..." : "إرسال"}
             </Button>
             <Button variant="outline" onClick={() => setWaPreview(false)}>إلغاء</Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Channel picker — official / personal / open in WhatsApp Web */}
+      <WhatsAppChannelDialog
+        open={waChannelFor !== null}
+        onClose={() => setWaChannelFor(null)}
+        sending={waSending || waImageSending}
+        phone={invoice.customer?.phone}
+        webMessage={waMessage}
+        title={waChannelFor === "invoiceImage" ? "إرسال فاتورة بالصور" : "إرسال الفاتورة عبر واتساب"}
+        onSend={(channel) => {
+          if (waChannelFor === "invoiceImage") void sendWaImageInvoice(channel)
+          else void sendWaMessage(channel)
+        }}
+      />
 
       <WorkerSendModal
         invoiceId={invoice.id}

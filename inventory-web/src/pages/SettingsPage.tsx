@@ -16,7 +16,6 @@ import {
   Eye,
   EyeOff,
   Link2,
-  MessageSquare,
   FileJson,
   HardDrive,
   ImagePlus,
@@ -36,7 +35,6 @@ import {
   Upload,
   Users,
   Warehouse,
-  WifiOff,
   XCircle,
 } from "lucide-react"
 import { Instagram as InstagramIcon } from "../components/instagram/InstagramIcon"
@@ -69,7 +67,7 @@ import {
   wipeOperationalData,
   mergeWarehouses,
 } from "../api/endpoints"
-import type { WhatsAppStatus, WhatsAppProvider } from "../api/endpoints"
+import type { WhatsAppStatus } from "../api/endpoints"
 import type { AppSettings, MessageTemplate, PreparationWorker } from "../types/api"
 import {
   DEFAULT_SHORTCUTS,
@@ -1944,31 +1942,7 @@ function WorkersEditor({
   )
 }
 
-// ── إعدادات واتساب (provider selection + credentials + tests) ─────────────────
-
-const WA_PROVIDERS: { id: WhatsAppProvider; title: string; desc: string }[] = [
-  { id: "manual",   title: "رابط يدوي فقط",        desc: "يفتح واتساب فقط، بدون API. مناسب للبداية — لا يحتاج أي إعداد." },
-  { id: "greenapi", title: "Green API",             desc: "مناسب للإرسال القليل والسريع." },
-  { id: "cloud",    title: "Meta WhatsApp Cloud API", desc: "رسمي وأقوى — موصى به للإنتاج." },
-  { id: "web",      title: "WhatsApp Web QR",       desc: "ربط عبر مسح رمز QR." },
-  { id: "disabled", title: "تعطيل واتساب",          desc: "إيقاف كل إرسال واتساب." },
-]
-
-const WA_PROVIDER_LABEL: Record<string, string> = {
-  manual:   "رابط يدوي فقط",
-  greenapi: "Green API",
-  cloud:    "Meta WhatsApp Cloud API",
-  web:      "WhatsApp Web QR",
-  disabled: "واتساب معطّل",
-}
-
-const WA_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  ready:            { label: "جاهز",          cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" },
-  missing_settings: { label: "ناقص إعدادات",  cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" },
-  failed:           { label: "فشل",           cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
-  disabled:         { label: "غير مفعّل",      cls: "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700" },
-  manual_only:      { label: "رابط يدوي فقط",  cls: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800" },
-}
+// ── إعدادات واتساب (3 قنوات متوازية + الويب هوك + الاختبار) ─────────────────
 
 function MaskedInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [reveal, setReveal] = useState(false)
@@ -2011,7 +1985,6 @@ function WhatsAppProviderSettings({
   onRestart: () => void
   restarting: boolean
 }) {
-  const selected: WhatsAppProvider = settings.whatsappProvider ?? "web"
   const [testPhone, setTestPhone] = useState(settings.storePhone ?? "")
   const [testMsg, setTestMsg] = useState("")
   const [webhookInfo, setWebhookInfo] = useState<{ url: string; issues: string[]; appSecretWarning: string | null } | null>(null)
@@ -2026,7 +1999,6 @@ function WhatsAppProviderSettings({
 
   const testText = useMutation({
     mutationFn: () => testWhatsAppText({ phone: testPhone, message: testMsg || undefined }),
-    onSuccess: () => setTestMsg((m) => m), // no-op; feedback via mutation state
   })
   const testImage = useMutation({ mutationFn: () => testWhatsAppImage({ phone: testPhone }) })
   const testPdf = useMutation({ mutationFn: () => testWhatsAppPdf({ phone: testPhone }) })
@@ -2049,198 +2021,131 @@ function WhatsAppProviderSettings({
     (testText.error || testImage.error || testPdf.error) as { response?: { data?: { message?: string } } } | null
   const lastTestOk = testText.isSuccess || testImage.isSuccess || testPdf.isSuccess
 
-  const badge = WA_STATUS_BADGE[status?.status ?? "missing_settings"] ?? WA_STATUS_BADGE.missing_settings
+  // Parallel channels (from the backend status endpoint).
+  const channels = status?.channels
+  const officialConfigured = channels?.official.configured ?? status?.cloudConfigured ?? false
+  const personalConfigured = channels?.personal.configured ?? status?.greenConfigured ?? false
+  const personalEnabled = settings.personalChannelEnabled === true
+  const webEnabled = settings.webChannelEnabled !== false
+  const allDisabled = settings.whatsappProvider === "disabled"
 
-  // The provider actually used for sending (from the backend), which may differ
-  // from the card the user clicked — e.g. an env fallback, or an incomplete
-  // explicit selection that another provider is overriding.
-  const activeProvider = status?.activeProvider ?? selected
-  const fromEnv = status?.providerSource === "env"
-  const activeLabel = WA_PROVIDER_LABEL[activeProvider] ?? activeProvider
-  const explicitMismatch =
-    !!settings.whatsappProvider && settings.whatsappProvider !== "web" && settings.whatsappProvider !== activeProvider
-  const activeLine = explicitMismatch
-    ? `الخيار المحدد غير مكتمل، والإرسال حالياً يستخدم: ${activeLabel}${fromEnv ? " (من إعدادات السيرفر)" : ""}`
-    : `أنت تستخدم حالياً: ${activeLabel}${fromEnv ? " من إعدادات السيرفر" : ""}`
-
-  const canSend = status?.status === "ready"
-  const isSendingProvider = selected === "greenapi" || selected === "cloud" || selected === "web"
+  const chip = (ok: boolean, okLabel: string, badLabel: string) => (
+    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+      ok
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+        : "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
+    }`}>{ok ? okLabel : badLabel}</span>
+  )
 
   return (
     <>
-      {/* ── 1. Status card ─────────────────────────────────────── */}
+      {/* ── 1. Overview: the three parallel channels ─────────────── */}
       <Card>
         <CardContent className="p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <SectionTitle>حالة واتساب</SectionTitle>
-            {status && (
-              <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}>
-                <MessageSquare className="h-3.5 w-3.5" />
-                {badge.label}
-              </span>
-            )}
+            <SectionTitle>قنوات الإرسال</SectionTitle>
+            <Button variant="outline" size="sm" onClick={onRestart} disabled={restarting}>
+              <RefreshCw className={`h-4 w-4 ${restarting ? "animate-spin" : ""}`} />
+              {restarting ? "جاري إعادة التهيئة..." : "إعادة تهيئة"}
+            </Button>
           </div>
-          {status && (
-            <div
-              className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-                explicitMismatch
-                  ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
-                  : "border-indigo-300 bg-indigo-50 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200"
-              }`}
-            >
-              {activeLine}
+          <p className="text-xs text-slate-500">
+            القنوات الثلاث تشتغل بنفس الوقت — عند كل إرسال يختار الموظف القناة المناسبة.
+            الإرسال التلقائي (الملخص اليومي، القوالب، البوت، OTP) يمشي دائماً من القناة الرسمية.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">رقم المحل الرسمي</span>
+                {chip(officialConfigured && !allDisabled, "جاهز", "ناقص إعدادات")}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Meta Cloud API — للزبائن الجدد والقوالب.</p>
             </div>
-          )}
-          {status && (
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500">
-              <span>المزود الفعلي: <strong className="text-slate-700 dark:text-slate-300">{activeLabel}</strong></span>
-              <span>المصدر: <strong className="text-slate-700 dark:text-slate-300">{status.providerSource === "env" ? "إعدادات السيرفر" : status.providerSource === "db" ? "إعداداتك" : "افتراضي"}</strong></span>
-              <span>الإرسال: <strong className={canSend ? "text-emerald-600" : "text-amber-600"}>{canSend ? "جاهز" : "غير جاهز"}</strong></span>
+            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">الرقم الشخصي</span>
+                {chip(personalEnabled && personalConfigured && !allDisabled, "مفعّل", personalEnabled ? "ناقص إعدادات" : "مطفأ")}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Green API — للزبائن الخازنين رقمك.
+                {channels && personalEnabled && channels.personal.dailyLimit > 0 && (
+                  <> اليوم: {channels.personal.sentToday}/{channels.personal.dailyLimit}</>
+                )}
+              </p>
             </div>
-          )}
-          {status && status.missingFields.length > 0 && (
-            <div className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-              حقول ناقصة للمزود الفعلي ({activeLabel}): {status.missingFields.join("، ")}
+            <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">واتساب ويب</span>
+                {chip(webEnabled, "مفعّل", "مطفأ")}
+              </div>
+              <p className="mt-1 text-xs text-slate-500">يفتح المحادثة بالمتصفح والموظف يرسل بنفسه.</p>
             </div>
-          )}
-          {status?.error && (
+          </div>
+          {status?.error && !allDisabled && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
               آخر خطأ: {status.error}
             </div>
           )}
+          <div className="border-t pt-3 dark:border-slate-700">
+            <Toggle
+              label="⛔ تعطيل كل إرسال واتساب من السيرفر (طوارئ)"
+              checked={allDisabled}
+              onChange={(v) => saveSettings.mutate({ whatsappProvider: v ? "disabled" : "cloud" })}
+            />
+            {allDisabled && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                ⚠️ كل الإرسال التلقائي واليدوي من السيرفر موقوف — تبقى فقط قناة واتساب ويب.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
-      {/* ── 2. Provider selection card ─────────────────────────── */}
+      {/* ── 2. Official channel: Meta Cloud API ─────────────────── */}
       <Card>
         <CardContent className="p-5 space-y-4">
-          <SectionTitle>اختيار مزود واتساب</SectionTitle>
-          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-            {WA_PROVIDERS.map((p) => {
-              const active = selected === p.id
-              return (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => upd("whatsappProvider", p.id)}
-                  className={`rounded-xl border p-3 text-right transition ${
-                    active
-                      ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200 dark:border-emerald-600 dark:bg-emerald-950/40 dark:ring-emerald-900"
-                      : "border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">{p.title}</span>
-                    {active && <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">{p.desc}</p>
-                </button>
-              )
-            })}
+          <div className="flex items-center justify-between">
+            <SectionTitle>١) القناة الرسمية — رقم المحل (Meta Cloud API)</SectionTitle>
+            {chip(officialConfigured, "مضبوطة", "غير مضبوطة")}
           </div>
-          {status && settings.whatsappProvider && settings.whatsappProvider !== (status.selectedProvider ?? "web") && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-              ⚠️ لم يتم حفظ اختيار المزود بعد — اضغط «حفظ المزود» ليصبح فعّالاً في الإرسال.
+          <p className="text-xs text-slate-500">
+            القناة الأساسية والرسمية — لا خطر حظر عليها. كل الرسائل التلقائية والقوالب المعتمدة تطلع منها.
+          </p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Business Account ID (اختياري)">
+              <Input value={settings.whatsappCloudBusinessAccountId ?? ""} onChange={(e) => upd("whatsappCloudBusinessAccountId", e.target.value)} placeholder="اختياري" dir="ltr" />
+            </Field>
+            <Field label="Phone Number ID">
+              <Input value={settings.whatsappCloudPhoneNumberId ?? ""} onChange={(e) => upd("whatsappCloudPhoneNumberId", e.target.value)} placeholder="123456789012345" dir="ltr" />
+            </Field>
+            <div className="md:col-span-2">
+              <Field label="Access Token">
+                <MaskedInput value={settings.whatsappCloudToken ?? ""} onChange={(v) => upd("whatsappCloudToken", v)} placeholder="EAAxxxxx..." />
+              </Field>
             </div>
-          )}
+            <div className="md:col-span-2">
+              <Field label="App Secret (اختياري — للتحقق من التوقيع)">
+                <MaskedInput value={settings.whatsappCloudAppSecret ?? ""} onChange={(v) => upd("whatsappCloudAppSecret", v)} placeholder="اختياري" />
+              </Field>
+            </div>
+          </div>
           <SaveRow
-            onSave={() => saveSettings.mutate({ whatsappProvider: selected })}
+            onSave={() => saveSettings.mutate({
+              whatsappCloudToken: settings.whatsappCloudToken,
+              whatsappCloudPhoneNumberId: settings.whatsappCloudPhoneNumberId,
+              whatsappCloudBusinessAccountId: settings.whatsappCloudBusinessAccountId,
+              whatsappCloudAppSecret: settings.whatsappCloudAppSecret,
+              // The official channel IS the default provider for every
+              // automatic send — saving credentials activates it.
+              whatsappProvider: "cloud",
+            })}
             isPending={saveSettings.isPending}
             saved={saved}
-            label="حفظ المزود"
+            label="حفظ بيانات القناة الرسمية"
           />
-        </CardContent>
-      </Card>
 
-      {/* ── 3. Provider configuration card ─────────────────────── */}
-      <Card>
-        <CardContent className="p-5 space-y-4">
-          <SectionTitle>إعدادات المزود المحدد</SectionTitle>
-
-          {selected === "manual" && (
-            <div className="rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-              في هذا الوضع يفتح واتساب فقط عبر روابط <code dir="ltr">wa.me</code> — لا يوجد إرسال تلقائي بالخلفية. لا يحتاج أي إعداد إضافي.
-            </div>
-          )}
-
-          {selected === "disabled" && (
-            <div className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-              ⚠️ الإرسال عبر واتساب معطّل بالكامل. أي محاولة إرسال تلقائي سترجع خطأ <code dir="ltr">WHATSAPP_DISABLED</code>.
-            </div>
-          )}
-
-          {selected === "greenapi" && (
-            <div className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Instance ID">
-                  <Input value={settings.greenApiInstanceId ?? ""} onChange={(e) => upd("greenApiInstanceId", e.target.value)} placeholder="1101xxxxxx" dir="ltr" />
-                </Field>
-                <Field label="Base URL (اختياري)">
-                  <Input value={settings.greenApiBaseUrl ?? ""} onChange={(e) => upd("greenApiBaseUrl", e.target.value)} placeholder="https://7107.api.greenapi.com" dir="ltr" />
-                </Field>
-                <div className="md:col-span-2">
-                  <Field label="API Token">
-                    <MaskedInput value={settings.greenApiToken ?? ""} onChange={(v) => upd("greenApiToken", v)} placeholder="xxxxxxxxxxxxxxxx" />
-                  </Field>
-                </div>
-              </div>
-              <SaveRow
-                onSave={() => saveSettings.mutate({
-                  greenApiInstanceId: settings.greenApiInstanceId,
-                  greenApiToken: settings.greenApiToken,
-                  greenApiBaseUrl: settings.greenApiBaseUrl,
-                })}
-                isPending={saveSettings.isPending}
-                saved={saved}
-                label="حفظ بيانات Green API"
-              />
-            </div>
-          )}
-
-          {selected === "cloud" && (
-            <div className="space-y-3">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Business Account ID (اختياري)">
-                  <Input value={settings.whatsappCloudBusinessAccountId ?? ""} onChange={(e) => upd("whatsappCloudBusinessAccountId", e.target.value)} placeholder="اختياري" dir="ltr" />
-                </Field>
-                <Field label="Phone Number ID">
-                  <Input value={settings.whatsappCloudPhoneNumberId ?? ""} onChange={(e) => upd("whatsappCloudPhoneNumberId", e.target.value)} placeholder="123456789012345" dir="ltr" />
-                </Field>
-                <div className="md:col-span-2">
-                  <Field label="Access Token">
-                    <MaskedInput value={settings.whatsappCloudToken ?? ""} onChange={(v) => upd("whatsappCloudToken", v)} placeholder="EAAxxxxx..." />
-                  </Field>
-                </div>
-                <div className="md:col-span-2">
-                  <Field label="App Secret (اختياري — للتحقق من التوقيع)">
-                    <MaskedInput value={settings.whatsappCloudAppSecret ?? ""} onChange={(v) => upd("whatsappCloudAppSecret", v)} placeholder="اختياري" />
-                  </Field>
-                </div>
-              </div>
-              <SaveRow
-                onSave={() => saveSettings.mutate({
-                  whatsappCloudToken: settings.whatsappCloudToken,
-                  whatsappCloudPhoneNumberId: settings.whatsappCloudPhoneNumberId,
-                  whatsappCloudBusinessAccountId: settings.whatsappCloudBusinessAccountId,
-                  whatsappCloudAppSecret: settings.whatsappCloudAppSecret,
-                })}
-                isPending={saveSettings.isPending}
-                saved={saved}
-                label="حفظ بيانات الاعتماد"
-              />
-            </div>
-          )}
-
-          {selected === "web" && (
-            <WhatsAppConnectCard status={status} onRestart={onRestart} restarting={restarting} embedded />
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── 4. Webhook card (Meta Cloud only) ──────────────────── */}
-      {selected === "cloud" && (
-        <Card>
-          <CardContent className="p-5 space-y-4">
+          {/* Webhook (receive messages) — belongs to the official channel */}
+          <div className="border-t pt-4 dark:border-slate-700 space-y-3">
             <SectionTitle>الويب هوك (استقبال الرسائل)</SectionTitle>
             <div className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:bg-blue-950 dark:text-blue-300">
               انسخ الرابط والـ Verify Token والصقهما في Meta → WhatsApp → Configuration، ثم اشترك في حقل <strong>messages</strong>.
@@ -2281,179 +2186,163 @@ function WhatsAppProviderSettings({
                 )}
               </div>
             )}
-
-            <div className="border-t pt-4 dark:border-slate-700">
-              <div className="mb-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                تغيير الرابط أعلاه لا يكفي وحده — رقمك لازم يكون <strong>مشترك بتطبيقنا تحديداً</strong> عند ميتا،
-                وإلا تضل الرسائل تروح لأداة ثانية (متل Chatwoot) كانت مشتركة سابقاً بنفس الرقم. اضغط «فحص» للتأكد.
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={() => wabaAppsCheck.mutate()} disabled={wabaAppsCheck.isPending}>
-                  <Link2 className="h-4 w-4" />فحص اشتراك التطبيق بالرقم
-                </Button>
-                <Button type="button" variant="outline" onClick={() => wabaAppsSubscribe.mutate()} disabled={wabaAppsSubscribe.isPending}>
-                  <RefreshCw className={`h-4 w-4 ${wabaAppsSubscribe.isPending ? "animate-spin" : ""}`} />اشترك تطبيقنا الآن
-                </Button>
-              </div>
-              {wabaAppsCheck.data && (
-                <div className="mt-2 space-y-1">
-                  {wabaAppsCheck.data.apps.length === 0 ? (
-                    <p className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      ما فيه أي تطبيق مشترك بهذا الرقم — لازم تضغط «اشترك تطبيقنا الآن».
-                    </p>
-                  ) : (
-                    wabaAppsCheck.data.apps.map((a, i) => (
-                      <p key={i} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                        {a.whatsapp_business_api_data?.name ?? "تطبيق غير معروف"} (ID: {a.whatsapp_business_api_data?.id ?? "?"})
-                      </p>
-                    ))
-                  )}
-                </div>
-              )}
-              {wabaAppsSubscribe.isSuccess && (
-                <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ تم اشتراك التطبيق — جرّب ترسل رسالة اختبار الآن.</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── 5. Test sending card (sending providers only) ──────── */}
-      {isSendingProvider && (
-        <Card>
-          <CardContent className="p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <SectionTitle>اختبار الإرسال</SectionTitle>
-              <span className="text-xs text-slate-500">المزود المستخدم فعلياً: <strong className="text-slate-700 dark:text-slate-300">{activeLabel}</strong></span>
-            </div>
-            <div className="grid gap-2 md:grid-cols-2">
-              <Field label="رقم الاختبار">
-                <Input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="9647xxxxxxxx" dir="ltr" />
-              </Field>
-              <Field label="نص الرسالة (اختياري)">
-                <Input value={testMsg} onChange={(e) => setTestMsg(e.target.value)} placeholder="رسالة اختبار" />
-              </Field>
+            <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+              تغيير الرابط أعلاه لا يكفي وحده — رقمك لازم يكون <strong>مشترك بتطبيقنا تحديداً</strong> عند ميتا،
+              وإلا تضل الرسائل تروح لأداة ثانية (متل Chatwoot) كانت مشتركة سابقاً بنفس الرقم. اضغط «فحص» للتأكد.
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => testText.mutate()} disabled={anyTestPending || !testPhone}>
-                <Send className="h-4 w-4" />اختبار نص
+              <Button type="button" variant="outline" onClick={() => wabaAppsCheck.mutate()} disabled={wabaAppsCheck.isPending}>
+                <Link2 className="h-4 w-4" />فحص اشتراك التطبيق بالرقم
               </Button>
-              <Button type="button" variant="outline" onClick={() => testImage.mutate()} disabled={anyTestPending || !testPhone}>
-                <ImagePlus className="h-4 w-4" />اختبار صورة
-              </Button>
-              <Button type="button" variant="outline" onClick={() => testPdf.mutate()} disabled={anyTestPending || !testPhone}>
-                <FileJson className="h-4 w-4" />اختبار PDF
+              <Button type="button" variant="outline" onClick={() => wabaAppsSubscribe.mutate()} disabled={wabaAppsSubscribe.isPending}>
+                <RefreshCw className={`h-4 w-4 ${wabaAppsSubscribe.isPending ? "animate-spin" : ""}`} />اشترك تطبيقنا الآن
               </Button>
             </div>
-            {lastTestOk && <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ تم إرسال رسالة الاختبار بنجاح.</p>}
-            {lastTestError && (
-              <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950 dark:text-red-400">
-                ✗ {lastTestError.response?.data?.message ?? "فشل إرسال الاختبار"}
-              </p>
+            {wabaAppsCheck.data && (
+              <div className="mt-2 space-y-1">
+                {wabaAppsCheck.data.apps.length === 0 ? (
+                  <p className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    ما فيه أي تطبيق مشترك بهذا الرقم — لازم تضغط «اشترك تطبيقنا الآن».
+                  </p>
+                ) : (
+                  wabaAppsCheck.data.apps.map((a, i) => (
+                    <p key={i} className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                      {a.whatsapp_business_api_data?.name ?? "تطبيق غير معروف"} (ID: {a.whatsapp_business_api_data?.id ?? "?"})
+                    </p>
+                  ))
+                )}
+              </div>
             )}
-          </CardContent>
-        </Card>
-      )}
+            {wabaAppsSubscribe.isSuccess && (
+              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">✓ تم اشتراك التطبيق — جرّب ترسل رسالة اختبار الآن.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── 3. Personal channel: Green API ──────────────────────── */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <SectionTitle>٢) القناة الشخصية — رقمك الخاص (Green API)</SectionTitle>
+            {chip(personalEnabled && personalConfigured, "مفعّلة", personalEnabled ? "ناقصة" : "مطفأة")}
+          </div>
+          <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+            ⚠️ الإرسال من رقم شخصي عبر Green API غير رسمي وفيه خطر حظر من واتساب.
+            استخدمها فقط للزبائن الخازنين رقمك، والحد اليومي موجود لحمايتك.
+            البث الجماعي والحملات <strong>ممنوعة</strong> من هاي القناة دائماً.
+          </div>
+          <Toggle
+            label="تفعيل قناة الرقم الشخصي"
+            checked={personalEnabled}
+            onChange={(v) => upd("personalChannelEnabled", v)}
+          />
+          {personalEnabled && (
+            <div className="grid gap-3 md:grid-cols-2">
+              <Field label="Instance ID">
+                <Input value={settings.greenApiInstanceId ?? ""} onChange={(e) => upd("greenApiInstanceId", e.target.value)} placeholder="1101xxxxxx" dir="ltr" />
+              </Field>
+              <Field label="Base URL (اختياري)">
+                <Input value={settings.greenApiBaseUrl ?? ""} onChange={(e) => upd("greenApiBaseUrl", e.target.value)} placeholder="https://7107.api.greenapi.com" dir="ltr" />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="API Token">
+                  <MaskedInput value={settings.greenApiToken ?? ""} onChange={(v) => upd("greenApiToken", v)} placeholder="xxxxxxxxxxxxxxxx" />
+                </Field>
+              </div>
+              <Field label="الحد اليومي للرسائل (0 = بدون حد)">
+                <Input
+                  type="number"
+                  min={0}
+                  value={settings.personalChannelDailyLimit ?? 100}
+                  onChange={(e) => upd("personalChannelDailyLimit", Math.max(0, Number(e.target.value) || 0))}
+                  dir="ltr"
+                />
+              </Field>
+            </div>
+          )}
+          <SaveRow
+            onSave={() => saveSettings.mutate({
+              personalChannelEnabled: settings.personalChannelEnabled ?? false,
+              personalChannelDailyLimit: settings.personalChannelDailyLimit ?? 100,
+              greenApiInstanceId: settings.greenApiInstanceId,
+              greenApiToken: settings.greenApiToken,
+              greenApiBaseUrl: settings.greenApiBaseUrl,
+            })}
+            isPending={saveSettings.isPending}
+            saved={saved}
+            label="حفظ إعدادات القناة الشخصية"
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── 4. Web channel: wa.me ───────────────────────────────── */}
+      <Card>
+        <CardContent className="p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <SectionTitle>٣) قناة واتساب ويب</SectionTitle>
+            {chip(webEnabled, "مفعّلة", "مطفأة")}
+          </div>
+          <p className="text-xs text-slate-500">
+            زر «فتح بواتساب ويب» يفتح المحادثة بالمتصفح برسالة جاهزة، والموظف يضغط إرسال بنفسه من حساب المحل
+            المسجّل بواتساب ويب. ما تحتاج أي إعداد — فقط سجّل دخول واتساب ويب مرة وحدة بجهاز الموظف.
+            بدون وسيط وبدون أي خطر حظر.
+          </p>
+          <Toggle
+            label="إظهار خيار «فتح بواتساب ويب» عند الإرسال"
+            checked={webEnabled}
+            onChange={(v) => upd("webChannelEnabled", v)}
+          />
+          <SaveRow
+            onSave={() => saveSettings.mutate({ webChannelEnabled: settings.webChannelEnabled !== false })}
+            isPending={saveSettings.isPending}
+            saved={saved}
+            label="حفظ"
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── 5. Test sending ─────────────────────────────────────── */}
+      <Card>
+        <CardContent className="p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <SectionTitle>اختبار الإرسال</SectionTitle>
+            <span className="text-xs text-slate-500">يُرسل عبر القناة الرسمية (المزوّد الافتراضي)</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <Field label="رقم الاختبار">
+              <Input value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="9647xxxxxxxx" dir="ltr" />
+            </Field>
+            <Field label="نص الرسالة (اختياري)">
+              <Input value={testMsg} onChange={(e) => setTestMsg(e.target.value)} placeholder="رسالة اختبار" />
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => testText.mutate()} disabled={anyTestPending || !testPhone}>
+              <Send className="h-4 w-4" />اختبار نص
+            </Button>
+            <Button type="button" variant="outline" onClick={() => testImage.mutate()} disabled={anyTestPending || !testPhone}>
+              <ImagePlus className="h-4 w-4" />اختبار صورة
+            </Button>
+            <Button type="button" variant="outline" onClick={() => testPdf.mutate()} disabled={anyTestPending || !testPhone}>
+              <FileJson className="h-4 w-4" />اختبار PDF
+            </Button>
+          </div>
+          {lastTestOk && <p className="text-xs text-emerald-600 dark:text-emerald-400">✓ تم إرسال رسالة الاختبار بنجاح.</p>}
+          {lastTestError && (
+            <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950 dark:text-red-400">
+              ✗ {lastTestError.response?.data?.message ?? "فشل إرسال الاختبار"}
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </>
   )
 }
 
-function WhatsAppConnectCard({
-  status,
-  onRestart,
-  restarting,
-  embedded,
-}: {
-  status: WhatsAppStatus | null
-  onRestart: () => void
-  restarting: boolean
-  embedded?: boolean
-}) {
-  const state = status?.state ?? "DISCONNECTED"
 
-  const badge = {
-    READY:        { icon: <CheckCircle2 className="h-4 w-4" />, label: "متصل",              cls: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-300 dark:border-emerald-800" },
-    QR:           { icon: <Loader2 className="h-4 w-4 animate-spin" />, label: "في انتظار المسح...", cls: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800" },
-    INITIALIZING: { icon: <Loader2 className="h-4 w-4 animate-spin" />, label: "جاري الاتصال...", cls: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800" },
-    AUTH_FAILURE: { icon: <XCircle className="h-4 w-4" />,    label: "فشل المصادقة",        cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
-    DISCONNECTED: { icon: <WifiOff className="h-4 w-4" />,    label: "غير متصل",             cls: "bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700" },
-    ERROR:        { icon: <XCircle className="h-4 w-4" />,    label: "خطأ",                  cls: "bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800" },
-  }[state] ?? { icon: <WifiOff className="h-4 w-4" />, label: "غير متصل", cls: "bg-slate-50 text-slate-600 border-slate-200" }
-
-  const inner = (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <SectionTitle>ربط الواتساب</SectionTitle>
-          <span className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}>
-            {badge.icon}
-            {badge.label}
-          </span>
-        </div>
-
-        {state === "READY" && (
-          <p className="text-sm text-emerald-700 dark:text-emerald-400">
-            ✓ الواتساب متصل ويعمل. الرسائل التلقائية والملخص اليومي جاهزين.
-          </p>
-        )}
-
-        {state === "QR" && status?.qrDataUrl && (
-          <div className="flex flex-col items-center gap-3 py-2">
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              افتح واتساب على هاتفك ← <strong>الأجهزة المرتبطة</strong> ← <strong>ربط جهاز</strong> ← امسح الباركود
-            </p>
-            <img
-              src={status.qrDataUrl}
-              alt="WhatsApp QR Code"
-              className="h-56 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow dark:border-slate-700"
-            />
-            <p className="text-xs text-slate-400">يتحدث تلقائياً كل 3 ثواني</p>
-          </div>
-        )}
-
-        {(state === "INITIALIZING") && (
-          <p className="text-sm text-slate-500">جاري تهيئة الواتساب، انتظر لحظة...</p>
-        )}
-
-        {(state === "DISCONNECTED" || state === "AUTH_FAILURE" || state === "ERROR") && !status?.initialized && (
-          <p className="text-sm text-slate-500">
-            الواتساب غير مفعّل على السيرفر. تأكد من ضبط <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">ENABLE_WHATSAPP=true</code> في بيئة Railway.
-          </p>
-        )}
-
-        {status?.error && state !== "READY" && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-950 dark:text-red-400">
-            {status.error}
-          </p>
-        )}
-
-        {status?.provider === "web" && (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-            WhatsApp Web QR on cloud hosting can fail or expire. For reliable automatic messages, configure WhatsApp Cloud API.
-          </p>
-        )}
-
-        <Button
-          variant="outline"
-          onClick={onRestart}
-          disabled={restarting || state === "INITIALIZING"}
-        >
-          <RefreshCw className={`h-4 w-4 ${restarting ? "animate-spin" : ""}`} />
-          {restarting ? "جاري إعادة التشغيل..." : "إعادة ربط الواتساب"}
-        </Button>
-      </div>
-  )
-
-  if (embedded) {
-    return <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">{inner}</div>
-  }
-  return (
-    <Card>
-      <CardContent className="p-5">{inner}</CardContent>
-    </Card>
-  )
-}
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (

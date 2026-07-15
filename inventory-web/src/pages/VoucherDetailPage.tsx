@@ -26,7 +26,10 @@ import {
   updateVoucher,
   voucherImageObjectUrl,
   voucherPdfObjectUrl,
+  type WhatsAppSendChannel,
 } from "../api/endpoints"
+import { apiErrorMessage } from "../utils/apiError"
+import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import type { Voucher } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
@@ -153,21 +156,16 @@ export function VoucherDetailPage() {
   }
 
   const [waSending, setWaSending] = useState(false)
-  async function sendWhatsApp() {
-    if (!voucher) return
-    if (voucher.type === "EXPENSE") {
-      toast({ title: "سندات المصاريف داخلية ولا ترسل عبر واتساب.", variant: "destructive" })
-      return
-    }
-    const phone = voucher.customer?.phone
-    if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+  const [waChannelOpen, setWaChannelOpen] = useState(false)
+  function buildVoucherMessage() {
+    if (!voucher) return ""
     // Sign convention (matches getCustomerBalance on the backend): RECEIPT
     // reduces what the customer owes, PAYMENT increases it — so "before this
     // voucher" is the opposite adjustment of what currentBalance already reflects.
     const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
     const previousBalance = currentBalance + (voucher.type === "RECEIPT" ? Number(voucher.amount) : -Number(voucher.amount))
     const tpl = settings?.voucherTemplate || DEFAULT_TEMPLATE
-    const msg = fillTemplate(tpl, {
+    return fillTemplate(tpl, {
       customerName: voucher.customer?.name ?? "",
       voucherNumber: voucher.voucherNumber,
       amount: money(voucher.amount),
@@ -177,6 +175,23 @@ export function VoucherDetailPage() {
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
+  }
+  function openWaChannel() {
+    if (!voucher) return
+    if (voucher.type === "EXPENSE") {
+      toast({ title: "سندات المصاريف داخلية ولا ترسل عبر واتساب.", variant: "destructive" })
+      return
+    }
+    if (!voucher.customer?.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    setWaChannelOpen(true)
+  }
+  async function sendWhatsApp(channel: WhatsAppSendChannel) {
+    if (!voucher) return
+    const phone = voucher.customer?.phone
+    if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
+    const previousBalance = currentBalance + (voucher.type === "RECEIPT" ? Number(voucher.amount) : -Number(voucher.amount))
+    const msg = buildVoucherMessage()
     setWaSending(true)
     try {
       // bodyParams order must match the approved Meta template's {{1}}..{{n}}
@@ -197,10 +212,12 @@ export function VoucherDetailPage() {
           money(voucher.customer?.currentBalance),
           settings?.storeName ?? "",
         ],
+        channel,
       })
+      setWaChannelOpen(false)
       toast({ title: "✓ تم إرسال السند عبر واتساب." })
-    } catch {
-      toast({ title: "✗ تعذر الإرسال. تحقق من إعدادات واتساب.", variant: "destructive" })
+    } catch (err) {
+      toast({ title: "✗ تعذر الإرسال.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
     } finally {
       setWaSending(false)
     }
@@ -234,7 +251,7 @@ export function VoucherDetailPage() {
             <RecordNavigator currentId={id} orderedIds={sorted.map((row) => row.id)} onNavigate={(target) => navigate(`/vouchers/${target}`)} noun="سند" tone="dark" />
 
             {voucher.type !== "EXPENSE" && whatsappVouchersEnabled ? (
-              <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={() => void sendWhatsApp()} disabled={readOnly || waSending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
+              <Button variant="outline" className="bg-white/95 hover:bg-white" onClick={openWaChannel} disabled={readOnly || waSending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
                 <MessageCircle className="h-4 w-4 text-emerald-600" /> {waSending ? "جاري الإرسال..." : "واتساب"}
               </Button>
             ) : null}
@@ -475,6 +492,15 @@ export function VoucherDetailPage() {
         loading={deleteMutation.isPending}
         onConfirm={() => { setConfirmDelete(false); deleteMutation.mutate() }}
         onCancel={() => setConfirmDelete(false)}
+      />
+      <WhatsAppChannelDialog
+        open={waChannelOpen}
+        onClose={() => setWaChannelOpen(false)}
+        sending={waSending}
+        phone={voucher.customer?.phone}
+        webMessage={buildVoucherMessage()}
+        title="إرسال السند عبر واتساب"
+        onSend={(channel) => void sendWhatsApp(channel)}
       />
     </div>
   )

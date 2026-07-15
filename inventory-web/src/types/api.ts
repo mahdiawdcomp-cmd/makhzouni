@@ -1071,6 +1071,11 @@ export interface AppSettings {
   greenApiInstanceId?: string
   greenApiToken?: string
   greenApiBaseUrl?: string
+  // Parallel send channels: personal = Green API from the owner's number
+  // (manual sends only, daily-limited), web = wa.me option in the send picker.
+  personalChannelEnabled?: boolean
+  personalChannelDailyLimit?: number
+  webChannelEnabled?: boolean
   preparationWorkers?: PreparationWorker[]
   // Telegram backup delivery
   telegramBotToken?: string

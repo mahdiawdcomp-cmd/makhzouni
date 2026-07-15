@@ -83,6 +83,18 @@ export interface AppSettings {
   greenApiInstanceId?: string;
   greenApiToken?: string;
   greenApiBaseUrl?: string;
+  // ── Send channels (parallel, not either/or) ──────────────────────────────
+  // "official"  → Meta Cloud API (shop number). Always the channel for every
+  //               automatic/background send (templates, daily summary, OTP…).
+  // "personal"  → Green API (owner's personal number). Manual button sends
+  //               only — staff explicitly picks it per send. Bulk broadcast
+  //               and campaigns never use it. Guarded by a daily limit to
+  //               reduce ban risk on the personal number.
+  // "web"       → wa.me link opened in the employee's browser; they hit send
+  //               themselves. Pure client-side, no server involvement.
+  personalChannelEnabled?: boolean;
+  personalChannelDailyLimit?: number;
+  webChannelEnabled?: boolean;
   // Preparation workers ("عمال التجهيز") — structured list for selective invoice
   // PDF sending. Stored as JSON in settings (no migration needed). Separate from
   // the legacy freeform orderPreparationWhatsappNumbers auto-broadcast.
@@ -227,6 +239,9 @@ export const defaultSettings: AppSettings = {
   greenApiInstanceId: "",
   greenApiToken: "",
   greenApiBaseUrl: "",
+  personalChannelEnabled: false,
+  personalChannelDailyLimit: 100,
+  webChannelEnabled: true,
   preparationWorkers: [],
   prospectGroupInviteLink: "",
   prospectAutoReplyKeywords: ["تم", "نعم", "اوكي", "ok"],

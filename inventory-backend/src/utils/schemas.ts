@@ -427,6 +427,8 @@ export const sendStatementPdfSchema = z.object({
   params: uuidParam,
   body: z.object({
     date: dateString.optional(),
+    // Per-send channel from the UI picker (official = Meta Cloud, personal = Green API)
+    channel: z.enum(["official", "personal"]).optional(),
   }),
 });
 
