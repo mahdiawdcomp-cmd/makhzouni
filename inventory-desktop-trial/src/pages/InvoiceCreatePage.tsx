@@ -2606,6 +2606,10 @@ export function InvoiceCreatePage() {
           },
         )}
         title="إرسال الفاتورة عبر واتساب"
+        webFile={waChannelInvoiceId ? {
+          getBlob: () => downloadInvoicePdfBlob(waChannelInvoiceId),
+          filename: `${waPromptInvoiceNumber || waChannelInvoiceId}.pdf`,
+        } : undefined}
         onWebOpen={() => {
           // wa.me can't attach files — download the same PDF the Meta send
           // attaches so the employee drags it into the opened chat.

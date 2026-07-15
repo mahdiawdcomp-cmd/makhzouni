@@ -772,6 +772,14 @@ export function InvoiceDetailPage() {
           if (waChannelFor === "invoiceImage") void sendWaImageInvoice(channel)
           else void sendWaMessage(channel)
         }}
+        webFile={{
+          getBlob: () => (waChannelFor === "invoiceImage"
+            ? downloadCustomerImageInvoicePdfBlob(invoice.id)
+            : downloadInvoicePdfBlob(invoice.id)),
+          filename: waChannelFor === "invoiceImage"
+            ? customerImageInvoiceFilename(invoice.invoiceNumber, "pdf")
+            : `${invoice.invoiceNumber}.pdf`,
+        }}
         onWebOpen={() => {
           // wa.me can't attach files — download the same PDF the Meta send
           // attaches so the employee drags it into the opened chat.

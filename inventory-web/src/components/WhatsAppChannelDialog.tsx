@@ -40,6 +40,7 @@ export function WhatsAppChannelDialog({
   webMessage,
   title,
   onWebOpen,
+  webFile,
 }: {
   open: boolean
   onClose: () => void
@@ -51,12 +52,20 @@ export function WhatsAppChannelDialog({
   webMessage?: string
   title?: string
   /** Extra action when the web channel is picked (e.g. download the PDF the
-   * Meta send would attach, since wa.me links can't carry files). */
+   * Meta send would attach, since wa.me links can't carry files). Only fires
+   * on the wa.me fallback path — not when the system share sheet succeeds. */
   onWebOpen?: () => void
+  /** File to bundle with the web-channel send. When the browser supports the
+   * Web Share API with files (Edge/Chrome on Windows 11), picking the web
+   * channel opens the SYSTEM share sheet with the file + text together — the
+   * employee picks WhatsApp and the recipient there. Falls back to
+   * wa.me + onWebOpen when unsupported or when sharing fails. */
+  webFile?: { getBlob: () => Promise<Blob>; filename: string }
 }) {
   const statusQuery = useQuery({ queryKey: ["whatsapp-status"], queryFn: getWhatsAppStatus, enabled: open, staleTime: 30_000 })
   const channels = statusQuery.data?.channels
   const [selected, setSelected] = useState<string>(readLastChannel())
+  const [webBusy, setWebBusy] = useState(false)
 
   const officialAvailable = channels ? channels.official.configured : true
   const personalAvailable = channels ? channels.personal.enabled && channels.personal.configured : false
@@ -97,12 +106,33 @@ export function WhatsAppChannelDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, officialAvailable, personalAvailable, webAvailable])
 
-  function confirm() {
+  async function confirm() {
     saveLastChannel(selected)
     if (selected === "web") {
       if (!phone?.trim()) {
         toast({ title: "رقم الهاتف غير متوفر", variant: "destructive" })
         return
+      }
+      // Best path: the system share sheet carries the FILE + text in one send
+      // (Edge/Chrome on Windows 11 → pick WhatsApp → pick the contact).
+      if (webFile && typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+        setWebBusy(true)
+        try {
+          const blob = await webFile.getBlob()
+          const file = new File([blob], webFile.filename, { type: blob.type || "application/pdf" })
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], text: webMessage ?? "" })
+            setWebBusy(false)
+            onClose()
+            return
+          }
+        } catch (err) {
+          setWebBusy(false)
+          // User closed the share sheet — not an error, keep the dialog open.
+          if ((err as Error)?.name === "AbortError") return
+          // Anything else (blocked, lost user-gesture, …) → wa.me fallback below.
+        }
+        setWebBusy(false)
       }
       openWhatsApp(phone, webMessage ?? "")
       onWebOpen?.()
@@ -152,11 +182,11 @@ export function WhatsAppChannelDialog({
         )}
 
         <div className="flex justify-center gap-3 pt-2">
-          <Button disabled={sending || options.length === 0} onClick={confirm}>
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
-            {sending ? "جاري الإرسال..." : selected === "web" ? "فتح المحادثة" : "إرسال"}
+          <Button disabled={sending || webBusy || options.length === 0} onClick={() => void confirm()}>
+            {sending || webBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+            {sending || webBusy ? "جاري الإرسال..." : selected === "web" ? (webFile ? "مشاركة النص + PDF" : "فتح المحادثة") : "إرسال"}
           </Button>
-          <Button variant="outline" disabled={sending} onClick={onClose}>إلغاء</Button>
+          <Button variant="outline" disabled={sending || webBusy} onClick={onClose}>إلغاء</Button>
         </div>
       </DialogContent>
     </Dialog>
