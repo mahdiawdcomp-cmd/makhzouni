@@ -1,6 +1,7 @@
 import { UserRole } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { contentDisposition } from "../utils/content-disposition";
 import {
   approvalRequestTypes,
   createPendingApproval,
@@ -227,7 +228,7 @@ export const exportInvoicePdf = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `inline; filename="invoice-${String(req.params.id)}.pdf"`
+    contentDisposition("inline", `invoice-${String(req.params.id)}.pdf`)
   );
   res.send(pdf);
 });
@@ -238,7 +239,7 @@ export const exportInvoiceImage = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "image/png");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="invoice-${String(req.params.id)}.png"`
+    contentDisposition("attachment", `invoice-${String(req.params.id)}.png`)
   );
   res.send(png);
 });
@@ -252,7 +253,7 @@ export const exportCustomerImageInvoicePdf = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="invoice-photos-${String(req.params.id)}.pdf"`
+    contentDisposition("attachment", `invoice-photos-${String(req.params.id)}.pdf`)
   );
   res.send(pdf);
 });
@@ -266,7 +267,7 @@ export const exportCustomerImageInvoiceExcel = asyncHandler(async (req, res) => 
   );
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="invoice-photos-${String(req.params.id)}.xlsx"`
+    contentDisposition("attachment", `invoice-photos-${String(req.params.id)}.xlsx`)
   );
   res.send(excel);
 });

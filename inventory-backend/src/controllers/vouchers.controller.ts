@@ -1,6 +1,7 @@
 import { UserRole } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { contentDisposition } from "../utils/content-disposition";
 import {
   approvalRequestTypes,
   createPendingApproval,
@@ -96,14 +97,14 @@ export const editVoucher = asyncHandler(async (req, res) => {
 export const exportVoucherPdf = asyncHandler(async (req, res) => {
   const pdf = await generateVoucherPdf(String(req.params.id));
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="voucher-${String(req.params.id)}.pdf"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `voucher-${String(req.params.id)}.pdf`));
   res.send(pdf);
 });
 
 export const exportVoucherImage = asyncHandler(async (req, res) => {
   const png = await generateVoucherPng(String(req.params.id));
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Content-Disposition", `attachment; filename="voucher-${String(req.params.id)}.png"`);
+  res.setHeader("Content-Disposition", contentDisposition("attachment", `voucher-${String(req.params.id)}.png`));
   res.send(png);
 });
 

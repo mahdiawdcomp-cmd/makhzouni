@@ -27,6 +27,7 @@ import { renderPieceLabelPng, renderCartonLabelPng } from "../services/piece-lab
 import { convertToVariety } from "../services/variety.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
+import { contentDisposition } from "../utils/content-disposition";
 import { hasPermission } from "../middleware/permission.middleware";
 import { getSettings } from "../services/settings.service";
 
@@ -275,7 +276,7 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.pdf"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `piece-${product.itemNumber}.pdf`));
   doc.pipe(res);
 
   // The rendered PNG already contains the QR + all label text (per the
@@ -298,7 +299,7 @@ export const getPieceLabelPng = asyncHandler(async (req, res) => {
 
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.png"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `piece-${product.itemNumber}.png`));
   res.send(pngBuffer);
 });
 
@@ -321,7 +322,7 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   const doc = new PDFDocument({ size: [widthPt, heightPt], margin: 0 });
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.pdf"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `carton-${product.itemNumber}.pdf`));
   doc.pipe(res);
   doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
   doc.end();
@@ -341,7 +342,7 @@ export const getCartonLabelPng = asyncHandler(async (req, res) => {
 
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.png"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `carton-${product.itemNumber}.png`));
   res.send(pngBuffer);
 })
 

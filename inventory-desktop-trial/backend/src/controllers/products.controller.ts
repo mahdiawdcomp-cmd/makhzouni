@@ -23,6 +23,7 @@ import { renderCartonLabelPng } from "../services/piece-label.service";
 import { getSettings } from "../services/settings.service";
 import { AppError } from "../utils/app-error";
 import { asyncHandler } from "../utils/async-handler";
+import { contentDisposition } from "../utils/content-disposition";
 import { hasPermission } from "../middleware/permission.middleware";
 
 function requireUser(reqUser: Express.User | undefined) {
@@ -208,7 +209,7 @@ export const getPieceLabelPdf = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `inline; filename="piece-${product.itemNumber}.pdf"`,
+    contentDisposition("inline", `piece-${product.itemNumber}.pdf`),
   );
   doc.pipe(res);
   doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
@@ -226,7 +227,7 @@ export const getPieceLabelPng = asyncHandler(async (req, res) => {
   }, settings);
 
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Content-Disposition", `inline; filename="piece-${product.itemNumber}.png"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `piece-${product.itemNumber}.png`));
   res.send(pngBuffer);
 });
 
@@ -252,7 +253,7 @@ export const getCartonSheetPdf = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `inline; filename="carton-${product.itemNumber}.pdf"`,
+    contentDisposition("inline", `carton-${product.itemNumber}.pdf`),
   );
   doc.pipe(res);
   doc.image(pngBuffer, 0, 0, { width: widthPt, height: heightPt });
@@ -271,7 +272,7 @@ export const getCartonLabelPng = asyncHandler(async (req, res) => {
   }, settings);
 
   res.setHeader("Content-Type", "image/png");
-  res.setHeader("Content-Disposition", `inline; filename="carton-${product.itemNumber}.png"`);
+  res.setHeader("Content-Disposition", contentDisposition("inline", `carton-${product.itemNumber}.png`));
   res.send(pngBuffer);
 });
 

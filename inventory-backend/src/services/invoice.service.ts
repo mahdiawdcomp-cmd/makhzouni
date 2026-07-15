@@ -36,6 +36,13 @@ import {
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
 
+// Invoice write paths (create/update/cancel/reactivate/restore/delete) do a lot
+// of per-item work (stock checks, warehouse upserts, movements, WAC) inside one
+// transaction. Over a remote Postgres connection (Railway) a multi-item invoice
+// routinely exceeds Prisma's 5s default interactive-transaction timeout and
+// dies with P2028 — so every invoice transaction must use these options.
+const INVOICE_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
 // Fields actually needed for stock/cost math on the invoice write path.
 // Deliberately excludes imageUrl/thumbnailUrl (base64 text, often 100s of KB):
 // this runs once PER LINE ITEM on every invoice create/edit/cancel/reactivate,
@@ -1374,8 +1381,9 @@ export async function createInvoice(
   if (db) {
     result = await createInvoiceInTransaction(db, input, createdBy);
   } else {
-    result = await prisma.$transaction((tx) =>
-      createInvoiceInTransaction(tx, input, createdBy)
+    result = await prisma.$transaction(
+      (tx) => createInvoiceInTransaction(tx, input, createdBy),
+      INVOICE_TX_OPTIONS
     );
   }
 
@@ -1528,13 +1536,7 @@ export async function updateInvoice(
 
   return prisma.$transaction(
     (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
-    {
-      // Updating an invoice reverses stock, rebuilds its lines and recalculates
-      // the customer atomically. A remote Neon connection can exceed Prisma's
-      // 5-second default even though every query is healthy.
-      maxWait: 10_000,
-      timeout: 20_000,
-    }
+    INVOICE_TX_OPTIONS
   );
 }
 
@@ -1571,7 +1573,10 @@ export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: str
     return cancelInvoiceInTransaction(db, id, returnWarehouseId);
   }
 
-  return prisma.$transaction((tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId));
+  return prisma.$transaction(
+    (tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId),
+    INVOICE_TX_OPTIONS
+  );
 }
 
 async function reactivateInvoiceInTransaction(tx: Db, id: string) {
@@ -1608,7 +1613,10 @@ export async function reactivateInvoice(id: string, db?: Db) {
     return reactivateInvoiceInTransaction(db, id);
   }
 
-  return prisma.$transaction((tx) => reactivateInvoiceInTransaction(tx, id));
+  return prisma.$transaction(
+    (tx) => reactivateInvoiceInTransaction(tx, id),
+    INVOICE_TX_OPTIONS
+  );
 }
 
 
@@ -1637,7 +1645,7 @@ export async function restoreArchivedInvoice(id: string) {
     await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.ACTIVE } });
     await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
     return recalculateInvoiceBalances(tx, id);
-  });
+  }, INVOICE_TX_OPTIONS);
 }
 // Accounting-safe "delete": the invoice row and all its related records
 // (items, stock movements, coupon redemptions) are RETAINED for audit. The
@@ -1673,6 +1681,6 @@ export async function hardDeleteInvoice(
     }
 
     return { id, invoiceNumber: invoice.invoiceNumber };
-  });
+  }, INVOICE_TX_OPTIONS);
 }
 
