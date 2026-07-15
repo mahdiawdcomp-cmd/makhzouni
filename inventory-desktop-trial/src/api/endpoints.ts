@@ -1117,10 +1117,10 @@ export interface WorkerSendResult {
   skipped: { phone: string; reason: string }[]
 }
 
-export async function sendInvoiceToWorkers(invoiceId: string, phones: string[]) {
+export async function sendInvoiceToWorkers(invoiceId: string, phones: string[], channel?: WhatsAppSendChannel) {
   const { data } = await api.post<ApiEnvelope<WorkerSendResult>>(
     `/whatsapp/send-invoice-to-workers/${invoiceId}`,
-    { phones },
+    { phones, channel },
   )
   return data
 }

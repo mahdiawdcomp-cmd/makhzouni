@@ -12,6 +12,7 @@ import {
   useInventoryReport, useSalesReport, useTopCustomers,
 } from "../hooks/useReports"
 import { normalizePhone } from "../utils/whatsapp"
+import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
@@ -816,6 +817,9 @@ function DebtsTab() {
   const [customDays, setCustomDays] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sendMsg, setSendMsg] = useState("")
+  // Per-row "فردي" reminder → channel picker (official / personal / wa.me web).
+  const [waTarget, setWaTarget] = useState<{ name: string; phone: string; balance: string } | null>(null)
+  const [waSending, setWaSending] = useState(false)
 
   const effectiveDays = customDays !== "" ? Number(customDays) : minDays
 
@@ -916,17 +920,8 @@ function DebtsTab() {
                     }`}>{r.debtAgeDays} يوم</span>
                   </TD>
                   <TD>
-                    <Button size="sm" variant="outline" onClick={() => {
-                      const balanceStr = fmt(r.currentBalance)
-                      void sendWhatsAppTemplatedMessage({
-                        phone: normalizePhone(r.phone),
-                        message: `مرحباً ${r.name}، رصيدك لدينا: ${balanceStr} د.ع`,
-                        templateKind: "debtReminder",
-                        bodyParams: [r.name, balanceStr, "د.ع"],
-                      })
-                        .then(() => toast({ title: `✓ تم إرسال التذكير لـ ${r.name}` }))
-                        .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
-                    }}>
+                    <Button size="sm" variant="outline"
+                      onClick={() => setWaTarget({ name: r.name, phone: r.phone, balance: fmt(r.currentBalance) })}>
                       فردي
                     </Button>
                   </TD>
@@ -937,12 +932,37 @@ function DebtsTab() {
           </Table>
         </CardContent>
       </Card>
+
+      <WhatsAppChannelDialog
+        open={waTarget !== null}
+        onClose={() => setWaTarget(null)}
+        sending={waSending}
+        phone={waTarget?.phone}
+        webMessage={waTarget ? `مرحباً ${waTarget.name}، رصيدك لدينا: ${waTarget.balance} د.ع` : ""}
+        title="إرسال تذكير الدين"
+        onSend={(channel) => {
+          if (!waTarget) return
+          setWaSending(true)
+          void sendWhatsAppTemplatedMessage({
+            phone: normalizePhone(waTarget.phone),
+            message: `مرحباً ${waTarget.name}، رصيدك لدينا: ${waTarget.balance} د.ع`,
+            templateKind: "debtReminder",
+            bodyParams: [waTarget.name, waTarget.balance, "د.ع"],
+            channel,
+          })
+            .then(() => { toast({ title: `✓ تم إرسال التذكير لـ ${waTarget.name}` }); setWaTarget(null) })
+            .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
+            .finally(() => setWaSending(false))
+        }}
+      />
     </div>
   )
 }
 
 // ─── Inactive Customers Tab ─────────────────────────────────────────────────────
 function InactiveTab() {
+  const [waTarget, setWaTarget] = useState<{ name: string; phone: string } | null>(null)
+  const [waSending, setWaSending] = useState(false)
   const [minDays, setMinDays] = useState(30)
   const [customDays, setCustomDays] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -1045,16 +1065,8 @@ function InactiveTab() {
                     }`}>{r.inactiveDays} يوم</span>
                   </TD>
                   <TD>
-                    <Button size="sm" variant="outline" onClick={() => {
-                      void sendWhatsAppTemplatedMessage({
-                        phone: normalizePhone(r.phone),
-                        message: `مرحباً ${r.name}، اشتقنا لك! مر وقت طويل من آخر تعامل معنا، تعال شوف عروضنا الجديدة.`,
-                        templateKind: "inactiveCustomer",
-                        bodyParams: [r.name],
-                      })
-                        .then(() => toast({ title: `✓ تم إرسال التذكير لـ ${r.name}` }))
-                        .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
-                    }}>
+                    <Button size="sm" variant="outline"
+                      onClick={() => setWaTarget({ name: r.name, phone: r.phone })}>
                       فردي
                     </Button>
                   </TD>
@@ -1065,6 +1077,29 @@ function InactiveTab() {
           </Table>
         </CardContent>
       </Card>
+
+      <WhatsAppChannelDialog
+        open={waTarget !== null}
+        onClose={() => setWaTarget(null)}
+        sending={waSending}
+        phone={waTarget?.phone}
+        webMessage={waTarget ? `مرحباً ${waTarget.name}، اشتقنا لك! مر وقت طويل من آخر تعامل معنا، تعال شوف عروضنا الجديدة.` : ""}
+        title="إرسال تذكير للزبون غير النشط"
+        onSend={(channel) => {
+          if (!waTarget) return
+          setWaSending(true)
+          void sendWhatsAppTemplatedMessage({
+            phone: normalizePhone(waTarget.phone),
+            message: `مرحباً ${waTarget.name}، اشتقنا لك! مر وقت طويل من آخر تعامل معنا، تعال شوف عروضنا الجديدة.`,
+            templateKind: "inactiveCustomer",
+            bodyParams: [waTarget.name],
+            channel,
+          })
+            .then(() => { toast({ title: `✓ تم إرسال التذكير لـ ${waTarget.name}` }); setWaTarget(null) })
+            .catch(() => toast({ title: "✗ تعذر الإرسال", variant: "destructive" }))
+            .finally(() => setWaSending(false))
+        }}
+      />
     </div>
   )
 }

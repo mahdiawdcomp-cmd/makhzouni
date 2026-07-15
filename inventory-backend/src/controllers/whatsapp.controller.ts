@@ -485,7 +485,8 @@ export const sendInvoiceToWorkersCtrl = asyncHandler(async (req, res) => {
   if (phones.length === 0) {
     throw new AppError("اختر عاملاً واحداً على الأقل", 400, "NO_WORKERS_SELECTED");
   }
-  const result = await sendInvoiceToWorkers(invoiceId, phones);
+  const channel = parseChannel((req.body as { channel?: unknown })?.channel);
+  const result = await sendInvoiceToWorkers(invoiceId, phones, channel);
   res.json({
     success: true,
     message: `تم الإرسال إلى ${result.sent.length} عامل` + (result.failed.length ? `، وفشل ${result.failed.length}` : ""),

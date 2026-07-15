@@ -1,7 +1,7 @@
 import { getInvoiceById } from "./invoice.service";
 import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppPdf } from "./whatsapp.service";
+import { sendWhatsAppPdf, type WhatsAppSendChannel } from "./whatsapp.service";
 import { normalizePhone } from "../utils/phone";
 import { logger } from "../utils/logger";
 
@@ -33,6 +33,7 @@ function money(v: number | string | null | undefined) {
 export async function sendInvoiceToWorkers(
   invoiceId: string,
   requestedPhones: string[],
+  channel?: WhatsAppSendChannel,
 ): Promise<WorkerSendResult> {
   const result: WorkerSendResult = { sent: [], failed: [], skipped: [] };
 
@@ -79,7 +80,7 @@ export async function sendInvoiceToWorkers(
 
   for (const worker of targets) {
     try {
-      await sendWhatsAppPdf(worker.phone, message, pdf, filename);
+      await sendWhatsAppPdf(worker.phone, message, pdf, filename, { channel });
       result.sent.push({ phone: worker.phone, name: worker.name });
       logger.info(`[WorkerNotify] invoice ${invoice.invoiceNumber} → ${worker.name} (${worker.phone})`);
     } catch (err) {

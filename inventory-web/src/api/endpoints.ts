@@ -1292,10 +1292,10 @@ export interface WorkerSendResult {
 }
 
 // Send the (customer-safe) invoice PDF to selected preparation workers.
-export async function sendInvoiceToWorkers(invoiceId: string, phones: string[]) {
+export async function sendInvoiceToWorkers(invoiceId: string, phones: string[], channel?: WhatsAppSendChannel) {
   const { data } = await api.post<ApiEnvelope<WorkerSendResult>>(
     `/whatsapp/send-invoice-to-workers/${invoiceId}`,
-    { phones },
+    { phones, channel },
   )
   return data
 }
