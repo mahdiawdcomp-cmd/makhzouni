@@ -251,6 +251,22 @@ async function runStartupMigrations() {
     logger.warn("[migration] stock_movements manual fields warning:", err);
   }
 
+  // Drop the legacy DB balance triggers (mirrors migration 20260718110000).
+  // Their formula predates voucher cancellation + PURCHASE sign handling and
+  // they fire AFTER the app-level recalculation on row updates, overwriting
+  // correct balances (root cause of the جولة-تدقيق 2026-07-18 corruption).
+  try {
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "invoices_recalculate_customer_balance" ON "invoices"`);
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "payment_vouchers_recalculate_customer_balance" ON "payment_vouchers"`);
+    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "customers_opening_balance_recalculate" ON "customers"`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS trigger_recalculate_customer_balance()`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS trigger_recalculate_customer_opening_balance()`);
+    await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS recalculate_customer_balance(UUID)`);
+    logger.info("[migration] legacy customer-balance triggers dropped");
+  } catch (err) {
+    logger.warn("[migration] legacy balance-trigger drop warning:", err);
+  }
+
   // Safety net for invoices/payment_vouchers updated_at — the incremental
   // backup (/backup/changes) selects on it to catch EDITS, not just new rows.
   // Mirrors migration 20260718090000. No-op once added.
