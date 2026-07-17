@@ -750,6 +750,10 @@ model Invoice {
   landedCostBatches LandedCostImportBatch[]
   notes             String?                 @db.Text
   createdAt         DateTime                @default(now()) @map("created_at")
+  // Bumped on every edit — /backup/changes selects on this. With createdAt
+  // alone, edits to invoices older than the last full backup never reached
+  // the incremental backup chain.
+  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at")
   // Accounting-safe deletion: rows are never physically removed. Archived
   // invoices are hidden from lists/reports but retained for audit.
   archivedAt        DateTime?               @map("archived_at")
@@ -765,6 +769,7 @@ model Invoice {
   @@index([couponId])
   @@index([originalInvoiceId])
   @@index([archivedAt])
+  @@index([updatedAt])
   // Report/dashboard queries repeatedly filter status+type+date together
   // (getDashboardReport, getDailySummaryData, getProfitReport, StoreBrain).
   @@index([status, type, date])
@@ -815,6 +820,9 @@ model PaymentVoucher {
   createdBy     String      @map("created_by") @db.Uuid
   creator       User        @relation("PaymentVoucherCreatedBy", fields: [createdBy], references: [id])
   createdAt     DateTime    @default(now()) @map("created_at")
+  // Same purpose as Invoice.updatedAt: cancellations/archives of old vouchers
+  // must reach /backup/changes.
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at")
   cancelledAt   DateTime?   @map("cancelled_at")
   // Accounting-safe deletion: archived vouchers are retained for audit but
   // excluded from lists, reports, and balance calculations.
@@ -828,6 +836,7 @@ model PaymentVoucher {
   @@index([createdBy])
   @@index([branchId])
   @@index([archivedAt])
+  @@index([updatedAt])
   @@map("payment_vouchers")
 }
 

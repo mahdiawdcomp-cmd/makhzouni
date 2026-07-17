@@ -1412,6 +1412,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         void queryClient.invalidateQueries({ queryKey: ["invoices", editId] })
         void queryClient.invalidateQueries({ queryKey: ["invoices", editId, "audit-trail"] })
         void queryClient.invalidateQueries({ queryKey: ["products"] })
+        // The edit changed totals → the customer's currentBalance changed
+        // server-side; without this the UI keeps showing the stale balance.
+        void queryClient.invalidateQueries({ queryKey: ["customers"] })
         navigate(`/invoices/${editId}`)
         return editId
       } catch (error) {

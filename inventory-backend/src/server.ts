@@ -251,6 +251,19 @@ async function runStartupMigrations() {
     logger.warn("[migration] stock_movements manual fields warning:", err);
   }
 
+  // Safety net for invoices/payment_vouchers updated_at — the incremental
+  // backup (/backup/changes) selects on it to catch EDITS, not just new rows.
+  // Mirrors migration 20260718090000. No-op once added.
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "payment_vouchers" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "invoices_updated_at_idx" ON "invoices"("updated_at")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "payment_vouchers_updated_at_idx" ON "payment_vouchers"("updated_at")`);
+    logger.info("[migration] invoices/payment_vouchers.updated_at ensured");
+  } catch (err) {
+    logger.warn("[migration] invoices/payment_vouchers.updated_at warning:", err);
+  }
+
   // Safety net for the invoice-item itemNumber snapshot. Adds the column and
   // backfills it from the linked product so OLD invoices keep showing the item
   // number even after the product is soft-deleted. No-op once added/backfilled.

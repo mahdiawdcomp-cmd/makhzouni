@@ -276,13 +276,16 @@ export async function generateChangesSince(since: Date, _lean = false): Promise<
     prisma.customer.findMany({
       where: { OR: [{ updatedAt: { gt: since } }, { deletedAt: { gt: since } }] },
     }),
+    // updatedAt (not createdAt): edits, cancellations and archives of OLD
+    // invoices/vouchers must reach the incremental chain — with createdAt the
+    // backup silently missed every edit to a pre-existing invoice.
     prisma.invoice.findMany({
-      where: { createdAt: { gt: since } },
+      where: { updatedAt: { gt: since } },
       include: { items: true },
       orderBy: { createdAt: "desc" },
     }),
     prisma.paymentVoucher.findMany({
-      where: { createdAt: { gt: since } },
+      where: { updatedAt: { gt: since } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.quotation.findMany({
