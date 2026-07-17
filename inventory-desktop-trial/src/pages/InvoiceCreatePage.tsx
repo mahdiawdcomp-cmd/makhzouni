@@ -240,6 +240,9 @@ export function InvoiceCreatePage() {
   // manual entry). Lets us (a) warn when a coupon replaces a manual discount and
   // (b) clear the stale "coupon applied" note the moment the clerk edits discount.
   const [couponApplied, setCouponApplied] = useState(false)
+  // The applied coupon's rule (kept separately from `discount` so the amount
+  // can be recomputed whenever the cart changes — see the effect below).
+  const [appliedCoupon, setAppliedCoupon] = useState<{ discountType: "PERCENT" | "AMOUNT"; discountValue: number } | null>(null)
   const [paidAmount, setPaidAmount] = useState(0)
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
@@ -273,6 +276,10 @@ export function InvoiceCreatePage() {
     setInvoiceNotes("")
     setItems([])
     setDiscount(0)
+    setCouponCode("")
+    setCouponApplied(false)
+    setAppliedCoupon(null)
+    setCouponMessage("")
     setPaidAmount(0)
     setSavedInvoiceId(null)
     setLastSavedAt(null)
@@ -1379,6 +1386,7 @@ export function InvoiceCreatePage() {
       const result = await applyCoupon(couponCode, subtotal)
       setDiscount(result?.discount ?? 0)
       setCouponApplied(!!result)
+      setAppliedCoupon(result ? { discountType: result.coupon.discountType, discountValue: result.coupon.discountValue } : null)
       setCouponMessage(result ? `تم تطبيق ${result.coupon.code}` : "")
       if (result && hadManualDiscount) {
         toast({
@@ -1390,6 +1398,19 @@ export function InvoiceCreatePage() {
       setCouponMessage(apiErrorMessage(error, "تعذر تطبيق الكوبون"))
     }
   }
+
+  // Keep a coupon's discount in sync with the cart: `discount` was previously
+  // frozen at whatever the subtotal was at the moment ✓ was clicked, so adding/
+  // removing/repricing items afterward left a PERCENT coupon applying the wrong
+  // amount (and an AMOUNT coupon could exceed the new, smaller subtotal). Mirrors
+  // the exact clamp formula the server uses in coupon.service.ts.
+  useEffect(() => {
+    if (!appliedCoupon) return
+    const raw = appliedCoupon.discountType === "PERCENT"
+      ? subtotal * (appliedCoupon.discountValue / 100)
+      : appliedCoupon.discountValue
+    setDiscount(Math.min(subtotal, Math.max(0, raw)))
+  }, [subtotal, appliedCoupon])
 
   async function openExport(kind: "pdf" | "image") {
     const id = await persistInvoice()
@@ -1435,6 +1456,10 @@ export function InvoiceCreatePage() {
     setSelectedCustomer(null)
     setCustomerQuery("")
     setDiscount(0)
+    setCouponCode("")
+    setCouponApplied(false)
+    setAppliedCoupon(null)
+    setCouponMessage("")
     setPaidAmount(0)
     setSavedInvoiceId(null)
   }
@@ -1962,6 +1987,7 @@ export function InvoiceCreatePage() {
                   // coupon) and drop the stale "coupon applied" note.
                   if (couponApplied || couponCode || couponMessage) {
                     setCouponApplied(false)
+                    setAppliedCoupon(null)
                     setCouponCode("")
                     setCouponMessage("")
                   }
