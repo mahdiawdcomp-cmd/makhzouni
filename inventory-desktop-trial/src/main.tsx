@@ -19,7 +19,15 @@ import { useAuthStore } from "./store/authStore"
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      // Transient failures (backend restart mid-deploy, flaky network, gateway
+      // hiccup) auto-heal with 3 backoff retries instead of leaving an empty
+      // page the user has to refresh manually. 4xx errors are permanent — skip.
+      retry: (failureCount, error) => {
+        const status = (error as { response?: { status?: number } })?.response?.status
+        if (status && status >= 400 && status < 500) return false
+        return failureCount < 3
+      },
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
       refetchOnWindowFocus: false,
       refetchInterval: 120_000,
       // Keep data 5 min before stale — shows instantly from cache

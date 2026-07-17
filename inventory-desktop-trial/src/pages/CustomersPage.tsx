@@ -21,6 +21,7 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
+import { QueryErrorBox } from "../components/ui/query-error"
 import { apiErrorMessage } from "../utils/apiError"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
@@ -209,6 +210,18 @@ export function CustomersPage() {
               <option value="balanceAsc">أقل رصيد</option>
               <option value="nameAsc">الاسم أ-ي</option>
             </select>
+          {customersQuery.isLoading && (
+            <div className="space-y-2 py-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="h-9 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" style={{ opacity: 1 - i * 0.1 }} />
+              ))}
+            </div>
+          )}
+          {customersQuery.isError && (
+            <QueryErrorBox title="تعذر تحميل الزبائن" onRetry={() => void customersQuery.refetch()} />
+          )}
+          {!customersQuery.isLoading && !customersQuery.isError && (
+          <>
           <Table>
             <THead>
               {table.getHeaderGroups().map((headerGroup) => (
@@ -236,6 +249,8 @@ export function CustomersPage() {
               <Button variant="outline" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>التالي</Button>
             </div>
           </div>
+          </>
+          )}
         </CardContent>
       </Card>
       <ModalForm

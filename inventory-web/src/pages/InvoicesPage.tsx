@@ -20,6 +20,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { QueryErrorBox } from "../components/ui/query-error"
 import { cn } from "../utils/cn"
 
 type TypeFilter = "ALL" | InvoiceType
@@ -392,7 +393,11 @@ export function InvoicesPage() {
             </div>
           )}
 
-          {!invoicesQuery.isLoading && (
+          {invoicesQuery.isError && (
+            <QueryErrorBox title="تعذر تحميل الفواتير" onRetry={() => void invoicesQuery.refetch()} />
+          )}
+
+          {!invoicesQuery.isLoading && !invoicesQuery.isError && (
           <>
           <Table>
             <THead>

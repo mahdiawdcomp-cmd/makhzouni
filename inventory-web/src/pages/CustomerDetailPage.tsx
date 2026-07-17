@@ -22,6 +22,7 @@ import { Label } from "../components/ui/label"
 import { ModalForm } from "../components/ui/modal-form"
 import { TagPicker } from "../components/ui/tag-picker"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { QueryErrorBox } from "../components/ui/query-error"
 import { localDateStr, formatDate, formatDateTime } from "../utils/date"
 import {
   translateLastType,
@@ -339,7 +340,10 @@ export function CustomerDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {tab === "statement" ? <StatementTab customer={customer} rows={filteredTransactions} from={from} to={to} setFrom={setFrom} setTo={setTo} /> : null}
+          {tab === "statement" && details.transactionsQuery.isError ? (
+            <QueryErrorBox title="تعذر تحميل كشف الحساب" onRetry={() => void details.transactionsQuery.refetch()} />
+          ) : null}
+          {tab === "statement" && !details.transactionsQuery.isError ? <StatementTab customer={customer} rows={filteredTransactions} from={from} to={to} setFrom={setFrom} setTo={setTo} /> : null}
           {tab === "invoices" ? (
             <Table>
               <THead><TR><TH>الرقم</TH><TH>النوع</TH><TH>التاريخ</TH><TH>الإجمالي</TH><TH>الحالة</TH><TH>فتح</TH></TR></THead>
