@@ -77,6 +77,12 @@ export interface Approval {
   reviewedAt?: string | null
   createdAt?: string
   requester?: User
+  // Server-resolved Arabic summary + labelled details for the approvals page
+  // (raw requestData only carries ids).
+  display?: {
+    summary?: string
+    details?: Array<{ label: string; value: string }>
+  }
 }
 
 export interface PagedResponse<T> {

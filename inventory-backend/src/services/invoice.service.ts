@@ -1655,9 +1655,27 @@ export async function hardDeleteInvoice(
   id: string,
   deletedBy?: string,
   reason?: string,
+  returnWarehouseId?: string,
+  db?: Db
+) {
+  // When called from the approval flow we're already inside a transaction —
+  // opening a second independent one could commit the delete even if the
+  // approval-status update rolls back.
+  if (db) return hardDeleteInvoiceInTransaction(db, id, deletedBy, reason, returnWarehouseId);
+  return prisma.$transaction(
+    (tx) => hardDeleteInvoiceInTransaction(tx, id, deletedBy, reason, returnWarehouseId),
+    INVOICE_TX_OPTIONS
+  );
+}
+
+async function hardDeleteInvoiceInTransaction(
+  tx: Db,
+  id: string,
+  deletedBy?: string,
+  reason?: string,
   returnWarehouseId?: string
 ) {
-  return prisma.$transaction(async (tx) => {
+  {
     const invoice = await tx.invoice.findUnique({ where: { id } });
     if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
     if (invoice.archivedAt) return { id, invoiceNumber: invoice.invoiceNumber }; // idempotent
@@ -1681,6 +1699,6 @@ export async function hardDeleteInvoice(
     }
 
     return { id, invoiceNumber: invoice.invoiceNumber };
-  }, INVOICE_TX_OPTIONS);
+  }
 }
 

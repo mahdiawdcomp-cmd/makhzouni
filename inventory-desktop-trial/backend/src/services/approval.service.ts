@@ -102,15 +102,222 @@ const approvalTypeLabels: Record<string, string> = {
   CANCEL_INVOICE: "تعطيل فاتورة",
   HARD_DELETE_INVOICE: "حذف فاتورة نهائياً",
   CANCEL_VOUCHER: "تعطيل سند",
+  RESTORE_VOUCHER: "استرجاع سند",
   DELETE_VOUCHER: "حذف سند نهائياً",
   CREATE_INVOICE: "إنشاء فاتورة",
   UPDATE_INVOICE: "تعديل فاتورة",
   CREATE_VOUCHER: "إنشاء سند",
   UPDATE_VOUCHER: "تعديل سند",
-  DELETE_PRODUCT: "حذف منتج",
+  CREATE_PRODUCT: "إضافة مادة",
+  UPDATE_PRODUCT: "تعديل مادة",
+  DELETE_PRODUCT: "حذف مادة",
+  CREATE_CUSTOMER: "إضافة زبون",
+  UPDATE_CUSTOMER: "تعديل زبون",
   DELETE_CUSTOMER: "حذف زبون",
+  CREATE_USER: "إضافة مستخدم",
+  UPDATE_USER: "تعديل مستخدم",
+  DEACTIVATE_USER: "تعطيل مستخدم",
+  CATALOG_ACCESS: "طلب دخول كتالوج",
+  CATALOG_ORDER: "طلب كتالوج",
+  CREATE_TRANSFER: "تحويل بين المخازن",
   NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة (عجز مخزون)",
 };
+
+// ── Human-readable display for the approvals page ──────────────────────────
+// requestData only stores raw ids (e.g. {params:{id:"<uuid>"}}), which used to
+// surface as raw JSON in the UI. Enrich each approval at list time with an
+// Arabic summary + labelled details resolved from the referenced records.
+type ApprovalDisplay = {
+  summary: string;
+  details: Array<{ label: string; value: string }>;
+};
+
+const fmtMoney = (v: unknown) => Number(v ?? 0).toLocaleString("en-US");
+
+async function buildApprovalDisplay(
+  requestType: string,
+  requestData: unknown
+): Promise<ApprovalDisplay | undefined> {
+  const data = (requestData && typeof requestData === "object" ? requestData : {}) as Record<string, unknown>;
+  const params = (data.params && typeof data.params === "object" ? data.params : {}) as Record<string, unknown>;
+  const body = (data.body && typeof data.body === "object" ? data.body : {}) as Record<string, unknown>;
+  const refId = typeof params.id === "string" ? params.id : undefined;
+
+  try {
+    switch (requestType) {
+      case approvalRequestTypes.CANCEL_INVOICE:
+      case approvalRequestTypes.HARD_DELETE_INVOICE:
+      case approvalRequestTypes.UPDATE_INVOICE: {
+        if (!refId) return undefined;
+        const inv = await prisma.invoice.findUnique({
+          where: { id: refId },
+          select: {
+            invoiceNumber: true, type: true, date: true, totalAmount: true,
+            paidAmount: true, remainingAmount: true, status: true,
+            customer: { select: { name: true, phone: true } },
+          },
+        });
+        if (!inv) return { summary: "⚠️ الفاتورة غير موجودة (ربما حُذفت مسبقاً)", details: [] };
+        const details = [
+          { label: "رقم الفاتورة", value: inv.invoiceNumber },
+          { label: "النوع", value: inv.type === "PURCHASE" ? "شراء" : inv.type === "SALES_RETURN" ? "مرتجع بيع" : "بيع" },
+          { label: inv.type === "PURCHASE" ? "المورّد" : "الزبون", value: inv.customer?.name ?? "—" },
+          { label: "التاريخ", value: new Date(inv.date).toLocaleDateString("en-GB") },
+          { label: "الإجمالي", value: fmtMoney(inv.totalAmount) },
+          { label: "المدفوع", value: fmtMoney(inv.paidAmount) },
+          { label: "الباقي", value: fmtMoney(inv.remainingAmount) },
+          { label: "الحالة", value: inv.status === "ACTIVE" ? "نشطة" : "ملغاة" },
+        ];
+        if (typeof data.reason === "string" && data.reason) details.push({ label: "سبب الطلب", value: data.reason });
+        return {
+          summary: `فاتورة ${inv.invoiceNumber} — ${inv.customer?.name ?? "—"} — ${fmtMoney(inv.totalAmount)}`,
+          details,
+        };
+      }
+      case approvalRequestTypes.CREATE_INVOICE: {
+        const customerId = typeof body.customerId === "string" ? body.customerId : undefined;
+        const customer = customerId
+          ? await prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } })
+          : null;
+        const items = Array.isArray(body.items) ? body.items : [];
+        return {
+          summary: `${customer?.name ?? "زبون"} — ${items.length} مادة`,
+          details: [
+            { label: "الزبون", value: customer?.name ?? "—" },
+            { label: "عدد المواد", value: String(items.length) },
+            { label: "المدفوع", value: fmtMoney(body.paidAmount) },
+          ],
+        };
+      }
+      case approvalRequestTypes.CANCEL_VOUCHER:
+      case approvalRequestTypes.RESTORE_VOUCHER:
+      case approvalRequestTypes.DELETE_VOUCHER:
+      case approvalRequestTypes.UPDATE_VOUCHER: {
+        if (!refId) return undefined;
+        const v = await prisma.paymentVoucher.findUnique({
+          where: { id: refId },
+          select: {
+            voucherNumber: true, amount: true, type: true, date: true, description: true,
+            customer: { select: { name: true } },
+          },
+        });
+        if (!v) return { summary: "⚠️ السند غير موجود (ربما حُذف مسبقاً)", details: [] };
+        const typeAr = v.type === "RECEIPT" ? "قبض" : v.type === "PAYMENT" ? "دفع" : "مصاريف";
+        const details = [
+          { label: "رقم السند", value: v.voucherNumber },
+          { label: "النوع", value: typeAr },
+          { label: "الجهة", value: v.customer?.name ?? v.description ?? "—" },
+          { label: "المبلغ", value: fmtMoney(v.amount) },
+          { label: "التاريخ", value: new Date(v.date).toLocaleDateString("en-GB") },
+        ];
+        if (typeof data.reason === "string" && data.reason) details.push({ label: "سبب الطلب", value: data.reason });
+        return {
+          summary: `سند ${typeAr} ${v.voucherNumber} — ${v.customer?.name ?? v.description ?? "—"} — ${fmtMoney(v.amount)}`,
+          details,
+        };
+      }
+      case approvalRequestTypes.CREATE_VOUCHER: {
+        const customerId = typeof body.customerId === "string" ? body.customerId : undefined;
+        const customer = customerId
+          ? await prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } })
+          : null;
+        const typeAr = body.type === "RECEIPT" ? "قبض" : body.type === "PAYMENT" ? "دفع" : "مصاريف";
+        return {
+          summary: `سند ${typeAr} — ${customer?.name ?? String(body.description ?? "—")} — ${fmtMoney(body.amount)}`,
+          details: [
+            { label: "النوع", value: typeAr },
+            { label: "الجهة", value: customer?.name ?? String(body.description ?? "—") },
+            { label: "المبلغ", value: fmtMoney(body.amount) },
+          ],
+        };
+      }
+      case approvalRequestTypes.UPDATE_PRODUCT:
+      case approvalRequestTypes.DELETE_PRODUCT: {
+        if (!refId) return undefined;
+        const p = await prisma.product.findUnique({
+          where: { id: refId },
+          select: { name: true, itemNumber: true },
+        });
+        if (!p) return { summary: "⚠️ المادة غير موجودة (ربما حُذفت مسبقاً)", details: [] };
+        return {
+          summary: `${p.name} (${p.itemNumber})`,
+          details: [
+            { label: "المادة", value: p.name },
+            { label: "رقم الصنف", value: p.itemNumber },
+          ],
+        };
+      }
+      case approvalRequestTypes.CREATE_PRODUCT:
+        return typeof body.name === "string"
+          ? { summary: String(body.name), details: [{ label: "المادة", value: String(body.name) }] }
+          : undefined;
+      case approvalRequestTypes.UPDATE_CUSTOMER:
+      case approvalRequestTypes.DELETE_CUSTOMER: {
+        if (!refId) return undefined;
+        const c = await prisma.customer.findUnique({
+          where: { id: refId },
+          select: { name: true, phone: true, currentBalance: true },
+        });
+        if (!c) return { summary: "⚠️ الزبون غير موجود (ربما حُذف مسبقاً)", details: [] };
+        return {
+          summary: `${c.name} — ${c.phone}`,
+          details: [
+            { label: "الزبون", value: c.name },
+            { label: "الهاتف", value: c.phone },
+            { label: "الرصيد الحالي", value: fmtMoney(c.currentBalance) },
+          ],
+        };
+      }
+      case approvalRequestTypes.CREATE_CUSTOMER:
+        return typeof body.name === "string"
+          ? {
+              summary: `${String(body.name)} — ${String(body.phone ?? "")}`,
+              details: [
+                { label: "الزبون", value: String(body.name) },
+                { label: "الهاتف", value: String(body.phone ?? "—") },
+              ],
+            }
+          : undefined;
+      case approvalRequestTypes.UPDATE_USER:
+      case approvalRequestTypes.DEACTIVATE_USER: {
+        if (!refId) return undefined;
+        const u = await prisma.user.findUnique({
+          where: { id: refId },
+          select: { name: true, username: true, role: true },
+        });
+        if (!u) return { summary: "⚠️ المستخدم غير موجود", details: [] };
+        return {
+          summary: `${u.name} (${u.username})`,
+          details: [
+            { label: "المستخدم", value: u.name },
+            { label: "اسم الدخول", value: u.username },
+            { label: "الدور", value: u.role },
+          ],
+        };
+      }
+      case approvalRequestTypes.CREATE_USER:
+        return typeof body.name === "string"
+          ? { summary: String(body.name), details: [{ label: "المستخدم", value: String(body.name) }] }
+          : undefined;
+      default:
+        return undefined;
+    }
+  } catch {
+    // Display enrichment must never break the approvals list.
+    return undefined;
+  }
+}
+
+async function attachDisplays<T extends { requestType: string; requestData: unknown }>(
+  approvals: T[]
+): Promise<Array<T & { display?: ApprovalDisplay }>> {
+  return Promise.all(
+    approvals.map(async (a) => ({
+      ...a,
+      display: await buildApprovalDisplay(a.requestType, a.requestData),
+    }))
+  );
+}
 
 export async function createPendingApproval(
   requestType: ApprovalRequestType,
@@ -157,7 +364,7 @@ export async function createPendingApproval(
 }
 
 export async function listPendingApprovals() {
-  return prisma.pendingApproval.findMany({
+  const rows = await prisma.pendingApproval.findMany({
     where: { status: ApprovalStatus.PENDING },
     include: {
       requester: {
@@ -169,10 +376,11 @@ export async function listPendingApprovals() {
     },
     orderBy: { createdAt: "asc" },
   });
+  return attachDisplays(rows);
 }
 
 export async function listMyApprovals(userId: string) {
-  return prisma.pendingApproval.findMany({
+  const rows = await prisma.pendingApproval.findMany({
     where: { requestedBy: userId },
     include: {
       requester: {
@@ -184,6 +392,7 @@ export async function listMyApprovals(userId: string) {
     },
     orderBy: { createdAt: "desc" },
   });
+  return attachDisplays(rows);
 }
 
 async function executeApprovedRequest(

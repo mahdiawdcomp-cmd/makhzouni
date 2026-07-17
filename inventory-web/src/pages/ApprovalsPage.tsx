@@ -119,9 +119,13 @@ function requestTypeLabel(type: string) {
     CREATE_INVOICE: "إضافة فاتورة",
     UPDATE_INVOICE: "تعديل فاتورة",
     CANCEL_INVOICE: "إلغاء فاتورة",
+    HARD_DELETE_INVOICE: "حذف فاتورة نهائياً",
     CREATE_VOUCHER: "إضافة سند",
     UPDATE_VOUCHER: "تعديل سند",
+    CANCEL_VOUCHER: "إلغاء سند",
+    RESTORE_VOUCHER: "استرجاع سند",
     DELETE_VOUCHER: "حذف سند",
+    CATALOG_ACCESS: "طلب دخول كتالوج",
     CREATE_TRANSFER: "تحويل بين المخازن",
     NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة",
   }
@@ -211,6 +215,15 @@ export function ApprovalsPage() {
                 <div className="text-xs text-slate-500">
                   {data.phone ?? "-"} — طلب دخول كتالوج
                 </div>
+              </div>
+            )
+          }
+          // Server-resolved summary (invoice number/customer/amount…) beats a bare requester name.
+          if (row.original.display?.summary) {
+            return (
+              <div className="space-y-0.5">
+                <div className="font-semibold">{row.original.display.summary}</div>
+                <div className="text-xs text-slate-500">بواسطة {row.original.requester?.name ?? "—"}</div>
               </div>
             )
           }
@@ -632,10 +645,28 @@ function ApprovalDetails({
     )
   }
 
+  // Generic fallback: server-resolved details grid instead of raw JSON.
+  const display = approval?.display
   return (
-    <pre className="max-h-[60vh] overflow-auto rounded-md bg-slate-950 p-4 text-left text-xs text-slate-100" dir="ltr">
-      {JSON.stringify(approval?.requestData, null, 2)}
-    </pre>
+    <div className="space-y-4">
+      {display?.summary ? (
+        <div className="rounded-lg bg-slate-50 p-3 text-sm font-semibold dark:bg-slate-900">{display.summary}</div>
+      ) : null}
+      {display?.details && display.details.length > 0 ? (
+        <div className="grid gap-3 rounded-lg bg-slate-50 p-4 text-sm md:grid-cols-2 dark:bg-slate-900">
+          {display.details.map((d) => (
+            <Info key={d.label} label={d.label} value={d.value} />
+          ))}
+        </div>
+      ) : null}
+      <Info label="مقدم الطلب" value={approval?.requester?.name ?? "—"} />
+      <details className="rounded-md border border-slate-200 dark:border-slate-700">
+        <summary className="cursor-pointer px-3 py-2 text-xs text-slate-500">تفاصيل تقنية (JSON)</summary>
+        <pre className="max-h-[40vh] overflow-auto rounded-b-md bg-slate-950 p-4 text-left text-xs text-slate-100" dir="ltr">
+          {JSON.stringify(approval?.requestData, null, 2)}
+        </pre>
+      </details>
+    </div>
   )
 }
 
