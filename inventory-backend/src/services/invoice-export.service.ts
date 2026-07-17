@@ -60,7 +60,7 @@ async function buildInvoiceHtml(invoiceId: string): Promise<string> {
   const itemsHtml = (invoice.items ?? []).map((item: any, i: number) => `
     <tr class="${i % 2 === 0 ? "even" : ""}">
       <td class="num">${i + 1}</td>
-      <td class="name">${esc(item.productName)}</td>
+      <td class="name">${esc(item.productName)}${item.notes ? `<div style="font-size:11px;color:#B45309;margin-top:2px">📝 ${esc(item.notes)}</div>` : ""}</td>
       <td class="center">${unitAr(item.unit)}</td>
       <td class="center">${item.quantity}</td>
       <td class="num">${money(item.unitPrice)} ${currency}</td>
@@ -263,6 +263,12 @@ async function buildInvoiceHtml(invoiceId: string): Promise<string> {
       </table>
     </div>
 
+    ${invoice.notes ? `
+    <!-- Invoice notes -->
+    <div style="margin:12px 32px 0;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400E">
+      <b>📝 ملاحظات:</b> ${esc(invoice.notes)}
+    </div>` : ""}
+
     <!-- Summary -->
     <div class="summary-section">
       <div style="flex:1"></div>
@@ -343,7 +349,7 @@ export async function generateInvoicePng(invoiceId: string): Promise<Buffer> {
 
   const itemRows = (invoice.items ?? []).map((item: any, i: number) => `
     <rect x="40" y="${310 + i * 36}" width="820" height="36" fill="${i % 2 === 0 ? "#F9FAFB" : "#FFFFFF"}"/>
-    <text x="56" y="${332 + i * 36}" font-size="13" fill="#111827" font-weight="600">${esc(item.productName).substring(0, 28)}</text>
+    <text x="56" y="${332 + i * 36}" font-size="13" fill="#111827" font-weight="600">${esc(item.productName).substring(0, item.notes ? 22 : 28)}${item.notes ? ` <tspan font-size="11" fill="#B45309">📝 ${esc(String(item.notes)).substring(0, 18)}</tspan>` : ""}</text>
     <text x="430" y="${332 + i * 36}" font-size="12" fill="#6B7280" text-anchor="middle">${unitAr(item.unit)}</text>
     <text x="520" y="${332 + i * 36}" font-size="12" fill="#111827" text-anchor="middle" font-weight="700">${item.quantity}</text>
     <text x="630" y="${332 + i * 36}" font-size="12" fill="#374151" text-anchor="end">${money(item.unitPrice)}</text>
@@ -397,6 +403,12 @@ export async function generateInvoicePng(invoiceId: string): Promise<Buffer> {
     <text x="845" y="258" font-size="12" fill="#FFFFFF" font-weight="600" text-anchor="end">الإجمالي</text>
 
     ${itemRows}
+
+    ${invoice.notes ? `
+    <!-- Invoice notes (left of the summary box) -->
+    <text x="56" y="${310 + itemCount * 36 + 46}" font-size="11" fill="#9CA3AF">📝 ملاحظات</text>
+    <text x="56" y="${310 + itemCount * 36 + 66}" font-size="12" fill="#92400E">${esc(String(invoice.notes)).substring(0, 55)}</text>
+    <text x="56" y="${310 + itemCount * 36 + 84}" font-size="12" fill="#92400E">${esc(String(invoice.notes)).substring(55, 110)}</text>` : ""}
 
     <!-- Summary section -->
     <rect x="480" y="${310 + itemCount * 36 + 20}" width="380" height="160" rx="10" fill="#F9FAFB" stroke="#E5E7EB"/>

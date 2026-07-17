@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, Camera, Plus, RefreshCw, Save, Trash2, X, AlertTriangle } from "lucide-react"
@@ -86,6 +86,72 @@ export function InvoiceEditPage() {
   const [cameraOpen, setCameraOpen] = useState(false)
   const [paymentType, setPaymentType] = useState<"CREDIT" | "CASH" | "PARTIAL">("CREDIT")
   const [notes, setNotes] = useState("")
+
+  // ── Keyboard navigation across row fields (same flow as the create page) ──
+  const unitRefs = useRef<Record<string, HTMLSelectElement | null>>({})
+  const quantityRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const priceRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const totalRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const notesRefs = useRef<Record<string, HTMLInputElement | null>>({})
+
+  type RowField = "unit" | "qty" | "price" | "total" | "notes"
+
+  function focusRowField(rowKey: string, field: RowField): boolean {
+    const el =
+      field === "unit" ? unitRefs.current[rowKey]
+      : field === "qty" ? quantityRefs.current[rowKey]
+      : field === "price" ? priceRefs.current[rowKey]
+      : field === "total" ? totalRefs.current[rowKey]
+      : notesRefs.current[rowKey]
+    if (!el) return false
+    el.focus()
+    if (el instanceof HTMLInputElement) el.select()
+    return true
+  }
+
+  function handleRowKey(
+    e: KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
+    rowKey: string,
+    field: RowField,
+  ) {
+    const order: RowField[] = ["unit", "qty", "price", "total", "notes"]
+    const idx = order.indexOf(field)
+    const focusNext = () => {
+      for (let i = idx + 1; i < order.length; i++) if (focusRowField(rowKey, order[i])) return true
+      return false
+    }
+    const focusPrev = () => {
+      for (let i = idx - 1; i >= 0; i--) if (focusRowField(rowKey, order[i])) return true
+      return false
+    }
+    if (e.key === "Enter") {
+      e.preventDefault()
+      // Enter walks: unit → qty → price → total → notes → add another item
+      if (!focusNext()) setProductOpen(true)
+      return
+    }
+    // RTL layout: the "next" column is visually to the LEFT.
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      if (field === "notes") {
+        const input = e.currentTarget as HTMLInputElement
+        const atStart = input.selectionStart === 0 && input.selectionEnd === 0
+        const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length
+        if (e.key === "ArrowLeft" && !atEnd) return
+        if (e.key === "ArrowRight" && !atStart) return
+      }
+      e.preventDefault()
+      if (e.key === "ArrowLeft") focusNext()
+      else focusPrev()
+      return
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const row = Number(rowKey)
+      if (Number.isNaN(row)) return
+      const targetRow = `${e.key === "ArrowDown" ? row + 1 : row - 1}`
+      const moved = focusRowField(targetRow, field) || (field !== "unit" && focusRowField(targetRow, "qty"))
+      if (moved) e.preventDefault()
+    }
+  }
   const [items, setItems] = useState<EditItem[]>([])
   const [productSearch, setProductSearch] = useState("")
   const [productOpen, setProductOpen] = useState(false)
@@ -373,7 +439,7 @@ export function InvoiceEditPage() {
           />
         ) : null}
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5">
           <Table>
             <THead>
               <TR>
@@ -402,6 +468,8 @@ export function InvoiceEditPage() {
                   </TD>
                   <TD>
                     <select
+                      ref={(el) => { unitRefs.current[`${i}`] = el }}
+                      onKeyDown={(e) => handleRowKey(e, `${i}`, "unit")}
                       className="h-8 rounded border bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-950"
                       value={it.unit}
                       onChange={(e) => {
@@ -435,6 +503,8 @@ export function InvoiceEditPage() {
                   </TD>
                   <TD>
                     <NumericInput
+                      ref={(el) => { quantityRefs.current[`${i}`] = el }}
+                      onKeyDown={(e) => handleRowKey(e, `${i}`, "qty")}
                       decimal={false}
                       className="h-8 w-20 text-sm"
                       value={it.quantity}
@@ -446,6 +516,8 @@ export function InvoiceEditPage() {
                   </TD>
                   <TD>
                     <NumericInput
+                      ref={(el) => { priceRefs.current[`${i}`] = el }}
+                      onKeyDown={(e) => handleRowKey(e, `${i}`, "price")}
                       className="h-8 w-24 text-sm"
                       value={it.unitPrice}
                       onFocus={(e) => e.target.select()}
@@ -456,6 +528,8 @@ export function InvoiceEditPage() {
                   </TD>
                   <TD>
                     <NumericInput
+                      ref={(el) => { totalRefs.current[`${i}`] = el }}
+                      onKeyDown={(e) => handleRowKey(e, `${i}`, "total")}
                       className="h-8 w-28 text-sm font-semibold"
                       value={Math.round(it.quantity * it.unitPrice)}
                       onFocus={(e) => e.target.select()}
@@ -469,6 +543,8 @@ export function InvoiceEditPage() {
                   </TD>
                   <TD>
                     <Input
+                      ref={(el) => { notesRefs.current[`${i}`] = el }}
+                      onKeyDown={(e) => handleRowKey(e, `${i}`, "notes")}
                       className="h-8 min-w-36 text-sm"
                       value={it.notes ?? ""}
                       placeholder="ملاحظة"

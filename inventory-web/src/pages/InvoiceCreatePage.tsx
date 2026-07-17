@@ -112,9 +112,9 @@ function itemQuantityInPieces(item: DraftItem) {
 function ProductThumb({ product }: { product: Product }) {
   const src = product.thumbnailUrl || product.imageUrl
   if (src) {
-    return <img src={src} alt={product.name} loading="lazy" decoding="async" className="h-10 w-10 shrink-0 rounded-lg object-cover ring-1 ring-slate-200" />
+    return <img src={src} alt={product.name} loading="lazy" decoding="async" className="h-7 w-7 shrink-0 rounded-md object-cover ring-1 ring-slate-200" />
   }
-  return <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
+  return <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
 }
 
 // Legacy single-draft key (kept for backward compat with old autosaves)
@@ -339,6 +339,8 @@ export function InvoiceCreatePage() {
   const quantityRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const priceRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const totalRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const unitRefs = useRef<Record<string, HTMLSelectElement | null>>({})
+  const notesRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   const customers = useMemo(() => customersQuery.data ?? [], [customersQuery.data])
   const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
@@ -1103,19 +1105,69 @@ export function InvoiceCreatePage() {
     }
   }
 
+  type RowField = "unit" | "qty" | "price" | "total" | "notes"
+
+  function focusRowField(rowKey: string, field: RowField): boolean {
+    const el =
+      field === "unit" ? unitRefs.current[rowKey]
+      : field === "qty" ? quantityRefs.current[rowKey]
+      : field === "price" ? priceRefs.current[rowKey]
+      : field === "total" ? totalRefs.current[rowKey]
+      : notesRefs.current[rowKey]
+    if (!el) return false
+    el.focus()
+    if (el instanceof HTMLInputElement) el.select()
+    return true
+  }
+
   function handleRowKey(
     e: KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
     rowKey: string,
-    field: "unit" | "qty" | "price" | "total",
+    field: RowField,
   ) {
-    if (e.key !== "Enter") return
-    e.preventDefault()
-    if (field === "unit") quantityRefs.current[rowKey]?.focus()
-    else if (field === "qty") priceRefs.current[rowKey]?.focus()
-    else if (field === "price") totalRefs.current[rowKey]?.focus()
-    else if (field === "total") {
-      setProductModal(true)
-      window.setTimeout(() => productSearchRef.current?.focus(), 50)
+    // hidePrice rows skip price/total, so navigate over whatever actually exists
+    const order: RowField[] = ["unit", "qty", "price", "total", "notes"]
+    const idx = order.indexOf(field)
+    const focusNext = () => {
+      for (let i = idx + 1; i < order.length; i++) if (focusRowField(rowKey, order[i])) return true
+      return false
+    }
+    const focusPrev = () => {
+      for (let i = idx - 1; i >= 0; i--) if (focusRowField(rowKey, order[i])) return true
+      return false
+    }
+    if (e.key === "Enter") {
+      e.preventDefault()
+      // Enter walks: unit → qty → price → total → notes → new item
+      if (!focusNext()) {
+        setProductModal(true)
+        window.setTimeout(() => productSearchRef.current?.focus(), 50)
+      }
+      return
+    }
+    // RTL layout: the "next" column is visually to the LEFT.
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      // In the free-text notes field, arrows keep moving the caret until it
+      // reaches the edge — only then do they jump to the neighbouring column.
+      if (field === "notes") {
+        const input = e.currentTarget as HTMLInputElement
+        const atStart = input.selectionStart === 0 && input.selectionEnd === 0
+        const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length
+        if (e.key === "ArrowLeft" && !atEnd) return
+        if (e.key === "ArrowRight" && !atStart) return
+      }
+      e.preventDefault()
+      if (e.key === "ArrowLeft") focusNext()
+      else focusPrev()
+      return
+    }
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      const row = Number(rowKey)
+      if (Number.isNaN(row)) return
+      const targetRow = `${e.key === "ArrowDown" ? row + 1 : row - 1}`
+      // Only swallow the key when the neighbouring row exists.
+      const moved = focusRowField(targetRow, field) || (field !== "unit" && focusRowField(targetRow, "qty"))
+      if (moved) e.preventDefault()
     }
   }
 
@@ -1636,7 +1688,8 @@ export function InvoiceCreatePage() {
             {" "}الأصناف
           </span>
         </div>
-        <div className="overflow-x-auto px-1 py-1">
+        {/* Dense rows: more invoice lines visible without scrolling */}
+        <div className="overflow-x-auto px-1 py-1 [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5">
             <Table>
               <THead>
                 <TR>
@@ -1720,15 +1773,20 @@ export function InvoiceCreatePage() {
                             </span>
                           ) : null}
                         </div>
-                        {item.product.pcsPerCarton > 1 ? <div className="text-xs text-slate-400">{item.product.pcsPerCarton} قطعة/كرتون</div> : null}
-                        {showPurchase ? <div className="text-xs text-slate-500">شراء: {fmt(item.product.purchasePrice)}</div> : null}
-                        {showStock ? <div className="text-xs text-slate-500">متوفر: {stockOf(item.product)}</div> : null}
+                        {/* One compact sub-line instead of three stacked ones — keeps rows short */}
+                        {(item.product.pcsPerCarton > 1 || showPurchase || showStock) ? (
+                          <div className="flex flex-wrap gap-x-2 text-[11px] leading-4 text-slate-500">
+                            {item.product.pcsPerCarton > 1 ? <span className="text-slate-400">{item.product.pcsPerCarton} قطعة/كرتون</span> : null}
+                            {showPurchase ? <span>شراء: {fmt(item.product.purchasePrice)}</span> : null}
+                            {showStock ? <span>متوفر: {stockOf(item.product)}</span> : null}
+                          </div>
+                        ) : null}
                       </TD>
                       <TD>
                         {/* warehouse selector — shown only when product has stocks in multiple warehouses */}
                         {(item.product.warehouseStocks ?? []).length > 1 ? (
                           <select
-                            className="h-9 w-32 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                            className="h-8 w-28 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                             value={item.warehouseId ?? ""}
                             onChange={(e) => updateItem(index, { warehouseId: e.target.value || undefined })}
                           >
@@ -1747,7 +1805,8 @@ export function InvoiceCreatePage() {
                       </TD>
                       <TD>
                         <select
-                          className="h-9 w-24 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          ref={(el) => { unitRefs.current[rowKey] = el }}
+                          className="h-8 w-24 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                           value={item.unit}
                           onChange={(event) => updateItem(index, { unit: event.target.value as Unit })}
                           onKeyDown={(e) => handleRowKey(e, rowKey, "unit")}
@@ -1761,7 +1820,7 @@ export function InvoiceCreatePage() {
                         <NumericInput
                           ref={(el) => { quantityRefs.current[rowKey] = el }}
                           decimal={false}
-                          className="w-20"
+                          className="h-8 w-20"
                           value={item.quantity}
                           onFocus={selectAllOnFocus}
                           onValueChange={(n) => updateItem(index, { quantity: n })}
@@ -1772,7 +1831,7 @@ export function InvoiceCreatePage() {
                         <TD>
                           <NumericInput
                             ref={(el) => { priceRefs.current[rowKey] = el }}
-                            className="w-24"
+                            className="h-8 w-24"
                             value={item.unitPrice}
                             onFocus={selectAllOnFocus}
                             onValueChange={(n) => updateItem(index, { unitPrice: n })}
@@ -1784,7 +1843,7 @@ export function InvoiceCreatePage() {
                         <TD>
                           <NumericInput
                             ref={(el) => { totalRefs.current[rowKey] = el }}
-                            className="w-28 font-semibold"
+                            className="h-8 w-28 font-semibold"
                             value={Math.round(item.quantity * item.unitPrice * 1000) / 1000}
                             onFocus={selectAllOnFocus}
                             onValueChange={(n) => updateItemTotal(index, n)}
@@ -1794,9 +1853,11 @@ export function InvoiceCreatePage() {
                       )}
                       <TD>
                         <Input
-                          className="min-w-40"
+                          ref={(el) => { notesRefs.current[rowKey] = el }}
+                          className="h-8 min-w-32"
                           value={item.notes ?? ""}
                           onChange={(event) => updateItem(index, { notes: event.target.value })}
+                          onKeyDown={(e) => handleRowKey(e, rowKey, "notes")}
                           placeholder="ملاحظة للمادة"
                         />
                       </TD>

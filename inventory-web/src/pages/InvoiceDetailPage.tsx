@@ -648,6 +648,7 @@ export function InvoiceDetailPage() {
                   <td className="py-3 px-4">
                     <p className="font-bold text-gray-800">{item.productName ?? item.productId}</p>
                     <p className="text-xs text-gray-500">{unitLabel(item.unit)}</p>
+                    {item.notes ? <p className="mt-0.5 text-xs font-medium text-amber-700">📝 {item.notes}</p> : null}
                   </td>
                   <td className="py-3 px-4 text-center">{unitLabel(item.unit)}</td>
                   <td className="py-3 px-4 text-center font-bold">{fmt(item.quantity)}</td>
@@ -658,6 +659,14 @@ export function InvoiceDetailPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Invoice-level notes — were saved but never displayed anywhere */}
+        {invoice.notes ? (
+          <div className="mx-8 mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-xs font-bold text-amber-700 mb-0.5">📝 ملاحظات الفاتورة</p>
+            <p className="text-sm text-amber-900 whitespace-pre-wrap">{invoice.notes}</p>
+          </div>
+        ) : null}
 
         {/* Two-column summary — matches HTML design */}
         <div className="mx-8 mt-6 mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
