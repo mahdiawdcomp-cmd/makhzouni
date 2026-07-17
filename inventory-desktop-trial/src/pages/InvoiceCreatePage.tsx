@@ -1788,7 +1788,13 @@ export function InvoiceCreatePage() {
                           <select
                             className="h-8 w-28 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
                             value={item.warehouseId ?? ""}
-                            onChange={(e) => updateItem(index, { warehouseId: e.target.value || undefined })}
+                            onChange={(e) => {
+                              const wsId = e.target.value || undefined
+                              const wsName = wsId
+                                ? (item.product.warehouseStocks ?? []).find((ws) => ws.warehouseId === wsId)?.warehouse.name
+                                : undefined
+                              updateItem(index, { warehouseId: wsId, warehouseName: wsName })
+                            }}
                           >
                             <option value="">— اختر —</option>
                             {(item.product.warehouseStocks ?? []).map((ws) => (

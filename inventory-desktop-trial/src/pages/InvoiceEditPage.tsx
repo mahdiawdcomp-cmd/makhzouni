@@ -444,6 +444,7 @@ export function InvoiceEditPage() {
             <THead>
               <TR>
                 <TH>الاسم</TH>
+                <TH>المخزن</TH>
                 <TH>الوحدة</TH>
                 <TH>العدد</TH>
                 <TH>{invoice.type === "PURCHASE" ? "سعر الشراء" : "السعر"}</TH>
@@ -465,6 +466,33 @@ export function InvoiceEditPage() {
                     {it.warehouseName ? (
                       <span className="block text-xs text-slate-500">📦 {it.warehouseName}</span>
                     ) : null}
+                  </TD>
+                  <TD>
+                    {/* warehouse selector — shown only when the product has stock in multiple warehouses */}
+                    {(itemProduct?.warehouseStocks ?? []).length > 1 ? (
+                      <select
+                        className="h-8 w-28 rounded-md border bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-950"
+                        value={it.warehouseId ?? ""}
+                        onChange={(e) => {
+                          const wsId = e.target.value || undefined
+                          const wsName = wsId
+                            ? itemProduct?.warehouseStocks?.find((ws) => ws.warehouseId === wsId)?.warehouse.name
+                            : undefined
+                          setItems((p) => p.map((x, j) => (j === i ? { ...x, warehouseId: wsId, warehouseName: wsName } : x)))
+                        }}
+                      >
+                        <option value="">— اختر —</option>
+                        {(itemProduct?.warehouseStocks ?? []).map((ws) => (
+                          <option key={ws.warehouseId} value={ws.warehouseId}>
+                            {ws.warehouse.name} ({ws.quantityPieces}ق)
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        {(itemProduct?.warehouseStocks ?? [])[0]?.warehouse.name ?? "—"}
+                      </span>
+                    )}
                   </TD>
                   <TD>
                     <select
@@ -563,7 +591,7 @@ export function InvoiceEditPage() {
               })}
               {items.length === 0 ? (
                 <TR>
-                  <TD colSpan={7} className="py-6 text-center text-sm text-slate-400">
+                  <TD colSpan={8} className="py-6 text-center text-sm text-slate-400">
                     لا يوجد أصناف — اضغط «أضف صنف»
                   </TD>
                 </TR>
