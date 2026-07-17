@@ -6,19 +6,19 @@ import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, Sca
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
 import { downloadBlobUrl } from "../utils/download"
 import { useCustomers } from "../hooks/useCustomers"
-import { useCreateInvoice } from "../hooks/useInvoices"
+import { useCreateInvoice, useInvoice } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useAuthStore } from "../store/authStore"
 import { useUiStore } from "../store/uiStore"
 import { useUnsavedWarning } from "../hooks/useUnsavedWarning"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
-import type { Customer, Product } from "../types/api"
+import type { Customer, InvoiceItem, Product } from "../types/api"
 import { Button } from "../components/ui/button"
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
@@ -126,9 +126,10 @@ interface PersistedDraft {
   customerId: string | null
   date: string
   paymentMode: PaymentMode
-  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string }>
+  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string }>
   discount: number
   paidAmount: number
+  invoiceNotes?: string
   savedAt: number
   // Idempotency key stored with the draft: if this exact draft is restored and
   // saved again (back-navigation, crash recovery), the backend recognizes the
@@ -146,12 +147,40 @@ function extractErrorMessage(err: unknown): string {
   return "تعذر حفظ الفاتورة"
 }
 
-export function InvoiceCreatePage() {
+// Fallback Product for an invoice line whose product no longer exists in the
+// products list (deleted/archived). Keeps the line visible and editable instead
+// of silently dropping it from the edited invoice.
+function placeholderProduct(it: InvoiceItem): Product {
+  return {
+    id: it.productId,
+    name: it.productName ?? "مادة غير موجودة",
+    itemNumber: it.itemNumber ?? "؟",
+    pcsPerCarton: 1,
+    salePrice: Number(it.unitPrice) || 0,
+    retailPrice: 0,
+    purchasePrice: 0,
+    openingBalancePcs: 0,
+    cartonsAvailable: 0,
+  } as unknown as Product
+}
+
+export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const invoiceType: InvoiceType = (searchParams.get("type") === "PURCHASE" ? "PURCHASE" : "SALE")
+  // ── Edit mode: same page/UX as create, but loads an existing invoice and
+  // saves via PUT. Drafts/tabs/autosave/coupon/WhatsApp-prompt are disabled.
+  const isEdit = !!editId
+  const invoiceQuery = useInvoice(editId)
+  const editingInvoice = isEdit ? invoiceQuery.data : undefined
+  const invoiceType: InvoiceType = isEdit
+    ? ((editingInvoice?.type as InvoiceType) ?? "SALE")
+    : (searchParams.get("type") === "PURCHASE" ? "PURCHASE" : "SALE")
   const isPurchase = invoiceType === "PURCHASE"
-  usePageTitle(isPurchase ? "فاتورة شراء جديدة" : "فاتورة بيع جديدة")
+  usePageTitle(
+    isEdit
+      ? (editingInvoice ? `تعديل الفاتورة ${editingInvoice.invoiceNumber}` : "تعديل الفاتورة")
+      : isPurchase ? "فاتورة شراء جديدة" : "فاتورة بيع جديدة",
+  )
   const readOnly = useReadOnly()
 
   const userId = useAuthStore((s) => s.user?.id)
@@ -163,9 +192,9 @@ export function InvoiceCreatePage() {
   // ── Tab ID from URL ──────────────────────────────────────────────────────────
   const urlTid = searchParams.get("tid")
 
-  // On first mount: if no tid, create one and redirect
+  // On first mount: if no tid, create one and redirect (create mode only)
   useEffect(() => {
-    if (urlTid) return
+    if (isEdit || urlTid) return
     const tid = newTabId()
     setSearchParams((p) => { const n = new URLSearchParams(p); n.set("tid", tid); return n }, { replace: true })
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,6 +286,12 @@ export function InvoiceCreatePage() {
   const waSettings = useSettings().data
   const [workerModalId, setWorkerModalId] = useState<string | null>(null)
   const [walkInLoading, setWalkInLoading] = useState(false)
+  // ---- edit-mode state ----
+  const [editReady, setEditReady] = useState(false)
+  const editInitRef = useRef(false)
+  const editSnapshotRef = useRef("")
+  const [editSaveError, setEditSaveError] = useState<unknown>(null)
+  const [editSaving, setEditSaving] = useState(false)
 
   // Track mobile viewport (drives the Smart Invoice Preview bottom-sheet behavior)
   useEffect(() => {
@@ -307,8 +342,21 @@ export function InvoiceCreatePage() {
   }, [selectedCustomer, isPurchase])
 
   // ── Unsaved warning: active when there are items and no saved invoice ─────
+  // In edit mode it activates only when something actually CHANGED vs the
+  // loaded invoice (snapshot comparison), so plain back-navigation stays silent.
   const savingRef = useRef(false)
-  const isDirty = (!!selectedCustomer || items.length > 0 || discount > 0 || paidAmount > 0 || !!couponCode.trim()) && !savedInvoiceId
+  const serializeEditState = () =>
+    JSON.stringify({
+      customerId: selectedCustomer?.id ?? null,
+      discount,
+      paidAmount,
+      paymentMode,
+      invoiceNotes,
+      items: items.map((i) => [i.product.id, i.unit, i.quantity, i.unitPrice, i.warehouseId ?? null, i.notes ?? ""]),
+    })
+  const isDirty = isEdit
+    ? editReady && !savedInvoiceId && serializeEditState() !== editSnapshotRef.current
+    : (!!selectedCustomer || items.length > 0 || discount > 0 || paidAmount > 0 || !!couponCode.trim()) && !savedInvoiceId
   const blocker = useUnsavedWarning(isDirty, savingRef)
 
   // ---- OCR state ----
@@ -394,6 +442,10 @@ export function InvoiceCreatePage() {
   const finalBalance = financials.finalBalance
   const hasInvalidTotal = total < 0
 
+  // PURCHASE edit guard: a 0/blank purchase price would silently zero the
+  // product's weighted-average cost on the server — block the save.
+  const missingPurchasePrice = isEdit && isPurchase && items.some((it) => !(it.unitPrice > 0))
+
   // Per-unit price for an explicit retail/wholesale mode (used when re-pricing
   // existing rows after the جملة/مفرد toggle, where the state flag hasn't flipped yet).
   function unitPriceForMode(product: Product, unit: Unit, retail: boolean) {
@@ -434,6 +486,21 @@ export function InvoiceCreatePage() {
   }, [items, isPurchase])
   const hasPriceWarn = priceWarnItems.size > 0
 
+  // Edit mode: pieces the ORIGINAL invoice already deducted, per product. The
+  // backend edit reverses the old lines then re-applies the new ones, so any
+  // stock projection must credit these back first — otherwise unchanged lines
+  // look like shortages against the already-deducted stock.
+  const originalInvoicePcs = useMemo(() => {
+    const acc: Record<string, number> = {}
+    if (!isEdit || editingInvoice?.type !== "SALE") return acc
+    for (const it of editingInvoice?.items ?? []) {
+      const prod = products.find((p) => p.id === it.productId)
+      const pcs = prod ? unitToPieces((it.unit ?? "PIECE") as Unit, it.quantity, prod) : it.quantity
+      acc[it.productId] = (acc[it.productId] ?? 0) + pcs
+    }
+    return acc
+  }, [isEdit, editingInvoice, products])
+
   // Items that would push stock into negative territory (warning only, not blocking)
   const lowStockWarnings = useMemo(() => {
     if (isPurchase) return [] // Purchase adds stock, can't go negative
@@ -452,17 +519,70 @@ export function InvoiceCreatePage() {
       if (warned.has(pid)) continue
       warned.add(pid)
       // Sales come from المحل only — warn against المحل stock, not the total.
-      const available = item.product.shopStock ?? stockOf(item.product)
+      // (Edit mode: credit back what the original invoice already deducted.)
+      const available = (item.product.shopStock ?? stockOf(item.product)) + (originalInvoicePcs[pid] ?? 0)
       const totalPcs = consumed[pid] ?? 0
       const after = available - totalPcs
       if (after < 0)
         warnings.push(`${item.product.name} (المحل بي ${fmt(available)} فقط، تحتاج تحويل من المخزن — سيصبح ${fmt(after)})`)
     }
     return warnings
-  }, [items, isPurchase])
+  }, [items, isPurchase, originalInvoicePcs])
+
+  // ----- EDIT MODE: initialize the form from the loaded invoice (once) -----
+  useEffect(() => {
+    if (!isEdit || editInitRef.current) return
+    const inv = invoiceQuery.data
+    // Wait for products/customers too, so warehouse names + customer resolve.
+    if (!inv || !productsQuery.isSuccess || !customersQuery.isSuccess) return
+    editInitRef.current = true
+
+    const nextDiscount = Number(inv.discount ?? 0)
+    const nextPaid = Number(inv.paidAmount ?? 0)
+    const nextPaymentMode: PaymentMode = inv.paymentType === "CASH" ? "CASH" : "CREDIT"
+    const nextNotes = inv.notes ?? ""
+    const cust = customers.find((c) => c.id === inv.customerId) ?? inv.customer ?? null
+    const nextItems: DraftItem[] = (inv.items ?? []).map((it) => {
+      const product = products.find((p) => p.id === it.productId) ?? placeholderProduct(it)
+      const wsName = it.warehouseId
+        ? product.warehouseStocks?.find((ws) => ws.warehouseId === it.warehouseId)?.warehouse.name ?? it.warehouseName ?? undefined
+        : undefined
+      return {
+        product,
+        unit: (it.unit ?? "PIECE") as Unit,
+        quantity: it.quantity,
+        unitPrice: Number(it.unitPrice),
+        warehouseId: it.warehouseId,
+        warehouseName: wsName,
+        notes: it.notes ?? "",
+      }
+    })
+
+    setDate(inv.date ? inv.date.slice(0, 10) : localDateStr())
+    setDiscount(nextDiscount)
+    setPaidAmount(nextPaid)
+    setPaymentMode(nextPaymentMode)
+    setInvoiceNotes(nextNotes)
+    if (cust) {
+      setSelectedCustomer(cust)
+      setCustomerQuery(cust.name)
+    }
+    setItems(nextItems)
+    // Snapshot AFTER init — the unsaved-warning fires only on real changes.
+    editSnapshotRef.current = JSON.stringify({
+      customerId: cust?.id ?? null,
+      discount: nextDiscount,
+      paidAmount: nextPaid,
+      paymentMode: nextPaymentMode,
+      invoiceNotes: nextNotes,
+      items: nextItems.map((i) => [i.product.id, i.unit, i.quantity, i.unitPrice, i.warehouseId ?? null, i.notes ?? ""]),
+    })
+    setEditReady(true)
+  }, [isEdit, invoiceQuery.data, productsQuery.isSuccess, customersQuery.isSuccess, customers, products])
 
   // ----- LOAD DRAFT on mount -----
   useEffect(() => {
+    if (isEdit) return
     if (savedInvoiceId) return
     // Skip draft when coming from an order preparation (prefill effect handles it)
     if (fromPrepId) return
@@ -476,6 +596,7 @@ export function InvoiceCreatePage() {
       setPaymentMode(draft.paymentMode)
       setDiscount(draft.discount ?? 0)
       setPaidAmount(draft.paidAmount)
+      setInvoiceNotes(draft.invoiceNotes ?? "")
       const cust = customers.find((c) => c.id === draft.customerId)
       if (cust) {
         setSelectedCustomer(cust)
@@ -484,7 +605,7 @@ export function InvoiceCreatePage() {
       const restoredItems: DraftItem[] = []
       for (const it of draft.items) {
         const p = products.find((x) => x.id === it.productId)
-        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId })
+        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes })
       }
       setItems(restoredItems)
     } catch {
@@ -605,6 +726,7 @@ export function InvoiceCreatePage() {
 
   // ----- AUTOSAVE every 3 seconds -----
   useEffect(() => {
+    if (isEdit) return
     if (savedInvoiceId) return
     const id = window.setInterval(() => {
       // invoiceSavedRef flips synchronously on save success; the state-based
@@ -622,9 +744,13 @@ export function InvoiceCreatePage() {
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           warehouseId: i.warehouseId,
+          warehouseName: i.warehouseName,
+          allowNegativeStock: i.allowNegativeStock,
+          notes: i.notes,
         })),
         discount,
         paidAmount,
+        invoiceNotes,
         savedAt: Date.now(),
         clientRequestId: clientRequestIdRef.current,
       }
@@ -649,7 +775,7 @@ export function InvoiceCreatePage() {
     }, 3000)
     return () => window.clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selectedCustomer, date, paymentMode, paidAmount, draftKey, savedInvoiceId, activeTid, uid, invoiceType])
+  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit])
 
   function clearDraft() {
     try { localStorage.removeItem(draftKey) } catch {}
@@ -1256,6 +1382,46 @@ export function InvoiceCreatePage() {
   async function persistInvoice(navigateAfterSave = false, showWhatsAppPrompt = true) {
     if (savedInvoiceId) return savedInvoiceId
     if (!selectedCustomer || items.length === 0 || hasInvalidTotal) return null
+    if (missingPurchasePrice) return null
+    // ── Edit mode: PUT the updated invoice; no draft/receipt/WhatsApp side-effects.
+    if (isEdit && editId) {
+      savingRef.current = true
+      setEditSaveError(null)
+      setEditSaving(true)
+      try {
+        await updateInvoice(editId, {
+          type: invoiceType,
+          customerId: selectedCustomer.id,
+          discount,
+          tax: 0,
+          paidAmount: effectivePaid,
+          paymentType: financials.paymentType,
+          notes: invoiceNotes.trim() || undefined,
+          items: items.map((item) => ({
+            productId: item.product.id,
+            unit: item.unit,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            warehouseId: item.warehouseId,
+            notes: item.notes?.trim() || undefined,
+          })),
+        })
+        invoiceSavedRef.current = true
+        setSavedInvoiceId(editId)
+        void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+        void queryClient.invalidateQueries({ queryKey: ["invoices", editId] })
+        void queryClient.invalidateQueries({ queryKey: ["invoices", editId, "audit-trail"] })
+        void queryClient.invalidateQueries({ queryKey: ["products"] })
+        navigate(`/invoices/${editId}`)
+        return editId
+      } catch (error) {
+        savingRef.current = false
+        setEditSaveError(error)
+        throw error
+      } finally {
+        setEditSaving(false)
+      }
+    }
     savingRef.current = true
     try {
       const response = await createMutation.mutateAsync({
@@ -1448,29 +1614,34 @@ export function InvoiceCreatePage() {
   }
 
   // ---- Switch invoice type ----
+  // Moves to a FRESH tab id: the tid-change effect then resets the whole form
+  // INCLUDING clientRequestId/invoiceSavedRef. The old in-place reset kept the
+  // previous idempotency key, so a save after switching could silently return
+  // the previously-created invoice instead of creating a new one. It also
+  // dropped the tid from the URL entirely (draft went to a legacy shared key).
   function switchType() {
+    if (isEdit) return
     const next = isPurchase ? "SALE" : "PURCHASE"
-    setSearchParams({ type: next }, { replace: true })
-    // Reset form
-    setItems([])
-    setSelectedCustomer(null)
-    setCustomerQuery("")
-    setDiscount(0)
-    setCouponCode("")
-    setCouponApplied(false)
-    setAppliedCoupon(null)
-    setCouponMessage("")
-    setPaidAmount(0)
-    setSavedInvoiceId(null)
+    setSearchParams({ type: next, tid: newTabId() }, { replace: true })
   }
 
   // ---- Type-specific styling ----
-  const titleText = isPurchase ? "فاتورة شراء جديدة" : "فاتورة بيع جديدة"
+  const titleText = isEdit
+    ? (isPurchase ? "تعديل فاتورة شراء" : "تعديل فاتورة بيع")
+    : isPurchase ? "فاتورة شراء جديدة" : "فاتورة بيع جديدة"
   const TitleIcon = isPurchase ? ShoppingCart : Receipt
   const accentBg = isPurchase ? "from-amber-500 to-amber-600" : "from-emerald-500 to-emerald-600"
   const cardBorder = isPurchase ? "border-r-4 border-r-amber-400" : "border-r-4 border-r-emerald-400"
   const pageTint = isPurchase ? "bg-amber-50/30 dark:bg-amber-950/10" : "bg-emerald-50/30 dark:bg-emerald-950/10"
   const customerLabel = isPurchase ? "المورّد" : "الزبون"
+
+  // ── Edit mode: wait for the invoice (and form init) before rendering ─────
+  if (isEdit && !editReady) {
+    if (!invoiceQuery.isLoading && invoiceQuery.isFetched && !editingInvoice) {
+      return <div className="p-6 text-sm text-slate-500">الفاتورة غير موجودة.</div>
+    }
+    return <div className="p-6 text-sm text-slate-500">جاري تحميل الفاتورة...</div>
+  }
 
   // ── Loading skeleton while data fetches ──────────────────────────────────
   const isInitialLoading = productsQuery.isLoading || customersQuery.isLoading
@@ -1498,7 +1669,7 @@ export function InvoiceCreatePage() {
   return (
     <div className={`space-y-2 rounded-xl ${pageTint}`}>
       {/* ── Tabs bar ─────────────────────────────────────────────────────────── */}
-      {(tabs.length > 0 || activeTid) ? (
+      {!isEdit && (tabs.length > 0 || activeTid) ? (
         <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
           {tabs.map((t) => {
             const isActive = t.id === activeTid
@@ -1547,9 +1718,16 @@ export function InvoiceCreatePage() {
       <div className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 bg-gradient-to-l ${accentBg} text-white shadow-sm`}>
         <TitleIcon className="h-5 w-5 shrink-0" />
         <h1 className="text-base font-bold">{titleText}</h1>
-        <button type="button" onClick={switchType} className="rounded border border-white/30 bg-white/20 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/30">
-          {isPurchase ? "↔ بيع" : "↔ شراء"}
-        </button>
+        {isEdit ? (
+          <>
+            <span className="rounded bg-white/20 px-2 py-0.5 text-xs font-semibold">{editingInvoice?.invoiceNumber}</span>
+            <span className="rounded bg-white/15 px-2 py-0.5 text-[11px]">التاريخ ورقم الفاتورة ثابتان</span>
+          </>
+        ) : (
+          <button type="button" onClick={switchType} className="rounded border border-white/30 bg-white/20 px-2.5 py-1 text-xs font-medium text-white hover:bg-white/30">
+            {isPurchase ? "↔ بيع" : "↔ شراء"}
+          </button>
+        )}
         <div className="flex items-center gap-1 text-xs opacity-75">
           <ScanLine className="h-3.5 w-3.5" /><span>باركود</span>
         </div>
@@ -1638,7 +1816,7 @@ export function InvoiceCreatePage() {
             <option value="CASH">نقد</option>
           </select>
           {/* Walk-in */}
-          {!isPurchase && !selectedCustomer && (
+          {!isPurchase && !isEdit && !selectedCustomer && (
             <button
               type="button"
               disabled={walkInLoading}
@@ -1739,8 +1917,11 @@ export function InvoiceCreatePage() {
                   // cover. Shown INLINE under the line (never a blocking dialog) with the
                   // seller's three choices: pull/split from other warehouses, sell negative,
                   // or remove the line. Ignoring it keeps today's default: sell negative.
+                  // In edit mode the original lines' stock is already deducted, so a
+                  // per-line shortage check would misfire on unchanged lines — the
+                  // aggregate projection (lowStockWarnings, with credit-back) covers it.
                   const linePullPcs = effectiveAvailablePcs(item)
-                  const lineShort = !isPurchase && lineQtyPcs > linePullPcs
+                  const lineShort = !isPurchase && !isEdit && lineQtyPcs > linePullPcs
                   const shortageAcknowledged = Boolean(item.allowNegativeStock)
                   const stocksList = item.product.warehouseStocks ?? []
                   const shopWhRow = stocksList.find((ws) => ws.warehouse.name.includes("محل"))
@@ -1900,7 +2081,7 @@ export function InvoiceCreatePage() {
                     </TR>
                     {lineShort && !shortageAcknowledged && (
                       <TR>
-                        <TD colSpan={hidePrice ? 6 : 8} className="p-0 pb-1">
+                        <TD colSpan={hidePrice ? 7 : 9} className="p-0 pb-1">
                           <div className="mx-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700/50 dark:bg-amber-950/30">
                             <div className="text-[12px] text-amber-800 dark:text-amber-300">
                               ⚠️ <strong>{item.warehouseName ?? "المحل"} عنده {linePullPcs} قطعة</strong> — المطلوب {lineQtyPcs} قطعة.
@@ -1994,7 +2175,7 @@ export function InvoiceCreatePage() {
                 }}
               />
             </div>
-            {!isPurchase && (
+            {!isPurchase && !isEdit && (
               <div>
                 <label className="text-[11px] font-medium text-slate-500">كوبون</label>
                 <div className="mt-0.5 flex gap-1">
@@ -2083,16 +2264,35 @@ export function InvoiceCreatePage() {
         {/* Action buttons */}
         <div className="mt-2 flex flex-wrap gap-1.5 border-t border-amber-100 pt-2 dark:border-amber-900/50">
           <Button size="sm" className="h-8 text-xs" onClick={() => setPreview(true)}>معاينة</Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={readOnly || !selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
-            {createMutation.isPending ? "..." : "حفظ"}
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={readOnly || !selectedCustomer || items.length === 0 || hasInvalidTotal || missingPurchasePrice || createMutation.isPending || editSaving} title={readOnly ? READ_ONLY_MESSAGE : missingPurchasePrice ? "أدخل سعر شراء صحيح لكل مادة قبل الحفظ" : undefined}>
+            {(createMutation.isPending || editSaving) ? "..." : isEdit ? "حفظ التعديلات" : "حفظ"}
           </Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-            <Download className="h-3.5 w-3.5 ml-1" /> PDF
-          </Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-            <ImageDown className="h-3.5 w-3.5 ml-1" /> صورة
-          </Button>
+          {isEdit ? (
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate(`/invoices/${editId}`)} disabled={editSaving}>
+              إلغاء
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+                <Download className="h-3.5 w-3.5 ml-1" /> PDF
+              </Button>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+                <ImageDown className="h-3.5 w-3.5 ml-1" /> صورة
+              </Button>
+            </>
+          )}
         </div>
+
+        {missingPurchasePrice ? (
+          <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            أدخل سعر شراء صحيح (أكبر من صفر) لكل مادة قبل الحفظ — سعر الصفر يصفّر كلفة المادة.
+          </div>
+        ) : null}
+        {isEdit && editSaveError ? (
+          <div className="mt-1.5 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">
+            ⚠ {extractErrorMessage(editSaveError)}
+          </div>
+        ) : null}
 
         {hasBelowCost ? (
           <div className="mt-1.5 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
@@ -2543,7 +2743,7 @@ export function InvoiceCreatePage() {
                 <div className="text-sm text-slate-500">{titleText}</div>
               </div>
               <div className="text-left text-sm">
-                <div>رقم: تلقائي</div>
+                <div>رقم: {isEdit ? (editingInvoice?.invoiceNumber ?? "—") : "تلقائي"}</div>
                 <div>التاريخ: {date}</div>
               </div>
             </div>
