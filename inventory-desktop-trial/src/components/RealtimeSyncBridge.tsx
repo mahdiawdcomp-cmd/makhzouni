@@ -140,15 +140,28 @@ export function RealtimeSyncBridge() {
       }
     }
 
+    // Money-data safety net: refresh balance-bearing resources when the user
+    // returns to this window, so vouchers/invoices made elsewhere never show stale.
+    function refreshMoneyDataOnReturn() {
+      if (document.visibilityState !== "visible") return
+      invalidate("vouchers")
+      invalidate("customers")
+      invalidate("invoices")
+    }
+
     connectIfNeeded()
     const interval = window.setInterval(connectIfNeeded, 2_000)
     window.addEventListener("focus", connectIfNeeded)
     window.addEventListener("storage", connectIfNeeded)
+    document.addEventListener("visibilitychange", refreshMoneyDataOnReturn)
+    window.addEventListener("focus", refreshMoneyDataOnReturn)
 
     return () => {
       window.clearInterval(interval)
       window.removeEventListener("focus", connectIfNeeded)
       window.removeEventListener("storage", connectIfNeeded)
+      document.removeEventListener("visibilitychange", refreshMoneyDataOnReturn)
+      window.removeEventListener("focus", refreshMoneyDataOnReturn)
       if (invalidationTimer.current != null) window.clearTimeout(invalidationTimer.current)
       closeCurrent()
     }

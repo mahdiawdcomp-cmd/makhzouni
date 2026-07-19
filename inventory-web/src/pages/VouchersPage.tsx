@@ -14,6 +14,8 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
 import { formatDate, formatDateTime, localDateStr } from "../utils/date"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
+import { toast } from "../components/ui/use-toast"
+import { apiErrorMessage } from "../utils/apiError"
 
 type Type = Voucher["type"]
 type FilterType = "ALL" | Type
@@ -175,6 +177,11 @@ export function VouchersPage() {
       void queryClient.invalidateQueries({ queryKey: ["customer"] })
       void queryClient.invalidateQueries({ queryKey: ["transactions"] })
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+      toast({ title: "تم حفظ السند ✓" })
+    },
+    // A failed save must NEVER be silent — the voucher affects money.
+    onError: (err) => {
+      toast({ title: "لم يُحفظ السند", description: apiErrorMessage(err, "تحقق من البيانات وحاول مرة أخرى"), variant: "destructive" })
     },
   })
 

@@ -488,7 +488,16 @@ function ReceiptModal({
   function submit(event: FormEvent) {
     event.preventDefault()
     const payload: ReceiptPayload = { customerId: customer.id, amount: Number(amount), type: "RECEIPT", date, notes }
-    receiptMutation.mutate(payload, { onSuccess: () => onOpenChange(false) })
+    receiptMutation.mutate(payload, {
+      onSuccess: () => {
+        onOpenChange(false)
+        toast({ title: "تم حفظ سند القبض ✓" })
+      },
+      // A failed save must NEVER be silent — the voucher affects money.
+      onError: (err) => {
+        toast({ title: "لم يُحفظ السند", description: apiErrorMessage(err, "تحقق من البيانات وحاول مرة أخرى"), variant: "destructive" })
+      },
+    })
   }
 
   return (
