@@ -228,6 +228,12 @@ export async function getGuestCatalogProducts() {
   return data.data ?? []
 }
 
+// Phone gate: record a guest's phone before they browse (guest mode only).
+export async function guestCatalogEnter(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>("/public/catalog/guest-enter", { phone })
+  return data.data
+}
+
 export async function getGuestCatalogProductImage(id: string) {
   const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/guest-product-image", { params: { id } })
   return data.data?.imageUrl ?? null
@@ -1477,6 +1483,13 @@ export async function createTransfer(payload: CreateTransferPayload) {
 export async function getCatalogCustomers(params?: { search?: string; limit?: number; offset?: number }) {
   const { data } = await api.get<ApiEnvelope<CatalogCustomer[]> & { total?: number }>("/catalog-management", { params })
   return { rows: data.data ?? [], total: data.total ?? 0 }
+}
+
+export type CatalogVisitor = { id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string }
+
+export async function getCatalogVisitors() {
+  const { data } = await api.get<ApiEnvelope<{ visitors: CatalogVisitor[]; uniquePhones: number; totalVisits: number }>>("/catalog-management/visitors")
+  return data.data ?? { visitors: [], uniquePhones: 0, totalVisits: 0 }
 }
 
 export async function grantCatalogAccess(customerId: string, opts: { allowPrices: boolean; showStock: boolean; stockFilter?: CatalogStockFilter }) {

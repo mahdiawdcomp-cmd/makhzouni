@@ -9,6 +9,7 @@ import {
   getCatalogSession,
   getGuestCatalogProductImageCtrl,
   getGuestCatalogProducts,
+  guestCatalogEnter,
   validatePromoCtrl,
   verifyCatalogAccessCtrl,
 } from "../controllers/catalog.controller";
@@ -166,6 +167,7 @@ router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
 
 // Guest catalog (no OTP/access token) — only served when the merchant has
 // turned off catalogRequireOtp; the service layer enforces that, not the route.
+router.post("/catalog/guest-enter", catalogLimiter, guestCatalogEnter);
 router.get("/catalog/guest-products", catalogLimiter, getGuestCatalogProducts);
 router.get("/catalog/guest-product-image", catalogLimiter, validate(guestCatalogProductImageSchema), getGuestCatalogProductImageCtrl);
 router.post("/catalog/guest-orders", catalogLimiter, validate(createGuestCatalogOrderSchema), createGuestCatalogOrder);

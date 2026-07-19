@@ -92,6 +92,53 @@ function normalizePhone(input: string) {
   return digits;
 }
 
+// Deterministic Fisher-Yates shuffle driven by a numeric seed. Same seed → same
+// order, so every shopper who loads the catalog within the same hour sees the
+// identical arrangement, and it reshuffles automatically when the hour rolls.
+function seededShuffle<T>(items: T[], seed: number): T[] {
+  const out = items.slice();
+  let state = (seed % 2147483647) || 1;
+  const next = () => {
+    state = (state * 48271) % 2147483647;
+    return state / 2147483647;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Seed that changes once per hour — shared by all shoppers so the whole catalog
+// reorders together on the hour.
+function hourlySeed() {
+  return Math.floor(Date.now() / (60 * 60 * 1000));
+}
+
+// Record a guest visit through the phone gate (guest catalog mode only). The
+// phone is stored once; repeat entries just bump the visit counter + timestamp.
+export async function recordGuestVisit(rawPhone: string) {
+  await assertGuestCatalogEnabled();
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  if (phone.length < 10) throw new AppError("رقم هاتف غير صالح", 400);
+  await prisma.catalogVisitor.upsert({
+    where: { phone },
+    create: { phone },
+    update: { visits: { increment: 1 }, lastSeenAt: new Date() },
+  });
+  return { ok: true };
+}
+
+// Admin: list of guest phone numbers that passed the gate, most recent first,
+// plus the total visit count across all of them.
+export async function listCatalogVisitors() {
+  const visitors = await prisma.catalogVisitor.findMany({
+    orderBy: { lastSeenAt: "desc" },
+  });
+  const totalVisits = visitors.reduce((sum, v) => sum + v.visits, 0);
+  return { visitors, uniquePhones: visitors.length, totalVisits };
+}
+
 async function findApprovalRequester() {
   const requester = await prisma.user.findFirst({
     where: { isActive: true },
@@ -457,7 +504,7 @@ export async function listCatalogProducts(token: string) {
 
   const fullCartonOnly = access.stockFilter === CatalogStockFilter.FULL_CARTON_ONLY;
 
-  return products
+  const mapped = products
     .map((product) => {
       const stock = totalStock(product);
       return {
@@ -486,6 +533,8 @@ export async function listCatalogProducts(token: string) {
         ? product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton
         : product.currentStock > 0,
     );
+
+  return seededShuffle(mapped, hourlySeed());
 }
 
 // Fetch the full-resolution image for a single catalog product on demand.
@@ -525,7 +574,7 @@ export async function listGuestCatalogProducts() {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
-  return products
+  const mapped = products
     .map((product) => {
       const stock = totalStock(product);
       return {
@@ -549,6 +598,8 @@ export async function listGuestCatalogProducts() {
       };
     })
     .filter((product) => product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
+
+  return seededShuffle(mapped, hourlySeed());
 }
 
 export async function getGuestCatalogProductImage(productId: string) {

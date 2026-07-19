@@ -11,11 +11,15 @@ import {
   togglePromoCodeCtrl,
   getCatalogDesignCtrl,
   updateCatalogDesignCtrl,
+  getCatalogVisitorsCtrl,
 } from "../controllers/catalog-management.controller";
 
 const router = Router();
 
 router.use(authMiddleware);
+
+// Guest visitors (phone gate leads)
+router.get("/visitors", getCatalogVisitorsCtrl);
 
 // Customers
 router.get("/", getCatalogCustomers);

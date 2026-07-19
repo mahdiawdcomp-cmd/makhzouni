@@ -6,12 +6,18 @@ import {
   listCatalogProducts,
   listGuestCatalogProducts,
   lookupCatalogAccess,
+  recordGuestVisit,
   requestCatalogAccess,
   submitCatalogOrder,
   submitGuestCatalogOrder,
   validatePromoCode,
 } from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
+
+export const guestCatalogEnter = asyncHandler(async (req, res) => {
+  const result = await recordGuestVisit(String((req.body as { phone?: string })?.phone ?? ""));
+  res.json({ success: true, data: result });
+});
 
 export const createCatalogAccessRequest = asyncHandler(async (req, res) => {
   const result = await requestCatalogAccess(req.body);

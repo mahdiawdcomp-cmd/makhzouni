@@ -714,6 +714,19 @@ model CatalogAccessLink {
   @@map("catalog_access_links")
 }
 
+// Guest catalog phone gate: when OTP is OFF, a visitor must enter their phone
+// number once (per device) before browsing. Each phone is stored once and its
+// visit counter increments on repeat entries so the merchant can follow up.
+model CatalogVisitor {
+  id          String   @id @default(uuid()) @db.Uuid
+  phone       String   @unique
+  visits      Int      @default(1)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@map("catalog_visitors")
+}
+
 model Invoice {
   id                String                  @id @default(uuid()) @db.Uuid
   invoiceNumber     String                  @unique @map("invoice_number")

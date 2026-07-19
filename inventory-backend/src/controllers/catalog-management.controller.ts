@@ -10,6 +10,7 @@ import {
   createPromoCode,
   deletePromoCode,
   togglePromoCode,
+  listCatalogVisitors,
 } from "../services/catalog.service";
 import { getSettings, updateSettings } from "../services/settings.service";
 import prisma from "../config/database";
@@ -20,6 +21,11 @@ export const getCatalogCustomers = asyncHandler(async (req, res) => {
   const offset = req.query.offset ? Math.max(0, Number(req.query.offset)) : 0;
   const result = await listCustomersWithCatalogStatus({ search, limit, offset });
   res.json({ success: true, data: result.rows, total: result.total, limit, offset });
+});
+
+export const getCatalogVisitorsCtrl = asyncHandler(async (_req, res) => {
+  const result = await listCatalogVisitors();
+  res.json({ success: true, data: result });
 });
 
 export const grantCatalogAccess = asyncHandler(async (req, res) => {

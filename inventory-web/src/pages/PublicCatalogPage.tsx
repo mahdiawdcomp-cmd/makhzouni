@@ -25,6 +25,7 @@ import {
   getPublicCatalogProductImage,
   getGuestCatalogProducts,
   getGuestCatalogProductImage,
+  guestCatalogEnter,
   submitGuestCatalogOrder,
   requestCatalogAccess,
   sendCatalogOtp,
@@ -214,10 +215,12 @@ export function PublicCatalogPage() {
       )
     if (guestConfigQuery.data?.guestModeEnabled) {
       return (
-        <CatalogShop
-          accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
-          customerId="" customerName="" customerPhone="" guestMode
-        />
+        <GuestPhoneGate>
+          <CatalogShop
+            accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
+            customerId="" customerName="" customerPhone="" guestMode
+          />
+        </GuestPhoneGate>
       )
     }
     return <CatalogGate onAccess={handleAccess} />
@@ -505,6 +508,66 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
       <span className="text-base">{icon}</span>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder} className="flex-1 bg-transparent text-sm outline-none placeholder:text-gray-400" dir="rtl" />
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   GUEST PHONE GATE (guest mode only — asked once per device)
+   A visitor must enter their phone number before browsing. The number is
+   recorded server-side (with a visit counter) so the merchant can follow up.
+══════════════════════════════════════════════════════════════════════ */
+const GUEST_PHONE_KEY = "catalog_guest_phone"
+
+function GuestPhoneGate({ children }: { children: React.ReactNode }) {
+  const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
+  const [phone, setPhone] = useState("")
+  const [err, setErr] = useState("")
+
+  const enterMut = useMutation({
+    mutationFn: () => guestCatalogEnter(phone.trim()),
+    onSuccess: () => {
+      localStorage.setItem(GUEST_PHONE_KEY, phone.trim())
+      setErr("")
+      setEntered(true)
+    },
+    onError: () => setErr("تعذر الحفظ. تأكد من الرقم وحاول مرة ثانية."),
+  })
+
+  if (entered) return <>{children}</>
+
+  const digits = phone.replace(/\D/g, "")
+  const valid = digits.length >= 10
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4" dir="rtl">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-lg">
+        <div className="mb-5 flex flex-col items-center gap-2 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50">
+            <ShoppingBag className="h-7 w-7 text-indigo-600" />
+          </div>
+          <h1 className="text-lg font-bold text-gray-900">أهلاً بك في الكتلوك</h1>
+          <p className="text-sm text-gray-500">فضلاً أدخل رقم هاتفك للدخول وتصفح البضاعة</p>
+        </div>
+        <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && valid && !enterMut.isPending) enterMut.mutate() }}
+          inputMode="tel"
+          placeholder="07XXXXXXXXX"
+          className="w-full rounded-xl border border-gray-300 px-4 py-3 text-center text-base tracking-wide outline-none focus:border-indigo-500"
+          dir="ltr"
+          autoFocus
+        />
+        {err && <p className="mt-2 text-center text-xs text-red-600">{err}</p>}
+        <button
+          disabled={!valid || enterMut.isPending}
+          onClick={() => enterMut.mutate()}
+          className="mt-4 w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white transition hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {enterMut.isPending ? "جاري الدخول..." : "دخول"}
+        </button>
+      </div>
     </div>
   )
 }

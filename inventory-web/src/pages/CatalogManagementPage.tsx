@@ -12,11 +12,13 @@ import {
   MessageCircle,
   Package,
   Palette,
+  Phone,
   Plus,
   Search,
   ShieldOff,
   Tag,
   Ticket,
+  Users,
   Trash2,
   Unlock,
   X,
@@ -28,6 +30,7 @@ import {
   broadcastCatalogLink,
   deleteCustomer,
   getCatalogCustomers,
+  getCatalogVisitors,
   getCatalogDesign,
   updateCatalogDesign,
   listAdminPromoCodes,
@@ -1088,9 +1091,78 @@ function CatalogFullCartonOnlySettings() {
 
 const PAGE_SIZE = 50
 
+/* ── Guest visitors (phone-gate leads) ──────────────────────────────── */
+function VisitorsTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["catalog-visitors"],
+    queryFn: getCatalogVisitors,
+    staleTime: 60_000,
+  })
+  const visitors = data?.visitors ?? []
+
+  const waLink = (phone: string) => {
+    const digits = phone.replace(/\D/g, "")
+    return `https://wa.me/${digits}`
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <StatCard label="عدد الأرقام" value={data?.uniquePhones ?? 0} color="slate" />
+        <StatCard label="إجمالي الزيارات" value={data?.totalVisits ?? 0} color="emerald" />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-4 w-4" /> الأرقام التي دخلت الكتلوك
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <p className="py-8 text-center text-sm text-slate-400">جاري التحميل...</p>
+          ) : visitors.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-400">لا توجد أرقام بعد</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-right text-xs text-slate-500">
+                    <th className="p-2 font-medium">الرقم</th>
+                    <th className="p-2 font-medium">عدد الزيارات</th>
+                    <th className="p-2 font-medium">آخر زيارة</th>
+                    <th className="p-2 font-medium">أول زيارة</th>
+                    <th className="p-2 font-medium">تواصل</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visitors.map((v) => (
+                    <tr key={v.id} className="border-b last:border-0">
+                      <td className="p-2 font-mono" dir="ltr">{v.phone}</td>
+                      <td className="p-2">{v.visits}</td>
+                      <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).locale("ar").fromNow()}</td>
+                      <td className="p-2 text-slate-500">{dayjs(v.firstSeenAt).format("YYYY-MM-DD")}</td>
+                      <td className="p-2">
+                        <a href={waLink(v.phone)} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
+                          <Phone className="h-3 w-3" /> واتساب
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "design" | "promos">("customers")
+  const [tab, setTab] = useState<"customers" | "visitors" | "design" | "promos">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1143,6 +1215,7 @@ export function CatalogManagementPage() {
       <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
         {([
           { key: "customers", label: "الزبائن", icon: <Globe className="h-4 w-4" /> },
+          { key: "visitors", label: "الزوار الجدد", icon: <Users className="h-4 w-4" /> },
           { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
           { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
         ] as const).map(({ key, label, icon }) => (
@@ -1156,6 +1229,7 @@ export function CatalogManagementPage() {
         ))}
       </div>
 
+      {tab === "visitors" && <VisitorsTab />}
       {tab === "design" && <CatalogDesignTab />}
       {tab === "promos" && <PromoCodesTab />}
 
