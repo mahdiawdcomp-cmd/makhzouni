@@ -37,7 +37,6 @@ import { fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
 import { RecordNavigator } from "../components/RecordNavigator"
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { Input } from "../components/ui/input"
@@ -315,118 +314,117 @@ export function VoucherDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>التفاصيل</CardTitle></CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <Row label="النوع" value={meta.label} />
-            <Row label="المبلغ" value={money(voucher.amount) + " " + (settings?.currency ?? "د.ع")} strong />
-            <Row label="التاريخ" value={String(voucher.date).slice(0, 10)} />
-            <Row label="رقم السند" value={voucher.voucherNumber} />
-            {voucher.description ? <Row label="الوصف" value={voucher.description} /> : null}
-            {voucher.notes ? <Row label="ملاحظات" value={voucher.notes} /> : null}
-          </CardContent>
-        </Card>
+      {/* ── قصة الحساب: قبل السند ← مبلغ السند ← الباقي بعده ─────────────── */}
+      {voucher.customer ? (
+        (() => {
+          const cur = settings?.currency ?? "د.ع"
+          const txs = transactionsQuery.data ?? []
+          // Match by voucher id (most reliable) OR by voucherNumber as referenceNumber
+          const txIndex = txs.findIndex((t) => t.id === voucher.id || t.referenceNumber === voucher.voucherNumber)
+          const thisTx = txIndex >= 0 ? txs[txIndex] : null
 
-        {voucher.customer ? (
-          <div className="space-y-4">
-            <Card>
-              <CardHeader><CardTitle>الزبون</CardTitle></CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <Row label="الاسم" value={voucher.customer.name} />
-                <Row label="الهاتف" value={voucher.customer.phone ?? "-"} />
-                <Row label="الرصيد الحالي" value={money(voucher.customer.currentBalance) + " " + (settings?.currency ?? "د.ع")} strong />
-                <Button asChild variant="outline" className="mt-2">
-                  <Link to={`/customers/${voucher.customer.id}`}>عرض كشف الزبون</Link>
+          const isReceipt = voucher.type === "RECEIPT"
+          const amt = Number(voucher.amount)
+          const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
+
+          let balanceAfter: number
+          let balanceBefore: number
+          if (thisTx) {
+            // Exact: balance before = runningBalance reversed by this transaction
+            balanceAfter = thisTx.runningBalance
+            balanceBefore = balanceAfter + (thisTx.credit ?? 0) - (thisTx.debit ?? 0)
+          } else {
+            // Approximate (only exact if this was the last transaction)
+            balanceAfter = currentBalance
+            balanceBefore = isReceipt ? currentBalance + amt : currentBalance - amt
+          }
+
+          const settled = Math.abs(balanceAfter) < 0.01
+          const word = (v: number) => (v > 0 ? "عليه" : v < 0 ? "له" : "")
+
+          return (
+            <div className="mx-auto w-full max-w-xl space-y-3">
+              {/* من / إلى */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center dark:border-slate-800 dark:bg-slate-900">
+                <p className="text-xs font-semibold text-slate-400">
+                  {voucher.type === "PAYMENT" ? "دفعنا إلى السيد / السادة" : "استلمنا من السيد / السادة"}
+                </p>
+                <Link to={`/customers/${voucher.customer.id}`} className="mt-1 block text-2xl font-extrabold text-slate-800 hover:text-emerald-700 dark:text-slate-100">
+                  {voucher.customer.name}
+                </Link>
+                {voucher.customer.phone ? <p className="mt-0.5 text-xs text-slate-400" dir="ltr">{voucher.customer.phone}</p> : null}
+              </div>
+
+              {/* الخطوة 1: قبل السند */}
+              <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 dark:border-slate-700 dark:bg-slate-900/60">
+                <span className="text-sm font-bold text-slate-500">{isReceipt ? "كان بذمته قبل السند" : "الحساب قبل السند"}</span>
+                <span className="text-xl font-extrabold text-slate-600 dark:text-slate-300">
+                  {money(Math.abs(balanceBefore))} {cur} <span className="text-sm font-bold text-slate-400">{word(balanceBefore)}</span>
+                </span>
+              </div>
+
+              {/* الخطوة 2: مبلغ السند */}
+              <div className="flex items-center justify-between rounded-2xl border-2 border-emerald-300 bg-emerald-50 px-5 py-5 dark:border-emerald-700 dark:bg-emerald-950/30">
+                <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-300">{isReceipt ? "استلمنا منه" : "دفعنا له"}</span>
+                <span className="text-3xl font-extrabold text-emerald-700 dark:text-emerald-300">{money(amt)} {cur}</span>
+              </div>
+
+              {/* الخطوة 3: بعد السند */}
+              <div className={`flex items-center justify-between rounded-2xl border-2 px-5 py-5 ${
+                settled
+                  ? "border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950/30"
+                  : "border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/30"
+              }`}>
+                <span className={`text-base font-extrabold ${settled ? "text-emerald-700 dark:text-emerald-300" : "text-orange-800 dark:text-orange-300"}`}>
+                  {isReceipt ? "الباقي بذمته بعد السند" : "الحساب بعد السند"}
+                </span>
+                <span className={`text-3xl font-extrabold ${settled ? "text-emerald-700 dark:text-emerald-300" : "text-orange-800 dark:text-orange-300"}`}>
+                  {settled ? "صفر ✓" : <>{money(Math.abs(balanceAfter))} {cur} <span className="text-base">{word(balanceAfter)}</span></>}
+                </span>
+              </div>
+              {settled ? (
+                <p className="text-center text-sm font-bold text-emerald-600">تمت تسوية الحساب بالكامل — الذمة مبرأة ✓</p>
+              ) : null}
+              {!thisTx && transactionsQuery.isSuccess ? (
+                <p className="text-center text-[11px] text-amber-600">الأرقام تقديرية بناءً على الرصيد الحالي</p>
+              ) : null}
+              {voucher.cancelledAt ? (
+                <p className="rounded-lg bg-rose-50 py-2 text-center text-sm font-bold text-rose-600 dark:bg-rose-950/30">هذا السند معطل — لا يؤثر على الرصيد</p>
+              ) : null}
+
+              {/* التفاصيل */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                  <Row label="رقم السند" value={voucher.voucherNumber} />
+                  <Row label="التاريخ" value={String(voucher.date).slice(0, 10)} />
+                  <Row label="النوع" value={meta.label} />
+                  <Row label="الرصيد الحالي" value={`${money(voucher.customer.currentBalance)} ${cur}`} strong />
+                </div>
+                {voucher.notes ? <div className="mt-2 border-t border-dashed pt-2 text-slate-500 dark:border-slate-700">ملاحظات: {voucher.notes}</div> : null}
+                <Button asChild variant="outline" className="mt-3 w-full">
+                  <Link to={`/customers/${voucher.customer.id}`}>عرض كشف الزبون الكامل</Link>
                 </Button>
-              </CardContent>
-            </Card>
-
-            {/* Account summary for this voucher */}
-            {(() => {
-              const cur = settings?.currency ?? "د.ع"
-              const txs = transactionsQuery.data ?? []
-              // Match by voucher id (most reliable) OR by voucherNumber as referenceNumber
-              const txIndex = txs.findIndex((t) => t.id === voucher.id || t.referenceNumber === voucher.voucherNumber)
-              const thisTx = txIndex >= 0 ? txs[txIndex] : null
-
-              // Fallback when ledger data not yet loaded or not found:
-              // estimate from current balance using voucher effect direction
-              const isReceipt = voucher.type === "RECEIPT"
-              const amt = Number(voucher.amount)
-              const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
-
-              let balanceAfter: number
-              let balanceBefore: number
-
-              if (thisTx) {
-                // Exact: balance before = runningBalance reversed by this transaction
-                // credit (RECEIPT) reduces debt: runningBalance decreased → reverse: add credit back
-                // debit  (PAYMENT) increases debt: runningBalance increased → reverse: subtract debit
-                balanceAfter = thisTx.runningBalance
-                balanceBefore = balanceAfter + (thisTx.credit ?? 0) - (thisTx.debit ?? 0)
-              } else {
-                // Approximate (only exact if this was the last transaction)
-                balanceAfter = currentBalance
-                balanceBefore = isReceipt ? currentBalance + amt : currentBalance - amt
-              }
-
-              const lastTx = thisTx && txIndex > 0 ? txs[txIndex - 1] : null
-
-              return (
-                <Card className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
-                  <CardHeader>
-                    <CardTitle className="text-blue-800 dark:text-blue-200">ملخص الحساب</CardTitle>
-                    {!thisTx && transactionsQuery.isSuccess && (
-                      <p className="text-[11px] text-amber-600">الأرقام تقديرية بناءً على الرصيد الحالي</p>
-                    )}
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm">
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
-                        <div className="text-[11px] text-slate-500">قبل السند</div>
-                        <div className={`mt-1 text-base font-bold ${balanceBefore > 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                          {money(balanceBefore)} {cur}
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/40">
-                        <div className="text-[11px] text-blue-600">مبلغ السند</div>
-                        <div className="mt-1 text-base font-bold text-blue-700 dark:text-blue-300">
-                          {money(amt)} {cur}
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-white p-2 dark:bg-slate-900">
-                        <div className="text-[11px] text-slate-500">بعد السند</div>
-                        <div className={`mt-1 text-base font-bold ${balanceAfter > 0 ? "text-rose-600" : "text-emerald-600"}`}>
-                          {money(balanceAfter)} {cur}
-                        </div>
-                      </div>
-                    </div>
-                    {lastTx ? (
-                      <div className="rounded-lg border border-slate-200 bg-white p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
-                        <span className="text-slate-500">آخر تعامل قبله: </span>
-                        <span className="font-semibold">{lastTx.referenceNumber}</span>
-                        <span className="mx-1 text-slate-400">—</span>
-                        <span>{String(lastTx.date).slice(0, 10)}</span>
-                      </div>
-                    ) : null}
-                    {voucher.cancelledAt ? (
-                      <p className="text-xs text-amber-600">السند معطل — لا يؤثر على الرصيد</p>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              )
-            })()}
+              </div>
+            </div>
+          )
+        })()
+      ) : (
+        <div className="mx-auto w-full max-w-xl space-y-3">
+          <div className="flex items-center justify-between rounded-2xl border-2 border-rose-300 bg-rose-50 px-5 py-5 dark:border-rose-800 dark:bg-rose-950/30">
+            <span className="text-base font-extrabold text-rose-700 dark:text-rose-300">مبلغ المصروف</span>
+            <span className="text-3xl font-extrabold text-rose-700 dark:text-rose-300">{money(voucher.amount)} {settings?.currency ?? "د.ع"}</span>
           </div>
-        ) : (
-          <Card>
-            <CardHeader><CardTitle>ملاحظات</CardTitle></CardHeader>
-            <CardContent className="text-sm text-slate-500">
-              سند مصاريف داخلي - لا يرتبط بزبون.
-            </CardContent>
-          </Card>
-        )}
-      </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+              <Row label="رقم السند" value={voucher.voucherNumber} />
+              <Row label="التاريخ" value={String(voucher.date).slice(0, 10)} />
+              {voucher.description ? <Row label="الوصف" value={voucher.description} /> : null}
+            </div>
+            {voucher.notes ? <div className="mt-2 border-t border-dashed pt-2 text-slate-500 dark:border-slate-700">ملاحظات: {voucher.notes}</div> : null}
+            <p className="mt-2 text-xs text-slate-400">سند مصاريف داخلي — لا يرتبط بزبون.</p>
+          </div>
+        </div>
+      )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-md">

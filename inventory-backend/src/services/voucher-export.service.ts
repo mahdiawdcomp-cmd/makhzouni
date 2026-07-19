@@ -27,10 +27,26 @@ function typeLabel(type: string) {
   return "سند مصاريف";
 }
 
+// The three lines of the "account story" — worded per voucher type so the
+// customer reads it like a sentence, not an accounting table.
+function storyLabels(type: string) {
+  if (type === "PAYMENT") {
+    return { before: "الحساب قبل السند", amount: "دفعنا لكم", after: "الحساب بعد السند" };
+  }
+  return { before: "كان بذمتكم قبل السند", amount: "استلمنا منكم", after: "الباقي بذمتكم بعد السند" };
+}
+
 function partyLabel(type: string) {
-  if (type === "PAYMENT") return "دفعنا إلى السيد / السادة:";
-  if (type === "EXPENSE") return "وصف المصروف:";
-  return "استلمنا من السيد / السادة:";
+  if (type === "PAYMENT") return "دفعنا إلى السيد / السادة";
+  if (type === "EXPENSE") return "وصف المصروف";
+  return "استلمنا من السيد / السادة";
+}
+
+// "عليه / له / صفر" wording for a balance figure (positive = customer owes us).
+function balanceWord(value: number) {
+  if (value > 0) return "عليه";
+  if (value < 0) return "له";
+  return "";
 }
 
 function formatDateTime(value: Date | string) {
@@ -79,8 +95,35 @@ function buildVoucherHtml(voucher: any, options: {
 }) {
   const label = typeLabel(voucher.type);
   const partyName = voucher.customer?.name ?? voucher.description ?? "-";
-  const paymentChecked = voucher.type === "RECEIPT" || voucher.type === "PAYMENT";
   const createdBy = voucher.creator?.name ?? voucher.creator?.username ?? "-";
+  const story = storyLabels(voucher.type);
+  const cur = esc(options.currency);
+  const settled = options.final !== null && Math.abs(options.final) < 0.01;
+
+  // The story block: three big stacked lines the customer can read top-down.
+  const storyBlock = options.previous !== null ? `
+      <section class="story">
+        <div class="step">
+          <div class="step-label">${esc(story.before)}</div>
+          <div class="step-value muted-num">${money(Math.abs(options.previous))} ${cur} ${esc(balanceWord(options.previous))}</div>
+        </div>
+        <div class="step amount-step">
+          <div class="step-label">${esc(story.amount)}</div>
+          <div class="step-value">${money(voucher.amount)} ${cur}</div>
+        </div>
+        <div class="step after-step ${settled ? "settled" : ""}">
+          <div class="step-label">${esc(story.after)}</div>
+          <div class="step-value">${settled
+            ? `صفر — تمت تسوية الحساب بالكامل ✓`
+            : `${money(Math.abs(options.final ?? 0))} ${cur} ${esc(balanceWord(options.final ?? 0))}`}</div>
+        </div>
+      </section>` : `
+      <section class="story">
+        <div class="step amount-step">
+          <div class="step-label">${esc(voucher.type === "EXPENSE" ? "مبلغ المصروف" : story.amount)}</div>
+          <div class="step-value">${money(voucher.amount)} ${cur}</div>
+        </div>
+      </section>`;
 
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -102,75 +145,78 @@ function buildVoucherHtml(voucher: any, options: {
       print-color-adjust: exact;
     }
     .page {
-      position: relative;
-      max-width: 820px;
+      max-width: 680px;
       margin: 0 auto;
       overflow: hidden;
-      border-radius: 14px;
+      border-radius: 16px;
       background: #fff;
       box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
     }
-    .bar { height: 8px; background: #10b981; }
-    .orb {
-      position: absolute;
-      top: -78px;
-      right: -78px;
-      width: 180px;
-      height: 180px;
-      border-radius: 999px;
-      background: #ecfdf5;
-      opacity: 0.8;
-    }
-    .header {
-      position: relative;
-      z-index: 1;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 18px;
-      padding: 30px 32px 22px;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    h1 { margin: 0 0 4px; font-size: 32px; line-height: 1.2; font-weight: 800; }
-    .store { color: #059669; font-size: 18px; font-weight: 800; }
-    .store-meta { margin-top: 3px; color: #6b7280; font-size: 12px; }
-    .amount {
-      min-width: 180px;
-      border: 1px solid #d1fae5;
-      border-radius: 12px;
-      background: #ecfdf5;
-      padding: 14px 18px;
+    .head {
+      background: linear-gradient(135deg, #059669, #10b981);
+      color: #fff;
+      padding: 22px 28px;
       text-align: center;
     }
-    .amount .label { color: #6b7280; font-size: 12px; }
-    .amount .value { color: #047857; font-size: 28px; font-weight: 800; }
-    .content { position: relative; z-index: 1; padding: 28px 32px 30px; }
-    .row {
-      display: flex;
-      gap: 10px;
-      align-items: baseline;
-      min-height: 44px;
-      border-bottom: 2px dashed #9ca3af;
-      padding: 6px 0 9px;
-      font-size: 18px;
-    }
-    .row.two { gap: 28px; }
-    .field { display: flex; flex: 1; gap: 10px; align-items: baseline; }
-    .key { color: #4b5563; font-weight: 800; white-space: nowrap; }
-    .value { flex: 1; color: #111827; font-weight: 800; }
-    .green { color: #059669; }
-    .muted { color: #6b7280; font-size: 14px; font-weight: 600; }
-    .methods { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
-    .dot {
+    .head .store { font-size: 22px; font-weight: 800; }
+    .head .store-meta { margin-top: 2px; font-size: 13px; opacity: 0.9; }
+    .head .doc {
+      margin-top: 12px;
       display: inline-block;
-      width: 14px;
-      height: 14px;
-      margin-left: 6px;
-      border: 2px solid #9ca3af;
+      background: rgba(255,255,255,0.16);
       border-radius: 999px;
-      vertical-align: -2px;
+      padding: 6px 22px;
+      font-size: 20px;
+      font-weight: 800;
     }
-    .dot.checked { border-color: #059669; background: #10b981; }
+    .head .doc-meta { margin-top: 8px; font-size: 14px; font-weight: 600; opacity: 0.95; }
+    .party {
+      padding: 18px 28px 6px;
+      text-align: center;
+    }
+    .party .plabel { color: #6b7280; font-size: 14px; font-weight: 700; }
+    .party .pname { margin-top: 2px; font-size: 24px; font-weight: 800; color: #111827; }
+    .story { padding: 14px 28px 6px; }
+    .step {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #f9fafb;
+      padding: 14px 18px;
+      margin-bottom: 10px;
+    }
+    .step-label { color: #4b5563; font-size: 17px; font-weight: 800; }
+    .step-value { font-size: 24px; font-weight: 800; color: #111827; white-space: nowrap; }
+    .muted-num { color: #6b7280; }
+    .amount-step { background: #ecfdf5; border-color: #a7f3d0; }
+    .amount-step .step-label { color: #047857; }
+    .amount-step .step-value { color: #047857; font-size: 28px; }
+    .after-step { background: #fff7ed; border-color: #fed7aa; }
+    .after-step .step-label { color: #9a3412; }
+    .after-step .step-value { color: #9a3412; }
+    .after-step.settled { background: #ecfdf5; border-color: #6ee7b7; }
+    .after-step.settled .step-label, .after-step.settled .step-value { color: #047857; }
+    .notes {
+      margin: 4px 28px 0;
+      border-radius: 10px;
+      background: #f9fafb;
+      border: 1px dashed #d1d5db;
+      color: #4b5563;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 14px;
+    }
+    .foot {
+      margin-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      color: #9ca3af;
+      font-size: 12.5px;
+      text-align: center;
+      padding: 12px 20px 18px;
+    }
     .print {
       margin: 0 auto 22px;
       display: block;
@@ -193,51 +239,20 @@ function buildVoucherHtml(voucher: any, options: {
 <body>
   ${options.includePrintButton ? `<button class="print no-print" onclick="window.print()">طباعة / حفظ PDF</button>` : ""}
   <main class="page">
-    <div class="bar"></div>
-    <div class="orb"></div>
-    <section class="header">
-      <div>
-        <h1>${esc(label)}</h1>
-        <div class="store">${esc(options.storeName)}</div>
-        ${options.storePhone ? `<div class="store-meta">${esc(options.storePhone)}</div>` : ""}
-        ${options.storeAddress ? `<div class="store-meta">${esc(options.storeAddress)}</div>` : ""}
-      </div>
-      <div class="amount">
-        <div class="label">المبلغ (${esc(options.currency)})</div>
-        <div class="value">${money(voucher.amount)}</div>
-      </div>
+    <section class="head">
+      <div class="store">${esc(options.storeName)}</div>
+      ${options.storePhone || options.storeAddress ? `<div class="store-meta">${esc([options.storeAddress, options.storePhone].filter(Boolean).join(" — "))}</div>` : ""}
+      <div class="doc">${esc(label)} ${esc(voucher.voucherNumber)}</div>
+      <div class="doc-meta">${formatDateTime(voucher.date)}</div>
     </section>
-    <section class="content">
-      <div class="row two">
-        <div class="field"><span class="key">رقم السند:</span><span class="value">${esc(voucher.voucherNumber)}</span></div>
-        <div class="field"><span class="key">التاريخ والوقت:</span><span class="value">${formatDateTime(voucher.date)}</span></div>
-      </div>
-      <div class="row">
-        <span class="key">${partyLabel(voucher.type)}</span>
-        <span class="value">${esc(shortText(partyName, 80))}</span>
-      </div>
-      ${options.previous !== null ? `
-      <div class="row">
-        <span class="key">الحساب السابق (قبل السند):</span>
-        <span class="value">${money(options.previous)} ${esc(options.currency)}</span>
-      </div>
-      <div class="row">
-        <span class="key">الحساب النهائي (بعد السند):</span>
-        <span class="value green">${money(options.final)} ${esc(options.currency)}</span>
-      </div>` : ""}
-      ${voucher.notes ? `
-      <div class="row">
-        <span class="key">الملاحظات:</span>
-        <span class="value">${esc(shortText(voucher.notes, 110))}</span>
-      </div>` : ""}
-      <div class="row methods">
-        <span class="key">طريقة الدفع:</span>
-        <span><span class="dot ${paymentChecked ? "checked" : ""}"></span>نقدا</span>
-        <span><span class="dot"></span>حوالة بنكية</span>
-        <span><span class="dot"></span>شيك</span>
-      </div>
-      <div class="muted" style="margin-top:14px;">أنشأه: ${esc(createdBy)} | وقت الإدخال: ${formatDateTime(voucher.createdAt ?? voucher.date)}</div>
+    <section class="party">
+      <div class="plabel">${esc(partyLabel(voucher.type))}</div>
+      <div class="pname">${esc(shortText(partyName, 60))}</div>
     </section>
+    ${storyBlock}
+    ${voucher.cancelledAt ? `<div class="notes" style="color:#e11d48;border-color:#fecaca;background:#fef2f2;text-align:center;font-weight:800;">⚠ هذا السند معطل — لا يؤثر على الحساب</div>` : ""}
+    ${voucher.notes ? `<div class="notes">ملاحظات: ${esc(shortText(voucher.notes, 140))}</div>` : ""}
+    <div class="foot">أنشأه: ${esc(createdBy)} — وقت الإدخال: ${formatDateTime(voucher.createdAt ?? voucher.date)}<br/>شكراً لتعاملكم معنا</div>
   </main>
 </body>
 </html>`;
@@ -278,64 +293,82 @@ export async function generateVoucherPng(voucherId: string) {
   const label = typeLabel(voucher.type);
   const partyName = voucher.customer?.name ?? voucher.description ?? "-";
   const createdBy = voucher.creator?.name ?? voucher.creator?.username ?? "-";
-  const previousRow = context.previous !== null
-    ? `<text x="770" y="356" text-anchor="end" class="key">الحساب السابق:</text>
-       <text x="455" y="356" text-anchor="end" class="value">${money(context.previous)} ${esc(context.currency)}</text>
-       <line x1="90" y1="374" x2="770" y2="374" class="dash"/>
-       <text x="770" y="426" text-anchor="end" class="key">الحساب النهائي:</text>
-       <text x="455" y="426" text-anchor="end" class="value green">${money(context.final)} ${esc(context.currency)}</text>
-       <line x1="90" y1="444" x2="770" y2="444" class="dash"/>`
+  const story = storyLabels(voucher.type);
+  const cur = esc(context.currency);
+  const hasStory = context.previous !== null;
+  const settled = context.final !== null && Math.abs(context.final) < 0.01;
+
+  // Vertical "account story" layout: one centered column, three stacked bands.
+  // Every band is a full-width box — nothing overlaps, nothing side-by-side.
+  const W = 760;
+  const boxX = 60;
+  const boxW = W - boxX * 2;
+  let y = 300; // first band start (below header + party)
+
+  // Two centered lines per band (label above, value below): centered anchors
+  // render identically regardless of how the SVG engine resolves RTL/bidi, so
+  // nothing can overflow the box edges.
+  function band(labelText: string, valueText: string, colors: { bg: string; border: string; label: string; value: string }, big = false) {
+    const h = big ? 118 : 104;
+    const block = `
+      <rect x="${boxX}" y="${y}" width="${boxW}" height="${h}" rx="14" fill="${colors.bg}" stroke="${colors.border}" stroke-width="2"/>
+      <text x="${W / 2}" y="${y + 38}" text-anchor="middle" font-size="22" font-weight="700" fill="${colors.label}">${labelText}</text>
+      <text x="${W / 2}" y="${y + h - 26}" text-anchor="middle" font-size="${big ? 36 : 30}" font-weight="800" fill="${colors.value}">${valueText}</text>`;
+    y += h + 14;
+    return block;
+  }
+
+  const gray = { bg: "#f9fafb", border: "#e5e7eb", label: "#4b5563", value: "#6b7280" };
+  const green = { bg: "#ecfdf5", border: "#a7f3d0", label: "#047857", value: "#047857" };
+  const orange = { bg: "#fff7ed", border: "#fed7aa", label: "#9a3412", value: "#9a3412" };
+
+  let bands = "";
+  if (hasStory) {
+    const prev = context.previous ?? 0;
+    const fin = context.final ?? 0;
+    bands += band(esc(story.before), `${money(Math.abs(prev))} ${cur} ${esc(balanceWord(prev))}`, gray);
+    bands += band(esc(story.amount), `${money(voucher.amount)} ${cur}`, green, true);
+    bands += settled
+      ? band(esc(story.after), "صفر — تمت التسوية ✓", green, true)
+      : band(esc(story.after), `${money(Math.abs(fin))} ${cur} ${esc(balanceWord(fin))}`, orange, true);
+  } else {
+    bands += band(esc(voucher.type === "EXPENSE" ? "مبلغ المصروف" : story.amount), `${money(voucher.amount)} ${cur}`, green, true);
+  }
+  if (voucher.cancelledAt) {
+    bands += `<text x="${W / 2}" y="${y + 12}" text-anchor="middle" font-size="20" font-weight="800" fill="#e11d48">⚠ هذا السند معطل — لا يؤثر على الحساب</text>`;
+    y += 40;
+  }
+
+  const notesBlock = voucher.notes
+    ? `<text x="${W / 2}" y="${y + 16}" text-anchor="middle" font-size="18" fill="#6b7280">ملاحظات: ${esc(shortText(voucher.notes, 70))}</text>`
     : "";
-  const notesRow = voucher.notes
-    ? `<text x="770" y="496" text-anchor="end" class="key">الملاحظات:</text>
-       <text x="455" y="496" text-anchor="end" class="value">${esc(shortText(voucher.notes, 70))}</text>
-       <line x1="90" y1="514" x2="770" y2="514" class="dash"/>`
-    : "";
-  const svg = `<svg width="900" height="650" viewBox="0 0 900 650" xmlns="http://www.w3.org/2000/svg" direction="rtl">
+  const footY = y + (voucher.notes ? 52 : 24);
+  const H = footY + 60;
+
+  const svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" direction="rtl">
     <defs>
       <style>
         text { font-family: Tahoma, Arial, sans-serif; }
-        .key { font-size: 24px; font-weight: 700; fill: #4b5563; }
-        .value { font-size: 25px; font-weight: 800; fill: #111827; }
-        .green { fill: #059669; }
-        .dash { stroke: #9ca3af; stroke-width: 2; stroke-dasharray: 8 7; }
       </style>
-      <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-        <feDropShadow dx="0" dy="10" stdDeviation="16" flood-color="#111827" flood-opacity="0.12"/>
-      </filter>
+      <linearGradient id="head" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#059669"/>
+        <stop offset="1" stop-color="#10b981"/>
+      </linearGradient>
     </defs>
-    <rect width="900" height="650" fill="#f3f4f6"/>
-    <rect x="70" y="46" width="760" height="560" rx="18" fill="#ffffff" filter="url(#shadow)"/>
-    <rect x="70" y="46" width="760" height="9" fill="#10b981"/>
-    <circle cx="820" cy="30" r="95" fill="#ecfdf5" opacity="0.8"/>
+    <rect width="${W}" height="${H}" fill="#ffffff"/>
+    <rect x="0" y="0" width="${W}" height="150" fill="url(#head)"/>
+    <text x="${W / 2}" y="46" text-anchor="middle" font-size="28" font-weight="800" fill="#ffffff">${esc(context.storeName)}</text>
+    <text x="${W / 2}" y="98" text-anchor="middle" font-size="30" font-weight="800" fill="#ffffff">${esc(label)} ${esc(voucher.voucherNumber)}</text>
+    <text x="${W / 2}" y="132" text-anchor="middle" font-size="19" fill="#d1fae5">${formatDateTime(voucher.date)}</text>
 
-    <text x="770" y="118" text-anchor="end" font-size="38" font-weight="800" fill="#1f2937">${esc(label)}</text>
-    <text x="770" y="154" text-anchor="end" font-size="21" font-weight="800" fill="#059669">${esc(context.storeName)}</text>
-    <rect x="92" y="88" width="190" height="84" rx="12" fill="#ecfdf5" stroke="#d1fae5"/>
-    <text x="187" y="116" text-anchor="middle" font-size="14" fill="#6b7280">المبلغ (${esc(context.currency)})</text>
-    <text x="187" y="154" text-anchor="middle" font-size="30" font-weight="800" fill="#047857">${money(voucher.amount)}</text>
-    <line x1="90" y1="200" x2="770" y2="200" stroke="#e5e7eb" stroke-width="2"/>
+    <text x="${W / 2}" y="196" text-anchor="middle" font-size="19" font-weight="700" fill="#6b7280">${esc(partyLabel(voucher.type))}</text>
+    <text x="${W / 2}" y="240" text-anchor="middle" font-size="32" font-weight="800" fill="#111827">${esc(shortText(partyName, 40))}</text>
+    <line x1="${boxX}" y1="268" x2="${W - boxX}" y2="268" stroke="#e5e7eb" stroke-width="2"/>
 
-    <text x="770" y="256" text-anchor="end" class="key">رقم السند:</text>
-    <text x="575" y="256" text-anchor="end" class="value">${esc(voucher.voucherNumber)}</text>
-    <text x="380" y="256" text-anchor="end" class="key">التاريخ:</text>
-    <text x="145" y="256" text-anchor="start" class="value">${formatDateTime(voucher.date)}</text>
-    <line x1="90" y1="274" x2="770" y2="274" class="dash"/>
-
-    <text x="770" y="326" text-anchor="end" class="key">${esc(partyLabel(voucher.type))}</text>
-    <text x="420" y="326" text-anchor="end" class="value">${esc(shortText(partyName, 55))}</text>
-    <line x1="90" y1="344" x2="770" y2="344" class="dash"/>
-    ${previousRow}
-    ${notesRow}
-
-    <text x="770" y="560" text-anchor="end" class="key">طريقة الدفع:</text>
-    <circle cx="570" cy="552" r="9" fill="#10b981" stroke="#059669" stroke-width="3"/>
-    <text x="545" y="560" text-anchor="end" font-size="22" fill="#111827">نقدا</text>
-    <circle cx="390" cy="552" r="9" fill="#ffffff" stroke="#9ca3af" stroke-width="3"/>
-    <text x="365" y="560" text-anchor="end" font-size="22" fill="#111827">حوالة</text>
-    <circle cx="235" cy="552" r="9" fill="#ffffff" stroke="#9ca3af" stroke-width="3"/>
-    <text x="210" y="560" text-anchor="end" font-size="22" fill="#111827">شيك</text>
-    <text x="450" y="590" text-anchor="middle" font-size="13" fill="#9ca3af">أنشأه: ${esc(createdBy)} | ${formatDateTime(voucher.createdAt ?? voucher.date)}</text>
+    ${bands}
+    ${notesBlock}
+    <text x="${W / 2}" y="${footY + 18}" text-anchor="middle" font-size="15" fill="#9ca3af">أنشأه: ${esc(createdBy)} — ${formatDateTime(voucher.createdAt ?? voucher.date)}</text>
+    <text x="${W / 2}" y="${footY + 42}" text-anchor="middle" font-size="16" fill="#6b7280">شكراً لتعاملكم معنا 🌟</text>
   </svg>`;
   return sharp(Buffer.from(svg, "utf8")).png().toBuffer();
 }
