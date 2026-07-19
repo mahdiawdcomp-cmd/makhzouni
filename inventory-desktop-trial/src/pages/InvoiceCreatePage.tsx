@@ -421,7 +421,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }, [productHighlight])
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
-  const previousBalance = selectedCustomer?.currentBalance ?? 0
+  // Edit mode: the customer's currentBalance ALREADY CONTAINS this invoice's
+  // remaining amount — using it as-is double-counts the invoice (بيع 1,250 على
+  // رصيد 15,000 كان يعرض حساب سابق 16,250 ونهائي 17,500). Subtract the
+  // invoice's own contribution to get the true pre-invoice balance.
+  const rawCustomerBalance = selectedCustomer?.currentBalance ?? 0
+  const previousBalance =
+    isEdit && editingInvoice && selectedCustomer?.id === editingInvoice.customerId && editingInvoice.status === "ACTIVE"
+      ? rawCustomerBalance - (editingInvoice.type === "PURCHASE" ? -1 : 1) * Number(editingInvoice.remainingAmount ?? 0)
+      : rawCustomerBalance
   const beforePayment = calculateInvoiceFinancials({
     type: invoiceType,
     subtotal,
