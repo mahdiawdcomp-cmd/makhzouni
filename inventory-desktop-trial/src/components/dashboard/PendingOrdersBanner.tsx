@@ -10,8 +10,9 @@ import {
   Phone,
   FileText,
   Trash2,
+  UserPlus,
 } from "lucide-react"
-import { getOrderPreparations, cancelInvoice, cancelOrderPreparation } from "../../api/endpoints"
+import { getOrderPreparations, cancelInvoice, cancelOrderPreparation, createPreparationCustomer } from "../../api/endpoints"
 import type { OrderPreparation } from "../../types/api"
 import { cn } from "../../utils/cn"
 
@@ -48,6 +49,17 @@ function OrderCard({ order }: { order: OrderPreparation }) {
     onSuccess: () => {
       setShowCancelDialog(false)
       qc.invalidateQueries({ queryKey: ["order-preparations"] })
+    },
+  })
+
+  // «زبون جديد — نسويله حساب؟» — order arrived (Telegram bot) with a phone
+  // that matches no customer; one click creates the account so the invoice
+  // lands on it.
+  const createCustomerMutation = useMutation({
+    mutationFn: () => createPreparationCustomer(order.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["order-preparations"] })
+      qc.invalidateQueries({ queryKey: ["customers"] })
     },
   })
 
@@ -105,7 +117,14 @@ function OrderCard({ order }: { order: OrderPreparation }) {
             <Package className="h-5 w-5" />
           </div>
           <div className="min-w-0">
-            <p className="font-bold text-slate-900 truncate">{order.customerName}</p>
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="font-bold text-slate-900 truncate">{order.customerName}</p>
+              {!order.customerId && (
+                <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 border border-rose-300">
+                  زبون جديد
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <Phone className="h-3 w-3" />
               <span dir="ltr">{order.customerPhone}</span>
@@ -136,6 +155,19 @@ function OrderCard({ order }: { order: OrderPreparation }) {
             <Trash2 className="h-4 w-4" />
             إلغاء
           </button>
+
+          {!order.customerId && (
+            <button
+              type="button"
+              disabled={createCustomerMutation.isPending}
+              onClick={() => createCustomerMutation.mutate()}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-60"
+              title="هذا الرقم غير مسجل — إنشاء حساب زبون بالاسم والرقم الواردين بالطلب"
+            >
+              <UserPlus className="h-4 w-4" />
+              {createCustomerMutation.isPending ? "جاري الإنشاء..." : "إنشاء حساب"}
+            </button>
+          )}
 
           <button
             type="button"

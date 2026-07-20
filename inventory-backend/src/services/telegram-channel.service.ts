@@ -93,7 +93,7 @@ function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string } | null 
   return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
 }
 
-async function tgCall(botToken: string, method: string, body: FormData | Record<string, unknown>) {
+export async function tgCall(botToken: string, method: string, body: FormData | Record<string, unknown>) {
   const url = `${TG_API}/bot${botToken}/${method}`;
   const init: RequestInit =
     body instanceof FormData
@@ -116,8 +116,30 @@ async function tgCall(botToken: string, method: string, body: FormData | Record<
   return json.result;
 }
 
+// Bot username cache (for the «اطلب» deep-link button). Refreshed when the
+// token changes.
+let cachedBotUsername: { token: string; username: string } | null = null;
+
+export async function getBotUsername(botToken: string): Promise<string> {
+  if (cachedBotUsername?.token === botToken) return cachedBotUsername.username;
+  const me = (await tgCall(botToken, "getMe", {})) as { username?: string };
+  const username = me.username || "";
+  cachedBotUsername = { token: botToken, username };
+  return username;
+}
+
+/** Inline «🛒 اطلب» button — deep link into the bot with the product id. */
+function orderButtonMarkup(botUsername: string, productId: string) {
+  if (!botUsername) return undefined;
+  return {
+    inline_keyboard: [
+      [{ text: "🛒 اطلب هذي المادة", url: `https://t.me/${botUsername}?start=p_${productId}` }],
+    ],
+  };
+}
+
 /** Loads the product's full image (fallback thumbnail) as a Blob for upload. */
-async function loadPhotoBlob(productId: string): Promise<Blob | null> {
+export async function loadPhotoBlob(productId: string): Promise<Blob | null> {
   const row = await prisma.product.findUnique({
     where: { id: productId },
     select: { imageUrl: true, thumbnailUrl: true },
@@ -149,10 +171,13 @@ async function publishProduct(
   const caption = buildCaption(product, settings);
   const photo = await loadPhotoBlob(product.id);
   if (!photo) return; // image vanished between the query and now — next tick recounts it
+  const botUsername = await getBotUsername(botToken).catch(() => "");
+  const markup = orderButtonMarkup(botUsername, product.id);
   const form = new FormData();
   form.append("chat_id", chatId);
   form.append("photo", photo, `${product.itemNumber}.jpg`);
   form.append("caption", caption);
+  if (markup) form.append("reply_markup", JSON.stringify(markup));
   const result = (await tgCall(botToken, "sendPhoto", form)) as { message_id: number };
   await prisma.telegramChannelPost.upsert({
     where: { productId: product.id },
@@ -161,11 +186,13 @@ async function publishProduct(
       messageId: result.message_id,
       captionHash: sha1(caption),
       imageHash: await imageHashFor(product.id),
+      buttonAdded: !!markup,
     },
     update: {
       messageId: result.message_id,
       captionHash: sha1(caption),
       imageHash: await imageHashFor(product.id),
+      buttonAdded: !!markup,
     },
   });
 }
@@ -207,6 +234,8 @@ async function editPost(
   const captionChanged = newCaptionHash !== post.captionHash;
   const imageChanged = newImageHash !== post.imageHash && newImageHash !== "";
   if (!captionChanged && !imageChanged) return "skipped";
+  const botUsername = await getBotUsername(botToken).catch(() => "");
+  const markup = orderButtonMarkup(botUsername, product.id);
   try {
     if (imageChanged) {
       const photo = await loadPhotoBlob(product.id);
@@ -216,6 +245,8 @@ async function editPost(
         form.append("message_id", String(post.messageId));
         form.append("media", JSON.stringify({ type: "photo", media: "attach://photo", caption }));
         form.append("photo", photo, `${product.itemNumber}.jpg`);
+        // edits drop the inline keyboard unless re-sent explicitly
+        if (markup) form.append("reply_markup", JSON.stringify(markup));
         await tgCall(botToken, "editMessageMedia", form);
       }
     } else {
@@ -223,6 +254,7 @@ async function editPost(
         chat_id: chatId,
         message_id: post.messageId,
         caption,
+        ...(markup ? { reply_markup: markup } : {}),
       });
     }
   } catch (err) {
@@ -283,6 +315,40 @@ async function listDesiredProducts(): Promise<{ desired: CatalogProduct[]; missi
   return { desired, missingImage: inStock.length - desired.length };
 }
 
+/* ── Webhook registration (Phase 2 bot) ─────────────────────────────────── */
+
+const WEBHOOK_SECRET_KEY = "telegramChannelWebhookSecret";
+let webhookConfirmedFor = ""; // token confirmed this process
+
+export async function getTelegramWebhookSecret(): Promise<string> {
+  const row = await prisma.setting.findUnique({ where: { key: WEBHOOK_SECRET_KEY } });
+  if (row && typeof row.value === "string" && row.value) return row.value;
+  const secret = crypto.randomBytes(24).toString("hex");
+  await prisma.setting.upsert({
+    where: { key: WEBHOOK_SECRET_KEY },
+    create: { key: WEBHOOK_SECRET_KEY, value: secret },
+    update: { value: secret },
+  });
+  return secret;
+}
+
+/**
+ * Registers the bot webhook once per process (idempotent on Telegram's side).
+ * The bot conversation (telegram-bot.service) receives updates on this URL.
+ */
+async function ensureWebhook(botToken: string) {
+  if (webhookConfirmedFor === botToken) return;
+  const base = (process.env.BACKEND_PUBLIC_URL?.trim() || "https://api.mazbwoni.com").replace(/\/$/, "");
+  const url = `${base}/api/public/telegram/webhook`;
+  const secret = await getTelegramWebhookSecret();
+  await tgCall(botToken, "setWebhook", {
+    url,
+    secret_token: secret,
+    allowed_updates: ["message", "callback_query"],
+  });
+  webhookConfirmedFor = botToken;
+}
+
 /** One reconcile pass, capped per tick. Called by cron + the sync-now endpoint. */
 export async function runTelegramChannelSyncTick(): Promise<void> {
   if (running) return;
@@ -292,6 +358,11 @@ export async function runTelegramChannelSyncTick(): Promise<void> {
     const botToken = (settings.telegramChannelBotToken || "").trim();
     const chatId = (settings.telegramChannelChatId || "").trim();
     if (!settings.telegramChannelEnabled || !botToken || !chatId) return;
+
+    // Bot webhook (Phase 2) — non-fatal if it fails, channel sync continues.
+    await ensureWebhook(botToken).catch((err) =>
+      console.error("[TelegramChannel] setWebhook failed:", err),
+    );
 
     const { desired } = await listDesiredProducts();
     const desiredById = new Map(desired.map((p) => [p.id, p]));
@@ -332,6 +403,30 @@ export async function runTelegramChannelSyncTick(): Promise<void> {
       const outcome = await editPost(botToken, chatId, post, product, settings);
       if (outcome !== "skipped") {
         edited += 1;
+        await spend();
+      }
+    }
+
+    // Backfill the «اطلب» button on posts published before Phase 2.
+    const botUsername = await getBotUsername(botToken).catch(() => "");
+    if (botUsername) {
+      const missingButton = posts.filter(
+        (p) => !p.buttonAdded && desiredById.has(p.productId),
+      );
+      for (const post of missingButton) {
+        if (ops >= MAX_OPS_PER_TICK) break;
+        try {
+          await tgCall(botToken, "editMessageReplyMarkup", {
+            chat_id: chatId,
+            message_id: post.messageId,
+            reply_markup: orderButtonMarkup(botUsername, post.productId),
+          });
+        } catch (err) {
+          if (!isGoneError(err) && !isNotModifiedError(err)) throw err;
+        }
+        await prisma.telegramChannelPost
+          .update({ where: { id: post.id }, data: { buttonAdded: true } })
+          .catch(() => undefined);
         await spend();
       }
     }

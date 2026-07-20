@@ -1028,6 +1028,189 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
   return { approvalId: approval.id, promoDiscount, isFreeDelivery, finalTotal: subtotal - promoDiscount };
 }
 
+/* ── Telegram bot orders (Phase 2) ────────────────────────────────── */
+
+export type TelegramCatalogOrderInput = {
+  customerName: string;
+  phone: string;
+  notes?: string;
+  address?: string;
+  items: Array<{ productId: string; unit: Unit; quantity: number }>;
+};
+
+/**
+ * Order submitted from the Telegram bot. Same pipeline as catalog orders
+ * (CATALOG_ORDER approval → order preparation → invoice), so admins see the
+ * exact same details/flow. The phone decides the linkage: a registered
+ * customer's order carries their customerId (invoice lands on their account);
+ * an unknown phone arrives as a lead — the order-preparations page offers a
+ * one-click «إنشاء حساب» for it.
+ */
+export async function submitTelegramCatalogOrder(input: TelegramCatalogOrderInput) {
+  const customerName = input.customerName.trim() || "زبون تيليگرام";
+  const phone = normalizePhone(input.phone);
+  if (!phone) throw new AppError("رقم الهاتف مطلوب", 400, "TELEGRAM_ORDER_INVALID");
+  if (!input.items.length) throw new AppError("السلة فارغة", 400, "TELEGRAM_ORDER_EMPTY");
+
+  const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
+  const products = await prisma.product.findMany({
+    where: { id: { in: uniqueProductIds }, deletedAt: null },
+    include: { warehouseStocks: { select: { quantityPieces: true } } },
+  });
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const requestedPiecesByProduct = new Map<string, number>();
+
+  for (const item of input.items) {
+    const product = productById.get(item.productId);
+    if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
+    requestedPiecesByProduct.set(
+      product.id,
+      (requestedPiecesByProduct.get(product.id) ?? 0) + requestedPieces
+    );
+  }
+  for (const product of products) {
+    if ((requestedPiecesByProduct.get(product.id) ?? 0) > totalStock(product)) {
+      throw new AppError(`الرصيد غير كافي للمادة: ${product.name}`, 400, "CATALOG_STOCK_NOT_ENOUGH");
+    }
+  }
+
+  const normalizedItems = input.items.map((item) => {
+    const product = productById.get(item.productId)!;
+    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+    return {
+      productId: product.id,
+      productName: product.name,
+      unit: item.unit,
+      quantity: item.quantity,
+      unitPrice,
+      totalPrice: unitPrice * item.quantity,
+      availableStock: totalStock(product),
+    };
+  });
+  const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  // Registered customer? Link the order to their account (invoice pre-selects them).
+  const customer = await prisma.customer.findFirst({
+    where: { phone, deletedAt: null },
+    select: { id: true, name: true },
+  });
+
+  const requester = await findApprovalRequester();
+  const approval = await createPendingApproval(
+    approvalRequestTypes.CATALOG_ORDER,
+    {
+      source: "TELEGRAM_BOT",
+      customerName: customer?.name ?? customerName,
+      phone,
+      customerId: customer?.id,
+      isNewCustomer: !customer,
+      address: input.address,
+      notes: input.notes,
+      subtotal,
+      finalTotal: subtotal,
+      body: {
+        customerName: customer?.name ?? customerName,
+        phone,
+        address: input.address,
+        notes: input.notes,
+        items: normalizedItems.map((item) => ({
+          productId: item.productId,
+          unit: item.unit,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+      },
+      displayItems: normalizedItems,
+    },
+    requester.id
+  );
+
+  setImmediate(() => {
+    notifyCatalogOrderSubmitted(
+      customer?.name ?? customerName,
+      phone,
+      normalizedItems.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+      })),
+    ).catch((err) => console.error("[TelegramOrder] notify failed:", err));
+    recordCatalogProductOrders(normalizedItems.map((i) => i.productId)).catch(() => {});
+  });
+
+  return {
+    approvalId: approval.id,
+    total: subtotal,
+    matchedCustomerName: customer?.name ?? null,
+    isNewCustomer: !customer,
+    items: normalizedItems,
+  };
+}
+
+/** Search available (in-stock, not deleted) products for the bot. */
+export async function searchCatalogProductsForBot(term: string, limit = 8) {
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true, itemNumber: true, name: true, category: true, salePrice: true,
+      pcsPerCarton: true, boxPieces: true, thumbnailUrl: true,
+      openingBalancePcs: true, cartonsAvailable: true,
+      warehouseStocks: { select: { quantityPieces: true } },
+    },
+  });
+  const inStock = products.filter((p) => totalStock(p) > 0);
+  const t = term.trim().toLowerCase();
+  const matches = inStock.filter(
+    (p) => p.name.toLowerCase().includes(t) || p.itemNumber.toLowerCase().includes(t)
+  );
+  return matches.slice(0, limit);
+}
+
+/** Distinct categories of available products (bot browse). */
+export async function listCatalogCategoriesForBot() {
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    select: {
+      category: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true,
+      warehouseStocks: { select: { quantityPieces: true } },
+    },
+  });
+  const counts = new Map<string, number>();
+  for (const p of products) {
+    if (totalStock(p) <= 0) continue;
+    const cat = (p.category || "بدون صنف").trim() || "بدون صنف";
+    counts.set(cat, (counts.get(cat) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([name, count]) => ({ name, count }));
+}
+
+/** Available products of one category, paged (bot browse). */
+export async function listCatalogProductsByCategoryForBot(category: string, page = 0, pageSize = 6) {
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    select: {
+      id: true, itemNumber: true, name: true, category: true, salePrice: true,
+      pcsPerCarton: true, boxPieces: true, thumbnailUrl: true,
+      openingBalancePcs: true, cartonsAvailable: true,
+      warehouseStocks: { select: { quantityPieces: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+  const inCategory = products.filter((p) => {
+    if (totalStock(p) <= 0) return false;
+    const cat = (p.category || "بدون صنف").trim() || "بدون صنف";
+    return cat === category;
+  });
+  return {
+    total: inCategory.length,
+    items: inCategory.slice(page * pageSize, page * pageSize + pageSize),
+  };
+}
+
 /* ── Promo Code Services ──────────────────────────────────────────── */
 
 export async function validatePromoCode(code: string, customerId: string) {

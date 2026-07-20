@@ -1052,10 +1052,32 @@ model TelegramChannelPost {
   messageId   Int      @map("message_id")
   captionHash String   @map("caption_hash")
   imageHash   String   @default("") @map("image_hash")
+  // Inline «اطلب» deep-link button under the post (Phase 2). false = published
+  // before the button existed; the sync worker backfills it via
+  // editMessageReplyMarkup.
+  buttonAdded Boolean  @default(false) @map("button_added")
   publishedAt DateTime @default(now()) @map("published_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("telegram_channel_posts")
+}
+
+// «بوت تيليگرام» (Phase 2) — one row per Telegram user chatting with the bot.
+// Holds the conversation state machine + cart + the phone/customer linkage so
+// a returning customer never re-enters their number. Intentionally no FK to
+// Customer (customer may be merged/deleted; bot just re-resolves by phone).
+model TelegramBotChat {
+  id         String   @id @default(uuid()) @db.Uuid
+  chatId     BigInt   @unique @map("chat_id")
+  firstName  String   @default("") @map("first_name")
+  username   String   @default("")
+  phone      String   @default("")
+  customerId String?  @map("customer_id") @db.Uuid
+  state      Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("telegram_bot_chats")
 }
 
 // «الديون الشخصية» — personal debts unrelated to shop customers/accounting

@@ -1495,6 +1495,15 @@ export async function completeOrderPreparation(id: string, invoiceId: string) {
   return data
 }
 
+// «زبون جديد — نسويله حساب؟» (Telegram bot orders with an unregistered phone)
+export async function createPreparationCustomer(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; name: string; created: boolean }>>(
+    `/order-preparations/${id}/create-customer`,
+    {},
+  )
+  return data
+}
+
 // Cancel a pending preparation (rejected / not prepared)
 export async function cancelOrderPreparation(id: string) {
   const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(`/order-preparations/${id}/cancel`, {})

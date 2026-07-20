@@ -172,6 +172,30 @@ export async function createOrderPreparation(
   });
 }
 
+/**
+ * «زبون جديد — نسويله حساب؟» (Telegram bot orders): creates a Customer from the
+ * preparation's name+phone so the invoice lands on a real account. Idempotent —
+ * if the phone already belongs to a customer, just returns it.
+ */
+export async function createCustomerForPreparation(id: string) {
+  const { createCustomer } = await import("./customer.service");
+  const prep = await prisma.orderPreparation.findUnique({ where: { id } });
+  if (!prep) throw new AppError("Preparation not found", 404, "PREPARATION_NOT_FOUND");
+  if (!prep.customerPhone) throw new AppError("لا يوجد رقم هاتف بالطلب", 400, "PREPARATION_NO_PHONE");
+  const existing = await prisma.customer.findFirst({
+    where: { phone: prep.customerPhone, deletedAt: null },
+    select: { id: true, name: true },
+  });
+  if (existing) return { customerId: existing.id, name: existing.name, created: false };
+  const customer = await createCustomer({
+    name: prep.customerName || "زبون تيليگرام",
+    phone: prep.customerPhone,
+    notes: "أُنشئ من طلب بوت تيليگرام",
+    openingBalance: 0,
+  });
+  return { customerId: customer.id, name: customer.name, created: true };
+}
+
 export async function listPendingPreparations() {
   const rows = await prisma.orderPreparation.findMany({
     where: { status: OrderPreparationStatus.PENDING },

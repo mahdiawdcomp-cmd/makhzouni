@@ -76,6 +76,27 @@ router.post("/whatsapp/incoming-webhook", whatsappIncomingWebhook);
 router.get("/whatsapp/meta-webhook", whatsappMetaWebhookVerify);
 router.post("/whatsapp/meta-webhook", whatsappMetaWebhookReceive);
 
+// «بوت تيليگرام» webhook — registered automatically by the channel sync worker
+// (ensureWebhook). Verified by the secret header Telegram echoes back; wrong or
+// missing secret is silently dropped. Responds 200 immediately and processes
+// the update async so Telegram never retries due to slow handlers.
+router.post("/telegram/webhook", asyncHandler(async (req, res) => {
+  const { getTelegramWebhookSecret } = await import("../services/telegram-channel.service");
+  const secret = await getTelegramWebhookSecret();
+  if (req.headers["x-telegram-bot-api-secret-token"] !== secret) {
+    res.status(200).json({ ok: true });
+    return;
+  }
+  const update = req.body;
+  setImmediate(async () => {
+    const { handleTelegramUpdate } = await import("../services/telegram-bot.service");
+    await handleTelegramUpdate(update).catch((err) =>
+      console.error("[TelegramBot] webhook update failed:", err),
+    );
+  });
+  res.status(200).json({ ok: true });
+}));
+
 // Public media by unguessable token — video playback in the catalog admin and
 // the URL Meta pulls Instagram media from (images are ephemeral JPEG copies).
 // Range support so <video> seeking works in the browser.

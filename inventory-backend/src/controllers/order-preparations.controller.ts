@@ -1,6 +1,6 @@
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
-import { cancelPreparation, completePreparationWithInvoice, listPendingPreparations, markPrepared } from "../services/order-preparation.service";
+import { cancelPreparation, completePreparationWithInvoice, createCustomerForPreparation, listPendingPreparations, markPrepared } from "../services/order-preparation.service";
 
 export const getPendingPreparations = asyncHandler(async (_req, res) => {
   const data = await listPendingPreparations();
@@ -23,6 +23,18 @@ export const completeOrderPreparation = asyncHandler(async (req, res) => {
   if (!invoiceId) throw new AppError("invoiceId is required", 400, "INVOICE_ID_REQUIRED");
   const result = await completePreparationWithInvoice(id, req.user.id, invoiceId);
   res.json({ success: true, message: "Preparation completed", ...result });
+});
+
+// «زبون جديد — نسويله حساب؟»: create a Customer from the preparation phone.
+export const createPreparationCustomer = asyncHandler(async (req, res) => {
+  if (!req.user) throw new AppError("Authentication required", 401, "AUTH_REQUIRED");
+  const id = String(req.params.id);
+  const result = await createCustomerForPreparation(id);
+  res.json({
+    success: true,
+    message: result.created ? `تم إنشاء حساب للزبون: ${result.name}` : `الرقم مسجل أصلاً باسم: ${result.name}`,
+    data: result,
+  });
 });
 
 // Cancel a pending preparation (rejected / not prepared).
