@@ -1305,6 +1305,13 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
   return { rows: data.data ?? [], total: data.total ?? 0 }
 }
 
+export type CatalogVisitor = { id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string }
+
+export async function getCatalogVisitors() {
+  const { data } = await api.get<ApiEnvelope<{ visitors: CatalogVisitor[]; uniquePhones: number; totalVisits: number }>>("/catalog-management/visitors")
+  return data.data ?? { visitors: [], uniquePhones: 0, totalVisits: 0 }
+}
+
 export interface CatalogDesign {
   primaryColor: string | null
   bgColor: string | null

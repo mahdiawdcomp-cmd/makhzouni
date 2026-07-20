@@ -5,12 +5,18 @@ import {
   createCatalogAccessLink,
   updateCatalogAccessLink,
   revokeCatalogAccess,
+  listCatalogVisitors,
 } from "../services/catalog.service";
 import prisma from "../config/database";
 
 export const getCatalogCustomers = asyncHandler(async (_req, res) => {
   const rows = await listCustomersWithCatalogStatus();
   res.json({ success: true, data: rows });
+});
+
+export const getCatalogVisitorsCtrl = asyncHandler(async (_req, res) => {
+  const result = await listCatalogVisitors();
+  res.json({ success: true, data: result });
 });
 
 export const grantCatalogAccess = asyncHandler(async (req, res) => {

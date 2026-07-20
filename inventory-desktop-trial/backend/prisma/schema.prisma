@@ -338,6 +338,16 @@ model CatalogAccessLink {
   @@map("catalog_access_links")
 }
 
+model CatalogVisitor {
+  id          String   @id @default(uuid())
+  phone       String   @unique
+  visits      Int      @default(1)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@map("catalog_visitors")
+}
+
 model Invoice {
   id               String           @id @default(uuid())
   invoiceNumber    String           @unique @map("invoice_number")

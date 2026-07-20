@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import {
   getCatalogCustomers,
+  getCatalogVisitorsCtrl,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccessCtrl,
@@ -11,6 +12,7 @@ const router = Router();
 
 router.use(authMiddleware);
 
+router.get("/visitors", getCatalogVisitorsCtrl);
 router.get("/", getCatalogCustomers);
 
 // Grant / update / revoke per customer

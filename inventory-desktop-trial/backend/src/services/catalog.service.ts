@@ -80,6 +80,39 @@ function normalizePhone(input: string) {
   return digits;
 }
 
+// Deterministic Fisher-Yates shuffle driven by a numeric seed. Same seed → same
+// order, so every shopper who loads the catalog within the same hour sees the
+// identical arrangement, and it reshuffles automatically when the hour rolls.
+function seededShuffle<T>(items: T[], seed: number): T[] {
+  const out = items.slice();
+  let state = (seed % 2147483647) || 1;
+  const next = () => {
+    state = (state * 48271) % 2147483647;
+    return state / 2147483647;
+  };
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+// Seed that changes once per hour — shared by all shoppers so the whole catalog
+// reorders together on the hour.
+function hourlySeed() {
+  return Math.floor(Date.now() / (60 * 60 * 1000));
+}
+
+// Admin: guest phone-gate leads (populated by the web catalog's phone gate when
+// pointed at the same database), most recent first, with total visit count.
+export async function listCatalogVisitors() {
+  const visitors = await prisma.catalogVisitor.findMany({
+    orderBy: { lastSeenAt: "desc" },
+  });
+  const totalVisits = visitors.reduce((sum, v) => sum + v.visits, 0);
+  return { visitors, uniquePhones: visitors.length, totalVisits };
+}
+
 async function findApprovalRequester() {
   const requester = await prisma.user.findFirst({
     where: { isActive: true },
@@ -279,7 +312,7 @@ export async function listCatalogProducts(token: string) {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
-  return products
+  const mapped = products
     .map((product) => {
       const stock = stockOf(product);
       return {
@@ -301,6 +334,8 @@ export async function listCatalogProducts(token: string) {
       };
     })
     .filter((product) => product.currentStock > 0);
+
+  return seededShuffle(mapped, hourlySeed());
 }
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {
