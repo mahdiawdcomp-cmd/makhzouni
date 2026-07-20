@@ -42,6 +42,7 @@ import balanceMigrationRoutes from "./balance-migration.routes";
 import landedCostImportRoutes from "./landed-cost-import.routes";
 import personalDebtRoutes from "./personal-debt.routes";
 import instagramRoutes from "./instagram.routes";
+import telegramChannelRoutes from "./telegram-channel.routes";
 
 const router = Router();
 
@@ -88,5 +89,6 @@ router.use("/health", healthRoutes);
 router.use("/error-logs", errorLogsRoutes);
 router.use("/balance-migration", balanceMigrationRoutes);
 router.use("/landed-cost", landedCostImportRoutes);
+router.use("/telegram-channel", telegramChannelRoutes);
 
 export default router;

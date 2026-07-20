@@ -16,6 +16,7 @@ import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
+import { runTelegramChannelSyncTick } from "./telegram-channel.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
 import {
   NotificationType,
@@ -399,6 +400,15 @@ export function startNotificationJobs() {
   cron.schedule("* * * * *", () => {
     runInstagramQueueTick().catch((error) => {
       reportCronFailure("INSTAGRAM_QUEUE_TICK", error);
+    });
+  });
+
+  // «قناة تيليگرام» — reconcile the public channel with the wholesale catalog
+  // every minute; no-op unless enabled + configured in settings. Rate caps and
+  // overlap guard live in telegram-channel.service.
+  cron.schedule("* * * * *", () => {
+    runTelegramChannelSyncTick().catch((error) => {
+      reportCronFailure("TELEGRAM_CHANNEL_SYNC", error);
     });
   });
 

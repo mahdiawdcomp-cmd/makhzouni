@@ -102,6 +102,12 @@ export interface AppSettings {
   // Telegram backup delivery
   telegramBotToken?: string;
   telegramChatId?: string;
+  // «قناة تيليگرام» — public channel mirror of the wholesale catalog (see
+  // telegram-channel.service). Separate bot from the backup bot above by
+  // design — never reuse telegramBotToken here.
+  telegramChannelEnabled?: boolean;
+  telegramChannelBotToken?: string;
+  telegramChannelChatId?: string;
   // Wholesale catalog design (admin-configurable)
   catalogDesignPrimaryColor?: string;
   catalogDesignBgColor?: string;
@@ -290,6 +296,9 @@ export const defaultSettings: AppSettings = {
   cycleCountItemLimit: 20,
   cycleCountStrategy: "LEAST_RECENTLY_COUNTED",
   cycleCountLastRunAt: "",
+  telegramChannelEnabled: false,
+  telegramChannelBotToken: "",
+  telegramChannelChatId: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

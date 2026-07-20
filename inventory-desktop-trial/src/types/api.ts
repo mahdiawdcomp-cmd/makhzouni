@@ -911,6 +911,10 @@ export interface AppSettings {
   // Telegram backup delivery
   telegramBotToken?: string
   telegramChatId?: string
+  // «قناة تيليگرام» — public channel mirror of the wholesale catalog (separate bot)
+  telegramChannelEnabled?: boolean
+  telegramChannelBotToken?: string
+  telegramChannelChatId?: string
   // Seasonal event alerts (JSON string: SeasonalAlert[])
   seasonalAlerts?: string
   // Retail storefront "designed by" credit (shown in shop footer)

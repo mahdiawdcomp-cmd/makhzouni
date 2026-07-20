@@ -1241,6 +1241,36 @@ export async function sendBackupToTelegram() {
   return data
 }
 
+// ── «قناة تيليگرام» — wholesale-catalog mirror channel ──────────────────────
+export interface TelegramChannelStatus {
+  enabled: boolean
+  configured: boolean
+  availableCount: number
+  postedCount: number
+  pendingCount: number
+  missingImageCount: number
+  lastRunAt: string | null
+  lastError: string | null
+  lastRunPublished: number
+  lastRunDeleted: number
+  lastRunEdited: number
+}
+
+export async function getTelegramChannelStatus() {
+  const { data } = await api.get<TelegramChannelStatus>("/telegram-channel/status")
+  return data
+}
+
+export async function testTelegramChannel() {
+  const { data } = await api.post<{ botName: string }>("/telegram-channel/test")
+  return data
+}
+
+export async function syncTelegramChannelNow() {
+  const { data } = await api.post<TelegramChannelStatus>("/telegram-channel/sync-now")
+  return data
+}
+
 export async function triggerDailySummary() {
   const { data } = await api.post<ApiEnvelope<{ message: string }>>("/settings/daily-summary/run")
   return data

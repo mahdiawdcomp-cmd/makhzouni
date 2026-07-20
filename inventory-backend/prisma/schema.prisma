@@ -1040,6 +1040,24 @@ model Setting {
   @@map("settings")
 }
 
+// «قناة تيليگرام» — public Telegram channel mirror of the wholesale catalog.
+// Maps each published product to its channel message so the sync worker
+// (telegram-channel.service) can edit/delete it later. Intentionally no FK to
+// Product: a hard-deleted product must keep its row until the worker deletes
+// the channel message, then removes the row itself. Uses its own bot — never
+// the backup-delivery telegramBotToken settings.
+model TelegramChannelPost {
+  id          String   @id @default(uuid()) @db.Uuid
+  productId   String   @unique @map("product_id") @db.Uuid
+  messageId   Int      @map("message_id")
+  captionHash String   @map("caption_hash")
+  imageHash   String   @default("") @map("image_hash")
+  publishedAt DateTime @default(now()) @map("published_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("telegram_channel_posts")
+}
+
 // «الديون الشخصية» — personal debts unrelated to shop customers/accounting
 // (e.g. cash lent to a friend). Completely separate from Customer/Notification
 // models above — do not merge. One admin-facing reminder flow: a daily cron

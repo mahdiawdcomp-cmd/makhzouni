@@ -11,6 +11,7 @@ import { Sidebar, SidebarTopBar } from "./Sidebar"
 import { useUiStore } from "../../store/uiStore"
 import { PwaStatusBar } from "../PwaStatusBar"
 import { SystemHealthBar } from "../SystemHealthBar"
+import { MissingImageBanner } from "../MissingImageBanner"
 import { usePwaStatus } from "../../pwa/usePwaStatus"
 import { useGlobalShortcuts } from "../../hooks/useGlobalShortcuts"
 import { useGlobalBarcodeScanner } from "../../hooks/useGlobalBarcodeScanner"
@@ -334,6 +335,9 @@ export function AppLayout() {
 
         {/* System health strip (only when a subsystem is warn/down) */}
         <SystemHealthBar />
+
+        {/* In-stock products missing an image (admin-only, one line, no notifications) */}
+        <MissingImageBanner />
 
         {/* Desktop header */}
         <div className="hidden lg:block">

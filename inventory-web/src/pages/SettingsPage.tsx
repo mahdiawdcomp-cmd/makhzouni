@@ -63,6 +63,9 @@ import {
   triggerDailySummary,
   downloadFullBackup,
   sendBackupToTelegram,
+  getTelegramChannelStatus,
+  testTelegramChannel,
+  syncTelegramChannelNow,
   getDangerInfo,
   wipeOperationalData,
   mergeWarehouses,
@@ -180,13 +183,14 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "store" | "theme" | "whatsapp" | "instagram" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
+type SettingsTab = "store" | "theme" | "whatsapp" | "instagram" | "telegram" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "store",     label: "المتجر",           icon: Building2 },
   { id: "theme",     label: "المظهر",           icon: Palette },
   { id: "whatsapp",  label: "واتساب",           icon: MessageCircle },
   { id: "instagram", label: "انستغرام",         icon: InstagramIcon },
+  { id: "telegram",  label: "قناة تيليگرام",    icon: Send },
   { id: "alerts",    label: "التنبيهات",        icon: BellRing },
   { id: "security",  label: "الأمان",           icon: KeyRound },
   { id: "backup",    label: "النسخ الاحتياطي",  icon: Download },
@@ -283,6 +287,34 @@ export function SettingsPage() {
     mutationFn: sendBackupToTelegram,
     onSuccess: (res) => setTelegramMsg(`✓ ${res.message ?? "تم الإرسال لتيليغرام"}`),
     onError: (err: Error) => setTelegramMsg(`✗ ${err.message}`),
+  })
+
+  // «قناة تيليگرام» — wholesale-catalog mirror channel
+  const [tgChannelMsg, setTgChannelMsg] = useState("")
+  const tgChannelStatusQuery = useQuery({
+    queryKey: ["telegram-channel-status"],
+    queryFn: getTelegramChannelStatus,
+    enabled: activeTab === "telegram",
+    refetchInterval: activeTab === "telegram" ? 30_000 : false,
+  })
+  const tgChannelTestMutation = useMutation({
+    mutationFn: testTelegramChannel,
+    onSuccess: (res) => setTgChannelMsg(`✓ الربط شغال — البوت: @${res.botName}`),
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setTgChannelMsg(`✗ ${msg || "فشل الاختبار — تأكد من التوكن ومعرّف القناة وأن البوت أدمن"}`)
+    },
+  })
+  const tgChannelSyncMutation = useMutation({
+    mutationFn: syncTelegramChannelNow,
+    onSuccess: () => {
+      setTgChannelMsg("✓ انطلقت دفعة مزامنة (الحد ~12 عملية بالدفعة، والباقي يكمل تلقائياً كل دقيقة)")
+      queryClient.invalidateQueries({ queryKey: ["telegram-channel-status"] })
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setTgChannelMsg(`✗ ${msg || "فشلت المزامنة"}`)
+    },
   })
 
   async function handleDownloadBackup() {
@@ -567,6 +599,109 @@ export function SettingsPage() {
       {/* ── INSTAGRAM ──────────────────────────────────────── */}
       {activeTab === "instagram" && (
         <Card><CardContent className="p-4"><InstagramSettings /></CardContent></Card>
+      )}
+
+      {/* ── TELEGRAM CHANNEL (wholesale-catalog mirror) ─────── */}
+      {activeTab === "telegram" && (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>قناة تيليگرام — مرآة كتلوك الجملة</SectionTitle>
+              <p className="text-sm text-slate-500">
+                كل مادة متوفرة (رصيد أكبر من صفر وعندها صورة) تُنشر تلقائياً بالقناة: صورة + اسم + رقم المادة + سعر القطعة والكارتون + رابط الكتلوك.
+                لما تخلص المادة ينحذف منشورها، ولما يتغيّر السعر أو الاسم يتعدّل المنشور بصمت. المزامنة كل دقيقة (على دفعات حتى ما يحظرنا تيليگرام).
+              </p>
+              <p className="text-sm text-slate-500">
+                أنشئ بوت <b>جديد</b> عبر @BotFather (غير بوت النسخ الاحتياطي)، أضفه أدمن بقناتك بصلاحية نشر وحذف، ثم املأ الحقول أدناه.
+                معرّف القناة: @اسم_القناة إذا عامة، أو المعرّف الرقمي (يبدأ بـ ‎-100‎) إذا خاصة.
+              </p>
+              <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[var(--theme-accent)]"
+                  checked={settings.telegramChannelEnabled ?? false}
+                  onChange={(e) => upd("telegramChannelEnabled", e.target.checked)}
+                />
+                تفعيل النشر التلقائي بالقناة
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="توكن بوت القناة (Bot Token)">
+                  <Input
+                    value={settings.telegramChannelBotToken ?? ""}
+                    onChange={(e) => upd("telegramChannelBotToken", e.target.value)}
+                    placeholder="123456789:AAF..."
+                    dir="ltr"
+                    type="password"
+                  />
+                </Field>
+                <Field label="معرّف القناة (Channel ID)">
+                  <Input
+                    value={settings.telegramChannelChatId ?? ""}
+                    onChange={(e) => upd("telegramChannelChatId", e.target.value)}
+                    placeholder="@my_channel أو -1001234567890"
+                    dir="ltr"
+                  />
+                </Field>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  disabled={tgChannelTestMutation.isPending || !settings.telegramChannelBotToken || !settings.telegramChannelChatId}
+                  onClick={() => tgChannelTestMutation.mutate()}
+                >
+                  {tgChannelTestMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  اختبار الربط
+                </Button>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  disabled={tgChannelSyncMutation.isPending || !(settings.telegramChannelEnabled ?? false)}
+                  onClick={() => tgChannelSyncMutation.mutate()}
+                >
+                  {tgChannelSyncMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  مزامنة الآن
+                </Button>
+                {tgChannelMsg && (
+                  <span className={`text-sm ${tgChannelMsg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}>
+                    {tgChannelMsg}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-amber-600">
+                ⚠️ القناة عامة والأسعار ظاهرة بالمنشورات — اختبر الربط ثم احفظ قبل التفعيل. لا تستخدم توكن بوت النسخ الاحتياطي هنا.
+              </p>
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} error={saveError} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-3">
+              <SectionTitle>حالة القناة</SectionTitle>
+              {tgChannelStatusQuery.data ? (
+                <div className="grid gap-2 sm:grid-cols-2 text-sm">
+                  <div>المواد المتوفرة القابلة للنشر: <b>{tgChannelStatusQuery.data.availableCount}</b></div>
+                  <div>المنشور فعلياً بالقناة: <b>{tgChannelStatusQuery.data.postedCount}</b></div>
+                  <div>بانتظار النشر: <b>{tgChannelStatusQuery.data.pendingCount}</b></div>
+                  <div className={tgChannelStatusQuery.data.missingImageCount > 0 ? "text-amber-600" : ""}>
+                    متوفرة بدون صورة (لا تُنشر): <b>{tgChannelStatusQuery.data.missingImageCount}</b>
+                  </div>
+                  <div>
+                    آخر مزامنة: <b dir="ltr">{tgChannelStatusQuery.data.lastRunAt ? new Date(tgChannelStatusQuery.data.lastRunAt).toLocaleString("ar-IQ") : "—"}</b>
+                  </div>
+                  <div>
+                    آخر دفعة: نشر {tgChannelStatusQuery.data.lastRunPublished} / حذف {tgChannelStatusQuery.data.lastRunDeleted} / تعديل {tgChannelStatusQuery.data.lastRunEdited}
+                  </div>
+                  {tgChannelStatusQuery.data.lastError && (
+                    <div className="sm:col-span-2 text-rose-600">آخر خطأ: {tgChannelStatusQuery.data.lastError}</div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">جاري التحميل…</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* ── WHATSAPP ───────────────────────────────────────── */}
