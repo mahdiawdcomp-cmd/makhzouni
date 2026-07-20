@@ -768,6 +768,11 @@ export const sendWhatsAppTemplatedSchema = z.object({
   }),
 });
 
+// The settings page round-trips the whole settings object, and legacy rows can
+// hold JSON null — treat null as "not sent" instead of failing validation.
+const nullAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (v === null ? undefined : v), schema.optional());
+
 export const updateSettingsSchema = z.object({
   body: z
     .object({
@@ -866,41 +871,41 @@ export const updateSettingsSchema = z.object({
       personalDebtReminderWhatsappNumber: z.string().trim().optional(),
       // Telegram backup delivery (fields existed in the UI but were silently
       // stripped here — validate() replaces req.body with the parsed object).
-      telegramBotToken: z.string().trim().optional(),
-      telegramChatId: z.string().trim().optional(),
+      telegramBotToken: nullAsUndefined(z.string().trim()),
+      telegramChatId: nullAsUndefined(z.string().trim()),
       // Meta Cloud API template names (all UI-editable; were silently stripped
       // like the Telegram fields above — same latent bug, fixed 2026-07-20).
-      invoiceTemplateName: z.string().trim().optional(),
-      voucherTemplateName: z.string().trim().optional(),
-      statementTemplateName: z.string().trim().optional(),
-      portalLinkTemplateName: z.string().trim().optional(),
-      statementPdfTemplateName: z.string().trim().optional(),
-      otpTemplateName: z.string().trim().optional(),
-      catalogAccessRequestedTemplateName: z.string().trim().optional(),
-      catalogAccessApprovedTemplateName: z.string().trim().optional(),
-      orderSubmittedTemplateName: z.string().trim().optional(),
-      productArrivalTemplateName: z.string().trim().optional(),
-      debtReminderTemplateName: z.string().trim().optional(),
-      inactiveCustomerTemplateName: z.string().trim().optional(),
+      invoiceTemplateName: nullAsUndefined(z.string().trim()),
+      voucherTemplateName: nullAsUndefined(z.string().trim()),
+      statementTemplateName: nullAsUndefined(z.string().trim()),
+      portalLinkTemplateName: nullAsUndefined(z.string().trim()),
+      statementPdfTemplateName: nullAsUndefined(z.string().trim()),
+      otpTemplateName: nullAsUndefined(z.string().trim()),
+      catalogAccessRequestedTemplateName: nullAsUndefined(z.string().trim()),
+      catalogAccessApprovedTemplateName: nullAsUndefined(z.string().trim()),
+      orderSubmittedTemplateName: nullAsUndefined(z.string().trim()),
+      productArrivalTemplateName: nullAsUndefined(z.string().trim()),
+      debtReminderTemplateName: nullAsUndefined(z.string().trim()),
+      inactiveCustomerTemplateName: nullAsUndefined(z.string().trim()),
       // WhatsApp send channels (per-send picker)
-      personalChannelEnabled: z.boolean().optional(),
-      personalChannelDailyLimit: z.coerce.number().int().min(1).max(10000).optional(),
-      webChannelEnabled: z.boolean().optional(),
+      personalChannelEnabled: nullAsUndefined(z.boolean()),
+      personalChannelDailyLimit: nullAsUndefined(z.coerce.number().int().min(1).max(10000)),
+      webChannelEnabled: nullAsUndefined(z.boolean()),
       // Wholesale catalog design + shuffle
-      catalogDesignPrimaryColor: z.string().trim().optional(),
-      catalogDesignBgColor: z.string().trim().optional(),
-      catalogDesignDefaultTheme: z.enum(["clean", "warm", "dark", "vibrant"]).optional(),
-      catalogDesignLogoUrl: z.string().trim().optional(),
-      catalogDesignWelcomeMessage: z.string().trim().optional(),
-      catalogDesignBannerEnabled: z.boolean().optional(),
-      catalogDesignBannerImages: z
-        .array(z.object({ url: z.string(), title: z.string(), order: z.coerce.number() }))
-        .optional(),
-      catalogShuffleMode: z.enum(["hourly", "daily", "off"]).optional(),
+      catalogDesignPrimaryColor: nullAsUndefined(z.string().trim()),
+      catalogDesignBgColor: nullAsUndefined(z.string().trim()),
+      catalogDesignDefaultTheme: nullAsUndefined(z.enum(["clean", "warm", "dark", "vibrant"])),
+      catalogDesignLogoUrl: nullAsUndefined(z.string().trim()),
+      catalogDesignWelcomeMessage: nullAsUndefined(z.string().trim()),
+      catalogDesignBannerEnabled: nullAsUndefined(z.boolean()),
+      catalogDesignBannerImages: nullAsUndefined(
+        z.array(z.object({ url: z.string(), title: z.string(), order: z.coerce.number() })),
+      ),
+      catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
-      telegramChannelEnabled: z.boolean().optional(),
-      telegramChannelBotToken: z.string().trim().optional(),
-      telegramChannelChatId: z.string().trim().optional(),
+      telegramChannelEnabled: nullAsUndefined(z.boolean()),
+      telegramChannelBotToken: nullAsUndefined(z.string().trim()),
+      telegramChannelChatId: nullAsUndefined(z.string().trim()),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",
