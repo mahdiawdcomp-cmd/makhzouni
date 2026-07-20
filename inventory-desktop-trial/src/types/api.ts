@@ -915,6 +915,13 @@ export interface AppSettings {
   telegramChannelEnabled?: boolean
   telegramChannelBotToken?: string
   telegramChannelChatId?: string
+  telegramBotWelcomeMessage?: string
+  telegramBotStoreAddress?: string
+  telegramBotWorkingHours?: string
+  telegramBotContactPhone?: string
+  telegramBotBannedChatIds?: string[]
+  telegramDigestLastMessageId?: number
+  telegramDigestLastMessageDate?: string
   // Seasonal event alerts (JSON string: SeasonalAlert[])
   seasonalAlerts?: string
   // Retail storefront "designed by" credit (shown in shop footer)

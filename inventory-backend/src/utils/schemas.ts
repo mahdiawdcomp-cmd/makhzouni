@@ -906,6 +906,14 @@ export const updateSettingsSchema = z.object({
       telegramChannelEnabled: nullAsUndefined(z.boolean()),
       telegramChannelBotToken: nullAsUndefined(z.string().trim()),
       telegramChannelChatId: nullAsUndefined(z.string().trim()),
+      // «بوت الطلبات» — configurable text + anti-spam + digest pin tracking.
+      telegramBotWelcomeMessage: nullAsUndefined(z.string().trim()),
+      telegramBotStoreAddress: nullAsUndefined(z.string().trim()),
+      telegramBotWorkingHours: nullAsUndefined(z.string().trim()),
+      telegramBotContactPhone: nullAsUndefined(z.string().trim()),
+      telegramBotBannedChatIds: nullAsUndefined(z.array(z.string())),
+      telegramDigestLastMessageId: nullAsUndefined(z.coerce.number()),
+      telegramDigestLastMessageDate: nullAsUndefined(z.string().trim()),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

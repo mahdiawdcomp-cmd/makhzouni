@@ -1036,6 +1036,7 @@ export type TelegramCatalogOrderInput = {
   notes?: string;
   address?: string;
   items: Array<{ productId: string; unit: Unit; quantity: number }>;
+  couponCode?: string;
 };
 
 /**
@@ -1114,6 +1115,7 @@ export async function submitTelegramCatalogOrder(input: TelegramCatalogOrderInpu
         phone,
         address: input.address,
         notes: input.notes,
+        couponCode: input.couponCode,
         items: normalizedItems.map((item) => ({
           productId: item.productId,
           unit: item.unit,

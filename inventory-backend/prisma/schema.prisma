@@ -788,11 +788,16 @@ model Invoice {
   archivedAt        DateTime?               @map("archived_at")
   deletedBy         String?                 @map("deleted_by") @db.Uuid
   deleteReason      String?                 @map("delete_reason")
+  // Origin channel ("TELEGRAM_BOT" | "WHATSAPP" | "PUBLIC_CATALOG" | ... ) —
+  // free string, not an enum, matching how approval.service.ts already tags
+  // requests. Null on legacy rows created before this column existed.
+  source            String?
 
   @@index([customerId])
   @@index([date])
   @@index([createdAt])
   @@index([customerId, date])
+  @@index([source])
   @@index([createdBy])
   @@index([branchId])
   @@index([couponId])
@@ -1080,6 +1085,42 @@ model TelegramBotChat {
   @@map("telegram_bot_chats")
 }
 
+// Admin-composed broadcast: a channel post (optionally pinned) and/or a DM
+// blast to every TelegramBotChat. Paced by runTelegramBroadcastTick (see
+// telegram-broadcast.service), same throttling constants as the channel
+// mirror worker.
+model TelegramBroadcast {
+  id               String                       @id @default(uuid()) @db.Uuid
+  text             String
+  imageDataUrl     String?                      @map("image_data_url")
+  toChannel        Boolean                      @default(false) @map("to_channel")
+  toBotUsers       Boolean                      @default(false) @map("to_bot_users")
+  pinInChannel     Boolean                      @default(false) @map("pin_in_channel")
+  status           String                       @default("PENDING") // PENDING | SENDING | DONE | FAILED
+  channelMessageId Int?                         @map("channel_message_id")
+  totalRecipients  Int                          @default(0) @map("total_recipients")
+  sentCount        Int                          @default(0) @map("sent_count")
+  createdById      String?                      @map("created_by") @db.Uuid
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+  recipients       TelegramBroadcastRecipient[]
+
+  @@map("telegram_broadcasts")
+}
+
+model TelegramBroadcastRecipient {
+  id          String            @id @default(uuid()) @db.Uuid
+  broadcastId String            @map("broadcast_id") @db.Uuid
+  broadcast   TelegramBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  chatId      BigInt            @map("chat_id")
+  status      String            @default("PENDING") // PENDING | SENT | FAILED
+  sentAt      DateTime?         @map("sent_at")
+  error       String?
+
+  @@index([broadcastId, status])
+  @@map("telegram_broadcast_recipients")
+}
+
 // «الديون الشخصية» — personal debts unrelated to shop customers/accounting
 // (e.g. cash lent to a friend). Completely separate from Customer/Notification
 // models above — do not merge. One admin-facing reminder flow: a daily cron
@@ -1235,8 +1276,11 @@ model OrderPreparation {
   preparedById  String?                @map("prepared_by_id") @db.Uuid
   preparedBy    User?                  @relation("PreparedByUser", fields: [preparedById], references: [id])
   createdAt     DateTime               @default(now()) @map("created_at")
+  // Origin channel, same free-string convention as Invoice.source above.
+  source        String?
 
   @@index([status])
+  @@index([source])
   @@map("order_preparations")
 }
 

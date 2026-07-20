@@ -69,6 +69,10 @@ import {
   getTelegramChannelStatus,
   testTelegramChannel,
   syncTelegramChannelNow,
+  listTelegramBroadcasts,
+  createTelegramBroadcast,
+  getTelegramBotStats,
+  banTelegramChatId,
   getDangerInfo,
   wipeOperationalData,
   mergeWarehouses,
@@ -309,6 +313,46 @@ export function SettingsPage() {
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setTgChannelMsg(`✗ ${msg || "فشلت المزامنة"}`)
+    },
+  })
+
+  // بث/إعلان — channel post (+pin) و/أو رسالة لكل مستخدمي البوت
+  const [broadcastText, setBroadcastText] = useState("")
+  const [broadcastImage, setBroadcastImage] = useState("")
+  const [broadcastToChannel, setBroadcastToChannel] = useState(true)
+  const [broadcastToBotUsers, setBroadcastToBotUsers] = useState(false)
+  const [broadcastPin, setBroadcastPin] = useState(false)
+  const broadcastsQuery = useQuery({
+    queryKey: ["telegram-broadcasts"],
+    queryFn: listTelegramBroadcasts,
+    enabled: activeTab === "telegram",
+  })
+  const broadcastMutation = useMutation({
+    mutationFn: createTelegramBroadcast,
+    onSuccess: () => {
+      setBroadcastText("")
+      setBroadcastImage("")
+      queryClient.invalidateQueries({ queryKey: ["telegram-broadcasts"] })
+    },
+  })
+  function uploadBroadcastImage(file: File | undefined) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setBroadcastImage(String(reader.result ?? ""))
+    reader.readAsDataURL(file)
+  }
+
+  // إحصائيات تيليگرام
+  const telegramStatsQuery = useQuery({
+    queryKey: ["telegram-stats"],
+    queryFn: getTelegramBotStats,
+    enabled: activeTab === "telegram",
+  })
+  const banChatMutation = useMutation({
+    mutationFn: banTelegramChatId,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["telegram-stats"] })
+      queryClient.invalidateQueries({ queryKey: ["settings"] })
     },
   })
 
@@ -882,6 +926,193 @@ export function SettingsPage() {
                     <div className="sm:col-span-2 text-rose-600">آخر خطأ: {tgChannelStatusQuery.data.lastError}</div>
                   )}
                 </div>
+              ) : (
+                <p className="text-sm text-slate-500">جاري التحميل…</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>بوت الطلبات — نصوص وحماية</SectionTitle>
+              <p className="text-sm text-slate-500">
+                هذي النصوص يستخدمها بوت الطلبات التفاعلي عند الترحيب والرد على «كيف أشتري؟». اتركها فاضية لتجاهل القسم.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="عنوان المحل">
+                  <Input
+                    value={settings.telegramBotStoreAddress ?? ""}
+                    onChange={(e) => upd("telegramBotStoreAddress", e.target.value)}
+                    placeholder="كربلاء، شارع العباس، مقابل البريد"
+                  />
+                </Field>
+                <Field label="أوقات الدوام">
+                  <Input
+                    value={settings.telegramBotWorkingHours ?? ""}
+                    onChange={(e) => upd("telegramBotWorkingHours", e.target.value)}
+                    placeholder="يومياً ٩ صباحاً — ١٠ مساءً"
+                  />
+                </Field>
+                <Field label="رقم للتواصل">
+                  <Input
+                    value={settings.telegramBotContactPhone ?? ""}
+                    onChange={(e) => upd("telegramBotContactPhone", e.target.value)}
+                    placeholder="07701234567"
+                    dir="ltr"
+                  />
+                </Field>
+              </div>
+              <Field label="رسالة الترحيب (/start) — اتركها فاضية للنص الافتراضي">
+                <textarea
+                  className="min-h-20 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                  value={settings.telegramBotWelcomeMessage ?? ""}
+                  onChange={(e) => upd("telegramBotWelcomeMessage", e.target.value)}
+                  placeholder="هلا بيك 👋 هذا بوت الطلبات — تكدر تتصفح البضاعة وتطلب مباشرة، والدفع عند الاستلام."
+                />
+              </Field>
+              <Field label="حظر محادثات (Chat ID) — رقم بكل سطر">
+                <textarea
+                  className="min-h-16 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950 font-mono"
+                  dir="ltr"
+                  value={(settings.telegramBotBannedChatIds ?? []).join("\n")}
+                  onChange={(e) =>
+                    upd(
+                      "telegramBotBannedChatIds",
+                      e.target.value.split("\n").map((s) => s.trim()).filter(Boolean),
+                    )
+                  }
+                  placeholder="123456789"
+                />
+              </Field>
+              <SaveRow onSave={() => saveSettings.mutate(settings)} isPending={saveSettings.isPending} saved={saved} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-4">
+              <SectionTitle>بث/إعلان</SectionTitle>
+              <p className="text-sm text-slate-500">
+                انشر عرض أو إعلان بالقناة (مع تثبيت اختياري)، و/أو دزه رسالة مباشرة لكل زبون فتح البوت.
+              </p>
+              <Field label="النص">
+                <textarea
+                  className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                  value={broadcastText}
+                  onChange={(e) => setBroadcastText(e.target.value)}
+                  placeholder="عرض اليوم..."
+                />
+              </Field>
+              <div className="flex items-center gap-3">
+                <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById("broadcast-image-input")?.click()}>
+                  {broadcastImage ? "تغيير الصورة" : "إضافة صورة (اختياري)"}
+                </Button>
+                <input
+                  id="broadcast-image-input"
+                  className="hidden"
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => uploadBroadcastImage(e.target.files?.[0])}
+                />
+                {broadcastImage && (
+                  <img src={broadcastImage} alt="" className="h-10 w-10 rounded object-cover" />
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--theme-accent)]" checked={broadcastToChannel} onChange={(e) => setBroadcastToChannel(e.target.checked)} />
+                  نشر بالقناة
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--theme-accent)]" checked={broadcastPin} onChange={(e) => setBroadcastPin(e.target.checked)} disabled={!broadcastToChannel} />
+                  تثبيت بالقناة
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--theme-accent)]" checked={broadcastToBotUsers} onChange={(e) => setBroadcastToBotUsers(e.target.checked)} />
+                  إرسال لكل مستخدمي البوت
+                </label>
+              </div>
+              <Button
+                className="gap-2"
+                disabled={broadcastMutation.isPending || !broadcastText.trim() || (!broadcastToChannel && !broadcastToBotUsers)}
+                onClick={() =>
+                  broadcastMutation.mutate({
+                    text: broadcastText,
+                    imageDataUrl: broadcastImage || undefined,
+                    toChannel: broadcastToChannel,
+                    toBotUsers: broadcastToBotUsers,
+                    pinInChannel: broadcastPin,
+                  })
+                }
+              >
+                {broadcastMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                إرسال
+              </Button>
+              {broadcastMutation.isError && <p className="text-sm text-rose-600">فشل الإرسال — تأكد من إعدادات البوت والقناة.</p>}
+              {broadcastsQuery.data && broadcastsQuery.data.length > 0 && (
+                <div className="space-y-2 pt-2 border-t dark:border-slate-700">
+                  <p className="text-xs text-slate-500">آخر عمليات البث:</p>
+                  {broadcastsQuery.data.slice(0, 8).map((b) => (
+                    <div key={b.id} className="text-xs flex items-center justify-between gap-2 text-slate-600 dark:text-slate-300">
+                      <span className="truncate max-w-[60%]">{b.text}</span>
+                      <span>
+                        {b.status === "DONE" ? "✓ تم" : b.status === "SENDING" ? `جارٍ... ${b.sentCount}/${b.totalRecipients}` : b.status === "FAILED" ? "✗ فشل" : "بالانتظار"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-5 space-y-3">
+              <SectionTitle>إحصائيات تيليگرام</SectionTitle>
+              {telegramStatsQuery.data ? (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2 text-sm">
+                    <div>مستخدمو البوت: <b>{telegramStatsQuery.data.botUsers}</b></div>
+                    <div>ليدات جديدة (بدون حساب): <b>{telegramStatsQuery.data.newLeads}</b></div>
+                    <div>طلبات من تيليگرام: <b>{telegramStatsQuery.data.ordersFromTelegram}</b></div>
+                    <div>الإيراد من تيليگرام: <b>{Math.round(telegramStatsQuery.data.revenueFromTelegram).toLocaleString("en-US")}</b></div>
+                  </div>
+                  {telegramStatsQuery.data.topProducts.length > 0 && (
+                    <div className="pt-2">
+                      <p className="text-xs text-slate-500 mb-1">الأكثر طلباً عبر تيليگرام:</p>
+                      <div className="space-y-1 text-sm">
+                        {telegramStatsQuery.data.topProducts.map((p) => (
+                          <div key={p.productId} className="flex items-center justify-between">
+                            <span>{p.productName}</span>
+                            <span className="text-slate-500">{p.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {telegramStatsQuery.data.recentChats.length > 0 && (
+                    <div className="pt-2">
+                      <p className="text-xs text-slate-500 mb-1">آخر محادثات البوت:</p>
+                      <div className="space-y-1 text-sm">
+                        {telegramStatsQuery.data.recentChats.map((c) => (
+                          <div key={c.chatId} className="flex items-center justify-between gap-2">
+                            <span className="truncate">
+                              {c.firstName || c.username || c.phone || c.chatId}
+                              {c.isCustomer && <span className="text-emerald-600"> — زبون</span>}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-xs text-rose-600"
+                              disabled={banChatMutation.isPending || (settings.telegramBotBannedChatIds ?? []).includes(c.chatId)}
+                              onClick={() => banChatMutation.mutate(c.chatId)}
+                            >
+                              {(settings.telegramBotBannedChatIds ?? []).includes(c.chatId) ? "محظور" : "حظر"}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="text-sm text-slate-500">جاري التحميل…</p>
               )}

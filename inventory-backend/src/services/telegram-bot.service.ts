@@ -23,12 +23,22 @@ import {
   listCatalogProductsByCategoryForBot,
 } from "./catalog.service";
 import { totalStock } from "../utils/product-stock";
+import { normalizePhone } from "../utils/phone";
+import { createCustomerPortalLink } from "./customer-portal.service";
+import { previewCoupon } from "./coupon.service";
+import { AppError } from "../utils/app-error";
 
 type BotState = {
-  mode?: "idle" | "await_search" | "await_custom_qty" | "await_phone" | "await_address";
+  mode?: "idle" | "await_search" | "await_custom_qty" | "await_phone" | "await_address" | "await_coupon";
   pendingProductId?: string;
   pendingUnit?: "PIECE" | "CARTON";
   cart?: CartItem[];
+  couponCode?: string;
+  couponDiscount?: number;
+  // Anti-spam (feature 9) — Baghdad day-key + count, kept in the same JSON
+  // blob so no migration is needed.
+  ordersToday?: number;
+  ordersDate?: string;
 };
 
 type CartItem = {
@@ -55,6 +65,18 @@ type TgUpdate = {
 };
 
 const CUR = "د.ع";
+const DAILY_ORDER_LIMIT = 5;
+
+function baghdadDayKey(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Baghdad",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
 
 function fmt(n: number) {
   return Math.round(n).toLocaleString("en-US");
@@ -75,6 +97,40 @@ async function getCreds() {
   const settings = await getSettings();
   const botToken = (settings.telegramChannelBotToken || "").trim();
   return { botToken, settings };
+}
+
+// TelegramBotChat.phone is stored in LOCAL 07XXXXXXXXX form (see
+// normalizePhoneInput below), while Customer/OrderPreparation phones are
+// canonical 964XXXXXXXXXX (utils/phone.ts's normalizePhone). Every lookup
+// that crosses between the two must convert explicitly — comparing the raw
+// strings silently never matches.
+function toLocalPhone(canonical: string): string {
+  const digits = canonical.replace(/[^\d]/g, "");
+  if (digits.startsWith("964")) return `0${digits.slice(3)}`;
+  return digits;
+}
+
+export async function findBotChatByPhone(phone: string) {
+  const local = toLocalPhone(normalizePhone(phone));
+  if (!isValidIraqiPhone(local)) return null;
+  return prisma.telegramBotChat.findFirst({ where: { phone: local } });
+}
+
+// Fire-and-forget DM to whichever Telegram chat is linked to this phone (if
+// any). Never throws — callers must not fail their primary flow just because
+// the customer never used the bot.
+export async function sendTelegramDmToPhone(phone: string, text: string, keyboard?: unknown): Promise<boolean> {
+  try {
+    const chat = await findBotChatByPhone(phone);
+    if (!chat) return false;
+    const { botToken } = await getCreds();
+    if (!botToken) return false;
+    await send(botToken, Number(chat.chatId), text, keyboard);
+    return true;
+  } catch (error) {
+    console.error("[TelegramBot] DM send failed:", error);
+    return false;
+  }
 }
 
 async function loadChat(chatId: number, from?: { first_name?: string; username?: string }) {
@@ -113,6 +169,8 @@ const MAIN_MENU = {
     [{ text: "🗂️ تصفح الأصناف", callback_data: "browse" }],
     [{ text: "🔍 بحث عن مادة", callback_data: "search" }],
     [{ text: "🛒 سلتي", callback_data: "cart" }],
+    [{ text: "📦 طلباتي", callback_data: "my_orders" }, { text: "📄 كشف حسابي", callback_data: "statement" }],
+    [{ text: "🏬 كيف أشتري؟", callback_data: "how_to_buy" }],
   ],
 };
 
@@ -198,6 +256,15 @@ function cartSummary(cart: CartItem[]) {
   return { text: lines.join("\n"), total };
 }
 
+// Display-only discount preview — the authoritative redemption happens at
+// invoice creation via createInvoice's own couponCode/couponDiscount() path
+// (order-preparation.service.ts markPrepared()).
+function couponDisplayLine(total: number, state: BotState): string {
+  if (!state.couponCode || !state.couponDiscount) return "";
+  const finalTotal = Math.max(0, total - state.couponDiscount);
+  return `🏷️ كوبون ${state.couponCode}: -${fmt(state.couponDiscount)} ${CUR}\nالمجموع بعد الخصم: ${fmt(finalTotal)} ${CUR}`;
+}
+
 async function showCart(botToken: string, chatId: number, state: BotState) {
   const cart = state.cart ?? [];
   if (!cart.length) {
@@ -205,13 +272,20 @@ async function showCart(botToken: string, chatId: number, state: BotState) {
     return;
   }
   const { text, total } = cartSummary(cart);
-  await send(botToken, chatId, `🛒 سلتك:\n${text}\n\nالمجموع: ${fmt(total)} ${CUR}\nالدفع عند الاستلام.`, {
-    inline_keyboard: [
-      [{ text: "✅ تأكيد الطلب", callback_data: "checkout" }],
-      [{ text: "🗑️ تفريغ السلة", callback_data: "clear" }],
-      backRow(),
-    ],
-  });
+  const discountLine = couponDisplayLine(total, state);
+  await send(
+    botToken,
+    chatId,
+    `🛒 سلتك:\n${text}\n\nالمجموع: ${fmt(total)} ${CUR}${discountLine ? `\n${discountLine}` : ""}\nالدفع عند الاستلام.`,
+    {
+      inline_keyboard: [
+        [{ text: "✅ تأكيد الطلب", callback_data: "checkout" }],
+        [{ text: state.couponCode ? "🏷️ تغيير الكوبون" : "🏷️ عندي كوبون خصم", callback_data: "coupon" }],
+        [{ text: "🗑️ تفريغ السلة", callback_data: "clear" }],
+        backRow(),
+      ],
+    },
+  );
 }
 
 async function addToCart(
@@ -282,6 +356,7 @@ async function startCheckout(botToken: string, chatId: number, chat: { phone: st
 async function confirmSummary(botToken: string, chatId: number, phone: string, state: BotState) {
   const cart = state.cart ?? [];
   const { text, total } = cartSummary(cart);
+  const discountLine = couponDisplayLine(total, state);
   const customer = await prisma.customer.findFirst({
     where: { phone, deletedAt: null },
     select: { name: true },
@@ -293,7 +368,7 @@ async function confirmSummary(botToken: string, chatId: number, phone: string, s
   await send(
     botToken,
     chatId,
-    `📋 ملخص طلبك:\n${text}\n\nالمجموع: ${fmt(total)} ${CUR}\n${who}\n💵 الدفع عند الاستلام\n\nنأكد الطلب؟`,
+    `📋 ملخص طلبك:\n${text}\n\nالمجموع: ${fmt(total)} ${CUR}${discountLine ? `\n${discountLine}` : ""}\n${who}\n💵 الدفع عند الاستلام\n\nنأكد الطلب؟`,
     {
       inline_keyboard: [
         [{ text: "✅ أكد الطلب", callback_data: "confirm" }],
@@ -314,6 +389,12 @@ async function submitOrder(
     await send(botToken, chatId, "سلتك فارغة 🛒", MAIN_MENU);
     return;
   }
+  const today = baghdadDayKey();
+  const ordersToday = state.ordersDate === today ? state.ordersToday ?? 0 : 0;
+  if (ordersToday >= DAILY_ORDER_LIMIT) {
+    await send(botToken, chatId, `وصلت الحد الأقصى ${DAILY_ORDER_LIMIT} طلبات باليوم — جرب باچر 🙏`, MAIN_MENU);
+    return;
+  }
   try {
     const result = await submitTelegramCatalogOrder({
       customerName: chat.firstName || chat.username || "زبون تيليگرام",
@@ -324,8 +405,9 @@ async function submitOrder(
         unit: item.unit === "CARTON" ? Unit.CARTON : Unit.PIECE,
         quantity: item.quantity,
       })),
+      couponCode: state.couponCode,
     });
-    await saveState(chatId, { mode: "idle", cart: [] });
+    await saveState(chatId, { mode: "idle", cart: [], ordersToday: ordersToday + 1, ordersDate: today });
     const accountLine = result.matchedCustomerName
       ? `انسجل الطلب على حساب: ${result.matchedCustomerName} ✔️`
       : "رقمك جديد — الإدارة راح تسويلك حساب وتتأكد من الطلب ✔️";
@@ -390,11 +472,98 @@ async function showSearchResults(botToken: string, chatId: number, term: string)
   await send(botToken, chatId, `نتائج «${term}»:`, { inline_keyboard: rows });
 }
 
+/* ── Statement / how-to-buy / my-orders ─────────────────────────────────── */
+
+function frontendOrigin(settings: { catalogPublicUrl?: string }): string {
+  const env = (process.env.FRONTEND_PUBLIC_URL || "").trim().replace(/\/$/, "");
+  if (env) return env;
+  try {
+    return new URL(settings.catalogPublicUrl || "").origin;
+  } catch {
+    return "";
+  }
+}
+
+async function showStatement(botToken: string, chatId: number, chat: { phone: string }) {
+  const phone = chat.phone ? normalizePhone(chat.phone) : "";
+  const customer = phone
+    ? await prisma.customer.findFirst({ where: { phone, deletedAt: null }, select: { id: true } })
+    : null;
+  if (!customer) {
+    await send(
+      botToken,
+      chatId,
+      "ماعندك كشف حساب لأنك مو زبون مسجل — تحب تصير زبون؟\nدز أول طلب من البوت وبنسويلك حساب تلقائياً.",
+      { inline_keyboard: [[{ text: "🗂️ تصفح الأصناف", callback_data: "browse" }], backRow()] },
+    );
+    return;
+  }
+  try {
+    const { settings } = await getCreds();
+    const link = await createCustomerPortalLink(customer.id);
+    const origin = frontendOrigin(settings);
+    const url = origin ? `${origin}${link.urlPath}` : link.urlPath;
+    await send(botToken, chatId, `📄 هذا رابط كشف حسابك (فواتير وسندات وكل حركاتك):\n${url}`, {
+      inline_keyboard: [backRow()],
+    });
+  } catch (error) {
+    console.error("[TelegramBot] statement link failed:", error);
+    await send(botToken, chatId, "صار خطأ بجلب كشف الحساب — جرب مرة ثانية 🙏", { inline_keyboard: [backRow()] });
+  }
+}
+
+async function showHowToBuy(botToken: string, chatId: number) {
+  const { settings } = await getCreds();
+  const lines = ["🏬 كيف أشتري؟", ""];
+  if (settings.telegramBotStoreAddress) lines.push(`📍 العنوان: ${settings.telegramBotStoreAddress}`);
+  if (settings.telegramBotWorkingHours) lines.push(`🕐 أوقات الدوام: ${settings.telegramBotWorkingHours}`);
+  if (settings.telegramBotContactPhone) lines.push(`📞 للتواصل: ${settings.telegramBotContactPhone}`);
+  lines.push("", "تكدر تطلب بأكثر من طريقة:", "🛒 مباشرة من هذا البوت");
+  if (settings.catalogPublicUrl) lines.push(`🌐 من موقع الكتلوك: ${settings.catalogPublicUrl}`);
+  lines.push("📢 أو من قناتنا بتيليگرام");
+  await send(botToken, chatId, lines.join("\n"), { inline_keyboard: [backRow()] });
+}
+
+async function showMyOrders(botToken: string, chatId: number, chat: { phone: string }) {
+  const phone = chat.phone ? normalizePhone(chat.phone) : "";
+  if (!phone) {
+    await send(botToken, chatId, "ما عدنا رقم مسجل إلك بعد — دز أول طلب حتى نكدر نعرض طلباتك.", {
+      inline_keyboard: [backRow()],
+    });
+    return;
+  }
+  const orders = await prisma.orderPreparation.findMany({
+    where: { customerPhone: phone },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+    include: { invoice: { select: { invoiceNumber: true, totalAmount: true } } },
+  });
+  if (!orders.length) {
+    await send(botToken, chatId, "ماكو طلبات سابقة إلك.", { inline_keyboard: [backRow()] });
+    return;
+  }
+  const statusAr: Record<string, string> = { PENDING: "قيد التجهيز", PREPARED: "جهز", CANCELLED: "ملغى" };
+  const lines = orders.map((o, i) => {
+    const d = o.createdAt.toLocaleDateString("ar-IQ");
+    const status = statusAr[o.status] ?? o.status;
+    const invoiceLine = o.invoice
+      ? ` — فاتورة ${o.invoice.invoiceNumber} (${fmt(Number(o.invoice.totalAmount))} ${CUR})`
+      : "";
+    return `${i + 1}. ${d} — ${status}${invoiceLine}`;
+  });
+  await send(botToken, chatId, `📦 آخر طلباتك:\n${lines.join("\n")}`, { inline_keyboard: [backRow()] });
+}
+
 /* ── Update dispatcher ──────────────────────────────────────────────────── */
 
 export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
-  const { botToken } = await getCreds();
+  const { botToken, settings } = await getCreds();
   if (!botToken) return;
+
+  const chatId = update.callback_query?.message?.chat.id ?? update.message?.chat.id;
+  if (chatId && (settings.telegramBotBannedChatIds ?? []).includes(String(chatId))) {
+    return; // silently dropped — no reply, per anti-spam design
+  }
 
   try {
     if (update.callback_query) {
@@ -449,6 +618,35 @@ async function handleMessage(
     return;
   }
 
+  if (state.mode === "await_coupon") {
+    const cart = state.cart ?? [];
+    const { total } = cartSummary(cart);
+    try {
+      const { coupon, discount } = await previewCoupon(text.trim(), total);
+      const newState: BotState = {
+        ...state,
+        mode: "idle",
+        couponCode: String((coupon as { code?: string }).code ?? text.trim().toUpperCase()),
+        couponDiscount: discount,
+      };
+      await saveState(chatId, newState);
+      await showCart(botToken, chatId, newState);
+    } catch (error) {
+      const code = error instanceof AppError ? error.code : undefined;
+      const msgByCode: Record<string, string> = {
+        COUPON_INACTIVE: "الكود غير فعّال 😔",
+        COUPON_NOT_STARTED: "الكود لسا ما بدأ 😔",
+        COUPON_EXPIRED: "الكود منتهي الصلاحية 😔",
+        COUPON_LIMIT_REACHED: "الكود وصل الحد الأقصى للاستخدام 😔",
+      };
+      await saveState(chatId, { ...state, mode: "idle" });
+      await send(botToken, chatId, msgByCode[code ?? ""] ?? "كود غير صحيح 😔", {
+        inline_keyboard: [[{ text: "🛒 سلتي", callback_data: "cart" }], backRow()],
+      });
+    }
+    return;
+  }
+
   if (state.mode === "await_phone") {
     const phone = normalizePhoneInput(text);
     if (!isValidIraqiPhone(phone)) {
@@ -491,10 +689,19 @@ async function handleCallback(
   } else if (data === "cart") {
     await showCart(botToken, chatId, state);
   } else if (data === "clear") {
-    await saveState(chatId, { ...state, mode: "idle", cart: [] });
+    await saveState(chatId, { ...state, mode: "idle", cart: [], couponCode: undefined, couponDiscount: undefined });
     await send(botToken, chatId, "تم تفريغ السلة 🗑️", MAIN_MENU);
+  } else if (data === "coupon") {
+    await saveState(chatId, { ...state, mode: "await_coupon" });
+    await send(botToken, chatId, "🏷️ اكتب كود الخصم:");
   } else if (data === "checkout") {
     await startCheckout(botToken, chatId, chat, state);
+  } else if (data === "statement") {
+    await showStatement(botToken, chatId, chat);
+  } else if (data === "how_to_buy") {
+    await showHowToBuy(botToken, chatId);
+  } else if (data === "my_orders") {
+    await showMyOrders(botToken, chatId, chat);
   } else if (data === "confirm") {
     await submitOrder(botToken, chatId, chat, state);
   } else if (data.startsWith("cat:")) {

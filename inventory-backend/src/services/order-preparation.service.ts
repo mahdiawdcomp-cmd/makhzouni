@@ -8,6 +8,7 @@ import { sendWhatsAppPdf, sendWhatsAppText, sendPdfWithTemplateFallback, sendTex
 import { createInvoice, getInvoiceById } from "./invoice.service";
 import { resolveWarehouseId } from "./warehouse-stock.service";
 import { notifyAdmin } from "./app-notification.service";
+import { sendTelegramDmToPhone } from "./telegram-bot.service";
 
 const CLOUD_TEMPLATE_LANG = "ar";
 
@@ -262,6 +263,23 @@ export async function completePreparationWithInvoice(
     },
   });
 
+  if (prep.source) {
+    await prisma.invoice
+      .updateMany({ where: { id: invoiceId, source: null }, data: { source: prep.source } })
+      .catch(() => undefined);
+  }
+
+  // This path (staff built the invoice directly, then linked it here) sends
+  // no WhatsApp message today — the Telegram DM is a genuinely new touch
+  // point, not a duplicate of anything markPrepared() already sends.
+  getInvoiceById(invoiceId)
+    .then((invoice) => {
+      if (!invoice) return;
+      const msg = `طلبك جهز ✔️ وراح يوصلك\n\nرقم الفاتورة: ${invoice.invoiceNumber}\nالمجموع: ${money(Number(invoice.totalAmount))}`;
+      return sendTelegramDmToPhone(prep.customerPhone, msg);
+    })
+    .catch(() => undefined);
+
   return { invoiceId: prep.invoiceId ?? invoiceId };
 }
 
@@ -356,6 +374,7 @@ type OrderData = {
   tax?: number;
   paidAmount?: number;
   paymentType?: string;
+  couponCode?: string;
 };
 
 export async function markPrepared(
@@ -431,6 +450,7 @@ export async function markPrepared(
         paidAmount: od.paidAmount ?? 0,
         paymentType: (od.paymentType as import("@prisma/client").PaymentType) ?? "CREDIT",
         notes: opts?.notes,
+        couponCode: od.couponCode,
         items,
       },
       userId,
@@ -439,6 +459,10 @@ export async function markPrepared(
     invoiceId = invoice.id;
     invoiceNumber = invoice.invoiceNumber;
     totalAmount = Number(invoice.totalAmount);
+
+    if (prep.source) {
+      await prisma.invoice.update({ where: { id: invoice.id }, data: { source: prep.source } }).catch(() => undefined);
+    }
   }
 
   await prisma.orderPreparation.update({
@@ -468,6 +492,9 @@ export async function markPrepared(
   } else {
     await safeSendWA(prep.customerPhone, customerMsg);
   }
+  // Parallel Telegram DM if this customer has a linked bot chat — harmless
+  // no-op otherwise. Never blocks/fails the primary WhatsApp flow above.
+  sendTelegramDmToPhone(prep.customerPhone, `طلبك جهز ✔️ وراح يوصلك\n\n${customerMsg}`).catch(() => undefined);
 
   return { invoiceId, invoiceNumber, totalAmount };
 }

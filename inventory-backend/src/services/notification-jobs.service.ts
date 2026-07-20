@@ -17,6 +17,8 @@ import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
 import { runTelegramChannelSyncTick } from "./telegram-channel.service";
+import { runTelegramBroadcastTick } from "./telegram-broadcast.service";
+import { runDailyDigestJob } from "./telegram-digest.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
 import {
   NotificationType,
@@ -409,6 +411,22 @@ export function startNotificationJobs() {
   cron.schedule("* * * * *", () => {
     runTelegramChannelSyncTick().catch((error) => {
       reportCronFailure("TELEGRAM_CHANNEL_SYNC", error);
+    });
+  });
+
+  // Admin broadcast DM blast — small batch per minute, no-op unless a
+  // broadcast is SENDING. Rate cap lives in telegram-broadcast.service.
+  cron.schedule("* * * * *", () => {
+    runTelegramBroadcastTick().catch((error) => {
+      reportCronFailure("TELEGRAM_BROADCAST_TICK", error);
+    });
+  });
+
+  // «وصل حديثاً» daily pinned digest — 09:00 server time, no-op if disabled/
+  // unconfigured or nothing new to show. Rate-limit-free (one post/day).
+  cron.schedule("0 9 * * *", () => {
+    runDailyDigestJob().catch((error) => {
+      reportCronFailure("TELEGRAM_DAILY_DIGEST", error);
     });
   });
 

@@ -490,6 +490,7 @@ async function executeApprovedRequest(
         notes?: string;
         warehouseId?: string;
         items?: Parameters<typeof createInvoice>[0]["items"];
+        couponCode?: string;
       };
       const phone = String(body.phone ?? "").trim();
       const customerName = String(body.customerName ?? "").trim();
@@ -534,8 +535,10 @@ async function executeApprovedRequest(
             tax: 0,
             paidAmount: 0,
             paymentType: "CREDIT",
+            couponCode: body.couponCode,
           } as unknown as import("@prisma/client").Prisma.InputJsonValue,
           status: "PENDING",
+          source: (data.source as string | undefined) ?? null,
         },
       });
 

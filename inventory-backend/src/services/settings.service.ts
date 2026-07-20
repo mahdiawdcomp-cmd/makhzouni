@@ -108,6 +108,16 @@ export interface AppSettings {
   telegramChannelEnabled?: boolean;
   telegramChannelBotToken?: string;
   telegramChannelChatId?: string;
+  // «بوت الطلبات» (Phase 2 bot, ordering-suite extension) — configurable text
+  // + anti-spam + daily-digest pin tracking. Never hardcode a tenant's real
+  // address/hours here; each shop fills its own via Settings.
+  telegramBotWelcomeMessage?: string;
+  telegramBotStoreAddress?: string;
+  telegramBotWorkingHours?: string;
+  telegramBotContactPhone?: string;
+  telegramBotBannedChatIds?: string[];
+  telegramDigestLastMessageId?: number;
+  telegramDigestLastMessageDate?: string;
   // Wholesale catalog design (admin-configurable)
   catalogDesignPrimaryColor?: string;
   catalogDesignBgColor?: string;
@@ -299,6 +309,13 @@ export const defaultSettings: AppSettings = {
   telegramChannelEnabled: false,
   telegramChannelBotToken: "",
   telegramChannelChatId: "",
+  telegramBotWelcomeMessage: "",
+  telegramBotStoreAddress: "",
+  telegramBotWorkingHours: "",
+  telegramBotContactPhone: "",
+  telegramBotBannedChatIds: [],
+  telegramDigestLastMessageId: 0,
+  telegramDigestLastMessageDate: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

@@ -1093,6 +1093,61 @@ export async function syncTelegramChannelNow() {
   return data
 }
 
+export interface TelegramBroadcast {
+  id: string
+  text: string
+  imageDataUrl: string | null
+  toChannel: boolean
+  toBotUsers: boolean
+  pinInChannel: boolean
+  status: "PENDING" | "SENDING" | "DONE" | "FAILED"
+  totalRecipients: number
+  sentCount: number
+  createdAt: string
+}
+
+export async function listTelegramBroadcasts() {
+  const { data } = await api.get<TelegramBroadcast[]>("/telegram-broadcast")
+  return data
+}
+
+export async function createTelegramBroadcast(input: {
+  text: string
+  imageDataUrl?: string
+  toChannel: boolean
+  toBotUsers: boolean
+  pinInChannel: boolean
+}) {
+  const { data } = await api.post<TelegramBroadcast>("/telegram-broadcast", input)
+  return data
+}
+
+export interface TelegramBotStats {
+  botUsers: number
+  newLeads: number
+  ordersFromTelegram: number
+  revenueFromTelegram: number
+  topProducts: Array<{ productId: string; productName: string; quantity: number }>
+  recentChats: Array<{
+    chatId: string
+    firstName: string
+    username: string
+    phone: string
+    createdAt: string
+    isCustomer: boolean
+  }>
+}
+
+export async function getTelegramBotStats() {
+  const { data } = await api.get<TelegramBotStats>("/telegram-stats")
+  return data
+}
+
+export async function banTelegramChatId(chatId: string) {
+  const { data } = await api.post<{ telegramBotBannedChatIds: string[] }>("/telegram-stats/ban", { chatId })
+  return data
+}
+
 export async function triggerDailySummary() {
   const { data } = await api.post<ApiEnvelope<{ message: string }>>("/settings/daily-summary/run")
   return data
