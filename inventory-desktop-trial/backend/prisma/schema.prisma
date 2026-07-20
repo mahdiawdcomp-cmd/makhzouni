@@ -348,6 +348,15 @@ model CatalogVisitor {
   @@map("catalog_visitors")
 }
 
+model CatalogProductStat {
+  productId    String    @id @map("product_id")
+  views        Int       @default(0)
+  orders       Int       @default(0)
+  lastViewedAt DateTime? @map("last_viewed_at")
+
+  @@map("catalog_product_stats")
+}
+
 model Invoice {
   id               String           @id @default(uuid())
   invoiceNumber    String           @unique @map("invoice_number")

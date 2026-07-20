@@ -8,6 +8,9 @@ import {
   notifyCatalogAccessRequested,
   notifyCatalogOrderSubmitted,
 } from "./order-preparation.service";
+import { getSettings } from "./settings.service";
+import { createCustomer } from "./customer.service";
+import { sendWhatsAppText } from "./whatsapp.service";
 
 type CatalogOrderInput = {
   customerName: string;
@@ -97,20 +100,132 @@ function seededShuffle<T>(items: T[], seed: number): T[] {
   return out;
 }
 
-// Seed that changes once per hour — shared by all shoppers so the whole catalog
-// reorders together on the hour.
-function hourlySeed() {
-  return Math.floor(Date.now() / (60 * 60 * 1000));
+// Settings-driven order seed. "off" → fixed order; "daily"/"hourly" → rotating.
+async function catalogOrderSeed(): Promise<number | null> {
+  const settings = await getSettings().catch(() => null);
+  const mode = settings?.catalogShuffleMode ?? "hourly";
+  if (mode === "off") return null;
+  const now = Date.now();
+  if (mode === "daily") return Math.floor(now / (24 * 60 * 60 * 1000));
+  return Math.floor(now / (60 * 60 * 1000));
+}
+
+function applyCatalogOrder<T>(items: T[], seed: number | null): T[] {
+  return seed == null ? items : seededShuffle(items, seed);
 }
 
 // Admin: guest phone-gate leads (populated by the web catalog's phone gate when
-// pointed at the same database), most recent first, with total visit count.
+// pointed at the same database), most recent first, each enriched with a matched
+// existing customer (by normalized phone), plus the total visit count.
 export async function listCatalogVisitors() {
   const visitors = await prisma.catalogVisitor.findMany({
     orderBy: { lastSeenAt: "desc" },
   });
+  const phones = visitors.map((v) => v.phone);
+  const customers = phones.length
+    ? await prisma.customer.findMany({
+        where: { phone: { in: phones }, deletedAt: null },
+        select: { id: true, name: true, phone: true },
+      })
+    : [];
+  const byPhone = new Map(customers.map((c) => [c.phone, c]));
+  const rows = visitors.map((v) => {
+    const match = byPhone.get(v.phone);
+    return { ...v, customerId: match?.id ?? null, customerName: match?.name ?? null };
+  });
   const totalVisits = visitors.reduce((sum, v) => sum + v.visits, 0);
-  return { visitors, uniquePhones: visitors.length, totalVisits };
+  return { visitors: rows, uniquePhones: visitors.length, totalVisits };
+}
+
+// Admin: turn a collected guest phone into a real customer (match or create).
+export async function convertVisitorToCustomer(
+  rawPhone: string,
+  opts?: { name?: string; grantAccess?: boolean; allowPrices?: boolean },
+) {
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  if (phone.length < 10) throw new AppError("رقم هاتف غير صالح", 400);
+  const existing = await prisma.customer.findUnique({ where: { phone } });
+  if (existing?.deletedAt) {
+    throw new AppError(`هذا الرقم يخص زبون محذوف: «${existing.name}» — استرجعه من الزبائن المحذوفين`, 409);
+  }
+  const created = !existing;
+  const customer = existing ?? await createCustomer({
+    name: opts?.name?.trim() || `زبون كتلوك ${phone.slice(-4)}`,
+    phone,
+    openingBalance: 0,
+  });
+  let access: Awaited<ReturnType<typeof createCatalogAccessLink>> | null = null;
+  if (opts?.grantAccess) {
+    access = await createCatalogAccessLink(customer.id, Boolean(opts.allowPrices));
+  }
+  return { customerId: customer.id, customerName: customer.name, created, access };
+}
+
+// Admin: bulk WhatsApp to collected numbers (all, or a subset). Best-effort.
+export async function broadcastToVisitors(message: string, phones?: string[]) {
+  const text = String(message ?? "").trim();
+  if (!text) throw new AppError("الرسالة مطلوبة", 400);
+  let targets: string[];
+  if (phones && phones.length) {
+    targets = phones.map((p) => normalizePhone(p)).filter((p) => p.length >= 10);
+  } else {
+    const all = await prisma.catalogVisitor.findMany({ select: { phone: true } });
+    targets = all.map((v) => v.phone);
+  }
+  let sent = 0;
+  let failed = 0;
+  for (const phone of targets) {
+    try { await sendWhatsAppText(phone, text); sent++; } catch { failed++; }
+  }
+  return { total: targets.length, sent, failed };
+}
+
+// ── Catalog product analytics ────────────────────────────────────────────
+export async function recordCatalogProductView(productId: string) {
+  if (!productId) return { ok: false };
+  await prisma.catalogProductStat.upsert({
+    where: { productId },
+    create: { productId, views: 1, lastViewedAt: new Date() },
+    update: { views: { increment: 1 }, lastViewedAt: new Date() },
+  });
+  return { ok: true };
+}
+
+async function recordCatalogProductOrders(productIds: string[]) {
+  const unique = [...new Set(productIds.filter(Boolean))];
+  for (const productId of unique) {
+    await prisma.catalogProductStat.upsert({
+      where: { productId },
+      create: { productId, orders: 1 },
+      update: { orders: { increment: 1 } },
+    });
+  }
+}
+
+export async function listCatalogProductStats(limit = 20) {
+  const stats = await prisma.catalogProductStat.findMany();
+  if (!stats.length) return { topViewed: [], topOrdered: [], totalViews: 0, totalOrders: 0 };
+  const products = await prisma.product.findMany({
+    where: { id: { in: stats.map((s) => s.productId) } },
+    select: { id: true, name: true, itemNumber: true, imageUrl: true },
+  });
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const enriched = stats.map((s) => {
+    const p = byId.get(s.productId);
+    return {
+      productId: s.productId,
+      name: p?.name ?? "(منتج محذوف)",
+      itemNumber: p?.itemNumber ?? null,
+      thumbnailUrl: p?.imageUrl ?? null,
+      views: s.views,
+      orders: s.orders,
+    };
+  });
+  const topViewed = [...enriched].filter((s) => s.views > 0).sort((a, b) => b.views - a.views).slice(0, limit);
+  const topOrdered = [...enriched].filter((s) => s.orders > 0).sort((a, b) => b.orders - a.orders).slice(0, limit);
+  const totalViews = stats.reduce((sum, s) => sum + s.views, 0);
+  const totalOrders = stats.reduce((sum, s) => sum + s.orders, 0);
+  return { topViewed, topOrdered, totalViews, totalOrders };
 }
 
 async function findApprovalRequester() {
@@ -335,7 +450,7 @@ export async function listCatalogProducts(token: string) {
     })
     .filter((product) => product.currentStock > 0);
 
-  return seededShuffle(mapped, hourlySeed());
+  return applyCatalogOrder(mapped, await catalogOrderSeed());
 }
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {
@@ -424,6 +539,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
         totalPrice: item.totalPrice,
       })),
     ).catch((err) => console.error("[CatalogOrder] submit notify failed:", err));
+    recordCatalogProductOrders(normalizedItems.map((i) => i.productId)).catch(() => {});
   });
 
   return { approvalId: approval.id };

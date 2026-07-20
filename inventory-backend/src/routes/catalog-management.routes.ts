@@ -12,6 +12,9 @@ import {
   getCatalogDesignCtrl,
   updateCatalogDesignCtrl,
   getCatalogVisitorsCtrl,
+  convertVisitorCtrl,
+  broadcastVisitorsCtrl,
+  getCatalogProductStatsCtrl,
 } from "../controllers/catalog-management.controller";
 
 const router = Router();
@@ -20,6 +23,11 @@ router.use(authMiddleware);
 
 // Guest visitors (phone gate leads)
 router.get("/visitors", getCatalogVisitorsCtrl);
+router.post("/visitors/broadcast", broadcastVisitorsCtrl);
+router.post("/visitors/:phone/convert", convertVisitorCtrl);
+
+// Catalog product analytics
+router.get("/product-stats", getCatalogProductStatsCtrl);
 
 // Customers
 router.get("/", getCatalogCustomers);

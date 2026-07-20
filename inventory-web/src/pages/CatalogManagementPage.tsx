@@ -1,9 +1,11 @@
 import { useEffect, useState, useMemo, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  BarChart3,
   BookOpen,
   Check,
   Copy,
+  Download,
   Eye,
   EyeOff,
   Globe,
@@ -15,12 +17,15 @@ import {
   Phone,
   Plus,
   Search,
+  Send,
+  Shuffle,
   ShieldOff,
   Tag,
   Ticket,
   Users,
   Trash2,
   Unlock,
+  UserPlus,
   X,
 } from "lucide-react"
 import dayjs from "dayjs"
@@ -31,6 +36,10 @@ import {
   deleteCustomer,
   getCatalogCustomers,
   getCatalogVisitors,
+  convertCatalogVisitor,
+  broadcastToCatalogVisitors,
+  getCatalogProductStats,
+  type CatalogProductStat,
   getCatalogDesign,
   updateCatalogDesign,
   listAdminPromoCodes,
@@ -1091,18 +1100,88 @@ function CatalogFullCartonOnlySettings() {
 
 const PAGE_SIZE = 50
 
+/* ── Reshuffle interval setting ──────────────────────────────────────── */
+function CatalogShuffleSettings() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const mode = (settingsQuery.data?.catalogShuffleMode as "hourly" | "daily" | "off" | undefined) ?? "hourly"
+
+  const saveMut = useMutation({
+    mutationFn: (value: "hourly" | "daily" | "off") => updateSettings({ catalogShuffleMode: value }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast({ title: "تم حفظ الإعداد" }) },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحفظ"), variant: "destructive" }),
+  })
+
+  const opts: Array<{ key: "hourly" | "daily" | "off"; label: string }> = [
+    { key: "hourly", label: "كل ساعة" },
+    { key: "daily", label: "كل يوم" },
+    { key: "off", label: "ثابت" },
+  ]
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <Shuffle className="h-4 w-4 text-slate-500" />
+            تبديل ترتيب عرض البضاعة تلقائياً
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            يعيد ترتيب المنتجات لكل الزبائن على نفس الفترة — يعطي فرصة عرض لكل البضاعة. «ثابت» يبقيها بالترتيب الأبجدي.
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-xl bg-white p-1 shadow-sm">
+          {opts.map((o) => (
+            <button key={o.key} disabled={saveMut.isPending} onClick={() => saveMut.mutate(o.key)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+                mode === o.key ? "bg-blue-600 text-white" : "text-slate-500 hover:text-slate-700",
+              )}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ── Guest visitors (phone-gate leads) ──────────────────────────────── */
 function VisitorsTab() {
+  const qc = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ["catalog-visitors"],
     queryFn: getCatalogVisitors,
     staleTime: 60_000,
   })
   const visitors = data?.visitors ?? []
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
 
-  const waLink = (phone: string) => {
-    const digits = phone.replace(/\D/g, "")
-    return `https://wa.me/${digits}`
+  const waLink = (phone: string) => `https://wa.me/${phone.replace(/\D/g, "")}`
+
+  const convertMut = useMutation({
+    mutationFn: (phone: string) => convertCatalogVisitor(phone),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["catalog-visitors"] })
+      qc.invalidateQueries({ queryKey: ["catalog-customers"] })
+      toast({ title: r.created ? `تمت إضافة «${r.customerName}» كزبون` : `الرقم مسجّل مسبقاً: «${r.customerName}»` })
+    },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر التحويل"), variant: "destructive" }),
+  })
+
+  function exportCsv() {
+    const header = ["الرقم", "عدد الزيارات", "أول زيارة", "آخر زيارة", "زبون"]
+    const rows = visitors.map((v) => [
+      v.phone, String(v.visits),
+      dayjs(v.firstSeenAt).format("YYYY-MM-DD"),
+      dayjs(v.lastSeenAt).format("YYYY-MM-DD HH:mm"),
+      v.customerName ?? "",
+    ])
+    const csv = "﻿" + [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n")
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))
+    const a = document.createElement("a")
+    a.href = url; a.download = `catalog-visitors-${dayjs().format("YYYY-MM-DD")}.csv`; a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -1110,6 +1189,15 @@ function VisitorsTab() {
       <div className="grid grid-cols-2 gap-4">
         <StatCard label="عدد الأرقام" value={data?.uniquePhones ?? 0} color="slate" />
         <StatCard label="إجمالي الزيارات" value={data?.totalVisits ?? 0} color="emerald" />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={exportCsv} disabled={!visitors.length}>
+          <Download className="ml-1.5 h-4 w-4" /> تصدير Excel
+        </Button>
+        <Button size="sm" onClick={() => setBroadcastOpen(true)} disabled={!visitors.length}>
+          <Send className="ml-1.5 h-4 w-4" /> إرسال واتساب جماعي
+        </Button>
       </div>
 
       <Card>
@@ -1132,6 +1220,7 @@ function VisitorsTab() {
                     <th className="p-2 font-medium">عدد الزيارات</th>
                     <th className="p-2 font-medium">آخر زيارة</th>
                     <th className="p-2 font-medium">أول زيارة</th>
+                    <th className="p-2 font-medium">الحالة</th>
                     <th className="p-2 font-medium">تواصل</th>
                   </tr>
                 </thead>
@@ -1142,6 +1231,18 @@ function VisitorsTab() {
                       <td className="p-2">{v.visits}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).locale("ar").fromNow()}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.firstSeenAt).format("YYYY-MM-DD")}</td>
+                      <td className="p-2">
+                        {v.customerId ? (
+                          <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                            <Check className="h-3 w-3" /> {v.customerName}
+                          </span>
+                        ) : (
+                          <button onClick={() => convertMut.mutate(v.phone)} disabled={convertMut.isPending}
+                            className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                            <UserPlus className="h-3 w-3" /> أضفه كزبون
+                          </button>
+                        )}
+                      </td>
                       <td className="p-2">
                         <a href={waLink(v.phone)} target="_blank" rel="noreferrer"
                           className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
@@ -1156,13 +1257,94 @@ function VisitorsTab() {
           )}
         </CardContent>
       </Card>
+
+      {broadcastOpen && <BroadcastVisitorsModal count={data?.uniquePhones ?? 0} onClose={() => setBroadcastOpen(false)} />}
+    </div>
+  )
+}
+
+/* ── Bulk WhatsApp to collected numbers ──────────────────────────────── */
+function BroadcastVisitorsModal({ count, onClose }: { count: number; onClose: () => void }) {
+  const [message, setMessage] = useState("")
+  const sendMut = useMutation({
+    mutationFn: () => broadcastToCatalogVisitors(message.trim()),
+    onSuccess: (r) => { toast({ title: `تم الإرسال إلى ${r.sent} رقم${r.failed ? ` (فشل ${r.failed})` : ""}` }); onClose() },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-base font-bold text-slate-900">إرسال واتساب جماعي</h3>
+        <p className="mb-3 text-xs text-slate-500">سيتم الإرسال إلى كل الأرقام المجمّعة ({count} رقم) عبر واتساب المتجر.</p>
+        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5}
+          placeholder="اكتب رسالتك هنا..." className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500" />
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>إلغاء</Button>
+          <Button size="sm" disabled={message.trim().length < 2 || sendMut.isPending} onClick={() => sendMut.mutate()}>
+            {sendMut.isPending ? "جاري الإرسال..." : "إرسال للكل"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Catalog product analytics ───────────────────────────────────────── */
+function AnalyticsTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["catalog-product-stats"],
+    queryFn: getCatalogProductStats,
+    staleTime: 60_000,
+  })
+
+  const list = (rows: CatalogProductStat[], metric: "views" | "orders") => (
+    rows.length === 0 ? (
+      <p className="py-6 text-center text-sm text-slate-400">لا توجد بيانات بعد</p>
+    ) : (
+      <div className="space-y-2">
+        {rows.map((p, i) => (
+          <div key={p.productId} className="flex items-center gap-3 rounded-xl border border-slate-100 p-2">
+            <span className="w-5 text-center text-xs font-bold text-slate-400">{i + 1}</span>
+            {p.thumbnailUrl ? <img src={p.thumbnailUrl} alt="" className="h-9 w-9 rounded-lg object-cover" /> : <div className="h-9 w-9 rounded-lg bg-slate-100" />}
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-slate-800">{p.name}</p>
+              {p.itemNumber && <p className="text-xs text-slate-400" dir="ltr">#{p.itemNumber}</p>}
+            </div>
+            <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-sm font-bold text-slate-700">{p[metric]}</span>
+          </div>
+        ))}
+      </div>
+    )
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <StatCard label="إجمالي المشاهدات" value={data?.totalViews ?? 0} color="slate" />
+        <StatCard label="إجمالي الطلبات" value={data?.totalOrders ?? 0} color="emerald" />
+      </div>
+      {isLoading ? (
+        <p className="py-8 text-center text-sm text-slate-400">جاري التحميل...</p>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Eye className="h-4 w-4" /> الأكثر مشاهدة</CardTitle></CardHeader>
+            <CardContent>{list(data?.topViewed ?? [], "views")}</CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-base"><BarChart3 className="h-4 w-4" /> الأكثر طلباً</CardTitle></CardHeader>
+            <CardContent>{list(data?.topOrdered ?? [], "orders")}</CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
 
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "visitors" | "design" | "promos">("customers")
+  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "promos">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1209,6 +1391,7 @@ export function CatalogManagementPage() {
       <div className="space-y-3">
         <CatalogOtpSettings />
         <CatalogFullCartonOnlySettings />
+        <CatalogShuffleSettings />
       </div>
 
       {/* Tabs */}
@@ -1216,6 +1399,7 @@ export function CatalogManagementPage() {
         {([
           { key: "customers", label: "الزبائن", icon: <Globe className="h-4 w-4" /> },
           { key: "visitors", label: "الزوار الجدد", icon: <Users className="h-4 w-4" /> },
+          { key: "analytics", label: "تحليلات الكتلوك", icon: <BarChart3 className="h-4 w-4" /> },
           { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
           { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
         ] as const).map(({ key, label, icon }) => (
@@ -1230,6 +1414,7 @@ export function CatalogManagementPage() {
       </div>
 
       {tab === "visitors" && <VisitorsTab />}
+      {tab === "analytics" && <AnalyticsTab />}
       {tab === "design" && <CatalogDesignTab />}
       {tab === "promos" && <PromoCodesTab />}
 

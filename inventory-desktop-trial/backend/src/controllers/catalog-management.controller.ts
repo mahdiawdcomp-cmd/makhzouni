@@ -6,6 +6,9 @@ import {
   updateCatalogAccessLink,
   revokeCatalogAccess,
   listCatalogVisitors,
+  convertVisitorToCustomer,
+  broadcastToVisitors,
+  listCatalogProductStats,
 } from "../services/catalog.service";
 import prisma from "../config/database";
 
@@ -16,6 +19,23 @@ export const getCatalogCustomers = asyncHandler(async (_req, res) => {
 
 export const getCatalogVisitorsCtrl = asyncHandler(async (_req, res) => {
   const result = await listCatalogVisitors();
+  res.json({ success: true, data: result });
+});
+
+export const convertVisitorCtrl = asyncHandler(async (req, res) => {
+  const { name, grantAccess, allowPrices } = req.body as { name?: string; grantAccess?: boolean; allowPrices?: boolean };
+  const result = await convertVisitorToCustomer(String(req.params.phone ?? ""), { name, grantAccess, allowPrices });
+  res.json({ success: true, data: result });
+});
+
+export const broadcastVisitorsCtrl = asyncHandler(async (req, res) => {
+  const { message, phones } = req.body as { message?: string; phones?: string[] };
+  const result = await broadcastToVisitors(String(message ?? ""), phones);
+  res.json({ success: true, data: result });
+});
+
+export const getCatalogProductStatsCtrl = asyncHandler(async (_req, res) => {
+  const result = await listCatalogProductStats();
   res.json({ success: true, data: result });
 });
 

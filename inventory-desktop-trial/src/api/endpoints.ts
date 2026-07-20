@@ -1305,11 +1305,35 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
   return { rows: data.data ?? [], total: data.total ?? 0 }
 }
 
-export type CatalogVisitor = { id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string }
+export type CatalogVisitor = {
+  id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string
+  customerId: string | null; customerName: string | null
+}
 
 export async function getCatalogVisitors() {
   const { data } = await api.get<ApiEnvelope<{ visitors: CatalogVisitor[]; uniquePhones: number; totalVisits: number }>>("/catalog-management/visitors")
   return data.data ?? { visitors: [], uniquePhones: 0, totalVisits: 0 }
+}
+
+export async function convertCatalogVisitor(phone: string, opts?: { name?: string; grantAccess?: boolean; allowPrices?: boolean }) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; customerName: string; created: boolean }>>(`/catalog-management/visitors/${encodeURIComponent(phone)}/convert`, opts ?? {})
+  return data.data!
+}
+
+export async function broadcastToCatalogVisitors(message: string, phones?: string[]) {
+  const { data } = await api.post<ApiEnvelope<{ total: number; sent: number; failed: number }>>("/catalog-management/visitors/broadcast", { message, phones })
+  return data.data!
+}
+
+export type CatalogProductStat = { productId: string; name: string; itemNumber: string | null; thumbnailUrl: string | null; views: number; orders: number }
+
+export async function getCatalogProductStats() {
+  const { data } = await api.get<ApiEnvelope<{ topViewed: CatalogProductStat[]; topOrdered: CatalogProductStat[]; totalViews: number; totalOrders: number }>>("/catalog-management/product-stats")
+  return data.data ?? { topViewed: [], topOrdered: [], totalViews: 0, totalOrders: 0 }
+}
+
+export async function trackCatalogProductView(productId: string) {
+  try { await api.post("/public/catalog/track-view", { productId }) } catch { /* best-effort */ }
 }
 
 export interface CatalogDesign {

@@ -1063,6 +1063,7 @@ export interface AppSettings {
   catalogAdminWhatsappNumber?: string
   catalogRequireOtp?: boolean
   catalogFullCartonOnly?: boolean
+  catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean

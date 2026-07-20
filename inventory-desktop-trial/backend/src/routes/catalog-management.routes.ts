@@ -3,6 +3,9 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import {
   getCatalogCustomers,
   getCatalogVisitorsCtrl,
+  convertVisitorCtrl,
+  broadcastVisitorsCtrl,
+  getCatalogProductStatsCtrl,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccessCtrl,
@@ -13,6 +16,9 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/visitors", getCatalogVisitorsCtrl);
+router.post("/visitors/broadcast", broadcastVisitorsCtrl);
+router.post("/visitors/:phone/convert", convertVisitorCtrl);
+router.get("/product-stats", getCatalogProductStatsCtrl);
 router.get("/", getCatalogCustomers);
 
 // Grant / update / revoke per customer

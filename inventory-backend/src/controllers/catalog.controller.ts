@@ -6,6 +6,7 @@ import {
   listCatalogProducts,
   listGuestCatalogProducts,
   lookupCatalogAccess,
+  recordCatalogProductView,
   recordGuestVisit,
   requestCatalogAccess,
   submitCatalogOrder,
@@ -17,6 +18,11 @@ import { asyncHandler } from "../utils/async-handler";
 export const guestCatalogEnter = asyncHandler(async (req, res) => {
   const result = await recordGuestVisit(String((req.body as { phone?: string })?.phone ?? ""));
   res.json({ success: true, data: result });
+});
+
+export const trackCatalogProductView = asyncHandler(async (req, res) => {
+  await recordCatalogProductView(String((req.body as { productId?: string })?.productId ?? ""));
+  res.json({ success: true });
 });
 
 export const createCatalogAccessRequest = asyncHandler(async (req, res) => {

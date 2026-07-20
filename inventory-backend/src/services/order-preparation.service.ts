@@ -7,6 +7,7 @@ import { getSettings } from "./settings.service";
 import { sendWhatsAppPdf, sendWhatsAppText, sendPdfWithTemplateFallback, sendTextWithTemplateFallback, invoiceTemplateBodyParams } from "./whatsapp.service";
 import { createInvoice, getInvoiceById } from "./invoice.service";
 import { resolveWarehouseId } from "./warehouse-stock.service";
+import { notifyAdmin } from "./app-notification.service";
 
 const CLOUD_TEMPLATE_LANG = "ar";
 
@@ -470,6 +471,30 @@ export async function notifyCatalogAccessRequested(
       "راجع صفحة الموافقات حتى تسمح له بالدخول وتحدد هل يشوف الأسعار أو لا.",
     ].filter(Boolean);
     await safeSendWA(admin, parts.join("\n"));
+  }
+}
+
+// Fired the first time a brand-new phone number passes the guest catalog phone
+// gate. Rings the admin bell and (if configured) pings the admin on WhatsApp so
+// they can follow up on the fresh lead.
+export async function notifyNewCatalogLead(phone: string) {
+  const settings = await getSettings().catch(() => null);
+  const admin = adminPhone(settings);
+
+  await notifyAdmin({
+    type: "catalog_new_lead",
+    category: "catalog",
+    severity: "info",
+    title: "زائر جديد بالكتلوك",
+    message: `رقم جديد دخل كتلوك الجملة: ${phone}`,
+    entityType: "catalog_visitor",
+    entityId: phone,
+    actionUrl: "/catalog-management",
+    dedupeKey: `catalog_lead:${phone}`,
+  }).catch(() => {});
+
+  if (admin) {
+    await safeSendWA(admin, `زائر جديد دخل كتلوك الجملة\nالرقم: ${phone}\n\nراجع «الزوار الجدد» بصفحة إدارة الكتلوك للتواصل معه.`);
   }
 }
 

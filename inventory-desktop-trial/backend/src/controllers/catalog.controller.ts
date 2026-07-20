@@ -2,10 +2,16 @@ import {
   getCatalogAccess,
   listCatalogProducts,
   lookupCatalogAccess,
+  recordCatalogProductView,
   requestCatalogAccess,
   submitCatalogOrder,
 } from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
+
+export const trackCatalogProductView = asyncHandler(async (req, res) => {
+  await recordCatalogProductView(String((req.body as { productId?: string })?.productId ?? ""));
+  res.json({ success: true });
+});
 
 export const createCatalogAccessRequest = asyncHandler(async (req, res) => {
   const result = await requestCatalogAccess(req.body);

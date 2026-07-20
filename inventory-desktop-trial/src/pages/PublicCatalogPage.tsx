@@ -23,6 +23,7 @@ import {
   getCatalogSession,
   getPublicCatalogProducts,
   getPublicCatalogProductImage,
+  trackCatalogProductView,
   requestCatalogAccess,
   sendCatalogOtp,
   verifyCatalogOtp,
@@ -717,6 +718,7 @@ function CatalogShop({
   async function openZoom(product: PublicCatalogProduct) {
     const thumb = product.thumbnailUrl || product.imageUrl
     if (!thumb) return
+    void trackCatalogProductView(product.id)
     setZoomedImg({ src: thumb, name: product.name })
     try {
       const full = await getPublicCatalogProductImage(accessToken, product.id)

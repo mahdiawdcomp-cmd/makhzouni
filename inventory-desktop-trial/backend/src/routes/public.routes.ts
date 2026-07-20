@@ -5,6 +5,7 @@ import {
   getCatalogAccessStatus,
   getCatalogProducts,
   getCatalogSession,
+  trackCatalogProductView,
 } from "../controllers/catalog.controller";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import { getClientPortal, getClientPortalInvoice } from "../controllers/customer-portal.controller";
@@ -54,6 +55,7 @@ router.get("/catalog/access/status", catalogLimiter, validate(catalogAccessStatu
 router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogSession);
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
+router.post("/catalog/track-view", catalogLimiter, trackCatalogProductView);
 
 // Retail storefront (كتلوك المفرد) — fully public, no login
 router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);

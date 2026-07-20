@@ -886,6 +886,7 @@ export interface AppSettings {
   shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
+  catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean

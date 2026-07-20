@@ -727,6 +727,19 @@ model CatalogVisitor {
   @@map("catalog_visitors")
 }
 
+// Per-product catalog engagement counters — how many times a product was
+// opened (views) and how many catalog orders included it (orders). Powers the
+// «تحليلات الكتلوك» admin view. Standalone (no FK) so a deleted product's
+// historical counters survive; names are resolved by join at read time.
+model CatalogProductStat {
+  productId    String    @id @map("product_id") @db.Uuid
+  views        Int       @default(0)
+  orders       Int       @default(0)
+  lastViewedAt DateTime? @map("last_viewed_at")
+
+  @@map("catalog_product_stats")
+}
+
 model Invoice {
   id                String                  @id @default(uuid()) @db.Uuid
   invoiceNumber     String                  @unique @map("invoice_number")

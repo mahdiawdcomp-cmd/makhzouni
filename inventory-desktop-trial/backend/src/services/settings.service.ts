@@ -49,6 +49,8 @@ export interface AppSettings {
   // Public catalog / WhatsApp workflow
   catalogPublicUrl?: string;
   catalogAdminWhatsappNumber?: string;
+  // Wholesale catalog product-order rotation: "hourly" (default) / "daily" / "off".
+  catalogShuffleMode?: "hourly" | "daily" | "off";
   orderPreparationWhatsappNumbers?: string;
   // Dedicated number that receives staff approval requests (delete/cancel).
   // Falls back to storePhone when empty.
@@ -134,6 +136,7 @@ export const defaultSettings: AppSettings = {
   shopWarehouseId: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
+  catalogShuffleMode: "hourly",
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,
