@@ -7,6 +7,7 @@ import { isVerified } from "./otp.service";
 import {
   notifyCatalogAccessRequested,
   notifyCatalogOrderSubmitted,
+  notifyNewCatalogLead,
 } from "./order-preparation.service";
 import { getSettings } from "./settings.service";
 import { createCustomer } from "./customer.service";
@@ -40,6 +41,7 @@ export type CatalogCustomerRow = {
   showStock: boolean;
   token: string | null;
   lastViewedAt: Date | null;
+  viewCount: number;
   createdAt: Date | null;
   catalogLinkSentAt: Date | null;
 };
@@ -161,7 +163,14 @@ export async function convertVisitorToCustomer(
   return { customerId: customer.id, customerName: customer.name, created, access };
 }
 
-// Admin: bulk WhatsApp to collected numbers (all, or a subset). Best-effort.
+// Space consecutive WhatsApp sends so a bulk blast doesn't trip provider ban
+// heuristics (especially personal-number channels).
+const BROADCAST_DELAY_MS = 1500;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Admin: bulk WhatsApp to collected numbers (all, or a subset). Runs in the
+// BACKGROUND (throttled) so a long list never holds the HTTP request open;
+// returns immediately with how many numbers were queued.
 export async function broadcastToVisitors(message: string, phones?: string[]) {
   const text = String(message ?? "").trim();
   if (!text) throw new AppError("الرسالة مطلوبة", 400);
@@ -172,12 +181,19 @@ export async function broadcastToVisitors(message: string, phones?: string[]) {
     const all = await prisma.catalogVisitor.findMany({ select: { phone: true } });
     targets = all.map((v) => v.phone);
   }
-  let sent = 0;
-  let failed = 0;
-  for (const phone of targets) {
-    try { await sendWhatsAppText(phone, text); sent++; } catch { failed++; }
-  }
-  return { total: targets.length, sent, failed };
+  if (!targets.length) throw new AppError("لا توجد أرقام للإرسال", 400);
+
+  void (async () => {
+    let sent = 0;
+    let failed = 0;
+    for (const phone of targets) {
+      try { await sendWhatsAppText(phone, text); sent++; } catch { failed++; }
+      await sleep(BROADCAST_DELAY_MS);
+    }
+    console.info(`[CatalogBroadcast] done: ${sent} sent, ${failed} failed of ${targets.length}`);
+  })();
+
+  return { started: true, total: targets.length };
 }
 
 // ── Catalog product analytics ────────────────────────────────────────────
@@ -319,6 +335,7 @@ export async function listCustomersWithCatalogStatus(): Promise<CatalogCustomerR
       showStock: link?.showStock ?? true,
       token: link?.token ?? null,
       lastViewedAt: link?.lastViewedAt ?? null,
+      viewCount: link?.viewCount ?? 0,
       createdAt: link?.createdAt ?? null,
       catalogLinkSentAt: c.catalogLinkSentAt,
     };
@@ -422,6 +439,11 @@ export async function getCatalogAccess(token: string) {
 
 export async function listCatalogProducts(token: string) {
   const access = await getCatalogAccess(token);
+  // Count one catalog open per grid load.
+  await prisma.catalogAccessLink.updateMany({
+    where: { tokenHash: hashToken(token), revokedAt: null },
+    data: { viewCount: { increment: 1 } },
+  });
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     orderBy: [{ category: "asc" }, { name: "asc" }],
@@ -451,6 +473,173 @@ export async function listCatalogProducts(token: string) {
     .filter((product) => product.currentStock > 0);
 
   return applyCatalogOrder(mapped, await catalogOrderSeed());
+}
+
+// ── Guest catalog (no token/OTP — merchant turned catalogRequireOtp off) ──
+type GuestCatalogOrderInput = {
+  customerName: string;
+  phone: string;
+  address?: string;
+  notes?: string;
+  items: Array<{ productId: string; unit: Unit; quantity: number }>;
+};
+
+export async function isGuestCatalogEnabled() {
+  const settings = await getSettings().catch(() => null);
+  return settings?.catalogRequireOtp === false;
+}
+
+async function assertGuestCatalogEnabled() {
+  if (!(await isGuestCatalogEnabled())) {
+    throw new AppError("تصفح الكتلوك بدون تسجيل غير مفعّل", 403, "GUEST_CATALOG_DISABLED");
+  }
+}
+
+// Record a guest visit through the phone gate. The phone is stored once; repeat
+// entries bump the counter. First-ever appearance pings the admin.
+export async function recordGuestVisit(rawPhone: string) {
+  await assertGuestCatalogEnabled();
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  if (phone.length < 10) throw new AppError("رقم هاتف غير صالح", 400);
+  const existing = await prisma.catalogVisitor.findUnique({ where: { phone } });
+  if (!existing) {
+    await prisma.catalogVisitor.create({ data: { phone } });
+    notifyNewCatalogLead(phone).catch(() => {});
+  } else {
+    await prisma.catalogVisitor.update({
+      where: { phone },
+      data: { visits: { increment: 1 }, lastSeenAt: new Date() },
+    });
+  }
+  return { ok: true };
+}
+
+export async function listGuestCatalogProducts() {
+  await assertGuestCatalogEnabled();
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    orderBy: [{ category: "asc" }, { name: "asc" }],
+  });
+
+  const mapped = products
+    .map((product) => {
+      const stock = stockOf(product);
+      return {
+        id: product.id,
+        itemNumber: product.itemNumber,
+        name: product.name,
+        imageUrl: product.imageUrl,
+        category: product.category,
+        categoryTags: product.categoryTags as string[],
+        typeTags: product.typeTags as string[],
+        isNewArrival: product.isNewArrival,
+        isOffer: product.isOffer,
+        oldPrice: null,
+        createdAt: product.createdAt,
+        salePrice: null, // guests never see prices — request access first
+        pcsPerCarton: product.pcsPerCarton,
+        currentStock: stock,
+        showStock: true,
+      };
+    })
+    .filter((product) => product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
+
+  return applyCatalogOrder(mapped, await catalogOrderSeed());
+}
+
+export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput) {
+  await assertGuestCatalogEnabled();
+
+  const customerName = input.customerName.trim();
+  const phone = normalizePhone(input.phone);
+  if (!customerName || !phone) {
+    throw new AppError("الاسم ورقم الهاتف مطلوبان", 400, "GUEST_ORDER_INVALID");
+  }
+
+  const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
+  const products = await prisma.product.findMany({
+    where: { id: { in: uniqueProductIds }, deletedAt: null },
+  });
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const requestedPiecesByProduct = new Map<string, number>();
+
+  for (const item of input.items) {
+    const product = productById.get(item.productId);
+    if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton);
+    requestedPiecesByProduct.set(product.id, (requestedPiecesByProduct.get(product.id) ?? 0) + requestedPieces);
+  }
+
+  for (const product of products) {
+    if ((requestedPiecesByProduct.get(product.id) ?? 0) > stockOf(product)) {
+      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+    }
+  }
+
+  const normalizedItems = input.items.map((item) => {
+    const product = productById.get(item.productId);
+    if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    const available = stockOf(product);
+    if (available <= 0) throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton);
+    return {
+      productId: product.id,
+      productName: product.name,
+      unit: item.unit,
+      quantity: item.quantity,
+      unitPrice,
+      totalPrice: unitPrice * item.quantity,
+      availableStock: available,
+    };
+  });
+
+  const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+  const requester = await findApprovalRequester();
+
+  const approval = await createPendingApproval(
+    approvalRequestTypes.CATALOG_ORDER,
+    {
+      source: "PUBLIC_CATALOG_GUEST",
+      customerName,
+      phone,
+      address: input.address,
+      notes: input.notes,
+      subtotal,
+      finalTotal: subtotal,
+      body: {
+        customerName,
+        phone,
+        address: input.address,
+        notes: input.notes,
+        items: normalizedItems.map((item) => ({
+          productId: item.productId,
+          unit: item.unit,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+      },
+      displayItems: normalizedItems,
+    },
+    requester.id,
+  );
+
+  setImmediate(() => {
+    notifyCatalogOrderSubmitted(
+      customerName,
+      phone,
+      normalizedItems.map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        unit: item.unit,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+      })),
+    ).catch((err) => console.error("[GuestCatalogOrder] notify failed:", err));
+    recordCatalogProductOrders(normalizedItems.map((i) => i.productId)).catch(() => {});
+  });
+
+  return { approvalId: approval.id };
 }
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {

@@ -23,6 +23,9 @@ import {
   getCatalogSession,
   getPublicCatalogProducts,
   getPublicCatalogProductImage,
+  getGuestCatalogProducts,
+  guestCatalogEnter,
+  submitGuestCatalogOrder,
   trackCatalogProductView,
   requestCatalogAccess,
   sendCatalogOtp,
@@ -185,13 +188,42 @@ export function PublicCatalogPage() {
     staleTime: 5 * 60_000,
   })
 
+  // Fetched before any token exists so we know whether the merchant allows
+  // anonymous browsing (catalogRequireOtp off) or requires the token/OTP gate.
+  const guestConfigQuery = useQuery({
+    queryKey: ["catalog-design-public"],
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { guestModeEnabled?: boolean } }).data ?? {}),
+    enabled: !accessToken,
+    staleTime: 5 * 60_000,
+  })
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (sessionQuery.isError) clearAccess()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionQuery.isError])
 
-  if (!accessToken) return <CatalogGate onAccess={handleAccess} />
+  if (!accessToken) {
+    if (guestConfigQuery.isLoading)
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
+          <div className="flex flex-col items-center gap-3 text-gray-400">
+            <ShoppingBag className="h-10 w-10 animate-pulse" />
+            <p className="text-sm font-medium">جاري فتح المتجر...</p>
+          </div>
+        </div>
+      )
+    if (guestConfigQuery.data?.guestModeEnabled)
+      return (
+        <GuestPhoneGate>
+          <CatalogShop
+            accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
+            customerId="" customerName="" customerPhone="" guestMode
+          />
+        </GuestPhoneGate>
+      )
+    return <CatalogGate onAccess={handleAccess} />
+  }
 
   if (sessionQuery.isPending || sessionQuery.isLoading)
     return (
@@ -308,6 +340,64 @@ function ReVerifyGate({
         {msg && (
           <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{msg}</div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   GUEST PHONE GATE (guest mode only — asked once per device)
+══════════════════════════════════════════════════════════════════════ */
+const GUEST_PHONE_KEY = "catalog_guest_phone"
+
+function GuestPhoneGate({ children }: { children: React.ReactNode }) {
+  const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
+  const [phone, setPhone] = useState("")
+  const [err, setErr] = useState("")
+
+  const enterMut = useMutation({
+    mutationFn: () => guestCatalogEnter(phone.trim()),
+    onSuccess: () => {
+      localStorage.setItem(GUEST_PHONE_KEY, phone.trim())
+      setErr("")
+      setEntered(true)
+    },
+    onError: () => setErr("تعذر الحفظ. تأكد من الرقم وحاول مرة ثانية."),
+  })
+
+  if (entered) return <>{children}</>
+
+  const digits = phone.replace(/\D/g, "")
+  const valid = digits.length >= 10
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4" dir="rtl">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-lg">
+        <div className="mb-5 flex flex-col items-center gap-2 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50">
+            <ShoppingBag className="h-7 w-7 text-indigo-600" />
+          </div>
+          <h1 className="text-lg font-bold text-gray-900">أهلاً بك في الكتلوك</h1>
+          <p className="text-sm text-gray-500">فضلاً أدخل رقم هاتفك للدخول وتصفح البضاعة</p>
+        </div>
+        <input
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && valid && !enterMut.isPending) enterMut.mutate() }}
+          inputMode="tel"
+          placeholder="07XXXXXXXXX"
+          className="w-full rounded-xl border border-gray-300 px-4 py-3 text-center text-base tracking-wide outline-none focus:border-indigo-500"
+          dir="ltr"
+          autoFocus
+        />
+        {err && <p className="mt-2 text-center text-xs text-red-600">{err}</p>}
+        <button
+          disabled={!valid || enterMut.isPending}
+          onClick={() => enterMut.mutate()}
+          className="mt-4 w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white transition hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {enterMut.isPending ? "جاري الدخول..." : "دخول"}
+        </button>
       </div>
     </div>
   )
@@ -483,22 +573,28 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
    SHOP
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
-  accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
+  accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone, guestMode = false,
 }: {
   accessToken: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter
-  customerId: string; customerName: string; customerPhone: string
+  customerId: string; customerName: string; customerPhone: string; guestMode?: boolean
 }) {
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
-  // Ordering is still carton-only either way.
+  // Ordering is still carton-only either way. Guests are always carton-only.
   const canDisplay = (p: PublicCatalogProduct) =>
-    stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
+    guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
   const productsQuery = useQuery({
-    queryKey: ["public-catalog-products", accessToken],
-    queryFn: () => getPublicCatalogProducts(accessToken),
+    queryKey: guestMode ? ["guest-catalog-products"] : ["public-catalog-products", accessToken],
+    queryFn: () => guestMode ? getGuestCatalogProducts() : getPublicCatalogProducts(accessToken),
     refetchOnMount: "always",
     staleTime: 0,
   })
+
+  // Guest checkout fields (only used when guestMode). Phone is prefilled from
+  // the phone gate the visitor already passed.
+  const [guestName, setGuestName] = useState("")
+  const [guestPhone, setGuestPhone] = useState(() => (guestMode ? localStorage.getItem(GUEST_PHONE_KEY) ?? "" : ""))
+  const [guestAddress, setGuestAddress] = useState("")
 
   useEffect(() => {
     document.title = "كتالوج المنتجات"
@@ -667,14 +763,20 @@ function CatalogShop({
 
   const orderMut = useMutation({
     mutationFn: () =>
-      submitPublicCatalogOrder(
-        {
-          customerName, phone: customerPhone, notes: notes.trim() || undefined,
-          items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
-          promoCode: promoResult?.code,
-        },
-        accessToken,
-      ),
+      guestMode
+        ? submitGuestCatalogOrder({
+            customerName: guestName.trim(), phone: guestPhone.trim(), address: guestAddress.trim() || undefined,
+            notes: notes.trim() || undefined,
+            items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+          })
+        : submitPublicCatalogOrder(
+            {
+              customerName, phone: customerPhone, notes: notes.trim() || undefined,
+              items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+              promoCode: promoResult?.code,
+            },
+            accessToken,
+          ),
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
@@ -720,6 +822,7 @@ function CatalogShop({
     if (!thumb) return
     void trackCatalogProductView(product.id)
     setZoomedImg({ src: thumb, name: product.name })
+    if (guestMode) return // guests get the inline thumbnail only (no token to fetch full image)
     try {
       const full = await getPublicCatalogProductImage(accessToken, product.id)
       if (full) setZoomedImg({ src: full, name: product.name })
@@ -1138,6 +1241,9 @@ function CatalogShop({
           promoLoading={promoLoading} onApplyPromo={applyPromo}
           promoDiscount={promoDiscount} finalTotal={finalTotal} hasFreeDelivery={hasFreeDelivery}
           onClearPromo={() => { setPromoResult(null); setPromoCode(""); setPromoError("") }}
+          guestMode={guestMode}
+          guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
+          onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
         />
       )}
 
@@ -1533,6 +1639,8 @@ function CartOverlay({
   onClose, onSubmit, isPending, submitted, isError, tk,
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
   promoDiscount, finalTotal, hasFreeDelivery, onClearPromo,
+  guestMode = false, guestName = "", guestPhone = "", guestAddress = "",
+  onGuestName, onGuestPhone, onGuestAddress,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
   onNotes: (v: string) => void; onChangeQty: (id: string, d: number) => void
@@ -1543,7 +1651,11 @@ function CartOverlay({
   promoResult: { code: string; type: string; value: number | null; description: string | null } | null
   promoError: string; promoLoading: boolean; onApplyPromo: () => void
   promoDiscount: number; finalTotal: number; hasFreeDelivery: boolean; onClearPromo: () => void
+  guestMode?: boolean
+  guestName?: string; guestPhone?: string; guestAddress?: string
+  onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
 }) {
+  const guestDetailsMissing = Boolean(guestMode) && (!guestName.trim() || guestPhone.replace(/\D/g, "").length < 7)
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -1596,13 +1708,29 @@ function CartOverlay({
 
         {!submitted && cart.length > 0 && (
           <div className="space-y-3 px-4 py-4" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
+            {guestMode && (
+              <div className="space-y-2">
+                <input value={guestName} onChange={(e) => onGuestName?.(e.target.value)}
+                  placeholder="الاسم *"
+                  className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+                <input value={guestPhone} onChange={(e) => onGuestPhone?.(e.target.value)}
+                  placeholder="رقم الهاتف *" dir="ltr"
+                  className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+                <input value={guestAddress} onChange={(e) => onGuestAddress?.(e.target.value)}
+                  placeholder="العنوان (اختياري)"
+                  className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+              </div>
+            )}
             <input value={notes} onChange={(e) => onNotes(e.target.value)}
               placeholder="ملاحظات إضافية (اختياري)"
               className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
               style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
 
-            {/* Promo code */}
-            {promoResult ? (
+            {/* Promo code — not available for anonymous guests (no account to attach it to) */}
+            {!guestMode && (promoResult ? (
               <div className="flex items-center justify-between rounded-xl px-3 py-2.5"
                 style={{ background: "#d1fae5", border: "1px solid #6ee7b7" }}>
                 <div>
@@ -1633,8 +1761,8 @@ function CartOverlay({
                   {promoLoading ? "..." : "تطبيق"}
                 </button>
               </div>
-            )}
-            {promoError && <p className="text-xs text-red-600">{promoError}</p>}
+            ))}
+            {!guestMode && promoError && <p className="text-xs text-red-600">{promoError}</p>}
 
             {/* Totals */}
             {allowPrices && (
@@ -1663,7 +1791,8 @@ function CartOverlay({
             )}
 
             {isError && <p className="text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
-            <button disabled={isPending} onClick={onSubmit}
+            {guestDetailsMissing && <p className="text-xs" style={{ color: tk.subtext }}>أدخل اسمك ورقم هاتفك لإتمام الطلب</p>}
+            <button disabled={isPending || guestDetailsMissing} onClick={onSubmit}
               className="w-full rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition active:scale-95 disabled:opacity-50"
               style={{ background: tk.accent }}>
               {isPending ? "جاري الإرسال..." : "إرسال الطلب للمراجعة ✓"}

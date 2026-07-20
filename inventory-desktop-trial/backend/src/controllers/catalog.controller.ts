@@ -1,12 +1,30 @@
 import {
   getCatalogAccess,
   listCatalogProducts,
+  listGuestCatalogProducts,
   lookupCatalogAccess,
   recordCatalogProductView,
+  recordGuestVisit,
   requestCatalogAccess,
   submitCatalogOrder,
+  submitGuestCatalogOrder,
 } from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
+
+export const getGuestCatalogProducts = asyncHandler(async (_req, res) => {
+  const products = await listGuestCatalogProducts();
+  res.json({ success: true, data: products });
+});
+
+export const createGuestCatalogOrder = asyncHandler(async (req, res) => {
+  const result = await submitGuestCatalogOrder(req.body);
+  res.status(201).json({ success: true, message: "Guest catalog order submitted for approval", data: result });
+});
+
+export const guestCatalogEnter = asyncHandler(async (req, res) => {
+  const result = await recordGuestVisit(String((req.body as { phone?: string })?.phone ?? ""));
+  res.json({ success: true, data: result });
+});
 
 export const trackCatalogProductView = asyncHandler(async (req, res) => {
   await recordCatalogProductView(String((req.body as { productId?: string })?.productId ?? ""));

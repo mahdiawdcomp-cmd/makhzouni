@@ -235,7 +235,17 @@ export async function guestCatalogEnter(phone: string) {
 }
 
 // Fire-and-forget: record that a shopper opened a product card (analytics).
+// Deduped per device per day so repeat opens of the same product by the same
+// visitor count once — the counter reflects unique daily interest, not clicks.
 export async function trackCatalogProductView(productId: string) {
+  if (!productId) return
+  try {
+    const key = `catalog_viewed_${new Date().toISOString().slice(0, 10)}`
+    const seen: string[] = JSON.parse(localStorage.getItem(key) || "[]")
+    if (seen.includes(productId)) return
+    seen.push(productId)
+    localStorage.setItem(key, JSON.stringify(seen))
+  } catch { /* localStorage unavailable — fall through and still count */ }
   try { await api.post("/public/catalog/track-view", { productId }) } catch { /* best-effort */ }
 }
 
@@ -1506,7 +1516,7 @@ export async function convertCatalogVisitor(phone: string, opts?: { name?: strin
 }
 
 export async function broadcastToCatalogVisitors(message: string, phones?: string[]) {
-  const { data } = await api.post<ApiEnvelope<{ total: number; sent: number; failed: number }>>("/catalog-management/visitors/broadcast", { message, phones })
+  const { data } = await api.post<ApiEnvelope<{ started: boolean; total: number }>>("/catalog-management/visitors/broadcast", { message, phones })
   return data.data!
 }
 

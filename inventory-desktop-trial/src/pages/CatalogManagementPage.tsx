@@ -338,11 +338,18 @@ function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin
 
         {/* آخر زيارة */}
         <td className="px-4 py-3 text-xs text-slate-500">
-          {customer.lastViewedAt
-            ? dayjs(customer.lastViewedAt).fromNow()
-            : customer.hasAccess
-            ? "لم يُفتح بعد"
-            : "—"}
+          {customer.lastViewedAt ? (
+            <div className="flex flex-col gap-0.5">
+              <span>{dayjs(customer.lastViewedAt).fromNow()}</span>
+              {(customer.viewCount ?? 0) > 0 && (
+                <span className="text-[11px] text-slate-400">{customer.viewCount} فتحة</span>
+              )}
+            </div>
+          ) : customer.hasAccess ? (
+            "لم يُفتح بعد"
+          ) : (
+            "—"
+          )}
         </td>
 
         {/* إرسال رابط الكتلوج بالواتساب + بروموكود */}
@@ -1133,7 +1140,7 @@ function BroadcastVisitorsModal({ count, onClose }: { count: number; onClose: ()
   const [message, setMessage] = useState("")
   const sendMut = useMutation({
     mutationFn: () => broadcastToCatalogVisitors(message.trim()),
-    onSuccess: (r) => { toast({ title: `تم الإرسال إلى ${r.sent} رقم${r.failed ? ` (فشل ${r.failed})` : ""}` }); onClose() },
+    onSuccess: (r) => { toast({ title: `بدأ الإرسال إلى ${r.total} رقم — يتم بالتتابع لتجنّب الحظر` }); onClose() },
     onError: () => toast({ title: "تعذر الإرسال", variant: "destructive" }),
   })
 

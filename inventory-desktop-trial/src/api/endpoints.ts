@@ -200,6 +200,23 @@ export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, acc
   return data
 }
 
+/* ── Guest catalog (no token/OTP — only when the merchant turned off
+   catalogRequireOtp; the phone gate collects the visitor's number first) ── */
+export async function getGuestCatalogProducts() {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products")
+  return data.data ?? []
+}
+
+export async function guestCatalogEnter(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>("/public/catalog/guest-enter", { phone })
+  return data.data
+}
+
+export async function submitGuestCatalogOrder(payload: { customerName: string; phone: string; address?: string; notes?: string; items: Array<{ productId: string; unit: string; quantity: number }> }) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload)
+  return data
+}
+
 export async function validatePublicPromoCode(code: string, customerId: string) {
   const { data } = await api.post<ApiEnvelope<{ code: string; type: string; value: number | null; description: string | null }>>(
     "/public/catalog/validate-promo", { code, customerId }
@@ -1321,7 +1338,7 @@ export async function convertCatalogVisitor(phone: string, opts?: { name?: strin
 }
 
 export async function broadcastToCatalogVisitors(message: string, phones?: string[]) {
-  const { data } = await api.post<ApiEnvelope<{ total: number; sent: number; failed: number }>>("/catalog-management/visitors/broadcast", { message, phones })
+  const { data } = await api.post<ApiEnvelope<{ started: boolean; total: number }>>("/catalog-management/visitors/broadcast", { message, phones })
   return data.data!
 }
 
@@ -1332,7 +1349,17 @@ export async function getCatalogProductStats() {
   return data.data ?? { topViewed: [], topOrdered: [], totalViews: 0, totalOrders: 0 }
 }
 
+// Deduped per device per day so repeat opens of the same product by the same
+// visitor count once — the counter reflects unique daily interest, not clicks.
 export async function trackCatalogProductView(productId: string) {
+  if (!productId) return
+  try {
+    const key = `catalog_viewed_${new Date().toISOString().slice(0, 10)}`
+    const seen: string[] = JSON.parse(localStorage.getItem(key) || "[]")
+    if (seen.includes(productId)) return
+    seen.push(productId)
+    localStorage.setItem(key, JSON.stringify(seen))
+  } catch { /* localStorage unavailable — fall through and still count */ }
   try { await api.post("/public/catalog/track-view", { productId }) } catch { /* best-effort */ }
 }
 

@@ -206,8 +206,16 @@ export async function convertVisitorToCustomer(
   return { customerId: customer.id, customerName: customer.name, created, access };
 }
 
+// Space consecutive WhatsApp sends out so a bulk blast doesn't trip provider
+// spam/ban heuristics (especially personal-number channels).
+const BROADCAST_DELAY_MS = 1500;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 // Admin: send a WhatsApp message to collected guest numbers (all of them, or a
-// specific subset). Best-effort per number — one failure never aborts the rest.
+// specific subset). Runs in the BACKGROUND — for large lists a throttled
+// sequential send would otherwise hold the HTTP request open for minutes and
+// time out. Returns immediately with how many numbers were queued; each send is
+// spaced by BROADCAST_DELAY_MS and one failure never aborts the rest.
 export async function broadcastToVisitors(message: string, phones?: string[]) {
   const text = String(message ?? "").trim();
   if (!text) throw new AppError("الرسالة مطلوبة", 400);
@@ -218,17 +226,20 @@ export async function broadcastToVisitors(message: string, phones?: string[]) {
     const all = await prisma.catalogVisitor.findMany({ select: { phone: true } });
     targets = all.map((v) => v.phone);
   }
-  let sent = 0;
-  let failed = 0;
-  for (const phone of targets) {
-    try {
-      await sendWhatsAppText(phone, text);
-      sent++;
-    } catch {
-      failed++;
+  if (!targets.length) throw new AppError("لا توجد أرقام للإرسال", 400);
+
+  // Detached throttled sender — never blocks the response.
+  void (async () => {
+    let sent = 0;
+    let failed = 0;
+    for (const phone of targets) {
+      try { await sendWhatsAppText(phone, text); sent++; } catch { failed++; }
+      await sleep(BROADCAST_DELAY_MS);
     }
-  }
-  return { total: targets.length, sent, failed };
+    console.info(`[CatalogBroadcast] done: ${sent} sent, ${failed} failed of ${targets.length}`);
+  })();
+
+  return { started: true, total: targets.length };
 }
 
 // ── Catalog product analytics ────────────────────────────────────────────
@@ -368,6 +379,7 @@ export type CatalogCustomerRow = {
   stockFilter: CatalogStockFilter;
   token: string | null;
   lastViewedAt: Date | null;
+  viewCount: number;
   createdAt: Date | null;
   catalogLinkSentAt: Date | null;
 };
@@ -392,6 +404,7 @@ export async function listCustomersWithCatalogStatus(opts?: {
       show_stock: boolean | null;
       catalog_stock_filter: CatalogStockFilter | null;
       last_viewed_at: Date | null;
+      view_count: number | null;
       link_created_at: Date | null;
       catalog_link_sent_at: Date | null;
     }>>`
@@ -403,6 +416,7 @@ export async function listCustomersWithCatalogStatus(opts?: {
         cal.show_stock,
         cal.catalog_stock_filter,
         cal.last_viewed_at,
+        cal.view_count,
         cal.created_at AS link_created_at
       FROM customers c
       LEFT JOIN catalog_access_links cal
@@ -432,6 +446,7 @@ export async function listCustomersWithCatalogStatus(opts?: {
       stockFilter: row.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY,
       token: row.token,
       lastViewedAt: row.last_viewed_at,
+      viewCount: row.view_count ?? 0,
       createdAt: row.link_created_at,
       catalogLinkSentAt: row.catalog_link_sent_at,
     })),
@@ -635,6 +650,13 @@ export async function confirmCatalogVerification(token: string) {
 
 export async function listCatalogProducts(token: string) {
   const access = await getCatalogAccess(token);
+  // Count one catalog open per grid load (this runs once when the shopper opens
+  // the catalog, unlike getCatalogAccess which fires on every sub-request).
+  await prisma.$executeRaw`
+    UPDATE "catalog_access_links"
+    SET "view_count" = "view_count" + 1
+    WHERE "token_hash" = ${hashToken(token)} AND "revoked_at" IS NULL
+  `;
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     // The catalog list never needs the full-resolution image — sending only the

@@ -51,6 +51,10 @@ export interface AppSettings {
   catalogAdminWhatsappNumber?: string;
   // Wholesale catalog product-order rotation: "hourly" (default) / "daily" / "off".
   catalogShuffleMode?: "hourly" | "daily" | "off";
+  // When false, guests browse the catalog without a token/OTP — they only pass a
+  // phone gate first. Defaults to true (token required) so nothing opens up
+  // silently for existing installs.
+  catalogRequireOtp?: boolean;
   orderPreparationWhatsappNumbers?: string;
   // Dedicated number that receives staff approval requests (delete/cancel).
   // Falls back to storePhone when empty.
@@ -137,6 +141,7 @@ export const defaultSettings: AppSettings = {
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   catalogShuffleMode: "hourly",
+  catalogRequireOtp: true,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,

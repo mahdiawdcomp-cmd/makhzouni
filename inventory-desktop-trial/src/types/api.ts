@@ -1224,6 +1224,7 @@ export interface CatalogCustomer {
   stockFilter?: CatalogStockFilter
   token: string | null
   lastViewedAt: string | null
+  viewCount?: number
   createdAt: string | null
   catalogLinkSentAt: string | null
 }

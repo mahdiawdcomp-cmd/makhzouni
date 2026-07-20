@@ -5,8 +5,12 @@ import {
   getCatalogAccessStatus,
   getCatalogProducts,
   getCatalogSession,
+  getGuestCatalogProducts,
+  createGuestCatalogOrder,
+  guestCatalogEnter,
   trackCatalogProductView,
 } from "../controllers/catalog.controller";
+import { isGuestCatalogEnabled } from "../services/catalog.service";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
 import { getClientPortal, getClientPortalInvoice } from "../controllers/customer-portal.controller";
 import {
@@ -48,6 +52,34 @@ const router = Router();
 router.post("/otp/send", otpLimiter, validate(sendOtpSchema), sendOtp);
 router.post("/otp/verify", catalogLimiter, validate(verifyOtpSchema), confirmOtp);
 router.get("/otp/check", catalogLimiter, validate(checkVerifiedSchema), checkVerified);
+
+// Catalog design (public — no auth needed); exposes whether guest browsing is on
+router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => {
+  const settings = await prisma.setting.findMany({ where: { key: { startsWith: "catalogDesign" } } });
+  const kv: Record<string, unknown> = {};
+  for (const s of settings) {
+    try { kv[s.key] = JSON.parse(String(s.value)); } catch { kv[s.key] = s.value; }
+  }
+  const guestModeEnabled = await isGuestCatalogEnabled();
+  res.json({
+    success: true,
+    data: {
+      primaryColor: (kv.catalogDesignPrimaryColor as string) ?? null,
+      bgColor: (kv.catalogDesignBgColor as string) ?? null,
+      defaultTheme: (kv.catalogDesignDefaultTheme as string) ?? "clean",
+      logoUrl: (kv.catalogDesignLogoUrl as string) ?? null,
+      welcomeMessage: (kv.catalogDesignWelcomeMessage as string) ?? null,
+      bannerEnabled: kv.catalogDesignBannerEnabled ?? true,
+      bannerImages: (kv.catalogDesignBannerImages as Array<{ url: string; title: string; order: number }>) ?? [],
+      guestModeEnabled,
+    },
+  });
+}));
+
+// Guest catalog (no token/OTP — only when catalogRequireOtp is off; enforced in the service)
+router.post("/catalog/guest-enter", catalogLimiter, guestCatalogEnter);
+router.get("/catalog/guest-products", catalogLimiter, getGuestCatalogProducts);
+router.post("/catalog/guest-orders", catalogLimiter, createGuestCatalogOrder);
 
 // Catalog public endpoints
 router.post("/catalog/access/request", catalogLimiter, validate(catalogAccessRequestSchema), createCatalogAccessRequest);

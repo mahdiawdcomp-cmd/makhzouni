@@ -408,6 +408,16 @@ export async function notifyCatalogAccessRequested(
   }
 }
 
+// Fired the first time a brand-new phone passes the guest catalog phone gate —
+// pings the admin on WhatsApp so they can follow up on the fresh lead.
+export async function notifyNewCatalogLead(phone: string) {
+  const settings = await getSettings().catch(() => null);
+  const admin = adminPhone(settings);
+  if (admin) {
+    await safeSendWA(admin, `زائر جديد دخل كتلوك الجملة\nالرقم: ${phone}\n\nراجع «الزوار الجدد» بصفحة إدارة الكتلوك للتواصل معه.`);
+  }
+}
+
 export async function notifyCatalogAccessApproved(
   customerName: string,
   customerPhone: string,

@@ -333,6 +333,7 @@ model CatalogAccessLink {
   revokedAt    DateTime? @map("revoked_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   lastViewedAt DateTime? @map("last_viewed_at")
+  viewCount    Int       @default(0) @map("view_count")
 
   @@index([customerId])
   @@map("catalog_access_links")
