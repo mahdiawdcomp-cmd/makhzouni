@@ -14,6 +14,7 @@ import crypto from "crypto";
 import prisma from "../config/database";
 import { getSettings, AppSettings } from "./settings.service";
 import { totalStock } from "../utils/product-stock";
+import { AppError } from "../utils/app-error";
 
 const TG_API = "https://api.telegram.org";
 // Telegram allows ~20 msgs/min per group/channel; stay well under it and
@@ -378,15 +379,23 @@ export async function testTelegramChannel(): Promise<{ botName: string }> {
   const botToken = (settings.telegramChannelBotToken || "").trim();
   const chatId = (settings.telegramChannelChatId || "").trim();
   if (!botToken || !chatId) {
-    throw Object.assign(new Error("TELEGRAM_CHANNEL_NOT_CONFIGURED"), { statusCode: 400 });
+    throw new AppError("توكن البوت ومعرّف القناة مطلوبان — احفظ الإعدادات أولاً", 400, "TELEGRAM_CHANNEL_NOT_CONFIGURED");
   }
-  const me = (await tgCall(botToken, "getMe", {})) as { username?: string; first_name?: string };
-  const sent = (await tgCall(botToken, "sendMessage", {
-    chat_id: chatId,
-    text: "✅ اختبار الربط — بوت القناة شغال",
-  })) as { message_id: number };
-  await tgCall(botToken, "deleteMessage", { chat_id: chatId, message_id: sent.message_id }).catch(
-    () => undefined,
-  );
-  return { botName: me.username || me.first_name || "bot" };
+  try {
+    const me = (await tgCall(botToken, "getMe", {})) as { username?: string; first_name?: string };
+    const sent = (await tgCall(botToken, "sendMessage", {
+      chat_id: chatId,
+      text: "✅ اختبار الربط — بوت القناة شغال",
+    })) as { message_id: number };
+    await tgCall(botToken, "deleteMessage", { chat_id: chatId, message_id: sent.message_id }).catch(
+      () => undefined,
+    );
+    return { botName: me.username || me.first_name || "bot" };
+  } catch (error) {
+    // Surface Telegram's own description as a 400 (not a generic 500) so the
+    // settings page shows the real reason (wrong token, chat not found, bot
+    // not admin…).
+    const desc = (error as { tgDescription?: string })?.tgDescription || (error as Error).message;
+    throw new AppError(`فشل اختبار تيليگرام: ${desc}`, 400, "TELEGRAM_CHANNEL_TEST_FAILED");
+  }
 }
