@@ -864,6 +864,43 @@ export const updateSettingsSchema = z.object({
       cycleCountItemLimit: z.coerce.number().int().min(1).max(1000).optional(),
       cycleCountStrategy: z.enum(["RANDOM", "HIGH_VALUE", "FAST_MOVING", "LOW_STOCK", "LEAST_RECENTLY_COUNTED"]).optional(),
       personalDebtReminderWhatsappNumber: z.string().trim().optional(),
+      // Telegram backup delivery (fields existed in the UI but were silently
+      // stripped here — validate() replaces req.body with the parsed object).
+      telegramBotToken: z.string().trim().optional(),
+      telegramChatId: z.string().trim().optional(),
+      // Meta Cloud API template names (all UI-editable; were silently stripped
+      // like the Telegram fields above — same latent bug, fixed 2026-07-20).
+      invoiceTemplateName: z.string().trim().optional(),
+      voucherTemplateName: z.string().trim().optional(),
+      statementTemplateName: z.string().trim().optional(),
+      portalLinkTemplateName: z.string().trim().optional(),
+      statementPdfTemplateName: z.string().trim().optional(),
+      otpTemplateName: z.string().trim().optional(),
+      catalogAccessRequestedTemplateName: z.string().trim().optional(),
+      catalogAccessApprovedTemplateName: z.string().trim().optional(),
+      orderSubmittedTemplateName: z.string().trim().optional(),
+      productArrivalTemplateName: z.string().trim().optional(),
+      debtReminderTemplateName: z.string().trim().optional(),
+      inactiveCustomerTemplateName: z.string().trim().optional(),
+      // WhatsApp send channels (per-send picker)
+      personalChannelEnabled: z.boolean().optional(),
+      personalChannelDailyLimit: z.coerce.number().int().min(1).max(10000).optional(),
+      webChannelEnabled: z.boolean().optional(),
+      // Wholesale catalog design + shuffle
+      catalogDesignPrimaryColor: z.string().trim().optional(),
+      catalogDesignBgColor: z.string().trim().optional(),
+      catalogDesignDefaultTheme: z.enum(["clean", "warm", "dark", "vibrant"]).optional(),
+      catalogDesignLogoUrl: z.string().trim().optional(),
+      catalogDesignWelcomeMessage: z.string().trim().optional(),
+      catalogDesignBannerEnabled: z.boolean().optional(),
+      catalogDesignBannerImages: z
+        .array(z.object({ url: z.string(), title: z.string(), order: z.coerce.number() }))
+        .optional(),
+      catalogShuffleMode: z.enum(["hourly", "daily", "off"]).optional(),
+      // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
+      telegramChannelEnabled: z.boolean().optional(),
+      telegramChannelBotToken: z.string().trim().optional(),
+      telegramChannelChatId: z.string().trim().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",
