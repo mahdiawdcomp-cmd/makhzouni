@@ -333,6 +333,9 @@ export async function getSettings(): Promise<AppSettings> {
 
 export async function updateSettings(input: Partial<AppSettings>) {
   for (const [key, value] of Object.entries(input)) {
+    // Keys can arrive as explicit undefined (e.g. zod's nullAsUndefined
+    // preprocess in updateSettingsSchema) — "no change", never a DB write.
+    if (value === undefined) continue;
     await prisma.setting.upsert({
       where: { key },
       create: {
