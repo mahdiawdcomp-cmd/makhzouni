@@ -912,8 +912,10 @@ export const updateSettingsSchema = z.object({
       telegramBotWorkingHours: nullAsUndefined(z.string().trim()),
       telegramBotContactPhone: nullAsUndefined(z.string().trim()),
       telegramBotBannedChatIds: nullAsUndefined(z.array(z.string())),
-      telegramDigestLastMessageId: nullAsUndefined(z.coerce.number()),
-      telegramDigestLastMessageDate: nullAsUndefined(z.string().trim()),
+      // telegramDigestLastMessageId/Date are intentionally NOT exposed here —
+      // internal bookkeeping the daily digest cron manages itself via a
+      // direct updateSettings() call; admin-editable would risk it unpinning
+      // an unrelated message on the next run.
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

@@ -1148,6 +1148,11 @@ export async function banTelegramChatId(chatId: string) {
   return data
 }
 
+export async function unbanTelegramChatId(chatId: string) {
+  const { data } = await api.post<{ telegramBotBannedChatIds: string[] }>("/telegram-stats/unban", { chatId })
+  return data
+}
+
 export async function triggerDailySummary() {
   const { data } = await api.post<ApiEnvelope<{ message: string }>>("/settings/daily-summary/run")
   return data

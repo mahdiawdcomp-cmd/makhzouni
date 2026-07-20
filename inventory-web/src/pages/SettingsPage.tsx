@@ -70,6 +70,7 @@ import {
   createTelegramBroadcast,
   getTelegramBotStats,
   banTelegramChatId,
+  unbanTelegramChatId,
   getDangerInfo,
   wipeOperationalData,
   mergeWarehouses,
@@ -353,12 +354,20 @@ export function SettingsPage() {
     queryFn: getTelegramBotStats,
     enabled: activeTab === "telegram",
   })
+  // Merge just the banned-ids field into local settings state instead of
+  // invalidating the whole ["settings"] query — a full refetch would
+  // overwrite any unsaved edits the admin has elsewhere on this same page.
+  const applyBannedIds = (telegramBotBannedChatIds: string[]) => {
+    setSettings((prev) => ({ ...prev, telegramBotBannedChatIds }))
+    queryClient.invalidateQueries({ queryKey: ["telegram-stats"] })
+  }
   const banChatMutation = useMutation({
     mutationFn: banTelegramChatId,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["telegram-stats"] })
-      queryClient.invalidateQueries({ queryKey: ["settings"] })
-    },
+    onSuccess: (data) => applyBannedIds(data.telegramBotBannedChatIds),
+  })
+  const unbanChatMutation = useMutation({
+    mutationFn: unbanTelegramChatId,
+    onSuccess: (data) => applyBannedIds(data.telegramBotBannedChatIds),
   })
 
   async function handleDownloadBackup() {
@@ -845,6 +854,9 @@ export function SettingsPage() {
                   إرسال لكل مستخدمي البوت
                 </label>
               </div>
+              {broadcastImage && broadcastToBotUsers && (
+                <p className="text-xs text-amber-600">⚠️ الصورة تنشر بالقناة بس — الرسائل المباشرة لمستخدمي البوت نص فقط بدون صورة.</p>
+              )}
               <Button
                 className="gap-2"
                 disabled={broadcastMutation.isPending || !broadcastText.trim() || (!broadcastToChannel && !broadcastToBotUsers)}
@@ -917,9 +929,34 @@ export function SettingsPage() {
                               variant="outline"
                               className="h-6 px-2 text-xs text-rose-600"
                               disabled={banChatMutation.isPending || (settings.telegramBotBannedChatIds ?? []).includes(c.chatId)}
-                              onClick={() => banChatMutation.mutate(c.chatId)}
+                              onClick={() => {
+                                if (window.confirm(`متأكد تحظر ${c.firstName || c.username || c.phone || c.chatId} من البوت؟${c.isCustomer ? " (هذا زبون مسجل)" : ""}`)) {
+                                  banChatMutation.mutate(c.chatId)
+                                }
+                              }}
                             >
                               {(settings.telegramBotBannedChatIds ?? []).includes(c.chatId) ? "محظور" : "حظر"}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(settings.telegramBotBannedChatIds ?? []).length > 0 && (
+                    <div className="pt-2">
+                      <p className="text-xs text-slate-500 mb-1">الأرقام المحظورة حالياً:</p>
+                      <div className="space-y-1 text-sm">
+                        {(settings.telegramBotBannedChatIds ?? []).map((id) => (
+                          <div key={id} className="flex items-center justify-between gap-2">
+                            <span dir="ltr" className="font-mono text-xs">{id}</span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-xs"
+                              disabled={unbanChatMutation.isPending}
+                              onClick={() => unbanChatMutation.mutate(id)}
+                            >
+                              فك الحظر
                             </Button>
                           </div>
                         ))}

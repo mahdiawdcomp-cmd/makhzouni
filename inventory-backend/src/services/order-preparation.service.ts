@@ -263,16 +263,22 @@ export async function completePreparationWithInvoice(
     },
   });
 
+  // prep.invoiceId may already be set (linked before being marked PREPARED,
+  // guarded above) — the param `invoiceId` in that case refers to a
+  // DIFFERENT invoice than the one actually tied to this prep. Everything
+  // below must reference the resolved id, not the raw parameter.
+  const finalInvoiceId = prep.invoiceId ?? invoiceId;
+
   if (prep.source) {
     await prisma.invoice
-      .updateMany({ where: { id: invoiceId, source: null }, data: { source: prep.source } })
+      .updateMany({ where: { id: finalInvoiceId, source: null }, data: { source: prep.source } })
       .catch(() => undefined);
   }
 
   // This path (staff built the invoice directly, then linked it here) sends
   // no WhatsApp message today — the Telegram DM is a genuinely new touch
   // point, not a duplicate of anything markPrepared() already sends.
-  getInvoiceById(invoiceId)
+  getInvoiceById(finalInvoiceId)
     .then((invoice) => {
       if (!invoice) return;
       const msg = `طلبك جهز ✔️ وراح يوصلك\n\nرقم الفاتورة: ${invoice.invoiceNumber}\nالمجموع: ${money(Number(invoice.totalAmount))}`;
@@ -280,7 +286,7 @@ export async function completePreparationWithInvoice(
     })
     .catch(() => undefined);
 
-  return { invoiceId: prep.invoiceId ?? invoiceId };
+  return { invoiceId: finalInvoiceId };
 }
 
 // Cancel a pending preparation (customer's catalog order rejected / not prepared).

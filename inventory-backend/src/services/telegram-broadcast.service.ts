@@ -42,6 +42,10 @@ export async function createBroadcast(input: CreateBroadcastInput) {
   const settings = await getSettings();
   const botToken = (settings.telegramChannelBotToken || "").trim();
   if (!botToken) throw new AppError("بوت التيليگرام غير مهيأ", 400, "TELEGRAM_NOT_CONFIGURED");
+  const channelChatId = (settings.telegramChannelChatId || "").trim();
+  if (input.toChannel && !channelChatId) {
+    throw new AppError("معرّف القناة غير مهيأ", 400, "TELEGRAM_CHANNEL_NOT_CONFIGURED");
+  }
 
   const broadcast = await prisma.telegramBroadcast.create({
     data: {
@@ -56,25 +60,37 @@ export async function createBroadcast(input: CreateBroadcastInput) {
   });
 
   if (input.toChannel) {
-    const chatId = (settings.telegramChannelChatId || "").trim();
-    if (!chatId) throw new AppError("معرّف القناة غير مهيأ", 400, "TELEGRAM_CHANNEL_NOT_CONFIGURED");
-    const parsed = input.imageDataUrl ? parseDataUrl(input.imageDataUrl) : null;
-    let messageId: number;
-    if (parsed) {
-      const form = new FormData();
-      form.append("chat_id", chatId);
-      form.append("photo", new Blob([new Uint8Array(parsed.buffer)], { type: parsed.mime }), "broadcast.jpg");
-      form.append("caption", text.slice(0, 1024));
-      const result = (await tgCall(botToken, "sendPhoto", form)) as { message_id: number };
-      messageId = result.message_id;
-    } else {
-      const result = (await tgCall(botToken, "sendMessage", { chat_id: chatId, text })) as { message_id: number };
-      messageId = result.message_id;
+    try {
+      const parsed = input.imageDataUrl ? parseDataUrl(input.imageDataUrl) : null;
+      let messageId: number;
+      if (parsed) {
+        const form = new FormData();
+        form.append("chat_id", channelChatId);
+        form.append("photo", new Blob([new Uint8Array(parsed.buffer)], { type: parsed.mime }), "broadcast.jpg");
+        form.append("caption", text.slice(0, 1024));
+        const result = (await tgCall(botToken, "sendPhoto", form)) as { message_id: number };
+        messageId = result.message_id;
+      } else {
+        const result = (await tgCall(botToken, "sendMessage", { chat_id: channelChatId, text })) as {
+          message_id: number;
+        };
+        messageId = result.message_id;
+      }
+      if (input.pinInChannel) {
+        await tgCall(botToken, "pinChatMessage", { chat_id: channelChatId, message_id: messageId }).catch(
+          () => undefined,
+        );
+      }
+      await prisma.telegramBroadcast.update({ where: { id: broadcast.id }, data: { channelMessageId: messageId } });
+    } catch (error) {
+      // Without this, a bad token/chat leaves the row at SENDING and the
+      // cron tick later flips it to a false "DONE" once it finds zero
+      // pending DM recipients — a failed post would silently read as sent.
+      await prisma.telegramBroadcast
+        .update({ where: { id: broadcast.id }, data: { status: "FAILED" } })
+        .catch(() => undefined);
+      throw error;
     }
-    if (input.pinInChannel) {
-      await tgCall(botToken, "pinChatMessage", { chat_id: chatId, message_id: messageId }).catch(() => undefined);
-    }
-    await prisma.telegramBroadcast.update({ where: { id: broadcast.id }, data: { channelMessageId: messageId } });
   }
 
   if (input.toBotUsers) {

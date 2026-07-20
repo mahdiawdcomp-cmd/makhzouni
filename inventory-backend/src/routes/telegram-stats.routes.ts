@@ -2,7 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../utils/async-handler";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { getTelegramBotStats, banTelegramChatId } from "../services/telegram-stats.service";
+import { getTelegramBotStats, banTelegramChatId, unbanTelegramChatId } from "../services/telegram-stats.service";
 
 const router = Router();
 
@@ -20,6 +20,15 @@ router.post(
   asyncHandler(async (req, res) => {
     const chatId = String(req.body?.chatId ?? "").trim();
     const telegramBotBannedChatIds = await banTelegramChatId(chatId);
+    res.json({ telegramBotBannedChatIds });
+  }),
+);
+
+router.post(
+  "/unban",
+  asyncHandler(async (req, res) => {
+    const chatId = String(req.body?.chatId ?? "").trim();
+    const telegramBotBannedChatIds = await unbanTelegramChatId(chatId);
     res.json({ telegramBotBannedChatIds });
   }),
 );

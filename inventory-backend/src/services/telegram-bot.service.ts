@@ -39,6 +39,9 @@ type BotState = {
   // blob so no migration is needed.
   ordersToday?: number;
   ordersDate?: string;
+  // What we were about to do when we had to stop and ask for a verified
+  // phone (see PHONE_SHARE_KEYBOARD) — resumed once the contact arrives.
+  pendingIntent?: "checkout" | "statement" | "my_orders";
 };
 
 type CartItem = {
@@ -55,6 +58,12 @@ type TgUpdate = {
     from?: { id: number; first_name?: string; username?: string };
     chat: { id: number; type: string };
     text?: string;
+    // Populated only when the user taps a request_contact keyboard button —
+    // Telegram itself guarantees phone_number is the ACTUAL account owner's
+    // verified number when user_id === the sender's own id (see
+    // handleMessage's contact branch). This is what makes it trustworthy,
+    // unlike a typed-in string.
+    contact?: { phone_number: string; user_id?: number };
   };
   callback_query?: {
     id: string;
@@ -76,6 +85,42 @@ function baghdadDayKey(): string {
   }).formatToParts(new Date());
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+// Atomically claims one of today's DAILY_ORDER_LIMIT slots before submitting
+// an order. Two near-simultaneous "confirm" taps both reading the same
+// in-memory ordersToday would otherwise both pass a plain if-check (race);
+// the `updatedAt` optimistic-lock in the WHERE clause makes only the FIRST
+// writer's updateMany actually affect a row — the second sees count === 0
+// and is correctly rejected instead of also sneaking through.
+async function tryReserveOrderSlot(
+  chatId: number,
+  currentUpdatedAt: Date,
+  state: BotState,
+  dayKey: string,
+): Promise<boolean> {
+  const ordersToday = state.ordersDate === dayKey ? state.ordersToday ?? 0 : 0;
+  if (ordersToday >= DAILY_ORDER_LIMIT) return false;
+  const result = await prisma.telegramBotChat.updateMany({
+    where: { chatId: BigInt(chatId), updatedAt: currentUpdatedAt },
+    data: { state: { ...state, ordersToday: ordersToday + 1, ordersDate: dayKey } as object },
+  });
+  return result.count > 0;
+}
+
+// Best-effort compensation if the reserved order actually fails to submit —
+// doesn't need the same strict atomicity as the reservation itself (worst
+// case on a rare race here is the cap being a touch more generous, not less).
+async function releaseOrderSlot(chatId: number, dayKey: string): Promise<void> {
+  const chat = await prisma.telegramBotChat.findUnique({ where: { chatId: BigInt(chatId) } });
+  const state = (chat?.state ?? {}) as BotState;
+  if (state.ordersDate !== dayKey || !state.ordersToday) return;
+  await prisma.telegramBotChat
+    .update({
+      where: { chatId: BigInt(chatId) },
+      data: { state: { ...state, ordersToday: Math.max(0, state.ordersToday - 1) } as object },
+    })
+    .catch(() => undefined);
 }
 
 function fmt(n: number) {
@@ -177,6 +222,15 @@ const MAIN_MENU = {
 function backRow() {
   return [{ text: "⬅️ القائمة الرئيسية", callback_data: "menu" }];
 }
+
+// Telegram's native "share my contact" — a REPLY keyboard (not inline), sends
+// the account's own verified phone number, can't be used to claim someone
+// else's number. one_time_keyboard hides it automatically after use.
+const PHONE_SHARE_KEYBOARD = {
+  keyboard: [[{ text: "📱 مشاركة رقمي بشكل آمن", request_contact: true }]],
+  resize_keyboard: true,
+  one_time_keyboard: true,
+};
 
 async function showMenu(botToken: string, chatId: number, firstName: string) {
   await send(
@@ -323,10 +377,23 @@ async function addToCart(
   const existing = cart.find((item) => item.productId === productId && item.unit === unit);
   if (existing) existing.quantity += quantity;
   else cart.push({ productId, name: product.name, unit, quantity, unitPrice });
-  const newState: BotState = { ...state, mode: "idle", cart, pendingProductId: undefined, pendingUnit: undefined };
+  // A coupon discount was computed against the OLD cart total — cart just
+  // changed, so it's stale now (wrong amount would show at confirm). Drop it
+  // and tell them to re-apply rather than silently show an inaccurate number.
+  const hadCoupon = !!state.couponCode;
+  const newState: BotState = {
+    ...state,
+    mode: "idle",
+    cart,
+    pendingProductId: undefined,
+    pendingUnit: undefined,
+    couponCode: undefined,
+    couponDiscount: undefined,
+  };
   await saveState(chatId, newState);
   const unitLabel = unit === "CARTON" ? "كارتون" : "قطعة";
-  await send(botToken, chatId, `أضفنا ✔️ ${product.name} — ${quantity} ${unitLabel}`, {
+  const couponNote = hadCoupon ? "\n\n🏷️ ملاحظة: الكوبون انلغى لأن السلة تغيرت — أدخله من جديد إذا تريد." : "";
+  await send(botToken, chatId, `أضفنا ✔️ ${product.name} — ${quantity} ${unitLabel}${couponNote}`, {
     inline_keyboard: [
       [{ text: "✅ أكمل الطلب", callback_data: "checkout" }],
       [{ text: "🗂️ أضف مواد أخرى", callback_data: "browse" }, { text: "🛒 سلتي", callback_data: "cart" }],
@@ -345,11 +412,12 @@ async function startCheckout(botToken: string, chatId: number, chat: { phone: st
     await confirmSummary(botToken, chatId, chat.phone, state);
     return;
   }
-  await saveState(chatId, { ...state, mode: "await_phone" });
+  await saveState(chatId, { ...state, mode: "await_phone", pendingIntent: "checkout" });
   await send(
     botToken,
     chatId,
-    "📱 دزلي رقم هاتفك حتى نسجل الطلب (مثال: 07701234567)\nإذا رقمك مسجل عدنا، الطلب ينحسب على حسابك مباشرة.",
+    "📱 حتى نسجل الطلب، اضغط الزر تحت لمشاركة رقمك المسجل بتيليگرام (رقمك الحقيقي، ما تكدر تكتبه يدوياً حماية لحسابات الزبائن).\nإذا رقمك مسجل عدنا، الطلب ينحسب على حسابك مباشرة.",
+    PHONE_SHARE_KEYBOARD,
   );
 }
 
@@ -358,7 +426,7 @@ async function confirmSummary(botToken: string, chatId: number, phone: string, s
   const { text, total } = cartSummary(cart);
   const discountLine = couponDisplayLine(total, state);
   const customer = await prisma.customer.findFirst({
-    where: { phone, deletedAt: null },
+    where: { phone: normalizePhone(phone), deletedAt: null },
     select: { name: true },
   });
   const who = customer
@@ -381,7 +449,7 @@ async function confirmSummary(botToken: string, chatId: number, phone: string, s
 async function submitOrder(
   botToken: string,
   chatId: number,
-  chat: { firstName: string; username: string; phone: string },
+  chat: { firstName: string; username: string; phone: string; updatedAt: Date },
   state: BotState,
 ) {
   const cart = state.cart ?? [];
@@ -390,8 +458,9 @@ async function submitOrder(
     return;
   }
   const today = baghdadDayKey();
-  const ordersToday = state.ordersDate === today ? state.ordersToday ?? 0 : 0;
-  if (ordersToday >= DAILY_ORDER_LIMIT) {
+  const reservedOrdersToday = (state.ordersDate === today ? state.ordersToday ?? 0 : 0) + 1;
+  const reserved = await tryReserveOrderSlot(chatId, chat.updatedAt, state, today);
+  if (!reserved) {
     await send(botToken, chatId, `وصلت الحد الأقصى ${DAILY_ORDER_LIMIT} طلبات باليوم — جرب باچر 🙏`, MAIN_MENU);
     return;
   }
@@ -407,7 +476,10 @@ async function submitOrder(
       })),
       couponCode: state.couponCode,
     });
-    await saveState(chatId, { mode: "idle", cart: [], ordersToday: ordersToday + 1, ordersDate: today });
+    // Re-assert the reserved counter — saveState below fully replaces the
+    // JSON blob, so it must carry the value tryReserveOrderSlot just wrote
+    // or that atomic write would be silently lost.
+    await saveState(chatId, { mode: "idle", cart: [], ordersToday: reservedOrdersToday, ordersDate: today });
     const accountLine = result.matchedCustomerName
       ? `انسجل الطلب على حساب: ${result.matchedCustomerName} ✔️`
       : "رقمك جديد — الإدارة راح تسويلك حساب وتتأكد من الطلب ✔️";
@@ -418,6 +490,9 @@ async function submitOrder(
       MAIN_MENU,
     );
   } catch (error) {
+    // The order didn't actually go through — give the daily-cap slot back
+    // rather than penalize the customer for a failed attempt.
+    await releaseOrderSlot(chatId, today);
     const msg = error instanceof Error ? error.message : "خطأ غير متوقع";
     await send(botToken, chatId, `تعذر تسجيل الطلب: ${msg}\nجرب مرة ثانية أو عدّل سلتك.`, {
       inline_keyboard: [[{ text: "🛒 سلتي", callback_data: "cart" }], backRow()],
@@ -484,11 +559,19 @@ function frontendOrigin(settings: { catalogPublicUrl?: string }): string {
   }
 }
 
-async function showStatement(botToken: string, chatId: number, chat: { phone: string }) {
-  const phone = chat.phone ? normalizePhone(chat.phone) : "";
-  const customer = phone
-    ? await prisma.customer.findFirst({ where: { phone, deletedAt: null }, select: { id: true } })
-    : null;
+async function showStatement(botToken: string, chatId: number, chat: { phone: string }, state: BotState) {
+  if (!chat.phone) {
+    await saveState(chatId, { ...state, mode: "await_phone", pendingIntent: "statement" });
+    await send(
+      botToken,
+      chatId,
+      "📱 لتشوف كشف حسابك، شارك رقمك الأول (رقمك الحقيقي بتيليگرام، ما تكتبه يدوياً):",
+      PHONE_SHARE_KEYBOARD,
+    );
+    return;
+  }
+  const phone = normalizePhone(chat.phone);
+  const customer = await prisma.customer.findFirst({ where: { phone, deletedAt: null }, select: { id: true } });
   if (!customer) {
     await send(
       botToken,
@@ -524,14 +607,18 @@ async function showHowToBuy(botToken: string, chatId: number) {
   await send(botToken, chatId, lines.join("\n"), { inline_keyboard: [backRow()] });
 }
 
-async function showMyOrders(botToken: string, chatId: number, chat: { phone: string }) {
-  const phone = chat.phone ? normalizePhone(chat.phone) : "";
-  if (!phone) {
-    await send(botToken, chatId, "ما عدنا رقم مسجل إلك بعد — دز أول طلب حتى نكدر نعرض طلباتك.", {
-      inline_keyboard: [backRow()],
-    });
+async function showMyOrders(botToken: string, chatId: number, chat: { phone: string }, state: BotState) {
+  if (!chat.phone) {
+    await saveState(chatId, { ...state, mode: "await_phone", pendingIntent: "my_orders" });
+    await send(
+      botToken,
+      chatId,
+      "📱 لتشوف طلباتك، شارك رقمك الأول (رقمك الحقيقي بتيليگرام، ما تكتبه يدوياً):",
+      PHONE_SHARE_KEYBOARD,
+    );
     return;
   }
+  const phone = normalizePhone(chat.phone);
   const orders = await prisma.orderPreparation.findMany({
     where: { customerPhone: phone },
     orderBy: { createdAt: "desc" },
@@ -568,7 +655,7 @@ export async function handleTelegramUpdate(update: TgUpdate): Promise<void> {
   try {
     if (update.callback_query) {
       await handleCallback(botToken, update.callback_query);
-    } else if (update.message?.text && update.message.chat.type === "private") {
+    } else if ((update.message?.text || update.message?.contact) && update.message.chat.type === "private") {
       await handleMessage(botToken, update.message);
     }
   } catch (error) {
@@ -598,6 +685,42 @@ async function handleMessage(
     } else {
       await saveState(chatId, { ...state, mode: "idle" });
       await showMenu(botToken, chatId, chat.firstName);
+    }
+    return;
+  }
+
+  if (message.contact) {
+    const contact = message.contact;
+    // Telegram only fills user_id when the contact came from the sender's
+    // own "share my contact" tap — that's what makes phone_number trustworthy.
+    // A forwarded contact card (someone else's number) has a different/absent
+    // user_id and must be rejected, not linked to this chat.
+    if (contact.user_id && message.from?.id && contact.user_id !== message.from.id) {
+      await send(botToken, chatId, "لازم تشارك رقمك انت (مو رقم شخص ثاني) 🙏", { inline_keyboard: [backRow()] });
+      return;
+    }
+    const phone = normalizePhoneInput(contact.phone_number);
+    if (!isValidIraqiPhone(phone)) {
+      await send(botToken, chatId, "الرقم المشارك مو رقم عراقي صحيح 😔", { inline_keyboard: [backRow()] });
+      return;
+    }
+    const customer = await prisma.customer.findFirst({
+      where: { phone: normalizePhone(phone), deletedAt: null },
+      select: { id: true, name: true },
+    });
+    const intent = state.mode === "await_phone" ? state.pendingIntent : undefined;
+    const clearedState: BotState = { ...state, mode: "idle", pendingIntent: undefined };
+    await saveState(chatId, clearedState, { phone, customerId: customer?.id ?? null });
+    if (intent === "statement") {
+      await showStatement(botToken, chatId, { phone }, clearedState);
+    } else if (intent === "my_orders") {
+      await showMyOrders(botToken, chatId, { phone }, clearedState);
+    } else if (intent === "checkout") {
+      await confirmSummary(botToken, chatId, phone, clearedState);
+    } else {
+      // Unsolicited/unexpected contact share (not mid any flow) — just
+      // acknowledge, don't jump into a checkout the user never started.
+      await send(botToken, chatId, "تم حفظ رقمك ✔️", MAIN_MENU);
     }
     return;
   }
@@ -648,17 +771,9 @@ async function handleMessage(
   }
 
   if (state.mode === "await_phone") {
-    const phone = normalizePhoneInput(text);
-    if (!isValidIraqiPhone(phone)) {
-      await send(botToken, chatId, "الرقم غير صحيح — اكتبه بصيغة 07XXXXXXXXX (11 رقم)");
-      return;
-    }
-    const customer = await prisma.customer.findFirst({
-      where: { phone, deletedAt: null },
-      select: { id: true, name: true },
-    });
-    await saveState(chatId, { ...state, mode: "idle" }, { phone, customerId: customer?.id ?? null });
-    await confirmSummary(botToken, chatId, phone, state);
+    // They typed instead of tapping the share button — remind them, don't
+    // fall through to search (which would be confusing mid-checkout).
+    await send(botToken, chatId, "📱 اضغط الزر تحت لمشاركة رقمك (ما نكدر نقبل رقم مكتوب يدوياً):", PHONE_SHARE_KEYBOARD);
     return;
   }
 
@@ -697,11 +812,11 @@ async function handleCallback(
   } else if (data === "checkout") {
     await startCheckout(botToken, chatId, chat, state);
   } else if (data === "statement") {
-    await showStatement(botToken, chatId, chat);
+    await showStatement(botToken, chatId, chat, state);
   } else if (data === "how_to_buy") {
     await showHowToBuy(botToken, chatId);
   } else if (data === "my_orders") {
-    await showMyOrders(botToken, chatId, chat);
+    await showMyOrders(botToken, chatId, chat, state);
   } else if (data === "confirm") {
     await submitOrder(botToken, chatId, chat, state);
   } else if (data.startsWith("cat:")) {
