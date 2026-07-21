@@ -953,6 +953,22 @@ export function SettingsPage() {
                   {tgChannelStatusQuery.data.lastError && (
                     <div className="sm:col-span-2 text-rose-600">آخر خطأ: {tgChannelStatusQuery.data.lastError}</div>
                   )}
+                  <div className="sm:col-span-2 mt-1 pt-2 border-t dark:border-slate-700">
+                    🔄 التجديد اليومي: {tgChannelStatusQuery.data.rotationLastRunAt
+                      ? <>آخر تشغيل <b dir="ltr">{new Date(tgChannelStatusQuery.data.rotationLastRunAt).toLocaleString("ar-IQ")}</b> — أُعيد نشر <b>{tgChannelStatusQuery.data.rotationLastRunCount}</b> مادة</>
+                      : <span className="text-slate-500">ما اشتغل بعد (يشتغل يومياً الساعة ١١ صباحاً)</span>}
+                  </div>
+                  {tgChannelStatusQuery.data.rotationLastError && (
+                    <div className="sm:col-span-2 text-rose-600">خطأ التجديد: {tgChannelStatusQuery.data.rotationLastError}</div>
+                  )}
+                  <div className="sm:col-span-2">
+                    ⭐ المنتج المميز المثبّت: {tgChannelStatusQuery.data.featuredProductName
+                      ? <b>{tgChannelStatusQuery.data.featuredProductName}</b>
+                      : <span className="text-slate-500">لا يوجد بعد (يتغير يومياً الساعة ١٢ ظهراً)</span>}
+                  </div>
+                  {tgChannelStatusQuery.data.featuredLastError && (
+                    <div className="sm:col-span-2 text-rose-600">خطأ التثبيت: {tgChannelStatusQuery.data.featuredLastError}</div>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">جاري التحميل…</p>

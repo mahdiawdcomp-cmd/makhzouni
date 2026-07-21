@@ -1076,6 +1076,13 @@ export interface TelegramChannelStatus {
   lastRunPublished: number
   lastRunDeleted: number
   lastRunEdited: number
+  rotationDailyCount: number
+  rotationLastRunAt: string | null
+  rotationLastRunCount: number
+  rotationLastError: string | null
+  featuredLastRunAt: string | null
+  featuredLastError: string | null
+  featuredProductName: string | null
 }
 
 export async function getTelegramChannelStatus() {

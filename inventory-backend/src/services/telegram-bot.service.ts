@@ -99,8 +99,8 @@ async function tryReserveOrderSlot(
   state: BotState,
   dayKey: string,
 ): Promise<boolean> {
+  if (!isUnderDailyLimit(state.ordersToday, state.ordersDate, dayKey)) return false;
   const ordersToday = state.ordersDate === dayKey ? state.ordersToday ?? 0 : 0;
-  if (ordersToday >= DAILY_ORDER_LIMIT) return false;
   const result = await prisma.telegramBotChat.updateMany({
     where: { chatId: BigInt(chatId), updatedAt: currentUpdatedAt },
     data: { state: { ...state, ordersToday: ordersToday + 1, ordersDate: dayKey } as object },
@@ -134,8 +134,34 @@ function normalizePhoneInput(raw: string): string {
   return digits;
 }
 
-function isValidIraqiPhone(phone: string) {
+export function isValidIraqiPhone(phone: string) {
   return /^07\d{9}$/.test(phone);
+}
+
+// Pure daily-cap decision (feature 9 anti-spam). Extracted so it can be
+// unit-tested without touching the DB. Returns true if another order is
+// allowed today. `ordersDate` !== `today` means the stored count is stale
+// (new day) and resets to 0.
+export function isUnderDailyLimit(
+  ordersToday: number | undefined,
+  ordersDate: string | undefined,
+  today: string,
+  limit: number = DAILY_ORDER_LIMIT,
+): boolean {
+  const count = ordersDate === today ? ordersToday ?? 0 : 0;
+  return count < limit;
+}
+
+// Arabic reply for a previewCoupon failure code (feature 5). Exported +
+// pure for testing; falls back to a generic message for unknown codes.
+export function couponErrorMessage(code: string | undefined): string {
+  const byCode: Record<string, string> = {
+    COUPON_INACTIVE: "الكود غير فعّال 😔",
+    COUPON_NOT_STARTED: "الكود لسا ما بدأ 😔",
+    COUPON_EXPIRED: "الكود منتهي الصلاحية 😔",
+    COUPON_LIMIT_REACHED: "الكود وصل الحد الأقصى للاستخدام 😔",
+  };
+  return byCode[code ?? ""] ?? "كود غير صحيح 😔";
 }
 
 async function getCreds() {
@@ -149,7 +175,7 @@ async function getCreds() {
 // canonical 964XXXXXXXXXX (utils/phone.ts's normalizePhone). Every lookup
 // that crosses between the two must convert explicitly — comparing the raw
 // strings silently never matches.
-function toLocalPhone(canonical: string): string {
+export function toLocalPhone(canonical: string): string {
   const digits = canonical.replace(/[^\d]/g, "");
   if (digits.startsWith("964")) return `0${digits.slice(3)}`;
   return digits;
@@ -756,14 +782,8 @@ async function handleMessage(
       await showCart(botToken, chatId, newState);
     } catch (error) {
       const code = error instanceof AppError ? error.code : undefined;
-      const msgByCode: Record<string, string> = {
-        COUPON_INACTIVE: "الكود غير فعّال 😔",
-        COUPON_NOT_STARTED: "الكود لسا ما بدأ 😔",
-        COUPON_EXPIRED: "الكود منتهي الصلاحية 😔",
-        COUPON_LIMIT_REACHED: "الكود وصل الحد الأقصى للاستخدام 😔",
-      };
       await saveState(chatId, { ...state, mode: "idle" });
-      await send(botToken, chatId, msgByCode[code ?? ""] ?? "كود غير صحيح 😔", {
+      await send(botToken, chatId, couponErrorMessage(code), {
         inline_keyboard: [[{ text: "🛒 سلتي", callback_data: "cart" }], backRow()],
       });
     }

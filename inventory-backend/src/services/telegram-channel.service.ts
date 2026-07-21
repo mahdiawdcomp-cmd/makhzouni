@@ -39,6 +39,12 @@ const status: SyncStatus = {
   lastRunEdited: 0,
 };
 
+// Last-run info for the two daily freshness jobs — surfaced in the settings
+// status card so the shop owner can confirm they're actually running without
+// opening Telegram to check.
+const rotationStatus = { lastRunAt: null as string | null, lastRunCount: 0, lastError: null as string | null };
+const featuredStatus = { lastRunAt: null as string | null, lastError: null as string | null };
+
 // Shared serialization lock for ALL channel writes (sync tick, daily
 // rotation, featured pin, manual republish). Without it the daily jobs —
 // which run for minutes — overlap the per-minute sync tick and both call
@@ -118,27 +124,43 @@ function parseDataUrl(dataUrl: string): { buffer: Buffer; mime: string } | null 
   return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
 }
 
+// Telegram answers a rate-limit hit with ok:false + parameters.retry_after
+// (seconds). We honor it with a bounded wait+retry instead of failing the op
+// outright — a burst (e.g. an initial catalog sync or a big rotation) would
+// otherwise drop posts on the floor. Capped so a hostile/huge retry_after
+// can't hang a worker indefinitely.
+const MAX_TG_RETRIES = 2;
+const MAX_RETRY_WAIT_MS = 30_000;
+
 export async function tgCall(botToken: string, method: string, body: FormData | Record<string, unknown>) {
   const url = `${TG_API}/bot${botToken}/${method}`;
   const init: RequestInit =
     body instanceof FormData
       ? { method: "POST", body }
       : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
-  const res = await fetch(url, init);
-  const json = (await res.json().catch(() => null)) as
-    | { ok: boolean; result?: unknown; description?: string; parameters?: { retry_after?: number } }
-    | null;
-  if (!json) throw new Error(`Telegram ${method}: HTTP ${res.status} (no JSON)`);
-  if (!json.ok) {
+
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await fetch(url, init);
+    const json = (await res.json().catch(() => null)) as
+      | { ok: boolean; result?: unknown; description?: string; parameters?: { retry_after?: number } }
+      | null;
+    if (!json) throw new Error(`Telegram ${method}: HTTP ${res.status} (no JSON)`);
+    if (json.ok) return json.result;
+
+    const retryAfter = json.parameters?.retry_after;
+    if (retryAfter && retryAfter > 0 && attempt < MAX_TG_RETRIES) {
+      await sleep(Math.min(retryAfter * 1000, MAX_RETRY_WAIT_MS));
+      continue;
+    }
+
     const err = new Error(`Telegram ${method}: ${json.description || `HTTP ${res.status}`}`) as Error & {
       tgDescription?: string;
       retryAfter?: number;
     };
     err.tgDescription = json.description || "";
-    err.retryAfter = json.parameters?.retry_after;
+    err.retryAfter = retryAfter;
     throw err;
   }
-  return json.result;
 }
 
 // Bot username cache (for the «اطلب» deep-link button). Refreshed when the
@@ -480,6 +502,11 @@ export async function getTelegramChannelStatus() {
   );
   const { desired, missingImage } = await listDesiredProducts();
   const postedCount = await prisma.telegramChannelPost.count();
+  const featuredProduct = settings.telegramFeaturedProductId
+    ? await prisma.product
+        .findFirst({ where: { id: settings.telegramFeaturedProductId, deletedAt: null }, select: { name: true } })
+        .catch(() => null)
+    : null;
   return {
     enabled: !!settings.telegramChannelEnabled,
     configured,
@@ -492,6 +519,14 @@ export async function getTelegramChannelStatus() {
     lastRunPublished: status.lastRunPublished,
     lastRunDeleted: status.lastRunDeleted,
     lastRunEdited: status.lastRunEdited,
+    // Daily freshness jobs (rotation + featured pin)
+    rotationDailyCount: Math.max(1, Math.min(50, settings.telegramRotationDailyCount ?? 12)),
+    rotationLastRunAt: rotationStatus.lastRunAt,
+    rotationLastRunCount: rotationStatus.lastRunCount,
+    rotationLastError: rotationStatus.lastError,
+    featuredLastRunAt: featuredStatus.lastRunAt,
+    featuredLastError: featuredStatus.lastError,
+    featuredProductName: featuredProduct?.name ?? null,
   };
 }
 
@@ -590,16 +625,23 @@ export async function runDailyChannelRotationJob(): Promise<void> {
       take: count,
     });
 
+    let republished = 0;
+    let lastError: string | null = null;
     for (const post of oldest) {
       const product = desiredById.get(post.productId);
       if (!product) continue; // no longer desired — the per-minute sync tick already handles removing it
       try {
         await republishOne(botToken, chatId, product, settings, post);
+        republished += 1;
       } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
         console.error("[TelegramChannel] rotation republish failed:", error);
       }
       await sleep(DELAY_BETWEEN_OPS_MS);
     }
+    rotationStatus.lastRunAt = new Date().toISOString();
+    rotationStatus.lastRunCount = republished;
+    rotationStatus.lastError = lastError;
   });
 }
 
@@ -647,5 +689,7 @@ export async function runFeaturedProductRotationJob(): Promise<void> {
         telegramFeaturedLastDate: new Date().toISOString().slice(0, 10),
       });
     }
+    featuredStatus.lastRunAt = new Date().toISOString();
+    featuredStatus.lastError = pinned ? null : "فشل تثبيت المنتج المميز";
   });
 }
