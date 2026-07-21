@@ -427,7 +427,7 @@ export function ProductsPage() {
     onSuccess: (res) => {
       toast(
         res.ok
-          ? { title: "✓ انعاد نشرها بالقناة" }
+          ? { title: "✓ أُعيد نشرها بالقناة" }
           : { title: res.reason ?? "تعذرت إعادة النشر", variant: "destructive" },
       )
     },

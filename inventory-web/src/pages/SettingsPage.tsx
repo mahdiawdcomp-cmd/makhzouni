@@ -701,7 +701,13 @@ export function SettingsPage() {
                     min={1}
                     max={50}
                     value={settings.telegramRotationDailyCount ?? 12}
-                    onChange={(e) => updNum("telegramRotationDailyCount", e.target.value)}
+                    onChange={(e) => {
+                      // Clamp to the backend-accepted 1..50 and ignore empty/NaN
+                      // (keeps the previous value) — sending 0 would 400 the
+                      // whole settings PATCH and drop every other unsaved edit.
+                      const v = parseInt(e.target.value, 10)
+                      if (Number.isFinite(v)) upd("telegramRotationDailyCount", Math.min(50, Math.max(1, v)))
+                    }}
                     dir="ltr"
                   />
                 </Field>

@@ -39,7 +39,32 @@ const status: SyncStatus = {
   lastRunEdited: 0,
 };
 
-let running = false;
+// Shared serialization lock for ALL channel writes (sync tick, daily
+// rotation, featured pin, manual republish). Without it the daily jobs —
+// which run for minutes — overlap the per-minute sync tick and both call
+// deleteMessage/sendPhoto for the SAME product, producing a duplicate
+// channel post whose row is then orphaned (never tracked, never cleaned up).
+// Everything below runs strictly one-at-a-time through withChannelLock.
+let channelLock: Promise<void> = Promise.resolve();
+let channelBusy = false;
+
+function withChannelLock<T>(fn: () => Promise<T>): Promise<T> {
+  const result = channelLock.then(async () => {
+    channelBusy = true;
+    try {
+      return await fn();
+    } finally {
+      channelBusy = false;
+    }
+  });
+  // Swallow errors on the chain itself so one failed op doesn't poison the
+  // lock for the next caller (the original result still rejects to ITS caller).
+  channelLock = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -351,13 +376,16 @@ async function ensureWebhook(botToken: string) {
 
 /** One reconcile pass, capped per tick. Called by cron + the sync-now endpoint. */
 export async function runTelegramChannelSyncTick(): Promise<void> {
-  if (running) return;
-  running = true;
-  try {
+  // Skip if any channel op (another tick OR a daily job) is already running —
+  // next minute's tick retries. Prevents queueing ticks behind a long job.
+  if (channelBusy) return;
+  await withChannelLock(async () => {
     const settings = await getSettings();
     const botToken = (settings.telegramChannelBotToken || "").trim();
     const chatId = (settings.telegramChannelChatId || "").trim();
     if (!settings.telegramChannelEnabled || !botToken || !chatId) return;
+
+    try {
 
     // Bot webhook (Phase 2) — non-fatal if it fails, channel sync continues.
     await ensureWebhook(botToken).catch((err) =>
@@ -431,18 +459,17 @@ export async function runTelegramChannelSyncTick(): Promise<void> {
       }
     }
 
-    status.lastRunAt = new Date().toISOString();
-    status.lastError = null;
-    status.lastRunPublished = published;
-    status.lastRunDeleted = deleted;
-    status.lastRunEdited = edited;
-  } catch (error) {
-    status.lastRunAt = new Date().toISOString();
-    status.lastError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    running = false;
-  }
+      status.lastRunAt = new Date().toISOString();
+      status.lastError = null;
+      status.lastRunPublished = published;
+      status.lastRunDeleted = deleted;
+      status.lastRunEdited = edited;
+    } catch (error) {
+      status.lastRunAt = new Date().toISOString();
+      status.lastError = error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  });
 }
 
 /** Status for the settings tab + the missing-image site banner. */
@@ -509,7 +536,16 @@ async function republishOne(
   settings: AppSettings,
   existingPost?: { id: string; messageId: number },
 ): Promise<void> {
-  if (existingPost) await deletePost(botToken, chatId, existingPost);
+  if (existingPost) {
+    await deletePost(botToken, chatId, existingPost);
+    // Deleting a message auto-unpins it on Telegram's side. If this post was
+    // the current "featured" pin, drop the stale tracking so the next featured
+    // run doesn't try to unpin a ghost message and the channel isn't left
+    // believing something is featured when it isn't.
+    if (settings.telegramFeaturedLastMessageId && settings.telegramFeaturedLastMessageId === existingPost.messageId) {
+      await updateSettings({ telegramFeaturedLastMessageId: 0, telegramFeaturedProductId: "" }).catch(() => undefined);
+    }
+  }
   await publishProduct(botToken, chatId, product, settings);
 }
 
@@ -526,8 +562,13 @@ export async function republishProductInChannel(productId: string): Promise<{ ok
   if (!product) {
     return { ok: false, reason: "المادة غير قابلة للنشر حالياً (نفدت أو بلا صورة)" };
   }
-  const existingPost = await prisma.telegramChannelPost.findUnique({ where: { productId } });
-  await republishOne(botToken, chatId, product, settings, existingPost ?? undefined);
+  await withChannelLock(async () => {
+    // Re-read the existing post INSIDE the lock — two rapid clicks (or an
+    // overlapping sync tick) must not each delete a now-stale row and leave a
+    // duplicate live post orphaned in the channel.
+    const existingPost = await prisma.telegramChannelPost.findUnique({ where: { productId } });
+    await republishOne(botToken, chatId, product, settings, existingPost ?? undefined);
+  });
   return { ok: true };
 }
 
@@ -539,25 +580,27 @@ export async function runDailyChannelRotationJob(): Promise<void> {
   const chatId = (settings.telegramChannelChatId || "").trim();
   if (!settings.telegramChannelEnabled || !botToken || !chatId) return;
 
-  const count = Math.max(1, Math.min(50, settings.telegramRotationDailyCount ?? 12));
-  const { desired } = await listDesiredProducts();
-  const desiredById = new Map(desired.map((p) => [p.id, p]));
+  await withChannelLock(async () => {
+    const count = Math.max(1, Math.min(50, settings.telegramRotationDailyCount ?? 12));
+    const { desired } = await listDesiredProducts();
+    const desiredById = new Map(desired.map((p) => [p.id, p]));
 
-  const oldest = await prisma.telegramChannelPost.findMany({
-    orderBy: { publishedAt: "asc" },
-    take: count,
-  });
+    const oldest = await prisma.telegramChannelPost.findMany({
+      orderBy: { publishedAt: "asc" },
+      take: count,
+    });
 
-  for (const post of oldest) {
-    const product = desiredById.get(post.productId);
-    if (!product) continue; // no longer desired — the per-minute sync tick already handles removing it
-    try {
-      await republishOne(botToken, chatId, product, settings, post);
-    } catch (error) {
-      console.error("[TelegramChannel] rotation republish failed:", error);
+    for (const post of oldest) {
+      const product = desiredById.get(post.productId);
+      if (!product) continue; // no longer desired — the per-minute sync tick already handles removing it
+      try {
+        await republishOne(botToken, chatId, product, settings, post);
+      } catch (error) {
+        console.error("[TelegramChannel] rotation republish failed:", error);
+      }
+      await sleep(DELAY_BETWEEN_OPS_MS);
     }
-    await sleep(DELAY_BETWEEN_OPS_MS);
-  }
+  });
 }
 
 /** Daily cron: pin a randomly-featured in-stock product, unpinning
@@ -569,27 +612,40 @@ export async function runFeaturedProductRotationJob(): Promise<void> {
   const chatId = (settings.telegramChannelChatId || "").trim();
   if (!settings.telegramChannelEnabled || !botToken || !chatId) return;
 
-  const { desired } = await listDesiredProducts();
-  if (!desired.length) return;
+  await withChannelLock(async () => {
+    const { desired } = await listDesiredProducts();
+    if (!desired.length) return;
 
-  const candidates =
-    desired.length > 1 ? desired.filter((p) => p.id !== settings.telegramFeaturedProductId) : desired;
-  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    const candidates =
+      desired.length > 1 ? desired.filter((p) => p.id !== settings.telegramFeaturedProductId) : desired;
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
 
-  const post = await prisma.telegramChannelPost.findUnique({ where: { productId: pick.id } });
-  if (!post) return; // hasn't been published yet — next day's run tries again
+    const post = await prisma.telegramChannelPost.findUnique({ where: { productId: pick.id } });
+    if (!post) return; // hasn't been published yet — next day's run tries again
 
-  if (settings.telegramFeaturedLastMessageId) {
-    await tgCall(botToken, "unpinChatMessage", {
-      chat_id: chatId,
-      message_id: settings.telegramFeaturedLastMessageId,
-    }).catch(() => undefined);
-  }
-  await tgCall(botToken, "pinChatMessage", { chat_id: chatId, message_id: post.messageId }).catch(() => undefined);
+    if (settings.telegramFeaturedLastMessageId) {
+      await tgCall(botToken, "unpinChatMessage", {
+        chat_id: chatId,
+        message_id: settings.telegramFeaturedLastMessageId,
+      }).catch(() => undefined);
+    }
 
-  await updateSettings({
-    telegramFeaturedProductId: pick.id,
-    telegramFeaturedLastMessageId: post.messageId,
-    telegramFeaturedLastDate: new Date().toISOString().slice(0, 10),
+    // Only record the new featured pin if it ACTUALLY landed — otherwise the DB
+    // claims a message is pinned that isn't, tomorrow's unpin hits a ghost, and
+    // "exclude yesterday's pick" keeps excluding a never-featured product.
+    let pinned = false;
+    try {
+      await tgCall(botToken, "pinChatMessage", { chat_id: chatId, message_id: post.messageId });
+      pinned = true;
+    } catch (error) {
+      console.error("[TelegramChannel] featured pin failed:", error);
+    }
+    if (pinned) {
+      await updateSettings({
+        telegramFeaturedProductId: pick.id,
+        telegramFeaturedLastMessageId: post.messageId,
+        telegramFeaturedLastDate: new Date().toISOString().slice(0, 10),
+      });
+    }
   });
 }
