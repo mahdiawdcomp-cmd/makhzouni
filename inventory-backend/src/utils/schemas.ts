@@ -906,6 +906,10 @@ export const updateSettingsSchema = z.object({
       telegramChannelEnabled: nullAsUndefined(z.boolean()),
       telegramChannelBotToken: nullAsUndefined(z.string().trim()),
       telegramChannelChatId: nullAsUndefined(z.string().trim()),
+      // Freshness rotation count — telegramFeaturedProductId/LastMessageId/
+      // LastDate are intentionally NOT exposed here (internal bookkeeping the
+      // featured-pin cron manages itself, same reasoning as the digest fields).
+      telegramRotationDailyCount: nullAsUndefined(z.coerce.number().int().min(1).max(50)),
       // «بوت الطلبات» — configurable text + anti-spam + digest pin tracking.
       telegramBotWelcomeMessage: nullAsUndefined(z.string().trim()),
       telegramBotStoreAddress: nullAsUndefined(z.string().trim()),

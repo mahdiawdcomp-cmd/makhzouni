@@ -922,6 +922,10 @@ export interface AppSettings {
   telegramBotBannedChatIds?: string[]
   telegramDigestLastMessageId?: number
   telegramDigestLastMessageDate?: string
+  telegramRotationDailyCount?: number
+  telegramFeaturedProductId?: string
+  telegramFeaturedLastMessageId?: number
+  telegramFeaturedLastDate?: string
   // Seasonal event alerts (JSON string: SeasonalAlert[])
   seasonalAlerts?: string
   // Retail storefront "designed by" credit (shown in shop footer)

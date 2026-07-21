@@ -1093,6 +1093,11 @@ export async function syncTelegramChannelNow() {
   return data
 }
 
+export async function republishProductInTelegramChannel(productId: string) {
+  const { data } = await api.post<{ ok: boolean; reason?: string }>(`/telegram-channel/republish/${productId}`)
+  return data
+}
+
 export interface TelegramBroadcast {
   id: string
   text: string

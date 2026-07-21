@@ -118,6 +118,14 @@ export interface AppSettings {
   telegramBotBannedChatIds?: string[];
   telegramDigestLastMessageId?: number;
   telegramDigestLastMessageDate?: string;
+  // Freshness: daily rotation republishes the N oldest channel posts so
+  // long-standing in-stock products don't sink forever under newer ones.
+  telegramRotationDailyCount?: number;
+  // Featured-product daily pin — internal bookkeeping (excludes yesterday's
+  // pick, tracks what to unpin), same treatment as the digest fields above.
+  telegramFeaturedProductId?: string;
+  telegramFeaturedLastMessageId?: number;
+  telegramFeaturedLastDate?: string;
   // Wholesale catalog design (admin-configurable)
   catalogDesignPrimaryColor?: string;
   catalogDesignBgColor?: string;
@@ -316,6 +324,10 @@ export const defaultSettings: AppSettings = {
   telegramBotBannedChatIds: [],
   telegramDigestLastMessageId: 0,
   telegramDigestLastMessageDate: "",
+  telegramRotationDailyCount: 12,
+  telegramFeaturedProductId: "",
+  telegramFeaturedLastMessageId: 0,
+  telegramFeaturedLastDate: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

@@ -12,7 +12,7 @@
 // — never the backup bot's telegramBotToken/telegramChatId.
 import crypto from "crypto";
 import prisma from "../config/database";
-import { getSettings, AppSettings } from "./settings.service";
+import { getSettings, updateSettings, AppSettings } from "./settings.service";
 import { totalStock } from "../utils/product-stock";
 import { AppError } from "../utils/app-error";
 
@@ -493,4 +493,103 @@ export async function testTelegramChannel(): Promise<{ botName: string }> {
     const desc = (error as { tgDescription?: string })?.tgDescription || (error as Error).message;
     throw new AppError(`فشل اختبار تيليگرام: ${desc}`, 400, "TELEGRAM_CHANNEL_TEST_FAILED");
   }
+}
+
+/* ── Freshness: manual republish + daily rotation + featured pin ────────── */
+// A product's post only ever moves (delete+republish → lands at the newest
+// position) on the restock-after-zero cycle above. Products that stay
+// continuously in stock never resurface and sink under newer posts. These
+// three entry points give admins a manual "bump" and two daily automatic
+// ones so the whole catalog cycles back to "new" over time.
+
+async function republishOne(
+  botToken: string,
+  chatId: string,
+  product: CatalogProduct,
+  settings: AppSettings,
+  existingPost?: { id: string; messageId: number },
+): Promise<void> {
+  if (existingPost) await deletePost(botToken, chatId, existingPost);
+  await publishProduct(botToken, chatId, product, settings);
+}
+
+/** Admin-triggered: republish one product right now (promotions, slow movers). */
+export async function republishProductInChannel(productId: string): Promise<{ ok: boolean; reason?: string }> {
+  const settings = await getSettings();
+  const botToken = (settings.telegramChannelBotToken || "").trim();
+  const chatId = (settings.telegramChannelChatId || "").trim();
+  if (!settings.telegramChannelEnabled || !botToken || !chatId) {
+    return { ok: false, reason: "القناة غير مفعّلة أو غير مهيأة" };
+  }
+  const { desired } = await listDesiredProducts();
+  const product = desired.find((p) => p.id === productId);
+  if (!product) {
+    return { ok: false, reason: "المادة غير قابلة للنشر حالياً (نفدت أو بلا صورة)" };
+  }
+  const existingPost = await prisma.telegramChannelPost.findUnique({ where: { productId } });
+  await republishOne(botToken, chatId, product, settings, existingPost ?? undefined);
+  return { ok: true };
+}
+
+/** Daily cron: republish the N oldest channel posts so long-standing
+ * in-stock products cycle back to "new" without admin attention. */
+export async function runDailyChannelRotationJob(): Promise<void> {
+  const settings = await getSettings();
+  const botToken = (settings.telegramChannelBotToken || "").trim();
+  const chatId = (settings.telegramChannelChatId || "").trim();
+  if (!settings.telegramChannelEnabled || !botToken || !chatId) return;
+
+  const count = Math.max(1, Math.min(50, settings.telegramRotationDailyCount ?? 12));
+  const { desired } = await listDesiredProducts();
+  const desiredById = new Map(desired.map((p) => [p.id, p]));
+
+  const oldest = await prisma.telegramChannelPost.findMany({
+    orderBy: { publishedAt: "asc" },
+    take: count,
+  });
+
+  for (const post of oldest) {
+    const product = desiredById.get(post.productId);
+    if (!product) continue; // no longer desired — the per-minute sync tick already handles removing it
+    try {
+      await republishOne(botToken, chatId, product, settings, post);
+    } catch (error) {
+      console.error("[TelegramChannel] rotation republish failed:", error);
+    }
+    await sleep(DELAY_BETWEEN_OPS_MS);
+  }
+}
+
+/** Daily cron: pin a randomly-featured in-stock product, unpinning
+ * yesterday's — independent of the daily-digest pin (Telegram channels
+ * support multiple pinned messages, no conflict). */
+export async function runFeaturedProductRotationJob(): Promise<void> {
+  const settings = await getSettings();
+  const botToken = (settings.telegramChannelBotToken || "").trim();
+  const chatId = (settings.telegramChannelChatId || "").trim();
+  if (!settings.telegramChannelEnabled || !botToken || !chatId) return;
+
+  const { desired } = await listDesiredProducts();
+  if (!desired.length) return;
+
+  const candidates =
+    desired.length > 1 ? desired.filter((p) => p.id !== settings.telegramFeaturedProductId) : desired;
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+
+  const post = await prisma.telegramChannelPost.findUnique({ where: { productId: pick.id } });
+  if (!post) return; // hasn't been published yet — next day's run tries again
+
+  if (settings.telegramFeaturedLastMessageId) {
+    await tgCall(botToken, "unpinChatMessage", {
+      chat_id: chatId,
+      message_id: settings.telegramFeaturedLastMessageId,
+    }).catch(() => undefined);
+  }
+  await tgCall(botToken, "pinChatMessage", { chat_id: chatId, message_id: post.messageId }).catch(() => undefined);
+
+  await updateSettings({
+    telegramFeaturedProductId: pick.id,
+    telegramFeaturedLastMessageId: post.messageId,
+    telegramFeaturedLastDate: new Date().toISOString().slice(0, 10),
+  });
 }

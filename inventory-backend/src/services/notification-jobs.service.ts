@@ -16,7 +16,11 @@ import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
-import { runTelegramChannelSyncTick } from "./telegram-channel.service";
+import {
+  runTelegramChannelSyncTick,
+  runDailyChannelRotationJob,
+  runFeaturedProductRotationJob,
+} from "./telegram-channel.service";
 import { runTelegramBroadcastTick } from "./telegram-broadcast.service";
 import { runDailyDigestJob } from "./telegram-digest.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
@@ -427,6 +431,21 @@ export function startNotificationJobs() {
   cron.schedule("0 9 * * *", () => {
     runDailyDigestJob().catch((error) => {
       reportCronFailure("TELEGRAM_DAILY_DIGEST", error);
+    });
+  });
+
+  // Freshness rotation — republishes the oldest N channel posts daily (11:00)
+  // so long-standing in-stock products cycle back to "new" on their own.
+  cron.schedule("0 11 * * *", () => {
+    runDailyChannelRotationJob().catch((error) => {
+      reportCronFailure("TELEGRAM_CHANNEL_ROTATION", error);
+    });
+  });
+
+  // Featured-product daily pin (12:00, after the rotation job above).
+  cron.schedule("0 12 * * *", () => {
+    runFeaturedProductRotationJob().catch((error) => {
+      reportCronFailure("TELEGRAM_FEATURED_ROTATION", error);
     });
   });
 

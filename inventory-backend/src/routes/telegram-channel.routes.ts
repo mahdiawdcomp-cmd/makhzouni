@@ -6,6 +6,7 @@ import {
   getTelegramChannelStatus,
   runTelegramChannelSyncTick,
   testTelegramChannel,
+  republishProductInChannel,
 } from "../services/telegram-channel.service";
 
 const router = Router();
@@ -32,6 +33,14 @@ router.post(
   asyncHandler(async (_req, res) => {
     await runTelegramChannelSyncTick();
     res.json(await getTelegramChannelStatus());
+  }),
+);
+
+// Admin "bump" — delete + republish one product's post right now.
+router.post(
+  "/republish/:productId",
+  asyncHandler(async (req, res) => {
+    res.json(await republishProductInChannel(String(req.params.productId)));
   }),
 );
 

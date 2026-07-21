@@ -695,7 +695,20 @@ export function SettingsPage() {
                     dir="ltr"
                   />
                 </Field>
+                <Field label="عدد المنشورات المعاد نشرها يومياً (تجديد تلقائي)">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={settings.telegramRotationDailyCount ?? 12}
+                    onChange={(e) => updNum("telegramRotationDailyCount", e.target.value)}
+                    dir="ltr"
+                  />
+                </Field>
               </div>
+              <p className="text-xs text-slate-500">
+                كل يوم، أقدم هذا العدد من المنشورات ينحذف وينشر من جديد بالأسفل (منتج مميز مثبّت يتغير يومياً أيضاً) — حتى ولا مادة تنسى وتصير قديمة بالقناة.
+              </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   variant="outline"

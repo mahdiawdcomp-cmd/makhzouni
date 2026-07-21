@@ -3,7 +3,7 @@ import { usePageTitle } from "../hooks/usePageTitle"
 import { useDebounce } from "../hooks/useDebounce"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { getBranches, getCatalogCategories, getDeletedProducts, getProduct, restoreProduct } from "../api/endpoints"
+import { getBranches, getCatalogCategories, getDeletedProducts, getProduct, restoreProduct, republishProductInTelegramChannel } from "../api/endpoints"
 import {
   getCoreRowModel,
   getPaginationRowModel,
@@ -12,7 +12,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table"
-import { ArchiveX, Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
+import { ArchiveX, Boxes, ChevronDown, ChevronUp, Download, Edit, Eye, FileText, FolderTree, Plus, Printer, RefreshCw, ScanQrCode, Trash2, Undo2, X } from "lucide-react"
 import { useProducts } from "../hooks/useProducts"
 import { productCartonSheetPdf, productCartonSheetPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl } from "../api/endpoints"
 import type { Product, ProductPayload, CatalogCategory } from "../types/api"
@@ -422,6 +422,17 @@ export function ProductsPage() {
     },
     onError: (err: Error) => toast({ title: err.message ?? "تعذر الاسترجاع", variant: "destructive" }),
   })
+  const republishMutation = useMutation({
+    mutationFn: (id: string) => republishProductInTelegramChannel(id),
+    onSuccess: (res) => {
+      toast(
+        res.ok
+          ? { title: "✓ انعاد نشرها بالقناة" }
+          : { title: res.reason ?? "تعذرت إعادة النشر", variant: "destructive" },
+      )
+    },
+    onError: (err: Error) => toast({ title: err.message ?? "تعذرت إعادة النشر", variant: "destructive" }),
+  })
 
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState<ProductFormState>(emptyForm)
@@ -517,6 +528,15 @@ export function ProductsPage() {
             <Button variant="outline" className="h-8 px-2" title="طباعة رمز الكرتون (A4، 6 لاصقات)" onClick={() => void printCarton(row.original.id)}>
               <Printer className="h-4 w-4" />
             </Button>
+            <Button
+              variant="outline"
+              className="h-8 px-2"
+              title={readOnly ? READ_ONLY_MESSAGE : "أعد النشر بقناة تيليگرام (تنزل بالأسفل كمنشور جديد)"}
+              disabled={readOnly || republishMutation.isPending}
+              onClick={() => republishMutation.mutate(row.original.id)}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
             <Button variant="outline" className="h-8 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" title={readOnly ? READ_ONLY_MESSAGE : "حذف"} disabled={readOnly} onClick={() => setDeleteConfirm(row.original)}>
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -524,7 +544,7 @@ export function ProductsPage() {
         ),
       },
     ],
-    [navigate, readOnly],
+    [navigate, readOnly, republishMutation],
   )
 
   const table = useReactTable({
@@ -881,7 +901,7 @@ export function ProductsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-5 gap-1 p-2">
+                  <div className="grid grid-cols-6 gap-1 p-2">
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => navigate(`/inventory/${p.id}`)}>
                       <Eye className="h-4 w-4" /> عرض
                     </Button>
@@ -893,6 +913,15 @@ export function ProductsPage() {
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printCarton(p.id)}>
                       <Printer className="h-4 w-4" /> كرتون
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="h-11 flex-col gap-0.5 px-1 text-[10px]"
+                      disabled={readOnly || republishMutation.isPending}
+                      title={readOnly ? READ_ONLY_MESSAGE : "أعد النشر بقناة تيليگرام"}
+                      onClick={() => republishMutation.mutate(p.id)}
+                    >
+                      <RefreshCw className="h-4 w-4" /> تيليگرام
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px] text-rose-600" onClick={() => setDeleteConfirm(p)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
                       <Trash2 className="h-4 w-4" /> حذف
