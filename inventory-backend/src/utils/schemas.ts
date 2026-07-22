@@ -38,6 +38,7 @@ const userPermissionSchema = z.enum([
   // MANAGE_CUSTOMERS, so it gets its own permission.
   "ACCESS_WHATSAPP_CHAT",
   "MANAGE_INSTAGRAM",
+  "PUBLISH_INSTAGRAM",
 ]);
 
 const auditEntitySchema = z.enum([
