@@ -37,6 +37,7 @@ const userPermissionSchema = z.enum([
   // Two-way WhatsApp chat screen — send-as-the-shop is more sensitive than
   // MANAGE_CUSTOMERS, so it gets its own permission.
   "ACCESS_WHATSAPP_CHAT",
+  "MANAGE_INSTAGRAM",
 ]);
 
 const auditEntitySchema = z.enum([
