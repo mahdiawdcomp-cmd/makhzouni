@@ -1032,6 +1032,40 @@ export async function getLastSoldPrice(customerId: string, productId: string) {
         unit: item.unit,
         warehouseId: item.warehouseId,
         unitPrice: toNumber(item.unitPrice),
+        quantity: item.quantity,
+      }
+    : null;
+}
+
+// Same lookup, any customer — the invoice-line context menu's "آخر سعر بيع عام"
+// (last sale of this product to anyone), so the seller can sanity-check a price
+// even before a customer is picked, or compare it against the per-customer price.
+export async function getLastSoldPriceOverall(productId: string) {
+  const invoice = await prisma.invoice.findFirst({
+    where: {
+      type: InvoiceType.SALE,
+      status: InvoiceStatus.ACTIVE,
+      items: { some: { productId } },
+    },
+    include: {
+      items: { where: { productId }, take: 1 },
+      customer: { select: { id: true, name: true } },
+    },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+  });
+  const item = invoice?.items[0];
+
+  return invoice && item
+    ? {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        date: invoice.date,
+        unit: item.unit,
+        warehouseId: item.warehouseId,
+        unitPrice: toNumber(item.unitPrice),
+        quantity: item.quantity,
+        customerId: invoice.customerId,
+        customerName: invoice.customer?.name ?? null,
       }
     : null;
 }

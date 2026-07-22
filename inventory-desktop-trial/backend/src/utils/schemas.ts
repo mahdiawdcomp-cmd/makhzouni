@@ -478,6 +478,12 @@ export const lastSoldPriceSchema = z.object({
   }),
 });
 
+export const lastSoldPriceOverallSchema = z.object({
+  query: z.object({
+    productId: z.string().uuid(),
+  }),
+});
+
 const invoiceItemSchema = z.object({
   productId: z.string().uuid(),
   warehouseId: z.string().uuid().optional(),

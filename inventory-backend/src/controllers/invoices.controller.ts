@@ -11,6 +11,7 @@ import {
   createInvoice,
   getInvoiceById,
   getLastSoldPrice,
+  getLastSoldPriceOverall,
   hardDeleteInvoice,
   listInvoices,
   listRecentlyDeletedInvoices,
@@ -86,6 +87,15 @@ export const getInvoiceAudit = asyncHandler(async (req, res) => {
 
 export const getLastSoldPriceForProduct = asyncHandler(async (req, res) => {
   const data = await getLastSoldPrice(String(req.query.customerId), String(req.query.productId));
+
+  res.json({
+    success: true,
+    data,
+  });
+});
+
+export const getLastSoldPriceOverallForProduct = asyncHandler(async (req, res) => {
+  const data = await getLastSoldPriceOverall(String(req.query.productId));
 
   res.json({
     success: true,

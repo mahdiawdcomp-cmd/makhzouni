@@ -6,7 +6,7 @@ import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, Sca
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
@@ -109,12 +109,221 @@ function itemQuantityInPieces(item: DraftItem) {
   return unitToPieces(item.unit, item.quantity, item.product)
 }
 
+// Quick quantity-fill amount, expressed in the line's CURRENT unit. Restricted to
+// PIECE lines only: for any other unit (e.g. CARTON) "+half a carton" would need a
+// fractional quantity, which the quantity field (decimal={false}) can't hold.
+function quickQtyIncrement(item: DraftItem, kind: "carton" | "halfCarton" | "dozen"): number | null {
+  if (item.unit !== "PIECE") return null
+  const cartonPieces = item.product.pcsPerCarton
+  if (kind === "carton") return cartonPieces
+  if (kind === "halfCarton") return cartonPieces % 2 === 0 ? cartonPieces / 2 : null
+  return 12
+}
+
 function ProductThumb({ product }: { product: Product }) {
   const src = product.thumbnailUrl || product.imageUrl
   if (src) {
     return <img src={src} alt={product.name} loading="lazy" decoding="async" className="h-7 w-7 shrink-0 rounded-md object-cover ring-1 ring-slate-200" />
   }
   return <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
+}
+
+// Right-click on a line's product name → quick reference (last price for this
+// customer / overall, per-warehouse stock, cost) + quick actions. SALE only for
+// the price-history section: "last SALE price" has no meaning on a purchase line,
+// and a supplier (also stored as a Customer) has no purchase-price history here.
+function InvoiceLineContextMenu({
+  item,
+  index,
+  x,
+  y,
+  isPurchase,
+  canViewPurchasePrice,
+  customerId,
+  onClose,
+  onUpdateItem,
+  onDuplicateItem,
+  onRemoveItem,
+}: {
+  item: DraftItem
+  index: number
+  x: number
+  y: number
+  isPurchase: boolean
+  canViewPurchasePrice: boolean
+  customerId?: string
+  onClose: () => void
+  onUpdateItem: (index: number, patch: Partial<DraftItem>) => void
+  onDuplicateItem: (index: number) => void
+  onRemoveItem: (index: number) => void
+}) {
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const [forCustomer, setForCustomer] = useState<{ loading: boolean; data: LastSoldPrice | null }>({ loading: Boolean(customerId), data: null })
+  const [overall, setOverall] = useState<{ loading: boolean; data: LastSoldPriceOverall | null }>({ loading: true, data: null })
+
+  useEffect(() => {
+    let cancelled = false
+    if (!isPurchase && customerId) {
+      setForCustomer({ loading: true, data: null })
+      getLastSoldPrice(customerId, item.product.id)
+        .then((data) => { if (!cancelled) setForCustomer({ loading: false, data }) })
+        .catch(() => { if (!cancelled) setForCustomer({ loading: false, data: null }) })
+    } else {
+      setForCustomer({ loading: false, data: null })
+    }
+    if (!isPurchase) {
+      setOverall({ loading: true, data: null })
+      getLastSoldPriceOverall(item.product.id)
+        .then((data) => { if (!cancelled) setOverall({ loading: false, data }) })
+        .catch(() => { if (!cancelled) setOverall({ loading: false, data: null }) })
+    } else {
+      setOverall({ loading: false, data: null })
+    }
+    return () => { cancelled = true }
+  }, [isPurchase, customerId, item.product.id])
+
+  // Close on outside click, Escape, or scroll — a stale floating menu pointing at
+  // the wrong row after the table scrolls is worse than no menu at all.
+  useEffect(() => {
+    function handlePointer(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose()
+    }
+    function handleKey(e: globalThis.KeyboardEvent) {
+      if (e.key === "Escape") onClose()
+    }
+    document.addEventListener("mousedown", handlePointer)
+    document.addEventListener("keydown", handleKey)
+    window.addEventListener("scroll", onClose, true)
+    return () => {
+      document.removeEventListener("mousedown", handlePointer)
+      document.removeEventListener("keydown", handleKey)
+      window.removeEventListener("scroll", onClose, true)
+    }
+  }, [onClose])
+
+  // Clamp so a right-click near the window edge doesn't render the menu off-screen.
+  const MENU_WIDTH = 280
+  const MENU_MAX_HEIGHT = 420
+  const left = Math.max(8, Math.min(x, window.innerWidth - MENU_WIDTH - 8))
+  const top = Math.max(8, Math.min(y, window.innerHeight - MENU_MAX_HEIGHT - 8))
+
+  // Exclude whichever warehouse this line is CURRENTLY sourced from — item.warehouseId
+  // when explicitly set, otherwise المحل (the default for every sale line that hasn't
+  // been redirected). Comparing against item.warehouseId alone would, for the common
+  // undefined-means-shop case, wrongly list المحل itself as a "transfer from" target.
+  const currentWarehouseId = item.warehouseId
+    ?? item.product.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.warehouseId
+  const otherWarehouses = (item.product.warehouseStocks ?? []).filter((ws) => ws.warehouseId !== currentWarehouseId)
+  const units = visibleUnits(item.product)
+  const lastForCustomer = forCustomer.data
+
+  function applyLastDeal(deal: LastSoldPrice) {
+    onUpdateItem(index, { unit: deal.unit as Unit, quantity: deal.quantity, unitPrice: deal.unitPrice })
+    onClose()
+  }
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-[80] max-h-[420px] w-[280px] overflow-y-auto rounded-lg border bg-white p-1.5 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900"
+      style={{ left, top }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <div className="border-b px-2 pb-1.5 pt-1 text-xs font-bold text-slate-700 dark:border-slate-800 dark:text-slate-200">
+        {item.product.name}
+      </div>
+
+      {!isPurchase && (
+        <div className="space-y-1 border-b px-2 py-1.5 text-[11px] text-slate-600 dark:border-slate-800 dark:text-slate-300">
+          <div>
+            <span className="font-semibold">آخر سعر لهذا الزبون: </span>
+            {!customerId
+              ? "اختر الزبون أولاً"
+              : forCustomer.loading
+                ? "..."
+                : lastForCustomer
+                  ? `${fmt(lastForCustomer.unitPrice)} / ${UNIT_LABELS[lastForCustomer.unit as Unit]} — بتاريخ ${lastForCustomer.date.slice(0, 10)} (الكمية يومها: ${lastForCustomer.quantity})`
+                  : "ماكو بيع سابق"}
+          </div>
+          <div>
+            <span className="font-semibold">آخر سعر بيع عام: </span>
+            {overall.loading
+              ? "..."
+              : overall.data
+                ? `${fmt(overall.data.unitPrice)} / ${UNIT_LABELS[overall.data.unit as Unit]} — لـ ${overall.data.customerName ?? "زبون"} بتاريخ ${overall.data.date.slice(0, 10)}`
+                : "ماكو بيع سابق لهذه المادة"}
+          </div>
+        </div>
+      )}
+
+      {(item.product.warehouseStocks?.length ?? 0) > 0 && (
+        <div className="border-b px-2 py-1.5 dark:border-slate-800">
+          <div className="mb-1 text-[11px] font-semibold text-slate-500">المخزون بكل مخزن</div>
+          <div className="flex flex-wrap gap-1">
+            {item.product.warehouseStocks!.map((ws) => (
+              <span key={ws.warehouseId} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {ws.warehouse.name}: {ws.quantityPieces}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canViewPurchasePrice && (
+        <div className="border-b px-2 py-1.5 text-[11px] text-slate-600 dark:border-slate-800 dark:text-slate-300">
+          <span className="font-semibold">سعر الكلفة الحالي: </span>
+          {fmt(item.product.costPrice && item.product.costPrice > 0 ? item.product.costPrice : item.product.purchasePrice)}
+        </div>
+      )}
+
+      <div className="py-1">
+        {!isPurchase && lastForCustomer && (
+          <button type="button" className="block w-full rounded px-2 py-1.5 text-right text-xs hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => applyLastDeal(lastForCustomer)}>
+            ⚡ طبّق آخر صفقة لهذا الزبون
+          </button>
+        )}
+        <button type="button" className="block w-full rounded px-2 py-1.5 text-right text-xs hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => { onDuplicateItem(index); onClose() }}>
+          🔁 كرّر السطر
+        </button>
+        {!isPurchase && otherWarehouses.length > 0 && (
+          <div>
+            <div className="px-2 pt-1 text-[11px] font-semibold text-slate-500">انقل من مخزن</div>
+            {otherWarehouses.map((ws) => (
+              <button
+                key={ws.warehouseId}
+                type="button"
+                className="block w-full rounded px-2 py-1.5 text-right text-xs hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => { onUpdateItem(index, { warehouseId: ws.warehouseId, warehouseName: ws.warehouse.name }); onClose() }}
+              >
+                🔄 {ws.warehouse.name} ({ws.quantityPieces})
+              </button>
+            ))}
+          </div>
+        )}
+        {units.length > 1 && (
+          <div>
+            <div className="px-2 pt-1 text-[11px] font-semibold text-slate-500">غيّر الوحدة</div>
+            <div className="flex flex-wrap gap-1 px-2 py-1">
+              {units.map((u) => (
+                <button
+                  key={u}
+                  type="button"
+                  disabled={u === item.unit}
+                  className={cn("rounded border px-2 py-1 text-[11px]", u === item.unit ? "border-emerald-400 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300" : "border-slate-200 hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800")}
+                  onClick={() => { onUpdateItem(index, { unit: u }); onClose() }}
+                >
+                  {UNIT_LABELS[u]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <button type="button" className="mt-1 block w-full rounded px-2 py-1.5 text-right text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30" onClick={() => { onRemoveItem(index); onClose() }}>
+          🗑 حذف السطر
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // Legacy single-draft key (kept for backward compat with old autosaves)
@@ -247,6 +456,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
   const [preparedRows, setPreparedRows] = useState<Record<number, boolean>>({})
+  // Right-click context menu on a line's product name — see InvoiceLineContextMenu.
+  const [lineMenu, setLineMenu] = useState<{ index: number; x: number; y: number } | null>(null)
   const [productModal, setProductModal] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   // ---- Mobile Smart Invoice Preview: show a product card before adding it as a line ----
@@ -480,6 +691,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }, [items, isPurchase])
 
   const hasBelowCost = belowCostItems.size > 0
+
+  // Same product added on more than one line — usually a slip during fast entry
+  // (scanned twice, added from search then again from a scan). Warning only —
+  // legitimate cases exist (same product in two units, or two warehouses).
+  const duplicateProductCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const item of items) counts[item.product.id] = (counts[item.product.id] ?? 0) + 1
+    return counts
+  }, [items])
 
   // Suspicious (extreme) unit price vs a reference price — WARNING ONLY, never blocks.
   // Flags a likely fat-fingered price (extra/missing zero) so the clerk can catch it.
@@ -1205,6 +1425,29 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         const rowIndex = Number(key)
         if (rowIndex < index) next[rowIndex] = value
         if (rowIndex > index) next[rowIndex - 1] = value
+      })
+      return next
+    })
+  }
+
+  // Insert a copy of the line right after itself — e.g. same product needed in
+  // two units, or split across two warehouses by hand.
+  function duplicateItem(index: number) {
+    setItems((current) => {
+      const target = current[index]
+      if (!target) return current
+      const next = [...current]
+      next.splice(index + 1, 0, { ...target })
+      return next
+    })
+    // Inserting a row shifts every later row's index up by one — re-key
+    // preparedRows (تم تجهيز checkboxes) the same way removeItem does in reverse,
+    // or the checkbox states end up displayed against the wrong rows.
+    setPreparedRows((current) => {
+      const next: Record<number, boolean> = {}
+      Object.entries(current).forEach(([key, value]) => {
+        const rowIndex = Number(key)
+        next[rowIndex <= index ? rowIndex : rowIndex + 1] = value
       })
       return next
     })
@@ -1971,8 +2214,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           onChange={(event) => setPreparedRows((current) => ({ ...current, [index]: event.target.checked }))}
                         />
                       </TD>
-                      <TD>
-                        <div className="flex items-center gap-2 min-w-[140px]">
+                      <TD
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          setLineMenu({ index, x: e.clientX, y: e.clientY })
+                        }}
+                        title="كلك يمين لخيارات إضافية"
+                      >
+                        <div className="flex items-center gap-2 min-w-[140px] cursor-context-menu">
                           <ProductThumb product={item.product} />
                           <span className="font-medium">{item.product.name}</span>
                           {item.warehouseName && (
@@ -1987,6 +2236,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           ) : hasNegativeStock ? (
                             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                               {editNegativeAfter !== undefined ? `رصيد سالب — سيصبح ${fmt(editNegativeAfter)}` : "رصيد سالب"}
+                            </span>
+                          ) : null}
+                          {(duplicateProductCounts[item.product.id] ?? 0) > 1 ? (
+                            <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                              🔁 مكررة ×{duplicateProductCounts[item.product.id]}
                             </span>
                           ) : null}
                           {belowCostItems.has(index) ? (
@@ -2063,6 +2317,29 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           onValueChange={(n) => updateItem(index, { quantity: n })}
                           onKeyDown={(e) => handleRowKey(e, rowKey, "qty")}
                         />
+                        {item.unit !== "PIECE" && (
+                          <div className="mt-0.5 text-[10px] text-slate-400">= {itemQuantityInPieces(item)} قطعة</div>
+                        )}
+                        {item.product.pcsPerCarton > 1 && item.unit === "PIECE" && (
+                          <div className="mt-0.5 flex flex-wrap gap-0.5">
+                            {(["carton", "halfCarton", "dozen"] as const).map((kind) => {
+                              const delta = quickQtyIncrement(item, kind)
+                              if (delta === null) return null
+                              const label = kind === "carton" ? "+كرتون" : kind === "halfCarton" ? "+نصف" : "+درزن"
+                              return (
+                                <button
+                                  key={kind}
+                                  type="button"
+                                  title={`أضف ${delta} قطعة`}
+                                  className="rounded border border-slate-200 px-1 text-[9px] text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                                  onClick={() => updateItem(index, { quantity: item.quantity + delta })}
+                                >
+                                  {label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </TD>
                       {!hidePrice && (
                         <TD>
@@ -2167,6 +2444,22 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             </div>
           ) : null}
         </div>
+
+      {lineMenu && items[lineMenu.index] ? (
+        <InvoiceLineContextMenu
+          item={items[lineMenu.index]}
+          index={lineMenu.index}
+          x={lineMenu.x}
+          y={lineMenu.y}
+          isPurchase={isPurchase}
+          canViewPurchasePrice={canViewPurchasePrice}
+          customerId={selectedCustomer?.id}
+          onClose={() => setLineMenu(null)}
+          onUpdateItem={updateItem}
+          onDuplicateItem={duplicateItem}
+          onRemoveItem={removeItem}
+        />
+      ) : null}
 
       {/* Financial summary */}
       <div className={cn("rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900 dark:bg-amber-950/20", cardBorder)}>
@@ -2437,6 +2730,18 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   {product.pcsPerCarton > 1 && (
                     <span className="text-[11px] text-slate-400">{product.pcsPerCarton} قطعة/كرتون</span>
                   )}
+                  {/* Shop-stock availability BEFORE adding — so the seller sees a
+                      shortage up front instead of only after the line is on the
+                      invoice (matches the sale-only "sales come from المحل" rule). */}
+                  {!isPurchase ? (() => {
+                    const shop = product.shopStock ?? product.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
+                    if (shop === undefined) return null
+                    return (
+                      <span className={cn("text-[11px]", shop <= 0 ? "font-semibold text-rose-500" : "text-emerald-600 dark:text-emerald-400")}>
+                        {shop <= 0 ? "نفد من المحل" : `متوفر بالمحل: ${shop}`}
+                      </span>
+                    )
+                  })() : null}
                 </span>
                 <span className="text-slate-500">{product.itemNumber}</span>
               </button>

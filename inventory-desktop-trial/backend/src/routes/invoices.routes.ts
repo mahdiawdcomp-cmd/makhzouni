@@ -9,6 +9,7 @@ import {
   getInvoiceDetails,
   getInvoices,
   getLastSoldPriceForProduct,
+  getLastSoldPriceOverallForProduct,
   permanentDeleteInvoice,
   restoreInvoice,
 } from "../controllers/invoices.controller";
@@ -17,6 +18,7 @@ import { validate } from "../middleware/validate";
 import {
   createInvoiceSchema,
   idParamSchema,
+  lastSoldPriceOverallSchema,
   lastSoldPriceSchema,
   listInvoicesSchema,
   updateInvoiceSchema,
@@ -29,6 +31,7 @@ router.use(authMiddleware);
 router.get("/", validate(listInvoicesSchema), getInvoices);
 router.post("/", validate(createInvoiceSchema), addInvoice);
 router.get("/last-sold-price", validate(lastSoldPriceSchema), getLastSoldPriceForProduct);
+router.get("/last-sold-price-overall", validate(lastSoldPriceOverallSchema), getLastSoldPriceOverallForProduct);
 router.get("/:id/pdf", validate(idParamSchema), exportInvoicePdf);
 router.get("/:id/image", validate(idParamSchema), exportInvoiceImage);
 router.get("/:id/audit-trail", validate(idParamSchema), getInvoiceAudit);

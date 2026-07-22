@@ -11,6 +11,7 @@ import {
   getInvoiceDetails,
   getInvoices,
   getLastSoldPriceForProduct,
+  getLastSoldPriceOverallForProduct,
   getRecentlyDeletedInvoicesCtrl,
   permanentDeleteInvoice,
   restoreArchivedInvoiceCtrl,
@@ -22,6 +23,7 @@ import { validate } from "../middleware/validate";
 import {
   createInvoiceSchema,
   idParamSchema,
+  lastSoldPriceOverallSchema,
   lastSoldPriceSchema,
   listInvoicesSchema,
   updateInvoiceSchema,
@@ -35,6 +37,7 @@ router.get("/", validate(listInvoicesSchema), getInvoices);
 router.get("/recently-deleted", getRecentlyDeletedInvoicesCtrl);
 router.post("/", enforcePlanLimit("invoice"), validate(createInvoiceSchema), addInvoice);
 router.get("/last-sold-price", validate(lastSoldPriceSchema), getLastSoldPriceForProduct);
+router.get("/last-sold-price-overall", validate(lastSoldPriceOverallSchema), getLastSoldPriceOverallForProduct);
 router.get("/:id/pdf", validate(idParamSchema), exportInvoicePdf);
 router.get("/:id/image", validate(idParamSchema), exportInvoiceImage);
 router.get("/:id/customer-image-pdf/download", validate(idParamSchema), exportCustomerImageInvoicePdf);

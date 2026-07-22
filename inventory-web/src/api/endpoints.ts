@@ -932,10 +932,35 @@ export async function getInvoices(params?: {
   return data.data ?? []
 }
 
+export interface LastSoldPrice {
+  invoiceId: string
+  invoiceNumber: string
+  date: string
+  unit: string
+  warehouseId?: string | null
+  unitPrice: number
+  quantity: number
+}
+
 export async function getLastSoldPrice(customerId: string, productId: string) {
-  const { data } = await api.get<ApiEnvelope<{ invoiceId: string; invoiceNumber: string; date: string; unit: string; warehouseId?: string | null; unitPrice: number } | null>>(
+  const { data } = await api.get<ApiEnvelope<LastSoldPrice | null>>(
     "/invoices/last-sold-price",
     { params: { customerId, productId } },
+  )
+  return data.data ?? null
+}
+
+export interface LastSoldPriceOverall extends LastSoldPrice {
+  customerId: string
+  customerName: string | null
+}
+
+// Last sale of this product to ANY customer — used by the invoice-line context
+// menu so the seller has a price reference even before/without picking a customer.
+export async function getLastSoldPriceOverall(productId: string) {
+  const { data } = await api.get<ApiEnvelope<LastSoldPriceOverall | null>>(
+    "/invoices/last-sold-price-overall",
+    { params: { productId } },
   )
   return data.data ?? null
 }
