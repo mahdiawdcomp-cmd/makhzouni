@@ -837,6 +837,14 @@ export async function voucherImageObjectUrl(id: string): Promise<string> {
   return URL.createObjectURL(resp.data as Blob)
 }
 
+// Sends the voucher's real PDF as a WhatsApp document (via the approved Meta
+// template's document header when configured, falling back to a plain PDF
+// send). `message` is the customizable caption built from Settings → قالب السند.
+export async function sendVoucherPdfWhatsapp(id: string, message: string, channel?: WhatsAppSendChannel) {
+  const { data } = await api.post<ApiEnvelope<{ to: string }>>(`/vouchers/${id}/send-whatsapp`, { message, channel })
+  return data
+}
+
 export async function createReceipt(payload: VoucherPayload) {
   return createVoucher(payload)
 }

@@ -22,7 +22,7 @@ import {
   getVoucher,
   getVouchers,
   restoreVoucher as restoreVoucherApi,
-  sendWhatsAppTemplatedMessage,
+  sendVoucherPdfWhatsapp,
   updateVoucher,
   voucherImageObjectUrl,
   voucherPdfObjectUrl,
@@ -33,7 +33,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import type { Voucher } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
-import { fillTemplate, normalizePhone } from "../utils/whatsapp"
+import { fillTemplate } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
 import { RecordNavigator } from "../components/RecordNavigator"
@@ -188,31 +188,14 @@ export function VoucherDetailPage() {
     if (!voucher) return
     const phone = voucher.customer?.phone
     if (!phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
-    const currentBalance = Number(voucher.customer?.currentBalance ?? 0)
-    const previousBalance = currentBalance + (voucher.type === "RECEIPT" ? Number(voucher.amount) : -Number(voucher.amount))
     const msg = buildVoucherMessage()
     setWaSending(true)
     try {
-      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
-      // placeholders, in this order, if/once one is configured in Settings.
-      await sendWhatsAppTemplatedMessage({
-        phone: normalizePhone(phone),
-        message: msg,
-        templateKind: "voucher",
-        // Currency is baked into the template text (دع), NOT a variable —
-        // template has exactly 7 vars. Do NOT send currency here or Meta
-        // rejects with #132000 and the send silently vanishes.
-        bodyParams: [
-          voucher.customer?.name ?? "",
-          money(voucher.amount),
-          voucher.voucherNumber,
-          String(voucher.date).slice(0, 10),
-          money(previousBalance),
-          money(voucher.customer?.currentBalance),
-          settings?.storeName ?? "",
-        ],
-        channel,
-      })
+      // Server generates the voucher PDF and attaches it as the Meta template's
+      // document header (falls back to a plain PDF send if the template call
+      // fails) — bodyParams are built server-side from the same balance snapshot
+      // used to render the PDF, so the numbers always match.
+      await sendVoucherPdfWhatsapp(voucher.id, msg, channel)
       setWaChannelOpen(false)
       toast({ title: "✓ تم إرسال السند عبر واتساب." })
     } catch (err) {

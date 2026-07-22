@@ -4,7 +4,7 @@ import { getSettings } from "./settings.service";
 import { getVoucherById } from "./voucher.service";
 import { pngToPdf } from "../utils/png-to-pdf";
 
-function money(value: number | null | undefined) {
+export function money(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Number(value ?? 0));
 }
 
@@ -258,7 +258,7 @@ function buildVoucherHtml(voucher: any, options: {
 </html>`;
 }
 
-async function voucherContext(voucherId: string) {
+export async function voucherContext(voucherId: string) {
   const [voucher, settings] = await Promise.all([
     getVoucherById(voucherId),
     getSettings().catch(() => null),

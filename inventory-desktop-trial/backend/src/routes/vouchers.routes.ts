@@ -9,6 +9,7 @@ import {
   getVouchers,
   removeVoucher,
   restoreVoucherCtrl,
+  sendVoucherPdfWhatsapp,
 } from "../controllers/vouchers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
@@ -27,6 +28,7 @@ router.get("/", validate(listVouchersSchema), getVouchers);
 router.post("/", validate(createVoucherSchema), addVoucher);
 router.get("/:id/pdf",   validate(idParamSchema), exportVoucherPdf);
 router.get("/:id/image", validate(idParamSchema), exportVoucherImage);
+router.post("/:id/send-whatsapp", validate(idParamSchema), sendVoucherPdfWhatsapp);
 router.get("/:id", validate(idParamSchema), getVoucherDetails);
 router.post("/:id/cancel", validate(idParamSchema), cancelVoucherCtrl);
 router.post("/:id/restore", validate(idParamSchema), restoreVoucherCtrl);
