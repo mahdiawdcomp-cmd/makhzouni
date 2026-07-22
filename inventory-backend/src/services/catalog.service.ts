@@ -257,7 +257,13 @@ export async function recordCatalogProductView(productId: string, phone?: string
 
   if (phone) {
     const normalized = normalizePhone(phone);
-    if (normalized) {
+    // Only log against a phone that actually passed the guest gate — nothing
+    // ties this call to a session, so without this check anyone could send an
+    // arbitrary real phone number here and fabricate a "viewed this product"
+    // history for it. Requiring a prior CatalogVisitor row keeps this scoped
+    // to the same guest-funnel phones the admin visitors tab already trusts.
+    const isKnownVisitor = normalized && await prisma.catalogVisitor.findUnique({ where: { phone: normalized }, select: { phone: true } });
+    if (isKnownVisitor) {
       const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true } });
       if (product) {
         await prisma.catalogVisitorProductView.create({

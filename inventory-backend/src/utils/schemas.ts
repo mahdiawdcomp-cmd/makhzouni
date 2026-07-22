@@ -199,7 +199,7 @@ export const createCatalogOrderSchema = z.object({
     address: z.string().trim().max(240).optional(),
     notes: z.string().trim().max(500).optional(),
     promoCode: z.string().trim().max(60).optional(),
-    items: z.array(catalogOrderItemSchema).min(1),
+    items: z.array(catalogOrderItemSchema).min(1).max(200),
   }),
 });
 
@@ -215,7 +215,23 @@ export const createGuestCatalogOrderSchema = z.object({
     phone: z.string().trim().min(5).max(40),
     address: z.string().trim().max(240).optional(),
     notes: z.string().trim().max(500).optional(),
-    items: z.array(catalogOrderItemSchema).min(1),
+    items: z.array(catalogOrderItemSchema).min(1).max(200),
+  }),
+});
+
+export const trackCatalogViewSchema = z.object({
+  body: z.object({
+    productId: z.string().uuid(),
+    // The frontend always sends this key, empty string when there's no
+    // visitor phone to attach (e.g. token-mode customers) — don't reject it.
+    phone: z.string().trim().max(40).optional(),
+  }),
+});
+
+export const visitorHeartbeatSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(5).max(40),
+    seconds: z.coerce.number().min(0).max(60),
   }),
 });
 

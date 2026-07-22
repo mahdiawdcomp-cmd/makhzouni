@@ -718,6 +718,10 @@ async function handleMessage(
     const payload = text.split(/\s+/)[1] ?? "";
     if (payload.startsWith("p_")) {
       await saveState(chatId, { ...state, mode: "idle" });
+      // Deep-link buttons on channel posts are the bot's main entry point —
+      // a brand-new user landing here must still see the onboarding once,
+      // not just returning users who typed a bare /start.
+      if (isNewChat) await showHowToBuy(botToken, chatId, { firstName: chat.firstName });
       await showProduct(botToken, chatId, payload.slice(2));
     } else {
       await saveState(chatId, { ...state, mode: "idle" });

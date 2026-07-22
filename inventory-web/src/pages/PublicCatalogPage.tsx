@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
-import { api } from "../api/client"
+import { api, API_BASE_URL } from "../api/client"
 import {
   CheckCircle2,
   ChevronLeft,
@@ -60,6 +60,14 @@ const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
 const unitsFor = (product: PublicCatalogProduct): CatalogUnit[] => {
   const hidden = new Set(product.hiddenUnits ?? [])
   return UNITS.filter((u) => u === "PIECE" || !hidden.has(u as "DOZEN" | "BOX" | "CARTON"))
+}
+// UNITS is ascending PIECE→CARTON, so the last allowed entry is the largest
+// bulk unit this product can actually be sold in — CARTON when it isn't
+// hidden, otherwise the next best thing. PIECE is never hideable, so this
+// is never empty.
+const defaultUnitFor = (product: PublicCatalogProduct): CatalogUnit => {
+  const allowed = unitsFor(product)
+  return allowed[allowed.length - 1] ?? "PIECE"
 }
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
@@ -706,6 +714,19 @@ function CatalogShop({
   useEffect(() => {
     if (!visitorPhone) return
     let seconds = 0
+    // A regular fetch/axios call queued right as the tab closes is routinely
+    // cancelled before it reaches the network — sendBeacon is designed to
+    // survive that, so the trailing (sub-20s) chunk isn't silently dropped
+    // every time a visitor just closes the tab instead of navigating away.
+    const flushBeacon = (n: number) => {
+      if (n <= 0) return
+      try {
+        navigator.sendBeacon(
+          `${API_BASE_URL}/public/catalog/visitor-heartbeat`,
+          new Blob([JSON.stringify({ phone: visitorPhone, seconds: n })], { type: "application/json" }),
+        )
+      } catch { /* best-effort */ }
+    }
     const interval = window.setInterval(() => {
       if (document.visibilityState !== "visible") return
       seconds += 5
@@ -715,8 +736,18 @@ function CatalogShop({
         void postVisitorHeartbeat(visitorPhone, toSend)
       }
     }, 5000)
+    const onHide = () => {
+      if (document.visibilityState === "hidden") {
+        flushBeacon(seconds)
+        seconds = 0
+      }
+    }
+    document.addEventListener("visibilitychange", onHide)
+    window.addEventListener("pagehide", onHide)
     return () => {
       window.clearInterval(interval)
+      document.removeEventListener("visibilitychange", onHide)
+      window.removeEventListener("pagehide", onHide)
       if (seconds > 0) void postVisitorHeartbeat(visitorPhone, seconds)
     }
   }, [visitorPhone])
@@ -744,7 +775,11 @@ function CatalogShop({
   const [promoError, setPromoError] = useState("")
   const [promoLoading, setPromoLoading] = useState(false)
   const [guestName, setGuestName] = useState("")
-  const [guestPhone, setGuestPhone] = useState("")
+  // Prefilled from the number the shopper already gave GuestPhoneGate — still
+  // editable, but they shouldn't have to retype it from scratch (retyping
+  // invites a typo/different number, which desyncs the order from the phone
+  // all their browsing time/views were tracked under).
+  const [guestPhone, setGuestPhone] = useState(() => (guestMode ? localStorage.getItem(GUEST_PHONE_KEY) ?? "" : ""))
   const [guestAddress, setGuestAddress] = useState("")
   const [accessRequestOpen, setAccessRequestOpen] = useState(false)
   const [showTutorial, setShowTutorial] = useState<boolean>(() => !localStorage.getItem(TUTORIAL_SEEN_KEY))
@@ -905,7 +940,7 @@ function CatalogShop({
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
-  function add(product: PublicCatalogProduct, unit: CatalogUnit = "CARTON") {
+  function add(product: PublicCatalogProduct, unit: CatalogUnit = defaultUnitFor(product)) {
     const max = maxQty(product, unit)
     if (max < 1) return
     setSubmitted(null)
@@ -1878,7 +1913,7 @@ function CartOverlay({
   guestName?: string; guestPhone?: string; guestAddress?: string
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
 }) {
-  const guestDetailsMissing = Boolean(guestMode) && (!guestName?.trim() || (guestPhone?.trim().length ?? 0) < 7)
+  const guestDetailsMissing = Boolean(guestMode) && (!guestName?.trim() || (guestPhone?.replace(/\D/g, "").length ?? 0) < 7)
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />

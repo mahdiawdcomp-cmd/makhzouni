@@ -58,6 +58,8 @@ import {
   createCatalogOrderSchema,
   createGuestCatalogOrderSchema,
   guestCatalogProductImageSchema,
+  trackCatalogViewSchema,
+  visitorHeartbeatSchema,
   portalTokenSchema,
   portalInvoiceSchema,
   portalArrivalDeleteSchema,
@@ -195,8 +197,8 @@ router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
 // Guest catalog (no OTP/access token) — only served when the merchant has
 // turned off catalogRequireOtp; the service layer enforces that, not the route.
 router.post("/catalog/guest-enter", catalogLimiter, guestCatalogEnter);
-router.post("/catalog/track-view", catalogLimiter, trackCatalogProductView);
-router.post("/catalog/visitor-heartbeat", catalogLimiter, postVisitorHeartbeat);
+router.post("/catalog/track-view", catalogLimiter, validate(trackCatalogViewSchema), trackCatalogProductView);
+router.post("/catalog/visitor-heartbeat", catalogLimiter, validate(visitorHeartbeatSchema), postVisitorHeartbeat);
 router.get("/catalog/guest-products", catalogLimiter, getGuestCatalogProducts);
 router.get("/catalog/guest-product-image", catalogLimiter, validate(guestCatalogProductImageSchema), getGuestCatalogProductImageCtrl);
 router.post("/catalog/guest-orders", catalogLimiter, validate(createGuestCatalogOrderSchema), createGuestCatalogOrder);

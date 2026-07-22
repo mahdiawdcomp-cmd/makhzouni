@@ -531,6 +531,27 @@ export async function notifyCatalogAccessRequested(
   }
 }
 
+// The guest catalog phone gate accepts any client-supplied phone with no OTP
+// verification, so a burst of incrementing fake numbers could otherwise be
+// used to flood the admin's WhatsApp with "new lead" pings. The in-app
+// notification below always fires (dedupeKey keeps it one-per-phone and it's
+// harmless spam at worst), but the actual WhatsApp send is capped globally.
+const NEW_LEAD_WA_MAX_PER_HOUR = 15;
+const NEW_LEAD_WA_WINDOW_MS = 60 * 60_000;
+let newLeadWaWindowStart = 0;
+let newLeadWaCount = 0;
+
+function canSendNewLeadWhatsApp(): boolean {
+  const now = Date.now();
+  if (now - newLeadWaWindowStart > NEW_LEAD_WA_WINDOW_MS) {
+    newLeadWaWindowStart = now;
+    newLeadWaCount = 0;
+  }
+  if (newLeadWaCount >= NEW_LEAD_WA_MAX_PER_HOUR) return false;
+  newLeadWaCount++;
+  return true;
+}
+
 // Fired the first time a brand-new phone number passes the guest catalog phone
 // gate. Rings the admin bell and (if configured) pings the admin on WhatsApp so
 // they can follow up on the fresh lead.
@@ -550,7 +571,7 @@ export async function notifyNewCatalogLead(phone: string) {
     dedupeKey: `catalog_lead:${phone}`,
   }).catch(() => {});
 
-  if (admin) {
+  if (admin && canSendNewLeadWhatsApp()) {
     await safeSendWA(admin, `زائر جديد دخل كتلوك الجملة\nالرقم: ${phone}\n\nراجع «الزوار الجدد» بصفحة إدارة الكتلوك للتواصل معه.`);
   }
 }
