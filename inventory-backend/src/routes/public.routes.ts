@@ -11,6 +11,7 @@ import {
   getGuestCatalogProducts,
   guestCatalogEnter,
   trackCatalogProductView,
+  postVisitorHeartbeat,
   validatePromoCtrl,
   verifyCatalogAccessCtrl,
 } from "../controllers/catalog.controller";
@@ -195,6 +196,7 @@ router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
 // turned off catalogRequireOtp; the service layer enforces that, not the route.
 router.post("/catalog/guest-enter", catalogLimiter, guestCatalogEnter);
 router.post("/catalog/track-view", catalogLimiter, trackCatalogProductView);
+router.post("/catalog/visitor-heartbeat", catalogLimiter, postVisitorHeartbeat);
 router.get("/catalog/guest-products", catalogLimiter, getGuestCatalogProducts);
 router.get("/catalog/guest-product-image", catalogLimiter, validate(guestCatalogProductImageSchema), getGuestCatalogProductImageCtrl);
 router.post("/catalog/guest-orders", catalogLimiter, validate(createGuestCatalogOrderSchema), createGuestCatalogOrder);

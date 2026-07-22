@@ -206,14 +206,15 @@ export async function sendTelegramDmToPhone(phone: string, text: string, keyboar
 
 async function loadChat(chatId: number, from?: { first_name?: string; username?: string }) {
   const existing = await prisma.telegramBotChat.findUnique({ where: { chatId: BigInt(chatId) } });
-  if (existing) return existing;
-  return prisma.telegramBotChat.create({
+  if (existing) return { chat: existing, isNewChat: false };
+  const created = await prisma.telegramBotChat.create({
     data: {
       chatId: BigInt(chatId),
       firstName: from?.first_name ?? "",
       username: from?.username ?? "",
     },
   });
+  return { chat: created, isNewChat: true };
 }
 
 async function saveState(chatId: number, state: BotState, extra?: { phone?: string; customerId?: string | null }) {
@@ -621,16 +622,26 @@ async function showStatement(botToken: string, chatId: number, chat: { phone: st
   }
 }
 
-async function showHowToBuy(botToken: string, chatId: number) {
+async function showHowToBuy(botToken: string, chatId: number, opts?: { firstName?: string }) {
   const { settings } = await getCreds();
-  const lines = ["🏬 كيف أشتري؟", ""];
+  const custom = (settings.telegramBotWelcomeMessage || "").trim();
+  const greeting = opts?.firstName ? `هلا ${opts.firstName} 👋 ` : "";
+  const tutorial = custom || [
+    `${greeting}هذا بوت طلبات المتجر — تكدر تطلب بأربع خطوات بسيطة:`,
+    "",
+    "1️⃣ تصفح الأصناف 🗂️ أو دور عن مادة بالبحث 🔍",
+    "2️⃣ اضغط على المادة، اختار الوحدة (قطعة/كارتون) والكمية — تنضاف لسلتك تلقائياً",
+    "3️⃣ افتح 🛒 سلتي وأكد الطلب (نطلب رقمك أول مرة بس، وبأمان)",
+    "4️⃣ بعد ما نراجع الطلب، نتواصل معك على رقمك، نجهزه، ونوصلك إياه",
+  ].join("\n");
+  const lines = ["🏬 كيف أشتري؟", "", tutorial, ""];
   if (settings.telegramBotStoreAddress) lines.push(`📍 العنوان: ${settings.telegramBotStoreAddress}`);
   if (settings.telegramBotWorkingHours) lines.push(`🕐 أوقات الدوام: ${settings.telegramBotWorkingHours}`);
   if (settings.telegramBotContactPhone) lines.push(`📞 للتواصل: ${settings.telegramBotContactPhone}`);
   lines.push("", "تكدر تطلب بأكثر من طريقة:", "🛒 مباشرة من هذا البوت");
   if (settings.catalogPublicUrl) lines.push(`🌐 من موقع الكتلوك: ${settings.catalogPublicUrl}`);
   lines.push("📢 أو من قناتنا بتيليگرام");
-  await send(botToken, chatId, lines.join("\n"), { inline_keyboard: [backRow()] });
+  await send(botToken, chatId, lines.join("\n"), MAIN_MENU);
 }
 
 async function showMyOrders(botToken: string, chatId: number, chat: { phone: string }, state: BotState) {
@@ -699,7 +710,7 @@ async function handleMessage(
 ) {
   const chatId = message.chat.id;
   const text = (message.text ?? "").trim();
-  const chat = await loadChat(chatId, message.from);
+  const { chat, isNewChat } = await loadChat(chatId, message.from);
   const state = (chat.state ?? {}) as BotState;
 
   // /start (optionally with a product deep link from the channel button)
@@ -710,7 +721,8 @@ async function handleMessage(
       await showProduct(botToken, chatId, payload.slice(2));
     } else {
       await saveState(chatId, { ...state, mode: "idle" });
-      await showMenu(botToken, chatId, chat.firstName);
+      if (isNewChat) await showHowToBuy(botToken, chatId, { firstName: chat.firstName });
+      else await showMenu(botToken, chatId, chat.firstName);
     }
     return;
   }
@@ -810,7 +822,7 @@ async function handleCallback(
   // Ack immediately so the button spinner stops.
   await tgCall(botToken, "answerCallbackQuery", { callback_query_id: cb.id }).catch(() => undefined);
 
-  const chat = await loadChat(chatId, cb.from);
+  const { chat } = await loadChat(chatId, cb.from);
   const state = (chat.state ?? {}) as BotState;
 
   if (data === "menu") {

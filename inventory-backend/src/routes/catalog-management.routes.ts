@@ -12,6 +12,7 @@ import {
   getCatalogDesignCtrl,
   updateCatalogDesignCtrl,
   getCatalogVisitorsCtrl,
+  getVisitorProductViewsCtrl,
   convertVisitorCtrl,
   broadcastVisitorsCtrl,
   getCatalogProductStatsCtrl,
@@ -23,6 +24,7 @@ router.use(authMiddleware);
 
 // Guest visitors (phone gate leads)
 router.get("/visitors", getCatalogVisitorsCtrl);
+router.get("/visitors/:phone/views", getVisitorProductViewsCtrl);
 router.post("/visitors/broadcast", broadcastVisitorsCtrl);
 router.post("/visitors/:phone/convert", convertVisitorCtrl);
 

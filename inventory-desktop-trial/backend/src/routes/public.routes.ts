@@ -9,6 +9,7 @@ import {
   createGuestCatalogOrder,
   guestCatalogEnter,
   trackCatalogProductView,
+  postVisitorHeartbeat,
 } from "../controllers/catalog.controller";
 import { isGuestCatalogEnabled } from "../services/catalog.service";
 import { sendOtp, confirmOtp, checkVerified } from "../controllers/otp.controller";
@@ -88,6 +89,7 @@ router.get("/catalog/session", catalogLimiter, validate(catalogAccessQuerySchema
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
 router.post("/catalog/track-view", catalogLimiter, trackCatalogProductView);
+router.post("/catalog/visitor-heartbeat", catalogLimiter, postVisitorHeartbeat);
 
 // Retail storefront (كتلوك المفرد) — fully public, no login
 router.get("/retail/store-info", catalogLimiter, getPublicStoreInfo);

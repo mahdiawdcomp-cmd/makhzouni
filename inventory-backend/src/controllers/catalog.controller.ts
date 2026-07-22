@@ -7,6 +7,7 @@ import {
   listGuestCatalogProducts,
   lookupCatalogAccess,
   recordCatalogProductView,
+  recordVisitorHeartbeat,
   recordGuestVisit,
   requestCatalogAccess,
   submitCatalogOrder,
@@ -21,7 +22,14 @@ export const guestCatalogEnter = asyncHandler(async (req, res) => {
 });
 
 export const trackCatalogProductView = asyncHandler(async (req, res) => {
-  await recordCatalogProductView(String((req.body as { productId?: string })?.productId ?? ""));
+  const body = req.body as { productId?: string; phone?: string };
+  await recordCatalogProductView(String(body?.productId ?? ""), body?.phone);
+  res.json({ success: true });
+});
+
+export const postVisitorHeartbeat = asyncHandler(async (req, res) => {
+  const body = req.body as { phone?: string; seconds?: number };
+  await recordVisitorHeartbeat(String(body?.phone ?? ""), Number(body?.seconds ?? 0));
   res.json({ success: true });
 });
 

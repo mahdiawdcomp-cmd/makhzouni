@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   Grid,
+  HelpCircle,
   ImageIcon,
   LayoutList,
   Minus,
@@ -27,6 +28,7 @@ import {
   getGuestCatalogProductImage,
   guestCatalogEnter,
   trackCatalogProductView,
+  postVisitorHeartbeat,
   submitGuestCatalogOrder,
   requestCatalogAccess,
   sendCatalogOtp,
@@ -663,6 +665,8 @@ function GuestAccessRequestModal({ tk, onClose }: { tk: ThemeTokens; onClose: ()
   )
 }
 
+const TUTORIAL_SEEN_KEY = "catalog_tutorial_seen_v1"
+
 /* ══════════════════════════════════════════════════════════════════════
    SHOP
 ══════════════════════════════════════════════════════════════════════ */
@@ -691,6 +695,32 @@ function CatalogShop({
     return () => { document.title = "مخزوني" }
   }, [])
 
+  // Browsing-time + product-view tracking only applies to the guest funnel
+  // (catalog_visitors is how anonymous phone numbers get surfaced to admins
+  // for conversion) — token-mode customers are already real customers, and
+  // nothing in the admin UI reads this data for them, so skip it entirely.
+  const visitorPhone = guestMode ? (localStorage.getItem(GUEST_PHONE_KEY) || "") : ""
+
+  // Browsing-time heartbeat: accumulate ~20s chunks while the tab is visible
+  // and flush to the server, so admins can see how long a visitor stayed.
+  useEffect(() => {
+    if (!visitorPhone) return
+    let seconds = 0
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return
+      seconds += 5
+      if (seconds >= 20) {
+        const toSend = seconds
+        seconds = 0
+        void postVisitorHeartbeat(visitorPhone, toSend)
+      }
+    }, 5000)
+    return () => {
+      window.clearInterval(interval)
+      if (seconds > 0) void postVisitorHeartbeat(visitorPhone, seconds)
+    }
+  }, [visitorPhone])
+
   /* ── State ── */
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem(themeKey) as Theme) || "clean")
   const [sortKey, setSortKey] = useState<SortKey>("default")
@@ -717,6 +747,7 @@ function CatalogShop({
   const [guestPhone, setGuestPhone] = useState("")
   const [guestAddress, setGuestAddress] = useState("")
   const [accessRequestOpen, setAccessRequestOpen] = useState(false)
+  const [showTutorial, setShowTutorial] = useState<boolean>(() => !localStorage.getItem(TUTORIAL_SEEN_KEY))
   const searchRef = useRef<HTMLInputElement>(null)
   const themeRef = useRef<HTMLDivElement>(null)
   const bannerTouchX = useRef<number | null>(null)
@@ -930,7 +961,7 @@ function CatalogShop({
   async function openZoom(product: PublicCatalogProduct) {
     const thumb = product.thumbnailUrl || product.imageUrl
     if (!thumb) return
-    void trackCatalogProductView(product.id)
+    void trackCatalogProductView(product.id, visitorPhone)
     setZoomedImg({ src: thumb, name: product.name })
     try {
       const full = guestMode ? await getGuestCatalogProductImage(product.id) : await getPublicCatalogProductImage(accessToken, product.id)
@@ -1058,6 +1089,16 @@ function CatalogShop({
                 </div>
               )}
             </div>
+
+            {/* Help / tutorial */}
+            <button
+              onClick={() => setShowTutorial(true)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
+              style={{ background: "rgba(255,255,255,0.2)" }}
+              title="شلون أشتري؟"
+            >
+              <HelpCircle className="h-4 w-4 text-white" />
+            </button>
 
             {/* Refresh */}
             <button
@@ -1390,6 +1431,71 @@ function CatalogShop({
           onClose={() => setPickerProduct(null)}
         />
       )}
+
+      {/* ── First-visit onboarding tutorial ── */}
+      {showTutorial && (
+        <CatalogOnboardingTutorial
+          tk={tk}
+          onClose={() => { localStorage.setItem(TUTORIAL_SEEN_KEY, "1"); setShowTutorial(false) }}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ONBOARDING TUTORIAL — first-visit walkthrough (browse → cart → order → delivery)
+══════════════════════════════════════════════════════════════════════ */
+function CatalogOnboardingTutorial({ tk, onClose }: { tk: ThemeTokens; onClose: () => void }) {
+  const steps = [
+    { icon: Search, title: "دور على الماده", text: "استخدم البحث بالأعلى أو تصفح التصنيفات لين تلقى المواد الي تريدها." },
+    { icon: ShoppingCart, title: "ضيفها للسلة", text: "اضغط على المادة، اختار الوحدة (كارتون أو حبة) والكمية، وتنضاف لسلتك تلقائياً." },
+    { icon: CheckCircle2, title: "أرسل طلبك", text: "افتح السلة بالأسفل، راجع مشترياتك، وأدخل رقمك واضغط «إرسال الطلب للمراجعة»." },
+    { icon: ShoppingBag, title: "طلبك بالطريق", text: "بعد ما نراجع الطلب راح نتواصل معك على رقمك ونجهزلك المواد ونوصلك إياها." },
+  ] as const
+  const [step, setStep] = useState(0)
+  const isLast = step === steps.length - 1
+  const S = steps[step]
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-end justify-center bg-black/60 sm:items-center sm:p-4" dir="rtl">
+      <div className="w-full max-w-sm rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-400">{step + 1} / {steps.length}</span>
+          <button onClick={onClose} className="text-slate-400 transition hover:text-slate-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: tk.accentLight }}>
+          <S.icon className="h-8 w-8" style={{ color: tk.accent }} />
+        </div>
+        <h3 className="mb-1.5 text-center text-lg font-extrabold text-slate-900">{S.title}</h3>
+        <p className="mb-5 text-center text-sm leading-relaxed text-slate-500">{S.text}</p>
+
+        <div className="mb-4 flex justify-center gap-1.5">
+          {steps.map((_, i) => (
+            <span key={i} className="h-1.5 rounded-full transition-all"
+              style={{ width: i === step ? "20px" : "6px", background: i === step ? tk.accent : "#e2e8f0" }} />
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+          {step > 0 && (
+            <button onClick={() => setStep((s) => s - 1)}
+              className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600">
+              السابق
+            </button>
+          )}
+          <button
+            onClick={() => (isLast ? onClose() : setStep((s) => s + 1))}
+            className="flex-[2] rounded-xl py-2.5 text-sm font-bold text-white"
+            style={{ background: tk.accent }}
+          >
+            {isLast ? "يلا نبدأ 🛍️" : "التالي"}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

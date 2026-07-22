@@ -197,14 +197,48 @@ export async function broadcastToVisitors(message: string, phones?: string[]) {
 }
 
 // ── Catalog product analytics ────────────────────────────────────────────
-export async function recordCatalogProductView(productId: string) {
+export async function recordCatalogProductView(productId: string, phone?: string) {
   if (!productId) return { ok: false };
   await prisma.catalogProductStat.upsert({
     where: { productId },
     create: { productId, views: 1, lastViewedAt: new Date() },
     update: { views: { increment: 1 }, lastViewedAt: new Date() },
   });
+
+  if (phone) {
+    const normalized = normalizePhone(phone);
+    if (normalized) {
+      const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true } });
+      if (product) {
+        await prisma.catalogVisitorProductView.create({
+          data: { phone: normalized, productId, productName: product.name },
+        });
+      }
+    }
+  }
+
   return { ok: true };
+}
+
+export async function recordVisitorHeartbeat(rawPhone: string, seconds: number) {
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  const delta = Math.max(0, Math.min(60, Math.round(Number(seconds) || 0)));
+  if (!phone || delta <= 0) return { ok: false };
+  const result = await prisma.catalogVisitor.updateMany({
+    where: { phone },
+    data: { totalTimeSeconds: { increment: delta } },
+  });
+  return { ok: result.count > 0 };
+}
+
+export async function listVisitorProductViews(rawPhone: string, limit = 50) {
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  if (!phone) return [];
+  return prisma.catalogVisitorProductView.findMany({
+    where: { phone },
+    orderBy: { viewedAt: "desc" },
+    take: Math.min(limit, 200),
+  });
 }
 
 async function recordCatalogProductOrders(productIds: string[]) {

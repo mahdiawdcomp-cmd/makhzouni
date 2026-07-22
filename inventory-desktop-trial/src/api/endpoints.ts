@@ -1461,12 +1461,21 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
 
 export type CatalogVisitor = {
   id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string
-  customerId: string | null; customerName: string | null
+  customerId: string | null; customerName: string | null; totalTimeSeconds: number
+}
+
+export type CatalogVisitorProductView = {
+  id: string; productId: string; productName: string; viewedAt: string
 }
 
 export async function getCatalogVisitors() {
   const { data } = await api.get<ApiEnvelope<{ visitors: CatalogVisitor[]; uniquePhones: number; totalVisits: number }>>("/catalog-management/visitors")
   return data.data ?? { visitors: [], uniquePhones: 0, totalVisits: 0 }
+}
+
+export async function getVisitorProductViews(phone: string) {
+  const { data } = await api.get<ApiEnvelope<CatalogVisitorProductView[]>>(`/catalog-management/visitors/${encodeURIComponent(phone)}/views`)
+  return data.data ?? []
 }
 
 export async function convertCatalogVisitor(phone: string, opts?: { name?: string; grantAccess?: boolean; allowPrices?: boolean }) {
@@ -1488,7 +1497,7 @@ export async function getCatalogProductStats() {
 
 // Deduped per device per day so repeat opens of the same product by the same
 // visitor count once — the counter reflects unique daily interest, not clicks.
-export async function trackCatalogProductView(productId: string) {
+export async function trackCatalogProductView(productId: string, phone?: string) {
   if (!productId) return
   try {
     const key = `catalog_viewed_${new Date().toISOString().slice(0, 10)}`
@@ -1497,7 +1506,13 @@ export async function trackCatalogProductView(productId: string) {
     seen.push(productId)
     localStorage.setItem(key, JSON.stringify(seen))
   } catch { /* localStorage unavailable — fall through and still count */ }
-  try { await api.post("/public/catalog/track-view", { productId }) } catch { /* best-effort */ }
+  try { await api.post("/public/catalog/track-view", { productId, phone }) } catch { /* best-effort */ }
+}
+
+// Fire-and-forget: accumulate seconds of active browsing time for this visitor.
+export async function postVisitorHeartbeat(phone: string, seconds: number) {
+  if (!phone || seconds <= 0) return
+  try { await api.post("/public/catalog/visitor-heartbeat", { phone, seconds }) } catch { /* best-effort */ }
 }
 
 export interface CatalogDesign {

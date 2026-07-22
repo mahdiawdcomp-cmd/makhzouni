@@ -244,14 +244,58 @@ export async function broadcastToVisitors(message: string, phones?: string[]) {
 
 // ── Catalog product analytics ────────────────────────────────────────────
 // Record that a product card was opened. Fire-and-forget from the controller.
-export async function recordCatalogProductView(productId: string) {
+// `phone`, when the visitor is known (guest gate or an authenticated catalog
+// session), ALSO logs a per-visitor row — the store-wide counter above stays
+// anonymous/aggregate either way, this is additive, not a replacement.
+export async function recordCatalogProductView(productId: string, phone?: string) {
   if (!productId) return { ok: false };
   await prisma.catalogProductStat.upsert({
     where: { productId },
     create: { productId, views: 1, lastViewedAt: new Date() },
     update: { views: { increment: 1 }, lastViewedAt: new Date() },
   });
+
+  if (phone) {
+    const normalized = normalizePhone(phone);
+    if (normalized) {
+      const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true } });
+      if (product) {
+        await prisma.catalogVisitorProductView.create({
+          data: { phone: normalized, productId, productName: product.name },
+        });
+      }
+    }
+  }
+
   return { ok: true };
+}
+
+// Client heartbeat while the catalog tab is visible (~every 20s, see
+// PublicCatalogPage.tsx) — accumulates time-on-catalog per visitor. Silently
+// no-ops for an unknown phone (heartbeat fires before the gate ever completed,
+// or a bogus value) rather than creating a visitor row out of band — that
+// stays the job of recordGuestVisit/the phone gate.
+export async function recordVisitorHeartbeat(rawPhone: string, seconds: number) {
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  const delta = Math.max(0, Math.min(60, Math.round(Number(seconds) || 0))); // clamp: one heartbeat is never more than a minute
+  if (!phone || delta <= 0) return { ok: false };
+  const result = await prisma.catalogVisitor.updateMany({
+    where: { phone },
+    data: { totalTimeSeconds: { increment: delta } },
+  });
+  return { ok: result.count > 0 };
+}
+
+// Admin: what a specific visitor actually opened, most recent first — the
+// per-visitor detail behind the "الزوار الجدد" list's aggregate counts.
+export async function listVisitorProductViews(rawPhone: string, limit = 50) {
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  if (!phone) return [];
+  return prisma.catalogVisitorProductView.findMany({
+    where: { phone },
+    orderBy: { viewedAt: "desc" },
+    take: Math.min(limit, 200),
+  });
 }
 
 // Bump the order counter for each product in a submitted catalog order.

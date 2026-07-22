@@ -11,6 +11,7 @@ import {
   deletePromoCode,
   togglePromoCode,
   listCatalogVisitors,
+  listVisitorProductViews,
   convertVisitorToCustomer,
   broadcastToVisitors,
   listCatalogProductStats,
@@ -28,6 +29,12 @@ export const getCatalogCustomers = asyncHandler(async (req, res) => {
 
 export const getCatalogVisitorsCtrl = asyncHandler(async (_req, res) => {
   const result = await listCatalogVisitors();
+  res.json({ success: true, data: result });
+});
+
+export const getVisitorProductViewsCtrl = asyncHandler(async (req, res) => {
+  const phone = String(req.params.phone ?? "");
+  const result = await listVisitorProductViews(phone);
   res.json({ success: true, data: result });
 });
 

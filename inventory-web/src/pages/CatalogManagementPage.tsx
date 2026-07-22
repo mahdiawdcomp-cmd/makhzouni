@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from "react"
+import { Fragment, useEffect, useState, useMemo, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BarChart3,
@@ -36,6 +36,7 @@ import {
   deleteCustomer,
   getCatalogCustomers,
   getCatalogVisitors,
+  getVisitorProductViews,
   convertCatalogVisitor,
   broadcastToCatalogVisitors,
   getCatalogProductStats,
@@ -1154,6 +1155,16 @@ function CatalogShuffleSettings() {
 }
 
 /* ── Guest visitors (phone-gate leads) ──────────────────────────────── */
+// "125" -> "دقيقتين"-style would need a full Arabic pluralizer; keep it simple
+// and numeric (still far more useful than nothing) — د for minutes, ث for seconds.
+function formatDuration(totalSeconds: number) {
+  if (!totalSeconds) return "—"
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) return `${seconds} ث`
+  return `${minutes} د ${seconds ? `${seconds} ث` : ""}`.trim()
+}
+
 function VisitorsTab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({
@@ -1163,6 +1174,7 @@ function VisitorsTab() {
   })
   const visitors = data?.visitors ?? []
   const [broadcastOpen, setBroadcastOpen] = useState(false)
+  const [expandedPhone, setExpandedPhone] = useState<string | null>(null)
 
   const waLink = (phone: string) => `https://wa.me/${phone.replace(/\D/g, "")}`
 
@@ -1227,17 +1239,21 @@ function VisitorsTab() {
                     <th className="p-2 font-medium">عدد الزيارات</th>
                     <th className="p-2 font-medium">آخر زيارة</th>
                     <th className="p-2 font-medium">أول زيارة</th>
+                    <th className="p-2 font-medium">مدة التصفح</th>
                     <th className="p-2 font-medium">الحالة</th>
                     <th className="p-2 font-medium">تواصل</th>
+                    <th className="p-2 font-medium">شنو فتح</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visitors.map((v) => (
-                    <tr key={v.id} className="border-b last:border-0">
+                    <Fragment key={v.id}>
+                    <tr className="border-b last:border-0">
                       <td className="p-2 font-mono" dir="ltr">{v.phone}</td>
                       <td className="p-2">{v.visits}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).locale("ar").fromNow()}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.firstSeenAt).format("YYYY-MM-DD")}</td>
+                      <td className="p-2 text-slate-500">{formatDuration(v.totalTimeSeconds)}</td>
                       <td className="p-2">
                         {v.customerId ? (
                           <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
@@ -1256,7 +1272,23 @@ function VisitorsTab() {
                           <Phone className="h-3 w-3" /> واتساب
                         </a>
                       </td>
+                      <td className="p-2">
+                        <button
+                          onClick={() => setExpandedPhone((cur) => (cur === v.phone ? null : v.phone))}
+                          className="inline-flex items-center gap-1 rounded-lg bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                        >
+                          <Eye className="h-3 w-3" /> {expandedPhone === v.phone ? "إخفاء" : "عرض"}
+                        </button>
+                      </td>
                     </tr>
+                    {expandedPhone === v.phone && (
+                      <tr className="border-b bg-slate-50/60 last:border-0">
+                        <td className="p-3" colSpan={8}>
+                          <VisitorProductViewsList phone={v.phone} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -1266,6 +1298,31 @@ function VisitorsTab() {
       </Card>
 
       {broadcastOpen && <BroadcastVisitorsModal count={data?.uniquePhones ?? 0} onClose={() => setBroadcastOpen(false)} />}
+    </div>
+  )
+}
+
+// Lazy-loaded per-visitor product view log — only fetched once its row is expanded.
+function VisitorProductViewsList({ phone }: { phone: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["catalog-visitor-views", phone],
+    queryFn: () => getVisitorProductViews(phone),
+  })
+  const views = data ?? []
+
+  if (isLoading) return <p className="text-xs text-slate-400">جاري التحميل...</p>
+  if (views.length === 0) return <p className="text-xs text-slate-400">ما فتح أي مادة بعد (فتح الصورة يسجّلها).</p>
+
+  return (
+    <div>
+      <p className="mb-1.5 text-[11px] font-medium text-slate-500">آخر {views.length} مادة فتحها هذا الزبون:</p>
+      <div className="flex flex-wrap gap-1.5">
+        {views.map((view) => (
+          <span key={view.id} className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-600 shadow-sm ring-1 ring-slate-200">
+            {view.productName} <span className="text-slate-400">— {dayjs(view.viewedAt).locale("ar").fromNow()}</span>
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

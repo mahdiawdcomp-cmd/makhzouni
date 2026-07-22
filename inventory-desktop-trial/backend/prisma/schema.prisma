@@ -350,8 +350,23 @@ model CatalogVisitor {
   visits      Int      @default(1)
   firstSeenAt DateTime @default(now()) @map("first_seen_at")
   lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  totalTimeSeconds Int @default(0) @map("total_time_seconds")
 
   @@map("catalog_visitors")
+}
+
+// Not wired on desktop (the wholesale /catalog flow is main-backend-only in
+// practice) — schema kept in sync for parity, matching the same treatment as
+// CatalogCartSession/CatalogSearchMiss from the previous session.
+model CatalogVisitorProductView {
+  id          String   @id @default(uuid())
+  phone       String
+  productId   String   @map("product_id")
+  productName String   @map("product_name")
+  viewedAt    DateTime @default(now()) @map("viewed_at")
+
+  @@index([phone, viewedAt])
+  @@map("catalog_visitor_product_views")
 }
 
 model CatalogProductStat {

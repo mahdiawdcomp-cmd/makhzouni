@@ -3,6 +3,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import {
   getCatalogCustomers,
   getCatalogVisitorsCtrl,
+  getVisitorProductViewsCtrl,
   convertVisitorCtrl,
   broadcastVisitorsCtrl,
   getCatalogProductStatsCtrl,
@@ -16,6 +17,7 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/visitors", getCatalogVisitorsCtrl);
+router.get("/visitors/:phone/views", getVisitorProductViewsCtrl);
 router.post("/visitors/broadcast", broadcastVisitorsCtrl);
 router.post("/visitors/:phone/convert", convertVisitorCtrl);
 router.get("/product-stats", getCatalogProductStatsCtrl);

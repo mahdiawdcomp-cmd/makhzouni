@@ -732,8 +732,27 @@ model CatalogVisitor {
   visits      Int      @default(1)
   firstSeenAt DateTime @default(now()) @map("first_seen_at")
   lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  // Accumulated across all visits, via a client heartbeat while the catalog
+  // tab is visible — see catalog.service.ts recordVisitorHeartbeat().
+  totalTimeSeconds Int @default(0) @map("total_time_seconds")
 
   @@map("catalog_visitors")
+}
+
+// Per-visitor product-view log (distinct from CatalogProductStat below, which
+// is an anonymous store-wide counter) — lets the owner see exactly which
+// products a specific visitor opened, not just how many total views a
+// product got. Written alongside CatalogProductStat's increment, not instead
+// of it.
+model CatalogVisitorProductView {
+  id          String   @id @default(uuid()) @db.Uuid
+  phone       String
+  productId   String   @map("product_id")
+  productName String   @map("product_name")
+  viewedAt    DateTime @default(now()) @map("viewed_at")
+
+  @@index([phone, viewedAt])
+  @@map("catalog_visitor_product_views")
 }
 
 // Per-product catalog engagement counters — how many times a product was
