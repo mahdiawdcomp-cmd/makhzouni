@@ -186,9 +186,41 @@ export interface CatalogCategory {
 }
 
 export interface ProfitReport {
-  summary: { totalRevenue: number; totalCost: number; totalProfit: number; lossesTotal: number; expensesTotal: number; netProfit: number; avgMargin: number }
+  summary: { totalRevenue: number; totalCost: number; totalProfit: number; lossesTotal: number; expensesTotal: number; expensesByCategory?: Array<{ category: string; amount: number }>; netProfit: number; avgMargin: number }
   periods: Array<{ period: string; revenue: number; cost: number; profit: number; margin: number }>
   topProducts: Array<{ id: string; name: string; revenue: number; cost: number; profit: number; margin: number; qty: number }>
+}
+
+export interface ProductReview {
+  id: string
+  rating: number | null
+  comment: string | null
+  createdAt: string
+  customer: { id: string; name: string; phone: string }
+  invoice: { id: string; invoiceNumber: string; date: string }
+}
+
+export interface CrossSellPair {
+  productA: { id: string; name: string }
+  productB: { id: string; name: string }
+  count: number
+}
+
+export interface SearchMissRow {
+  query: string
+  count: number
+}
+
+export interface WarehouseComparisonRow {
+  id: string
+  name: string
+  currentStockPieces: number
+  stockInPieces: number
+  stockOutPieces: number
+  transfersOutCount: number
+  transfersInCount: number
+  salesRevenue: number
+  salesProfit: number
 }
 
 export interface StoreBrainProductRow { id: string; name: string; revenue: number; profit: number; margin: number; qty: number; flag: "fake_star" | "promote" | null }
@@ -640,6 +672,7 @@ export interface Customer {
   updatedAt?: string
   deletedAt?: string | null
   portalLinkEnabled?: boolean
+  loyaltyPoints?: number
 }
 
 export interface CustomerPayload {
@@ -721,7 +754,7 @@ export interface CustomerPortalLink {
 }
 
 export interface CustomerPortalResponse {
-  customer: Pick<Customer, "id" | "name" | "phone" | "openingBalance" | "currentBalance" | "lastTransactionAt">
+  customer: Pick<Customer, "id" | "name" | "phone" | "openingBalance" | "currentBalance" | "lastTransactionAt" | "loyaltyPoints">
   transactions: CustomerTransaction[]
   expiresAt?: string | null
   storeName: string
@@ -905,6 +938,7 @@ export interface Voucher {
   date: string
   notes?: string | null
   description?: string | null
+  category?: string | null
   cancelledAt?: string | null
   createdAt?: string
   updatedAt?: string
@@ -918,6 +952,7 @@ export interface VoucherPayload {
   date?: string
   notes?: string
   description?: string
+  category?: string
 }
 
 export type ReceiptPayload = VoucherPayload & {

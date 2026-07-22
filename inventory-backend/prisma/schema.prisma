@@ -457,6 +457,11 @@ model Customer {
   lastTransactionAt    DateTime?                    @map("last_transaction_at")
   branchId             String?                      @map("branch_id") @db.Uuid
   branch               Branch?                      @relation(fields: [branchId], references: [id])
+  // Earn-only loyalty balance: 10 points per 1,000 IQD of PROFIT (not invoice
+  // total) on each ACTIVE sale invoice — see Invoice.loyaltyPointsEarned for the
+  // per-invoice snapshot this running total is built from. No redemption engine
+  // yet — the owner decides/announces discounts manually using this number.
+  loyaltyPoints        Int                          @default(0) @map("loyalty_points")
   invoices             Invoice[]
   paymentVouchers      PaymentVoucher[]
   couponRedemptions    CouponRedemption[]
@@ -466,6 +471,7 @@ model Customer {
   catalogAccessLinks   CatalogAccessLink[]
   arrivalSubscriptions ProductArrivalSubscription[]
   promoCodes           PromoCode[]
+  productReviews       ProductReview[]
   createdAt            DateTime                     @default(now()) @map("created_at")
   updatedAt            DateTime                     @updatedAt @map("updated_at")
   deletedAt            DateTime?                    @map("deleted_at")
@@ -792,6 +798,15 @@ model Invoice {
   // free string, not an enum, matching how approval.service.ts already tags
   // requests. Null on legacy rows created before this column existed.
   source            String?
+  // Loyalty points this SALE invoice earned at creation time (0 for
+  // PURCHASE/SALES_RETURN). A frozen snapshot — not recomputed on edit — so
+  // cancel/hardDelete can subtract exactly this back off Customer.loyaltyPoints
+  // and reactivate/restore can add it back, without re-deriving profit.
+  loyaltyPointsEarned Int      @default(0) @map("loyalty_points_earned")
+  // Set once the "قيّم مشترياتك" WhatsApp follow-up has been sent (2 days after
+  // an ACTIVE sale) — guards the reminder cron against re-sending.
+  ratingRequestedAt DateTime? @map("rating_requested_at")
+  productReview     ProductReview?
 
   @@index([customerId])
   @@index([date])
@@ -845,6 +860,10 @@ model PaymentVoucher {
   customerId    String?     @map("customer_id") @db.Uuid
   customer      Customer?   @relation(fields: [customerId], references: [id])
   description   String? // free-text label, mainly for EXPENSE vouchers
+  // Free string (not an enum) so the owner can type a new category without a
+  // migration — UI offers a fixed suggested set (كهرباء/إيجار/رواتب/أخرى).
+  // Only meaningful for type=EXPENSE; null on RECEIPT/PAYMENT vouchers.
+  category      String?
   branchId      String?     @map("branch_id") @db.Uuid
   branch        Branch?     @relation(fields: [branchId], references: [id])
   amount        Decimal     @db.Decimal(12, 2)
@@ -872,6 +891,27 @@ model PaymentVoucher {
   @@index([archivedAt])
   @@index([updatedAt])
   @@map("payment_vouchers")
+}
+
+// One overall rating per sale invoice, collected via a WhatsApp reply ~2 days
+// after the sale (see notification-jobs.service.ts / whatsapp-bot.service.ts).
+// A single rating per PURCHASE (the invoice's product set), not per line item —
+// matches the simple "شنو تقيمك للمواد الي اشتريتها" flow, not a multi-turn
+// per-product conversation.
+model ProductReview {
+  id         String   @id @default(uuid()) @db.Uuid
+  invoiceId  String   @unique @map("invoice_id") @db.Uuid
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id])
+  // 1-5 when the reply parsed as a plain number/star count; null if the reply
+  // was free text only (still stored as `comment` for the owner to read).
+  rating     Int?
+  comment    String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("product_reviews")
 }
 
 model Coupon {
@@ -1400,6 +1440,42 @@ model RetailOrder {
   @@index([status])
   @@index([phone])
   @@map("retail_orders")
+}
+
+// A customer reached the public catalog's checkout FORM (the earliest point a
+// phone number exists — cart items themselves are pure client-side React state
+// until then, see RetailShopPage.tsx) but the window closed before
+// submitPublicRetailOrder succeeded. completedAt is set explicitly by the
+// frontend right after a successful order placement (not inferred), so the
+// abandoned-cart cron only needs to check completedAt/notifiedAt IS NULL past
+// a timeout — no fragile matching against RetailOrder rows by phone/time.
+model CatalogCartSession {
+  id          String    @id @default(uuid()) @db.Uuid
+  phone       String
+  itemCount   Int       @map("item_count")
+  totalValue  Decimal   @default(0) @map("total_value") @db.Decimal(12, 2)
+  startedAt   DateTime  @default(now()) @map("started_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+  notifiedAt  DateTime? @map("notified_at")
+
+  @@index([phone])
+  @@index([completedAt, notifiedAt])
+  @@map("catalog_cart_sessions")
+}
+
+// A public-catalog search that matched zero products (search itself is
+// client-side filtering over an already-fetched product list — see
+// RetailShopPage.tsx — so this is reported explicitly by the frontend, not
+// inferred server-side). Aggregated into a top-missed-searches report.
+model CatalogSearchMiss {
+  id        String   @id @default(uuid()) @db.Uuid
+  query     String
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([query])
+  @@map("catalog_search_misses")
 }
 
 // ── Inventory Stocktake ──────────────────────────────────────────────────────

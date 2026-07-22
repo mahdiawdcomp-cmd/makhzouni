@@ -12,6 +12,13 @@ export function invoiceBalanceSign(type: FinancialInvoiceType): 1 | -1 {
   return type === "SALE" ? 1 : -1;
 }
 
+// Loyalty points formula: 10 points per 1,000 IQD of PROFIT (not invoice
+// total). Negative/zero profit earns nothing (a below-cost or loss sale
+// shouldn't reward the customer). Earn-only — no redemption engine.
+export function calculateLoyaltyPoints(profit: number): number {
+  return Math.floor(Math.max(0, profit) / 1000) * 10;
+}
+
 // Pieces inside one BOX: manual per-product override, or half the carton
 // (rounded up) when no override is set.
 export function effectiveBoxPieces(pcsPerCarton: number, boxPieces?: number | null): number {

@@ -4,6 +4,7 @@ import {
   amountInPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
+  calculateLoyaltyPoints,
   roundMoney,
 } from "./financial";
 
@@ -252,4 +253,22 @@ test("amountInPieces: one carton of 1 pcs/carton is 1 piece", () => {
 
 test("amountInPieces: dozen ignores pcsPerCarton", () => {
   assert.equal(amountInPieces("DOZEN", 3, 999), 36);
+});
+
+// ── calculateLoyaltyPoints ──────────────────────────────────────────────────
+
+test("calculateLoyaltyPoints awards 10 points per full 1,000 IQD of profit", () => {
+  assert.equal(calculateLoyaltyPoints(1000), 10);
+  assert.equal(calculateLoyaltyPoints(2500), 20);
+  assert.equal(calculateLoyaltyPoints(10000), 100);
+});
+
+test("calculateLoyaltyPoints floors — a partial 1,000 IQD block earns nothing extra", () => {
+  assert.equal(calculateLoyaltyPoints(1999), 10);
+  assert.equal(calculateLoyaltyPoints(999), 0);
+});
+
+test("calculateLoyaltyPoints never rewards a zero or negative (below-cost/loss) profit", () => {
+  assert.equal(calculateLoyaltyPoints(0), 0);
+  assert.equal(calculateLoyaltyPoints(-500), 0);
 });

@@ -12,6 +12,8 @@ import {
   inventoryValuationReport,
   productMovementReport,
   profitReport,
+  warehouseComparisonReport,
+  crossSellReport,
   salesReport,
   sendDebtReminder,
   sendInactiveReminder,
@@ -23,6 +25,8 @@ import {
   customerDebtsReportSchema,
   productMovementReportSchema,
   profitReportSchema,
+  warehouseComparisonReportSchema,
+  crossSellReportSchema,
   salesReportSchema,
 } from "../utils/schemas";
 
@@ -42,6 +46,8 @@ router.get("/customers/at-risk", atRiskCustomersReport);
 router.get("/customers/ratings", customerRatingsReport);
 router.get("/customers/debt-aging", debtAgingReport);
 router.get("/profit", validate(profitReportSchema), profitReport);
+router.get("/warehouse-comparison", validate(warehouseComparisonReportSchema), warehouseComparisonReport);
+router.get("/cross-sell", validate(crossSellReportSchema), crossSellReport);
 router.get("/debt-reminder", debtReminderList);
 router.post("/debt-reminder/send", sendDebtReminder);
 router.get("/inactive-reminder", inactiveReminderList);

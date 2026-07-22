@@ -53,6 +53,7 @@ import type {
   LastTransaction,
   MessageTemplate,
   PagedResponse,
+  ProductReview,
   PersonalDebt,
   CreatePersonalDebtPayload,
   UpdatePersonalDebtPayload,
@@ -70,6 +71,9 @@ import type {
   TopCustomer,
   EndOfDayReport,
   ProfitReport,
+  WarehouseComparisonRow,
+  CrossSellPair,
+  SearchMissRow,
   StoreBrainReport,
   DailyAssistantReport,
   DebtCustomer,
@@ -1793,6 +1797,26 @@ export async function getProfitReport(params?: { from?: string; to?: string; gro
   return data.data!
 }
 
+export async function getWarehouseComparisonReport(params?: { from?: string; to?: string }) {
+  const { data } = await api.get<ApiEnvelope<WarehouseComparisonRow[]>>("/reports/warehouse-comparison", { params })
+  return data.data ?? []
+}
+
+export async function getCrossSellPairs(params?: { from?: string; to?: string; productId?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<CrossSellPair[]>>("/reports/cross-sell", { params })
+  return data.data ?? []
+}
+
+export async function getSearchMisses() {
+  const { data } = await api.get<ApiEnvelope<SearchMissRow[]>>("/reports/search-misses")
+  return data.data ?? []
+}
+
+export async function getProductReviews(params: { page: number; limit: number }) {
+  const { data } = await api.get<PagedResponse<ProductReview>>("/product-reviews", { params })
+  return { data: data.data ?? [], pagination: data.pagination ?? { total: 0, page: 1, limit: params.limit, pages: 1 } }
+}
+
 export async function getStoreBrainReport(params?: { from?: string; to?: string }) {
   const { data } = await api.get<ApiEnvelope<StoreBrainReport>>("/reports/store-brain", { params })
   return data.data!
@@ -2439,6 +2463,14 @@ export async function submitPublicRetailOrder(payload: {
 }) {
   const { data } = await publicApi.post<ApiEnvelope<RetailOrderResult>>("/public/retail/orders", payload)
   return data.data!
+}
+
+export async function upsertCatalogCartSession(payload: { phone: string; itemCount: number; totalValue: number }) {
+  await publicApi.post("/public/retail/cart-session", payload)
+}
+
+export async function logCatalogSearchMiss(payload: { query: string; phone?: string }) {
+  await publicApi.post("/public/retail/search-miss", payload)
 }
 
 export async function getPublicRetailOrderStatus(id: string) {

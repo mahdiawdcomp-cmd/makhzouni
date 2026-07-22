@@ -26,6 +26,8 @@ export interface CreateVoucherInput {
   notes?: string;
   description?: string;
   clientRequestId?: string;
+  // Only meaningful for type=EXPENSE (كهرباء/إيجار/رواتب/أخرى); ignored/null otherwise.
+  category?: string;
 }
 
 export interface UpdateVoucherInput {
@@ -34,6 +36,7 @@ export interface UpdateVoucherInput {
   date?: string;
   notes?: string;
   description?: string;
+  category?: string;
 }
 
 function toNumber(value: DecimalLike) {
@@ -245,6 +248,7 @@ async function createVoucherInTransaction(
         date,
         notes: input.notes,
         description: input.description,
+        category: input.category?.trim() || null,
         createdBy,
       },
       include: {
@@ -326,6 +330,9 @@ async function updateVoucherInTransaction(
   if (input.date !== undefined) data.date = new Date(input.date);
   if (input.notes !== undefined) data.notes = input.notes;
   if (input.description !== undefined) data.description = input.description;
+  if (existing.type === VoucherType.EXPENSE && input.category !== undefined) {
+    data.category = input.category.trim() || null;
+  }
   if (existing.type !== VoucherType.EXPENSE && input.customerId !== undefined) {
     data.customer = { connect: { id: input.customerId } };
   }

@@ -115,6 +115,7 @@ export async function getCustomerPortalByToken(token: string) {
         openingBalance: true,
         currentBalance: true,
         lastTransactionAt: true,
+        loyaltyPoints: true,
       },
     }),
     getCustomerTransactions(link.customer_id, { all: true }),

@@ -10,6 +10,8 @@ import {
   getSalesReport,
   getTopCustomersReport,
   getProfitReport,
+  getWarehouseComparisonReport,
+  getCrossSellPairs,
   getDebtCustomersForReminder,
   getInactiveCustomersForReminder,
   getCustomerRatings,
@@ -97,6 +99,20 @@ export const atRiskCustomersReport = asyncHandler(async (req, res) => {
 export const profitReport = asyncHandler(async (req, res) => {
   const data = await getProfitReport(
     req.validatedQuery as Parameters<typeof getProfitReport>[0]
+  );
+  res.json({ success: true, data });
+});
+
+export const warehouseComparisonReport = asyncHandler(async (req, res) => {
+  const data = await getWarehouseComparisonReport(
+    req.validatedQuery as Parameters<typeof getWarehouseComparisonReport>[0]
+  );
+  res.json({ success: true, data });
+});
+
+export const crossSellReport = asyncHandler(async (req, res) => {
+  const data = await getCrossSellPairs(
+    req.validatedQuery as Parameters<typeof getCrossSellPairs>[0]
   );
   res.json({ success: true, data });
 });

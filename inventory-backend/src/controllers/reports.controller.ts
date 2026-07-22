@@ -10,6 +10,8 @@ import {
   getSalesReport,
   getTopCustomersReport,
   getProfitReport,
+  getWarehouseComparisonReport,
+  getCrossSellPairs,
   getStoreBrainReport,
   getDebtCustomersForReminder,
   getInactiveCustomersForReminder,
@@ -17,6 +19,7 @@ import {
   getDebtAging,
 } from "../services/report.service";
 import { getDailyAssistant } from "../services/daily-assistant.service";
+import { getTopSearchMisses } from "../services/catalog-tracking.service";
 import { sendTextWithTemplateFallback } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
 import { getAllCustomerStatements } from "../services/customer.service";
@@ -104,6 +107,13 @@ export const profitReport = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+export const warehouseComparisonReport = asyncHandler(async (req, res) => {
+  const data = await getWarehouseComparisonReport(
+    req.validatedQuery as Parameters<typeof getWarehouseComparisonReport>[0]
+  );
+  res.json({ success: true, data });
+});
+
 export const storeBrainReport = asyncHandler(async (req, res) => {
   const data = await getStoreBrainReport(
     req.validatedQuery as Parameters<typeof getStoreBrainReport>[0]
@@ -134,6 +144,17 @@ export const customerRatingsReport = asyncHandler(async (_req, res) => {
 
 export const debtAgingReport = asyncHandler(async (_req, res) => {
   const data = await getDebtAging();
+  res.json({ success: true, data });
+});
+
+export const searchMissesReport = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await getTopSearchMisses() });
+});
+
+export const crossSellReport = asyncHandler(async (req, res) => {
+  const data = await getCrossSellPairs(
+    req.validatedQuery as Parameters<typeof getCrossSellPairs>[0]
+  );
   res.json({ success: true, data });
 });
 

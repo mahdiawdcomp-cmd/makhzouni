@@ -609,6 +609,7 @@ export const createVoucherSchema = z.object({
       notes: z.string().trim().optional(),
       // EXPENSE vouchers carry a short label (e.g. "أجور مولّدة"). Optional for the others.
       description: z.string().trim().optional(),
+      category: z.string().trim().max(50).optional(),
     })
     .refine((body) => body.type === "EXPENSE" || !!body.customerId, {
       message: "customerId is required for RECEIPT and PAYMENT vouchers",
@@ -628,6 +629,7 @@ export const updateVoucherSchema = z.object({
       amount: z.coerce.number().positive().optional(),
       notes: z.string().trim().optional(),
       description: z.string().trim().optional(),
+      category: z.string().trim().max(50).optional(),
     })
     .refine((b) => Object.keys(b).length > 0, { message: "At least one field is required" }),
 });
@@ -655,6 +657,22 @@ export const profitReportSchema = z.object({
     from: dateString.optional(),
     to: dateString.optional(),
     groupBy: z.enum(["day", "week", "month"]).optional(),
+  }),
+});
+
+export const warehouseComparisonReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+  }),
+});
+
+export const crossSellReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+    productId: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
   }),
 });
 

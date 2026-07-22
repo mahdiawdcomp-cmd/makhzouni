@@ -64,6 +64,8 @@ import type {
   TopCustomer,
   EndOfDayReport,
   ProfitReport,
+  WarehouseComparisonRow,
+  CrossSellPair,
   StoreBrainReport,
   DailyAssistantReport,
   DebtCustomer,
@@ -1619,6 +1621,16 @@ export async function cancelOrderPreparation(id: string) {
 export async function getProfitReport(params?: { from?: string; to?: string; groupBy?: "day" | "week" | "month" }) {
   const { data } = await api.get<ApiEnvelope<ProfitReport>>("/reports/profit", { params })
   return data.data!
+}
+
+export async function getWarehouseComparisonReport(params?: { from?: string; to?: string }) {
+  const { data } = await api.get<ApiEnvelope<WarehouseComparisonRow[]>>("/reports/warehouse-comparison", { params })
+  return data.data ?? []
+}
+
+export async function getCrossSellPairs(params?: { from?: string; to?: string; productId?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<CrossSellPair[]>>("/reports/cross-sell", { params })
+  return data.data ?? []
 }
 
 export async function getStoreBrainReport(params?: { from?: string; to?: string }) {

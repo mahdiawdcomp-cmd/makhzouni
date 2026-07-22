@@ -82,6 +82,7 @@ export function VouchersPage() {
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
   const [description, setDescription] = useState("")
+  const [category, setCategory] = useState("")
   const amountRef = useRef<HTMLInputElement | null>(null)
 
   // Auto-open dialog if URL has ?action=...
@@ -167,11 +168,12 @@ export function VouchersPage() {
         amount: Number(amount.replace(/,/g, "")),
         notes: notes || undefined,
         description: description || undefined,
+        category: type === "EXPENSE" ? (category.trim() || undefined) : undefined,
         date: localDateStr(),
       }),
     onSuccess: () => {
       setDialogOpen(false)
-      setCustomerId(""); setAmount(""); setNotes(""); setDescription("")
+      setCustomerId(""); setAmount(""); setNotes(""); setDescription(""); setCategory("")
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
       void queryClient.invalidateQueries({ queryKey: ["customer"] })
@@ -381,11 +383,26 @@ export function VouchersPage() {
             </div>
 
             {type === "EXPENSE" ? (
-              <Input
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                placeholder="نوع المصروف (مثل: أجور مولّدة)"
-              />
+              <>
+                <Input
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="نوع المصروف (مثل: أجور مولّدة)"
+                />
+                <Input
+                  className="mt-2"
+                  list="expense-categories"
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                  placeholder="التصنيف (اختياري): كهرباء، إيجار، رواتب..."
+                />
+                <datalist id="expense-categories">
+                  <option value="كهرباء" />
+                  <option value="إيجار" />
+                  <option value="رواتب" />
+                  <option value="أخرى" />
+                </datalist>
+              </>
             ) : (
               <>
                 {/* ── Searchable customer autocomplete ── */}

@@ -14,6 +14,7 @@ import {
   effectiveBoxPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
+  calculateLoyaltyPoints,
   invoiceBalanceSign,
   roundMoney,
 } from "../utils/financial";
@@ -878,6 +879,10 @@ async function createInvoiceInTransaction(
       });
 
   let subtotal = 0;
+  // Sum of (line revenue − line cost) across SALE lines with a known cost —
+  // feeds the loyalty-points formula below. Lines with no known cost
+  // (costSnapshot === 0) contribute 0, same guard belowCostLines uses.
+  let invoiceProfit = 0;
   const negativeLines: Array<{
     productId: string;
     productName: string;
@@ -915,6 +920,7 @@ async function createInvoiceInTransaction(
     // frozen cost × pieces). Only meaningful for SALE and when a cost is known.
     if (invoiceType === InvoiceType.SALE && pricedItem.costSnapshot > 0) {
       const lineCost = roundMoney(pricedItem.costSnapshot * pricedItem.quantityInPieces);
+      invoiceProfit = roundMoney(invoiceProfit + (pricedItem.totalPrice - lineCost));
       if (pricedItem.totalPrice < lineCost) {
         belowCostLines.push({
           productId: pricedItem.product.id,
@@ -989,6 +995,15 @@ async function createInvoiceInTransaction(
     }
   }
 
+  // Loyalty points: 10 points per 1,000 IQD of PROFIT (not invoice total), on
+  // brand-new ACTIVE sale invoices only — never recomputed on edit (frozen
+  // snapshot, so cancel/hardDelete can reverse it exactly and reactivate/
+  // restore can re-apply it without re-deriving profit from scratch).
+  const loyaltyPointsEarned =
+    invoiceType === InvoiceType.SALE && !existingInvoiceId
+      ? calculateLoyaltyPoints(invoiceProfit)
+      : 0;
+
   const updatedInvoice = await tx.invoice.update({
     where: { id: invoice.id },
     data: {
@@ -1003,6 +1018,9 @@ async function createInvoiceInTransaction(
       paymentType,
       branchId,
       couponId: coupon.couponId,
+      // undefined (edit path) leaves the existing stored value untouched —
+      // Prisma skips undefined fields in an update payload.
+      loyaltyPointsEarned: existingInvoiceId ? undefined : loyaltyPointsEarned,
       ...(existingInvoiceId ? {} : { createdBy }),
     },
     include: {
@@ -1027,6 +1045,13 @@ async function createInvoiceInTransaction(
   }
 
   await recalculateCustomerBalanceInTransaction(tx, input.customerId);
+
+  if (loyaltyPointsEarned > 0) {
+    await tx.customer.update({
+      where: { id: input.customerId },
+      data: { loyaltyPoints: { increment: loyaltyPointsEarned } },
+    });
+  }
 
   // Negative-stock review: a new SALE that pushed any product below zero is logged
   // as a pending approval so the manager sees exactly which goods are short and on
@@ -1537,6 +1562,21 @@ async function updateInvoiceInTransaction(
       preexistingUnitPairs
     );
 
+    // Customer reassignment must also move any already-earned loyalty points —
+    // otherwise the old customer keeps points for a sale no longer attributed to
+    // them, and a later cancel/hardDelete (which looks up the invoice's CURRENT
+    // customerId) would incorrectly deduct those points from the NEW customer.
+    if (customerChanged && invoice.type === InvoiceType.SALE && invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
+      });
+      await tx.customer.update({
+        where: { id: newCustomerId },
+        data: { loyaltyPoints: { increment: invoice.loyaltyPointsEarned } },
+      });
+    }
+
     // If the customer changed, "originalPreviousBalance" was the OLD customer's
     // pre-invoice balance — meaningless for the new one, so keep the fresh
     // previousBalance/finalBalance createInvoiceInTransaction just computed.
@@ -1588,6 +1628,15 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
     await lockCustomer(tx, invoice.customerId);
     await reverseInvoiceItemsStock(tx, id, returnWarehouseId);
 
+    // Mirror of the earn step in createInvoiceInTransaction — pull back exactly
+    // what this invoice earned (frozen snapshot, no re-derivation needed).
+    if (invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
+      });
+    }
+
     const cancelled = await tx.invoice.update({
       where: { id },
       data: { status: InvoiceStatus.CANCELLED },
@@ -1634,6 +1683,14 @@ async function reactivateInvoiceInTransaction(tx: Db, id: string) {
     await lockCustomer(tx, invoice.customerId);
     await applyInvoiceItemsStock(tx, id);
 
+    // Re-apply the points cancelInvoiceInTransaction pulled back.
+    if (invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { increment: invoice.loyaltyPointsEarned } },
+      });
+    }
+
     await tx.invoice.update({
       where: { id },
       data: { status: InvoiceStatus.ACTIVE },
@@ -1676,6 +1733,14 @@ export async function restoreArchivedInvoice(id: string) {
 
     await tx.invoice.update({ where: { id }, data: { archivedAt: null, deletedBy: null, deleteReason: null } });
     await applyInvoiceItemsStock(tx, id);
+    // Mirrors the unconditional stock re-apply above — restore always brings
+    // the invoice fully back regardless of its status right before deletion.
+    if (invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { increment: invoice.loyaltyPointsEarned } },
+      });
+    }
     await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.ACTIVE } });
     await recalculateCustomerBalanceInTransaction(tx, invoice.customerId);
     return recalculateInvoiceBalances(tx, id);
@@ -1720,6 +1785,16 @@ async function hardDeleteInvoiceInTransaction(
     // accounting effect (all accounting queries already exclude non-ACTIVE).
     if (wasActive) {
       await reverseInvoiceItemsStock(tx, id, returnWarehouseId);
+      // Only when going straight from ACTIVE→archived (no prior explicit
+      // cancel) — an already-CANCELLED invoice already had its points pulled
+      // back by cancelInvoiceInTransaction, so subtracting again here would
+      // double-reverse.
+      if (invoice.loyaltyPointsEarned > 0) {
+        await tx.customer.update({
+          where: { id: invoice.customerId },
+          data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
+        });
+      }
       await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.CANCELLED } });
     }
 

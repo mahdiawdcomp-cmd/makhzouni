@@ -15,6 +15,8 @@ import { processCampaignsTick } from "./campaign.service";
 import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
+import { runRatingRequestJob } from "./product-review.service";
+import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
 import {
   runTelegramChannelSyncTick,
@@ -370,6 +372,21 @@ export function startNotificationJobs() {
   cron.schedule("30 9 * * *", () => {
     runPersonalDebtReminderJob().catch((error) => {
       reportCronFailure("PERSONAL_DEBT_REMINDER", error);
+    });
+  });
+
+  // «قيّم مشترياتك» — daily at 11:00, independent of the other jobs.
+  cron.schedule("0 11 * * *", () => {
+    runRatingRequestJob().catch((error) => {
+      reportCronFailure("PRODUCT_RATING_REQUEST", error);
+    });
+  });
+
+  // Abandoned catalog checkout — every 15 minutes; no-op unless a session has
+  // gone quiet past the timeout in catalog-tracking.service.
+  cron.schedule("*/15 * * * *", () => {
+    runAbandonedCartCheckJob().catch((error) => {
+      reportCronFailure("ABANDONED_CART_CHECK", error);
     });
   });
 

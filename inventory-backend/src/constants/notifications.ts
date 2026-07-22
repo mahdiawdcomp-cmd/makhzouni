@@ -23,6 +23,7 @@ export const NotificationCategory = {
   SYSTEM: "SYSTEM",
   // «الديون الشخصية» — unrelated to shop customers, see PersonalDebt model.
   PERSONAL_DEBTS: "PERSONAL_DEBTS",
+  CATALOG: "CATALOG",
 } as const;
 export type NotificationCategory =
   (typeof NotificationCategory)[keyof typeof NotificationCategory];
@@ -41,6 +42,7 @@ export const NotificationType = {
   BACKUP_FAILED: "BACKUP_FAILED",
   CYCLE_COUNT_SUBMITTED: "CYCLE_COUNT_SUBMITTED",
   PERSONAL_DEBT_DUE: "PERSONAL_DEBT_DUE",
+  ABANDONED_CART: "ABANDONED_CART",
 } as const;
 export type NotificationType =
   (typeof NotificationType)[keyof typeof NotificationType];

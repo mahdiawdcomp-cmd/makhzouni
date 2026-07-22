@@ -40,9 +40,11 @@ import {
   getPublicRetailOrdersByToken,
   getPublicRetailOrderStatus,
   getPublicStoreInfo,
+  logCatalogSearchMiss,
   previewPublicRetailCoupon,
   retailAiChat,
   submitPublicRetailOrder,
+  upsertCatalogCartSession,
 } from "../api/endpoints"
 import type { AiChatProduct, PublicRetailItem, PublicRetailCategory } from "../types/api"
 
@@ -467,6 +469,18 @@ function CatalogView({ loading, items, categories, currency, onAdd, onOpen, onSh
       return true
     })
   }, [items, collection, category, subCategory, search, belongsTo, subOptions])
+
+  // Zero-result searches, debounced so we only log once the customer pauses
+  // typing (not on every keystroke of a longer query) — see
+  // catalog-tracking.service.ts / "top missed searches" report.
+  useEffect(() => {
+    const q = search.trim()
+    if (q.length < 2 || filtered.length > 0) return
+    const t = window.setTimeout(() => {
+      logCatalogSearchMiss({ query: q }).catch(() => {})
+    }, 1200)
+    return () => window.clearTimeout(t)
+  }, [search, filtered.length])
 
   // Sort the filtered list. "default" keeps the catalog's own order.
   const sorted = useMemo(() => {
@@ -985,7 +999,22 @@ function CartView({ cart, currency, storeName, subtotal, categories, setQty, onP
             </div>
             <div className="space-y-3">
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder="الاسم" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="رقم الهاتف" dir="ltr" inputMode="tel" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                onBlur={() => {
+                  // Earliest point a phone number exists for this cart — see
+                  // catalog-tracking.service.ts for why (cart itself is pure
+                  // client state until checkout). Best-effort, never blocks.
+                  if (phone.replace(/\D/g, "").length >= 7 && cart.length > 0) {
+                    upsertCatalogCartSession({ phone, itemCount: cart.length, totalValue: total }).catch(() => {})
+                  }
+                }}
+                placeholder="رقم الهاتف"
+                dir="ltr"
+                inputMode="tel"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+              />
               <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="العنوان (المنطقة، أقرب نقطة دالة)" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات (اختياري)" rows={2} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" />
 

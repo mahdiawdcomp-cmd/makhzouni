@@ -7,6 +7,7 @@ import { sendWhatsAppText } from "./whatsapp.service";
 import { handleIncomingProspectReply } from "./prospect.service";
 import { hasFeature } from "../middleware/tenant.middleware";
 import { logChatMessage } from "./whatsapp-chat.service";
+import { tryCaptureProductReviewReply } from "./product-review.service";
 
 function money(v: number | string | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)));
@@ -67,6 +68,19 @@ export async function routeIncomingMessage(
   }
 
   const customer = await prisma.customer.findUnique({ where: { phone } });
+
+  // 0) A pending product-rating request always wins over every other rule —
+  // checked first and BEFORE any keyword matching so a bare "5" never gets
+  // misread as an unrelated bot command. No-op (returns false) for the
+  // overwhelming majority of messages where no rating request is pending, so
+  // every other branch below is completely unaffected.
+  if (customer) {
+    const captured = await tryCaptureProductReviewReply(customer.id, text).catch(() => false);
+    if (captured) {
+      await sendWhatsAppText(phone, "شكراً لتقييمك! 🙏").catch(() => {});
+      return;
+    }
+  }
 
   // 1) Known customer + customer-service bot enabled → try a command auto-reply.
   if (customer && settings.whatsappBotEnabled && botEntitled) {

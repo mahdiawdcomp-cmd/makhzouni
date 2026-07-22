@@ -16,7 +16,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getProductReviews, getSearchMisses, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -24,7 +24,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "archive"
+type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "reviews" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "assistant",    label: "المساعد الذكي",   emoji: "🤖" },
@@ -36,6 +36,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "inventory",    label: "المخزون",         emoji: "📦" },
   { id: "debts",        label: "الديون",          emoji: "🔔" },
   { id: "inactive",     label: "غير نشطين",       emoji: "💤" },
+  { id: "reviews",      label: "تقييمات الزبائن", emoji: "⭐" },
   { id: "archive",      label: "الأرشيف",         emoji: "🗄️" },
 ]
 
@@ -86,6 +87,7 @@ export function ReportsPage() {
       {activeTab === "inventory"     && <InventoryTab />}
       {activeTab === "debts"         && <DebtsTab />}
       {activeTab === "inactive"      && <InactiveTab />}
+      {activeTab === "reviews"       && <ReviewsTab />}
       {activeTab === "archive"       && <ArchiveTab />}
     </div>
   )
@@ -484,6 +486,16 @@ function ProfitsTab() {
     queryFn: () => getProfitReport({ from: from || undefined, to: to || undefined, groupBy }),
   })
   const data = report.data
+  const warehouseReport = useQuery({
+    queryKey: ["warehouse-comparison-report", from, to],
+    queryFn: () => getWarehouseComparisonReport({ from: from || undefined, to: to || undefined }),
+  })
+  const warehouseRows = warehouseReport.data ?? []
+  const crossSellReport = useQuery({
+    queryKey: ["cross-sell-report", from, to],
+    queryFn: () => getCrossSellPairs({ from: from || undefined, to: to || undefined, limit: 15 }),
+  })
+  const crossSellPairs = crossSellReport.data ?? []
 
   return (
     <div className="space-y-4">
@@ -528,6 +540,15 @@ function ProfitsTab() {
               صافي الربح: {(data?.summary.netProfit ?? 0).toLocaleString("en-US")}
             </span>
           </div>
+          {(data?.summary.expensesByCategory?.length ?? 0) > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-200 pt-3 dark:border-slate-700">
+              {data!.summary.expensesByCategory!.map((c) => (
+                <span key={c.category} className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                  {c.category}: {c.amount.toLocaleString("en-US")}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -563,6 +584,66 @@ function ProfitsTab() {
                     <TD className="text-rose-600">{fmt(p.cost)}</TD>
                     <TD className={p.profit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(p.profit)}</TD>
                     <TD className="text-blue-600">{p.margin}%</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {warehouseRows.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>مقارنة المخازن</CardTitle></CardHeader>
+          <CardContent>
+            <p className="mb-2 text-xs text-slate-500">
+              المبيعات مبنية على مخزن الفاتورة (يفيد لو صار عندك أكثر من محل)؛ الحركة والتحويلات مبنية على المخزن الفعلي — تفيد بمقارنة نشاط المخازن الحالية.
+            </p>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>المخزن</TH>
+                  <TH>المخزون الحالي</TH>
+                  <TH>وارد</TH>
+                  <TH>صادر</TH>
+                  <TH>تحويلات واردة</TH>
+                  <TH>تحويلات صادرة</TH>
+                  <TH>مبيعات</TH>
+                  <TH>ربح المبيعات</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {warehouseRows.map((w) => (
+                  <TR key={w.id}>
+                    <TD className="font-medium">{w.name}</TD>
+                    <TD>{fmt(w.currentStockPieces)}</TD>
+                    <TD className="text-emerald-600">{fmt(w.stockInPieces)}</TD>
+                    <TD className="text-rose-600">{fmt(w.stockOutPieces)}</TD>
+                    <TD>{w.transfersInCount}</TD>
+                    <TD>{w.transfersOutCount}</TD>
+                    <TD>{fmt(w.salesRevenue)}</TD>
+                    <TD className={w.salesProfit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(w.salesProfit)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {crossSellPairs.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>غالباً يُشترى مع 🔗</CardTitle></CardHeader>
+          <CardContent>
+            <p className="mb-2 text-xs text-slate-500">مواد تنباع سوا بنفس الفاتورة كثير — أساس مفيد لعروض مجمّعة.</p>
+            <Table>
+              <THead><TR><TH>المادة الأولى</TH><TH>المادة الثانية</TH><TH>عدد الفواتير سوا</TH></TR></THead>
+              <TBody>
+                {crossSellPairs.map((p) => (
+                  <TR key={`${p.productA.id}-${p.productB.id}`}>
+                    <TD className="font-medium">{p.productA.name}</TD>
+                    <TD className="font-medium">{p.productB.name}</TD>
+                    <TD>{p.count}</TD>
                   </TR>
                 ))}
               </TBody>
@@ -1142,6 +1223,88 @@ function SummaryBox({ title, count, total, collected, color }: {
       {collected !== undefined ? (
         <div className="text-xs text-slate-600 mt-0.5">محصّل: {fmt(collected)} د.ع</div>
       ) : null}
+    </div>
+  )
+}
+
+// ─── Customer Reviews Tab ────────────────────────────────────────────────────
+// Reviews arrive via a delayed WhatsApp follow-up (~2 days after a sale) asking
+// the customer to rate their purchase — see product-review.service.ts. Purely
+// read-only here; there's no in-app way to trigger or edit a review.
+function ReviewsTab() {
+  const [page, setPage] = useState(1)
+  const query = useQuery({
+    queryKey: ["product-reviews", page],
+    queryFn: () => getProductReviews({ page, limit: 20 }),
+  })
+  const reviews = query.data?.data ?? []
+  const pages = query.data?.pagination.pages ?? 1
+  const missesQuery = useQuery({
+    queryKey: ["search-misses"],
+    queryFn: getSearchMisses,
+  })
+  const misses = missesQuery.data ?? []
+
+  return (
+    <div className="space-y-4">
+    <Card>
+      <CardHeader><CardTitle>تقييمات الزبائن ⭐</CardTitle></CardHeader>
+      <CardContent>
+        {reviews.length === 0 ? (
+          <p className="text-sm text-slate-500">لا توجد تقييمات بعد.</p>
+        ) : (
+          <>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>الزبون</TH>
+                  <TH>الفاتورة</TH>
+                  <TH>التقييم</TH>
+                  <TH>التعليق</TH>
+                  <TH>التاريخ</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {reviews.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="font-medium">{r.customer.name}</TD>
+                    <TD>{r.invoice.invoiceNumber}</TD>
+                    <TD>{r.rating ? "⭐".repeat(r.rating) : "—"}</TD>
+                    <TD className="max-w-xs truncate" title={r.comment ?? ""}>{r.comment ?? "—"}</TD>
+                    <TD className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleDateString("ar-IQ")}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {pages > 1 && (
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>السابق</Button>
+                <span className="text-xs text-slate-500">{page} / {pages}</span>
+                <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>التالي</Button>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader><CardTitle>أكثر عمليات البحث بدون نتيجة 🔍</CardTitle></CardHeader>
+      <CardContent>
+        <p className="mb-2 text-xs text-slate-500">مواد يدور عليها الزبائن بالكتالوج العام وما يلقونها — طلب فعلي مو موجود عندك.</p>
+        {misses.length === 0 ? (
+          <p className="text-sm text-slate-500">لا توجد عمليات بحث بدون نتيجة بعد.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {misses.map((m) => (
+              <span key={m.query} className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                {m.query} ({m.count})
+              </span>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
     </div>
   )
 }

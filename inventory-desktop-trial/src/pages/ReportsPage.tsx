@@ -16,7 +16,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -483,6 +483,16 @@ function ProfitsTab() {
     queryFn: () => getProfitReport({ from: from || undefined, to: to || undefined, groupBy }),
   })
   const data = report.data
+  const warehouseReport = useQuery({
+    queryKey: ["warehouse-comparison-report", from, to],
+    queryFn: () => getWarehouseComparisonReport({ from: from || undefined, to: to || undefined }),
+  })
+  const warehouseRows = warehouseReport.data ?? []
+  const crossSellReport = useQuery({
+    queryKey: ["cross-sell-report", from, to],
+    queryFn: () => getCrossSellPairs({ from: from || undefined, to: to || undefined, limit: 15 }),
+  })
+  const crossSellPairs = crossSellReport.data ?? []
 
   return (
     <div className="space-y-4">
@@ -527,6 +537,15 @@ function ProfitsTab() {
               صافي الربح: {(data?.summary.netProfit ?? 0).toLocaleString("en-US")}
             </span>
           </div>
+          {(data?.summary.expensesByCategory?.length ?? 0) > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-200 pt-3 dark:border-slate-700">
+              {data!.summary.expensesByCategory!.map((c) => (
+                <span key={c.category} className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                  {c.category}: {c.amount.toLocaleString("en-US")}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -562,6 +581,66 @@ function ProfitsTab() {
                     <TD className="text-rose-600">{fmt(p.cost)}</TD>
                     <TD className={p.profit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(p.profit)}</TD>
                     <TD className="text-blue-600">{p.margin}%</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {warehouseRows.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>مقارنة المخازن</CardTitle></CardHeader>
+          <CardContent>
+            <p className="mb-2 text-xs text-slate-500">
+              المبيعات مبنية على مخزن الفاتورة (يفيد لو صار عندك أكثر من محل)؛ الحركة والتحويلات مبنية على المخزن الفعلي — تفيد بمقارنة نشاط المخازن الحالية.
+            </p>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>المخزن</TH>
+                  <TH>المخزون الحالي</TH>
+                  <TH>وارد</TH>
+                  <TH>صادر</TH>
+                  <TH>تحويلات واردة</TH>
+                  <TH>تحويلات صادرة</TH>
+                  <TH>مبيعات</TH>
+                  <TH>ربح المبيعات</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {warehouseRows.map((w) => (
+                  <TR key={w.id}>
+                    <TD className="font-medium">{w.name}</TD>
+                    <TD>{fmt(w.currentStockPieces)}</TD>
+                    <TD className="text-emerald-600">{fmt(w.stockInPieces)}</TD>
+                    <TD className="text-rose-600">{fmt(w.stockOutPieces)}</TD>
+                    <TD>{w.transfersInCount}</TD>
+                    <TD>{w.transfersOutCount}</TD>
+                    <TD>{fmt(w.salesRevenue)}</TD>
+                    <TD className={w.salesProfit >= 0 ? "text-emerald-600 font-bold" : "text-rose-600 font-bold"}>{fmt(w.salesProfit)}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {crossSellPairs.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>غالباً يُشترى مع 🔗</CardTitle></CardHeader>
+          <CardContent>
+            <p className="mb-2 text-xs text-slate-500">مواد تنباع سوا بنفس الفاتورة كثير — أساس مفيد لعروض مجمّعة.</p>
+            <Table>
+              <THead><TR><TH>المادة الأولى</TH><TH>المادة الثانية</TH><TH>عدد الفواتير سوا</TH></TR></THead>
+              <TBody>
+                {crossSellPairs.map((p) => (
+                  <TR key={`${p.productA.id}-${p.productB.id}`}>
+                    <TD className="font-medium">{p.productA.name}</TD>
+                    <TD className="font-medium">{p.productB.name}</TD>
+                    <TD>{p.count}</TD>
                   </TR>
                 ))}
               </TBody>

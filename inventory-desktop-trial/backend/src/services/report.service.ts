@@ -1093,6 +1093,141 @@ export async function getProfitReport(query: ProfitReportQuery) {
   };
 }
 
+// ── Warehouse/branch comparison ───────────────────────────────────────────────
+export interface WarehouseComparisonQuery {
+  from?: string;
+  to?: string;
+}
+
+export async function getWarehouseComparisonReport(query: WarehouseComparisonQuery) {
+  const df = dateFilter(query.from, query.to);
+
+  const branches = await prisma.branch.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const branchIds = branches.map((b) => b.id);
+
+  const [stockByWarehouse, movements, transfersOut, transfersIn, saleItems] = await Promise.all([
+    prisma.productWarehouseStock.groupBy({
+      by: ["warehouseId"],
+      where: { warehouseId: { in: branchIds } },
+      _sum: { quantityPieces: true },
+    }),
+    prisma.stockMovement.groupBy({
+      by: ["branchId", "type"],
+      where: { branchId: { in: branchIds }, ...(df ? { createdAt: df } : {}) },
+      _sum: { quantity: true },
+    }),
+    prisma.inventoryTransfer.groupBy({
+      by: ["fromBranchId"],
+      where: { fromBranchId: { in: branchIds }, ...(df ? { date: df } : {}) },
+      _count: true,
+    }),
+    prisma.inventoryTransfer.groupBy({
+      by: ["toBranchId"],
+      where: { toBranchId: { in: branchIds }, ...(df ? { date: df } : {}) },
+      _count: true,
+    }),
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALE,
+          branchId: { in: branchIds },
+          ...(df ? { date: df } : {}),
+        },
+      },
+      include: {
+        product: true,
+        invoice: { select: { branchId: true, subtotal: true, totalAmount: true } },
+      },
+    }),
+  ]);
+
+  const stockMap = new Map(stockByWarehouse.map((s) => [s.warehouseId, s._sum.quantityPieces ?? 0]));
+  const inMap = new Map<string, number>();
+  const outMap = new Map<string, number>();
+  for (const m of movements) {
+    if (!m.branchId) continue;
+    const target = m.type === "IN" ? inMap : m.type === "OUT" ? outMap : null;
+    if (!target) continue;
+    target.set(m.branchId, (target.get(m.branchId) ?? 0) + (m._sum.quantity ?? 0));
+  }
+  const transfersOutMap = new Map(transfersOut.map((t) => [t.fromBranchId, t._count]));
+  const transfersInMap = new Map(transfersIn.map((t) => [t.toBranchId, t._count]));
+
+  const salesMap = new Map<string, { revenue: number; profit: number }>();
+  for (const item of saleItems) {
+    const bId = item.invoice.branchId;
+    if (!bId) continue;
+    const existing = salesMap.get(bId) ?? { revenue: 0, profit: 0 };
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice({ ...item, product: item.product });
+    salesMap.set(bId, { revenue: existing.revenue + revenue, profit: existing.profit + (revenue - cost) });
+  }
+
+  return branches.map((b) => ({
+    id: b.id,
+    name: b.name,
+    currentStockPieces: stockMap.get(b.id) ?? 0,
+    stockInPieces: inMap.get(b.id) ?? 0,
+    stockOutPieces: outMap.get(b.id) ?? 0,
+    transfersOutCount: transfersOutMap.get(b.id) ?? 0,
+    transfersInCount: transfersInMap.get(b.id) ?? 0,
+    salesRevenue: Math.round(salesMap.get(b.id)?.revenue ?? 0),
+    salesProfit: Math.round(salesMap.get(b.id)?.profit ?? 0),
+  }));
+}
+
+// ── Cross-sell ("bought together") ────────────────────────────────────────────
+export interface CrossSellQuery {
+  from?: string;
+  to?: string;
+  productId?: string;
+  limit?: number;
+}
+
+export async function getCrossSellPairs(query: CrossSellQuery) {
+  const df = dateFilter(query.from, query.to);
+  const limit = Math.min(query.limit ?? 20, 100);
+
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      invoice: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, ...(df ? { date: df } : {}) },
+    },
+    select: { invoiceId: true, productId: true, productName: true },
+  });
+
+  const byInvoice = new Map<string, Array<{ id: string; name: string }>>();
+  for (const it of items) {
+    const list = byInvoice.get(it.invoiceId) ?? [];
+    if (!list.some((p) => p.id === it.productId)) list.push({ id: it.productId, name: it.productName });
+    byInvoice.set(it.invoiceId, list);
+  }
+
+  const pairCounts = new Map<string, { a: { id: string; name: string }; b: { id: string; name: string }; count: number }>();
+  for (const products of byInvoice.values()) {
+    if (products.length < 2) continue;
+    for (let i = 0; i < products.length; i++) {
+      for (let j = i + 1; j < products.length; j++) {
+        if (query.productId && products[i].id !== query.productId && products[j].id !== query.productId) continue;
+        const [a, b] = products[i].id < products[j].id ? [products[i], products[j]] : [products[j], products[i]];
+        const key = `${a.id}:${b.id}`;
+        const existing = pairCounts.get(key);
+        if (existing) existing.count += 1;
+        else pairCounts.set(key, { a, b, count: 1 });
+      }
+    }
+  }
+
+  return [...pairCounts.values()]
+    .sort((x, y) => y.count - x.count)
+    .slice(0, limit)
+    .map((p) => ({ productA: p.a, productB: p.b, count: p.count }));
+}
+
 // ── Bulk Debt Reminder ────────────────────────────────────────────────────────
 
 export async function getDebtCustomersForReminder(minDays: number) {

@@ -280,6 +280,10 @@ model Customer {
   lastTransactionAt DateTime?        @map("last_transaction_at")
   branchId          String?          @map("branch_id")
   branch            Branch?          @relation(fields: [branchId], references: [id])
+  // Earn-only loyalty balance: 10 points per 1,000 IQD of PROFIT (not invoice
+  // total) on each ACTIVE sale invoice — see Invoice.loyaltyPointsEarned. No
+  // redemption engine yet — owner decides/announces discounts manually.
+  loyaltyPoints     Int              @default(0) @map("loyalty_points")
   invoices          Invoice[]
   paymentVouchers   PaymentVoucher[]
   couponRedemptions  CouponRedemption[]
@@ -287,6 +291,7 @@ model Customer {
   notifications     Notification[]
   portalLinks       CustomerPortalLink[]
   catalogAccessLinks CatalogAccessLink[]
+  productReviews    ProductReview[]
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
   deletedAt         DateTime?        @map("deleted_at")
@@ -398,6 +403,12 @@ model Invoice {
   archivedAt       DateTime?        @map("archived_at")
   deletedBy        String?          @map("deleted_by")
   deleteReason     String?          @map("delete_reason")
+  // Loyalty points this SALE invoice earned at creation time — frozen snapshot,
+  // see Customer.loyaltyPoints.
+  loyaltyPointsEarned Int           @default(0) @map("loyalty_points_earned")
+  // Set once the "قيّم مشترياتك" WhatsApp follow-up has been sent.
+  ratingRequestedAt DateTime?       @map("rating_requested_at")
+  productReview     ProductReview?
 
   @@index([customerId])
   @@index([date])
@@ -443,6 +454,10 @@ model PaymentVoucher {
   customerId    String?     @map("customer_id")
   customer      Customer?   @relation(fields: [customerId], references: [id])
   description   String?     // free-text label, mainly for EXPENSE vouchers
+  // Free string (not an enum) so the owner can type a new category without a
+  // migration — UI offers a fixed suggested set (كهرباء/إيجار/رواتب/أخرى).
+  // Only meaningful for type=EXPENSE; null on RECEIPT/PAYMENT vouchers.
+  category      String?
   branchId      String?     @map("branch_id")
   branch        Branch?     @relation(fields: [branchId], references: [id])
   amount        Decimal
@@ -466,6 +481,22 @@ model PaymentVoucher {
   @@index([branchId])
   @@index([archivedAt])
   @@map("payment_vouchers")
+}
+
+// One overall rating per sale invoice, collected via a WhatsApp reply ~2 days
+// after the sale. A single rating per PURCHASE, not per line item.
+model ProductReview {
+  id         String   @id @default(uuid())
+  invoiceId  String   @unique @map("invoice_id")
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
+  customerId String   @map("customer_id")
+  customer   Customer @relation(fields: [customerId], references: [id])
+  rating     Int?
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("product_reviews")
 }
 
 model Coupon {
@@ -806,6 +837,35 @@ model RetailOrder {
   @@index([status])
   @@index([phone])
   @@map("retail_orders")
+}
+
+// A customer reached the public catalog's checkout form (earliest point a
+// phone number exists) but the window closed before the order was submitted.
+// completedAt is set explicitly by the frontend on a successful order.
+model CatalogCartSession {
+  id          String    @id @default(uuid())
+  phone       String
+  itemCount   Int       @map("item_count")
+  totalValue  Decimal   @default(0) @map("total_value")
+  startedAt   DateTime  @default(now()) @map("started_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  completedAt DateTime? @map("completed_at")
+  notifiedAt  DateTime? @map("notified_at")
+
+  @@index([phone])
+  @@index([completedAt, notifiedAt])
+  @@map("catalog_cart_sessions")
+}
+
+// A public-catalog search (client-side filtering) that matched zero products.
+model CatalogSearchMiss {
+  id        String   @id @default(uuid())
+  query     String
+  phone     String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([query])
+  @@map("catalog_search_misses")
 }
 
 // â”€â”€ Inventory Stocktake â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

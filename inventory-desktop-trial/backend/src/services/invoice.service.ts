@@ -13,6 +13,7 @@ import {
   amountInPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
+  calculateLoyaltyPoints,
   effectiveBoxPieces,
   invoiceBalanceSign,
   roundMoney,
@@ -754,6 +755,9 @@ async function createInvoiceInTransaction(
       });
 
   let subtotal = 0;
+  // Sum of (line revenue − line cost) across SALE lines with a known cost —
+  // feeds the loyalty-points formula below.
+  let invoiceProfit = 0;
   const negativeLines: Array<{
     productId: string;
     productName: string;
@@ -765,6 +769,11 @@ async function createInvoiceInTransaction(
   for (const item of input.items) {
     const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId));
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
+
+    if (invoiceType === InvoiceType.SALE && pricedItem.costSnapshot > 0) {
+      const lineCost = roundMoney(pricedItem.costSnapshot * pricedItem.quantityInPieces);
+      invoiceProfit = roundMoney(invoiceProfit + (pricedItem.totalPrice - lineCost));
+    }
 
     if (pricedItem.wentNegative) {
       negativeLines.push({
@@ -836,6 +845,13 @@ async function createInvoiceInTransaction(
     }
   }
 
+  // Loyalty points: 10 points per 1,000 IQD of PROFIT (not invoice total), on
+  // brand-new ACTIVE sale invoices only — never recomputed on edit.
+  const loyaltyPointsEarned =
+    invoiceType === InvoiceType.SALE && !existingInvoiceId
+      ? calculateLoyaltyPoints(invoiceProfit)
+      : 0;
+
   const updatedInvoice = await tx.invoice.update({
     where: { id: invoice.id },
     data: {
@@ -850,6 +866,7 @@ async function createInvoiceInTransaction(
       paymentType,
       branchId,
       couponId: coupon.couponId,
+      loyaltyPointsEarned: existingInvoiceId ? undefined : loyaltyPointsEarned,
       ...(existingInvoiceId ? {} : { createdBy }),
     },
     include: {
@@ -874,6 +891,13 @@ async function createInvoiceInTransaction(
   }
 
   await recalculateCustomerBalanceInTransaction(tx, input.customerId);
+
+  if (loyaltyPointsEarned > 0) {
+    await tx.customer.update({
+      where: { id: input.customerId },
+      data: { loyaltyPoints: { increment: loyaltyPointsEarned } },
+    });
+  }
 
   // Negative-stock review: a new SALE that pushed any product below zero is logged
   // as a pending approval so the manager sees exactly which goods are short and on
@@ -1126,6 +1150,21 @@ async function updateInvoiceInTransaction(
       invoice.invoiceNumber
     );
 
+    // Customer reassignment must also move any already-earned loyalty points —
+    // otherwise the old customer keeps points for a sale no longer attributed to
+    // them, and a later cancel/hardDelete (which looks up the invoice's CURRENT
+    // customerId) would incorrectly deduct those points from the NEW customer.
+    if (customerChanged && invoice.type === InvoiceType.SALE && invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
+      });
+      await tx.customer.update({
+        where: { id: newCustomerId },
+        data: { loyaltyPoints: { increment: invoice.loyaltyPointsEarned } },
+      });
+    }
+
     // If the customer changed, "originalPreviousBalance" was the OLD customer's
     // pre-invoice balance — meaningless for the new one, so keep the fresh
     // previousBalance/finalBalance createInvoiceInTransaction just computed.
@@ -1177,6 +1216,13 @@ async function cancelInvoiceInTransaction(tx: Db, id: string) {
     await lockCustomer(tx, invoice.customerId);
     await reverseInvoiceItemsStock(tx, id);
 
+    if (invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
+      });
+    }
+
     const cancelled = await tx.invoice.update({
       where: { id },
       data: { status: InvoiceStatus.CANCELLED },
@@ -1223,6 +1269,13 @@ async function reactivateInvoiceInTransaction(tx: Db, id: string) {
     await lockCustomer(tx, invoice.customerId);
     await applyInvoiceItemsStock(tx, id);
 
+    if (invoice.loyaltyPointsEarned > 0) {
+      await tx.customer.update({
+        where: { id: invoice.customerId },
+        data: { loyaltyPoints: { increment: invoice.loyaltyPointsEarned } },
+      });
+    }
+
     await tx.invoice.update({
       where: { id },
       data: { status: InvoiceStatus.ACTIVE },
@@ -1258,6 +1311,12 @@ export async function hardDeleteInvoice(id: string, deletedBy?: string, reason?:
     // accounting effect (all accounting queries already exclude non-ACTIVE).
     if (wasActive) {
       await reverseInvoiceItemsStock(tx, id);
+      if (invoice.loyaltyPointsEarned > 0) {
+        await tx.customer.update({
+          where: { id: invoice.customerId },
+          data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
+        });
+      }
       await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.CANCELLED } });
     }
 

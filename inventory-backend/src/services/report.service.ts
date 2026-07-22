@@ -1145,7 +1145,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
         cancelledAt: null,
         ...(df ? { date: df } : {}),
       },
-      select: { amount: true },
+      select: { amount: true, category: true },
     }),
   ]);
 
@@ -1169,6 +1169,17 @@ export async function getProfitReport(query: ProfitReportQuery) {
   );
   const netProfit = Math.round(totalProfit - lossesTotal - expensesTotal);
 
+  // Breakdown by category (كهرباء/إيجار/رواتب/...) — uncategorized vouchers
+  // (created before this field existed, or left blank) group under "أخرى".
+  const expensesByCategoryMap = new Map<string, number>();
+  for (const v of expenseVouchers) {
+    const key = v.category?.trim() || "أخرى";
+    expensesByCategoryMap.set(key, (expensesByCategoryMap.get(key) ?? 0) + toNumber(v.amount));
+  }
+  const expensesByCategory = [...expensesByCategoryMap.entries()]
+    .map(([category, amount]) => ({ category, amount: Math.round(amount) }))
+    .sort((a, b) => b.amount - a.amount);
+
   return {
     periods: periodData,
     topProducts,
@@ -1178,10 +1189,165 @@ export async function getProfitReport(query: ProfitReportQuery) {
       totalProfit: Math.round(totalProfit),
       lossesTotal,
       expensesTotal,
+      expensesByCategory,
       netProfit,
       avgMargin: totalRevenue > 0 ? Math.round((totalProfit / totalRevenue) * 100) : 0,
     },
   };
+}
+
+// ── Warehouse/branch comparison ───────────────────────────────────────────────
+// This shop is architecturally one sales point (المحل) plus N depot warehouses
+// that never sell directly (see resolveShopWarehouseId) — so "sales by branch"
+// alone would show one meaningful bar today. This report ALSO surfaces
+// warehouse ACTIVITY (stock in/out, transfers) so depot comparison is useful
+// right now, while staying ready for a genuine multi-shop future where every
+// warehouse carries its own sales too.
+export interface WarehouseComparisonQuery {
+  from?: string;
+  to?: string;
+}
+
+export async function getWarehouseComparisonReport(query: WarehouseComparisonQuery) {
+  const df = dateFilter(query.from, query.to);
+
+  const branches = await prisma.branch.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const branchIds = branches.map((b) => b.id);
+
+  const [stockByWarehouse, movements, transfersOut, transfersIn, saleItems] = await Promise.all([
+    prisma.productWarehouseStock.groupBy({
+      by: ["warehouseId"],
+      where: { warehouseId: { in: branchIds } },
+      _sum: { quantityPieces: true },
+    }),
+    // StockMovement.branchId is the WAREHOUSE the movement happened in (see
+    // applyStockMovement / executeTransferWithin) — not Invoice.branchId.
+    prisma.stockMovement.groupBy({
+      by: ["branchId", "type"],
+      where: { branchId: { in: branchIds }, ...(df ? { createdAt: df } : {}) },
+      _sum: { quantity: true },
+    }),
+    prisma.inventoryTransfer.groupBy({
+      by: ["fromBranchId"],
+      where: { fromBranchId: { in: branchIds }, ...(df ? { date: df } : {}) },
+      _count: true,
+    }),
+    prisma.inventoryTransfer.groupBy({
+      by: ["toBranchId"],
+      where: { toBranchId: { in: branchIds }, ...(df ? { date: df } : {}) },
+      _count: true,
+    }),
+    // Sales revenue/profit per branch — Invoice.branchId (office/customer branch,
+    // set from input.branchId ?? customer.branchId), NOT the warehouse the stock
+    // physically left from. Ready for a real multi-shop setup; today it mostly
+    // collapses onto whichever branch new invoices default to.
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALE,
+          branchId: { in: branchIds },
+          ...(df ? { date: df } : {}),
+        },
+      },
+      include: {
+        product: true,
+        invoice: { select: { branchId: true, subtotal: true, totalAmount: true } },
+      },
+    }),
+  ]);
+
+  const stockMap = new Map(stockByWarehouse.map((s) => [s.warehouseId, s._sum.quantityPieces ?? 0]));
+  const inMap = new Map<string, number>();
+  const outMap = new Map<string, number>();
+  for (const m of movements) {
+    if (!m.branchId) continue;
+    const target = m.type === "IN" ? inMap : m.type === "OUT" ? outMap : null;
+    if (!target) continue;
+    target.set(m.branchId, (target.get(m.branchId) ?? 0) + (m._sum.quantity ?? 0));
+  }
+  const transfersOutMap = new Map(transfersOut.map((t) => [t.fromBranchId, t._count]));
+  const transfersInMap = new Map(transfersIn.map((t) => [t.toBranchId, t._count]));
+
+  const salesMap = new Map<string, { revenue: number; profit: number }>();
+  for (const item of saleItems) {
+    const bId = item.invoice.branchId;
+    if (!bId) continue;
+    const existing = salesMap.get(bId) ?? { revenue: 0, profit: 0 };
+    const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+    const cost = itemCostPrice({ ...item, product: item.product });
+    salesMap.set(bId, { revenue: existing.revenue + revenue, profit: existing.profit + (revenue - cost) });
+  }
+
+  return branches.map((b) => ({
+    id: b.id,
+    name: b.name,
+    currentStockPieces: stockMap.get(b.id) ?? 0,
+    stockInPieces: inMap.get(b.id) ?? 0,
+    stockOutPieces: outMap.get(b.id) ?? 0,
+    transfersOutCount: transfersOutMap.get(b.id) ?? 0,
+    transfersInCount: transfersInMap.get(b.id) ?? 0,
+    salesRevenue: Math.round(salesMap.get(b.id)?.revenue ?? 0),
+    salesProfit: Math.round(salesMap.get(b.id)?.profit ?? 0),
+  }));
+}
+
+// ── Cross-sell ("bought together") ────────────────────────────────────────────
+// Product-pair co-occurrence within the same ACTIVE sale invoice. No existing
+// market-basket analysis in this codebase — computed from scratch by grouping
+// InvoiceItem rows by invoiceId, then counting every unique pair per invoice.
+// Simple O(items) + O(pairs-per-invoice²) approach — fine at this shop's scale;
+// revisit if invoice sizes or history grow large enough to matter.
+export interface CrossSellQuery {
+  from?: string;
+  to?: string;
+  productId?: string;
+  limit?: number;
+}
+
+export async function getCrossSellPairs(query: CrossSellQuery) {
+  const df = dateFilter(query.from, query.to);
+  const limit = Math.min(query.limit ?? 20, 100);
+
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      invoice: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, ...(df ? { date: df } : {}) },
+    },
+    select: { invoiceId: true, productId: true, productName: true },
+  });
+
+  const byInvoice = new Map<string, Array<{ id: string; name: string }>>();
+  for (const it of items) {
+    const list = byInvoice.get(it.invoiceId) ?? [];
+    // De-dup the same product appearing on more than one line of the same
+    // invoice (different units/warehouses) — a pair should count once per invoice.
+    if (!list.some((p) => p.id === it.productId)) list.push({ id: it.productId, name: it.productName });
+    byInvoice.set(it.invoiceId, list);
+  }
+
+  const pairCounts = new Map<string, { a: { id: string; name: string }; b: { id: string; name: string }; count: number }>();
+  for (const products of byInvoice.values()) {
+    if (products.length < 2) continue;
+    for (let i = 0; i < products.length; i++) {
+      for (let j = i + 1; j < products.length; j++) {
+        if (query.productId && products[i].id !== query.productId && products[j].id !== query.productId) continue;
+        const [a, b] = products[i].id < products[j].id ? [products[i], products[j]] : [products[j], products[i]];
+        const key = `${a.id}:${b.id}`;
+        const existing = pairCounts.get(key);
+        if (existing) existing.count += 1;
+        else pairCounts.set(key, { a, b, count: 1 });
+      }
+    }
+  }
+
+  return [...pairCounts.values()]
+    .sort((x, y) => y.count - x.count)
+    .slice(0, limit)
+    .map((p) => ({ productA: p.a, productB: p.b, count: p.count }));
 }
 
 // ── «عقل المحل» — Store Brain (smart profit dashboard) ────────────────────────

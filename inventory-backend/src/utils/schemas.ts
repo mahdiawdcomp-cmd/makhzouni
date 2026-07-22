@@ -541,6 +541,13 @@ export const listInvoicesSchema = z.object({
   }),
 });
 
+export const listProductReviewsSchema = z.object({
+  query: z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(200).default(20),
+  }),
+});
+
 export const lastSoldPriceSchema = z.object({
   query: z.object({
     customerId: z.string().uuid(),
@@ -679,6 +686,8 @@ export const createVoucherSchema = z.object({
       notes: z.string().trim().optional(),
       // EXPENSE vouchers carry a short label (e.g. "أجور مولّدة"). Optional for the others.
       description: z.string().trim().optional(),
+      // EXPENSE-only breakdown category (كهرباء/إيجار/رواتب/أخرى) — free string.
+      category: z.string().trim().max(50).optional(),
     })
     .refine((body) => body.type === "EXPENSE" || !!body.customerId, {
       message: "customerId is required for RECEIPT and PAYMENT vouchers",
@@ -698,6 +707,7 @@ export const updateVoucherSchema = z.object({
       amount: z.coerce.number().positive().optional(),
       notes: z.string().trim().optional(),
       description: z.string().trim().optional(),
+      category: z.string().trim().max(50).optional(),
     })
     .refine((b) => Object.keys(b).length > 0, { message: "At least one field is required" }),
 });
@@ -725,6 +735,22 @@ export const profitReportSchema = z.object({
     from: dateString.optional(),
     to: dateString.optional(),
     groupBy: z.enum(["day", "week", "month"]).optional(),
+  }),
+});
+
+export const warehouseComparisonReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+  }),
+});
+
+export const crossSellReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+    productId: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
   }),
 });
 
@@ -1087,6 +1113,21 @@ export const submitRetailOrderSchema = z.object({
         }),
       )
       .min(1),
+  }),
+});
+
+export const cartSessionSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(5).max(40),
+    itemCount: z.coerce.number().int().nonnegative(),
+    totalValue: z.coerce.number().nonnegative(),
+  }),
+});
+
+export const searchMissSchema = z.object({
+  body: z.object({
+    query: z.string().trim().min(1).max(200),
+    phone: z.string().trim().max(40).optional(),
   }),
 });
 

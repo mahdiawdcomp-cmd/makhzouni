@@ -12,6 +12,7 @@ import {
   ReceiptText,
   RefreshCw,
   ShoppingBag,
+  Star,
   Wallet,
   X,
 } from "lucide-react"
@@ -319,6 +320,9 @@ export function ClientPortalPage() {
           <MetricCard icon={<FileText className="h-4 w-4" />} label="عدد الحركات" value={String(totals.count)} />
           <MetricCard icon={<CalendarClock className="h-4 w-4" />} label="آخر حركة" value={formatDate(data.customer.lastTransactionAt)} small />
           <MetricCard icon={<ReceiptText className="h-4 w-4" />} label="انتهاء الرابط" value={formatDate(data.expiresAt)} small />
+          {(data.customer.loyaltyPoints ?? 0) > 0 && (
+            <MetricCard icon={<Star className="h-4 w-4" />} label="نقاط الولاء" value={String(data.customer.loyaltyPoints)} />
+          )}
         </div>
 
         {/* Tabs */}

@@ -5,6 +5,7 @@ import {
   effectiveBoxPieces,
   calculateCustomerBalance,
   calculateInvoiceFinancials,
+  calculateLoyaltyPoints,
   roundMoney,
 } from "./financial";
 
@@ -271,6 +272,24 @@ test("BOX uses the manual per-product override when set", () => {
   assert.equal(amountInPieces("CARTON", 1, 240, 80), 240);
   assert.equal(amountInPieces("DOZEN", 1, 240, 80), 12);
   assert.equal(amountInPieces("PIECE", 5, 240, 80), 5);
+});
+
+// ── calculateLoyaltyPoints ──────────────────────────────────────────────────
+
+test("calculateLoyaltyPoints awards 10 points per full 1,000 IQD of profit", () => {
+  assert.equal(calculateLoyaltyPoints(1000), 10);
+  assert.equal(calculateLoyaltyPoints(2500), 20);
+  assert.equal(calculateLoyaltyPoints(10000), 100);
+});
+
+test("calculateLoyaltyPoints floors — a partial 1,000 IQD block earns nothing extra", () => {
+  assert.equal(calculateLoyaltyPoints(1999), 10);
+  assert.equal(calculateLoyaltyPoints(999), 0);
+});
+
+test("calculateLoyaltyPoints never rewards a zero or negative (below-cost/loss) profit", () => {
+  assert.equal(calculateLoyaltyPoints(0), 0);
+  assert.equal(calculateLoyaltyPoints(-500), 0);
 });
 
 test("effectiveBoxPieces guards zero/negative overrides", () => {

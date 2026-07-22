@@ -8,12 +8,15 @@ import {
   dailySummaryReport,
   dashboardReport,
   debtAgingReport,
+  searchMissesReport,
   debtReminderList,
   endOfDayReport,
   inactiveReminderList,
   inventoryValuationReport,
   productMovementReport,
   profitReport,
+  warehouseComparisonReport,
+  crossSellReport,
   storeBrainReport,
   salesReport,
   sendDebtReminder,
@@ -29,6 +32,8 @@ import {
   dailyAssistantSchema,
   productMovementReportSchema,
   profitReportSchema,
+  warehouseComparisonReportSchema,
+  crossSellReportSchema,
   storeBrainReportSchema,
   salesReportSchema,
 } from "../utils/schemas";
@@ -48,10 +53,14 @@ router.get("/end-of-day", endOfDayReport);
 router.get("/customers/at-risk", atRiskCustomersReport);
 router.get("/customers/ratings", customerRatingsReport);
 router.get("/customers/debt-aging", debtAgingReport);
+router.get("/search-misses", searchMissesReport);
 router.get("/customers/statements-export", validate(customerStatementsExportSchema), customerStatementsExportReport);
 // Profit + store-brain expose full financial margins — gated by the profit-visibility
 // capability, which (unlike every other permission) can be revoked even from an ADMIN.
 router.get("/profit", requireProfitReports(), validate(profitReportSchema), profitReport);
+router.get("/warehouse-comparison", requireProfitReports(), validate(warehouseComparisonReportSchema), warehouseComparisonReport);
+// Not profit-gated — pair counts only, no revenue/margin, useful to any staff.
+router.get("/cross-sell", validate(crossSellReportSchema), crossSellReport);
 router.get("/store-brain", requireProfitReports(), validate(storeBrainReportSchema), storeBrainReport);
 // «المساعد الذكي اليومي» — exposes profit figures, so gated exactly like /profit.
 router.get("/daily-assistant", requireProfitReports(), validate(dailyAssistantSchema), dailyAssistantReport);

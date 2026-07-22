@@ -45,6 +45,7 @@ import instagramRoutes from "./instagram.routes";
 import telegramChannelRoutes from "./telegram-channel.routes";
 import telegramBroadcastRoutes from "./telegram-broadcast.routes";
 import telegramStatsRoutes from "./telegram-stats.routes";
+import productReviewRoutes from "./product-review.routes";
 
 const router = Router();
 
@@ -94,5 +95,6 @@ router.use("/landed-cost", landedCostImportRoutes);
 router.use("/telegram-channel", telegramChannelRoutes);
 router.use("/telegram-broadcast", telegramBroadcastRoutes);
 router.use("/telegram-stats", telegramStatsRoutes);
+router.use("/product-reviews", productReviewRoutes);
 
 export default router;

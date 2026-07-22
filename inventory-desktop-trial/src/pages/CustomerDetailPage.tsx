@@ -251,6 +251,7 @@ export function CustomerDetailPage() {
         <Summary title="إجمالي المدفوع" value={totalReceived} />
         <Summary title="الرصيد النهائي" value={customer.currentBalance} danger={customer.currentBalance > 0} />
         <Summary title="إجمالي المشتريات" value={totalPurchases} />
+        <Summary title="نقاط الولاء" value={customer.loyaltyPoints ?? 0} />
       </div>
       {isAdmin && (
         <div className="flex justify-end">

@@ -12,6 +12,7 @@ import {
   previewRetailCoupon,
   submitRetailOrder,
 } from "../services/retail-catalog.service";
+import { completeCartSession, upsertCartSession, logSearchMiss } from "../services/catalog-tracking.service";
 import { retailAiChat } from "../services/retail-ai.service";
 import { totalStock } from "../utils/product-stock";
 
@@ -71,7 +72,25 @@ export const previewPublicCoupon = asyncHandler(async (req, res) => {
 });
 
 export const postPublicRetailOrder = asyncHandler(async (req, res) => {
-  res.status(201).json({ success: true, data: await submitRetailOrder(req.body) });
+  const order = await submitRetailOrder(req.body);
+  // Best-effort: a successful order means this checkout session is no longer
+  // "abandoned" — never let a tracking hiccup fail the order response itself.
+  if (req.body?.phone) {
+    await completeCartSession(String(req.body.phone)).catch(() => {});
+  }
+  res.status(201).json({ success: true, data: order });
+});
+
+export const postPublicCartSession = asyncHandler(async (req, res) => {
+  const { phone, itemCount, totalValue } = req.body as { phone: string; itemCount: number; totalValue: number };
+  await upsertCartSession({ phone, itemCount, totalValue });
+  res.json({ success: true });
+});
+
+export const postPublicSearchMiss = asyncHandler(async (req, res) => {
+  const { query, phone } = req.body as { query: string; phone?: string };
+  await logSearchMiss({ query, phone });
+  res.json({ success: true });
 });
 
 export const getPublicRetailOrder = asyncHandler(async (req, res) => {

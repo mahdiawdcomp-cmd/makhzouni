@@ -42,6 +42,8 @@ import {
   getPublicStoreInfo,
   postPublicRetailAiChat,
   postPublicRetailOrder,
+  postPublicCartSession,
+  postPublicSearchMiss,
   previewPublicCoupon,
 } from "../controllers/retail-public.controller";
 import { validate } from "../middleware/validate";
@@ -63,6 +65,8 @@ import {
   checkVerifiedSchema,
   submitRetailOrderSchema,
   previewRetailCouponSchema,
+  cartSessionSchema,
+  searchMissSchema,
   idParamSchema,
 } from "../utils/schemas";
 
@@ -202,6 +206,8 @@ router.get("/retail/catalog", catalogLimiter, getPublicRetailCatalog);
 router.get("/retail/active-coupon", catalogLimiter, getPublicActiveCoupon);
 router.post("/retail/coupon/preview", catalogLimiter, validate(previewRetailCouponSchema), previewPublicCoupon);
 router.post("/retail/orders", catalogLimiter, validate(submitRetailOrderSchema), postPublicRetailOrder);
+router.post("/retail/cart-session", catalogLimiter, validate(cartSessionSchema), postPublicCartSession);
+router.post("/retail/search-miss", catalogLimiter, validate(searchMissSchema), postPublicSearchMiss);
 // Removed GET /retail/my-orders?phone=... (privacy: exposed order history by phone without auth)
 // Use the token-based endpoint instead: GET /retail/my-orders/:token
 router.get("/retail/my-orders/:token", catalogLimiter, getPublicRetailOrdersByToken);
