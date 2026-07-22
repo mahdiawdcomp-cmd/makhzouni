@@ -509,9 +509,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     return acc
   }, [isEdit, editingInvoice, products])
 
-  // Items that would push stock into negative territory (warning only, not blocking)
-  const lowStockWarnings = useMemo(() => {
-    if (isPurchase) return [] // Purchase adds stock, can't go negative
+  // Items that would push stock into negative territory (warning only, not blocking).
+  // Also exposed per-product (negativeAfterByProduct) so each row can carry its own
+  // badge — in edit mode the per-line shortage row further down is disabled (its
+  // check misfires on unchanged lines; see lineShort), so this credit-back-aware
+  // calculation is the only accurate "will go negative" signal available there.
+  const { lowStockWarnings, negativeAfterByProduct } = useMemo(() => {
+    if (isPurchase) return { lowStockWarnings: [] as string[], negativeAfterByProduct: new Map<string, number>() } // Purchase adds stock, can't go negative
     // First pass: aggregate total piece-consumption per product across ALL rows
     const consumed: Record<string, number> = {}
     for (const item of items) {
@@ -521,6 +525,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     }
     // Second pass: warn once per product whose cumulative consumption exceeds available stock
     const warnings: string[] = []
+    const negativeAfterByProduct = new Map<string, number>()
     const warned = new Set<string>()
     for (const item of items) {
       const pid = item.product.id
@@ -531,10 +536,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const available = (item.product.shopStock ?? stockOf(item.product)) + (originalInvoicePcs[pid] ?? 0)
       const totalPcs = consumed[pid] ?? 0
       const after = available - totalPcs
-      if (after < 0)
+      if (after < 0) {
         warnings.push(`${item.product.name} (المحل بي ${fmt(available)} فقط، تحتاج تحويل من المخزن — سيصبح ${fmt(after)})`)
+        negativeAfterByProduct.set(pid, after)
+      }
     }
-    return warnings
+    return { lowStockWarnings: warnings, negativeAfterByProduct }
   }, [items, isPurchase, originalInvoicePcs])
 
   // ----- EDIT MODE: initialize the form from the loaded invoice (once) -----
@@ -1921,8 +1928,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
               <TBody>
                 {items.map((item, index) => {
                   const rowKey = `${index}`
+                  // Edit mode: current stock already reflects this invoice's original
+                  // deduction, so subtracting the line qty again would double-count —
+                  // use the credit-back-aware negativeAfterByProduct map instead (same
+                  // one the aggregate warning box above uses) so the badge is accurate.
+                  const editNegativeAfter = isEdit ? negativeAfterByProduct.get(item.product.id) : undefined
                   const stockAfterLine = isPurchase ? stockOf(item.product) + itemQuantityInPieces(item) : stockOf(item.product) - itemQuantityInPieces(item)
-                  const hasNegativeStock = stockOf(item.product) < 0 || stockAfterLine < 0
+                  const hasNegativeStock = isEdit
+                    ? editNegativeAfter !== undefined
+                    : stockOf(item.product) < 0 || stockAfterLine < 0
                   const lineQtyPcs = itemQuantityInPieces(item)
                   // Shortage row: any sale line the warehouse it pulls from can't fully
                   // cover. Shown INLINE under the line (never a blocking dialog) with the
@@ -1972,7 +1986,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                             </span>
                           ) : hasNegativeStock ? (
                             <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                              رصيد سالب
+                              {editNegativeAfter !== undefined ? `رصيد سالب — سيصبح ${fmt(editNegativeAfter)}` : "رصيد سالب"}
                             </span>
                           ) : null}
                           {belowCostItems.has(index) ? (

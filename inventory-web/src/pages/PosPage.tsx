@@ -718,6 +718,29 @@ export function POSPage() {
     return base.slice(0, 100)
   }, [products, activePanel, posConfig, productQuery])
 
+  // Pieces available for this line's source (the picked warehouse, else المحل) vs.
+  // what the line actually needs — the single source of truth for whether this line
+  // will oversell. POS never blocks on this (checkout always authorizes the deficit
+  // below), so this is purely what makes the shortage visible to the cashier instead
+  // of it only showing up after the sale is already saved.
+  function lineStockCheck(item: PosItem) {
+    const product = products.find((p) => p.id === item.productId)
+    const pieces = product ? unitToPieces(item.unit, item.quantity, product) : 0
+    const available = item.warehouseId
+      ? Number(product?.warehouseStocks?.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0)
+      : Number(product?.shopStock ?? product?.currentStock ?? 0)
+    return { pieces, available, negative: pieces > available }
+  }
+
+  const negativeLineIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of items) {
+      if (lineStockCheck(item).negative) ids.add(item.lineId)
+    }
+    return ids
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, products])
+
   const subtotal = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0)
   const paidValue = Number(paid || 0)
   const financials = calculateInvoiceFinancials({ type: "SALE", subtotal, discount, paidAmount: paidValue })
@@ -828,19 +851,16 @@ export function POSPage() {
           // Authorize the deficit for any line the chosen warehouse (or the shop)
           // can't fully cover — mirrors the regular invoice flow so POS never fails
           // where InvoiceCreate would succeed. allowNegative only *permits* going
-          // below zero; it never forces it.
-          const product = products.find((p) => p.id === item.productId)
-          const pieces = product ? unitToPieces(item.unit, item.quantity, product) : 0
-          const available = item.warehouseId
-            ? Number(product?.warehouseStocks?.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0)
-            : Number(product?.shopStock ?? product?.currentStock ?? 0)
+          // below zero; it never forces it. Same check the cart badge/pre-checkout
+          // warning already showed the cashier (lineStockCheck), so the two can't drift.
+          const { negative } = lineStockCheck(item)
           return {
             productId: item.productId,
             warehouseId: item.warehouseId,
             unit: item.unit,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
-            allowNegativeStock: pieces > available || undefined,
+            allowNegativeStock: negative || undefined,
           }
         }),
       }),
@@ -1213,7 +1233,14 @@ export function POSPage() {
                     className="flex items-center gap-1 rounded-lg bg-slate-50 px-2 py-1.5 dark:bg-slate-800"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-bold leading-tight">{item.name}</div>
+                      <div className="flex items-center gap-1">
+                        <div className="truncate text-xs font-bold leading-tight">{item.name}</div>
+                        {negativeLineIds.has(item.lineId) && (
+                          <span className="shrink-0 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                            سيباع بالسالب
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-500">
                         {fmt(item.unitPrice)} ×{" "}
                         <span className="font-semibold text-slate-700 dark:text-slate-200">
@@ -1314,6 +1341,12 @@ export function POSPage() {
               <div className="flex items-center justify-between rounded-md bg-emerald-50 px-3 py-1.5 text-sm dark:bg-emerald-950/30">
                 <span className="text-slate-500">راجع</span>
                 <span className="font-bold text-emerald-700 dark:text-emerald-400">{fmt(change)}</span>
+              </div>
+            )}
+
+            {negativeLineIds.size > 0 && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-300">
+                ⚠️ {negativeLineIds.size} مادة راح تنباع بالسالب (المتوفر أقل من المطلوب) — البيع يكمل وينسجل بالسالب.
               </div>
             )}
 
