@@ -651,22 +651,21 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
   // fail-open). Each fallback matches this codebase's own existing default for
   // an unconfigured link, so a tenant without the paid feature just falls back
   // to the same baseline every new link already starts from.
-  const [showHidePriceEnabled, showHideStockEnabled, fullCartonFilterEnabled] = await Promise.all([
+  const [showHidePriceEnabled, showHideStockEnabled] = await Promise.all([
     hasFeature("catalogShowHidePrice"),
     hasFeature("catalogShowHideStock"),
-    hasFeature("catalogFullCartonFilter"),
   ]);
   const allowPrices = showHidePriceEnabled ? link.allow_prices : false;
   const showStock = showHideStockEnabled ? link.show_stock : true;
-  // catalogFullCartonOnly is a merchant-controlled master switch (Settings):
-  // when on, it overrides every per-customer stockFilter and forces
-  // full-carton-only display for everyone. Off (default) leaves the existing
-  // per-link configuration untouched.
+  // catalogFullCartonOnly is the merchant's single global switch (Settings):
+  // ON forces full-carton-only for every customer, OFF forces all-products
+  // for every customer. It is the sole source of truth for both directions —
+  // the per-customer catalog_stock_filter column is intentionally not read
+  // here anymore, by the merchant's request (one simple on/off, not a mix of
+  // per-customer overrides).
   const stockFilter = settings.catalogFullCartonOnly
     ? CatalogStockFilter.FULL_CARTON_ONLY
-    : fullCartonFilterEnabled
-      ? (link.catalog_stock_filter ?? CatalogStockFilter.FULL_CARTON_ONLY)
-      : CatalogStockFilter.FULL_CARTON_ONLY;
+    : CatalogStockFilter.ALL_PRODUCTS;
 
   return {
     customer,
