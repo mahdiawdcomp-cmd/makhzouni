@@ -4,7 +4,7 @@
  */
 import { useMemo, useRef, useState } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { ArrowLeft, ExternalLink, Search, TrendingUp, Wallet } from "lucide-react"
 import { useAllCustomers, useCustomerDetails } from "../hooks/useCustomers"
 import { fmt } from "../utils/fmt"
@@ -107,8 +107,9 @@ function transactionTone(tx: CustomerTransaction) {
 
 export function AccountLookupPage() {
   usePageTitle("كشف الحساب العام")
-  const [query, setQuery] = useState("")
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "")
+  const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get("customerId"))
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -154,6 +155,7 @@ export function AccountLookupPage() {
     setQuery(name)
     setDropdownOpen(false)
     inputRef.current?.blur()
+    setSearchParams({ q: name, customerId: id }, { replace: true })
   }
 
   return (
@@ -170,6 +172,7 @@ export function AccountLookupPage() {
           <Search className="h-5 w-5 shrink-0 text-[var(--theme-accent)]" />
           <input
             ref={inputRef}
+            autoFocus
             className="flex-1 bg-transparent text-base outline-none placeholder:text-slate-400"
             placeholder="اكتب الاسم أو رقم الهاتف..."
             value={query}
@@ -182,7 +185,7 @@ export function AccountLookupPage() {
             onBlur={() => setTimeout(() => setDropdownOpen(false), 150)}
           />
           {query ? (
-            <button type="button" className="text-slate-400 hover:text-slate-600" onClick={() => { setQuery(""); setSelectedId(null) }}>✕</button>
+            <button type="button" className="text-slate-400 hover:text-slate-600" onClick={() => { setQuery(""); setSelectedId(null); setSearchParams({}, { replace: true }) }}>✕</button>
           ) : null}
         </div>
 

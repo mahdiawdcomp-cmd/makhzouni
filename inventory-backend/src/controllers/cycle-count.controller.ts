@@ -1,5 +1,5 @@
 // Controllers for "جدولة الجرد الذكي" — independent from stocktake.controller.ts.
-import { CycleCountSessionSource, CycleCountStrategy } from "@prisma/client";
+import { CycleCountSessionSource, CycleCountStrategy, LossReason } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import {
   approveAllCycleCountItems,
@@ -64,7 +64,8 @@ export const submitSession = asyncHandler(async (req, res) => {
 });
 
 export const closeSession = asyncHandler(async (req, res) => {
-  const data = await closeCycleCountSession(String(req.params.id));
+  const { force } = (req.body ?? {}) as { force?: boolean };
+  const data = await closeCycleCountSession(String(req.params.id), Boolean(force));
   res.json({ success: true, data });
 });
 
@@ -74,7 +75,8 @@ export const cancelSession = asyncHandler(async (req, res) => {
 });
 
 export const approveItem = asyncHandler(async (req, res) => {
-  const data = await approveCycleCountItem(String(req.params.id), String(req.params.itemId), String(req.user!.id));
+  const { reason } = req.body as { reason: LossReason };
+  const data = await approveCycleCountItem(String(req.params.id), String(req.params.itemId), String(req.user!.id), reason);
   res.json({ success: true, data });
 });
 
@@ -84,7 +86,8 @@ export const rejectItem = asyncHandler(async (req, res) => {
 });
 
 export const approveAllItems = asyncHandler(async (req, res) => {
-  const data = await approveAllCycleCountItems(String(req.params.id), String(req.user!.id));
+  const { reason } = req.body as { reason: LossReason };
+  const data = await approveAllCycleCountItems(String(req.params.id), String(req.user!.id), reason);
   res.json({ success: true, data });
 });
 

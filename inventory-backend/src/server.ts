@@ -368,6 +368,40 @@ async function runStartupMigrations() {
   } catch (err) {
     logger.warn("[migration] inbound_messages startup migration warning:", err);
   }
+
+  // Safety net for stock-adjustment financial traceability: lets a manual
+  // stock adjustment, stocktake approval, or cycle-count approval record its
+  // reason and (if the quantity actually changed) link to a stock_losses row
+  // so the variance gets a cost value and enters net-profit reporting instead
+  // of being a silent quantity change. No-op once applied.
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TYPE "LossReason" ADD VALUE IF NOT EXISTS 'COUNT_ERROR'`);
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      CREATE TYPE "StockLossDirection" AS ENUM ('LOSS','GAIN');
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      CREATE TYPE "StockLossSource" AS ENUM ('MANUAL','ADJUST_STOCK','CYCLE_COUNT','STOCKTAKE');
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stock_losses" ADD COLUMN IF NOT EXISTS "direction" "StockLossDirection" NOT NULL DEFAULT 'LOSS'`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stock_losses" ADD COLUMN IF NOT EXISTS "source" "StockLossSource" NOT NULL DEFAULT 'MANUAL'`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stocktake_items" ADD COLUMN IF NOT EXISTS "reason" "LossReason"`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "stocktake_items" ADD COLUMN IF NOT EXISTS "loss_id" UUID`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "cycle_count_items" ADD COLUMN IF NOT EXISTS "reason" "LossReason"`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "cycle_count_items" ADD COLUMN IF NOT EXISTS "loss_id" UUID`);
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      ALTER TABLE "stocktake_items" ADD CONSTRAINT "stocktake_items_loss_id_fkey"
+      FOREIGN KEY ("loss_id") REFERENCES "stock_losses"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`DO $$ BEGIN
+      ALTER TABLE "cycle_count_items" ADD CONSTRAINT "cycle_count_items_loss_id_fkey"
+      FOREIGN KEY ("loss_id") REFERENCES "stock_losses"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    EXCEPTION WHEN duplicate_object THEN null; END $$;`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "stocktake_items_loss_id_idx" ON "stocktake_items"("loss_id")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "cycle_count_items_loss_id_idx" ON "cycle_count_items"("loss_id")`);
+    logger.info("[migration] stock-adjustment reason/direction fields ensured");
+  } catch (err) {
+    logger.warn("[migration] stock-adjustment reason/direction migration warning:", err);
+  }
 }
 
 void runStartupMigrations();

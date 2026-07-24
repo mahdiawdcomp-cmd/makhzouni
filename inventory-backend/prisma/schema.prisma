@@ -84,7 +84,32 @@ enum LossReason {
   EXPIRY
   THEFT
   DEFECT
+  // Physical count differed from the system's book quantity with no damage/
+  // theft/expiry involved — e.g. the original recorded stock was itself wrong.
+  // Valid for both directions: a shrinkage (LOSS) or a surplus (GAIN) found
+  // during a manual adjustment, stocktake, or cycle count.
+  COUNT_ERROR
   OTHER
+}
+
+// Whether a stock correction reduced recognized profit (LOSS — stock turned
+// out lower than the books said) or added to it (GAIN — stock turned out
+// higher, e.g. units were sold that were never recorded as received). Default
+// LOSS keeps all pre-existing stock_losses rows (created only by the manual
+// "خسائر/تلف" flow, which can only ever reduce stock) semantically unchanged.
+enum StockLossDirection {
+  LOSS
+  GAIN
+}
+
+// Which flow produced a stock_losses row — lets reports/UI distinguish
+// deliberate loss reports from automatic corrections. Default MANUAL keeps
+// pre-existing rows unchanged.
+enum StockLossSource {
+  MANUAL
+  ADJUST_STOCK
+  CYCLE_COUNT
+  STOCKTAKE
 }
 
 enum CatalogStockFilter {
@@ -238,6 +263,8 @@ model StockLoss {
   warehouseId    String          @map("warehouse_id") @db.Uuid
   warehouse      Branch          @relation("StockLossWarehouse", fields: [warehouseId], references: [id])
   reason         LossReason      @default(DAMAGE)
+  direction      StockLossDirection @default(LOSS)
+  source         StockLossSource    @default(MANUAL)
   notes          String?         @db.Text
   cancelledAt    DateTime?       @map("cancelled_at")
   createdBy      String          @map("created_by") @db.Uuid
@@ -246,6 +273,8 @@ model StockLoss {
   updatedAt      DateTime        @updatedAt @map("updated_at")
   items          StockLossItem[]
   stockMovements StockMovement[]
+  cycleCountItems CycleCountItem[] @relation("CycleCountItemLoss")
+  stocktakeItems  StocktakeItem[]  @relation("StocktakeItemLoss")
 
   @@index([date])
   @@index([warehouseId])
@@ -1537,10 +1566,19 @@ model StocktakeItem {
   notes          String?
   approvalStatus StocktakeApprovalStatus @default(PENDING) @map("approval_status")
   approvedQty    Int?                    @map("approved_qty")
+  // Required classification for WHY the variance happened, captured at
+  // approval time. lossId links to the stock_losses row that gives the
+  // variance a cost value (LOSS reduces net profit, GAIN adds to it) —
+  // see approveStocktakeItem(). Both null for legacy rows (pre-dates this)
+  // and for zero-variance approvals (nothing to record).
+  reason         LossReason?
+  lossId         String?                 @map("loss_id") @db.Uuid
+  loss           StockLoss?              @relation("StocktakeItemLoss", fields: [lossId], references: [id])
 
   @@unique([sessionId, productId])
   @@index([sessionId])
   @@index([approvalStatus])
+  @@index([lossId])
   @@map("stocktake_items")
 }
 
@@ -1589,11 +1627,16 @@ model CycleCountItem {
   approver       User?                    @relation("CycleCountItemApprovedBy", fields: [approvedBy], references: [id])
   approvedAt     DateTime?                @map("approved_at")
   notes          String?
+  // Same purpose as StocktakeItem.reason/lossId above — see that comment.
+  reason         LossReason?
+  lossId         String?                  @map("loss_id") @db.Uuid
+  loss           StockLoss?               @relation("CycleCountItemLoss", fields: [lossId], references: [id])
 
   @@unique([sessionId, productId])
   @@index([sessionId])
   @@index([productId])
   @@index([approvalStatus])
+  @@index([lossId])
   @@map("cycle_count_items")
 }
 

@@ -26,6 +26,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission, requireAnyPermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
+  adjustProductStockSchema,
   createProductSchema,
   idParamSchema,
   listProductsSchema,
@@ -60,7 +61,7 @@ router.get("/by-qr/:qrCode", getProductByQr);
 router.get("/:id", validate(idParamSchema), getProductDetails);
 router.get("/:id/manual-adjustments", validate(idParamSchema), getManualAdjustments);
 router.get("/:id/stock-history", validate(idParamSchema), getStockHistory);
-router.post("/:id/adjust-stock", requireAnyPermission("INVENTORY_MANAGE", "MANAGE_PRODUCTS"), validate(idParamSchema), adjustStock);
+router.post("/:id/adjust-stock", requireAnyPermission("INVENTORY_MANAGE", "MANAGE_PRODUCTS"), validate(adjustProductStockSchema), adjustStock);
 router.put("/:id", validate(updateProductSchema), editProduct);
 router.delete("/:id", validate(idParamSchema), removeProduct);
 router.post("/:id/restore", requirePermission("MANAGE_PRODUCTS"), validate(idParamSchema), restoreProductCtrl);

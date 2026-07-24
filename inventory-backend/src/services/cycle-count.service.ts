@@ -15,17 +15,20 @@ import {
   CycleCountSessionSource,
   CycleCountSessionStatus,
   CycleCountStrategy,
+  LossReason,
   Prisma,
   StockMovementType,
 } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { normalizePhone } from "../utils/phone";
-import { resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
+import { adjustWarehouseStock, resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
 import { getSettings, updateSettings } from "./settings.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { buildDedupeKey, notifyAdmin } from "./app-notification.service";
 import { NotificationCategory, NotificationSeverity, NotificationType } from "../constants/notifications";
+import { recordStockAdjustmentVariance } from "./stock-loss.service";
+import { logger } from "../utils/logger";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -425,11 +428,15 @@ export async function approveCycleCountItem(
   sessionId: string,
   itemId: string,
   approvingUserId: string,
+  reason: LossReason,
 ) {
   return prisma.$transaction(async (tx) => {
     const item = await tx.cycleCountItem.findUnique({
       where: { id: itemId },
-      include: { session: { select: { status: true, warehouseId: true } } },
+      include: {
+        session: { select: { status: true, warehouseId: true } },
+        product: { select: { name: true } },
+      },
     });
 
     if (!item) throw new AppError("عنصر الجرد غير موجود", 404, "ITEM_NOT_FOUND");
@@ -442,22 +449,39 @@ export async function approveCycleCountItem(
 
     const delta = item.actualQty - item.systemQty;
 
-    const updatedStock = await tx.productWarehouseStock.update({
-      where: { productId_warehouseId: { productId: item.productId, warehouseId: item.session.warehouseId } },
-      data: { quantityPieces: { increment: delta } },
-      select: { quantityPieces: true },
+    // adjustWarehouseStock locks the row and enforces the same negative-floor
+    // guard every other stock-mutating path (invoice/transfer/loss) uses — the
+    // raw increment update this replaced had no such guard.
+    const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+      productId: item.productId,
+      warehouseId: item.session.warehouseId,
+      deltaPieces: delta,
+      allowNegative: false,
     });
 
+    let lossId: string | null = null;
     if (delta !== 0) {
       const approver = await tx.user.findUnique({ where: { id: approvingUserId }, select: { name: true } });
+      const recorded = await recordStockAdjustmentVariance(tx, {
+        warehouseId: item.session.warehouseId,
+        productId: item.productId,
+        productName: item.product.name,
+        deltaPieces: delta,
+        reason,
+        source: "CYCLE_COUNT",
+        createdBy: approvingUserId,
+      });
+      lossId = recorded.lossId;
+
       await tx.stockMovement.create({
         data: {
           productId: item.productId,
           branchId: item.session.warehouseId,
+          lossId,
           type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
           quantity: Math.abs(delta),
-          balanceBefore: updatedStock.quantityPieces - delta,
-          balanceAfter: updatedStock.quantityPieces,
+          balanceBefore,
+          balanceAfter,
           userId: approvingUserId,
           userName: approver?.name ?? null,
           note: "تسوية جدولة الجرد الذكي (موافقة)",
@@ -475,6 +499,8 @@ export async function approveCycleCountItem(
         approvedQty: item.actualQty,
         approvedBy: approvingUserId,
         approvedAt: new Date(),
+        reason: delta !== 0 ? reason : null,
+        lossId,
       },
     });
     if (updated.count === 0)
@@ -523,10 +549,10 @@ export async function rejectCycleCountItem(
 // Same per-item safety as the single-item functions above (increment/movement
 // then a PENDING-guarded updateMany), just looped inside one transaction.
 
-export async function approveAllCycleCountItems(sessionId: string, approvingUserId: string) {
+export async function approveAllCycleCountItems(sessionId: string, approvingUserId: string, reason: LossReason) {
   const session = await prisma.cycleCountSession.findUnique({
     where: { id: sessionId },
-    include: { items: true },
+    include: { items: { include: { product: { select: { name: true } } } } },
   });
   if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status !== CycleCountSessionStatus.SUBMITTED)
@@ -540,21 +566,35 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
       if (item.approvalStatus !== CycleCountApprovalStatus.PENDING || item.actualQty === null) continue;
 
       const delta = item.actualQty - item.systemQty;
-      const updatedStock = await tx.productWarehouseStock.update({
-        where: { productId_warehouseId: { productId: item.productId, warehouseId: session.warehouseId } },
-        data: { quantityPieces: { increment: delta } },
-        select: { quantityPieces: true },
+      const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+        productId: item.productId,
+        warehouseId: session.warehouseId,
+        deltaPieces: delta,
+        allowNegative: false,
       });
 
+      let lossId: string | null = null;
       if (delta !== 0) {
+        const recorded = await recordStockAdjustmentVariance(tx, {
+          warehouseId: session.warehouseId,
+          productId: item.productId,
+          productName: item.product.name,
+          deltaPieces: delta,
+          reason,
+          source: "CYCLE_COUNT",
+          createdBy: approvingUserId,
+        });
+        lossId = recorded.lossId;
+
         await tx.stockMovement.create({
           data: {
             productId: item.productId,
             branchId: session.warehouseId,
+            lossId,
             type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
             quantity: Math.abs(delta),
-            balanceBefore: updatedStock.quantityPieces - delta,
-            balanceAfter: updatedStock.quantityPieces,
+            balanceBefore,
+            balanceAfter,
             userId: approvingUserId,
             userName: approver?.name ?? null,
             note: "تسوية جدولة الجرد الذكي (موافقة الكل)",
@@ -572,6 +612,8 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
           approvedQty: item.actualQty,
           approvedBy: approvingUserId,
           approvedAt: new Date(),
+          reason: delta !== 0 ? reason : null,
+          lossId,
         },
       });
       if (updated.count === 1) approvedCount++;
@@ -609,18 +651,38 @@ export async function rejectAllCycleCountItems(sessionId: string, reviewingUserI
 
 // ─── Close / cancel session (admin only) ──────────────────────────────────────
 
-export async function closeCycleCountSession(sessionId: string) {
-  const session = await prisma.cycleCountSession.findUnique({ where: { id: sessionId } });
+export async function closeCycleCountSession(sessionId: string, force = false) {
+  const session = await prisma.cycleCountSession.findUnique({
+    where: { id: sessionId },
+    include: { items: { select: { approvalStatus: true, actualQty: true } } },
+  });
   if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status === CycleCountSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
   if (session.status === CycleCountSessionStatus.CANCELLED) throw new AppError("الجلسة ملغاة", 400, "SESSION_CANCELLED");
+
+  // Guard against silently closing a session that still has counted-but-unreviewed
+  // variances — those would otherwise never get a StockLoss/StockMovement trace.
+  const unresolvedCount = session.items.filter(
+    (i) => i.approvalStatus === CycleCountApprovalStatus.PENDING && i.actualQty !== null,
+  ).length;
+  if (unresolvedCount > 0 && !force) {
+    throw new AppError(
+      `توجد ${unresolvedCount} فروقات لم تتم مراجعتها بعد — راجعها أو ارفضها قبل إغلاق الجلسة`,
+      400,
+      "UNRESOLVED_ITEMS",
+    );
+  }
+  if (unresolvedCount > 0 && force) {
+    logger.warn(`[cycle-count] closing session ${sessionId} with ${unresolvedCount} unresolved item(s) (force=true)`);
+  }
 
   await prisma.cycleCountSession.update({
     where: { id: sessionId },
     data: { status: CycleCountSessionStatus.CLOSED, closedAt: new Date() },
   });
 
-  return getCycleCountSession(sessionId);
+  const closed = await getCycleCountSession(sessionId);
+  return { ...closed, unresolvedCount };
 }
 
 export async function cancelCycleCountSession(sessionId: string) {
@@ -690,7 +752,7 @@ export async function getPublicCycleCountSession(token: string) {
 export async function scanCycleCountQrCode(token: string, qrCode: string) {
   const session = await prisma.cycleCountSession.findUnique({
     where: { publicToken: token },
-    select: { id: true, status: true },
+    select: { id: true, status: true, warehouseId: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
   if (session.status !== CycleCountSessionStatus.OPEN)
@@ -710,9 +772,16 @@ export async function scanCycleCountQrCode(token: string, qrCode: string) {
   const increment = isCartonBarcode ? Math.max(1, product.pcsPerCarton) : 1;
   const newQty = (item.actualQty ?? 0) + increment;
 
+  // Same live-refresh fix as setCycleCountItemQty — see comment there.
+  const currentStock = await prisma.productWarehouseStock.findUnique({
+    where: { productId_warehouseId: { productId: product.id, warehouseId: session.warehouseId } },
+    select: { quantityPieces: true },
+  });
+  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+
   await prisma.cycleCountItem.update({
     where: { id: item.id },
-    data: { actualQty: newQty, variance: newQty - item.systemQty },
+    data: { actualQty: newQty, systemQty: freshSystemQty, variance: newQty - freshSystemQty },
   });
 
   return {
@@ -733,7 +802,7 @@ export async function setCycleCountItemQty(
 ) {
   const session = await prisma.cycleCountSession.findUnique({
     where: { publicToken: token },
-    select: { id: true, status: true },
+    select: { id: true, status: true, warehouseId: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
   if (session.status !== CycleCountSessionStatus.OPEN)
@@ -750,9 +819,20 @@ export async function setCycleCountItemQty(
   const actualPcsPerCarton = Math.max(1, item.product.pcsPerCarton);
   const qtyInPieces = unit === "CARTON" ? qty * actualPcsPerCarton : qty;
 
+  // Re-read the LIVE system quantity at count time instead of trusting the
+  // value captured when the session/item was created — that can be stale by
+  // hours/days if other stock movements happened since. Stays invisible to
+  // the worker: only the stored systemQty is refreshed server-side, never
+  // exposed in this (or any public) response — see getPublicCycleCountSession.
+  const currentStock = await prisma.productWarehouseStock.findUnique({
+    where: { productId_warehouseId: { productId, warehouseId: session.warehouseId } },
+    select: { quantityPieces: true },
+  });
+  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+
   await prisma.cycleCountItem.update({
     where: { id: item.id },
-    data: { actualQty: qtyInPieces, variance: qtyInPieces - item.systemQty },
+    data: { actualQty: qtyInPieces, systemQty: freshSystemQty, variance: qtyInPieces - freshSystemQty },
   });
 
   return { productId, actualQty: qtyInPieces, unit, original: qty };

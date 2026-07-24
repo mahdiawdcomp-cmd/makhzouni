@@ -27,6 +27,13 @@ let users: Map<string, any>;
 let settingsStore: Map<string, unknown>;
 let idCounter: number;
 let notifyAdminCalls: any[];
+// Added for the stock-adjustment financial-trace wiring: recordStockAdjustmentVariance
+// (called whenever an approval has a nonzero delta) writes a StockLoss + StockLossItem
+// via generateLossNumber's counter upsert — all faked here the same faithful way as the
+// rest of this in-memory store.
+let stockLosses: Map<string, any>;
+let stockLossItems: any[];
+let counters: Map<string, number>;
 
 function nextId(prefix: string) {
   idCounter += 1;
@@ -120,11 +127,40 @@ const fakeDb: any = {
           };
         });
     },
+    findUnique: async ({ where }: any) => {
+      const key = stockKey(where.productId_warehouseId.productId, where.productId_warehouseId.warehouseId);
+      const stock = stocks.get(key);
+      return stock ? { ...stock } : null;
+    },
+    // upsertWarehouseStock() (called by adjustWarehouseStock) goes through here.
+    upsert: async ({ where, create, update }: any) => {
+      const key = stockKey(where.productId_warehouseId.productId, where.productId_warehouseId.warehouseId);
+      let stock = stocks.get(key);
+      if (!stock) {
+        stock = {
+          productId: create.productId,
+          warehouseId: create.warehouseId,
+          quantityPieces: create.quantityPieces ?? 0,
+          minStock: create.minStock ?? null,
+        };
+        stocks.set(key, stock);
+      } else {
+        if (update.quantityPieces !== undefined) stock.quantityPieces = update.quantityPieces;
+        if (update.minStock !== undefined) stock.minStock = update.minStock;
+      }
+      return { ...stock };
+    },
     update: async ({ where, data }: any) => {
       const key = stockKey(where.productId_warehouseId.productId, where.productId_warehouseId.warehouseId);
       const stock = stocks.get(key);
       if (!stock) throw new Error("stock not found");
-      stock.quantityPieces += data.quantityPieces.increment;
+      // adjustWarehouseStock() sets an absolute balance; older call sites used
+      // the { increment } form — support both shapes.
+      if (data.quantityPieces && typeof data.quantityPieces === "object" && "increment" in data.quantityPieces) {
+        stock.quantityPieces += data.quantityPieces.increment;
+      } else {
+        stock.quantityPieces = data.quantityPieces;
+      }
       return { quantityPieces: stock.quantityPieces };
     },
     aggregate: async ({ where }: any) => {
@@ -225,7 +261,12 @@ const fakeDb: any = {
       const item = items.get(where.id);
       if (!item) return null;
       const session = sessions.get(item.sessionId);
-      return { ...item, session: { status: session.status, warehouseId: session.warehouseId } };
+      const product = products.get(item.productId);
+      return {
+        ...item,
+        session: { status: session.status, warehouseId: session.warehouseId },
+        product: product ? { name: product.name } : null,
+      };
     },
     update: async ({ where, data }: any) => {
       const item = items.get(where.id);
@@ -277,6 +318,44 @@ const fakeDb: any = {
       return { key: where.key, value: create.value };
     },
   },
+  // Faked for recordStockAdjustmentVariance (stock-loss.service.ts), invoked by
+  // approveCycleCountItem/approveAllCycleCountItems whenever delta !== 0.
+  counter: {
+    upsert: async ({ where }: any) => {
+      const next = (counters.get(where.key) ?? 0) + 1;
+      counters.set(where.key, next);
+      return { key: where.key, value: next };
+    },
+  },
+  stockLoss: {
+    create: async ({ data }: any) => {
+      const loss = { id: nextId("loss"), cancelledAt: null, createdAt: new Date(), updatedAt: new Date(), ...data };
+      stockLosses.set(loss.id, loss);
+      return { ...loss };
+    },
+    findUnique: async ({ where }: any) => {
+      if (where.lossNumber !== undefined) {
+        const match = [...stockLosses.values()].find((l) => l.lossNumber === where.lossNumber);
+        return match ? { ...match } : null;
+      }
+      const loss = stockLosses.get(where.id);
+      return loss ? { ...loss } : null;
+    },
+  },
+  stockLossItem: {
+    create: async ({ data }: any) => {
+      const item = { id: nextId("lossitem"), ...data };
+      stockLossItems.push(item);
+      return { ...item };
+    },
+  },
+  // adjustWarehouseStock()'s row lock — this fake has no real concurrency, so it
+  // just reads the current in-memory balance.
+  $queryRaw: async (query: any) => {
+    const [productId, warehouseId] = query?.values ?? [];
+    const stock = stocks.get(stockKey(productId, warehouseId));
+    return [{ quantity_pieces: stock?.quantityPieces ?? 0 }];
+  },
   $transaction: async (fn: any) => fn(fakeDb),
 };
 
@@ -313,6 +392,9 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
       [ADMIN_USER, { id: ADMIN_USER, name: "المدير", role: "ADMIN", isActive: true, createdAt: new Date("2026-01-01") }],
     ]);
     settingsStore = new Map();
+    stockLosses = new Map();
+    stockLossItems = [];
+    counters = new Map();
   });
 
   // ── Item count / capping ────────────────────────────────────────────────────
@@ -615,7 +697,7 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.submitCycleCountSession(session.id);
 
     const before = stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces;
-    const result = await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER);
+    const result = await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR");
 
     assert.equal(result.delta, 10);
     assert.equal(stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces, before + 10);
@@ -624,6 +706,75 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     assert.equal(movements[0].quantity, 10);
     assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
     assert.equal(items.get(item.id)!.approvedBy, ADMIN_USER);
+  });
+
+  // ── Financial trace (StockLoss/StockLossItem wiring) ───────────────────────
+
+  it("approving a nonzero variance records a StockLoss+StockLossItem and links lossId onto the movement and item", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p1")!;
+    await svc.updateCycleCountItem(session.id, "p1", item.systemQty + 5); // overage → GAIN
+    await svc.submitCycleCountSession(session.id);
+
+    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR");
+
+    assert.equal(stockLosses.size, 1, "exactly one StockLoss written");
+    const loss = [...stockLosses.values()][0];
+    assert.equal(loss.direction, "GAIN", "overage → GAIN direction");
+    assert.equal(loss.source, "CYCLE_COUNT");
+    assert.equal(loss.reason, "COUNT_ERROR");
+    assert.equal(stockLossItems.length, 1);
+    assert.equal(stockLossItems[0].quantity, 5);
+    assert.equal(movements[0].lossId, loss.id, "StockMovement links to the loss row");
+    assert.equal(items.get(item.id)!.lossId, loss.id, "CycleCountItem links to the loss row");
+    assert.equal(items.get(item.id)!.reason, "COUNT_ERROR");
+  });
+
+  it("approving a zero-variance item never writes a StockLoss", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p3")!;
+    await svc.updateCycleCountItem(session.id, "p3", item.systemQty);
+    await svc.submitCycleCountSession(session.id);
+
+    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR");
+    assert.equal(stockLosses.size, 0, "zero-delta approvals don't create a StockLoss");
+  });
+
+  // ── Negative-floor guard (bug fix — approval no longer bypasses it) ────────
+
+  it("approving a variance that would drive LIVE warehouse stock negative is rejected, not silently applied", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 3,
+    });
+    const item = [...items.values()].find((i) => i.sessionId === session.id && i.productId === "p2")!;
+    await svc.updateCycleCountItem(session.id, "p2", 0); // counted zero — delta vs systemQty(10) = -10
+    await svc.submitCycleCountSession(session.id);
+
+    // Simulate a concurrent stock-reducing event between counting and approval —
+    // live stock is now lower than the systemQty captured at session creation,
+    // so applying the full -10 delta would push it negative.
+    stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces = 3;
+
+    await assert.rejects(
+      () => svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR"),
+      (err: any) => err.code === "INSUFFICIENT_WAREHOUSE_STOCK",
+    );
+    assert.equal(stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces, 3, "stock untouched after rejection");
+    assert.equal(items.get(item.id)!.approvalStatus, "PENDING", "item stays pending — not silently approved");
+    assert.equal(stockLosses.size, 0, "no StockLoss written for a rejected approval");
   });
 
   it("rejecting an item never touches stock and writes no StockMovement", async () => {
@@ -656,7 +807,7 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.updateCycleCountItem(session.id, "p3", item.systemQty); // no variance
     await svc.submitCycleCountSession(session.id);
 
-    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER);
+    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR");
     assert.equal(movements.length, 0, "zero delta approvals don't create a movement row");
     assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
   });
@@ -673,10 +824,10 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.submitCycleCountSession(session.id);
 
     const before = stocks.get(stockKey("p1", WAREHOUSE))!.quantityPieces;
-    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER); // first click
+    await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR"); // first click
 
     await assert.rejects(
-      () => svc.approveCycleCountItem(session.id, item.id, ADMIN_USER), // double-click
+      () => svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR"), // double-click
       (err: any) => err.code === "ALREADY_PROCESSED",
     );
 
@@ -696,7 +847,7 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.updateCycleCountItem(session.id, item2.productId, item2.systemQty + 1);
     await svc.submitCycleCountSession(session.id);
 
-    await svc.approveCycleCountItem(session.id, item1.id, ADMIN_USER);
+    await svc.approveCycleCountItem(session.id, item1.id, ADMIN_USER, "COUNT_ERROR");
     await assert.rejects(
       () => svc.rejectCycleCountItem(session.id, item1.id, ADMIN_USER),
       (err: any) => err.code === "ALREADY_PROCESSED",
@@ -704,7 +855,7 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
 
     await svc.rejectCycleCountItem(session.id, item2.id, ADMIN_USER);
     await assert.rejects(
-      () => svc.approveCycleCountItem(session.id, item2.id, ADMIN_USER),
+      () => svc.approveCycleCountItem(session.id, item2.id, ADMIN_USER, "COUNT_ERROR"),
       (err: any) => err.code === "ALREADY_PROCESSED",
     );
   });
@@ -725,7 +876,7 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.submitCycleCountSession(session.id);
 
     const before = new Map(sessionItems.map((i) => [i.productId, stocks.get(stockKey(i.productId, WAREHOUSE))!.quantityPieces]));
-    const result = await svc.approveAllCycleCountItems(session.id, ADMIN_USER);
+    const result = await svc.approveAllCycleCountItems(session.id, ADMIN_USER, "COUNT_ERROR");
 
     assert.equal(result.approvedCount, sessionItems.length);
     for (const item of sessionItems) {
@@ -769,7 +920,7 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     await svc.updateCycleCountItem(session.id, sessionItems[0].productId, sessionItems[0].systemQty + 2);
     await svc.submitCycleCountSession(session.id);
 
-    const result = await svc.approveAllCycleCountItems(session.id, ADMIN_USER);
+    const result = await svc.approveAllCycleCountItems(session.id, ADMIN_USER, "COUNT_ERROR");
     assert.equal(result.approvedCount, 1, "only the counted item gets approved");
   });
 
@@ -786,6 +937,30 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     const closed = await svc.closeCycleCountSession(session.id);
     assert.equal(closed.status, "CLOSED");
     assert.ok(sessions.get(session.id).closedAt);
+  });
+
+  it("closing a submitted session with an unreviewed counted variance is blocked unless force=true", async () => {
+    const session = await svc.createCycleCountSession({
+      createdBy: ADMIN_USER,
+      warehouseId: WAREHOUSE,
+      strategy: "RANDOM" as any,
+      itemLimit: 2,
+    });
+    const sessionItems = [...items.values()].filter((i) => i.sessionId === session.id);
+    // Count only the first item — leave the second uncounted (actualQty null,
+    // which must NOT count as "unresolved").
+    await svc.updateCycleCountItem(session.id, sessionItems[0].productId, sessionItems[0].systemQty + 1);
+    await svc.submitCycleCountSession(session.id);
+
+    await assert.rejects(
+      () => svc.closeCycleCountSession(session.id),
+      (err: any) => err.code === "UNRESOLVED_ITEMS",
+    );
+    assert.equal(sessions.get(session.id).status, "SUBMITTED", "still open — close did not silently proceed");
+
+    const closed = await svc.closeCycleCountSession(session.id, true);
+    assert.equal(closed.status, "CLOSED");
+    assert.equal(closed.unresolvedCount, 1, "reports how many were left unresolved when force-closed");
   });
 
   it("admin can cancel an open session", async () => {

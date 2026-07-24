@@ -1,3 +1,4 @@
+import { LossReason } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import {
   approveStocktakeItem,
@@ -35,7 +36,8 @@ export const getSession = asyncHandler(async (req, res) => {
 });
 
 export const closeSession = asyncHandler(async (req, res) => {
-  const data = await closeStocktakeSession(String(req.params.id), String(req.user!.id));
+  const { force } = (req.body ?? {}) as { force?: boolean };
+  const data = await closeStocktakeSession(String(req.params.id), String(req.user!.id), Boolean(force));
   res.json({ success: true, data });
 });
 
@@ -65,10 +67,12 @@ export const submitSession = asyncHandler(async (req, res) => {
 });
 
 export const approveItem = asyncHandler(async (req, res) => {
+  const { reason } = req.body as { reason: LossReason };
   const data = await approveStocktakeItem(
     String(req.params.id),
     String(req.params.itemId),
     String(req.user!.id),
+    reason,
   );
   res.json({ success: true, data });
 });

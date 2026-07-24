@@ -186,7 +186,7 @@ export interface CatalogCategory {
 }
 
 export interface ProfitReport {
-  summary: { totalRevenue: number; totalCost: number; totalProfit: number; lossesTotal: number; expensesTotal: number; expensesByCategory?: Array<{ category: string; amount: number }>; netProfit: number; avgMargin: number }
+  summary: { totalRevenue: number; totalCost: number; totalProfit: number; lossesTotal: number; gainsTotal: number; expensesTotal: number; expensesByCategory?: Array<{ category: string; amount: number }>; netProfit: number; avgMargin: number }
   periods: Array<{ period: string; revenue: number; cost: number; profit: number; margin: number }>
   topProducts: Array<{ id: string; name: string; revenue: number; cost: number; profit: number; margin: number; qty: number }>
 }
@@ -359,6 +359,7 @@ export interface StocktakeSessionDetail extends StocktakeSessionSummary {
     hasError?: boolean
   }>
   stats?: { filled: number; total: number }
+  unresolvedCount?: number
 }
 
 // "جدولة الجرد الذكي" (scheduled smart cycle count) — fully independent from
@@ -402,6 +403,7 @@ export interface CycleCountSessionDetail extends Omit<CycleCountSessionSummary, 
     hasError: boolean
   }>
   stats: { total: number; filled: number; errors: number }
+  unresolvedCount?: number
 }
 
 export type ProspectStatus = "NEW" | "CONVERTED"
@@ -851,6 +853,12 @@ export interface InvoiceItem {
 
 export type LossReason = "DAMAGE" | "EXPIRY" | "THEFT" | "DEFECT" | "OTHER"
 
+// Superset of LossReason used by the automatic stock-correction call sites
+// (manual adjust-stock, cycle-count approval, stocktake approval) — COUNT_ERROR
+// is valid here (and not in StockLoss creation above) because these flows can
+// also represent a surplus/count discrepancy, not only damage-style loss.
+export type StockCorrectionReason = LossReason | "COUNT_ERROR"
+
 export interface StockLossItem {
   id: string
   lossId: string
@@ -1048,6 +1056,17 @@ export interface EndOfDayReport {
   payments: { count: number; total: number }
   expenses: { count: number; total: number }
   invoices: Array<{ id?: string; invoiceNumber: string; customerName: string; total: number; paid: number }>
+}
+
+// Lightweight "today's income" summary for the Collections/Vouchers page —
+// derived from the same numbers as EndOfDayReport (see getCollectionsSummary
+// on the backend), just not feature-gated behind dailyClosing.
+export interface CollectionsSummary {
+  date: string
+  cashSales: { total: number; count: number }
+  creditSales: { total: number; count: number }
+  receipts: { total: number; count: number }
+  netCash: number
 }
 
 export type ThemePreset = "classic" | "iraqi" | "exclusive" | "bold" | "designer"

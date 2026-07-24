@@ -63,6 +63,7 @@ import type {
   VoucherPayload,
   TopCustomer,
   EndOfDayReport,
+  CollectionsSummary,
   ProfitReport,
   WarehouseComparisonRow,
   CrossSellPair,
@@ -97,6 +98,7 @@ import type {
   CustomerReferral,
   StockLoss,
   LossReason,
+  StockCorrectionReason,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -911,6 +913,11 @@ export async function getEndOfDayReport(date?: string) {
   return data.data
 }
 
+export async function getCollectionsSummary(date?: string) {
+  const { data } = await api.get<ApiEnvelope<CollectionsSummary>>("/reports/collections-summary", { params: date ? { date } : {} })
+  return data.data
+}
+
 export interface AtRiskCustomer {
   id: string
   name: string
@@ -1707,8 +1714,8 @@ export async function submitStocktakeSession(id: string) {
   return data.data!
 }
 
-export async function closeStocktakeSession(id: string) {
-  const { data } = await api.post<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${id}/close`)
+export async function closeStocktakeSession(id: string, force?: boolean) {
+  const { data } = await api.post<ApiEnvelope<StocktakeSessionDetail>>(`/stocktake/${id}/close`, force ? { force: true } : undefined)
   return data.data!
 }
 
@@ -1717,8 +1724,8 @@ export async function archiveStocktakeSession(id: string) {
   return data.data
 }
 
-export async function approveStocktakeItem(sessionId: string, itemId: string) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/stocktake/${sessionId}/items/${itemId}/approve`)
+export async function approveStocktakeItem(sessionId: string, itemId: string, reason: StockCorrectionReason) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/stocktake/${sessionId}/items/${itemId}/approve`, { reason })
   return data.data!
 }
 
@@ -1753,8 +1760,8 @@ export async function submitCycleCountSession(id: string) {
   return data.data!
 }
 
-export async function closeCycleCountSession(id: string) {
-  const { data } = await api.post<ApiEnvelope<CycleCountSessionDetail>>(`/cycle-count/${id}/close`)
+export async function closeCycleCountSession(id: string, force?: boolean) {
+  const { data } = await api.post<ApiEnvelope<CycleCountSessionDetail>>(`/cycle-count/${id}/close`, force ? { force: true } : undefined)
   return data.data!
 }
 
@@ -1763,8 +1770,8 @@ export async function cancelCycleCountSession(id: string) {
   return data.data!
 }
 
-export async function approveCycleCountItem(sessionId: string, itemId: string) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/cycle-count/${sessionId}/items/${itemId}/approve`)
+export async function approveCycleCountItem(sessionId: string, itemId: string, reason: StockCorrectionReason) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; delta: number; newQty: number }>>(`/cycle-count/${sessionId}/items/${itemId}/approve`, { reason })
   return data.data!
 }
 
@@ -1773,8 +1780,8 @@ export async function rejectCycleCountItem(sessionId: string, itemId: string) {
   return data.data!
 }
 
-export async function approveAllCycleCountItems(sessionId: string) {
-  const { data } = await api.post<ApiEnvelope<{ success: boolean; approvedCount: number }>>(`/cycle-count/${sessionId}/approve-all`)
+export async function approveAllCycleCountItems(sessionId: string, reason: StockCorrectionReason) {
+  const { data } = await api.post<ApiEnvelope<{ success: boolean; approvedCount: number }>>(`/cycle-count/${sessionId}/approve-all`, { reason })
   return data.data!
 }
 

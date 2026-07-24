@@ -1,4 +1,4 @@
-import { LossReason, Prisma, Unit } from "@prisma/client";
+import { LossReason, Prisma, StockLossDirection, StockLossSource, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { lossUnitToPieces } from "../utils/loss-math";
@@ -63,6 +63,80 @@ async function generateLossNumber(tx: Db, date: Date) {
     if (!exists) return candidate;
   }
   throw new AppError("Could not generate loss number", 409, "LOSS_NUMBER_CONFLICT");
+}
+
+export interface RecordStockAdjustmentVarianceInput {
+  warehouseId: string;
+  productId: string;
+  productName: string;
+  /** Signed; negative = shrinkage (LOSS), positive = overage (GAIN). Caller guarantees != 0. */
+  deltaPieces: number;
+  reason: LossReason;
+  source: Exclude<StockLossSource, "MANUAL">;
+  /** Pre-fetched cost; when omitted, fetched from the product (costPrice, falling back to purchasePrice). */
+  costPriceOverride?: number;
+  createdBy: string;
+  notes?: string;
+}
+
+/**
+ * Shared plumbing for the three automatic stock-correction call sites (manual
+ * "تعديل الكمية", cycle-count approval, stocktake approval): wraps a quantity
+ * variance in a StockLoss (+ one StockLossItem) so it gets a cost value and
+ * enters net-profit reporting instead of being a silent quantity change — same
+ * mechanism as the manual "خسائر/تلف" flow (createStockLoss above), just with
+ * source != MANUAL and a direction resolved from the sign of deltaPieces.
+ *
+ * Does NOT touch ProductWarehouseStock and does NOT create a StockMovement —
+ * callers own their own stock mutation and already write their own
+ * StockMovement; they should set that row's lossId to the id returned here.
+ * MUST run inside the caller's own transaction (no nested prisma.$transaction).
+ */
+export async function recordStockAdjustmentVariance(
+  tx: Db,
+  input: RecordStockAdjustmentVarianceInput
+): Promise<{ lossId: string }> {
+  const date = new Date();
+  const lossNumber = await generateLossNumber(tx, date);
+  const direction: StockLossDirection = input.deltaPieces < 0 ? "LOSS" : "GAIN";
+
+  const loss = await (tx as typeof prisma).stockLoss.create({
+    data: {
+      lossNumber,
+      date,
+      warehouseId: input.warehouseId,
+      reason: input.reason,
+      direction,
+      source: input.source,
+      notes: input.notes,
+      createdBy: input.createdBy,
+    },
+  });
+
+  let costPrice = input.costPriceOverride;
+  if (costPrice === undefined) {
+    const product = await tx.product.findUnique({
+      where: { id: input.productId },
+      select: { costPrice: true, purchasePrice: true },
+    });
+    const costNum = Number(product?.costPrice ?? 0);
+    costPrice = costNum > 0 ? costNum : Number(product?.purchasePrice ?? 0);
+  }
+
+  const absPieces = Math.abs(input.deltaPieces);
+  await (tx as typeof prisma).stockLossItem.create({
+    data: {
+      lossId: loss.id,
+      productId: input.productId,
+      productName: input.productName,
+      unit: Unit.PIECE,
+      quantity: absPieces,
+      quantityPieces: absPieces,
+      costPrice,
+    },
+  });
+
+  return { lossId: loss.id };
 }
 
 export async function createStockLoss(input: CreateStockLossInput, createdBy: string) {

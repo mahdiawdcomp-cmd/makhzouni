@@ -1,9 +1,12 @@
 import { useState } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { adjustProductStock } from "../api/endpoints"
-import type { Product } from "../types/api"
+import type { Product, StockCorrectionReason } from "../types/api"
+import { STOCK_CORRECTION_REASON_LABELS } from "./ReasonPromptModal"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
+
+const REASON_OPTIONS = Object.keys(STOCK_CORRECTION_REASON_LABELS) as StockCorrectionReason[]
 
 /* Manual per-warehouse stock adjustment — ZERO allowed. Records an audit entry
    server-side (who / when / from→to / reason) without touching invoices/profit. */
@@ -13,12 +16,14 @@ export function AdjustStockModal({ product, onClose, onSaved }: { product: Produ
     stocks.map((ws) => ({ warehouseId: ws.warehouseId, name: ws.warehouse?.name ?? "مخزن", current: ws.quantityPieces, value: String(ws.quantityPieces) })),
   )
   const [note, setNote] = useState("")
+  const [reason, setReason] = useState<StockCorrectionReason | "">("")
   const qc = useQueryClient()
 
   const mut = useMutation({
     mutationFn: () => adjustProductStock(product.id, {
       warehouses: rows.map((r) => ({ warehouseId: r.warehouseId, quantityPieces: Math.max(0, Math.trunc(Number(r.value) || 0)) })),
       note: note.trim() || undefined,
+      reason: reason as StockCorrectionReason,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["manual-adjustments", product.id] })
@@ -55,12 +60,26 @@ export function AdjustStockModal({ product, onClose, onSaved }: { product: Produ
           ))}
         </div>
         <div className="mt-3">
-          <label className="mb-1 block text-xs font-bold text-slate-600">السبب (اختياري)</label>
+          <label className="mb-1 block text-xs font-bold text-slate-600">سبب التعديل <span className="text-red-500">*</span></label>
+          <select
+            value={reason}
+            onChange={(e) => setReason(e.target.value as StockCorrectionReason)}
+            className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-950"
+          >
+            <option value="">اختر السبب</option>
+            {REASON_OPTIONS.map((k) => (
+              <option key={k} value={k}>{STOCK_CORRECTION_REASON_LABELS[k]}</option>
+            ))}
+          </select>
+          {!reason && <p className="mt-1 text-[11px] text-amber-600">مطلوب اختيار السبب للحفظ</p>}
+        </div>
+        <div className="mt-3">
+          <label className="mb-1 block text-xs font-bold text-slate-600">ملاحظة (اختياري)</label>
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="مثلاً: جرد / تالف / تصحيح" />
         </div>
         {mut.isError && <p className="mt-2 text-xs text-red-600">تعذر حفظ التعديل.</p>}
         <div className="mt-4 flex gap-2">
-          <Button className="flex-1" disabled={mut.isPending || rows.length === 0} onClick={() => mut.mutate()}>
+          <Button className="flex-1" disabled={mut.isPending || rows.length === 0 || !reason} onClick={() => mut.mutate()}>
             {mut.isPending ? "جار الحفظ..." : "حفظ التعديل"}
           </Button>
           <Button variant="outline" onClick={onClose}>إلغاء</Button>

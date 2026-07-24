@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { LossReason, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -9,6 +9,7 @@ import {
   syncProductTotalStock,
   upsertWarehouseStock,
 } from "./warehouse-stock.service";
+import { recordStockAdjustmentVariance } from "./stock-loss.service";
 import { validateDistribution } from "../utils/warehouse-math";
 import { makeThumbnail } from "../utils/thumbnail";
 import { scoreProduct } from "../utils/arabic-search";
@@ -334,6 +335,7 @@ export async function adjustProductStockManual(
   input: {
     warehouses: Array<{ warehouseId: string; quantityPieces: number }>;
     note?: string;
+    reason: LossReason;
     user?: { id?: string; name?: string };
   }
 ) {
@@ -343,7 +345,10 @@ export async function adjustProductStockManual(
   if (entries.length === 0) throw new AppError("لا يوجد تعديل صالح", 400, "NO_ADJUSTMENT");
 
   await prisma.$transaction(async (tx) => {
-    const existing = await tx.product.findFirst({ where: { id: productId, deletedAt: null }, select: { id: true } });
+    const existing = await tx.product.findFirst({
+      where: { id: productId, deletedAt: null },
+      select: { id: true, name: true },
+    });
     if (!existing) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
 
     for (const e of entries) {
@@ -361,10 +366,26 @@ export async function adjustProductStockManual(
         data: { quantityPieces: after },
       });
 
+      // Give the correction a financial trace: wrap the variance in a StockLoss
+      // (+ StockLossItem) so it enters net-profit reporting instead of being a
+      // silent quantity change, then link it onto the StockMovement below.
+      if (!input.user?.id) throw new AppError("المستخدم مطلوب لتسجيل التعديل", 400, "USER_REQUIRED");
+      const { lossId } = await recordStockAdjustmentVariance(tx, {
+        warehouseId: e.warehouseId,
+        productId,
+        productName: existing.name,
+        deltaPieces: after - before,
+        reason: input.reason,
+        source: "ADJUST_STOCK",
+        createdBy: input.user.id,
+        notes: input.note,
+      });
+
       await tx.stockMovement.create({
         data: {
           productId,
           branchId: e.warehouseId,
+          lossId,
           type: after > before ? "IN" : "OUT",
           quantity: Math.abs(after - before),
           balanceBefore: before,

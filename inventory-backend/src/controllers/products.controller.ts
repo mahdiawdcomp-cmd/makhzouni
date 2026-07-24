@@ -1,4 +1,4 @@
-import { UserRole } from "@prisma/client";
+import { LossReason, UserRole } from "@prisma/client";
 import QRCode from "qrcode";
 import PDFDocument from "pdfkit";
 import {
@@ -97,10 +97,15 @@ export const getProductDetails = asyncHandler(async (req, res) => {
 
 export const adjustStock = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
-  const body = req.body as { warehouses?: Array<{ warehouseId: string; quantityPieces: number }>; note?: string };
+  const body = req.body as {
+    warehouses?: Array<{ warehouseId: string; quantityPieces: number }>;
+    note?: string;
+    reason: LossReason;
+  };
   const product = await adjustProductStockManual(String(req.params.id), {
     warehouses: body.warehouses ?? [],
     note: body.note,
+    reason: body.reason,
     user: { id: user.id, name: user.name },
   });
   res.json({ success: true, message: "تم تعديل الكمية", data: product });

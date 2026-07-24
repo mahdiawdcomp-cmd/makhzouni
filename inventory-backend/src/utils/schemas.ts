@@ -524,6 +524,28 @@ export const updateProductSchema = z.object({
   ),
 });
 
+// Shared across the automatic stock-correction call sites (manual adjust-stock,
+// cycle-count approval, stocktake approval) — COUNT_ERROR is valid here (and
+// not in createStockLossSchema above) because these flows can also represent a
+// surplus/count discrepancy, not only damage-style loss reasons.
+const lossReasonSchema = z.enum(["DAMAGE", "EXPIRY", "THEFT", "DEFECT", "COUNT_ERROR", "OTHER"]);
+
+export const adjustProductStockSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    warehouses: z
+      .array(
+        z.object({
+          warehouseId: z.string().uuid(),
+          quantityPieces: z.coerce.number().int().min(0),
+        }),
+      )
+      .min(1),
+    note: z.string().trim().max(500).optional(),
+    reason: lossReasonSchema,
+  }),
+});
+
 export const varietyConvertSchema = z.object({
   body: z.object({
     fromWarehouseId: z.string().uuid(),
@@ -1151,5 +1173,93 @@ export const previewRetailCouponSchema = z.object({
   body: z.object({
     code: z.string().trim().min(2).max(60),
     subtotal: z.coerce.number().nonnegative(),
+  }),
+});
+
+// ── جدولة الجرد الذكي (cycle count) + الجرد الدوري (stocktake) ────────────────
+// Both routers previously had zero request-body validation on these endpoints.
+const sessionItemParams = z.object({
+  id: z.string().uuid(),
+  itemId: z.string().uuid(),
+});
+const publicTokenParams = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
+export const cycleCountUpdateItemSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    productId: z.string().uuid(),
+    actualQty: z.coerce.number().int().min(0),
+    notes: z.string().trim().max(500).optional(),
+  }),
+});
+
+export const cycleCountApproveItemSchema = z.object({
+  params: sessionItemParams,
+  body: z.object({
+    reason: lossReasonSchema,
+  }),
+});
+
+export const cycleCountApproveAllSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    reason: lossReasonSchema,
+  }),
+});
+
+export const cycleCountCloseSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    force: z.coerce.boolean().optional(),
+  }).optional(),
+});
+
+export const cycleCountPublicSetQtySchema = z.object({
+  params: publicTokenParams,
+  body: z.object({
+    productId: z.string().uuid(),
+    // Rejects negative/NaN/Infinity — matches the loss-quantity validation
+    // convention used by createStockLossSchema above.
+    qty: z.coerce.number().min(0).finite(),
+    // Strict: previously unknown unit values silently fell through to being
+    // treated as PIECE inside setCycleCountItemQty/setItemQty — reject instead.
+    unit: z.enum(["CARTON", "PIECE"]),
+  }),
+});
+
+export const stocktakeUpdateItemSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    productId: z.string().uuid(),
+    actualQty: z.coerce.number().int().min(0),
+    notes: z.string().trim().max(500).optional(),
+  }),
+});
+
+export const stocktakeApproveItemSchema = z.object({
+  params: sessionItemParams,
+  body: z.object({
+    reason: lossReasonSchema,
+  }),
+});
+
+export const stocktakeCloseSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    force: z.coerce.boolean().optional(),
+  }).optional(),
+});
+
+export const stocktakePublicSetQtySchema = z.object({
+  params: publicTokenParams,
+  body: z.object({
+    productId: z.string().uuid(),
+    qty: z.coerce.number().min(0).finite(),
+    unit: z.enum(["CARTON", "PIECE"]),
+    // Accepted for backward compatibility with the existing frontend payload
+    // shape; the service ignores it and reads pcsPerCarton from the DB itself.
+    pcsPerCarton: z.coerce.number().optional(),
   }),
 });

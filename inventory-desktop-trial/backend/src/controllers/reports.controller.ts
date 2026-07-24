@@ -5,6 +5,7 @@ import {
   getDashboardReport,
   getDailySummaryData,
   getEndOfDayReport,
+  getCollectionsSummary,
   getInventoryValuationReport,
   getProductMovementReport,
   getSalesReport,
@@ -87,6 +88,14 @@ export const topCustomersReport = asyncHandler(async (req, res) => {
 export const endOfDayReport = asyncHandler(async (req, res) => {
   const { date } = req.query as Record<string, string>;
   const data = await getEndOfDayReport(date || undefined);
+  res.json({ success: true, data });
+});
+
+// Lightweight, un-gated version of the above for the Collections/Vouchers
+// page's "today's income summary" widget — see getCollectionsSummary.
+export const collectionsSummary = asyncHandler(async (req, res) => {
+  const { date } = req.query as Record<string, string>;
+  const data = await getCollectionsSummary(date || undefined);
   res.json({ success: true, data });
 });
 

@@ -522,8 +522,8 @@ function ProfitsTab() {
         <MetricCard title="متوسط هامش الربح"    value={data?.summary.avgMargin ?? 0}    suffix="%" color="text-blue-600" />
       </div>
 
-      {/* Net profit breakdown — losses & expenses deducted */}
-      {(data?.summary.lossesTotal ?? 0) + (data?.summary.expensesTotal ?? 0) > 0 && (
+      {/* Net profit breakdown — losses, expenses deducted; stock gains added */}
+      {(data?.summary.lossesTotal ?? 0) + (data?.summary.expensesTotal ?? 0) + (data?.summary.gainsTotal ?? 0) > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:bg-slate-900 dark:border-slate-700" dir="rtl">
           <p className="text-xs text-slate-500 mb-3 font-medium">تفصيل صافي الربح</p>
           <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -532,6 +532,8 @@ function ProfitsTab() {
             <span className="text-rose-600">تلف: {(data?.summary.lossesTotal ?? 0).toLocaleString("en-US")}</span>
             <span className="text-slate-400">−</span>
             <span className="text-rose-600">مصاريف: {(data?.summary.expensesTotal ?? 0).toLocaleString("en-US")}</span>
+            <span className="text-slate-400">+</span>
+            <span className="text-emerald-600">زيادة/تصحيح مخزون: {(data?.summary.gainsTotal ?? 0).toLocaleString("en-US")}</span>
             <span className="text-slate-400">=</span>
             <span className={`font-bold text-base ${(data?.summary.netProfit ?? 0) >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
               صافي الربح: {(data?.summary.netProfit ?? 0).toLocaleString("en-US")}

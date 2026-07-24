@@ -3,7 +3,7 @@ import { usePageTitle } from "../hooks/usePageTitle"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Ban, Eye, Pencil, Plus, Receipt, ReceiptText, RefreshCw, Trash2, Wallet } from "lucide-react"
-import { cancelVoucher, createVoucher, deleteVoucher, getCustomers, getVouchers } from "../api/endpoints"
+import { cancelVoucher, createVoucher, deleteVoucher, getCollectionsSummary, getCustomers, getVouchers } from "../api/endpoints"
 import type { Voucher } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -13,6 +13,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { cn } from "../utils/cn"
 import { formatDate, formatDateTime, localDateStr } from "../utils/date"
+import { fmt } from "../utils/fmt"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
@@ -48,6 +49,7 @@ export function VouchersPage() {
       setCancelError(null)
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
+      void queryClient.invalidateQueries({ queryKey: ["reports", "collections-summary"] })
     },
     onError: (e) => setCancelError(e instanceof Error ? e.message : "تعذر تعطيل السند"),
   })
@@ -59,6 +61,7 @@ export function VouchersPage() {
       setDeleteError(null)
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
       void queryClient.invalidateQueries({ queryKey: ["customers"] })
+      void queryClient.invalidateQueries({ queryKey: ["reports", "collections-summary"] })
     },
     onError: (e) => setDeleteError(e instanceof Error ? e.message : "تعذر حذف السند"),
   })
@@ -129,6 +132,13 @@ export function VouchersPage() {
     queryKey: ["customers", "voucher-picker"],
     queryFn: () => getCustomers(),
   })
+  // Today's income summary — cash/credit sales + receipts, sourced from the
+  // same end-of-day aggregation used by Reports → End-of-Day (not gated).
+  const collectionsSummaryQuery = useQuery({
+    queryKey: ["reports", "collections-summary"],
+    queryFn: () => getCollectionsSummary(),
+  })
+  const collections = collectionsSummaryQuery.data
 
   const allCustomers = customersQuery.data ?? []
   const customerSuggestions = customerQuery.trim().length >= 1
@@ -179,6 +189,7 @@ export function VouchersPage() {
       void queryClient.invalidateQueries({ queryKey: ["customer"] })
       void queryClient.invalidateQueries({ queryKey: ["transactions"] })
       void queryClient.invalidateQueries({ queryKey: ["invoices"] })
+      void queryClient.invalidateQueries({ queryKey: ["reports", "collections-summary"] })
       toast({ title: "تم حفظ السند ✓" })
     },
     // A failed save must NEVER be silent — the voucher affects money.
@@ -246,6 +257,54 @@ export function VouchersPage() {
             </button>
           )
         })}
+      </div>
+
+      {/* Today's income summary — cash sales, credit sales, receipt vouchers,
+          and net cash (same formula as Reports → End-of-Day "صافي الصندوق"). */}
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-slate-500 dark:text-slate-400">ملخص التحصيل اليومي</h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-800 dark:bg-emerald-950/20">
+            <div className="mb-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">💵 مبيعات نقدية اليوم</div>
+            <div className="text-xl font-extrabold text-emerald-800 dark:text-emerald-200">
+              {fmt(collections?.cashSales.total)} <span className="text-xs font-normal">د.ع</span>
+            </div>
+            <div className="mt-0.5 text-xs text-emerald-600 dark:text-emerald-400">{collections?.cashSales.count ?? 0} فاتورة كاش</div>
+          </div>
+          <div className="rounded-xl border-2 border-sky-300 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-950/20">
+            <div className="mb-0.5 text-xs font-semibold text-sky-700 dark:text-sky-300">📋 مبيعات آجلة اليوم</div>
+            <div className="text-xl font-extrabold text-sky-800 dark:text-sky-200">
+              {fmt(collections?.creditSales.total)} <span className="text-xs font-normal">د.ع</span>
+            </div>
+            <div className="mt-0.5 text-xs text-sky-600 dark:text-sky-400">{collections?.creditSales.count ?? 0} فاتورة ذمة</div>
+          </div>
+          <div className="rounded-xl border-2 border-teal-300 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950/20">
+            <div className="mb-0.5 text-xs font-semibold text-teal-700 dark:text-teal-300">🧾 سندات قبض اليوم</div>
+            <div className="text-xl font-extrabold text-teal-800 dark:text-teal-200">
+              {fmt(collections?.receipts.total)} <span className="text-xs font-normal">د.ع</span>
+            </div>
+            <div className="mt-0.5 text-xs text-teal-600 dark:text-teal-400">{collections?.receipts.count ?? 0} سند قبض</div>
+          </div>
+          <div
+            className={cn(
+              "rounded-xl border-2 p-4",
+              (collections?.netCash ?? 0) >= 0
+                ? "border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-900"
+                : "border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20",
+            )}
+          >
+            <div className="mb-0.5 text-xs font-semibold text-slate-600 dark:text-slate-300">💰 صافي التحصيل اليوم</div>
+            <div
+              className={cn(
+                "text-xl font-extrabold",
+                (collections?.netCash ?? 0) >= 0 ? "text-slate-800 dark:text-slate-100" : "text-rose-700 dark:text-rose-300",
+              )}
+            >
+              {fmt(collections?.netCash)} <span className="text-xs font-normal">د.ع</span>
+            </div>
+            <div className="mt-0.5 text-xs text-slate-400">نقدي محصّل + قبض − دفع − مصاريف</div>
+          </div>
+        </div>
       </div>
 
       <Card>

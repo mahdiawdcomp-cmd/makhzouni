@@ -703,6 +703,26 @@ export async function getEndOfDayReport(date?: string) {
   };
 }
 
+// ── Today's Collections Summary (lightweight, NOT feature-gated) ─────────
+// Reuses getEndOfDayReport's own aggregation instead of re-querying, so the
+// numbers can never drift from the (dailyClosing-gated) full end-of-day
+// report. netCash mirrors the exact "صافي الصندوق" formula used on the
+// Reports → End-of-Day tab: cash collected from sales + receipt vouchers −
+// payment vouchers − expense vouchers.
+export async function getCollectionsSummary(date?: string) {
+  const r = await getEndOfDayReport(date);
+  const netCash = roundMoney(
+    r.sales.collected + r.receipts.total - r.payments.total - r.expenses.total
+  );
+  return {
+    date: r.date,
+    cashSales: { total: roundMoney(r.sales.cashTotal), count: r.sales.cashCount },
+    creditSales: { total: roundMoney(r.sales.creditTotal), count: r.sales.creditCount },
+    receipts: { total: roundMoney(r.receipts.total), count: r.receipts.count },
+    netCash,
+  };
+}
+
 // ── Daily Summary (for WhatsApp 9 PM report) ─────────────────────────────
 export interface DailySummaryData {
   date: string;
@@ -1137,6 +1157,12 @@ export async function getProfitReport(query: ProfitReportQuery) {
       },
       include: {
         product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
+        // direction distinguishes automatic corrections that REDUCED recognized
+        // profit (LOSS — manual "خسائر/تلف", or a shrinkage found in an
+        // adjust-stock/cycle-count/stocktake correction) from ones that ADDED to
+        // it (GAIN — an overage found in the same automatic flows). Pre-existing
+        // rows all default to LOSS so historical totals are unaffected.
+        loss: { select: { direction: true } },
       },
     }),
     prisma.paymentVoucher.findMany({
@@ -1149,25 +1175,33 @@ export async function getProfitReport(query: ProfitReportQuery) {
     }),
   ]);
 
+  const lossItemCost = (item: (typeof lossItems)[number]) => {
+    // Prefer the piece count frozen at loss time; only legacy rows (null) fall
+    // back to a live re-computation, which can drift if pcsPerCarton changed.
+    const pcs =
+      item.quantityPieces ??
+      amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
+    // Prefer the frozen snapshot stockLossItem.costPrice (cost at loss time);
+    // fall back to the live accounting cost (costPrice → purchasePrice) only
+    // when the snapshot is missing/zero. Same freeze model as sale invoices.
+    const snapshot = toNumber(item.costPrice);
+    const unitCost = snapshot > 0 ? snapshot : accountingUnitCost(item.product);
+    return pcs * unitCost;
+  };
   const lossesTotal = Math.round(
-    lossItems.reduce((s, item) => {
-      // Prefer the piece count frozen at loss time; only legacy rows (null) fall
-      // back to a live re-computation, which can drift if pcsPerCarton changed.
-      const pcs =
-        item.quantityPieces ??
-        amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
-      // Prefer the frozen snapshot stockLossItem.costPrice (cost at loss time);
-      // fall back to the live accounting cost (costPrice → purchasePrice) only
-      // when the snapshot is missing/zero. Same freeze model as sale invoices.
-      const snapshot = toNumber(item.costPrice);
-      const unitCost = snapshot > 0 ? snapshot : accountingUnitCost(item.product);
-      return s + pcs * unitCost;
-    }, 0),
+    lossItems
+      .filter((item) => item.loss.direction !== "GAIN")
+      .reduce((s, item) => s + lossItemCost(item), 0),
+  );
+  const gainsTotal = Math.round(
+    lossItems
+      .filter((item) => item.loss.direction === "GAIN")
+      .reduce((s, item) => s + lossItemCost(item), 0),
   );
   const expensesTotal = Math.round(
     expenseVouchers.reduce((s, v) => s + toNumber(v.amount), 0),
   );
-  const netProfit = Math.round(totalProfit - lossesTotal - expensesTotal);
+  const netProfit = Math.round(totalProfit - lossesTotal + gainsTotal - expensesTotal);
 
   // Breakdown by category (كهرباء/إيجار/رواتب/...) — uncategorized vouchers
   // (created before this field existed, or left blank) group under "أخرى".
@@ -1188,6 +1222,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
       totalCost: Math.round(totalCost),
       totalProfit: Math.round(totalProfit),
       lossesTotal,
+      gainsTotal,
       expensesTotal,
       expensesByCategory,
       netProfit,

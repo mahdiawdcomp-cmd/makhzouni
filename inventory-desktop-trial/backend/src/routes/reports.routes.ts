@@ -8,6 +8,7 @@ import {
   debtAgingReport,
   debtReminderList,
   endOfDayReport,
+  collectionsSummary,
   inactiveReminderList,
   inventoryValuationReport,
   productMovementReport,
@@ -42,6 +43,10 @@ router.get("/inventory/valuation", inventoryValuationReport);
 router.get("/customers/debts", validate(customerDebtsReportSchema), customerDebtsReport);
 router.get("/customers/top", topCustomersReport);
 router.get("/end-of-day", endOfDayReport);
+// Lightweight "today's income" widget for the Collections/Vouchers page —
+// intentionally a different prefix than /reports/end-of-day so it is NOT
+// caught by any dailyClosing-style feature gate.
+router.get("/collections-summary", collectionsSummary);
 router.get("/customers/at-risk", atRiskCustomersReport);
 router.get("/customers/ratings", customerRatingsReport);
 router.get("/customers/debt-aging", debtAgingReport);

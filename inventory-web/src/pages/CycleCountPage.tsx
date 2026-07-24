@@ -31,14 +31,23 @@ import {
   submitCycleCountSession,
   updateCycleCountItem,
 } from "../api/endpoints"
-import type { CycleCountSessionDetail, CycleCountSessionSummary, CycleCountStrategy } from "../types/api"
+import type { CycleCountSessionDetail, CycleCountSessionSummary, CycleCountStrategy, StockCorrectionReason } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { ReasonPromptModal } from "../components/ReasonPromptModal"
 import { useSettings, useUpdateSettings } from "../hooks/useSettings"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 const PUBLIC_BASE = `${window.location.origin}/cycle-count`
+
+// Per-item approve: a surplus (overage) is rarely damage/theft/expiry, so the
+// reason dropdown narrows to the two sensible options. A shortage keeps all 6.
+const OVERAGE_REASONS: StockCorrectionReason[] = ["COUNT_ERROR", "OTHER"]
+
+function extractUnresolvedError(err: unknown): { code?: string; message?: string } {
+  return (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data ?? {}
+}
 
 const STRATEGY_LABELS: Record<CycleCountStrategy, string> = {
   RANDOM: "عشوائي",
@@ -348,6 +357,11 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
   const qc = useQueryClient()
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [copied, setCopied] = useState(false)
+  const [reasonPrompt, setReasonPrompt] = useState<
+    | { type: "approve"; itemId: string; options?: StockCorrectionReason[] }
+    | { type: "approve-all" }
+    | null
+  >(null)
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["cycle-count-session", session.id] })
@@ -360,16 +374,39 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
     onSuccess: invalidate,
   })
   const submitMut = useMutation({ mutationFn: () => submitCycleCountSession(session.id), onSuccess: invalidate })
-  const closeMut = useMutation({ mutationFn: () => closeCycleCountSession(session.id), onSuccess: invalidate })
+  const closeMut = useMutation({
+    mutationFn: (force: boolean) => closeCycleCountSession(session.id, force),
+    onSuccess: invalidate,
+    onError: (err) => {
+      const { code, message } = extractUnresolvedError(err)
+      if (code === "UNRESOLVED_ITEMS") {
+        const n = message?.match(/\d+/)?.[0]
+        const confirmMsg = n
+          ? `توجد ${n} فروقات لم تتم مراجعتها — إغلاق رغم ذلك؟`
+          : "توجد فروقات لم تتم مراجعتها — إغلاق رغم ذلك؟"
+        if (confirm(confirmMsg)) closeMut.mutate(true)
+      }
+    },
+  })
   const reopenMut = useMutation({ mutationFn: () => reopenCycleCountSession(session.id), onSuccess: invalidate })
   const cancelMut = useMutation({
     mutationFn: () => cancelCycleCountSession(session.id),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["cycle-count-sessions"] }); onBack() },
   })
-  const approveMut = useMutation({ mutationFn: (itemId: string) => approveCycleCountItem(session.id, itemId), onSuccess: invalidate })
+  const approveMut = useMutation({
+    mutationFn: ({ itemId, reason }: { itemId: string; reason: StockCorrectionReason }) => approveCycleCountItem(session.id, itemId, reason),
+    onSuccess: invalidate,
+  })
   const rejectMut = useMutation({ mutationFn: (itemId: string) => rejectCycleCountItem(session.id, itemId), onSuccess: invalidate })
-  const approveAllMut = useMutation({ mutationFn: () => approveAllCycleCountItems(session.id), onSuccess: invalidate })
+  const approveAllMut = useMutation({
+    mutationFn: (reason: StockCorrectionReason) => approveAllCycleCountItems(session.id, reason),
+    onSuccess: invalidate,
+  })
   const rejectAllMut = useMutation({ mutationFn: () => rejectAllCycleCountItems(session.id), onSuccess: invalidate })
+
+  function openApprovePrompt(itemId: string, variance: number | null) {
+    setReasonPrompt({ type: "approve", itemId, options: variance !== null && variance > 0 ? OVERAGE_REASONS : undefined })
+  }
 
   const errors = session.items.filter((i) => i.hasError)
   const uncounted = session.items.filter((i) => i.actualQty === null)
@@ -440,7 +477,7 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
         {session.status === "SUBMITTED" && (
           <>
             <Button
-              onClick={() => { if (confirm(`الموافقة على كل الفروقات (${pendingWithDiff.length})؟`)) approveAllMut.mutate() }}
+              onClick={() => { if (confirm(`الموافقة على كل الفروقات (${pendingWithDiff.length})؟`)) setReasonPrompt({ type: "approve-all" }) }}
               disabled={readOnly || approveAllMut.isPending || pendingWithDiff.length === 0}
               title={readOnly ? READ_ONLY_MESSAGE : undefined}
             >
@@ -463,7 +500,12 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
             >
               <RotateCcw className="h-4 w-4" /> {reopenMut.isPending ? "جاري إعادة الفتح..." : "إعادة فتح الجلسة"}
             </Button>
-            <Button variant="outline" onClick={() => closeMut.mutate()} disabled={readOnly || closeMut.isPending} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
+            <Button
+              variant="outline"
+              onClick={() => { if (confirm("متأكد من إغلاق الجلسة؟")) closeMut.mutate(false) }}
+              disabled={readOnly || closeMut.isPending}
+              title={readOnly ? READ_ONLY_MESSAGE : undefined}
+            >
               <CheckCircle2 className="h-4 w-4" /> {closeMut.isPending ? "جاري الإغلاق..." : "إغلاق الجلسة"}
             </Button>
           </>
@@ -488,7 +530,7 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
             items={session.items.filter((i) => i.hasError)}
             status={session.status}
             readOnly={readOnly}
-            onApprove={(id) => approveMut.mutate(id)}
+            onApprove={(item) => openApprovePrompt(item.id, item.variance)}
             onReject={(id) => rejectMut.mutate(id)}
             approvePending={approveMut.isPending}
             rejectPending={rejectMut.isPending}
@@ -498,7 +540,7 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
             items={session.items.filter((i) => !i.hasError && i.actualQty !== null)}
             status={session.status}
             readOnly={readOnly}
-            onApprove={(id) => approveMut.mutate(id)}
+            onApprove={(item) => openApprovePrompt(item.id, item.variance)}
             onReject={(id) => rejectMut.mutate(id)}
             approvePending={approveMut.isPending}
             rejectPending={rejectMut.isPending}
@@ -509,7 +551,7 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
               items={uncounted}
               status={session.status}
               readOnly={readOnly}
-              onApprove={(id) => approveMut.mutate(id)}
+              onApprove={(item) => openApprovePrompt(item.id, item.variance)}
               onReject={(id) => rejectMut.mutate(id)}
               approvePending={approveMut.isPending}
               rejectPending={rejectMut.isPending}
@@ -524,6 +566,20 @@ function SessionView({ session, onBack }: { session: CycleCountSessionDetail; on
           openDrafts={drafts}
           onOpenDraftChange={(id, v) => setDrafts((d) => ({ ...d, [id]: v }))}
           onOpenCommit={(productId, actualQty) => updateItemMut.mutate({ productId, actualQty })}
+        />
+      )}
+
+      {reasonPrompt && (
+        <ReasonPromptModal
+          title={reasonPrompt.type === "approve" ? "سبب الموافقة على الفرق" : `سبب الموافقة على كل الفروقات (${pendingWithDiff.length})`}
+          options={reasonPrompt.type === "approve" ? reasonPrompt.options : undefined}
+          loading={approveMut.isPending || approveAllMut.isPending}
+          onCancel={() => setReasonPrompt(null)}
+          onConfirm={(reason) => {
+            if (reasonPrompt.type === "approve") approveMut.mutate({ itemId: reasonPrompt.itemId, reason })
+            else approveAllMut.mutate(reason)
+            setReasonPrompt(null)
+          }}
         />
       )}
     </div>
@@ -549,7 +605,7 @@ function ItemsGroup({
   items: CycleCountSessionDetail["items"]
   status: string
   readOnly: boolean
-  onApprove?: (itemId: string) => void
+  onApprove?: (item: CycleCountSessionDetail["items"][number]) => void
   onReject?: (itemId: string) => void
   approvePending?: boolean
   rejectPending?: boolean
@@ -621,7 +677,7 @@ function ItemsGroup({
                               size="sm"
                               variant="ghost"
                               className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-100"
-                              onClick={() => onApprove?.(item.id)}
+                              onClick={() => onApprove?.(item)}
                               disabled={readOnly || approvePending || item.actualQty === null}
                               title="وافق"
                             >

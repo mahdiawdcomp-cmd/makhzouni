@@ -675,6 +675,26 @@ export async function getEndOfDayReport(date?: string) {
   };
 }
 
+// ── Today's Collections Summary (lightweight, NOT feature-gated) ─────────
+// Reuses getEndOfDayReport's own aggregation instead of re-querying, so the
+// numbers can never drift from the (dailyClosing-gated) full end-of-day
+// report. netCash mirrors the exact "صافي الصندوق" formula used on the
+// Reports → End-of-Day tab: cash collected from sales + receipt vouchers −
+// payment vouchers − expense vouchers.
+export async function getCollectionsSummary(date?: string) {
+  const r = await getEndOfDayReport(date);
+  const netCash = roundMoney(
+    r.sales.collected + r.receipts.total - r.payments.total - r.expenses.total
+  );
+  return {
+    date: r.date,
+    cashSales: { total: roundMoney(r.sales.cashTotal), count: r.sales.cashCount },
+    creditSales: { total: roundMoney(r.sales.creditTotal), count: r.sales.creditCount },
+    receipts: { total: roundMoney(r.receipts.total), count: r.receipts.count },
+    netCash,
+  };
+}
+
 // ── Daily Summary (for WhatsApp 9 PM report) ─────────────────────────────
 export interface DailySummaryData {
   date: string;

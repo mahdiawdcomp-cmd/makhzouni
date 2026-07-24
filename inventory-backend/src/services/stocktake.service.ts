@@ -1,8 +1,10 @@
 import { randomBytes } from "crypto";
-import { Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
+import { LossReason, Prisma, StockMovementType, StocktakeApprovalStatus, StocktakeSessionStatus } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
+import { adjustWarehouseStock, resolveWarehouseId, syncProductTotalStock } from "./warehouse-stock.service";
+import { recordStockAdjustmentVariance } from "./stock-loss.service";
+import { logger } from "../utils/logger";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -140,17 +142,37 @@ export async function getStocktakeSession(id: string) {
   };
 }
 
-export async function closeStocktakeSession(sessionId: string, closedBy?: string) {
-  const session = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } });
+export async function closeStocktakeSession(sessionId: string, closedBy?: string, force = false) {
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { id: sessionId },
+    include: { items: { select: { approvalStatus: true, actualQty: true } } },
+  });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+
+  // Guard against silently closing a session that still has counted-but-unreviewed
+  // variances — mirrors the identical guard on closeCycleCountSession.
+  const unresolvedCount = session.items.filter(
+    (i) => (i.approvalStatus ?? StocktakeApprovalStatus.PENDING) === StocktakeApprovalStatus.PENDING && i.actualQty !== null,
+  ).length;
+  if (unresolvedCount > 0 && !force) {
+    throw new AppError(
+      `توجد ${unresolvedCount} فروقات لم تتم مراجعتها بعد — راجعها أو ارفضها قبل إغلاق الجلسة`,
+      400,
+      "UNRESOLVED_ITEMS",
+    );
+  }
+  if (unresolvedCount > 0 && force) {
+    logger.warn(`[stocktake] closing session ${sessionId} with ${unresolvedCount} unresolved item(s) (force=true)`);
+  }
 
   await prisma.stocktakeSession.update({
     where: { id: sessionId },
     data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date(), closedBy: closedBy ?? null },
   });
 
-  return getStocktakeSession(sessionId);
+  const closed = await getStocktakeSession(sessionId);
+  return { ...closed, unresolvedCount };
 }
 
 // ─── Admin: Archive session (soft-delete) ────────────────────────────────────
@@ -412,6 +434,7 @@ export async function approveStocktakeItem(
   sessionId: string,
   itemId: string,
   approvingUserId: string,
+  reason: LossReason,
 ) {
   return prisma.$transaction(async (tx) => {
     // Lock the item row for update and re-check approvalStatus (race-safe)
@@ -419,7 +442,7 @@ export async function approveStocktakeItem(
       where: { id: itemId },
       include: {
         session: { select: { status: true, branchId: true } },
-        product: { select: { id: true } },
+        product: { select: { id: true, name: true } },
       },
     });
 
@@ -433,11 +456,14 @@ export async function approveStocktakeItem(
 
     const delta = item.actualQty - (item.systemQty ?? 0);
 
-    // Update warehouse stock
-    const updatedStock = await tx.productWarehouseStock.update({
-      where: { productId_warehouseId: { productId: item.productId, warehouseId: item.session.branchId! } },
-      data: { quantityPieces: { increment: delta } },
-      select: { quantityPieces: true },
+    // adjustWarehouseStock locks the row and enforces the same negative-floor
+    // guard every other stock-mutating path (invoice/transfer/loss) uses — the
+    // raw increment update this replaced had no such guard.
+    const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
+      productId: item.productId,
+      warehouseId: item.session.branchId,
+      deltaPieces: delta,
+      allowNegative: false,
     });
 
     // Refresh the denormalized legacy stock fields (openingBalancePcs /
@@ -447,21 +473,36 @@ export async function approveStocktakeItem(
     // read the legacy fields via currentStock() — go stale after an approval.
     if (delta !== 0) await syncProductTotalStock(tx, item.productId);
 
-    // Record the adjustment in the unified stock-movement ledger so stocktake
-    // corrections show up in سجل حركة المخزون like every other stock change.
+    // Give the correction a financial trace: wrap the variance in a StockLoss
+    // (+ StockLossItem) so it enters net-profit reporting, and record the
+    // adjustment in the unified stock-movement ledger so stocktake corrections
+    // show up in سجل حركة المخزون like every other stock change.
+    let lossId: string | null = null;
     if (delta !== 0) {
       const approver = await tx.user.findUnique({
         where: { id: approvingUserId },
         select: { name: true },
       });
+      const recorded = await recordStockAdjustmentVariance(tx, {
+        warehouseId: item.session.branchId,
+        productId: item.productId,
+        productName: item.product.name,
+        deltaPieces: delta,
+        reason,
+        source: "STOCKTAKE",
+        createdBy: approvingUserId,
+      });
+      lossId = recorded.lossId;
+
       await tx.stockMovement.create({
         data: {
           productId: item.productId,
           branchId: item.session.branchId,
+          lossId,
           type: delta > 0 ? StockMovementType.IN : StockMovementType.OUT,
           quantity: Math.abs(delta),
-          balanceBefore: updatedStock.quantityPieces - delta,
-          balanceAfter: updatedStock.quantityPieces,
+          balanceBefore,
+          balanceAfter,
           userId: approvingUserId,
           userName: approver?.name ?? null,
           note: "تسوية جرد دوري (موافقة فرق الجرد)",
@@ -472,7 +513,12 @@ export async function approveStocktakeItem(
     // Mark item approved — condition on PENDING closes the race window atomically
     const updated = await tx.stocktakeItem.updateMany({
       where: { id: itemId, approvalStatus: StocktakeApprovalStatus.PENDING },
-      data: { approvalStatus: StocktakeApprovalStatus.APPROVED, approvedQty: item.actualQty },
+      data: {
+        approvalStatus: StocktakeApprovalStatus.APPROVED,
+        approvedQty: item.actualQty,
+        reason: delta !== 0 ? reason : null,
+        lossId,
+      },
     });
     if (updated.count === 0)
       throw new AppError("تم الموافقة/الرفض على هذا العنصر بالفعل", 400, "ALREADY_APPROVED");

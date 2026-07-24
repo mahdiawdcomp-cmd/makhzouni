@@ -11,13 +11,22 @@ import {
   getBranches,
   rejectStocktakeItem,
 } from "../api/endpoints"
-import type { StocktakeSessionDetail, StocktakeSessionSummary } from "../types/api"
+import type { StocktakeSessionDetail, StocktakeSessionSummary, StockCorrectionReason } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
+import { ReasonPromptModal } from "../components/ReasonPromptModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 
 const PUBLIC_BASE = `${window.location.origin}/stocktake`
+
+// Per-item approve: a surplus (overage) is rarely damage/theft/expiry, so the
+// reason dropdown narrows to the two sensible options. A shortage keeps all 6.
+const OVERAGE_REASONS: StockCorrectionReason[] = ["COUNT_ERROR", "OTHER"]
+
+function extractUnresolvedError(err: unknown): { code?: string; message?: string } {
+  return (err as { response?: { data?: { code?: string; message?: string } } })?.response?.data ?? {}
+}
 
 function statusLabel(s: string) {
   if (s === "OPEN") return { label: "مفتوح — جاري الجرد", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" }
@@ -51,10 +60,20 @@ export function StocktakePage() {
   })
 
   const closeMut = useMutation({
-    mutationFn: (id: string) => closeStocktakeSession(id),
+    mutationFn: (vars: { id: string; force: boolean }) => closeStocktakeSession(vars.id, vars.force),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["stocktake-session", selectedId] })
       void qc.invalidateQueries({ queryKey: ["stocktake-sessions"] })
+    },
+    onError: (err, vars) => {
+      const { code, message } = extractUnresolvedError(err)
+      if (code === "UNRESOLVED_ITEMS" && !vars.force) {
+        const n = message?.match(/\d+/)?.[0]
+        const confirmMsg = n
+          ? `توجد ${n} فروقات لم تتم مراجعتها — إغلاق رغم ذلك؟`
+          : "توجد فروقات لم تتم مراجعتها — إغلاق رغم ذلك؟"
+        if (confirm(confirmMsg)) closeMut.mutate({ id: vars.id, force: true })
+      }
     },
   })
 
@@ -71,7 +90,7 @@ export function StocktakePage() {
       <SessionView
         session={sessionQ.data}
         onBack={() => setSelectedId(null)}
-        onClose={() => closeMut.mutate(selectedId)}
+        onClose={() => { if (confirm("متأكد من إغلاق الجلسة؟")) closeMut.mutate({ id: selectedId, force: false }) }}
         closing={closeMut.isPending}
       />
     )
@@ -270,10 +289,11 @@ function SessionView({
   const readOnly = useReadOnly()
   const publicUrl = `${PUBLIC_BASE}/${session.publicToken}`
   const [copied, setCopied] = useState(false)
+  const [reasonPrompt, setReasonPrompt] = useState<{ itemId: string; options?: StockCorrectionReason[] } | null>(null)
   const qc = useQueryClient()
 
   const approveMut = useMutation({
-    mutationFn: (itemId: string) => approveStocktakeItem(session.id, itemId),
+    mutationFn: ({ itemId, reason }: { itemId: string; reason: StockCorrectionReason }) => approveStocktakeItem(session.id, itemId, reason),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["stocktake-session", session.id] }),
   })
 
@@ -426,7 +446,7 @@ function SessionView({
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-100"
-                                onClick={() => approveMut.mutate(item.id)}
+                                onClick={() => setReasonPrompt({ itemId: item.id, options: item.variance !== null && item.variance > 0 ? OVERAGE_REASONS : undefined })}
                                 disabled={approveMut.isPending}
                                 title="وافق"
                               >
@@ -464,6 +484,19 @@ function SessionView({
           </div>
         </CardContent>
       </Card>
+
+      {reasonPrompt && (
+        <ReasonPromptModal
+          title="سبب الموافقة على الفرق"
+          options={reasonPrompt.options}
+          loading={approveMut.isPending}
+          onCancel={() => setReasonPrompt(null)}
+          onConfirm={(reason) => {
+            approveMut.mutate({ itemId: reasonPrompt.itemId, reason })
+            setReasonPrompt(null)
+          }}
+        />
+      )}
     </div>
   )
 }
