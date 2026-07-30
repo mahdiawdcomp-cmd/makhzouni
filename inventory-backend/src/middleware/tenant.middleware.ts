@@ -218,12 +218,30 @@ export interface RouteFeatureRule {
   featureKey: string;
   prefix?: string;
   test?: (path: string) => boolean;
+  /**
+   * Optional body discriminator, for features that share a route prefix with a
+   * core one. Sales returns, for example, are POST /invoices with
+   * `type: "SALES_RETURN"` — indistinguishable from an ordinary sale by path
+   * alone. Only consulted when the path already matched; a rule with no
+   * `testBody` behaves exactly as before.
+   */
+  testBody?: (body: unknown) => boolean;
   /** Human-readable route description, for logs only. */
   label: string;
 }
 
 export const ROUTE_FEATURE_MAP: ReadonlyArray<RouteFeatureRule> = [
   { prefix: "/catalog-management", featureKey: "catalogWholesale", label: "/catalog-management" },
+  { prefix: "/instagram", featureKey: "retailShop", label: "/instagram" },
+  { prefix: "/coupons", featureKey: "retailCoupons", label: "/coupons" },
+  // Sales returns live on POST /invoices, so they need a body discriminator —
+  // gating the whole prefix would take ordinary invoicing down with them.
+  {
+    featureKey: "salesReturns",
+    label: "POST /invoices (type=SALES_RETURN)",
+    test: (p) => p === "/invoices" || /^\/invoices\/[^/]+$/.test(p),
+    testBody: (body) => (body as { type?: unknown } | null)?.type === "SALES_RETURN",
+  },
   { prefix: "/retail-catalog", featureKey: "retailShop", label: "/retail-catalog" },
   { prefix: "/campaigns", featureKey: "whatsappCampaigns", label: "/campaigns" },
   { prefix: "/transfers", featureKey: "transfers", label: "/transfers" },
@@ -422,13 +440,17 @@ export async function enforceReadOnlyMiddleware(req: Request, res: Response, nex
 export function featureDecision(
   cfg: TenantConfig | null,
   method: string,
-  path: string
+  path: string,
+  body?: unknown
 ): "allow" | `block:${string}` {
   if (method.toUpperCase() === "OPTIONS") return "allow"; // CORS preflight
   if (!cfg) return "allow";                               // standalone / unresolved / no cache → fail-open
   if (!Array.isArray(cfg.entitlementFeatures)) return "allow"; // defensive fail-open
   const rule = matchFeatureRule(path);
   if (!rule) return "allow";                              // core/basic/unmapped route
+  // A body-discriminated rule only applies when the body actually matches; a
+  // plain sale on the same path must pass straight through.
+  if (rule.testBody && !rule.testBody(body)) return "allow";
   if (cfg.entitlementFeatures.includes(rule.featureKey)) return "allow";
   return `block:${rule.featureKey}`;
 }
@@ -460,10 +482,48 @@ export async function enforceFeatureMiddleware(req: Request, res: Response, next
     next();
     return;
   }
-  const decision = featureDecision(cfg, req.method, req.path);
+  const decision = featureDecision(cfg, req.method, req.path, req.body);
   if (decision === "allow") { next(); return; }
   const featureKey = decision.slice("block:".length);
   res.status(403).json(featureNotEnabledResponse(featureKey));
+}
+
+/**
+ * Platform entitlement (`platforms.webEnabled` / `androidEnabled` /
+ * `desktopEnabled`).
+ *
+ * `isPlatformEnabled` existed but had NO caller — the restriction lived only in
+ * the browser, where the app rendered a "web disabled" page while every API
+ * endpoint kept answering. Any HTTP client, or an Android/desktop build pointed
+ * at the same backend, walked straight past it.
+ *
+ * The client declares itself with `X-Client-Platform`. A request that declares
+ * nothing is not blocked: this gates a paid platform, and silently breaking
+ * unknown or older clients would be worse than the gap it closes. Fails open on
+ * any resolution error, exactly like the two middlewares above.
+ */
+const CLIENT_PLATFORMS = new Set(["web", "android", "desktop"]);
+
+export async function enforcePlatformMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (req.method.toUpperCase() === "OPTIONS") { next(); return; }
+
+  const header = req.header("x-client-platform")?.trim().toLowerCase();
+  if (!header || !CLIENT_PLATFORMS.has(header)) { next(); return; }
+
+  try {
+    const enabled = await isPlatformEnabled(header as "web" | "android" | "desktop");
+    if (enabled) { next(); return; }
+  } catch (err: any) {
+    logger.warn(`[tenant] platform check could not resolve tenant, failing open: ${err?.message}`);
+    next();
+    return;
+  }
+
+  res.status(403).json({
+    error: "PLATFORM_NOT_ENABLED",
+    message: "هذه المنصة غير مفعلة في اشتراكك.",
+    platform: header,
+  });
 }
 
 export function tenantMiddleware(req: Request, res: Response, next: NextFunction) {

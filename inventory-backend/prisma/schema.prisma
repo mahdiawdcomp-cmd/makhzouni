@@ -307,6 +307,10 @@ model User {
   name                      String
   username                  String                  @unique
   passwordHash              String                  @map("password_hash")
+  // Bumped on password change and on explicit logout. Every issued JWT carries
+  // the value it was signed with; authMiddleware rejects a token whose version
+  // is stale, so changing the password actually revokes existing sessions.
+  tokenVersion              Int                     @default(0) @map("token_version")
   role                      UserRole                @default(STAFF)
   // Free-form capability strings (see frontend UserPermission union). Also carries
   // DENY markers such as "HIDE_PROFIT_REPORTS" which revoke a capability even from an
@@ -1322,6 +1326,11 @@ model InventoryTransfer {
   status         TransferStatus  @default(COMPLETED)
   date           DateTime        @default(now())
   notes          String?
+  // Set only on the automatic depot→المحل transfer a depot sale generates.
+  // Cancelling or hard-deleting that invoice reverses this transfer too;
+  // without the link the total stock stayed correct but the depot was left
+  // permanently short and المحل long, with nothing explaining why.
+  sourceInvoiceId String?        @map("source_invoice_id") @db.Uuid
   createdBy      String          @map("created_by") @db.Uuid
   creator        User            @relation("TransferCreatedBy", fields: [createdBy], references: [id])
   items          TransferItem[]
@@ -1333,6 +1342,7 @@ model InventoryTransfer {
   @@index([toBranchId])
   @@index([createdBy])
   @@index([status])
+  @@index([sourceInvoiceId])
   @@map("inventory_transfers")
 }
 

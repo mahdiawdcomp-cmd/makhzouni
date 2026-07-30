@@ -191,8 +191,13 @@ const router = createBrowserRouter([
 export default function App() {
   const { data: tenant } = useTenantConfig()
 
+  // SUSPENDED is a hard stop. EXPIRED deliberately is NOT: the backend already
+  // enforces read-only (423 on writes, reads/exports/prints allowed), and
+  // returning here instead took the whole router down with it — including
+  // /login, /catalog and /client/:token, so an expired shop's own CUSTOMERS
+  // lost the public storefront. ReadOnlySaasBanner in AppLayout is the
+  // intended treatment and was dead code for this case.
   if (tenant?.isSuspended) return <SubscriptionExpiredPage suspended />
-  if (tenant?.isExpired)    return <SubscriptionExpiredPage />
 
   // SaaS tenants with the web platform explicitly disabled get a full block,
   // not just the informational banner. Standalone (mahdi) and tenants without

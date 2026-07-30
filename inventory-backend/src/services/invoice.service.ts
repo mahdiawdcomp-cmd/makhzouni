@@ -4,6 +4,7 @@
   PaymentType,
   Prisma,
   StockMovementType,
+  TransferStatus,
   Unit,
   VoucherType,
 } from "@prisma/client";
@@ -416,6 +417,9 @@ async function applyStockMovement(
           toBranchId: shopId,
           items: [{ productId: product.id, unit: item.unit, quantity: item.quantity }],
           notes: "تحويل تلقائي للبيع",
+          // Linked so reverseInvoiceItemsStock can undo it — otherwise
+          // cancelling the sale leaves the depot short and المحل long forever.
+          sourceInvoiceId: invoiceId,
         },
         createdBy,
         allowNegativeSale
@@ -690,6 +694,79 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
   }
 
   await tx.stockMovement.deleteMany({ where: { invoiceId } });
+
+  // Undo any automatic depot→المحل transfer this sale generated.
+  //
+  // A depot sale moves stock out of the depot into المحل and then deducts from
+  // المحل. The loop above credits the pieces back to المحل only, so the TOTAL
+  // was conserved but the depot stayed permanently short and المحل permanently
+  // long, with no invoice or user action explaining the drift — and every
+  // depot-level reorder point and cycle count was wrong from then on.
+  //
+  // Only transfers this invoice created are touched (sourceInvoiceId), so an
+  // operator-initiated transfer is never disturbed. When the operator chose an
+  // explicit return warehouse we leave the transfer alone: they have already
+  // said where the stock should land.
+  if (invoice.type === InvoiceType.SALE && !returnWarehouseId) {
+    await reverseAutoTransfersForInvoice(tx, invoiceId);
+  }
+}
+
+/**
+ * Moves the pieces of each auto-generated transfer back to their source
+ * warehouse and marks the transfer CANCELLED. Idempotent: an already-cancelled
+ * transfer is skipped, so a re-run (cancel → hard delete) cannot double-apply.
+ */
+async function reverseAutoTransfersForInvoice(tx: Db, invoiceId: string) {
+  const transfers = await tx.inventoryTransfer.findMany({
+    where: { sourceInvoiceId: invoiceId, status: TransferStatus.COMPLETED },
+    include: {
+      items: {
+        include: { product: { select: { pcsPerCarton: true, boxPieces: true } } },
+      },
+    },
+  });
+
+  for (const transfer of transfers) {
+    // Claim it first: only the caller that flips COMPLETED → CANCELLED does the
+    // stock work, so concurrent cancel/delete cannot both reverse it.
+    const claimed = await tx.inventoryTransfer.updateMany({
+      where: { id: transfer.id, status: TransferStatus.COMPLETED },
+      data: { status: TransferStatus.CANCELLED },
+    });
+    if (claimed.count === 0) continue;
+
+    for (const item of transfer.items) {
+      const pieces = unitToPieces(
+        item.unit,
+        item.quantity,
+        item.product.pcsPerCarton,
+        item.product.boxPieces
+      );
+      if (pieces <= 0) continue;
+      // المحل gives the pieces back, the depot receives them — the exact
+      // inverse of executeTransferWithin. allowNegative because the sale being
+      // reversed already happened and today's shop level may be lower.
+      await adjustWarehouseStock(tx, {
+        productId: item.productId,
+        warehouseId: transfer.toBranchId,
+        deltaPieces: -pieces,
+        allowNegative: true,
+      });
+      await adjustWarehouseStock(tx, {
+        productId: item.productId,
+        warehouseId: transfer.fromBranchId,
+        deltaPieces: pieces,
+        allowNegative: true,
+      });
+      await syncProductTotalStock(tx, item.productId);
+    }
+
+    // The movement rows carried the original transfer's before/after balances;
+    // keeping them would misreport the ledger for a transfer that no longer
+    // stands. executeTransferWithin writes them keyed on transferId.
+    await tx.stockMovement.deleteMany({ where: { transferId: transfer.id } });
+  }
 }
 
 async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {

@@ -6,6 +6,14 @@ export interface JwtPayload {
   userId: string;
   username: string;
   role: UserRole;
+  /**
+   * The user's tokenVersion at sign time. authMiddleware rejects the token when
+   * the stored version has moved on, so a password change or an explicit logout
+   * genuinely revokes existing sessions instead of leaving a stolen 30-day
+   * token valid. Optional so tokens issued before this field existed keep
+   * working until they expire naturally (treated as version 0).
+   */
+  tokenVersion?: number;
 }
 
 const jwtSecret = process.env.JWT_SECRET;
@@ -20,7 +28,9 @@ function getJwtSecret() {
 
 export function signToken(payload: JwtPayload) {
   const options: SignOptions = {
-    expiresIn: "30d",
+    // Shorter than the previous 30 days: a leaked token is now bounded by a
+    // week rather than a month, and tokenVersion covers deliberate revocation.
+    expiresIn: "7d",
   };
 
   return jwt.sign(payload, getJwtSecret(), options);

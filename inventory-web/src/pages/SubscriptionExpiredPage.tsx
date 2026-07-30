@@ -24,7 +24,7 @@ export default function SubscriptionExpiredPage({ suspended = false }: { suspend
           : "انتهت صلاحية اشتراكك. يرجى التجديد للاستمرار في استخدام النظام."}
       </p>
       <a
-        href="mailto:support@yourdomain.com"
+        href={`mailto:${import.meta.env.VITE_SUPPORT_EMAIL || "support@mazbwoni.com"}`}
         style={{
           background: "#238636",
           color: "#fff",

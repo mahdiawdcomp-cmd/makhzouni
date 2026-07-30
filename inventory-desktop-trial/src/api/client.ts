@@ -39,6 +39,10 @@ export const api = axios.create({
   timeout: 60000,
   headers: {
     "Content-Type": "application/json",
+    // Declares which client this is so the backend can enforce the tenant's
+    // platform entitlement server-side. The block used to exist only in the
+    // browser, which any HTTP client walked straight past.
+    "X-Client-Platform": "desktop",
   },
   paramsSerializer: serializeParams,
 })

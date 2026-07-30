@@ -20,7 +20,31 @@ import { requirePermission, requireAnyPermission } from "../middleware/permissio
 
 const router = Router();
 // 25MB: real China-order sheets often carry embedded product photos.
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+// The parser (SheetJS) carries unpatched prototype-pollution and ReDoS
+// advisories with no npm fix available, so the boundary is kept as narrow as
+// possible: one file, a hard size cap, and an extension/MIME allowlist so
+// arbitrary binaries never reach it. See SECURITY-NOTES.md.
+const SPREADSHEET_MIMES = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
+  "application/vnd.ms-excel",                                          // .xls
+  "text/csv",
+  "application/csv",
+  "application/octet-stream", // some browsers send this for .xlsx
+]);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => {
+    const name = (file.originalname ?? "").toLowerCase();
+    const extOk = /\.(xlsx|xlsm|xls|csv)$/.test(name);
+    if (!extOk || !SPREADSHEET_MIMES.has(file.mimetype)) {
+      cb(new Error("صيغة الملف غير مدعومة — ارفع ملف Excel أو CSV فقط"));
+      return;
+    }
+    cb(null, true);
+  },
+});
 
 router.use(authMiddleware);
 // Deals with purchase cost + creates real purchase invoices — gate behind the

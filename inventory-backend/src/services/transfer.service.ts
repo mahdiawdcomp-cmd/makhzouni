@@ -28,6 +28,10 @@ export interface CreateTransferInput {
   fromBranchId: string;
   toBranchId: string;
   notes?: string;
+  // Set ONLY by the automatic depot→المحل transfer a depot sale generates, so
+  // cancelling that invoice can reverse this transfer too. Never set for
+  // operator-initiated transfers.
+  sourceInvoiceId?: string;
   items: TransferItemInput[];
 }
 
@@ -313,6 +317,7 @@ export async function executeTransferWithin(
         fromBranchId: input.fromBranchId,
         toBranchId: input.toBranchId,
         notes: input.notes?.trim() || null,
+        sourceInvoiceId: input.sourceInvoiceId ?? null,
         createdBy,
         status: TransferStatus.COMPLETED,
         items: { create: normalizedItems },

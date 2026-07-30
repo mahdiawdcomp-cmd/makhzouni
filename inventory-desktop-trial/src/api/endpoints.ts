@@ -422,12 +422,34 @@ export async function productCartonLabelPngObjectUrl(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
+// DLabel is the label printer bridge exposed by the DESKTOP app's bundled
+// sidecar on localhost:5050. From the HTTPS-hosted web build this is blocked
+// mixed content, so the fetch throws a raw network error and window.open opens
+// a dead tab — the feature can never work there. Detect the desktop runtime and
+// fail with an actionable message instead.
+function assertDesktopRuntime() {
+  const isTauri =
+    typeof window !== "undefined" &&
+    ("__TAURI__" in window || "__TAURI_INTERNALS__" in window)
+  if (!isTauri) {
+    throw new Error("طباعة الملصقات عبر DLabel متاحة في تطبيق سطح المكتب فقط")
+  }
+}
+
+export function isDLabelAvailable() {
+  return (
+    typeof window !== "undefined" &&
+    ("__TAURI__" in window || "__TAURI_INTERNALS__" in window)
+  )
+}
+
 export async function openPieceLabelInDLabel(payload: {
   name: string
   itemNumber: string
   qrCode: string
   pcsPerCarton: number
 }) {
+  assertDesktopRuntime()
   const response = await fetch("http://localhost:5050/api/products/label/piece/dlabel-open", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -454,6 +476,7 @@ export function openPieceLabelInDLabelLink(payload: {
   qrCode: string
   pcsPerCarton: number
 }) {
+  assertDesktopRuntime()
   const params = new URLSearchParams({
     name: payload.name,
     itemNumber: payload.itemNumber,

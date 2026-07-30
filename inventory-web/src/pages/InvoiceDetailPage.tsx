@@ -852,7 +852,7 @@ export function InvoiceDetailPage() {
                       onFocus={(e) => e.target.select()}
                       onChange={(e) => {
                         const tot = Number(e.target.value); const qty = it.quantity || 1
-                        setEditItems((p) => p.map((x, j) => j === i ? { ...x, unitPrice: Math.round(tot / qty * 1000) / 1000 } : x))
+                        setEditItems((p) => p.map((x, j) => j === i ? { ...x, unitPrice: Math.round(tot / qty * 100) / 100 } : x))
                       }} /></TD>
                     <TD><Input className="min-w-36 h-8 text-sm" value={it.notes ?? ""} placeholder="ملاحظة للمادة"
                       onChange={(e) => setEditItems((p) => p.map((x, j) => j === i ? { ...x, notes: e.target.value } : x))} /></TD>

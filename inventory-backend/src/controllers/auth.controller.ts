@@ -29,6 +29,7 @@ export const login = asyncHandler(async (req, res) => {
     userId: user.id,
     username: user.username,
     role: user.role,
+    tokenVersion: user.tokenVersion,
   });
 
   res.json({
@@ -39,7 +40,17 @@ export const login = asyncHandler(async (req, res) => {
   });
 });
 
-export const logout = asyncHandler(async (_req, res) => {
+export const logout = asyncHandler(async (req, res) => {
+  // Logout used to be a bare 200 with no server state, so the token stayed
+  // valid for its full lifetime. Bumping the version revokes it (and every
+  // other session for this user) immediately.
+  if (req.user) {
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { tokenVersion: { increment: 1 } },
+    });
+  }
+
   res.json({
     success: true,
     message: "Logout successful",
@@ -75,9 +86,11 @@ export const changePassword = asyncHandler(async (req, res) => {
     Number(process.env.BCRYPT_SALT_ROUNDS ?? 10)
   );
 
+  // Revoke every session issued under the old password — the whole point of
+  // changing it after a suspected compromise.
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash },
+    data: { passwordHash, tokenVersion: { increment: 1 } },
   });
 
   res.json({

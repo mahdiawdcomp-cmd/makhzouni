@@ -356,7 +356,11 @@ const fakeDb: any = {
     const stock = stocks.get(stockKey(productId, warehouseId));
     return [{ quantity_pieces: stock?.quantityPieces ?? 0 }];
   },
-  $transaction: async (fn: any) => fn(fakeDb),
+  // Prisma's $transaction accepts EITHER a callback OR an array of prepared
+  // queries (settings.service batches its upserts that way). Support both, or
+  // the double throws "fn is not a function" on the array form.
+  $transaction: async (fnOrOps: any) =>
+    Array.isArray(fnOrOps) ? Promise.all(fnOrOps) : fnOrOps(fakeDb),
 };
 
 mock.module("../config/database", { exports: { default: fakeDb } });

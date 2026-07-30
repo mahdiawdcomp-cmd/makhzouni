@@ -1,3 +1,4 @@
+import { UNIT_LABELS, unitToPieces, type InvoiceUnit } from "../utils/units"
 import { useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
@@ -90,9 +91,10 @@ function TransferDetailDialog({
             </THead>
             <TBody>
               {transfer.items.map((item) => {
-                const pcs = item.unit === "CARTON"
-                  ? item.quantity * item.product.pcsPerCarton
-                  : item.unit === "DOZEN" ? item.quantity * 12 : item.quantity
+                // Was a hand-rolled CARTON/DOZEN ladder, so a BOX line fell
+                // through to "pieces" and a 3-BOX transfer of a 120-piece
+                // carton displayed as 3 instead of the 180 it actually moved.
+                const pcs = unitToPieces(item.unit as InvoiceUnit, item.quantity, item.product)
                 return (
                   <TR key={item.id}>
                     <TD className="font-semibold">{item.product.name}</TD>
@@ -326,9 +328,10 @@ interface TransferItem {
   productName: string
   itemNumber: string
   quantity: number
-  unit: "PIECE" | "DOZEN" | "CARTON"
+  unit: InvoiceUnit
   currentStock: number
   pcsPerCarton: number
+  boxPieces?: number | null
 }
 
 function CreateTransferDialog({
@@ -352,7 +355,7 @@ function CreateTransferDialog({
   const [searchOpen, setSearchOpen]       = useState(false)
   const [activeIndex, setActiveIndex]     = useState(0)
   const [qty, setQty]                     = useState("1")
-  const [unit, setUnit]                   = useState<"PIECE" | "DOZEN" | "CARTON">("PIECE")
+  const [unit, setUnit]                   = useState<InvoiceUnit>("PIECE")
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const itemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
@@ -427,9 +430,7 @@ function CreateTransferDialog({
     if (!fromBranchId) { toast({ title: "اختر المخزن المصدر أولاً", variant: "destructive" }); return }
     const qtyNum = parseInt(qty, 10)
     if (isNaN(qtyNum) || qtyNum <= 0) return
-    const requestedPieces = unit === "CARTON"
-      ? qtyNum * selectedProduct.pcsPerCarton
-      : unit === "DOZEN" ? qtyNum * 12 : qtyNum
+    const requestedPieces = unitToPieces(unit, qtyNum, selectedProduct)
     const sourceStock = sourceStockOf(selectedProduct)
     if (requestedPieces > sourceStock) {
       toast({
@@ -445,6 +446,9 @@ function CreateTransferDialog({
         productId: selectedProduct.id, productName: selectedProduct.name,
         itemNumber: selectedProduct.itemNumber, quantity: qtyNum, unit,
         currentStock: sourceStock, pcsPerCarton: selectedProduct.pcsPerCarton,
+        // Needed so a BOX line converts with the product's own override rather
+        // than the ceil(pcsPerCarton / 2) default.
+        boxPieces: selectedProduct.boxPieces,
       }])
     }
     clearProduct()
@@ -582,10 +586,11 @@ function CreateTransferDialog({
                   </div>
                   <div className="w-32">
                     <Label className="text-xs mb-1 block">الوحدة</Label>
-                    <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" value={unit} onChange={(e) => setUnit(e.target.value as "PIECE" | "DOZEN" | "CARTON")}>
-                      <option value="PIECE">قطعة</option>
-                      <option value="DOZEN">درزن</option>
-                      <option value="CARTON">كرتونة</option>
+                    <select className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950" value={unit} onChange={(e) => setUnit(e.target.value as InvoiceUnit)}>
+                      <option value="PIECE">{UNIT_LABELS.PIECE}</option>
+                      <option value="DOZEN">{UNIT_LABELS.DOZEN}</option>
+                      <option value="BOX">{UNIT_LABELS.BOX}</option>
+                      <option value="CARTON">{UNIT_LABELS.CARTON}</option>
                     </select>
                   </div>
                   <Button onClick={addItem} className="shrink-0">إضافة</Button>
@@ -602,7 +607,7 @@ function CreateTransferDialog({
               <Label>المواد المضافة ({items.length})</Label>
               <div className="rounded-lg border border-slate-200 dark:border-slate-700 divide-y divide-slate-100 dark:divide-slate-800">
                 {items.map((item) => {
-                  const reqPieces = item.unit === "CARTON" ? item.quantity * item.pcsPerCarton : item.unit === "DOZEN" ? item.quantity * 12 : item.quantity
+                  const reqPieces = unitToPieces(item.unit, item.quantity, item)
                   const exceeds = reqPieces > item.currentStock
                   return (
                     <div key={`${item.productId}:${item.unit}`} className="flex items-center justify-between gap-3 px-4 py-3">

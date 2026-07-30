@@ -34,7 +34,7 @@ import { apiLimiter } from "./middleware/rate-limit.middleware";
 import { logger, setLoggerErrorSink } from "./utils/logger";
 import { recordError } from "./services/error-log.service";
 import { realtimeHeartbeat } from "./services/realtime.service";
-import { reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware, enforceFeatureMiddleware } from "./middleware/tenant.middleware";
+import { reportOnlyEntitlementsMiddleware, enforceReadOnlyMiddleware, enforceFeatureMiddleware, enforcePlatformMiddleware } from "./middleware/tenant.middleware";
 import { ensureInitialAdmin } from "./services/initial-admin.service";
 import prisma from "./config/database";
 
@@ -116,6 +116,10 @@ app.use("/api", enforceReadOnlyMiddleware);
 // the request through. Self-guards — no-op in standalone (mahdi), fails open if
 // tenant state can't be resolved. OPTIONS preflight always passes.
 app.use("/api", enforceFeatureMiddleware);
+// Platform entitlement. After the two above so subscription state and feature
+// entitlements keep their priority in the response. Keyed off the client's
+// declared X-Client-Platform header; unknown/absent clients pass through.
+app.use("/api", enforcePlatformMiddleware);
 app.use("/api", apiLimiter, apiRoutes);
 app.use((_req, _res, next) => {
   next(new AppError("Route not found", 404, "ROUTE_NOT_FOUND"));

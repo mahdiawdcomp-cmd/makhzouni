@@ -363,21 +363,26 @@ export async function getSettings(): Promise<AppSettings> {
 }
 
 export async function updateSettings(input: Partial<AppSettings>) {
-  for (const [key, value] of Object.entries(input)) {
+  const entries = Object.entries(input).filter(
     // Keys can arrive as explicit undefined (e.g. zod's nullAsUndefined
     // preprocess in updateSettingsSchema) — "no change", never a DB write.
-    if (value === undefined) continue;
-    await prisma.setting.upsert({
-      where: { key },
-      create: {
-        key,
-        value: value as Prisma.InputJsonValue,
-      },
-      update: {
-        value: value as Prisma.InputJsonValue,
-      },
-    });
-  }
+    ([, value]) => value !== undefined
+  );
+
+  // One transaction, not ~100 sequential round-trips. The settings page posts
+  // the whole object on every save, so this was multiple seconds against
+  // Railway — and a mid-loop failure left settings half-applied with no
+  // rollback (e.g. whatsappProvider switched but its credentials not yet
+  // written, so every send started failing).
+  await prisma.$transaction(
+    entries.map(([key, value]) =>
+      prisma.setting.upsert({
+        where: { key },
+        create: { key, value: value as Prisma.InputJsonValue },
+        update: { value: value as Prisma.InputJsonValue },
+      })
+    )
+  );
 
   // getSettings() re-syncs WhatsApp credentials automatically
   const saved = await getSettings();

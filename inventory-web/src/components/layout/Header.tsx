@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { ChevronDown, LogOut, Moon, Sun, Sparkles } from "lucide-react"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "react-router-dom"
 import { logout } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
@@ -55,10 +55,17 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
   const pageTitle = useCurrentPageLabel()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
 
+  const queryClient = useQueryClient()
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
       clearSession()
+      // Manual logout is an SPA navigation, so the react-query cache (5 min
+      // staleTime) survived it: on a shared shop terminal the next user could
+      // see the previous user's invoices, customers and balances flash before
+      // the refetch landed. The 401 interceptor does a hard navigation and was
+      // never affected — only this path.
+      queryClient.clear()
       navigate("/login", { replace: true })
     },
   })

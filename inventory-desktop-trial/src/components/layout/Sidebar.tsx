@@ -394,6 +394,12 @@ export function Sidebar() {
     if ("to" in item && item.to === "/inventory/transfers") {
       return permissions.includes("VARIETY_CONVERT") || permissions.includes("MANAGE_PRODUCTS")
     }
+    // POS: ACCESS_POS is the dedicated cashier capability, but MANAGE_INVOICES
+    // has always implied it. An OR keeps existing accounts working while
+    // finally making the ACCESS_POS checkbox in UsersPage mean something.
+    if ("to" in item && item.to === "/pos") {
+      return permissions.includes("ACCESS_POS") || permissions.includes("MANAGE_INVOICES")
+    }
     const perm = permissionForItem(item)
     return perm === null || permissions.includes(perm)
   }
@@ -500,7 +506,7 @@ export function Sidebar() {
                   </span>
                   {adminItem.label}
                 </div>
-                {pendingCount > 0 && (
+                {adminItem.to === "/approvals" && pendingCount > 0 && (
                   <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
                     {pendingCount}
                   </span>
@@ -541,12 +547,22 @@ export function SidebarTopBar() {
   const tenantMode = tenantQuery.data?.mode
   const tenantFeatures = tenantQuery.data?.entitlementFeatures
 
+  // Own dialog state — the export lives in a dialog, not a route, and this
+  // component is rendered independently of the full sidebar.
+  const [statementExportOpen, setStatementExportOpen] = useState(false)
+
   const topItems = navItems.filter((item) => {
     if (!user) return false
     if (!isFeatureAllowed(item, tenantMode, tenantFeatures)) return false
     if (isAdmin) return true
     if (isGroup(item) && item.id === "inventory") {
       return permissions.includes("MANAGE_PRODUCTS") || permissions.includes("VARIETY_CONVERT")
+    }
+    if ("to" in item && item.to === "/pos") {
+      return permissions.includes("ACCESS_POS") || permissions.includes("MANAGE_INVOICES")
+    }
+    if ("to" in item && item.to === "/inventory/transfers") {
+      return permissions.includes("VARIETY_CONVERT") || permissions.includes("MANAGE_PRODUCTS")
     }
     const perm = permissionForItem(item)
     return perm === null || permissions.includes(perm)
@@ -569,6 +585,20 @@ export function SidebarTopBar() {
         const to = "to" in item ? item.to : item.basePath
         const Icon = item.icon
         const label = item.label
+        if (to === "/account/statement-export") {
+          // Only the full sidebar special-cased this into a dialog; here it fell
+          // through to a NavLink pointing at a route that does not exist, so the
+          // click dumped the user on the dashboard and lost the page they were on.
+          return (
+            <button key="/account/statement-export" type="button"
+              onClick={() => setStatementExportOpen(true)}
+              className="flex items-center gap-1.5 rounded-md px-2 h-8 text-white/50 hover:bg-white/10 hover:text-white transition-all"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-[11px] font-medium whitespace-nowrap">{label}</span>
+            </button>
+          )
+        }
         if (to === "/pos") {
           return (
             <button key="/pos" type="button"
@@ -603,6 +633,7 @@ export function SidebarTopBar() {
           <span className="text-[11px] font-medium whitespace-nowrap">الموافقات</span>
         </NavLink>
       )}
+      <GenerateFullStatementDialog open={statementExportOpen} onOpenChange={setStatementExportOpen} />
     </div>
   )
 }

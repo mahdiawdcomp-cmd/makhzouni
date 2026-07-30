@@ -260,6 +260,11 @@ const tx: any = {
   inventoryTransfer: {
     create: async ({ data }: any) => ({ id: "trf-1", ...data }),
     findUniqueOrThrow: async ({ where }: any) => ({ id: where.id, items: [] }),
+    // Cancelling a sale now looks for the auto-generated depot→المحل transfer
+    // it created so it can reverse it. This journey sells straight out of
+    // المحل, so there is never one to find — but the methods must exist.
+    findMany: async () => [],
+    updateMany: async () => ({ count: 0 }),
   },
 };
 

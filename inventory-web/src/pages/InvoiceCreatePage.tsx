@@ -1259,7 +1259,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     // dozen unit price MUST be converted down to a per-piece price — otherwise each
     // piece would be billed at the carton price.
     const piecePrice = item.unitPrice / piecesPerUnit(item.unit, item.product)
-    const roundedPiecePrice = Math.round(piecePrice * 1000) / 1000
+    const roundedPiecePrice = Math.round(piecePrice * 100) / 100
 
     // Greedy fill: المحل first, then the other warehouses by stock (most first),
     // taking only what each holds so we never over-allocate a warehouse.
@@ -1416,7 +1416,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       current.map((item, i) => {
         if (i !== index) return item
         const qty = item.quantity || 1
-        return { ...item, unitPrice: Math.round((newTotal / qty) * 1000) / 1000 }
+        // Round to 2dp — the precision Decimal(12,2) actually stores.
+        return { ...item, unitPrice: Math.round((newTotal / qty) * 100) / 100 }
       }),
     )
   }

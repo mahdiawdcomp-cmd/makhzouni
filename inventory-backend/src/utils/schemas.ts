@@ -73,10 +73,14 @@ export const loginSchema = z.object({
   }),
 });
 
+// Minimum 8, matching ensureInitialAdmin — the interactive paths used to allow
+// 4 characters, a keyspace the login limiter (5 per 15 min) does not meaningfully
+// protect. Only applies to NEW passwords: the login schema stays min(1) so
+// existing short passwords keep working until they are changed.
 export const changePasswordSchema = z.object({
   body: z.object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(4),
+    newPassword: z.string().min(8),
   }),
 });
 
@@ -84,7 +88,7 @@ export const createUserSchema = z.object({
   body: z.object({
     name: z.string().trim().min(2),
     username: z.string().trim().min(3),
-    password: z.string().min(4),
+    password: z.string().min(8),
     role: z.enum(["ADMIN", "STAFF"]).default("STAFF"),
     permissions: z.array(userPermissionSchema).default([]),
     phone: z.string().trim().max(20).optional(),
@@ -98,7 +102,7 @@ export const updateUserSchema = z.object({
     .object({
       name: z.string().trim().min(2).optional(),
       username: z.string().trim().min(3).optional(),
-      password: z.string().min(4).optional(),
+      password: z.string().min(8).optional(),
       role: z.enum(["ADMIN", "STAFF"]).optional(),
       permissions: z.array(userPermissionSchema).optional(),
       phone: z.string().trim().max(20).nullable().optional(),

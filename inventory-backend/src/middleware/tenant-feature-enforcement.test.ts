@@ -80,9 +80,39 @@ test("error-logs: only AI analysis endpoints gated, not list/resolve", () => {
 });
 
 test("core/basic routes are never in the feature map", () => {
-  for (const p of ["/products", "/customers", "/invoices", "/vouchers", "/reports", "/users", "/settings", "/settings/backup/run"]) {
+  // /invoices is deliberately absent from this list: the salesReturns rule
+  // matches the PATH but discriminates on the body, so core invoicing is
+  // protected by featureDecision rather than by not matching at all. The two
+  // tests below pin that behaviour.
+  for (const p of ["/products", "/customers", "/vouchers", "/reports", "/users", "/settings", "/settings/backup/run"]) {
     assert.equal(matchFeatureRule(p), null, `${p} must not be gated`);
   }
+});
+
+test("salesReturns gating never touches an ordinary sale", () => {
+  const cfg = saasConfig({ entitlementFeatures: [] });
+  assert.equal(featureDecision(cfg, "POST", "/invoices", { type: "SALE" }), "allow");
+  assert.equal(featureDecision(cfg, "POST", "/invoices", { type: "PURCHASE" }), "allow");
+  // No body at all (GET /invoices) must also pass.
+  assert.equal(featureDecision(cfg, "GET", "/invoices"), "allow");
+});
+
+test("salesReturns gating blocks a return when the tenant lacks the feature", () => {
+  const without = saasConfig({ entitlementFeatures: [] });
+  assert.equal(
+    featureDecision(without, "POST", "/invoices", { type: "SALES_RETURN" }),
+    "block:salesReturns",
+  );
+  const with_ = saasConfig({ entitlementFeatures: ["salesReturns"] });
+  assert.equal(
+    featureDecision(with_, "POST", "/invoices", { type: "SALES_RETURN" }),
+    "allow",
+  );
+});
+
+test("instagram and retail coupons are gated by prefix", () => {
+  assert.equal(matchFeatureRule("/instagram")?.featureKey, "retailShop");
+  assert.equal(matchFeatureRule("/coupons")?.featureKey, "retailCoupons");
 });
 
 test("a leading /api is stripped defensively", () => {
