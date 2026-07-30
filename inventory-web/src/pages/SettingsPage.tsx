@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { createContext, useContext, useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -205,6 +205,11 @@ const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "danger",    label: "منطقة الخطر",      icon: AlertTriangle },
 ]
 
+// True only once GET /settings has actually returned. Every SaveRow reads this
+// so a click before (or after a failed) load cannot blank the whole settings
+// record — see the comment in SaveRow.
+const SettingsLoadedContext = createContext(false)
+
 export function SettingsPage() {
   usePageTitle("الإعدادات")
   const queryClient = useQueryClient()
@@ -242,7 +247,14 @@ export function SettingsPage() {
   useEffect(() => { if (templatesQuery.data) setTemplates(templatesQuery.data) }, [templatesQuery.data])
 
   const saveSettings = useMutation({
-    mutationFn: updateSettings,
+    // Second line of defence behind SaveRow's disabled state: no code path may
+    // PUT settings that were never loaded, or the whole record is blanked.
+    mutationFn: (payload: Parameters<typeof updateSettings>[0]) => {
+      if (!settingsQuery.isSuccess) {
+        return Promise.reject(new Error("لم تُحمّل الإعدادات بعد — حدّث الصفحة وأعد المحاولة"))
+      }
+      return updateSettings(payload)
+    },
     onMutate: () => setSaveError(""),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["settings"] })
@@ -424,8 +436,14 @@ export function SettingsPage() {
   }
 
   return (
+    <SettingsLoadedContext.Provider value={settingsQuery.isSuccess}>
     <div className="space-y-4 max-w-3xl mx-auto">
       {/* Header */}
+      {settingsQuery.isError ? (
+        <div className="rounded-md bg-rose-50 p-3 text-sm text-rose-700">
+          تعذّر تحميل الإعدادات — الحفظ معطّل حتى لا تُمسح القيم المحفوظة. حدّث الصفحة وأعد المحاولة.
+        </div>
+      ) : null}
       <div>
         <h1 className="text-2xl font-bold">الإعدادات</h1>
         <p className="text-sm text-slate-500">تخصيص المتجر، المظهر، والقوالب.</p>
@@ -1510,6 +1528,7 @@ export function SettingsPage() {
         />
       )}
     </div>
+    </SettingsLoadedContext.Provider>
   )
 }
 
@@ -2086,11 +2105,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function SaveRow({ onSave, isPending, saved, error, label }: { onSave: () => void; isPending: boolean; saved: boolean; error?: string; label?: string }) {
+  // Until GET /settings resolves, `settings` is still the all-empty
+  // fallbackSettings object. Saving then PUTs blanks over every stored value —
+  // including the WhatsApp/Telegram tokens and the invoice template — with no
+  // confirmation and no way back. The button stays inert until real data lands.
+  const loaded = useContext(SettingsLoadedContext)
   return (
     <div className="flex items-center gap-3 pt-1">
-      <Button onClick={onSave} disabled={isPending}>
+      <Button onClick={onSave} disabled={isPending || !loaded}>
         <Save className="h-4 w-4" /> {label ?? "حفظ التغييرات"}
       </Button>
+      {!loaded ? <span className="text-sm text-slate-500">جاري تحميل الإعدادات…</span> : null}
       {saved ? <span className="text-sm text-emerald-600">✓ تم الحفظ</span> : null}
       {error ? <span className="text-sm text-red-600">{error}</span> : null}
     </div>

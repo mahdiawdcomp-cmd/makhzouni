@@ -7,6 +7,7 @@ import { resolveShopWarehouseId } from "../services/warehouse-stock.service";
 import { answerKnownInventoryQuestion } from "./agent.controller";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { hasPermission } from "../middleware/permission.middleware";
 
 let _groq: Groq | null = null;
 function getGroq(): Groq {
@@ -810,7 +811,23 @@ export const executeVoiceCommand = asyncHandler(async (req, res) => {
   if (!plan?.operation || !plan.customerId) {
     throw new AppError("خطة التنفيذ ناقصة", 400, "INVALID_PLAN");
   }
-  const userId = req.user!.id;
+  const user = req.user;
+  if (!user) {
+    throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
+  }
+  // This endpoint writes real invoices and vouchers — moving stock and customer
+  // balances — so it must demand the same capability the typed paths do. It had
+  // authMiddleware only, which made it a permission bypass for any staff account.
+  const requiredPermission =
+    plan.operation === "VOUCHER" ? "MANAGE_VOUCHERS" : "MANAGE_INVOICES";
+  if (!hasPermission(user, requiredPermission)) {
+    throw new AppError(
+      "لا تملك صلاحية تنفيذ هذه العملية بالأمر الصوتي",
+      403,
+      "PERMISSION_REQUIRED"
+    );
+  }
+  const userId = user.id;
 
   if (plan.operation === "VOUCHER") {
     if (!plan.amount || !plan.voucherType) {

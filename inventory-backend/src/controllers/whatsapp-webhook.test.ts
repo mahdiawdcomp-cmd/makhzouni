@@ -55,10 +55,30 @@ test("Meta GET verify: wrong token → 403, no challenge", async () => {
   assert.notEqual(out.body, "CHALLENGE123");
 });
 
-test("Meta POST receive: unknown/empty payload still acks 200", async () => {
+// The webhook always acks 200 so Meta does not disable it after repeated
+// non-2xx responses — the accept/reject decision is expressed by whether the
+// payload is processed, never by the status code.
+test("Meta POST receive: unsigned payload is rejected but still acks 200", async () => {
   const { res, out } = mockRes();
+  syncWhatsAppSettings({
+    whatsappCloudVerifyToken: "secret-verify-token",
+    whatsappCloudAppSecret: "app-secret",
+  });
   const req = { body: { foo: "bar" }, header: () => undefined } as unknown as Request;
   await whatsappMetaWebhookReceive(req, res, () => {});
   assert.equal(out.statusCode, 200);
-  assert.deepEqual(out.body, { success: true });
+});
+
+// Regression guard: this handler used to ACCEPT unsigned payloads whenever no
+// App Secret was stored, leaving any tenant that had not filled the field in
+// with a fully open endpoint that drives outbound WhatsApp sends. An
+// unconfigured integration must be a disabled one.
+test("Meta POST receive: fails closed when no App Secret is configured", async () => {
+  const { res, out } = mockRes();
+  syncWhatsAppSettings({ whatsappCloudVerifyToken: "secret-verify-token" });
+  const req = { body: { foo: "bar" }, header: () => undefined } as unknown as Request;
+  await whatsappMetaWebhookReceive(req, res, () => {});
+  assert.equal(out.statusCode, 200);
+  // sendStatus() sets no JSON body — the payload was never processed.
+  assert.notDeepEqual(out.body, { success: true });
 });

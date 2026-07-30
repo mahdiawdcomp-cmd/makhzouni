@@ -37,24 +37,18 @@ data class ProductListUiState(
     val error: String? = null,
     val hidePrices: Boolean = false,
     val showPurchasePrice: Boolean = false,
-    val deletedProducts: List<Product> = emptyList()
+    val deletedProducts: List<Product> = emptyList(),
+    val branches: List<BranchItem> = emptyList()
 ) {
     val categories: List<String> = products.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
-    // Warehouses that actually appear on the loaded products (id + name), for the filter chips.
-    val warehouses: List<BranchItem> = products
-        .flatMap { it.warehouseStocks }
-        .distinctBy { it.warehouseId }
-        .map { BranchItem(it.warehouseId, it.warehouseName) }
-        .sortedBy { it.name }
+    // Warehouse filter options come from /branches (all active branches), not from the loaded product list.
+    val warehouses: List<BranchItem> = branches
     val filteredProducts: List<Product> = products.filter { product ->
         val matchesQuery = query.isBlank() ||
             product.name.contains(query, ignoreCase = true) ||
             product.itemNumber.contains(query, ignoreCase = true)
         val matchesCategory = category == null || product.category == category
-        // "كل المخازن" = null → show all; otherwise only products with stock in it.
-        val matchesWarehouse = warehouseId == null ||
-            product.warehouseStocks.any { it.warehouseId == warehouseId && it.quantityPieces > 0 }
-        matchesQuery && matchesCategory && matchesWarehouse
+        matchesQuery && matchesCategory
     }.let { rows ->
         when (sortBy) {
             "name" -> rows.sortedBy { it.name }
@@ -80,9 +74,18 @@ class ProductListViewModel @Inject constructor(
     private val isLoading = MutableStateFlow(false)
     private val error = MutableStateFlow<String?>(null)
     private val deletedProducts = MutableStateFlow<List<Product>>(emptyList())
+    private val branches = MutableStateFlow<List<BranchItem>>(emptyList())
+    // Non-null only while a specific warehouse is selected: holds the server result for
+    // getProducts(branchId=...). Null (= "كل المخازن") falls back to the cached, offline-first list.
+    private val warehouseProducts = MutableStateFlow<List<Product>?>(null)
+
+    private val activeProducts: kotlinx.coroutines.flow.Flow<List<Product>> =
+        combine(repository.products, warehouseId, warehouseProducts) { all, wid, wp ->
+            if (wid != null) wp ?: emptyList() else all
+        }
 
     val state: StateFlow<ProductListUiState> = combine(
-        combine(repository.products, query, category, isLoading, error) { products, queryValue, categoryValue, loadingValue, errorValue ->
+        combine(activeProducts, query, category, isLoading, error) { products, queryValue, categoryValue, loadingValue, errorValue ->
             ProductListUiState(products, queryValue, categoryValue, isLoading = loadingValue, error = errorValue)
         },
         combine(sortBy, sessionManager.role, sessionManager.permissions, warehouseId) { sort, role, perms, wid ->
@@ -93,14 +96,16 @@ class ProductListViewModel @Inject constructor(
                 showPurchasePrice = permissionManager.canViewPurchasePrice(role, perms),
             )
         },
-        deletedProducts
-    ) { stateValue, meta, deleted ->
+        deletedProducts,
+        branches
+    ) { stateValue, meta, deleted, branchList ->
         stateValue.copy(
             sortBy = meta.sort,
             warehouseId = meta.warehouseId,
             hidePrices = meta.hidePrices,
             showPurchasePrice = meta.showPurchasePrice,
-            deletedProducts = deleted
+            deletedProducts = deleted,
+            branches = branchList
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ProductListUiState())
 
@@ -113,18 +118,57 @@ class ProductListViewModel @Inject constructor(
 
     init {
         refresh()
+        loadBranches()
         // ── Auto-refresh every 30 seconds (silent) ──
         viewModelScope.launch {
             while (true) {
                 delay(30_000L)
                 repository.refreshProducts() // silent — DB Flow updates UI automatically
+                warehouseId.value?.let { fetchWarehouseProducts(it) }
+            }
+        }
+    }
+
+    private fun loadBranches() {
+        viewModelScope.launch {
+            when (val result = repository.loadBranches()) {
+                is ApiResult.Success -> branches.value = result.data
+                    .filter { it.isActive }
+                    .map { BranchItem(id = it.id, name = it.name) }
+                    .sortedBy { it.name }
+                else -> Unit
             }
         }
     }
 
     fun onQueryChange(value: String) { query.value = value }
     fun onCategoryChange(value: String?) { category.value = value }
-    fun onWarehouseChange(value: String?) { warehouseId.value = value }
+
+    /** null = "كل المخازن" (no branchId sent); otherwise fetch getProducts(branchId=value). */
+    fun onWarehouseChange(value: String?) {
+        warehouseId.value = value
+        if (value == null) {
+            warehouseProducts.value = null
+        } else {
+            fetchWarehouseProducts(value)
+        }
+    }
+
+    private fun fetchWarehouseProducts(id: String) {
+        viewModelScope.launch {
+            isLoading.value = true
+            when (val result = repository.loadWarehouseProducts(id)) {
+                is ApiResult.Success -> {
+                    error.value = null
+                    warehouseProducts.value = result.data
+                }
+                is ApiResult.Error -> error.value = result.message
+                ApiResult.Offline -> error.value = "لا يوجد اتصال، تعذر تحميل مواد هذا المخزن"
+            }
+            isLoading.value = false
+        }
+    }
+
     fun onSortChange(value: String) { sortBy.value = value }
 
     fun refresh() {

@@ -690,6 +690,11 @@ export interface StockLoss {
   warehouseId: string
   warehouse: { id: string; name: string }
   reason: LossReason
+  // MANUAL = a hand-entered damage report (cancellable). The others are audit
+  // traces of a correction already applied by stock-adjust / cycle-count /
+  // stocktake, and the backend refuses to cancel them.
+  source?: "MANUAL" | "ADJUST_STOCK" | "CYCLE_COUNT" | "STOCKTAKE"
+  direction?: "LOSS" | "GAIN"
   notes?: string | null
   cancelledAt?: string | null
   createdAt: string

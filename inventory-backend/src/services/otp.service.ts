@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 type OtpRecord = {
   code: string;
   expiresAt: number;
@@ -31,7 +33,12 @@ export function canSendOtp(phone: string): boolean {
 
 export function generateOtp(phone: string): string {
   clean();
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  // Must be a CSPRNG. Math.random() is xorshift128+, whose internal state is
+  // recoverable from a handful of consecutive outputs — an attacker can request
+  // codes for their own numbers, recover the state, then predict the next code
+  // issued to a victim and take over that customer's catalog session. The
+  // 3-attempt cap is no defence against a predicted code.
+  const code = String(randomInt(100000, 1000000));
   const now = Date.now();
   const rec = store.get(phone);
   const sameWindow = rec && now - rec.windowStart < WINDOW;

@@ -13,6 +13,7 @@ import {
   updateUser,
 } from "../services/user.service";
 import { hasPermission } from "../middleware/permission.middleware";
+import prisma from "../config/database";
 
 function ensureAuthenticatedUser(reqUser: Express.User | undefined) {
   if (!reqUser) {
@@ -20,6 +21,55 @@ function ensureAuthenticatedUser(reqUser: Express.User | undefined) {
   }
 
   return reqUser;
+}
+
+// MANAGE_USERS is an ordinary, UI-grantable permission — it must not be a path
+// to becoming ADMIN. Without these guards a STAFF holder could PUT their own
+// record with {"role":"ADMIN"} and take over the tenant, then permanently
+// delete every real admin. Role assignment and any action against an ADMIN
+// target are therefore ADMIN-only, and a non-admin can never hand out a
+// permission they do not themselves hold.
+function assertMayAssignRole(actor: Express.User, body: unknown) {
+  const role = (body as { role?: unknown } | null)?.role;
+  if (role === undefined) return;
+  if (actor.role !== UserRole.ADMIN) {
+    throw new AppError(
+      "تغيير الدور مسموح للمدير فقط",
+      403,
+      "ROLE_CHANGE_ADMIN_ONLY"
+    );
+  }
+}
+
+function assertMayAssignPermissions(actor: Express.User, body: unknown) {
+  const permissions = (body as { permissions?: unknown } | null)?.permissions;
+  if (!Array.isArray(permissions)) return;
+  if (actor.role === UserRole.ADMIN) return;
+  const escalated = (permissions as string[]).filter(
+    (permission) => !hasPermission(actor, permission)
+  );
+  if (escalated.length > 0) {
+    throw new AppError(
+      `لا يمكنك منح صلاحيات لا تملكها: ${escalated.join(", ")}`,
+      403,
+      "PERMISSION_ESCALATION"
+    );
+  }
+}
+
+async function assertMayTargetUser(actor: Express.User, targetId: string) {
+  if (actor.role === UserRole.ADMIN) return;
+  const target = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { role: true },
+  });
+  if (target?.role === UserRole.ADMIN) {
+    throw new AppError(
+      "لا يمكن تعديل أو حذف حساب مدير إلا من قبل مدير",
+      403,
+      "TARGET_IS_ADMIN"
+    );
+  }
 }
 
 async function queueStaffApproval(
@@ -51,6 +101,8 @@ export const getUsers = asyncHandler(async (_req, res) => {
 
 export const addUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
+  assertMayAssignRole(user, req.body);
+  assertMayAssignPermissions(user, req.body);
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_USERS")) {
     const response = await queueStaffApproval(
@@ -74,6 +126,9 @@ export const addUser = asyncHandler(async (req, res) => {
 export const editUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
   const id = String(req.params.id);
+  assertMayAssignRole(user, req.body);
+  assertMayAssignPermissions(user, req.body);
+  await assertMayTargetUser(user, id);
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_USERS")) {
     const response = await queueStaffApproval(
@@ -97,6 +152,7 @@ export const editUser = asyncHandler(async (req, res) => {
 export const deleteUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
   const id = String(req.params.id);
+  await assertMayTargetUser(user, id);
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_USERS")) {
     const response = await queueStaffApproval(
@@ -120,6 +176,7 @@ export const deleteUser = asyncHandler(async (req, res) => {
 export const permanentlyDeleteUser = asyncHandler(async (req, res) => {
   const user = ensureAuthenticatedUser(req.user);
   const id = String(req.params.id);
+  await assertMayTargetUser(user, id);
 
   await deleteUserPermanently(id, user.id);
 

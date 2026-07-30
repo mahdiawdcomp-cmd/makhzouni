@@ -15,6 +15,7 @@ import prisma from "../config/database";
 import { getSettings, updateSettings, AppSettings } from "./settings.service";
 import { totalStock } from "../utils/product-stock";
 import { AppError } from "../utils/app-error";
+import { backendPublicUrl } from "../utils/public-urls";
 
 const TG_API = "https://api.telegram.org";
 // Telegram allows ~20 msgs/min per group/channel; stay well under it and
@@ -385,7 +386,7 @@ export async function getTelegramWebhookSecret(): Promise<string> {
  */
 async function ensureWebhook(botToken: string) {
   if (webhookConfirmedFor === botToken) return;
-  const base = (process.env.BACKEND_PUBLIC_URL?.trim() || "https://api.mazbwoni.com").replace(/\/$/, "");
+  const base = backendPublicUrl();
   const url = `${base}/api/public/telegram/webhook`;
   const secret = await getTelegramWebhookSecret();
   await tgCall(botToken, "setWebhook", {

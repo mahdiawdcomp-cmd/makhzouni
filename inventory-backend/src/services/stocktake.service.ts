@@ -219,7 +219,7 @@ export async function updateStocktakeItem(
 ) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { id: sessionId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, branchId: true },
   });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
@@ -229,11 +229,23 @@ export async function updateStocktakeItem(
   });
   if (!item) throw new AppError("المنتج غير موجود في الجلسة", 404, "ITEM_NOT_FOUND");
 
-  const variance = item.systemQty !== null ? actualQty - item.systemQty : null;
+  // Re-read the live balance at count time, exactly as the cycle-count worker
+  // path does, so the variance the admin reviews reflects reality rather than
+  // the snapshot taken when the session was opened.
+  const liveStock = session.branchId
+    ? await prisma.productWarehouseStock.findUnique({
+        where: {
+          productId_warehouseId: { productId, warehouseId: session.branchId },
+        },
+        select: { quantityPieces: true },
+      })
+    : null;
+  const systemQty = liveStock?.quantityPieces ?? item.systemQty;
+  const variance = systemQty !== null ? actualQty - systemQty : null;
 
   await prisma.stocktakeItem.update({
     where: { id: item.id },
-    data: { actualQty, variance, ...(notes !== undefined ? { notes } : {}) },
+    data: { actualQty, systemQty, variance, ...(notes !== undefined ? { notes } : {}) },
   });
 
   return { productId, actualQty, variance };
@@ -454,7 +466,36 @@ export async function approveStocktakeItem(
 
     if (!item.session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
 
-    const delta = item.actualQty - (item.systemQty ?? 0);
+    // Measure the variance against the LIVE balance, not the snapshot frozen
+    // when the session was created. A physical count asserts "the shelf holds
+    // exactly N" — applying `actualQty - staleSystemQty` as an increment
+    // double-counts every sale made between session creation and approval.
+    // Concretely: snapshot 100, a sale of 30 drops the balance to 70, the
+    // worker correctly counts 70, variance reads −30, and approval drives the
+    // balance to 40 while booking a bogus 30-piece loss against net profit.
+    //
+    // `item.systemQty` remains the fallback only when there is no warehouse row
+    // yet (legacy product never stocked in this warehouse).
+    const liveStock = await tx.productWarehouseStock.findUnique({
+      where: {
+        productId_warehouseId: {
+          productId: item.productId,
+          warehouseId: item.session.branchId,
+        },
+      },
+      select: { quantityPieces: true },
+    });
+    const baselineQty = liveStock?.quantityPieces ?? item.systemQty ?? 0;
+    const delta = item.actualQty - baselineQty;
+
+    // Keep the audit row consistent with what is actually being applied, so the
+    // reviewed variance and the resulting StockMovement/StockLoss agree.
+    if (baselineQty !== item.systemQty || delta !== item.variance) {
+      await tx.stocktakeItem.update({
+        where: { id: item.id },
+        data: { systemQty: baselineQty, variance: delta },
+      });
+    }
 
     // adjustWarehouseStock locks the row and enforces the same negative-floor
     // guard every other stock-mutating path (invoice/transfer/loss) uses — the

@@ -3,7 +3,7 @@ import { useTenantConfig } from "./hooks/useTenantConfig"
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
 import WebPlatformDisabledPage from "./pages/WebPlatformDisabledPage"
 import { createBrowserRouter, Link, Navigate, RouterProvider } from "react-router-dom"
-import { AdminRoute, ProtectedRoute } from "./components/ProtectedRoute"
+import { AdminRoute, PermissionRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
 import { PosLayout } from "./components/layout/PosLayout"
 import { FeatureGate } from "./components/FeatureGate"
@@ -148,8 +148,16 @@ const router = createBrowserRouter([
           { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
           { path: "instagram", element: f("retailShop", "إدارة إنستغرام", <InstagramPage />) },
           { path: "reports", element: s(<ReportsPage />) },
-          { path: "settings", element: s(<SettingsPage />) },
-          { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
+          // Settings holds the WhatsApp/Telegram/Meta credentials — the sidebar
+          // already hides it behind MANAGE_SETTINGS, so the route must enforce
+          // the same thing or the URL is an open door.
+          {
+            element: <PermissionRoute permission="MANAGE_SETTINGS" />,
+            children: [
+              { path: "settings", element: s(<SettingsPage />) },
+              { path: "invoice-designer", element: s(<InvoiceDesignerPage />) },
+            ],
+          },
           {
             element: <AdminRoute />,
             children: [

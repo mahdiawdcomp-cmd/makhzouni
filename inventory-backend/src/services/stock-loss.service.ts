@@ -255,6 +255,28 @@ export async function getStockLossById(id: string) {
 
 export async function cancelStockLoss(id: string) {
   return prisma.$transaction(async (tx) => {
+    // Only hand-entered damage reports may be cancelled here. Rows written by
+    // ADJUST_STOCK / CYCLE_COUNT / STOCKTAKE are the *audit trace* of a stock
+    // correction that was already applied by that flow — cancelling one adds
+    // stock a second time (and, for a GAIN row, adds it in the wrong direction
+    // entirely) while leaving the source item marked APPROVED, so the
+    // correction silently reappears on the next count.
+    const target = await tx.stockLoss.findUnique({
+      where: { id },
+      select: { source: true, lossNumber: true },
+    });
+    if (!target) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
+    // `source` carries the schema default MANUAL, so an absent value is a
+    // hand-entered report, not an unknown one.
+    const source = target.source ?? StockLossSource.MANUAL;
+    if (source !== StockLossSource.MANUAL) {
+      throw new AppError(
+        `السجل ${target.lossNumber} ناتج عن تعديل مخزون أو جرد — عدّله من نفس الشاشة التي أنشأته، لا من هنا`,
+        400,
+        "LOSS_NOT_CANCELLABLE"
+      );
+    }
+
     // Atomically *claim* the cancellation: only the caller that flips
     // null -> now() proceeds to restore stock. A second concurrent cancel
     // updates 0 rows and returns the record untouched — so stock is never
@@ -287,13 +309,23 @@ export async function cancelStockLoss(id: string) {
     });
     if (!loss) throw new AppError("سجل الخسارة غير موجود", 404, "LOSS_NOT_FOUND");
 
+    // A GAIN row added stock, so its reversal must subtract. Signing by
+    // direction keeps this correct even if a non-MANUAL source is ever allowed
+    // through the guard above.
+    const sign = loss.direction === StockLossDirection.GAIN ? -1 : 1;
+
     for (const item of loss.items) {
-      const pcs = lossUnitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
+      // Prefer the pieces frozen at creation time. Recomputing from the
+      // product's *current* packing invents stock when pcsPerCarton was edited
+      // after the loss was recorded (2 cartons at 100 → cancel at 120 = +240).
+      const pcs =
+        item.quantityPieces ??
+        lossUnitToPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
       await ensureLegacyWarehouseStock(tx as typeof prisma, item.product);
       const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx as typeof prisma, {
         productId: item.productId,
         warehouseId: loss.warehouseId,
-        deltaPieces: pcs, // restore the damaged pieces back into the warehouse
+        deltaPieces: sign * pcs, // undo the original movement, in its own direction
         allowNegative: true,
       });
       await syncProductTotalStock(tx as typeof prisma, item.productId);
@@ -305,7 +337,7 @@ export async function cancelStockLoss(id: string) {
           productId: item.productId,
           branchId: loss.warehouseId,
           lossId: loss.id,
-          type: "IN",
+          type: sign > 0 ? "IN" : "OUT",
           quantity: pcs,
           balanceBefore,
           balanceAfter,

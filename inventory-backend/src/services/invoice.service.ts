@@ -541,10 +541,18 @@ async function applyStockMovement(
     const newUnitCostPerPiece = (unitPrice * item.quantity) / quantityInPieces;
     const currentQty = purchaseQtyBefore;
     const denom = currentQty + quantityInPieces;
-    const newCostPrice =
-      denom > 0
+    // The blend is only meaningful when there is real stock to blend against.
+    // Sales are allowed to go negative, so `currentQty` can be negative and the
+    // denominator can land on a tiny positive number: at −59 pieces, cost 1000,
+    // buying 60 @ 1200 gives denom = 1 and a cost of 13,000 — a 13× corruption
+    // that then feeds inventory valuation, profit reports and frozen loss
+    // snapshots. Other inputs produce a negative cost. When there is no
+    // positive stock on hand, this purchase simply IS the cost.
+    const blended =
+      currentQty > 0 && denom > 0
         ? roundMoney((currentQty * currentCost + quantityInPieces * newUnitCostPerPiece) / denom)
-        : currentCost;
+        : roundMoney(newUnitCostPerPiece);
+    const newCostPrice = blended > 0 ? blended : roundMoney(newUnitCostPerPiece);
     await tx.product.update({
       where: { id: product.id },
       data: {
@@ -788,6 +796,147 @@ async function assertUnitsNotHidden(
   }
 }
 
+// A SALES_RETURN that names an original invoice must stay inside what that
+// invoice actually sold. Without this, `originalInvoiceId` is a free-text field:
+// you can return 10,000 pieces of a product that was sold 2, against another
+// customer's invoice, and repeat it indefinitely — inflating stock and crediting
+// the customer every time. Returns with no `originalInvoiceId` are unaffected
+// (they are the "no reference sale" case and are already priced manually).
+async function assertReturnWithinSoldQuantity(
+  tx: Db,
+  input: CreateInvoiceInput,
+  existingInvoiceId?: string
+) {
+  const originalInvoiceId = input.originalInvoiceId;
+  if (!originalInvoiceId) return;
+
+  const original = await tx.invoice.findUnique({
+    where: { id: originalInvoiceId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      archivedAt: true,
+      customerId: true,
+      invoiceNumber: true,
+      items: {
+        select: {
+          productId: true,
+          unit: true,
+          quantity: true,
+          product: { select: { name: true, pcsPerCarton: true, boxPieces: true } },
+        },
+      },
+    },
+  });
+
+  if (!original || original.archivedAt || original.type !== InvoiceType.SALE) {
+    throw new AppError(
+      "الفاتورة الأصلية غير موجودة أو ليست فاتورة بيع",
+      400,
+      "ORIGINAL_INVOICE_NOT_FOUND"
+    );
+  }
+  if (original.status !== InvoiceStatus.ACTIVE) {
+    throw new AppError(
+      `الفاتورة الأصلية ${original.invoiceNumber} ملغاة — لا يمكن الإرجاع عليها`,
+      400,
+      "ORIGINAL_INVOICE_NOT_ACTIVE"
+    );
+  }
+  if (original.customerId !== input.customerId) {
+    throw new AppError(
+      `الفاتورة الأصلية ${original.invoiceNumber} تخص زبوناً آخر`,
+      400,
+      "ORIGINAL_INVOICE_CUSTOMER_MISMATCH"
+    );
+  }
+
+  // Sold pieces per product on the original invoice.
+  const soldPieces = new Map<string, number>();
+  const productNames = new Map<string, string>();
+  for (const item of original.items) {
+    const pieces = unitToPieces(
+      item.unit,
+      item.quantity,
+      item.product.pcsPerCarton,
+      item.product.boxPieces
+    );
+    soldPieces.set(item.productId, (soldPieces.get(item.productId) ?? 0) + pieces);
+    productNames.set(item.productId, item.product.name);
+  }
+
+  // Pieces already returned against this invoice by OTHER returns. The invoice
+  // being edited is excluded so an edit measures itself against the same
+  // baseline a fresh return would.
+  const priorReturns = await tx.invoice.findMany({
+    where: {
+      type: InvoiceType.SALES_RETURN,
+      originalInvoiceId,
+      status: InvoiceStatus.ACTIVE,
+      archivedAt: null,
+      ...(existingInvoiceId ? { id: { not: existingInvoiceId } } : {}),
+    },
+    select: {
+      items: {
+        select: {
+          productId: true,
+          unit: true,
+          quantity: true,
+          product: { select: { pcsPerCarton: true, boxPieces: true } },
+        },
+      },
+    },
+  });
+
+  const returnedPieces = new Map<string, number>();
+  for (const invoice of priorReturns) {
+    for (const item of invoice.items) {
+      const pieces = unitToPieces(
+        item.unit,
+        item.quantity,
+        item.product.pcsPerCarton,
+        item.product.boxPieces
+      );
+      returnedPieces.set(item.productId, (returnedPieces.get(item.productId) ?? 0) + pieces);
+    }
+  }
+
+  // Requested pieces per product on this return.
+  const requestedPieces = new Map<string, number>();
+  for (const item of input.items) {
+    const product = await tx.product.findUnique({
+      where: { id: item.productId },
+      select: { name: true, pcsPerCarton: true, boxPieces: true },
+    });
+    if (!product) continue; // priceInvoiceItem raises the real not-found error
+    productNames.set(item.productId, product.name);
+    const pieces = unitToPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
+    requestedPieces.set(item.productId, (requestedPieces.get(item.productId) ?? 0) + pieces);
+  }
+
+  for (const [productId, requested] of requestedPieces) {
+    const sold = soldPieces.get(productId) ?? 0;
+    const name = productNames.get(productId) ?? "المادة";
+    if (sold === 0) {
+      throw new AppError(
+        `«${name}» غير موجودة في الفاتورة الأصلية ${original.invoiceNumber}`,
+        400,
+        "RETURN_PRODUCT_NOT_IN_ORIGINAL"
+      );
+    }
+    const alreadyReturned = returnedPieces.get(productId) ?? 0;
+    const remaining = sold - alreadyReturned;
+    if (requested > remaining) {
+      throw new AppError(
+        `لا يمكن إرجاع أكثر من المباع من «${name}» — المتبقي للإرجاع ${remaining} قطعة من أصل ${sold}`,
+        400,
+        "RETURN_EXCEEDS_SOLD"
+      );
+    }
+  }
+}
+
 async function createInvoiceInTransaction(
   tx: Db,
   input: CreateInvoiceInput,
@@ -798,6 +947,9 @@ async function createInvoiceInTransaction(
 ) {
   const invoiceType = input.type ?? InvoiceType.SALE;
   await assertUnitsNotHidden(tx, input.items, allowedUnitPairs);
+  if (invoiceType === InvoiceType.SALES_RETURN) {
+    await assertReturnWithinSoldQuantity(tx, input, existingInvoiceId);
+  }
   const existingInvoice = existingInvoiceId
     ? await tx.invoice.findUnique({
         where: { id: existingInvoiceId },

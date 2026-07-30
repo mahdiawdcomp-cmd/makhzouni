@@ -1,5 +1,6 @@
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { backendPublicUrl } from "../utils/public-urls";
 
 // Video assets for «كتلوك المفرد» (one video per product, locked decision).
 // Bytes live in Postgres because Railway app disks are ephemeral; Meta and the
@@ -10,7 +11,7 @@ export const MAX_VIDEO_SECONDS = 40; // < 40s (locked decision)
 export const ALLOWED_VIDEO_MIMES = ["video/mp4", "video/quicktime"];
 
 export function publicMediaUrl(publicToken: string): string {
-  const base = (process.env.BACKEND_PUBLIC_URL?.trim() || "https://api.mazbwoni.com").replace(/\/$/, "");
+  const base = backendPublicUrl();
   // All routers are mounted under /api in server.ts — this MUST match or the
   // URL 404s at the generic catch-all and Meta's media fetch fails silently.
   return `${base}/api/public/media/${publicToken}`;

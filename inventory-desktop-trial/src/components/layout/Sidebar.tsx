@@ -60,6 +60,10 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
+  // Saves through PUT /settings (admin-only on the server), so it belongs to
+  // the same capability as the settings page itself.
+  if (path.startsWith("/invoice-designer")) return "MANAGE_SETTINGS"
+  if (path.startsWith("/losses")) return "MANAGE_PRODUCTS"
   return null
 }
 

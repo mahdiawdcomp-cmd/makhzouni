@@ -221,13 +221,28 @@ export const restoreInvoice = asyncHandler(async (req, res) => {
   });
 });
 
-export const getRecentlyDeletedInvoicesCtrl = asyncHandler(async (_req, res) => {
+export const getRecentlyDeletedInvoicesCtrl = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
+
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
+    throw new AppError("Invoice permission is required", 403, "PERMISSION_REQUIRED");
+  }
+
   const invoices = await listRecentlyDeletedInvoices();
   res.json({ success: true, data: invoices });
 });
 
 export const restoreArchivedInvoiceCtrl = asyncHandler(async (req, res) => {
+  const user = requireUser(req.user);
   const { id } = req.params as { id: string };
+
+  // Restoring re-applies the invoice's stock movements and recomputes the
+  // customer balance — the exact inverse of the hard delete, which is itself
+  // permission-gated. This handler was the only one in the file with no guard.
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
+    throw new AppError("Invoice permission is required", 403, "PERMISSION_REQUIRED");
+  }
+
   const invoice = await restoreArchivedInvoice(id);
   res.json({ success: true, message: "تم استرجاع الفاتورة", data: invoice });
 });

@@ -21,6 +21,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
+import rateLimit from "express-rate-limit";
 import routes from "./routes";
 
 const app = express();
@@ -52,9 +53,53 @@ app.use(cors({
 }));
 app.use(express.json({ limit: "1mb" }));
 
+// This service owns every tenant's subscription state, feature entitlements,
+// activation serials and backend URL. It had no rate limiting at all, so the
+// single admin password could be brute-forced at network speed, and both
+// /api/activate (serial redemption) and /api/tenant-config (tenant enumeration)
+// could be swept without cost.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // only failed attempts count toward the cap
+  message: {
+    success: false,
+    message: "محاولات دخول كثيرة. حاول بعد ١٥ دقيقة.",
+    code: "LOGIN_RATE_LIMITED",
+  },
+});
+
+const activationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "طلبات تفعيل كثيرة. حاول لاحقاً.",
+    code: "ACTIVATION_RATE_LIMITED",
+  },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 120,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { success: false, message: "طلبات كثيرة.", code: "RATE_LIMITED" },
+});
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "saas-admin-api" });
 });
+
+// Order matters: the specific limiters must be mounted before the blanket one.
+app.use("/api/auth/login", loginLimiter);
+app.use("/api/activate", activationLimiter);
+app.use("/api/tenant-config", apiLimiter);
+app.use("/api", apiLimiter);
 
 app.use("/api", routes);
 

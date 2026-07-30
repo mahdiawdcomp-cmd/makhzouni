@@ -9,6 +9,7 @@ import { createInvoice, getInvoiceById } from "./invoice.service";
 import { resolveWarehouseId } from "./warehouse-stock.service";
 import { notifyAdmin } from "./app-notification.service";
 import { sendTelegramDmToPhone } from "./telegram-bot.service";
+import { catalogPublicUrl } from "../utils/public-urls";
 
 const CLOUD_TEMPLATE_LANG = "ar";
 
@@ -35,8 +36,11 @@ function money(value: number) {
 }
 
 function catalogBaseUrl(settings: Awaited<ReturnType<typeof getSettings>> | null) {
-  const configured = settings?.catalogPublicUrl?.trim() || process.env.PUBLIC_CATALOG_URL?.trim();
-  return (configured || "https://mahdi.mazbwoni.com/catalog").replace(/\/$/, "");
+  // No cross-tenant fallback: an unconfigured shop sends no link rather than
+  // sending its customers to another tenant's storefront.
+  return catalogPublicUrl(
+    settings?.catalogPublicUrl?.trim() || process.env.PUBLIC_CATALOG_URL?.trim()
+  );
 }
 
 function catalogUrl(settings: Awaited<ReturnType<typeof getSettings>> | null, urlPath?: string) {

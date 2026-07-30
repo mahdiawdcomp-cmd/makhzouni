@@ -3,6 +3,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { encryptSecret, decryptSecret } from "../utils/crypto";
 import { publicMediaUrl } from "./media-asset.service";
+import { backendPublicUrl } from "../utils/public-urls";
 
 // Instagram auto-publish for «كتلوك المفرد» — Meta Graph API (Business/Creator
 // accounts). Every publish goes through an InstagramPost row prepared in the
@@ -93,7 +94,7 @@ const OAUTH_SCOPES = [
 ].join(",");
 
 export function oauthRedirectUri(): string {
-  const base = (process.env.BACKEND_PUBLIC_URL?.trim() || "https://api.mazbwoni.com").replace(/\/$/, "");
+  const base = backendPublicUrl();
   // All routers are mounted under /api in server.ts (see publicMediaUrl) —
   // this must be re-registered in Meta's "Valid OAuth Redirect URIs" too.
   return `${base}/api/public/instagram/oauth-callback`;

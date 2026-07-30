@@ -244,7 +244,9 @@ export const defaultSettings: AppSettings = {
   inactiveCustomerTemplateName: "inactive_customer_reminder",
   themePreset: "classic",
   shopWarehouseId: "",
-  catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
+  // Intentionally blank — see utils/public-urls.ts. A tenant-specific default
+  // here leaks one shop's customers into another shop's catalog.
+  catalogPublicUrl: "",
   catalogAdminWhatsappNumber: "",
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,

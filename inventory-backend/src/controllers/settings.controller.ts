@@ -1,3 +1,4 @@
+import { UserRole } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { runWeeklyBackup, runDailySummaryJob } from "../services/notification-jobs.service";
@@ -10,12 +11,34 @@ import {
 } from "../services/danger.service";
 import { AppError } from "../utils/app-error";
 
-export const getAllSettings = asyncHandler(async (_req, res) => {
+// GET /settings is readable by every authenticated user because the Sidebar and
+// most pages need storeName / currency / logo / feature flags. It must therefore
+// never hand out credentials: with the Meta Cloud token a cashier can send
+// WhatsApp as the business from outside the app entirely, and with the app
+// secret they can forge the inbound webhook.
+//
+// Matching by name (not by an explicit allowlist) is deliberate — a new
+// credential field added later is masked automatically instead of silently
+// leaking until someone remembers to update a list.
+const SECRET_KEY_PATTERN = /token|secret|password|apikey|api_key|credential/i;
+
+function redactSecretsForNonAdmin(settings: Record<string, unknown>) {
+  const safe: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    safe[key] = SECRET_KEY_PATTERN.test(key) && typeof value === "string" ? "" : value;
+  }
+  return safe;
+}
+
+export const getAllSettings = asyncHandler(async (req, res) => {
   const settings = await getSettings();
+  const isAdmin = req.user?.role === UserRole.ADMIN;
 
   res.json({
     success: true,
-    data: settings,
+    data: isAdmin
+      ? settings
+      : redactSecretsForNonAdmin(settings as unknown as Record<string, unknown>),
   });
 });
 

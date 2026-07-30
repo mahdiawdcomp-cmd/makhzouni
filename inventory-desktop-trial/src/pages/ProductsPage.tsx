@@ -403,6 +403,12 @@ export function ProductsPage() {
   // Optional opening-stock split across warehouses (pieces per warehouse), used
   // on initial product entry only.
   const [dist, setDist] = useState<Record<string, number>>({})
+  // True once the operator actually touches a quantity field in this dialog.
+  // Edit mode used to ALWAYS resend absolute per-warehouse quantities taken
+  // from the cached list, so renaming a product at 10:05 silently rewound a
+  // sale made at 10:02. Quantities are now only transmitted when they were
+  // deliberately changed.
+  const [qtyDirty, setQtyDirty] = useState(false)
   const [closeProductConfirm, setCloseProductConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState<Product | null>(null)
   // Trash / restore (48h window) for deleted products
@@ -563,6 +569,7 @@ export function ProductsPage() {
     setImageDirty(false)
     setForm(emptyForm)
     setDist({})
+    setQtyDirty(false)
     setCartonChangedWhileManualBox(false)
     setOpen(true)
   }
@@ -590,6 +597,7 @@ export function ProductsPage() {
       initialDist[ws.warehouseId] = ws.quantityPieces
     }
     setDist(initialDist)
+    setQtyDirty(false)
     setForm({
       itemNumber: product.itemNumber,
       name: product.name,
@@ -647,9 +655,19 @@ export function ProductsPage() {
       .map(([warehouseId, pieces]) => ({ warehouseId, pieces: Number(pieces) || 0 }))
       .filter((d) => d.pieces >= 0)
 
-    if (editing && activeWarehouses.length > 1) {
-      // Edit mode: always send the full per-warehouse distribution.
-      // Backend will apply each warehouse value directly and recompute totals.
+    if (editing && !qtyDirty) {
+      // Nothing about the quantities was touched, so say nothing about them.
+      // These fields are ABSOLUTE on the backend (upsertWarehouseStock writes
+      // `quantityPieces: d.pieces` outright, with no row lock), and the values
+      // here came from a cached list read. Resending them replays a stale
+      // balance over the live one and erases any sale, transfer or adjustment
+      // that landed while the dialog was open.
+      delete payload.warehouseDistribution
+      delete payload.openingBalancePcs
+      delete payload.cartonsAvailable
+    } else if (editing && activeWarehouses.length > 1) {
+      // Edit mode with a deliberate quantity change: send the full
+      // per-warehouse distribution. Backend applies each value and recomputes.
       payload.warehouseDistribution = distEntries
       // Strip raw quantity fields — they'll be derived from distribution by the backend.
       delete payload.openingBalancePcs
@@ -1336,10 +1354,10 @@ export function ProductsPage() {
             {!(editing && branches.filter((b) => b.isActive).length > 1) && (
               <>
                 <Field label="رصيد افتتاحي (قطع مفرّدة)" hint="عدد القطع المنفصلة الموجودة بالمخزن الآن">
-                  <Input type="number" value={form.openingBalancePcs ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, openingBalancePcs: Number(event.target.value) })} />
+                  <Input type="number" value={form.openingBalancePcs ?? 0} onFocus={selectAllOnFocus} onChange={(event) => { setQtyDirty(true); setForm({ ...form, openingBalancePcs: Number(event.target.value) }) }} />
                 </Field>
                 <Field label="الكراتين المتوفرة" hint="عدد الكراتين الكاملة بالمخزن">
-                  <Input type="number" value={form.cartonsAvailable ?? 0} onFocus={selectAllOnFocus} onChange={(event) => setForm({ ...form, cartonsAvailable: Number(event.target.value) })} />
+                  <Input type="number" value={form.cartonsAvailable ?? 0} onFocus={selectAllOnFocus} onChange={(event) => { setQtyDirty(true); setForm({ ...form, cartonsAvailable: Number(event.target.value) }) }} />
                 </Field>
               </>
             )}
@@ -1503,7 +1521,7 @@ export function ProductsPage() {
                         min={0}
                         value={dist[b.id] ?? ""}
                         onFocus={selectAllOnFocus}
-                        onChange={(e) => setDist({ ...dist, [b.id]: Number(e.target.value) })}
+                        onChange={(e) => { setQtyDirty(true); setDist({ ...dist, [b.id]: Number(e.target.value) }) }}
                         placeholder="0"
                       />
                     </label>
@@ -1531,8 +1549,10 @@ export function ProductsPage() {
                     const pieces = Number(dist[b.id] ?? 0)
                     const cartons = Math.floor(pieces / ppc)
                     const loose = pieces - cartons * ppc
-                    const setQty = (cc: number, l: number) =>
+                    const setQty = (cc: number, l: number) => {
+                      setQtyDirty(true)
                       setDist({ ...dist, [b.id]: Math.max(0, cc) * ppc + Math.max(0, l) })
+                    }
                     return (
                       <div key={b.id} className="rounded-lg border border-sky-100 bg-white/60 p-2 dark:border-sky-900 dark:bg-slate-900/40">
                         <div className="mb-1 flex items-center justify-between">

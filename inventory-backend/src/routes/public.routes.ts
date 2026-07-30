@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import { timingSafeEqual } from "node:crypto";
 import {
   createCatalogAccessRequest,
   createCatalogOrder,
@@ -76,7 +77,38 @@ import {
 const router = Router();
 
 // Incoming WhatsApp webhook (Green API) — set this URL in the Green API console.
-router.post("/whatsapp/incoming-webhook", whatsappIncomingWebhook);
+//
+// The handler dispatches OUTBOUND replies based on a sender phone and message
+// text that the caller fully controls, so an unauthenticated version of this
+// route is a free WhatsApp relay running on the merchant's billed account.
+// It is therefore gated on a shared secret the same way the Telegram webhook
+// below is, and it fails CLOSED: with no secret configured the endpoint is
+// simply off, rather than open to the internet.
+//
+// Configure GREENAPI_WEBHOOK_SECRET and append `?secret=<value>` to the URL
+// registered in the Green API console (or send it as `x-webhook-secret`).
+function greenApiWebhookAuthorized(req: Request): boolean {
+  const expected = process.env.GREENAPI_WEBHOOK_SECRET?.trim();
+  if (!expected) return false;
+  const headerValue = req.headers["x-webhook-secret"];
+  const provided = String(
+    (Array.isArray(headerValue) ? headerValue[0] : headerValue) ?? req.query.secret ?? ""
+  );
+  const expectedBuf = Buffer.from(expected);
+  const providedBuf = Buffer.from(provided);
+  if (expectedBuf.length !== providedBuf.length) return false;
+  return timingSafeEqual(expectedBuf, providedBuf);
+}
+
+router.post("/whatsapp/incoming-webhook", (req, res, next) => {
+  if (!greenApiWebhookAuthorized(req)) {
+    // Mirror Telegram's behaviour: acknowledge so the provider does not retry,
+    // but do no work. Never reveal whether a secret is configured.
+    res.status(200).json({ ok: true });
+    return;
+  }
+  next();
+}, whatsappIncomingWebhook);
 
 // Meta WhatsApp Cloud API webhook (single URL, GET verify + POST receive).
 // Runs in parallel with the Green API webhook above.

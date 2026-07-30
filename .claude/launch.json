@@ -28,6 +28,18 @@
       "port": 5000
     },
     {
+      "name": "utms-server",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:/university-ticket-system/server", "run", "dev"],
+      "port": 5100
+    },
+    {
+      "name": "utms-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "D:/university-ticket-system/web", "run", "dev"],
+      "port": 5273
+    },
+    {
       "name": "desktop",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "inventory-desktop-trial", "run", "dev"],

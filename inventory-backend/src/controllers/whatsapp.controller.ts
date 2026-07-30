@@ -110,10 +110,23 @@ export const whatsappMetaWebhookVerify = asyncHandler(async (req, res) => {
   res.sendStatus(403);
 });
 
-/** Optional integrity check when an App Secret is configured. */
+/**
+ * Integrity check on the Meta webhook. Fails CLOSED.
+ *
+ * This used to accept unsigned payloads whenever no App Secret was stored,
+ * which meant a tenant that had not filled the field in yet had a fully open,
+ * unauthenticated endpoint that drives outbound WhatsApp sends and writes rows
+ * into the chat log and prospect pipeline. An unconfigured integration is a
+ * disabled integration, not an open one.
+ */
 function metaSignatureValid(req: import("express").Request): boolean {
   const { appSecret } = getCloudWebhookConfig();
-  if (!appSecret) return true; // not configured — accept (UI warns to add it)
+  if (!appSecret) {
+    logger.warn(
+      "[WhatsAppMeta] rejected webhook: no App Secret configured — set it in الإعدادات to enable inbound messages"
+    );
+    return false;
+  }
   const signature = String(req.header("x-hub-signature-256") ?? "");
   const raw = (req as unknown as { rawBody?: Buffer }).rawBody;
   if (!signature || !raw) return false;

@@ -168,7 +168,11 @@ export function LossesPage() {
                       : <span className="rounded bg-rose-100 px-2 py-0.5 text-xs text-rose-700">مسجل</span>}
                   </TD>
                   <TD>
-                    {!loss.cancelledAt && (
+                    {/* Auto-generated rows (stock adjust / cycle count / stocktake)
+                        are the trace of a correction already applied elsewhere —
+                        cancelling one would double-apply it, so the backend
+                        rejects it and the button must not be offered. */}
+                    {!loss.cancelledAt && (loss.source ?? "MANUAL") === "MANUAL" && (
                       <Button variant="ghost" size="sm" onClick={() => setCancelTarget(loss)}>
                         <Trash2 className="h-4 w-4 text-rose-500" />
                       </Button>

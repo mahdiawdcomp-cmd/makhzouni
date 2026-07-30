@@ -31,6 +31,7 @@ import {
   NotificationCategory,
   NotificationSeverity,
 } from "../constants/notifications";
+import { backendPublicUrl } from "../utils/public-urls";
 
 /** Cron catch helper: keep the console.error AND surface the failure on /error-logs. */
 function reportCronFailure(job: string, error: unknown) {
@@ -217,7 +218,7 @@ export async function runWeeklyBackup() {
   if (process.env.ENABLE_WHATSAPP === "true") {
     const ownerPhone = settings.backupWhatsappNumber;
     if (ownerPhone) {
-      const backendUrl = process.env.BACKEND_PUBLIC_URL ?? "https://api.mazbwoni.com";
+      const backendUrl = backendPublicUrl();
       const secret = process.env.BACKUP_SECRET ?? "";
       const downloadUrl = `${backendUrl}/api/settings/backup/download?secret=${encodeURIComponent(secret)}`;
       const msg =
@@ -501,7 +502,8 @@ export function startNotificationJobs() {
   //   honored as a fallback when the *_TIME vars above aren't set.
   cron.schedule("*/3 * * * *", () => {
     if (!isKeepAliveWindowActive()) return;
-    const base = process.env.BACKEND_PUBLIC_URL?.trim() ?? "https://api.mazbwoni.com";
+    const base = backendPublicUrl();
+    if (!base) return; // no own origin configured — nothing safe to ping
     fetch(`${base}/health`, { signal: AbortSignal.timeout(10_000) })
       .catch(() => {/* silent — just keeping the process warm */});
   });
