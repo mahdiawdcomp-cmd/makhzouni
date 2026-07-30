@@ -1,3 +1,4 @@
+import { requirePermission } from "../middleware/permission.middleware";
 import { Router } from "express";
 import {
   sendInvoice,
@@ -25,9 +26,11 @@ const router = Router();
 router.use(authMiddleware);
 
 router.get("/status", whatsappStatus);
-router.post("/restart", whatsappRestart);
-router.post("/send", validate(sendWhatsAppSchema), sendMessage);
-router.post("/send-templated", validate(sendWhatsAppTemplatedSchema), sendTemplatedMessage);
+// /send takes an arbitrary recipient and body on the merchant's billed
+// account, and /restart bounces the provider connection for everyone.
+router.post("/restart", requirePermission("MANAGE_SETTINGS"), whatsappRestart);
+router.post("/send", requirePermission("MANAGE_CUSTOMERS"), validate(sendWhatsAppSchema), sendMessage);
+router.post("/send-templated", requirePermission("MANAGE_CUSTOMERS"), validate(sendWhatsAppTemplatedSchema), sendTemplatedMessage);
 router.post(
   "/send-invoice/:invoiceId",
   validate(invoiceIdParamSchema),

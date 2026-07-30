@@ -42,10 +42,16 @@ export const bulkReviewApprovals = asyncHandler(async (req, res) => {
   const errors: string[] = [];
   for (const id of ids) {
     try {
-      const target = await prisma.pendingApproval.findUnique({ where: { id }, select: { requestType: true } });
+      const target = await prisma.pendingApproval.findUnique({
+        where: { id },
+        select: { requestType: true, requestedBy: true },
+      });
       const isTransfer = target?.requestType === "CREATE_TRANSFER";
       const canReview = req.user.role === "ADMIN" || (isTransfer && hasPermission(req.user, "MANAGE_TRANSFERS"));
       if (!canReview) { errors.push(id); continue; }
+      // Same segregation-of-duties rule as the single-review handler — bulk
+      // approve must not become the way around it.
+      if (req.user.role !== "ADMIN" && target?.requestedBy === req.user.id) { errors.push(id); continue; }
       const result = await reviewApproval(id, status, req.user.id, {});
       if (isTransfer) {
         const approval = result.approval as { requestData?: unknown; requestedBy?: string };
@@ -67,12 +73,28 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
 
   const id = String(req.params.id);
   // Admins review anything; holders of MANAGE_TRANSFERS may review transfers.
-  const target = await prisma.pendingApproval.findUnique({ where: { id }, select: { requestType: true } });
+  const target = await prisma.pendingApproval.findUnique({
+    where: { id },
+    select: { requestType: true, requestedBy: true },
+  });
   const isTransfer = target?.requestType === "CREATE_TRANSFER";
   const canReview =
     req.user.role === "ADMIN" || (isTransfer && hasPermission(req.user, "MANAGE_TRANSFERS"));
   if (!canReview) {
     throw new AppError("Only admins can review approval requests", 403, "ADMIN_REQUIRED");
+  }
+
+  // Segregation of duties: the whole point of the queue is that a second person
+  // signs off. A staff account holding both REQUEST_TRANSFER and
+  // MANAGE_TRANSFERS could otherwise raise a transfer and immediately approve
+  // its own request, moving stock between warehouses with an audit trail that
+  // reads as "reviewed". Admins are exempt — they can already act directly.
+  if (req.user.role !== "ADMIN" && target?.requestedBy === req.user.id) {
+    throw new AppError(
+      "لا يمكنك الموافقة على طلبك الخاص — يحتاج مراجعة شخص آخر",
+      403,
+      "SELF_APPROVAL_FORBIDDEN"
+    );
   }
 
   const { status, allowPrices, showStock } = req.body as { status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean };

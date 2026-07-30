@@ -167,6 +167,8 @@ export async function mergeWarehouses(
   const keepSet = new Set([input.mainBranchId, ...input.keepBranchIds]);
   const toDelete = branches.filter((b) => !keepSet.has(b.id));
 
+  // Warehouse merge rewrites every product/stock/movement row pointing at the
+  // branches being removed — far beyond Prisma's 5s default.
   return prisma.$transaction(async (tx) => {
     let reassignedCustomers = 0;
 

@@ -635,6 +635,11 @@ export const updateInvoiceSchema = z.object({
   params: uuidParam,
   body: z.object({
     type: invoiceTypeSchema.optional(),
+    // validate() REPLACES req.body with the parsed result, so a field absent
+    // here is silently dropped. Both edit UIs send customerId; without this the
+    // service always fell back to the existing customer and the entire
+    // reassignment branch (including the loyalty transfer) never ran.
+    customerId: z.string().uuid().optional(),
     originalInvoiceId: z.string().uuid().optional(),
     couponCode: z.string().trim().max(60).optional(),
     discount: z.coerce.number().nonnegative().default(0),
@@ -812,7 +817,8 @@ export const dailyAssistantSchema = z.object({
 export const customerDebtsReportSchema = z.object({
   query: z.object({
     minDays: z.coerce.number().int().min(0).default(0),
-    maxDays: z.coerce.number().int().min(0).default(999),
+    // No default: omitting it must mean "no cap", not "999 days".
+    maxDays: z.coerce.number().int().min(0).optional(),
     branchId: z.string().uuid().optional(),
   }),
 });
@@ -1150,7 +1156,43 @@ export const submitRetailOrderSchema = z.object({
           quantity: z.coerce.number().int().positive(),
         }),
       )
-      .min(1),
+      .min(1)
+      // Unauthenticated endpoint. Uncapped, an 8 MB body (the express.json
+      // limit) is ~100k line items processed inside one Serializable
+      // transaction — a single request that locks the order tables and drains
+      // the connection pool. 200 matches the wholesale catalog order cap.
+      .max(200),
+  }),
+});
+
+// ── Unauthenticated public endpoints ────────────────────────────────────────
+// Both of these were mounted with a rate limiter but no schema at all.
+
+// `code.trim()` on an absent field threw a TypeError, so a body-less POST
+// produced a 500 and an ErrorLog row — a free way to flood the merchant's
+// error dashboard and the 90-day-retained error_logs table.
+export const validatePromoSchema = z.object({
+  body: z.object({
+    code: z.string().trim().min(1).max(60),
+    customerId: z.string().uuid().optional(),
+  }),
+});
+
+// Every request here is a paid LLM call on the merchant's account, and the
+// prompt was completely unbounded — 60 multi-megabyte prompts per minute per
+// IP were accepted.
+export const retailAiChatSchema = z.object({
+  body: z.object({
+    message: z.string().trim().min(1).max(1000),
+    history: z
+      .array(
+        z.object({
+          role: z.enum(["user", "assistant"]),
+          content: z.string().max(2000),
+        }),
+      )
+      .max(20)
+      .optional(),
   }),
 });
 

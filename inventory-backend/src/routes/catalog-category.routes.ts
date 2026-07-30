@@ -1,3 +1,4 @@
+import { requirePermission } from "../middleware/permission.middleware";
 import { Router } from "express";
 import { asyncHandler } from "../utils/async-handler";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -16,13 +17,13 @@ router.get("/", asyncHandler(async (_req, res) => {
 }));
 
 // Admin — manage categories
-router.post("/", authMiddleware, asyncHandler(async (req, res) => {
+router.post("/", authMiddleware, requirePermission("MANAGE_CUSTOMERS"), asyncHandler(async (req, res) => {
   const { name, types, sortOrder } = req.body as { name: string; types?: string[]; sortOrder?: number };
   const data = await upsertCatalogCategory(String(name), Array.isArray(types) ? types : [], sortOrder);
   res.json({ success: true, data });
 }));
 
-router.delete("/:id", authMiddleware, asyncHandler(async (req, res) => {
+router.delete("/:id", authMiddleware, requirePermission("MANAGE_CUSTOMERS"), asyncHandler(async (req, res) => {
   await deleteCatalogCategory(String(req.params["id"]));
   res.json({ success: true });
 }));

@@ -9,7 +9,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import type { Customer } from "../types/api"
 import { cn } from "../utils/cn"
-import { localDateStr } from "../utils/date"
+import { apiErrorMessage } from "../utils/apiError"
 
 type Line = { productId: string; quantity: number; unitPrice: number }
 
@@ -17,8 +17,16 @@ function money(value: number) {
   return new Intl.NumberFormat("ar-IQ").format(Math.round(value))
 }
 
-function todayDate() {
-  return localDateStr()
+// A quotation that expires the moment it is written is useless: the default
+// used to be today, which the backend (comparing a midnight-UTC date against
+// `now`) treated as already expired from 03:00 local — so «تحويل لفاتورة»
+// could never succeed on a freshly created quotation.
+const DEFAULT_VALIDITY_DAYS = 7
+
+function defaultExpiryDate() {
+  const d = new Date()
+  d.setDate(d.getDate() + DEFAULT_VALIDITY_DAYS)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
 function normalize(value: string | undefined | null) {
@@ -35,7 +43,7 @@ export function QuotationsPage() {
   const [customerQuery, setCustomerQuery] = useState("")
   const [customerHighlight, setCustomerHighlight] = useState(0)
   const [discount, setDiscount] = useState(0)
-  const [expiresAt, setExpiresAt] = useState(todayDate())
+  const [expiresAt, setExpiresAt] = useState(defaultExpiryDate())
   const [notes, setNotes] = useState("")
   const [lines, setLines] = useState<Line[]>([])
   const [productQuery, setProductQuery] = useState("")
@@ -80,17 +88,24 @@ export function QuotationsPage() {
         items: lines.map((line) => ({ productId: line.productId, unit: "PIECE", quantity: line.quantity, unitPrice: line.unitPrice })),
       }),
     onSuccess: () => {
-      setCustomerId(""); setCustomerQuery(""); setDiscount(0); setExpiresAt(todayDate()); setNotes(""); setLines([])
+      setCustomerId(""); setCustomerQuery(""); setDiscount(0); setExpiresAt(defaultExpiryDate()); setNotes(""); setLines([])
       void queryClient.invalidateQueries({ queryKey: ["quotations"] })
     },
   })
+  // Without onError these mutations failed completely silently — the button
+  // looked dead and the operator got no reason at all.
+  const [actionError, setActionError] = useState("")
   const convertMutation = useMutation({
     mutationFn: convertQuotation,
+    onMutate: () => setActionError(""),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["quotations"] }),
+    onError: (error) => setActionError(apiErrorMessage(error, "تعذر تحويل عرض السعر إلى فاتورة")),
   })
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: "ACCEPTED" | "REJECTED" | "EXPIRED" }) => updateQuotationStatus(id, status),
+    onMutate: () => setActionError(""),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["quotations"] }),
+    onError: (error) => setActionError(apiErrorMessage(error, "تعذر تحديث حالة عرض السعر")),
   })
 
   function addLine(productId: string) {
@@ -236,6 +251,9 @@ export function QuotationsPage() {
       <Card>
         <CardHeader><CardTitle>العروض</CardTitle></CardHeader>
         <CardContent>
+          {actionError ? (
+            <div className="mb-3 rounded-md bg-rose-50 p-3 text-sm text-rose-700">{actionError}</div>
+          ) : null}
           <Table>
             <THead><TR><TH>الرقم</TH><TH>الزبون</TH><TH>الحالة</TH><TH>المبلغ</TH><TH>الصلاحية</TH><TH>إجراءات</TH></TR></THead>
             <TBody>
@@ -249,7 +267,7 @@ export function QuotationsPage() {
                   <TD className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => statusMutation.mutate({ id: q.id, status: "ACCEPTED" })}>قبول</Button>
                     <Button size="sm" variant="outline" onClick={() => statusMutation.mutate({ id: q.id, status: "REJECTED" })}>رفض</Button>
-                    <Button size="sm" onClick={() => convertMutation.mutate(q.id)} disabled={q.status === "CONVERTED"}>
+                    <Button size="sm" onClick={() => convertMutation.mutate(q.id)} disabled={q.status === "CONVERTED" || convertMutation.isPending}>
                       <FileText className="h-4 w-4" /> تحويل لفاتورة
                     </Button>
                   </TD>

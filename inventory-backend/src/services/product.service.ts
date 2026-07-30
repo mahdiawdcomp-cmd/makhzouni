@@ -330,6 +330,57 @@ async function recordStockChange(
   });
 }
 
+// A quantity change made through the product form is exactly the same economic
+// event as one made through POST /products/:id/adjust-stock: stock appearing or
+// disappearing with no sale, purchase, transfer or damage behind it. The
+// adjust-stock endpoint wraps it in a StockLoss so it reaches net profit; this
+// path used to write a bare StockMovement with no lossId, making the identical
+// change invisible to profit reporting. COUNT_ERROR is the schema's own reason
+// for "the recorded stock was itself wrong", which is precisely this case.
+async function recordProductFormStockChange(
+  tx: Db,
+  args: {
+    productId: string;
+    productName: string;
+    warehouseId: string;
+    before: number;
+    after: number;
+    user?: { id?: string; name?: string };
+  }
+) {
+  if (args.after === args.before) return;
+
+  let lossId: string | null = null;
+  if (args.user?.id) {
+    const recorded = await recordStockAdjustmentVariance(tx, {
+      warehouseId: args.warehouseId,
+      productId: args.productId,
+      productName: args.productName,
+      deltaPieces: args.after - args.before,
+      reason: LossReason.COUNT_ERROR,
+      source: "ADJUST_STOCK",
+      createdBy: args.user.id,
+      notes: "تعديل كمية من شاشة المادة",
+    });
+    lossId = recorded.lossId;
+  }
+
+  await tx.stockMovement.create({
+    data: {
+      productId: args.productId,
+      branchId: args.warehouseId,
+      lossId,
+      type: args.after > args.before ? "IN" : "OUT",
+      quantity: Math.abs(args.after - args.before),
+      balanceBefore: args.before,
+      balanceAfter: args.after,
+      userId: args.user?.id ?? null,
+      userName: args.user?.name ?? null,
+      note: "تعديل كمية يدوي",
+    },
+  });
+}
+
 export async function adjustProductStockManual(
   productId: string,
   input: {
@@ -353,11 +404,20 @@ export async function adjustProductStockManual(
 
     for (const e of entries) {
       await upsertWarehouseStock(tx, { productId, warehouseId: e.warehouseId });
-      const current = await tx.productWarehouseStock.findUnique({
-        where: { productId_warehouseId: { productId, warehouseId: e.warehouseId } },
-        select: { quantityPieces: true },
-      });
-      const before = current?.quantityPieces ?? 0;
+      // Lock the row before reading, the same way adjustWarehouseStock does.
+      // This is a read-then-absolute-write: without the lock two concurrent
+      // adjustments both read the same `before`, and the loser's StockLoss
+      // variance is computed against a balance that never existed — so the
+      // P&L entry is wrong even though the final quantity is one of the two
+      // intended values. A sale landing in the same window is erased outright.
+      const lockedRows = await tx.$queryRaw<Array<{ quantity_pieces: number }>>(Prisma.sql`
+        SELECT "quantity_pieces"
+        FROM "product_warehouse_stocks"
+        WHERE "product_id" = ${productId}::uuid
+          AND "warehouse_id" = ${e.warehouseId}::uuid
+        FOR UPDATE
+      `);
+      const before = lockedRows[0]?.quantity_pieces ?? 0;
       const after = Math.trunc(e.quantityPieces);
       if (after === before) continue;
 
@@ -702,12 +762,12 @@ export async function updateProduct(
         storageLocation: input.storageLocation,
         minStock: input.minStock ?? 0,
       });
-      await recordStockChange(tx, {
+      await recordProductFormStockChange(tx, {
         productId: id,
+        productName: existing.name,
         warehouseId: d.warehouseId,
         before: beforeByWarehouse.get(d.warehouseId) ?? 0,
         after: d.pieces,
-        note: "تعديل كمية يدوي",
         user,
       });
     }
@@ -762,12 +822,12 @@ export async function updateProduct(
           minStock: input.minStock,
         });
         if (requestedTotalPieces !== targetPieces) {
-          await recordStockChange(tx, {
+          await recordProductFormStockChange(tx, {
             productId: id,
+            productName: existing.name,
             warehouseId,
             before: targetPieces,
             after: requestedTotalPieces,
-            note: "تعديل كمية يدوي",
             user,
           });
         }

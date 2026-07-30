@@ -16,7 +16,7 @@ import {
   previewChinaOrder,
 } from "../controllers/china-order-pricing.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { requireAnyPermission } from "../middleware/permission.middleware";
+import { requirePermission, requireAnyPermission } from "../middleware/permission.middleware";
 
 const router = Router();
 // 25MB: real China-order sheets often carry embedded product photos.
@@ -41,7 +41,11 @@ router.post("/batches", createBatch);
 router.get("/batches", listBatchesCtrl);
 router.get("/batches/:id", getBatchCtrl);
 router.patch("/batches/:id/items/:itemId", setItemDecisionCtrl);
-router.post("/batches/:id/cancel", cancelBatchCtrl);
-router.post("/batches/:id/confirm", confirmBatchCtrl);
+// Cancel and confirm are WRITES, not reads: confirm creates a purchase invoice,
+// adds stock in every warehouse and overwrites costPrice/purchasePrice. The
+// blanket OR-gate above let an account holding only the read-only
+// VIEW_PURCHASE_PRICE inject stock and rewrite product costs.
+router.post("/batches/:id/cancel", requirePermission("MANAGE_PRODUCTS"), cancelBatchCtrl);
+router.post("/batches/:id/confirm", requirePermission("MANAGE_PRODUCTS"), confirmBatchCtrl);
 
 export default router;

@@ -1,4 +1,5 @@
 import { UserRole } from "@prisma/client";
+import type { Request } from "express";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import { contentDisposition } from "../utils/content-disposition";
@@ -146,13 +147,25 @@ export const editInvoice = asyncHandler(async (req, res) => {
   });
 });
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `returnWarehouseId` is read straight off the query string (the route only
+ * validates the :id param) and flows into a Prisma UUID filter. Any non-UUID
+ * value — including the literal "null"/"undefined" a frontend can serialize —
+ * produced a Prisma parse error and a 500 instead of the intended 400. Anything
+ * that is not a well-formed UUID is treated as "not supplied".
+ */
+function readReturnWarehouseId(req: Request): string | undefined {
+  const raw = req.query.returnWarehouseId;
+  if (typeof raw !== "string" || !UUID_RE.test(raw)) return undefined;
+  return raw;
+}
+
 export const deleteInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
-  const returnWarehouseId =
-    typeof req.query.returnWarehouseId === "string" && req.query.returnWarehouseId
-      ? req.query.returnWarehouseId
-      : undefined;
+  const returnWarehouseId = readReturnWarehouseId(req);
 
   if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
     res.status(202).json(
@@ -178,10 +191,7 @@ export const deleteInvoice = asyncHandler(async (req, res) => {
 export const permanentDeleteInvoice = asyncHandler(async (req, res) => {
   const user = requireUser(req.user);
   const id = String(req.params.id);
-  const returnWarehouseId =
-    typeof req.query.returnWarehouseId === "string" && req.query.returnWarehouseId
-      ? req.query.returnWarehouseId
-      : undefined;
+  const returnWarehouseId = readReturnWarehouseId(req);
 
   if (user.role === UserRole.STAFF) {
     res.status(202).json(

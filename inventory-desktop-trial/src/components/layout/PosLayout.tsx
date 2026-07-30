@@ -1,6 +1,7 @@
 import { Outlet, useNavigate } from "react-router-dom"
 import { LogOut, X } from "lucide-react"
 import { useAuthStore } from "../../store/authStore"
+import { ErrorBoundary } from "../ErrorBoundary"
 
 export function PosLayout() {
   const navigate = useNavigate()
@@ -47,7 +48,11 @@ export function PosLayout() {
       </div>
 
       <main className="flex-1 overflow-y-auto p-3">
-        <Outlet />
+        {/* The cashier station is the one screen where a white page is
+            unrecoverable for a non-technical user mid-sale. */}
+        <ErrorBoundary>
+          <Outlet />
+        </ErrorBoundary>
       </main>
     </div>
   )

@@ -6,6 +6,7 @@ import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import { RealtimeSyncBridge } from "./components/RealtimeSyncBridge"
 import { Toaster } from "./components/ui/toaster"
+import { ErrorBoundary } from "./components/ErrorBoundary"
 import App from "./App"
 import "./index.css"
 import "virtual:pwa-register"
@@ -56,7 +57,15 @@ async function bootstrap() {
         <ThemeProvider>
           <LanguageProvider>
             <RTLProvider>
-              <App />
+              {/* Outermost boundary. AppLayout has one, but it only covers the
+                  sidebar+header shell — a throw in LoginPage, PosPage, the
+                  public catalog, the client portal or in AppLayout itself
+                  white-screened the app with no recovery. It also carries the
+                  stale-chunk auto-reload, so a mid-deploy chunk failure on the
+                  cashier station now self-heals instead of hard-breaking. */}
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
               <Toaster />
             </RTLProvider>
           </LanguageProvider>

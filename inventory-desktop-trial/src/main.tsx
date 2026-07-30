@@ -6,6 +6,7 @@ import { RTLProvider } from "./components/RTLProvider"
 import { ThemeProvider } from "./theme/ThemeProvider"
 import { RealtimeSyncBridge } from "./components/RealtimeSyncBridge"
 import { Toaster } from "./components/ui/toaster"
+import { ErrorBoundary } from "./components/ErrorBoundary"
 import App from "./App"
 import "./index.css"
 import { LanguageProvider } from "./i18n/LanguageProvider"
@@ -76,7 +77,11 @@ createRoot(document.getElementById("root")!).render(
         <ThemeProvider>
           <LanguageProvider>
             <RTLProvider>
-              <App />
+              {/* Outermost boundary — AppLayout's only covers the sidebar shell.
+                  See the matching comment in inventory-web/src/main.tsx. */}
+              <ErrorBoundary>
+                <App />
+              </ErrorBoundary>
               <UpdateChecker />
               <Toaster />
             </RTLProvider>

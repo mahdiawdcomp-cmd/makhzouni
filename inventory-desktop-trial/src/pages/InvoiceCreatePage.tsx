@@ -651,7 +651,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     type: invoiceType,
     subtotal,
     discount,
-    paidAmount: paymentMode === "CASH" ? beforePayment.totalAmount : paidAmount,
+    // In CASH mode the paid amount tracks the live total — correct while
+    // creating, wrong while editing: adding a 50,000 line to an already-settled
+    // 100,000 invoice would silently book 150,000 as collected, inventing cash
+    // the shop never received. On edit, keep what was actually paid.
+    paidAmount: paymentMode === "CASH" && !isEdit ? beforePayment.totalAmount : paidAmount,
     previousBalance,
   })
   const total = financials.totalAmount
@@ -1690,7 +1694,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       type: invoiceType,
       date,
       clientRequestId: clientRequestIdRef.current,
-      couponCode: couponCode.trim() || undefined,
+      // ONLY send a coupon that was actually applied (✓ pressed). The raw
+      // input state was sent regardless, and the backend applies it
+      // unconditionally and REPLACES any manual discount — so a code typed and
+      // abandoned silently changed the stored total away from the one shown,
+      // printed and quoted to the customer.
+      couponCode: couponApplied && appliedCoupon ? couponCode.trim() || undefined : undefined,
       discount,
       tax: 0,
       paidAmount: effectivePaid,

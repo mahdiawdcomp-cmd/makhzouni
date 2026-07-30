@@ -31,6 +31,8 @@ export async function createStocktakeSession(
   if (stocks.length === 0)
     throw new AppError("لا توجد منتجات لإنشاء جلسة جرد", 400, "NO_PRODUCTS");
 
+  // Session creation writes one StocktakeItem per product in the warehouse —
+  // thousands of rows for a real catalogue, well past Prisma's 5s default.
   return prisma.$transaction(async (tx) => {
     const session = await tx.stocktakeSession.create({
       data: {
@@ -195,18 +197,44 @@ export async function archiveStocktakeSession(sessionId: string) {
 export async function closePublicStocktake(token: string) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { publicToken: token },
-    select: { id: true, status: true },
+    select: {
+      id: true,
+      status: true,
+      items: { select: { actualQty: true, approvalStatus: true } },
+    },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
   if (session.status === StocktakeSessionStatus.CLOSED)
     throw new AppError("الجلسة مغلقة بالفعل", 400, "ALREADY_CLOSED");
+
+  // A worker holding the link could previously jump the session straight to
+  // CLOSED. Approval requires SUBMITTED, so every counted variance became
+  // permanently unapprovable and the whole count was discarded with no
+  // StockLoss/StockMovement trace and no way for the admin to reopen it.
+  //
+  // When there is anything counted and still unreviewed, "I'm done" means
+  // SUBMITTED — hand it to the admin — not CLOSED. Only a session with nothing
+  // left to review may be closed from the public link.
+  const unresolvedCount = session.items.filter(
+    (i) =>
+      i.actualQty !== null &&
+      (i.approvalStatus ?? StocktakeApprovalStatus.PENDING) === StocktakeApprovalStatus.PENDING,
+  ).length;
+
+  if (unresolvedCount > 0) {
+    await prisma.stocktakeSession.update({
+      where: { id: session.id },
+      data: { status: StocktakeSessionStatus.SUBMITTED },
+    });
+    return { success: true, status: "SUBMITTED" as const, unresolvedCount };
+  }
 
   await prisma.stocktakeSession.update({
     where: { id: session.id },
     data: { status: StocktakeSessionStatus.CLOSED, closedAt: new Date(), closedBy: "PUBLIC_WORKER" },
   });
 
-  return { success: true };
+  return { success: true, status: "CLOSED" as const, unresolvedCount: 0 };
 }
 
 // ─── Admin: Update a single item quantity ────────────────────────────────────

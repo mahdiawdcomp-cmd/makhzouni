@@ -1,3 +1,4 @@
+import { QueryErrorBox } from "../components/ui/query-error"
 import { useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
@@ -509,7 +510,12 @@ function ProfitsTab() {
         </div>
       </div>
 
-      {!data?.summary.totalRevenue && !data?.summary.totalCost ? (
+      {/* `data` is undefined while loading, on error, and on a 403 from
+          requireProfitReports — the old bare `!data?.…` check fired in all
+          three, telling the owner to go fix cost prices that are already set. */}
+      {report.isError ? (
+        <QueryErrorBox title="تعذّر تحميل تقرير الأرباح" onRetry={() => void report.refetch()} />
+      ) : report.isSuccess && !data?.summary.totalRevenue && !data?.summary.totalCost ? (
         <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 dark:bg-amber-950 dark:border-amber-800">
           <p className="text-sm text-amber-800 dark:text-amber-300 font-medium">⚠️ لعرض الأرباح الدقيقة، أضف <strong>سعر الكلفة</strong> لكل منتج في صفحة المنتج.</p>
         </div>

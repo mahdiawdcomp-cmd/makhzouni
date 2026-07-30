@@ -163,7 +163,18 @@ export async function convertQuotationToInvoice(id: string, userId: string) {
     if (!quotation) throw new AppError("Quotation not found", 404, "QUOTATION_NOT_FOUND");
     if (quotation.status === QuotationStatus.CONVERTED) throw new AppError("Quotation already converted", 400, "QUOTATION_CONVERTED");
     if (quotation.status === QuotationStatus.REJECTED) throw new AppError("Rejected quotation cannot be converted", 400, "QUOTATION_REJECTED");
-    if (quotation.expiresAt && quotation.expiresAt < new Date()) throw new AppError("Quotation expired", 400, "QUOTATION_EXPIRED");
+    // `expiresAt` is stored from a plain YYYY-MM-DD, i.e. midnight UTC. A
+    // straight `< now` comparison made a quotation dated today "expired" from
+    // 03:00 local in Baghdad — including the picker's own default — so
+    // «تحويل لفاتورة» could never succeed. An expiry date means "valid THROUGH
+    // that day", so compare against the end of it.
+    if (quotation.expiresAt) {
+      const expiresEndOfDay = new Date(quotation.expiresAt);
+      expiresEndOfDay.setUTCHours(23, 59, 59, 999);
+      if (expiresEndOfDay < new Date()) {
+        throw new AppError("Quotation expired", 400, "QUOTATION_EXPIRED");
+      }
+    }
 
     const invoice = await createInvoice(
       {

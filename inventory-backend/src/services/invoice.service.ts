@@ -1151,9 +1151,16 @@ async function createInvoiceInTransaction(
   // brand-new ACTIVE sale invoices only — never recomputed on edit (frozen
   // snapshot, so cancel/hardDelete can reverse it exactly and reactivate/
   // restore can re-apply it without re-deriving profit from scratch).
+  // `invoiceProfit` is accumulated inside the item loop, BEFORE the
+  // invoice-level discount is known — a 200,000 sale costing 150,000 with a
+  // 50,000 discount breaks even, yet the raw figure says 50,000 profit and
+  // awarded 500 points. Because the value is frozen and reversed verbatim on
+  // cancel/delete, that error is permanent for the invoice, so the discount is
+  // subtracted here before points are computed.
+  const profitAfterDiscount = roundMoney(invoiceProfit - discount);
   const loyaltyPointsEarned =
     invoiceType === InvoiceType.SALE && !existingInvoiceId
-      ? calculateLoyaltyPoints(invoiceProfit)
+      ? calculateLoyaltyPoints(Math.max(0, profitAfterDiscount))
       : 0;
 
   const updatedInvoice = await tx.invoice.update({

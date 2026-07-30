@@ -2,6 +2,7 @@ import { InvoiceStatus, InvoiceType, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { amountInPieces, roundMoney } from "../utils/financial";
+import { assistantTimezone, dayKeyInTz, zonedDayRange } from "./daily-assistant.service";
 
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
 
@@ -21,7 +22,10 @@ export interface ProductMovementQuery {
 
 export interface CustomerDebtQuery {
   minDays: number;
-  maxDays: number;
+  // Optional: absent means "no upper bound". A numeric default here silently
+  // dropped the very oldest (most delinquent) debts from the dashboard table
+  // while still counting them in the total-debt KPI.
+  maxDays?: number;
   branchId?: string;
 }
 
@@ -36,16 +40,28 @@ function toNumber(value: DecimalLike) {
   return Number(value);
 }
 
+// Day boundaries are computed in the SHOP timezone, not the server's.
+//
+// The container runs with no TZ set, so `setHours(0,0,0,0)` produced UTC
+// midnight. In Baghdad (UTC+3) that made "today" run 03:00 → 02:59 the next
+// day: a POS sale rung up at 00:30 local was attributed to the previous day by
+// the dashboard, end-of-day report and cashier close, while the المساعد الذكي
+// tab — which already used Asia/Baghdad — attributed it to the correct one.
+// Two tabs of the same page disagreed, and the desktop's bundled backend
+// (running in the user's local zone) produced a third answer.
+//
+// These now delegate to the same zonedDayRange/dayKeyInTz helpers the
+// assistant uses, so every day bucket in the system agrees.
+function shopDayKey(date: Date) {
+  return dayKeyInTz(date, assistantTimezone());
+}
+
 function startOfDay(date: Date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return zonedDayRange(shopDayKey(date), assistantTimezone()).start;
 }
 
 function endOfDay(date: Date) {
-  const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
-  return d;
+  return zonedDayRange(shopDayKey(date), assistantTimezone()).end;
 }
 
 function addDays(date: Date, days: number) {
@@ -55,9 +71,12 @@ function addDays(date: Date, days: number) {
 }
 
 function dateFilter(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
+  const tz = assistantTimezone();
   const filter: Prisma.DateTimeFilter = {};
-  if (from) filter.gte = startOfDay(new Date(from));
-  if (to) filter.lte = endOfDay(new Date(to));
+  // `from`/`to` arrive as plain YYYY-MM-DD. Resolving them in the shop zone
+  // keeps a range picked in the UI aligned with the days the UI displays.
+  if (from) filter.gte = zonedDayRange(from.slice(0, 10), tz).start;
+  if (to) filter.lte = zonedDayRange(to.slice(0, 10), tz).end;
   return Object.keys(filter).length ? filter : undefined;
 }
 
@@ -190,6 +209,10 @@ export async function getDashboardReport() {
     prisma.customer.aggregate({
       where: {
         deletedAt: null,
+        // Same rule as getDebtAging / getCustomerDebtsReport: a supplier's
+        // positive balance is money WE owe, not customer debt. Mixing policies
+        // meant the four aging buckets could never sum to this headline KPI.
+        isSupplier: false,
         currentBalance: { gt: 0 },
       },
       _sum: { currentBalance: true },
@@ -521,6 +544,21 @@ export async function getProductMovementReport(query: ProductMovementQuery) {
 export async function getInventoryValuationReport() {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
+    // Explicit select: imageUrl/thumbnailUrl are @db.Text base64 and the
+    // dashboard calls this on every load (and every 120s refetch) just to build
+    // a category pie chart. A bare findMany shipped every product image twice.
+    select: {
+      id: true,
+      itemNumber: true,
+      name: true,
+      category: true,
+      openingBalancePcs: true,
+      cartonsAvailable: true,
+      pcsPerCarton: true,
+      purchasePrice: true,
+      costPrice: true,
+      salePrice: true,
+    },
     orderBy: { itemNumber: "asc" },
   });
 
@@ -564,6 +602,7 @@ export async function getCustomerDebtsReport(query: CustomerDebtQuery) {
     where: {
       deletedAt: null,
       ...(query.branchId ? { branchId: query.branchId } : {}),
+      isSupplier: false,
       currentBalance: { gt: 0 },
     },
     orderBy: { currentBalance: "desc" },
@@ -588,7 +627,7 @@ export async function getCustomerDebtsReport(query: CustomerDebtQuery) {
     .filter(
       (customer) =>
         customer.debtAgeDays >= query.minDays &&
-        customer.debtAgeDays <= query.maxDays
+        (query.maxDays === undefined || customer.debtAgeDays <= query.maxDays)
     );
 }
 
@@ -610,20 +649,42 @@ export async function getTopCustomersReport(query: TopCustomersQuery) {
   });
 
   const customerIds = grouped.map((g) => g.customerId);
-  const customers = await prisma.customer.findMany({
-    where: { id: { in: customerIds } },
-    select: { id: true, name: true, phone: true, currentBalance: true },
-  });
+  const [customers, returnsByCustomer] = await Promise.all([
+    prisma.customer.findMany({
+      // Soft-deleted customers were still ranked, showing as "—".
+      where: { id: { in: customerIds }, deletedAt: null },
+      select: { id: true, name: true, phone: true, currentBalance: true },
+    }),
+    // Gross SALE totals alone rank a customer who bought 10M and returned 9M
+    // above one who genuinely bought 5M — and عقل المحل, which DOES net
+    // returns, then shows a different number for the same customer.
+    prisma.invoice.groupBy({
+      by: ["customerId"],
+      where: {
+        status: InvoiceStatus.ACTIVE,
+        type: InvoiceType.SALES_RETURN,
+        customerId: { in: customerIds },
+        ...(df ? { date: df } : {}),
+      },
+      _sum: { totalAmount: true, paidAmount: true },
+    }),
+  ]);
+  const returnMap = new Map(returnsByCustomer.map((r) => [r.customerId, r]));
 
   return grouped.map((g) => {
     const cust = customers.find((c) => c.id === g.customerId);
+    const returned = returnMap.get(g.customerId);
     return {
       customerId: g.customerId,
       name: cust?.name ?? "—",
       phone: cust?.phone ?? "",
       currentBalance: toNumber(cust?.currentBalance),
-      totalPurchases: toNumber(g._sum.totalAmount),
-      totalPaid: toNumber(g._sum.paidAmount),
+      totalPurchases: roundMoney(
+        toNumber(g._sum.totalAmount) - toNumber(returned?._sum.totalAmount),
+      ),
+      totalPaid: roundMoney(
+        toNumber(g._sum.paidAmount) - toNumber(returned?._sum.paidAmount),
+      ),
       invoiceCount: g._count.id,
     };
   });
@@ -631,9 +692,10 @@ export async function getTopCustomersReport(query: TopCustomersQuery) {
 
 // ── End-of-Day summary ────────────────────────────────────────────────────
 export async function getEndOfDayReport(date?: string) {
+  // Shop-timezone day, same as every other day bucket in this file.
   const d = date ? new Date(date) : new Date();
-  const start = new Date(d); start.setHours(0, 0, 0, 0);
-  const end = new Date(d); end.setHours(23, 59, 59, 999);
+  const start = startOfDay(d);
+  const end = endOfDay(d);
 
   const [invoices, vouchers] = await Promise.all([
     prisma.invoice.findMany({
@@ -850,7 +912,10 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
   const collectionsToday = toNumber(receiptsToday._sum.amount);
 
   const lowStockItems = allProducts.filter(
-    (p) => currentStock(p) >= 0 && currentStock(p) <= p.minStock
+    // No `>= 0` floor: an oversold product at −12 pieces is the most urgent
+    // restock in the shop. Excluding it made the 9 PM WhatsApp summary report a
+    // smaller count than the dashboard card, which uses this same predicate.
+    (p) => currentStock(p) <= p.minStock
   );
   const lowStockNames = lowStockItems.slice(0, 3).map((p) => p.name);
 
@@ -1256,7 +1321,11 @@ export async function getWarehouseComparisonReport(query: WarehouseComparisonQue
   const [stockByWarehouse, movements, transfersOut, transfersIn, saleItems] = await Promise.all([
     prisma.productWarehouseStock.groupBy({
       by: ["warehouseId"],
-      where: { warehouseId: { in: branchIds } },
+      // deleteProduct only sets deletedAt — the stock rows survive with their
+      // quantities. Without this filter مقارنة المخازن keeps counting stock the
+      // inventory report has already dropped, and the two totals on the same
+      // page disagree permanently.
+      where: { warehouseId: { in: branchIds }, product: { deletedAt: null } },
       _sum: { quantityPieces: true },
     }),
     // StockMovement.branchId is the WAREHOUSE the movement happened in (see
@@ -1266,14 +1335,26 @@ export async function getWarehouseComparisonReport(query: WarehouseComparisonQue
       where: { branchId: { in: branchIds }, ...(df ? { createdAt: df } : {}) },
       _sum: { quantity: true },
     }),
+    // Only COMPLETED transfers are activity. Counting PENDING drafts and
+    // CANCELLED transfers made a depot with three abandoned drafts look busier
+    // than one with two real transfers. getProductMovementReport already
+    // filters this way.
     prisma.inventoryTransfer.groupBy({
       by: ["fromBranchId"],
-      where: { fromBranchId: { in: branchIds }, ...(df ? { date: df } : {}) },
+      where: {
+        fromBranchId: { in: branchIds },
+        status: "COMPLETED",
+        ...(df ? { date: df } : {}),
+      },
       _count: true,
     }),
     prisma.inventoryTransfer.groupBy({
       by: ["toBranchId"],
-      where: { toBranchId: { in: branchIds }, ...(df ? { date: df } : {}) },
+      where: {
+        toBranchId: { in: branchIds },
+        status: "COMPLETED",
+        ...(df ? { date: df } : {}),
+      },
       _count: true,
     }),
     // Sales revenue/profit per branch — Invoice.branchId (office/customer branch,
@@ -1290,7 +1371,16 @@ export async function getWarehouseComparisonReport(query: WarehouseComparisonQue
         },
       },
       include: {
-        product: true,
+        // itemCostPrice() needs four fields; `product: true` pulled every line
+        // item's base64 image over an unbounded, all-time-by-default range.
+        product: {
+          select: {
+            costPrice: true,
+            purchasePrice: true,
+            pcsPerCarton: true,
+            boxPieces: true,
+          },
+        },
         invoice: { select: { branchId: true, subtotal: true, totalAmount: true } },
       },
     }),

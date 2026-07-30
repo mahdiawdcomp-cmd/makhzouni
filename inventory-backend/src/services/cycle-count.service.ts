@@ -329,7 +329,7 @@ export async function updateCycleCountItem(
 ) {
   const session = await prisma.cycleCountSession.findUnique({
     where: { id: sessionId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, warehouseId: true },
   });
   if (!session) throw new AppError("جلسة الجرد الذكي غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.status !== CycleCountSessionStatus.OPEN)
@@ -340,11 +340,21 @@ export async function updateCycleCountItem(
   if (item.approvalStatus !== CycleCountApprovalStatus.PENDING)
     throw new AppError("تم معالجة هذا العنصر بالفعل، لا يمكن تعديله", 400, "ITEM_ALREADY_PROCESSED");
 
-  const variance = actualQty - item.systemQty;
+  // Re-read the LIVE system quantity at count time, exactly as the public
+  // worker path (scanCycleCountQrCode / setCycleCountItemQty) already does.
+  // Using the value captured when the session was created double-counts every
+  // sale that happened since — and left the two entry paths behind one approve
+  // button producing different stock outcomes for identical input.
+  const currentStock = await prisma.productWarehouseStock.findUnique({
+    where: { productId_warehouseId: { productId, warehouseId: session.warehouseId } },
+    select: { quantityPieces: true },
+  });
+  const systemQty = currentStock?.quantityPieces ?? item.systemQty;
+  const variance = actualQty - systemQty;
 
   await prisma.cycleCountItem.update({
     where: { id: item.id },
-    data: { actualQty, variance, ...(notes !== undefined ? { notes } : {}) },
+    data: { actualQty, systemQty, variance, ...(notes !== undefined ? { notes } : {}) },
   });
 
   return { productId, actualQty, variance };

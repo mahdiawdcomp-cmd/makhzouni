@@ -1,3 +1,4 @@
+import { QueryErrorBox } from "../components/ui/query-error"
 import { useState, type ComponentType } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { Link } from "react-router-dom"
@@ -246,6 +247,12 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Every KPI below falls back to `?? 0`, so a failed request renders a
+          perfectly plausible "مبيعات اليوم 0" and the owner reads it as a real
+          zero-sales day. After the 3 configured retries, say so instead. */}
+      {dashboard.isError ? (
+        <QueryErrorBox title="تعذّر تحميل مؤشرات اليوم" onRetry={() => void dashboard.refetch()} />
+      ) : null}
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight" style={{ color: "var(--theme-textPrimary)" }}>

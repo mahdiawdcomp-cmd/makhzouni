@@ -386,7 +386,14 @@ export async function finalConfirmBatch(
   db?: Prisma.TransactionClient,
 ): Promise<FinalConfirmSummary> {
   if (db) return finalConfirmBatchInTransaction(db, batchId, opts, userId, userName);
-  return prisma.$transaction((tx) => finalConfirmBatchInTransaction(tx, batchId, opts, userId, userName));
+  // A 25 MB China-order sheet is hundreds of rows, each running createProduct
+  // before the purchase invoice is built. Prisma's 5s default aborts that with
+  // an opaque P2028 and rolls back the batch claim, so the admin sees a 500 and
+  // no invoice. Mirrors INVOICE_TX_OPTIONS on the invoice path.
+  return prisma.$transaction(
+    (tx) => finalConfirmBatchInTransaction(tx, batchId, opts, userId, userName),
+    { maxWait: 10_000, timeout: 60_000 },
+  );
 }
 
 async function finalConfirmBatchInTransaction(

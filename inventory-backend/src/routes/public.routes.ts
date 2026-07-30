@@ -72,6 +72,8 @@ import {
   cartSessionSchema,
   searchMissSchema,
   idParamSchema,
+  validatePromoSchema,
+  retailAiChatSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -224,7 +226,7 @@ router.post("/catalog/access/verify", catalogLimiter, validate(catalogAccessQuer
 router.get("/catalog/products", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProducts);
 router.get("/catalog/product-image", catalogLimiter, validate(catalogAccessQuerySchema), getCatalogProductImageCtrl);
 router.post("/catalog/orders", catalogLimiter, validate(createCatalogOrderSchema), createCatalogOrder);
-router.post("/catalog/validate-promo", catalogLimiter, validatePromoCtrl);
+router.post("/catalog/validate-promo", catalogLimiter, validate(validatePromoSchema), validatePromoCtrl);
 
 // Guest catalog (no OTP/access token) — only served when the merchant has
 // turned off catalogRequireOtp; the service layer enforces that, not the route.
@@ -250,7 +252,7 @@ router.get("/retail/my-orders/:token", catalogLimiter, getPublicRetailOrdersByTo
 // Removed GET /retail/orders/:id (privacy: exposed individual orders without any authorization)
 router.get("/retail/referral/:code", catalogLimiter, getPublicReferralInfo);
 router.get("/retail/my-referral", catalogLimiter, getPublicCustomerReferral);
-router.post("/retail/ai-chat", catalogLimiter, postPublicRetailAiChat);
+router.post("/retail/ai-chat", catalogLimiter, validate(retailAiChatSchema), postPublicRetailAiChat);
 
 // Client portal
 router.get("/client/:token", validate(portalTokenSchema), getClientPortal);

@@ -70,9 +70,11 @@ router.get("/:id", validate(idParamSchema), getCustomerDetails);
 router.get("/:id/any", validate(idParamSchema), getCustomerDetailsAny);
 router.post("/", enforcePlanLimit("customer"), validate(createCustomerSchema), addCustomer);
 router.post("/:id/send-catalog-link", requirePermission("MANAGE_CUSTOMERS"), validate(sendCatalogLinkSchema), postSendCatalogLink);
-router.post("/:id/portal-link", validate(createPortalLinkSchema), createPortalLink);
-router.patch("/:id/portal-link", validate(idParamSchema), togglePortalLinkController);
-router.delete("/:id/portal-link", validate(idParamSchema), revokePortalLinks);
+// A portal link is a public, unauthenticated token exposing that customer's
+// invoices and balance — minting or revoking one is a customer-management act.
+router.post("/:id/portal-link", requirePermission("MANAGE_CUSTOMERS"), validate(createPortalLinkSchema), createPortalLink);
+router.patch("/:id/portal-link", requirePermission("MANAGE_CUSTOMERS"), validate(idParamSchema), togglePortalLinkController);
+router.delete("/:id/portal-link", requirePermission("MANAGE_CUSTOMERS"), validate(idParamSchema), revokePortalLinks);
 router.put("/:id", validate(updateCustomerSchema), editCustomer);
 router.post("/:id/recalculate-balance", validate(idParamSchema), recalculateBalance);
 router.delete("/:id", validate(idParamSchema), deleteCustomer);
