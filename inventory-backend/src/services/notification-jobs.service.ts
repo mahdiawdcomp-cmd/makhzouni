@@ -33,6 +33,13 @@ import {
 } from "../constants/notifications";
 import { backendPublicUrl } from "../utils/public-urls";
 
+// node-cron evaluates every expression in UTC unless told otherwise, and the
+// container sets no TZ. So "0 10 * * *" — the debt reminder — was firing at
+// 13:00 in Baghdad, the 09:00 digest at noon, and a late-evening summary would
+// land after midnight and be filed under the wrong day. Every schedule below is
+// meant as SHOP local time, which is the same clock the reports now bucket by.
+const CRON_OPTIONS = { timezone: assistantTimezone() } as const;
+
 /** Cron catch helper: keep the console.error AND surface the failure on /error-logs. */
 function reportCronFailure(job: string, error: unknown) {
   console.error(`${job} failed`, error);
@@ -345,7 +352,7 @@ export function startNotificationJobs() {
     runDailyAssistantSnapshotJob().catch((error) => {
       reportCronFailure("DAILY_ASSISTANT_SNAPSHOT", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Weekly basket analysis — Friday 04:00 local (low usage). Idempotent per week.
   cron.schedule("0 * * * *", () => {
@@ -354,19 +361,19 @@ export function startNotificationJobs() {
     runWeeklyBasketJob().catch((error) => {
       reportCronFailure("WEEKLY_BASKET_ANALYSIS", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   cron.schedule("0 10 * * *", () => {
     runDebtReminderJob().catch((error) => {
       reportCronFailure("DEBT_REMINDER", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   cron.schedule("0 9 * * *", () => {
     runInactiveCustomerJob().catch((error) => {
       reportCronFailure("INACTIVE_CUSTOMER", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // «الديون الشخصية» — daily at 09:30, independent of the customer debt
   // reminder above (unrelated feature, see personal-debt.service.ts).
@@ -374,14 +381,14 @@ export function startNotificationJobs() {
     runPersonalDebtReminderJob().catch((error) => {
       reportCronFailure("PERSONAL_DEBT_REMINDER", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // «قيّم مشترياتك» — daily at 11:00, independent of the other jobs.
   cron.schedule("0 11 * * *", () => {
     runRatingRequestJob().catch((error) => {
       reportCronFailure("PRODUCT_RATING_REQUEST", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Abandoned catalog checkout — every 15 minutes; no-op unless a session has
   // gone quiet past the timeout in catalog-tracking.service.
@@ -389,14 +396,14 @@ export function startNotificationJobs() {
     runAbandonedCartCheckJob().catch((error) => {
       reportCronFailure("ABANDONED_CART_CHECK", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Daily backup — every day at 02:00
   cron.schedule("0 2 * * *", () => {
     runWeeklyBackup().catch((error) => {
       reportCronFailure("DAILY_BACKUP", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Daily summary — runs every hour, fires only when current hour matches setting (default 21:00)
   cron.schedule("0 * * * *", async () => {
@@ -407,7 +414,7 @@ export function startNotificationJobs() {
         reportCronFailure("DAILY_SUMMARY", error);
       });
     }
-  });
+  }, CRON_OPTIONS);
 
   // Drip marketing campaigns — tick every minute. Each running campaign sends
   // at most one message per tick, gated by randomized delay / daily cap / active
@@ -416,7 +423,7 @@ export function startNotificationJobs() {
     processCampaignsTick().catch((error) => {
       reportCronFailure("CAMPAIGN_TICK", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Instagram scheduled queues («كتلوك المفرد» auto-publish) — tick every
   // minute; cheap when no ACTIVE queue exists. Baghdad-time schedule logic
@@ -425,7 +432,7 @@ export function startNotificationJobs() {
     runInstagramQueueTick().catch((error) => {
       reportCronFailure("INSTAGRAM_QUEUE_TICK", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // «قناة تيليگرام» — reconcile the public channel with the wholesale catalog
   // every minute; no-op unless enabled + configured in settings. Rate caps and
@@ -434,7 +441,7 @@ export function startNotificationJobs() {
     runTelegramChannelSyncTick().catch((error) => {
       reportCronFailure("TELEGRAM_CHANNEL_SYNC", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Admin broadcast DM blast — small batch per minute, no-op unless a
   // broadcast is SENDING. Rate cap lives in telegram-broadcast.service.
@@ -442,7 +449,7 @@ export function startNotificationJobs() {
     runTelegramBroadcastTick().catch((error) => {
       reportCronFailure("TELEGRAM_BROADCAST_TICK", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // «وصل حديثاً» daily pinned digest — 09:00 server time, no-op if disabled/
   // unconfigured or nothing new to show. Rate-limit-free (one post/day).
@@ -450,7 +457,7 @@ export function startNotificationJobs() {
     runDailyDigestJob().catch((error) => {
       reportCronFailure("TELEGRAM_DAILY_DIGEST", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Freshness rotation — republishes the oldest N channel posts daily (11:00)
   // so long-standing in-stock products cycle back to "new" on their own.
@@ -458,21 +465,21 @@ export function startNotificationJobs() {
     runDailyChannelRotationJob().catch((error) => {
       reportCronFailure("TELEGRAM_CHANNEL_ROTATION", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Featured-product daily pin (12:00, after the rotation job above).
   cron.schedule("0 12 * * *", () => {
     runFeaturedProductRotationJob().catch((error) => {
       reportCronFailure("TELEGRAM_FEATURED_ROTATION", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // ErrorLog retention — daily at 03:15, delete rows older than 90 days.
   cron.schedule("15 3 * * *", () => {
     cleanupOldErrorLogs()
       .then((n) => { if (n > 0) console.log(`[ErrorLog] cleaned ${n} old rows`); })
       .catch((error) => reportCronFailure("ERRORLOG_CLEANUP", error));
-  });
+  }, CRON_OPTIONS);
 
   // "جدولة الجرد الذكي" — hourly check. Independent from every job above and
   // from the manual stocktake feature; see cycle-count.service.ts for the
@@ -481,7 +488,7 @@ export function startNotificationJobs() {
     runScheduledCycleCountJob().catch((error) => {
       reportCronFailure("SCHEDULED_CYCLE_COUNT", error);
     });
-  });
+  }, CRON_OPTIONS);
 
   // Neon DB keep-alive REMOVED (2026-07-01): the database has been migrated to
   // Railway Postgres, which has no Neon-style auto-suspend to work around. This
@@ -506,7 +513,7 @@ export function startNotificationJobs() {
     if (!base) return; // no own origin configured — nothing safe to ping
     fetch(`${base}/health`, { signal: AbortSignal.timeout(10_000) })
       .catch(() => {/* silent — just keeping the process warm */});
-  });
+  }, CRON_OPTIONS);
 }
 
 /** Parses "HH:MM" (0-23 : 0-59) into minutes-since-midnight, or undefined if malformed. */
