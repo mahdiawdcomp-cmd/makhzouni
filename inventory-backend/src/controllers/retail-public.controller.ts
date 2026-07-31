@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/async-handler";
 import prisma from "../config/database";
 import {
   getActiveRetailCoupon,
-  getRetailCustomerReferral,
+  getRetailCustomerReferralByToken,
   getRetailOrderPublic,
   getRetailOrdersByPhone,
   getRetailOrdersByToken,
@@ -104,8 +104,9 @@ export const getPublicReferralInfo = asyncHandler(async (req, res) => {
 });
 
 export const getPublicCustomerReferral = asyncHandler(async (req, res) => {
-  const phone = String(req.query.phone ?? "");
-  res.json({ success: true, data: await getRetailCustomerReferral(phone) });
+  // Keyed on the customer's private orders token, never on a phone number.
+  const token = String(req.params.token ?? "");
+  res.json({ success: true, data: await getRetailCustomerReferralByToken(token) });
 });
 
 export const postPublicRetailAiChat = asyncHandler(async (req, res) => {

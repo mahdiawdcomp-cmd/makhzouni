@@ -103,7 +103,15 @@ export function RealtimeSyncBridge() {
         }
 
         keys.forEach((key) => {
-          void queryClient.invalidateQueries({ queryKey: [key] })
+          void queryClient.invalidateQueries({
+          queryKey: [key],
+          // `products` is the ~4.75 MB catalogue query and almost every
+          // resource maps to it, so an immediate refetch meant every sale made
+          // every open tab re-download it. Mark it stale instead and let the
+          // next navigation reconcile — which is exactly what useProducts'
+          // own mutations do.
+          refetchType: key === "products" ? "none" : undefined,
+        })
         })
       }, 300)
     }

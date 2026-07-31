@@ -132,6 +132,15 @@ export function VoucherDetailPage() {
       void qc.invalidateQueries({ queryKey: ["customer"] })
       void qc.invalidateQueries({ queryKey: ["transactions"] })
     },
+    // A failed save must NEVER be silent — the voucher affects money. Without
+    // this the dialog simply stopped on a 423/400 and the user walked away
+    // believing a correction had been recorded.
+    onError: (error) => {
+      toast({
+        title: apiErrorMessage(error, "تعذّر حفظ التعديل"),
+        variant: "destructive",
+      })
+    },
   })
 
   const deleteMutation = useMutation({

@@ -7,6 +7,7 @@ import { normalizePhone } from "../utils/phone";
 import { scoreCustomer } from "../utils/arabic-search";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
+import { assistantTimezone, dayKeyInTz, zonedDayRange } from "./daily-assistant.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -83,9 +84,11 @@ function buildTransactionDateFilter(filter: TransactionFilter) {
   }
 
   if (filter.to) {
-    const toDate = new Date(filter.to);
-    toDate.setHours(23, 59, 59, 999);
-    dateFilter.lte = toDate;
+    // Shop-timezone end of day, matching report.service. setHours() ran in the
+    // container's zone (UTC), so a filter for 1 Aug also swept two early-morning
+    // Iraq records belonging to 2 Aug — and the page total then disagreed with
+    // the collections widget beside it.
+    dateFilter.lte = zonedDayRange(filter.to.slice(0, 10), assistantTimezone()).end;
   }
 
   return Object.keys(dateFilter).length > 0 ? dateFilter : undefined;
@@ -94,10 +97,9 @@ function buildTransactionDateFilter(filter: TransactionFilter) {
 function buildTransactionUpperDateFilter(filter: TransactionFilter) {
   if (filter.all || !filter.to) return undefined;
 
-  const toDate = new Date(filter.to);
-  toDate.setHours(23, 59, 59, 999);
-
-  return { lte: toDate } satisfies Prisma.DateTimeFilter;
+  return {
+    lte: zonedDayRange(filter.to.slice(0, 10), assistantTimezone()).end,
+  } satisfies Prisma.DateTimeFilter;
 }
 
 function startDateForFilter(filter: TransactionFilter) {
@@ -133,7 +135,20 @@ export async function getCustomerByIdAny(id: string) {
   return serializeCustomer(customer);
 }
 
-export async function recalculateCustomerBalance(customerId: string, db: Db = prisma) {
+/**
+ * Re-derives the balance from the ledger. ALWAYS runs under a row lock.
+ *
+ * This is reachable from a READ endpoint — GET /customers/:id/balance →
+ * getCustomerBalance() → here — which makes the race trivially easy to hit:
+ * the five aggregates run, a receipt voucher commits in its own locked
+ * transaction and correctly writes −500,000, and then this call writes its
+ * stale 0 back over it. The stored balance then disagrees with the ledger
+ * until the next write happens to correct it.
+ *
+ * Matches the locking already used by the invoice and voucher recalcs.
+ */
+async function recalculateCustomerBalanceLocked(db: Db, customerId: string) {
+  await db.$queryRaw`SELECT "id" FROM "customers" WHERE "id" = ${customerId}::uuid FOR UPDATE`;
   const customer = await getCustomerOrThrow(customerId, db);
 
   const [saleTotals, creditInvoiceTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] =
@@ -214,6 +229,15 @@ export async function recalculateCustomerBalance(customerId: string, db: Db = pr
   });
 
   return serializeCustomer(updatedCustomer);
+}
+
+/**
+ * Callers already inside a transaction pass their `db`; everyone else gets one
+ * opened for them, so the lock above always has a transaction to hold it.
+ */
+export async function recalculateCustomerBalance(customerId: string, db?: Db) {
+  if (db) return recalculateCustomerBalanceLocked(db, customerId);
+  return prisma.$transaction((tx) => recalculateCustomerBalanceLocked(tx, customerId));
 }
 
 export async function listCustomers(query: ListCustomersQuery) {
@@ -504,10 +528,17 @@ function buildCustomerStatement(
     return movements;
   });
 
-  // Shift by UTC+3 before flooring: old vouchers carry a real UTC timestamp
-  // (e.g. 23:27 UTC = 02:27 AM Iraq next day) while invoices use midnight UTC
-  // of the business date. Adding 3 h converts both to the correct Iraq calendar day.
-  const UTC3 = 3 * 60 * 60 * 1000;
+  // Bucket both record types onto the same calendar day before sorting: old
+  // vouchers carry a real timestamp (23:27 UTC = 02:27 next day in Baghdad)
+  // while invoices use midnight-UTC of the business date.
+  //
+  // This used to be a hardcoded `+3h`, which silently assumed every tenant is
+  // in Iraq — for a tenant at UTC+1 a 22:30Z voucher (23:30 local, same day)
+  // was floored into the NEXT day and sorted after a sale it actually preceded,
+  // so the running-balance column told the wrong story. The shop timezone is
+  // the same one the reports bucket by.
+  const statementTz = assistantTimezone();
+  const dayKey = (date: Date) => dayKeyInTz(date, statementTz);
   const movements: StatementMovement[] = [
     ...invoiceMovements,
     ...vouchers.map((voucher) => ({
@@ -524,9 +555,9 @@ function buildCustomerStatement(
       description: voucher.description ?? voucher.notes ?? null,
     })),
   ].sort((a, b) => {
-    const dayA = Math.floor((a.date.getTime() + UTC3) / 86_400_000);
-    const dayB = Math.floor((b.date.getTime() + UTC3) / 86_400_000);
-    return dayA - dayB || a.sortKey - b.sortKey;
+    const dayA = dayKey(a.date);
+    const dayB = dayKey(b.date);
+    return dayA < dayB ? -1 : dayA > dayB ? 1 : a.sortKey - b.sortKey;
   });
 
   // Cancelled vouchers are shown in the ledger for audit but, like cancelled

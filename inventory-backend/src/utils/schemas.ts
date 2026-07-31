@@ -728,6 +728,12 @@ export const createVoucherSchema = z.object({
       customerId: z.string().uuid().optional(),
       branchId: z.string().uuid().optional(),
       amount: z.coerce.number().positive(),
+      // Both clients have always sent this; without it here validate() deleted
+      // the key and the service fell back to new Date() — a raw server-UTC
+      // timestamp. A receipt entered at 01:30 Iraq was then stored on the
+      // previous day and filed under a different end-of-day than the invoice
+      // it settles.
+      date: dateString.optional(),
       type: z.enum(["RECEIPT", "PAYMENT", "EXPENSE"]),
       clientRequestId: z.string().min(8).max(100).optional(),
       notes: z.string().trim().optional(),
@@ -752,6 +758,7 @@ export const updateVoucherSchema = z.object({
     .object({
       customerId: z.string().uuid().optional(),
       amount: z.coerce.number().positive().optional(),
+      date: dateString.optional(),
       notes: z.string().trim().optional(),
       description: z.string().trim().optional(),
       category: z.string().trim().max(50).optional(),
@@ -1150,6 +1157,12 @@ export const submitRetailOrderSchema = z.object({
     address: z.string().trim().max(300).optional(),
     notes: z.string().trim().max(500).optional(),
     couponCode: z.string().trim().max(60).optional(),
+    // Both were read by submitRetailOrder but absent here, so validate()
+    // deleted them: the shop rendered «خصم الإحالة» and a reduced total, then
+    // the backend stored the order at full price. Every referred customer was
+    // quoted one number and charged another.
+    referralCode: z.string().trim().max(60).optional(),
+    warehouseId: z.string().uuid().optional(),
     isSubscriber: z.boolean().optional(),
     interests: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     wishNote: z.string().trim().max(500).optional(),
@@ -1197,6 +1210,14 @@ export const retailAiChatSchema = z.object({
       )
       .max(20)
       .optional(),
+  }),
+});
+
+// The only public catalog route that was mounted without a schema, and it
+// creates a lead row and fires an admin WhatsApp per unseen phone.
+export const guestCatalogEnterSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(10).max(40),
   }),
 });
 

@@ -422,6 +422,11 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
   const sendOtpMut = useMutation({
     mutationFn: async () => {
       const status = await getCatalogAccessStatus(phone.trim())
+      // The backend only returns a token when this phone has already proved
+      // ownership via OTP, or when the merchant has turned OTP off entirely.
+      // Anything else falls through to the OTP step below. Never treat
+      // `approved` alone as permission to skip — knowing a customer's phone
+      // number is not authentication.
       if (status?.approved && status.token) return { skip: true, token: status.token }
       await sendCatalogOtp(phone.trim())
       return { skip: false, token: null }

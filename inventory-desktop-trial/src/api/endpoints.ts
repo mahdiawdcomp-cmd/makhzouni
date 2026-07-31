@@ -2353,8 +2353,10 @@ export async function getPublicReferralInfo(code: string) {
   return data.data!
 }
 
-export async function getPublicCustomerReferral(phone: string) {
-  const { data } = await publicApi.get<ApiEnvelope<CustomerReferral | null>>("/public/retail/my-referral", { params: { phone } })
+// Keyed on the customer's private orders token, not their phone: the phone
+// form was an unauthenticated enumeration oracle over the customer list.
+export async function getPublicCustomerReferral(ordersToken: string) {
+  const { data } = await publicApi.get<ApiEnvelope<CustomerReferral | null>>(`/public/retail/my-referral/${encodeURIComponent(ordersToken)}`)
   return data.data ?? null
 }
 

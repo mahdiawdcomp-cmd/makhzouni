@@ -1,3 +1,4 @@
+import { QueryErrorBox } from "../components/ui/query-error"
 /**
  * كشف الحساب السريع
  * Search for any customer → show their full statement instantly.
@@ -138,6 +139,12 @@ export function AccountLookupPage() {
   const transactions = details.transactionsQuery.data ?? []
   const invoices = details.invoicesQuery.data ?? []
   const vouchers = details.vouchersQuery.data ?? []
+  // Any of the three failing means the totals and the movement list below are
+  // built from incomplete data, so they must not be presented as fact.
+  const detailsFailed =
+    details.transactionsQuery.isError ||
+    details.invoicesQuery.isError ||
+    details.vouchersQuery.isError
 
   // Gross sales: active SALE invoices only. Exclude cancelled invoices (the
   // list endpoint returns them when no status filter is sent) and SALES_RETURN
@@ -284,7 +291,22 @@ export function AccountLookupPage() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {transactions.length === 0 ? (
+              {detailsFailed ? (
+                // Never render an empty ledger on a failed request: a customer
+                // who owes money would look settled. Same class as the
+                // dashboard/profits fix — this is the screen an accountant uses
+                // to answer "how much does he owe me".
+                <div className="p-4">
+                  <QueryErrorBox
+                    title="تعذّر تحميل حركات الحساب"
+                    onRetry={() => {
+                      void details.transactionsQuery.refetch()
+                      void details.invoicesQuery.refetch()
+                      void details.vouchersQuery.refetch()
+                    }}
+                  />
+                </div>
+              ) : transactions.length === 0 ? (
                 <p className="py-10 text-center text-sm text-slate-500">لا توجد حركات</p>
               ) : (
                 <div className="overflow-x-auto">

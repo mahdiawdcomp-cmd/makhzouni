@@ -7,6 +7,9 @@ test("recalculateCustomerBalance excludes cancelled and archived vouchers", asyn
   let savedBalance: unknown;
 
   const db = {
+    // recalculateCustomerBalance now takes a row lock before reading, matching
+    // the invoice and voucher recalcs.
+    $queryRaw: async () => [],
     customer: {
       findFirst: async () => ({
         id: "customer-1",

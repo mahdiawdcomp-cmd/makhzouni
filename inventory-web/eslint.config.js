@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // src-tauri/target holds Rust build artifacts (generated JS assets); linting
+  // them produced 192 parse errors — 65% of the whole report — which is how
+  // real regressions got lost in the noise.
+  globalIgnores(['dist', 'dev-dist', 'src-tauri/target']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

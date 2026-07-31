@@ -143,7 +143,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     const applyDocumentLocale = (forceArabic = false) => {
       const activeLanguage = forceArabic || !isAdministrationPath() ? "ar" : language
       document.documentElement.lang = activeLanguage
-      document.documentElement.dir = activeLanguage === "en" ? "ltr" : "rtl"
+      document.documentElement.dir = "rtl"
       document.documentElement.dataset.adminLanguage = language
     }
 

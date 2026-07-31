@@ -154,8 +154,9 @@ export function RetailShopPage() {
     if (_t) localStorage.setItem(ORDERS_TOKEN_KEY, _t)
     setCart([])
     // After first order, fetch their referral code and show it
-    if (_p) {
-      getPublicCustomerReferral(_p).catch(() => {})
+    if (_t) {
+      // Keyed on the private orders token now, not the phone.
+      getPublicCustomerReferral(_t).catch(() => {})
     }
   }
 
@@ -1235,25 +1236,30 @@ function SuccessScreen({ orderNumber, customerPhone, goCatalog }: { orderNumber:
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState("")
 
-  // Auto-fetch when phone is known (delay gives backend time to finish upsert)
+  // Auto-fetch once we have the customer's private orders token. A phone
+  // number is no longer accepted as identification — it identified nothing.
   useEffect(() => {
-    if (!customerPhone || customerPhone.replace(/\D/g, "").length < 7) return
-    const t = setTimeout(() => { void fetchReferral(customerPhone) }, 1800)
+    const stored = localStorage.getItem(ORDERS_TOKEN_KEY)
+    if (!stored) return
+    const t = setTimeout(() => { void fetchReferral() }, 1800)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerPhone])
 
-  async function fetchReferral(phoneToFetch = phone) {
-    const digits = phoneToFetch.replace(/\D/g, "")
-    if (digits.length < 7) { setFetchError("أدخل رقم هاتف صحيح"); return }
+  async function fetchReferral() {
+    const ordersToken = localStorage.getItem(ORDERS_TOKEN_KEY) ?? ""
+    if (!ordersToken) {
+      setFetchError("رابط الإحالة يظهر بعد أول طلب من هذا الجهاز.")
+      return
+    }
     setFetching(true)
     setFetchError("")
     try {
-      const info = await getPublicCustomerReferral(phoneToFetch.trim())
+      const info = await getPublicCustomerReferral(ordersToken)
       if (info) {
         setReferralInfo(info)
       } else {
-        setFetchError("لم يُعثر على حساب بهذا الرقم. تأكد من الرقم وحاول مجدداً.")
+        setFetchError("لم يُعثر على حساب. أرسل طلباً أولاً ليظهر رابط الإحالة.")
       }
     } catch {
       setFetchError("تعذّر جلب رابط الإحالة. تحقق من اتصالك وحاول مجدداً.")

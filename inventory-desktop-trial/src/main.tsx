@@ -30,7 +30,9 @@ const queryClient = new QueryClient({
       },
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
       refetchOnWindowFocus: false,
-      refetchInterval: 120_000,
+      // NO global refetchInterval — see the matching comment in
+      // inventory-web/src/main.tsx. It applied to useProducts (limit 5000,
+      // ~4.75 MB) and re-downloaded the whole catalogue every two minutes.
       // Keep data 5 min before stale — shows instantly from cache
       staleTime: 5 * 60 * 1000,
       // Keep cache 24h in IndexedDB

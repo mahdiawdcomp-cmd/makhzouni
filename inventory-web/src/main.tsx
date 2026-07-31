@@ -27,8 +27,12 @@ const queryClient = new QueryClient({
       retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
       // SSE realtime bridge handles cross-tab invalidation — window focus refetch is redundant
       refetchOnWindowFocus: false,
-      // Auto-refresh every 2 minutes in the background (SSE handles instant updates)
-      refetchInterval: 120_000,
+      // NO global refetchInterval. It is not gated by staleTime, so it applied
+      // to every query including useProducts (limit 5000, ~4.75 MB) — each open
+      // tab re-downloaded the entire catalogue every two minutes, per user,
+      // silently defeating the caching the hook was written to provide. The SSE
+      // bridge already delivers instant updates; the few queries that genuinely
+      // need polling set their own interval.
       // Show cached data instantly for 5 minutes — avoids loading spinners on every page switch
       staleTime: 300_000,
     },

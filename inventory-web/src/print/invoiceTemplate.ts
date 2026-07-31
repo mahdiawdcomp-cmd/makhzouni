@@ -227,6 +227,13 @@ export function renderInvoiceHTML(
   th:nth-child(2){ text-align:right; }
   h1 { font-size:${base + 6}px; margin:0; color:${t.accent}; }
   .muted { color:#64748b; }
+  /* Multi-page A4 invoices used to split a product row across the page break
+     and start page 2 with unlabelled columns. Same three rules the designer
+     template (print/invoiceDesign.ts) already carries. */
+  table { page-break-inside:auto; }
+  thead { display:table-header-group; }
+  tfoot { display:table-row-group; }
+  tr { break-inside:avoid; page-break-inside:avoid; }
 </style></head><body><div class="wrap">
 
   <div style="text-align:center;border-bottom:2px solid ${t.accent};padding-bottom:8px;margin-bottom:8px">

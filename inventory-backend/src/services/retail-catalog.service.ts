@@ -498,11 +498,38 @@ export async function setRetailReferralSettings(discountPercent: number) {
   return { discountPercent: pct };
 }
 
-async function resolveReferral(code: string | undefined, subtotal: number): Promise<{ discount: number; referralCode: string | null }> {
+/**
+ * A referral discount rewards bringing in a NEW buyer. Without the two guards
+ * below it is simply a permanent personal discount: a customer reads their own
+ * code from /public/retail/my-referral and pastes it into every order they ever
+ * place, stacked on top of any active coupon.
+ *
+ * `buyerPhone` is the normalized phone of the person ordering.
+ */
+async function resolveReferral(
+  code: string | undefined,
+  subtotal: number,
+  buyerPhone: string
+): Promise<{ discount: number; referralCode: string | null }> {
   if (!code) return { discount: 0, referralCode: null };
   const clean = code.trim().toUpperCase();
-  const customer = await prisma.retailCustomer.findUnique({ where: { referralCode: clean }, select: { id: true } });
-  if (!customer) return { discount: 0, referralCode: null };
+  const referrer = await prisma.retailCustomer.findUnique({
+    where: { referralCode: clean },
+    select: { id: true, phone: true },
+  });
+  if (!referrer) return { discount: 0, referralCode: null };
+
+  // Self-referral.
+  if (referrer.phone === buyerPhone) return { discount: 0, referralCode: null };
+
+  // Referral applies to the buyer's FIRST order only. An existing customer was
+  // not referred by anyone.
+  const buyer = await prisma.retailCustomer.findUnique({
+    where: { phone: buyerPhone },
+    select: { ordersCount: true },
+  });
+  if (buyer && buyer.ordersCount > 0) return { discount: 0, referralCode: null };
+
   const pct = await getReferralDiscountPercent();
   const discount = Math.round((subtotal * pct) / 100);
   return { discount, referralCode: clean };
@@ -569,7 +596,7 @@ export async function submitRetailOrder(input: SubmitRetailOrderInput) {
 
   const subtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
   const { discount: couponDiscount, coupon } = await resolveCoupon(input.couponCode, subtotal);
-  const { discount: referralDiscount, referralCode: usedReferralCode } = await resolveReferral(input.referralCode, subtotal);
+  const { discount: referralDiscount, referralCode: usedReferralCode } = await resolveReferral(input.referralCode, subtotal, normalizePhone(input.phone));
   const discount = couponDiscount; // coupon discount goes to "discount" column
   const total = Math.max(0, subtotal - couponDiscount - referralDiscount);
 
@@ -869,7 +896,52 @@ async function upsertRetailCustomer(input: {
   }
 }
 
-export async function getRetailCustomerReferral(phone: string) {
+/**
+ * Referral code for the customer identified by their PRIVATE orders token.
+ *
+ * The previous phone-keyed version was an unauthenticated oracle: anyone could
+ * enumerate Iraqi mobile numbers and learn who shops here (a code vs. null),
+ * and — once the referral discount actually reached the backend — walk away
+ * with a working discount code for each of them. It was also a GET that wrote,
+ * minting a referral code as a side effect of being probed.
+ *
+ * The orders token is 24 random bytes and is already the credential the shop
+ * uses for «طلباتي», so it is the right key here too.
+ */
+export async function getRetailCustomerReferralByToken(ordersToken: string) {
+  const token = ordersToken.trim();
+  if (!token) return null;
+  const customer = await prisma.retailCustomer.findFirst({
+    where: { ordersToken: token },
+    select: { phone: true, referralCode: true, ordersCount: true },
+  });
+  if (!customer) return null;
+  return ensureReferralCodeFor(customer.phone, customer);
+}
+
+async function ensureReferralCodeFor(
+  normalized: string,
+  seed: { referralCode: string | null; ordersCount: number }
+) {
+  let customer: { referralCode: string | null; ordersCount: number } | null = seed;
+  if (!customer.referralCode) {
+    let code: string | null = null;
+    for (let i = 0; i < 10; i++) {
+      const candidate = generateReferralCode();
+      const conflict = await prisma.retailCustomer.findUnique({ where: { referralCode: candidate } });
+      if (!conflict) { code = candidate; break; }
+    }
+    if (code) {
+      await prisma.retailCustomer.update({ where: { phone: normalized }, data: { referralCode: code } });
+      customer = { referralCode: code, ordersCount: customer.ordersCount };
+    }
+  }
+  if (!customer.referralCode) return null;
+  const pct = await getReferralDiscountPercent();
+  return { referralCode: customer.referralCode, discountPercent: pct };
+}
+
+async function getRetailCustomerReferral(phone: string) {
   const normalized = normalizePhone(phone);
   let customer = await prisma.retailCustomer.findUnique({
     where: { phone: normalized },

@@ -132,6 +132,23 @@ function applyCatalogOrder<T>(items: T[], seed: number | null): T[] {
 // phone is stored once; repeat entries just bump the visit counter + timestamp.
 // The first time a brand-new number appears we notify the admin (bell +
 // WhatsApp) so they can follow up on the hot lead.
+// Ceiling on outbound new-lead notifications: at most MAX per rolling hour.
+// In-process is sufficient — it is a cost guard, not a security control.
+const LEAD_NOTIFY_MAX_PER_HOUR = 20;
+const LEAD_NOTIFY_WINDOW_MS = 60 * 60 * 1000;
+let leadNotifyWindowStart = 0;
+let leadNotifyCount = 0;
+
+function allowLeadNotification(now = Date.now()): boolean {
+  if (now - leadNotifyWindowStart > LEAD_NOTIFY_WINDOW_MS) {
+    leadNotifyWindowStart = now;
+    leadNotifyCount = 0;
+  }
+  if (leadNotifyCount >= LEAD_NOTIFY_MAX_PER_HOUR) return false;
+  leadNotifyCount += 1;
+  return true;
+}
+
 export async function recordGuestVisit(rawPhone: string) {
   await assertGuestCatalogEnabled();
   const phone = normalizePhone(String(rawPhone ?? ""));
@@ -140,7 +157,16 @@ export async function recordGuestVisit(rawPhone: string) {
   if (!existing) {
     await prisma.catalogVisitor.create({ data: { phone } });
     // Fire-and-forget — a slow/failed notification must never block the shopper.
-    notifyNewCatalogLead(phone).catch(() => {});
+    //
+    // Capped: this endpoint is unauthenticated at 60 req/min/IP, and every
+    // previously-unseen phone sent one outbound WhatsApp on the merchant's
+    // BILLED Meta account. A few IPs posting fabricated numbers was a metered
+    // -cost flood that also destroyed the «الزوار الجدد» lead list's usefulness.
+    // Genuine leads still notify; a burst degrades to rows-only, which the
+    // merchant can still review in the visitors screen.
+    if (allowLeadNotification()) {
+      notifyNewCatalogLead(phone).catch(() => {});
+    }
   } else {
     await prisma.catalogVisitor.update({
       where: { phone },
@@ -582,6 +608,24 @@ export async function lookupCatalogAccess(phone: string) {
     return { approved: false };
   }
 
+  // Handing the access token to anyone who merely KNOWS the phone number is an
+  // account takeover: wholesale customer numbers are printed on invoices and
+  // shared in WhatsApp/Telegram groups, and the token unlocks that customer's
+  // price list, stock levels and — via POST /public/catalog/orders, which reads
+  // customerId from the token — the ability to place orders billed to them.
+  //
+  // The token is therefore released only once this phone has actually proved
+  // ownership via OTP, or when the merchant has switched OTP off entirely
+  // (guest mode), which is the same rule requestCatalogAccess applies.
+  //
+  // Callers that get `approved: true` with no token must fall through to the
+  // OTP step — do NOT reintroduce a shortcut around this.
+  const settings = await getSettings();
+  const requireOtp = settings.catalogRequireOtp !== false;
+  if (requireOtp && !isVerified(normalizedPhone)) {
+    return { approved: true };
+  }
+
   return {
     approved: true,
     customer: { id: customer.id, name: customer.name, phone: customer.phone },
@@ -1009,8 +1053,26 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       isFreeDelivery = true;
       promoLabel = "توصيل مجاني";
     }
-    // Increment usage
-    await prisma.promoCode.update({ where: { id: promo.id }, data: { usedCount: { increment: 1 } } });
+    // Claim the use ATOMICALLY. `validatePromoCode` checked usedCount a moment
+    // ago and this was an unconditional increment, so two concurrent orders
+    // both passed the check and both incremented — sailing straight past
+    // usageLimit. The conditional updateMany makes the limit the database's
+    // job, which is what the retail path already does (resolveCoupon's claim in
+    // retail-catalog.service.ts).
+    if (promo.usageLimit != null) {
+      const claimed = await prisma.promoCode.updateMany({
+        where: { id: promo.id, usedCount: { lt: promo.usageLimit } },
+        data: { usedCount: { increment: 1 } },
+      });
+      if (claimed.count === 0) {
+        throw new AppError("انتهت صلاحية كود الخصم", 400, "PROMO_LIMIT_REACHED");
+      }
+    } else {
+      await prisma.promoCode.update({
+        where: { id: promo.id },
+        data: { usedCount: { increment: 1 } },
+      });
+    }
   }
 
   // Check if this is customer's first order

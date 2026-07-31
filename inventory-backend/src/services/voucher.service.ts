@@ -2,6 +2,7 @@ import { InvoiceStatus, InvoiceType, Prisma, VoucherType } from "@prisma/client"
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { calculateCustomerBalance } from "../utils/financial";
+import { assistantTimezone, zonedDayRange } from "./daily-assistant.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -55,9 +56,8 @@ function getDateFilter(from?: string, to?: string) {
   const date: Prisma.DateTimeFilter = {};
   if (from) date.gte = new Date(from);
   if (to) {
-    const toDate = new Date(to);
-    toDate.setHours(23, 59, 59, 999);
-    date.lte = toDate;
+    // Shop-timezone end of day, matching report.service and the statement.
+    date.lte = zonedDayRange(to.slice(0, 10), assistantTimezone()).end;
   }
   return Object.keys(date).length ? date : undefined;
 }
@@ -319,6 +319,17 @@ async function updateVoucherInTransaction(
   const existing = await tx.paymentVoucher.findUnique({ where: { id } });
   if (!existing) {
     throw new AppError("Voucher not found", 404, "VOUCHER_NOT_FOUND");
+  }
+
+  // A cancelled or archived voucher exists purely as an audit artifact — it is
+  // already excluded from the balance, so rewriting its amount changed nothing
+  // anyone could see except the audit trail itself.
+  if (existing.cancelledAt || existing.archivedAt) {
+    throw new AppError(
+      "لا يمكن تعديل سند ملغى أو محذوف",
+      400,
+      "VOUCHER_NOT_EDITABLE"
+    );
   }
 
   // EXPENSE vouchers cannot change customer; the rest cannot become EXPENSE on the fly either.
