@@ -1939,6 +1939,23 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   return (
     <div className={`space-y-2 rounded-xl ${pageTint}`}>
+      {/* Without this a failed load left the product and customer pickers
+          silently empty — indistinguishable from "everything was deleted". */}
+      {(productsQuery.isError || customersQuery.isError) && (
+        <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+          تعذّر تحميل {productsQuery.isError ? "المواد" : "الزبائن"} — القائمة غير مكتملة، لا تحفظ الفاتورة قبل إعادة التحميل.{" "}
+          <button
+            type="button"
+            className="font-bold underline"
+            onClick={() => {
+              void productsQuery.refetch()
+              void customersQuery.refetch()
+            }}
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
       {/* ── Tabs bar ─────────────────────────────────────────────────────────── */}
       {!isEdit && (tabs.length > 0 || activeTid) ? (
         <div className="flex items-center gap-1 overflow-x-auto rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">

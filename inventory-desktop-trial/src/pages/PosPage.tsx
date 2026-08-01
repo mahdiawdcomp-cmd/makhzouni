@@ -665,14 +665,21 @@ export function POSPage() {
     saveConfig(c)
   }
 
-  const { data: customers = [] } = useQuery({
+  // NO guessed limits here. The cashier screen used to load only the first 300
+  // products and 2,000 customers, so anything past those cut-offs was invisible
+  // at the till — a product the shop genuinely stocks simply could not be found
+  // or scanned. getCustomers with no limit now pages until complete; products
+  // use the same ceiling as the rest of the app.
+  const customersQuery = useQuery({
     queryKey: ["customers", "pos"],
-    queryFn: () => getCustomers({ limit: 2000 }),
+    queryFn: () => getCustomers(),
   })
-  const { data: products = [] } = useQuery({
+  const customers = customersQuery.data ?? []
+  const productsQuery = useQuery({
     queryKey: ["products", "pos"],
-    queryFn: () => getProducts({ limit: 300 }),
+    queryFn: () => getProducts({ limit: 5000 }),
   })
+  const products = productsQuery.data ?? []
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: getSettings, staleTime: 60_000 })
 
   const customerSuggestions = useMemo(() => {
@@ -996,6 +1003,23 @@ export function POSPage() {
 
   return (
     <div className="flex h-full flex-col gap-2" dir="rtl">
+      {/* A failed load used to render an empty till with no explanation, which
+          reads exactly like "the products disappeared". */}
+      {(productsQuery.isError || customersQuery.isError) && (
+        <div className="shrink-0 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+          تعذّر تحميل {productsQuery.isError ? "المواد" : "الزبائن"} — القائمة غير مكتملة.{" "}
+          <button
+            type="button"
+            className="font-bold underline"
+            onClick={() => {
+              void productsQuery.refetch()
+              void customersQuery.refetch()
+            }}
+          >
+            إعادة المحاولة
+          </button>
+        </div>
+      )}
       {/* ── Top bar ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">

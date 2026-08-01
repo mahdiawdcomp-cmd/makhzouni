@@ -493,9 +493,49 @@ export function openPieceLabelInDLabelLink(payload: {
   window.open(url, "_blank", "noopener,noreferrer,width=520,height=360")
 }
 
+/**
+ * Fetch a paginated list COMPLETELY, instead of guessing a big enough `limit`.
+ *
+ * Guessed limits are why "المواد تختفي" / "الزبائن تختفي": the cashier screen
+ * asked for 300 products and the shared customer list for 500, so everything
+ * past those cut-offs simply did not exist as far as the UI was concerned —
+ * silently, with no error and no indication that the list was truncated.
+ *
+ * This pages until the server says there is nothing left. `pagination.total`
+ * tells us when to stop; a response without pagination is treated as complete.
+ * The page size is generous so the common case is still a single request.
+ */
+async function fetchAllPages<T>(
+  path: string,
+  params: Record<string, unknown> = {},
+  pageSize = 1000,
+): Promise<T[]> {
+  const all: T[] = []
+  let page = 1
+  // Hard ceiling so a malformed pagination block can never spin forever.
+  const MAX_PAGES = 50
+  while (page <= MAX_PAGES) {
+    const { data } = await api.get<PagedResponse<T>>(path, {
+      params: { ...params, page, limit: pageSize },
+    })
+    const rows = data.data ?? []
+    all.push(...rows)
+    const total = data.pagination?.total
+    if (total === undefined || all.length >= total || rows.length === 0) break
+    page += 1
+  }
+  return all
+}
+
 export async function getCustomers(params?: { search?: string; isSupplier?: boolean; limit?: number; includeDeleted?: boolean; page?: number; tags?: string[] }) {
-  const { data } = await api.get<PagedResponse<Customer>>("/customers", { params: { limit: 500, ...params } })
-  return data.data ?? []
+  // An explicit limit/page means the caller wants ONE specific page — honour it.
+  // Otherwise return the complete list: the old hardcoded 500 silently hid
+  // every customer past the first 500 from pickers and dropdowns.
+  if (params?.limit !== undefined || params?.page !== undefined) {
+    const { data } = await api.get<PagedResponse<Customer>>("/customers", { params })
+    return data.data ?? []
+  }
+  return fetchAllPages<Customer>("/customers", { ...params })
 }
 
 export async function getCustomerTags() {

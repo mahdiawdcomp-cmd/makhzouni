@@ -22,6 +22,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { QueryErrorBox } from "../components/ui/query-error"
 import { cn } from "../utils/cn"
+import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
 
 type TypeFilter = "ALL" | InvoiceType
 type InvoiceSort = "createdDesc" | "updatedDesc" | "dateDesc" | "totalDesc" | "remainingDesc" | "paidDesc"
@@ -287,6 +288,11 @@ export function InvoicesPage() {
   )
 
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 })
+
+  // autoResetPageIndex is deliberately false below; without this the page
+  // index can point past the end of a narrowed list and the table renders
+  // nothing at all.
+  useClampedPageIndex(filtered.length, pagination, setPagination)
 
   const table = useReactTable({
     data: filtered,

@@ -9,6 +9,23 @@ import {
 } from "../api/endpoints"
 import type { Product, ProductPayload } from "../types/api"
 
+// WHY THE GUARDS BELOW EXIST - "sometimes the products vanish".
+//
+// Every mutation starts with `cancelQueries`, which aborts an IN-FLIGHT initial
+// fetch. On a shop connection this list is ~4.75 MB and takes seconds, so a user
+// who saves a product while the page is still loading cancels that load. The
+// snapshot (`prev`) is then `undefined`, the optimistic writer used to fabricate
+// a one-item array from nothing, and `onSettled` invalidated with
+// `refetchType: "none"` - marking the cache stale WITHOUT refetching.
+//
+// Net effect: the catalogue collapsed to a single product (or to nothing for
+// update/delete) and STAYED that way, because staleTime is 5 minutes and
+// nothing forced a reload. `onError` could not rescue it either, since its
+// rollback was guarded on `ctx?.prev` being truthy - exactly the value that is
+// undefined in this scenario.
+//
+// The rule now: never fabricate a list we never had. When there was no baseline
+// we skip the optimistic patch entirely and force a real refetch on settle.
 const QUERY_KEY = ["products"]
 
 export function useProducts() {
@@ -34,14 +51,23 @@ export function useProducts() {
     onMutate: async (payload) => {
       await qc.cancelQueries({ queryKey: QUERY_KEY })
       const prev = qc.getQueryData<Product[]>(QUERY_KEY)
-      qc.setQueryData<Product[]>(QUERY_KEY, (old) => {
-        const optimistic = { ...payload, id: "__optimistic__", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), currentStock: 0 } as unknown as Product
-        return old ? [optimistic, ...old] : [optimistic]
-      })
-      return { prev }
+      const hadData = prev !== undefined
+      // No baseline (first load still in flight, and we just cancelled it) -
+      // a one-item optimistic list would BE the whole catalogue. Skip it.
+      if (hadData) {
+        qc.setQueryData<Product[]>(QUERY_KEY, (old) => {
+          const optimistic = { ...payload, id: "__optimistic__", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), currentStock: 0 } as unknown as Product
+          return old ? [optimistic, ...old] : [optimistic]
+        })
+      }
+      return { prev, hadData }
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
+      // `prev` is undefined when the initial load was the thing we cancelled.
+      // Dropping the entry (rather than leaving a fabricated one) makes the
+      // query refetch cleanly instead of showing a truncated catalogue.
+      if (ctx?.hadData) qc.setQueryData(QUERY_KEY, ctx.prev)
+      else qc.removeQueries({ queryKey: QUERY_KEY })
     },
     // Use the server's authoritative product to replace the placeholder — do NOT
     // refetch the whole list, just to avoid an unnecessary ~5MB round trip.
@@ -49,12 +75,17 @@ export function useProducts() {
       const created = res?.data
       if (!created) { void qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }); return }
       qc.setQueryData<Product[]>(QUERY_KEY, (old) => {
-        const without = (old ?? []).filter((p) => p.id !== "__optimistic__" && p.id !== created.id)
+        // Only patch a list that actually exists - otherwise this would create
+        // a single-product catalogue out of nothing.
+        if (old === undefined) return old
+        const without = old.filter((p) => p.id !== "__optimistic__" && p.id !== created.id)
         return [created, ...without]
       })
     },
-    // Mark stale (no immediate refetch) so the next natural navigation reconciles.
-    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }),
+    // Had a baseline -> the cache is already correct, just mark it stale.
+    // Had none -> we MUST actually refetch, or the list stays missing.
+    onSettled: (_d, _e, _v, ctx) =>
+      qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: ctx?.hadData ? "none" : "active" }),
   })
 
   const updateMutation = useMutation({
@@ -62,6 +93,7 @@ export function useProducts() {
     onMutate: async ({ id, payload }) => {
       await qc.cancelQueries({ queryKey: QUERY_KEY })
       const prev = qc.getQueryData<Product[]>(QUERY_KEY)
+      const hadData = prev !== undefined
       qc.setQueryData<Product[]>(QUERY_KEY, (old) =>
         old?.map((p) => {
           if (p.id !== id) return p
@@ -73,10 +105,11 @@ export function useProducts() {
           return merged
         }) ?? old
       )
-      return { prev }
+      return { prev, hadData }
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
+      if (ctx?.hadData) qc.setQueryData(QUERY_KEY, ctx.prev)
+      else qc.removeQueries({ queryKey: QUERY_KEY })
     },
     // Merge the server's authoritative product into the cache instead of
     // refetching the entire ~5MB list on every edit.
@@ -86,7 +119,8 @@ export function useProducts() {
         old?.map((p) => p.id === vars.id ? (updated ?? p) : p) ?? old
       )
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }),
+    onSettled: (_d, _e, _v, ctx) =>
+      qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: ctx?.hadData ? "none" : "active" }),
   })
 
   const deleteMutation = useMutation({
@@ -94,14 +128,18 @@ export function useProducts() {
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: QUERY_KEY })
       const prev = qc.getQueryData<Product[]>(QUERY_KEY)
+      const hadData = prev !== undefined
       qc.setQueryData<Product[]>(QUERY_KEY, (old) => old?.filter((p) => p.id !== id) ?? old)
-      return { prev }
+      return { prev, hadData }
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(QUERY_KEY, ctx.prev)
+      if (ctx?.hadData) qc.setQueryData(QUERY_KEY, ctx.prev)
+      else qc.removeQueries({ queryKey: QUERY_KEY })
     },
-    // Optimistic filter already removed it; avoid refetching the heavy list.
-    onSettled: () => qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: "none" }),
+    // Optimistic filter already removed it; avoid refetching the heavy list -
+    // unless we never had one, in which case we must fetch it for real.
+    onSettled: (_d, _e, _v, ctx) =>
+      qc.invalidateQueries({ queryKey: QUERY_KEY, refetchType: ctx?.hadData ? "none" : "active" }),
   })
 
   return { productsQuery, createMutation, updateMutation, deleteMutation }

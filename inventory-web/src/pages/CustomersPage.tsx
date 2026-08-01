@@ -24,6 +24,7 @@ import { toast } from "../components/ui/use-toast"
 import { QueryErrorBox } from "../components/ui/query-error"
 import { apiErrorMessage } from "../utils/apiError"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
+import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
 
 const emptyCustomer: CustomerPayload = {
   name: "",
@@ -129,6 +130,11 @@ export function CustomersPage() {
   )
 
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 10 })
+
+  // autoResetPageIndex is deliberately false below; without this the page
+  // index can point past the end of a narrowed list and the table renders
+  // nothing at all.
+  useClampedPageIndex(filtered.length, pagination, setPagination)
 
   const table = useReactTable({
     data: filtered,

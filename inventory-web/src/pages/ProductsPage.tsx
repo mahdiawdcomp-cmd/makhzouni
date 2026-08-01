@@ -33,6 +33,7 @@ import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { matchProduct } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
+import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
 
 // Accounting unit cost for stock valuation: WAC costPrice first, falling back
 // to purchasePrice ("last purchase price") for products never re-averaged.
@@ -632,6 +633,11 @@ export function ProductsPage() {
       setPagination((p) => ({ ...p, pageIndex: 0 }))
     },
   })
+
+  // autoResetPageIndex is deliberately false below; without this the page
+  // index can point past the end of a narrowed list and the table renders
+  // nothing at all.
+  useClampedPageIndex(sortedProducts.length, pagination, setPagination)
 
   const table = useReactTable({
     data: sortedProducts,

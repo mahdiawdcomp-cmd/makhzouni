@@ -30,6 +30,7 @@ import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { matchProduct } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
+import { useClampedTablePageIndex } from "../hooks/useClampedPageIndex"
 
 // Accounting unit cost for stock valuation: WAC costPrice first, falling back
 // to purchasePrice ("last purchase price") for products never re-averaged.
@@ -563,6 +564,11 @@ export function ProductsPage() {
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
   })
+
+  // autoResetPageIndex is false above and this table keeps its pagination
+  // internally, so nothing pulls the page index back when a filter shrinks
+  // the list — the table would just render nothing.
+  useClampedTablePageIndex(table)
 
   function startCreate() {
     setEditing(null)
