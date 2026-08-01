@@ -126,9 +126,16 @@ function WorkerInterface({
     onSuccess: () => setSubmitted(true),
   })
 
+  // "Close" now SUBMITS when counted variances are still unreviewed — closing
+  // outright made them permanently unapprovable, silently discarding the count.
+  // Tell the worker which of the two actually happened.
+  const [closeStatus, setCloseStatus] = useState<"CLOSED" | "SUBMITTED">("CLOSED")
   const closeMut = useMutation({
     mutationFn: () => apiClose(token),
-    onSuccess: () => setClosed(true),
+    onSuccess: (res) => {
+      setCloseStatus(res?.data?.status === "SUBMITTED" ? "SUBMITTED" : "CLOSED")
+      setClosed(true)
+    },
   })
 
   const categories = ["all", ...Array.from(new Set(session.items.map((i) => i.category ?? "غير مصنّف"))).sort()]
@@ -143,8 +150,14 @@ function WorkerInterface({
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4" dir="rtl">
         <div className="rounded-2xl bg-white p-8 shadow text-center max-w-sm w-full">
           <CheckCircle2 className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
-          <p className="font-bold text-xl">تم إغلاق الجرد</p>
-          <p className="text-slate-500 text-sm mt-2">لا يمكن إجراء تعديلات بعد الإغلاق.</p>
+          <p className="font-bold text-xl">
+            {closeStatus === "SUBMITTED" ? "تم إرسال الجرد للإدارة" : "تم إغلاق الجرد"}
+          </p>
+          <p className="text-slate-500 text-sm mt-2">
+            {closeStatus === "SUBMITTED"
+              ? "فروقاتك بانتظار مراجعة الإدارة."
+              : "لا يمكن إجراء تعديلات بعد الإغلاق."}
+          </p>
         </div>
       </div>
     )

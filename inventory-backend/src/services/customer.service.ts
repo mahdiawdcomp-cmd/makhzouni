@@ -236,7 +236,12 @@ async function recalculateCustomerBalanceLocked(db: Db, customerId: string) {
  * opened for them, so the lock above always has a transaction to hold it.
  */
 export async function recalculateCustomerBalance(customerId: string, db?: Db) {
-  if (db) return recalculateCustomerBalanceLocked(db, customerId);
+  // `db === prisma` means the caller had NO transaction and simply passed the
+  // default client through (updateCustomer does exactly this). Running
+  // SELECT … FOR UPDATE outside a transaction takes a lock that Postgres
+  // releases immediately, i.e. no lock at all — so those callers get a
+  // transaction opened for them here.
+  if (db && db !== prisma) return recalculateCustomerBalanceLocked(db, customerId);
   return prisma.$transaction((tx) => recalculateCustomerBalanceLocked(tx, customerId));
 }
 

@@ -693,9 +693,15 @@ export async function getTopCustomersReport(query: TopCustomersQuery) {
 // ── End-of-Day summary ────────────────────────────────────────────────────
 export async function getEndOfDayReport(date?: string) {
   // Shop-timezone day, same as every other day bucket in this file.
-  const d = date ? new Date(date) : new Date();
-  const start = startOfDay(d);
-  const end = endOfDay(d);
+  //
+  // A plain "YYYY-MM-DD" is resolved DIRECTLY in the shop zone rather than
+  // parsed to a Date first: `new Date("2026-08-01")` is midnight UTC, and for
+  // any shop west of Greenwich that instant still belongs to 31 July locally,
+  // so the round-trip would silently report the wrong day.
+  const tz = assistantTimezone();
+  const { start, end } = date
+    ? zonedDayRange(date.slice(0, 10), tz)
+    : zonedDayRange(dayKeyInTz(new Date(), tz), tz);
 
   const [invoices, vouchers] = await Promise.all([
     prisma.invoice.findMany({

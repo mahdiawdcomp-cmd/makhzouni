@@ -392,8 +392,20 @@ function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
   })
 
   const verifyOtpMut = useMutation({
-    mutationFn: () => verifyCatalogOtp(phone.trim(), otp.trim()),
-    onSuccess: () => { setMsg(""); setStep("details") },
+    // Verifying is now the ONLY way an already-approved customer gets their
+    // access token: the status lookup deliberately withholds it until the phone
+    // has proved ownership. So re-check status right after verifying — an
+    // existing customer goes straight into the catalog, and only a genuinely
+    // new phone falls through to the access-request form.
+    mutationFn: async () => {
+      await verifyCatalogOtp(phone.trim(), otp.trim())
+      return getCatalogAccessStatus(phone.trim())
+    },
+    onSuccess: (status) => {
+      setMsg("")
+      if (status?.approved && status.token) onAccess(status.token)
+      else setStep("details")
+    },
     onError: () => setMsg("الرمز غير صحيح أو انتهت صلاحيته."),
   })
 

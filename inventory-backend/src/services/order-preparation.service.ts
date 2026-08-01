@@ -588,6 +588,22 @@ export async function notifyCatalogAccessApproved(
 ) {
   const settings = await getSettings().catch(() => null);
   const url = catalogUrl(settings, urlPath);
+  // catalogPublicUrl no longer falls back to another tenant's storefront, so it
+  // can legitimately be blank. Sending the approval text followed by nothing is
+  // worse than sending no link at all — confirm the approval and make the
+  // missing configuration visible to the merchant instead.
+  if (!url) {
+    logger.warn(
+      "[catalog] catalogPublicUrl is not configured - approval message sent without a link."
+    );
+    await safeSendWATemplated(
+      customerPhone,
+      "لقد تم الموافقة على طلبك. تواصل معنا للحصول على رابط الكتلوك.",
+      undefined,
+      [],
+    );
+    return;
+  }
   await safeSendWATemplated(
     customerPhone,
     `لقد تم الموافقه على طلبك يمكنك الدخول عبر الرابط\n${url}`,
