@@ -397,11 +397,77 @@ async function ensureWebhook(botToken: string) {
   webhookConfirmedFor = botToken;
 }
 
+
+// ── Permanent-failure backoff ────────────────────────────────────────────────
+// The sync tick runs EVERY MINUTE. Telegram has a class of errors that will
+// never resolve on their own — the bot was removed from the channel, lost its
+// posting right, or the chat id is wrong. Observed in production:
+// "Bad Request: CHAT_RESTRICTED", once a minute, indefinitely.
+//
+// Retrying those 1,440 times a day accomplishes nothing, hammers Telegram's
+// API with calls that are guaranteed to fail, and buries any real transient
+// error under the noise. Back off for an hour instead, and tell the owner in
+// plain language what THEY have to fix, since no code change can.
+const PERMANENT_TG_ERRORS = [
+  "CHAT_RESTRICTED",
+  "CHAT_NOT_FOUND",
+  "CHAT_WRITE_FORBIDDEN",
+  "bot was kicked",
+  "bot is not a member",
+  "not enough rights",
+  "have no rights to send",
+  "USER_IS_BLOCKED",
+];
+
+const PERMANENT_BACKOFF_MS = 60 * 60 * 1000;
+let channelPausedUntil = 0;
+
+function isPermanentTelegramError(error: unknown): boolean {
+  const description = String(
+    (error as { tgDescription?: string })?.tgDescription ??
+      (error instanceof Error ? error.message : error ?? "")
+  ).toLowerCase();
+  return PERMANENT_TG_ERRORS.some((needle) => description.includes(needle.toLowerCase()));
+}
+
+/** Exported for the settings status card and for tests. */
+export function channelSyncPausedUntil(): string | null {
+  return channelPausedUntil > Date.now() ? new Date(channelPausedUntil).toISOString() : null;
+}
+
+async function pauseChannelSync(error: unknown) {
+  channelPausedUntil = Date.now() + PERMANENT_BACKOFF_MS;
+  const description = String((error as { tgDescription?: string })?.tgDescription ?? "");
+  const { notifyAdmin, buildDedupeKey } = await import("./app-notification.service");
+  const { NotificationType, NotificationCategory, NotificationSeverity } = await import(
+    "../constants/notifications"
+  );
+  await notifyAdmin({
+    type: NotificationType.SYSTEM_ERROR,
+    category: NotificationCategory.SYSTEM,
+    severity: NotificationSeverity.IMPORTANT,
+    title: "قناة تيليگرام متوقفة",
+    message:
+      "البوت لا يستطيع النشر في القناة. أضفه مشرفاً في القناة مع صلاحية نشر الرسائل، أو صحّح معرّف القناة في الإعدادات. " +
+      (description ? `(${description})` : ""),
+    entityType: "TELEGRAM_CHANNEL",
+    entityId: "sync",
+    actionUrl: "/settings",
+    dedupeKey: buildDedupeKey(NotificationType.SYSTEM_ERROR, "telegram-channel-restricted"),
+  }).catch(() => {});
+  console.warn(
+    `[TelegramChannel] permanent error (${description}) - sync paused for 60 minutes`
+  );
+}
+
 /** One reconcile pass, capped per tick. Called by cron + the sync-now endpoint. */
 export async function runTelegramChannelSyncTick(): Promise<void> {
   // Skip if any channel op (another tick OR a daily job) is already running —
   // next minute's tick retries. Prevents queueing ticks behind a long job.
   if (channelBusy) return;
+  // Backing off from a permanent permission error - nothing to retry until the
+  // owner fixes the channel. channelSyncPausedUntil() surfaces this.
+  if (Date.now() < channelPausedUntil) return;
   await withChannelLock(async () => {
     const settings = await getSettings();
     const botToken = (settings.telegramChannelBotToken || "").trim();
@@ -490,6 +556,9 @@ export async function runTelegramChannelSyncTick(): Promise<void> {
     } catch (error) {
       status.lastRunAt = new Date().toISOString();
       status.lastError = error instanceof Error ? error.message : String(error);
+      // A permission/limit error will not fix itself on the next minute's tick.
+      // Pause and tell the owner what to do instead of failing 1,440 times a day.
+      if (isPermanentTelegramError(error)) await pauseChannelSync(error);
       throw error;
     }
   });
