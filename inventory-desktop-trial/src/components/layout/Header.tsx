@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { logout } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { NotificationsBell } from "./NotificationsBell"
+import { WhatsappChatButton } from "./WhatsappChatButton"
 import { LanguageSwitcher } from "./LanguageSwitcher"
 import { SyncStatus } from "../SyncStatus"
 
@@ -115,6 +116,7 @@ export function Header({ darkMode, onToggleTheme }: HeaderProps) {
         <SyncStatus />
 
         <LanguageSwitcher />
+        <WhatsappChatButton />
 
         <NotificationsBell />
 

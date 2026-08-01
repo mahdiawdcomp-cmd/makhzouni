@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   FileText,
   Globe,
+  HandCoins,
   Home,
   KeyRound,
   Megaphone,
@@ -31,6 +32,7 @@ import {
   Wallet,
   Zap,
 } from "lucide-react"
+import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
 import { getApprovals } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
@@ -99,6 +101,7 @@ function isFeatureAllowed(item: Item, mode: string | undefined, features: string
 
 const navItems: Item[] = [
   { to: "/", label: "الرئيسية", icon: Home },
+  { to: "/worker", label: "عامل المخزن", icon: Boxes },
   {
     id: "inventory",
     label: "المخزن",
@@ -144,6 +147,7 @@ const navItems: Item[] = [
   { to: "/account/statement-export", label: "حفظ الكشف العام", icon: Download },
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
+  { to: "/instagram", label: "إدارة إنستغرام", icon: Instagram },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },
@@ -154,6 +158,7 @@ const isSaasOwner = import.meta.env.VITE_IS_SAAS_OWNER === "true"
 const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
   { to: "/error-logs", label: "صحة النظام والأخطاء", Icon: AlertTriangle },
+  { to: "/personal-debts", label: "الديون الشخصية", Icon: HandCoins },
   ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),
 ]
 
@@ -393,6 +398,10 @@ export function Sidebar() {
     }
     if ("to" in item && item.to === "/inventory/transfers") {
       return permissions.includes("VARIETY_CONVERT") || permissions.includes("MANAGE_PRODUCTS")
+    }
+    // Worker page: warehouse-worker permission holders only (admins pass above)
+    if ("to" in item && item.to === "/worker") {
+      return permissions.includes("VIEW_WITHOUT_PRICES") || permissions.includes("REQUEST_TRANSFER")
     }
     // POS: ACCESS_POS is the dedicated cashier capability, but MANAGE_INVOICES
     // has always implied it. An OR keeps existing accounts working while

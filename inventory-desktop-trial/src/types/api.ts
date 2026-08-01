@@ -18,7 +18,8 @@ export type UserPermission =
   | "MANAGE_TRANSFERS"
   | "INVENTORY_MANAGE"
   | "VARIETY_CONVERT"
-  // DENY marker: when present, hides profit & financial reports even from an ADMIN.
+    | "ACCESS_WHATSAPP_CHAT"
+// DENY marker: when present, hides profit & financial reports even from an ADMIN.
   | "HIDE_PROFIT_REPORTS"
 
 export interface ApiEnvelope<T> {
@@ -899,6 +900,7 @@ export interface PreparationWorker {
 }
 
 export interface AppSettings {
+  personalDebtReminderWhatsappNumber?: string
   storeName: string
   storeLogo: string
   storePhone: string
@@ -1310,6 +1312,12 @@ export interface RetailItem {
   lowStockBadge: boolean
   isActive: boolean
   currentStock: number
+  // Instagram auto-publish (one optional video per product)
+  videoAssetId?: string | null
+  video?: { id: string; mime: string; sizeBytes: number; duration?: number | null; publicToken: string } | null
+  instagramPublishedAt?: string | null
+  instagramPermalink?: string | null
+  instagramAccountName?: string | null
   createdAt?: string
 }
 
@@ -1503,4 +1511,87 @@ export interface BranchSummary {
   vouchers: { receipts: number; payments: number; expenses: number }
   stock: { lowStock: number; totalPieces?: number; openingPieces: number; cartons: number }
   transfers: { out: number; in: number }
+}
+
+
+/* ── Ported from inventory-web for desktop parity ─────────────────────────
+   Types for personal debts, the WhatsApp messenger screen and Instagram
+   auto-publish. Keep byte-identical to the web copies. */
+
+export interface WhatsappConversation {
+  id: string
+  phone: string
+  contactName?: string | null
+  customerId?: string | null
+  lastMessageAt: string
+  lastMessageText?: string | null
+  lastDirection: WhatsappMessageDirection
+  unreadCount: number
+  isArchived?: boolean
+  isPinned?: boolean
+  internalNotes?: string | null
+  createdAt: string
+}
+
+export interface WhatsappChatMessage {
+  id: string
+  conversationId: string
+  direction: WhatsappMessageDirection
+  text: string
+  mediaType?: WhatsappMediaType | null
+  mediaDataUrl?: string | null
+  mediaFilename?: string | null
+  mediaMimeType?: string | null
+  waMessageId?: string | null
+  status: string
+  statusError?: string | null
+  replyToWaMessageId?: string | null
+  replyToText?: string | null
+  reactionEmoji?: string | null
+  createdAt: string
+}
+
+export interface WhatsappQuickReply {
+  id: string
+  name: string
+  body: string
+  isActive: boolean
+  createdAt?: string
+}
+
+export interface PersonalDebt {
+  id: string
+  personName: string
+  amount: number
+  dueDate: string
+  status: "PENDING" | "PAID"
+  computedStatus: PersonalDebtStatus
+  notes?: string | null
+  paidAt?: string | null
+  createdAt: string
+  updatedAt: string
+  creator?: { id: string; name: string } | null
+}
+
+export interface CreatePersonalDebtPayload {
+  personName: string
+  amount: number
+  dueDate: string
+  notes?: string
+}
+
+export type WhatsappMessageDirection = "IN" | "OUT"
+
+export type WhatsappMediaType = "IMAGE" | "DOCUMENT" | "AUDIO" | "VIDEO" | "STICKER" | "LOCATION"
+
+// «الديون الشخصية» — unrelated to shop customers/accounting (e.g. cash lent
+// to a friend). See PersonalDebt model in inventory-backend/prisma/schema.prisma.
+export type PersonalDebtStatus = "PENDING" | "OVERDUE" | "PAID"
+
+
+export interface UpdatePersonalDebtPayload {
+  personName?: string
+  amount?: number
+  dueDate?: string
+  notes?: string
 }

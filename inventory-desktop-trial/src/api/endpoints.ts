@@ -99,6 +99,12 @@ import type {
   StockLoss,
   LossReason,
   StockCorrectionReason,
+  WhatsappConversation,
+  WhatsappChatMessage,
+  WhatsappQuickReply,
+  PersonalDebt,
+  CreatePersonalDebtPayload,
+  UpdatePersonalDebtPayload,
 } from "../types/api"
 
 export async function login(payload: LoginPayload) {
@@ -2447,4 +2453,243 @@ export async function voiceParse(payload: {
 export async function voiceExecute(plan: VoiceParsedPlan["plan"]) {
   const { data } = await api.post<ApiEnvelope<{ invoiceId?: string; invoiceNumber?: string; voucherId?: string }>>("/voice/execute", { plan })
   return data.data!
+}
+
+
+export interface InstagramAccount {
+  id: string
+  igUserId: string
+  username: string
+  name?: string | null
+  profilePictureUrl?: string | null
+  pageName?: string | null
+  status: "connected" | "error" | "disconnected"
+  lastError?: string | null
+  tokenExpiresAt?: string | null
+  tokenExpiringSoon?: boolean
+  createdAt: string
+}
+
+export interface InstagramPost {
+  id: string
+  retailItemId?: string | null
+  productTitle: string
+  accountId: string
+  queueId?: string | null
+  position: number
+  postType: "IMAGE" | "CAROUSEL" | "REEL"
+  status: "DRAFT" | "QUEUED" | "PREPARING" | "UPLOADING" | "PUBLISHED" | "FAILED"
+  caption: string
+  mediaPlan: InstagramMediaPlan
+  permalink?: string | null
+  errorMessage?: string | null
+  attemptCount: number
+  publishedAt?: string | null
+  createdAt: string
+  account?: { username: string; profilePictureUrl?: string | null }
+  queue?: { id: string; name?: string | null } | null
+}
+
+export interface InstagramQueue {
+  id: string
+  accountId: string
+  name?: string | null
+  status: "ACTIVE" | "PAUSED" | "DONE"
+  scheduleType: "FIXED_TIMES" | "INTERVAL"
+  times: string[]
+  intervalMinutes?: number | null
+  postsPerDay: number
+  publishedToday: number
+  lastPublishedAt?: string | null
+  createdAt: string
+  account?: { username: string; profilePictureUrl?: string | null; status: string }
+  pendingCount?: number
+}
+
+export interface InstagramHashtagGroup {
+  id: string
+  name: string
+  category?: string | null
+  hashtags: string[]
+}
+
+/* ── Ported from inventory-web for desktop parity ─────────────────────────
+   Personal debts, the WhatsApp messenger screen and Instagram auto-publish.
+   The backend routes already existed and are shared; only the desktop client
+   was missing these bindings. Keep them byte-identical to the web copies. */
+
+export async function archiveWhatsappConversation(phone: string, isArchived: boolean) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/archive`, { isArchived })
+  return data.data
+}
+
+export async function createInstagramHashtagGroup(payload: { name: string; category?: string; hashtags: string[] }) {
+  const { data } = await api.post<ApiEnvelope<InstagramHashtagGroup>>("/instagram/hashtag-groups", payload)
+  return data.data!
+}
+
+export async function createInstagramQueue(payload: { accountId: string; name?: string; scheduleType: "FIXED_TIMES" | "INTERVAL"; times?: string[]; intervalMinutes?: number; postsPerDay: number }) {
+  const { data } = await api.post<ApiEnvelope<InstagramQueue>>("/instagram/queues", payload)
+  return data.data!
+}
+
+export async function createPersonalDebt(payload: CreatePersonalDebtPayload) {
+  const { data } = await api.post<ApiEnvelope<PersonalDebt>>("/personal-debts", payload)
+  return data.data
+}
+
+export async function createWhatsappQuickReply(name: string, body: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappQuickReply>>("/whatsapp-chat/quick-replies", { name, body })
+  return data.data
+}
+
+export async function deleteInstagramHashtagGroup(id: string) {
+  await api.delete(`/instagram/hashtag-groups/${id}`)
+}
+
+export async function deleteInstagramPost(id: string) {
+  await api.delete(`/instagram/posts/${id}`)
+}
+
+export async function deleteInstagramQueue(id: string) {
+  await api.delete(`/instagram/queues/${id}`)
+}
+
+export async function deletePersonalDebt(id: string) {
+  const { data } = await api.delete<ApiEnvelope<never>>(`/personal-debts/${id}`)
+  return data
+}
+
+export async function deleteWhatsappQuickReply(id: string) {
+  await api.delete(`/whatsapp-chat/quick-replies/${id}`)
+}
+
+export async function getInstagramAccounts() {
+  const { data } = await api.get<ApiEnvelope<InstagramAccount[]>>("/instagram/accounts")
+  return data.data ?? []
+}
+
+export async function getInstagramHashtagGroups() {
+  const { data } = await api.get<ApiEnvelope<InstagramHashtagGroup[]>>("/instagram/hashtag-groups")
+  return data.data ?? []
+}
+
+export async function getInstagramPosts(params?: { status?: string; retailItemId?: string }) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>("/instagram/posts", { params })
+  return data.data ?? []
+}
+
+export async function getInstagramQueuePosts(queueId: string) {
+  const { data } = await api.get<ApiEnvelope<InstagramPost[]>>(`/instagram/queues/${queueId}/posts`)
+  return data.data ?? []
+}
+
+export async function getInstagramQueues() {
+  const { data } = await api.get<ApiEnvelope<InstagramQueue[]>>("/instagram/queues")
+  return data.data ?? []
+}
+
+// «الديون الشخصية» — unrelated to shop customers.
+export async function getPersonalDebts() {
+  const { data } = await api.get<ApiEnvelope<PersonalDebt[]>>("/personal-debts")
+  return data.data ?? []
+}
+
+export async function getWhatsappConversations(search?: string, includeArchived?: boolean) {
+  const { data } = await api.get<ApiEnvelope<WhatsappConversation[]>>("/whatsapp-chat/conversations", { params: { search, includeArchived } })
+  return data.data ?? []
+}
+
+export async function getWhatsappMessages(phone: string, params?: { before?: string; limit?: number }) {
+  const { data } = await api.get<ApiEnvelope<{ conversation: WhatsappConversation | null; messages: WhatsappChatMessage[]; hasMore: boolean; lastInboundAt?: string | null }>>(
+    `/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`,
+    { params }
+  )
+  return data.data ?? { conversation: null, messages: [], hasMore: false, lastInboundAt: null }
+}
+
+export async function getWhatsappQuickReplies() {
+  const { data } = await api.get<ApiEnvelope<WhatsappQuickReply[]>>("/whatsapp-chat/quick-replies")
+  return data.data ?? []
+}
+
+export async function markPersonalDebtPaid(id: string) {
+  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}/paid`, {})
+  return data.data
+}
+
+export async function markWhatsappConversationRead(phone: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/read`, {})
+  return data.data
+}
+
+export async function pinWhatsappConversation(phone: string, isPinned: boolean) {
+  const { data } = await api.post<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/pin`, { isPinned })
+  return data.data
+}
+
+export async function retryInstagramPost(id: string) {
+  await api.post(`/instagram/posts/${id}/retry`)
+}
+
+export async function sendWhatsappChatMedia(phone: string, payload: { dataUrl: string; filename?: string; caption?: string }) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/media`, payload)
+  return data.data
+}
+
+export async function sendWhatsappChatMessage(phone: string, text: string, replyToWaMessageId?: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text, replyToWaMessageId })
+  return data.data
+}
+
+export async function sendWhatsappChatReaction(phone: string, waMessageId: string, emoji: string) {
+  const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/reaction`, { waMessageId, emoji })
+  return data.data
+}
+
+export async function updateInstagramQueue(id: string, payload: Partial<{ name: string; status: "ACTIVE" | "PAUSED"; scheduleType: "FIXED_TIMES" | "INTERVAL"; times: string[]; intervalMinutes: number; postsPerDay: number }>) {
+  const { data } = await api.put<ApiEnvelope<InstagramQueue>>(`/instagram/queues/${id}`, payload)
+  return data.data!
+}
+
+export async function updatePersonalDebt(id: string, payload: UpdatePersonalDebtPayload) {
+  const { data } = await api.put<ApiEnvelope<PersonalDebt>>(`/personal-debts/${id}`, payload)
+  return data.data
+}
+
+export async function updateWhatsappConversationNotes(phone: string, notes: string) {
+  const { data } = await api.put<ApiEnvelope<WhatsappConversation>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/notes`, { notes })
+  return data.data
+}
+
+
+export type InstagramMediaPlan = {
+  media: Array<{ kind: "image"; imageIndex: number } | { kind: "video" }>
+  coverImageIndex?: number
+}
+
+export async function publishInstagramPost(payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan; draftId?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>("/instagram/posts/publish", payload)
+  return data.data!
+}
+
+export async function saveInstagramDraft(payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan }) {
+  const { data } = await api.post<ApiEnvelope<InstagramPost>>("/instagram/posts/draft", payload)
+  return data.data!
+}
+
+export async function addPostToInstagramQueue(queueId: string, payload: { retailItemId: string; accountId: string; caption: string; mediaPlan: InstagramMediaPlan }) {
+  const { data } = await api.post<ApiEnvelope<InstagramPost>>(`/instagram/queues/${queueId}/posts`, payload)
+  return data.data!
+}
+
+export async function validateInstagramMedia(retailItemId: string, mediaPlan: InstagramMediaPlan) {
+  const { data } = await api.post<ApiEnvelope<{ warnings: string[] }>>("/instagram/validate-media", { retailItemId, mediaPlan })
+  return data.data!
+}
+
+
+export async function getWhatsappUnreadCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/whatsapp-chat/unread-count")
+  return data.data?.count ?? 0
 }

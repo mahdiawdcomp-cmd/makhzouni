@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react"
 import { useTenantConfig } from "./hooks/useTenantConfig"
 import SubscriptionExpiredPage from "./pages/SubscriptionExpiredPage"
+import DesktopPlatformDisabledPage from "./pages/DesktopPlatformDisabledPage"
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 import { AdminRoute, PermissionRoute, ProtectedRoute } from "./components/ProtectedRoute"
 import { AppLayout } from "./components/layout/AppLayout"
@@ -51,6 +52,12 @@ const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), 
 const StaleProductsPage = lazyPage(() => import("./pages/StaleProductsPage"), "StaleProductsPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
+// Desktop parity with inventory-web: the backend routes were already shared,
+// only these four screens were missing from the desktop shell.
+const InstagramPage = lazyPage(() => import("./pages/InstagramPage"), "InstagramPage")
+const WhatsappChatPage = lazyPage(() => import("./pages/WhatsappChatPage"), "WhatsappChatPage")
+const PersonalDebtsPage = lazyPage(() => import("./pages/PersonalDebtsPage"), "PersonalDebtsPage")
+const WorkerPage = lazyPage(() => import("./pages/WorkerPage"), "WorkerPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
 const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCountPage")
@@ -99,6 +106,7 @@ const router = createBrowserRouter([
         element: <AppLayout />,
         children: [
           { index: true, element: s(<DashboardPage />) },
+          { path: "worker", element: s(<WorkerPage />) },
           { path: "inventory", element: s(<ProductsPage />) },
           { path: "inventory/low-stock", element: s(<LowStockPage />) },
           { path: "inventory/transfers", element: f("transfers", "التحويلات بين المخازن", <TransfersPage />) },
@@ -125,6 +133,8 @@ const router = createBrowserRouter([
           { path: "account", element: s(<AccountLookupPage />) },
           { path: "catalog-management", element: f("catalogWholesale", "كتلوگ الجملة", <CatalogManagementPage />) },
           { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
+          { path: "instagram", element: f("retailShop", "إدارة إنستغرام", <InstagramPage />) },
+          { path: "whatsapp", element: f("whatsappCampaigns", "محادثات واتساب", <WhatsappChatPage />) },
           { path: "reports", element: s(<ReportsPage />) },
           // Settings holds the WhatsApp/Telegram/Meta credentials — the sidebar
           // already hides it behind MANAGE_SETTINGS, so the route must enforce
@@ -141,6 +151,7 @@ const router = createBrowserRouter([
             children: [
               { path: "users", element: s(<UsersPage />) },
               { path: "approvals", element: s(<ApprovalsPage />) },
+              { path: "personal-debts", element: s(<PersonalDebtsPage />) },
               { path: "audit-logs", element: f("auditLog", "سجل التدقيق", <AuditLogsPage />) },
               { path: "error-logs", element: s(<AnalyzedErrorsPage />) },
               { path: "branches", element: s(<BranchesPage />) },
@@ -173,6 +184,13 @@ export default function App() {
   // lost the public storefront. ReadOnlySaasBanner in AppLayout is the
   // intended treatment and was dead code for this case.
   if (tenant?.isSuspended) return <SubscriptionExpiredPage suspended />
+
+  // Platform entitlement, mirroring inventory-web. The backend enforces this
+  // too (X-Client-Platform + enforcePlatformMiddleware); this is the readable
+  // explanation rather than a wall of 403s. Standalone tenants and tenants
+  // with no platforms config are never affected (=== false only).
+  if (tenant?.mode === "saas" && tenant.platforms?.desktopEnabled === false)
+    return <DesktopPlatformDisabledPage />
 
   return <RouterProvider router={router} />
 }
