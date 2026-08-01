@@ -7,6 +7,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+# xlsx is pinned to the patched SheetJS build vendored under vendor/ (the npm
+# release carries unfixed prototype-pollution and ReDoS advisories, and it
+# parses user-uploaded spreadsheets). It must be present BEFORE npm ci,
+# because package.json resolves it via a file: specifier.
+COPY vendor ./vendor
 RUN npm ci
 
 COPY prisma ./prisma
@@ -40,6 +45,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+# xlsx is pinned to the patched SheetJS build vendored under vendor/ (the npm
+# release carries unfixed prototype-pollution and ReDoS advisories, and it
+# parses user-uploaded spreadsheets). It must be present BEFORE npm ci,
+# because package.json resolves it via a file: specifier.
+COPY vendor ./vendor
 RUN npm ci
 
 COPY --from=build /app/dist ./dist
