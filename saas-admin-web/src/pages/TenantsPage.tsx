@@ -2,21 +2,15 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Activity, Building2, CalendarClock, ChevronLeft, CircleOff, Plus, Search, Smartphone } from "lucide-react";
-import { DOMAIN_ROOT, tenantsApi, type Tenant, type TenantStatus } from "../api/client";
+import { DOMAIN_ROOT, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus, type Tenant } from "../api/client";
 import CreateTenantModal from "../components/CreateTenantModal";
 
-const statusText: Record<TenantStatus, string> = { ACTIVE: "نشط", SUSPENDED: "موقوف", EXPIRED: "منتهي" };
 const planText: Record<string, string> = { TRIAL: "تجريبي", BASIC: "أساسي", PRO: "احترافي", FULL: "كامل" };
-
-function effectiveStatus(tenant: Tenant): TenantStatus {
-  const expiry = tenant.subscriptions.find((item) => item.isActive)?.expiresAt;
-  return expiry && new Date(expiry) < new Date() ? "EXPIRED" : tenant.status;
-}
 
 function TenantCard({ tenant }: { tenant: Tenant }) {
   const navigate = useNavigate();
   const subscription = tenant.subscriptions.find((item) => item.isActive);
-  const status = effectiveStatus(tenant);
+  const status = effectiveTenantStatus(tenant);
   const devices = tenant.serialNumbers.filter((item) => item.isActive && item.type === "ANDROID").length;
   return (
     <button className="tenant-card" onClick={() => navigate(`/tenants/${tenant.id}`)}>
@@ -26,7 +20,7 @@ function TenantCard({ tenant }: { tenant: Tenant }) {
           <strong>{tenant.name}</strong>
           <span>{tenant.ownerName || "لم يحدد اسم المالك"}</span>
         </div>
-        <span className={`status ${status.toLowerCase()}`}>{statusText[status]}</span>
+        <span className={`status ${status.toLowerCase()}`}>{TENANT_STATUS_LABELS[status]}</span>
       </div>
       <div className="tenant-domain">{tenant.subdomain}.{DOMAIN_ROOT}</div>
       <div className="tenant-meta">
@@ -52,7 +46,7 @@ export default function TenantsPage() {
     const q = search.trim().toLowerCase();
     const matchesSearch = !q || [tenant.name, tenant.ownerName, tenant.phone, tenant.subdomain]
       .some((value) => value?.toLowerCase().includes(q));
-    return matchesSearch && (status === "ALL" || effectiveStatus(tenant) === status);
+    return matchesSearch && (status === "ALL" || effectiveTenantStatus(tenant) === status);
   }), [tenants.data, search, status]);
 
   const cards = [

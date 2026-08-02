@@ -213,39 +213,47 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  const tenant = await prisma.$transaction(async (tx) => {
-    const created = await tx.tenant.create({
-      data: {
-        name: data.name,
-        ownerName: data.ownerName || null,
-        phone: data.phone || null,
-        email: data.email || null,
-        subdomain: data.subdomain,
-        frontendUrl: data.frontendUrl || `https://${data.subdomain}.mazbwoni.com`,
-        backendUrl: data.backendUrl.replace(/\/+$/, ""),
-        customDomain: data.customDomain || null,
-        notes: data.notes || null,
-        ...licenseToPrisma(data),
-        subscriptions: {
-          create: {
-            ...data.subscription,
-            expiresAt: data.subscription.expiresAt ? new Date(data.subscription.expiresAt) : null,
+  try {
+    const tenant = await prisma.$transaction(async (tx) => {
+      const created = await tx.tenant.create({
+        data: {
+          name: data.name,
+          ownerName: data.ownerName || null,
+          phone: data.phone || null,
+          email: data.email || null,
+          subdomain: data.subdomain,
+          frontendUrl: data.frontendUrl || `https://${data.subdomain}.mazbwoni.com`,
+          backendUrl: data.backendUrl.replace(/\/+$/, ""),
+          customDomain: data.customDomain || null,
+          notes: data.notes || null,
+          ...licenseToPrisma(data),
+          subscriptions: {
+            create: {
+              ...data.subscription,
+              expiresAt: data.subscription.expiresAt ? new Date(data.subscription.expiresAt) : null,
+            },
           },
         },
-      },
-      include: tenantInclude,
+        include: tenantInclude,
+      });
+      await tx.adminAuditLog.create({
+        data: {
+          tenantId: created.id,
+          adminId: (req as any).adminId ?? null,
+          action: "TENANT_CREATED",
+          details: { name: created.name, subdomain: created.subdomain, plan: data.subscription.plan },
+        },
+      });
+      return created;
     });
-    await tx.adminAuditLog.create({
-      data: {
-        tenantId: created.id,
-        adminId: (req as any).adminId ?? null,
-        action: "TENANT_CREATED",
-        details: { name: created.name, subdomain: created.subdomain, plan: data.subscription.plan },
-      },
-    });
-    return created;
-  });
-  res.status(201).json(tenant);
+    res.status(201).json(tenant);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      res.status(409).json({ error: "DOMAIN_ALREADY_USED" });
+      return;
+    }
+    throw error;
+  }
 });
 
 router.get("/", async (req: Request, res: Response) => {
@@ -402,7 +410,8 @@ router.post("/:id/serials", async (req: Request, res: Response) => {
     res.status(404).json({ error: "TENANT_NOT_FOUND" });
     return;
   }
-  const maxDevices = tenant.subscriptions[0]?.maxAndroidDevices;
+  const limits = (tenant.limits as { maxAndroidDevices?: number | null } | null) ?? null;
+  const maxDevices = limits?.maxAndroidDevices ?? tenant.subscriptions[0]?.maxAndroidDevices;
   if (parsed.data.type === "ANDROID" && maxDevices) {
     const count = await prisma.serialNumber.count({
       where: { tenantId: tenant.id, type: "ANDROID", isActive: true },

@@ -98,7 +98,6 @@ app.get("/health", (_req, res) => {
 // Order matters: the specific limiters must be mounted before the blanket one.
 app.use("/api/auth/login", loginLimiter);
 app.use("/api/activate", activationLimiter);
-app.use("/api/tenant-config", apiLimiter);
 app.use("/api", apiLimiter);
 
 app.use("/api", routes);

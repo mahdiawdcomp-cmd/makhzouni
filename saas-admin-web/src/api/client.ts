@@ -130,6 +130,22 @@ export interface Tenant {
   auditLogs?: AdminAuditLog[];
 }
 
+export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
+  ACTIVE: "نشط",
+  SUSPENDED: "موقوف",
+  EXPIRED: "منتهي",
+};
+
+/** Mirrors the backend's own precedence (tenant-level expiresAt first, then the
+ * legacy active subscription's expiresAt) so the admin UI never disagrees with
+ * what a tenant actually experiences. */
+export function effectiveTenantStatus(tenant: Tenant): TenantStatus {
+  const subExpiry = tenant.subscriptions.find((s) => s.isActive)?.expiresAt;
+  const expiry = tenant.expiresAt ?? subExpiry ?? null;
+  if (expiry && new Date(expiry) < new Date()) return "EXPIRED";
+  return tenant.status;
+}
+
 // ── Batch 9: Tenant Doctor / Readiness Check (read-only diagnostic) ──
 export type DoctorCheckStatus = "PASS" | "WARNING" | "FAIL";
 

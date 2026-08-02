@@ -7,7 +7,7 @@ import {
   Smartphone, Stethoscope, Wand2, XCircle,
 } from "lucide-react";
 import {
-  DOMAIN_ROOT, getErrorMessage, publicApi, tenantsApi,
+  DOMAIN_ROOT, getErrorMessage, publicApi, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus,
   type DoctorResult, type FeatureKey, type InstallerArtifacts, type LicenseType, type Plan, type SerialType,
 } from "../api/client";
 import { BASE_VERSION_ITEMS, FEATURE_GROUPS, LICENSE_TYPES, LICENSE_TYPE_LABELS, PLATFORM_TOGGLES } from "../entitlements";
@@ -220,7 +220,7 @@ export default function TenantDetailPage() {
           <h1>{tenant.name}</h1>
           <a href={url} target="_blank" rel="noreferrer">{tenant.subdomain}.{DOMAIN_ROOT} <ExternalLink size={13} /></a>
           <div className="badge-row">
-            <span className={`status ${tenant.status.toLowerCase()}`} style={{ position: "static" }}>{tenant.status === "ACTIVE" ? "ACTIVE" : tenant.status === "SUSPENDED" ? "SUSPENDED" : "EXPIRED"}</span>
+            <span className={`status ${effectiveTenantStatus(tenant).toLowerCase()}`} style={{ position: "static" }}>{TENANT_STATUS_LABELS[effectiveTenantStatus(tenant)]}</span>
             <span className={`license-badge ${LICENSE_BADGE_CLASS[tenant.licenseType]}`}>{LICENSE_TYPE_LABELS[tenant.licenseType]}</span>
             <span className={`expiry-pill ${expiry}`}>{EXPIRY_LABEL[expiry]}</span>
           </div>
