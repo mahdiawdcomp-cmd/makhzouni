@@ -44,14 +44,23 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  // If already bound to a device, the same deviceId must match.
-  // Missing deviceId is treated as a different device — closes the bypass
-  // where omitting deviceId would pass the old `sn.activatedBy && deviceId` check.
-  if (sn.activatedBy) {
+  // Device binding.
+  //
+  // Gate on activatedAt, NOT on activatedBy. A serial first redeemed WITHOUT a
+  // deviceId stored activatedBy = null, and this check used to be skipped
+  // entirely for it — so that serial then worked on an unlimited number of
+  // devices forever. Sending no deviceId once was all it took to defeat the
+  // whole licensing model.
+  if (sn.activatedAt) {
     if (!deviceId || sn.activatedBy !== deviceId) {
       res.status(403).json({ error: "Serial already activated on another device" });
       return;
     }
+  } else if (!deviceId) {
+    // First activation must identify the device, otherwise there is nothing to
+    // bind to and the serial can never be pinned afterwards.
+    res.status(400).json({ error: "deviceId is required to activate this serial" });
+    return;
   }
 
   const tenant = sn.tenant;
@@ -73,12 +82,20 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  // First activation: stamp the device
+  // First activation: claim the serial for this device ATOMICALLY.
+  // A plain `update` let two concurrent first-activations both pass the check
+  // above and both succeed, handing tenant credentials to two devices from a
+  // single-device serial. The conditional updateMany makes the database the
+  // arbiter: exactly one caller can flip activatedAt from null.
   if (!sn.activatedAt) {
-    await prisma.serialNumber.update({
-      where: { id: sn.id },
-      data: { activatedAt: new Date(), activatedBy: deviceId ?? null },
+    const claimed = await prisma.serialNumber.updateMany({
+      where: { id: sn.id, activatedAt: null },
+      data: { activatedAt: new Date(), activatedBy: deviceId },
     });
+    if (claimed.count === 0) {
+      res.status(403).json({ error: "Serial already activated on another device" });
+      return;
+    }
   }
 
   res.json({

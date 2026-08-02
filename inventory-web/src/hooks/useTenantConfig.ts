@@ -76,8 +76,11 @@ export function useFeatureEnabled(featureKey: string): boolean {
   const { data } = useTenantConfig();
   if (!data || data.mode === "standalone") return true;
   const features = data.entitlementFeatures;
-  // No entitlements configured yet for this tenant ⇒ unrestricted, same as backend.
-  if (!features || features.length === 0) return true;
+  // An EMPTY list means no optional features were purchased — the backend
+  // blocks every mapped route in that case (featureDecision). Treating it as
+  // "unrestricted" here made FeatureGate render pages the API then refused
+  // with 403 FEATURE_NOT_ENABLED. Only a MISSING list means "unconfigured".
+  if (!features) return true;
   return features.includes(featureKey);
 }
 

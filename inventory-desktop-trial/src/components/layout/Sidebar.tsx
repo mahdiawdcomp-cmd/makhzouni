@@ -95,7 +95,16 @@ function isFeatureAllowed(item: Item, mode: string | undefined, features: string
   if (!mode || mode === "standalone") return true
   const key = featureKeyForItem(item)
   if (!key) return true
-  if (!features || features.length === 0) return true
+  // Empty list = NO optional features purchased, which is what the backend
+  // enforces (featureDecision blocks any mapped route when
+  // entitlementFeatures does not contain its key). This used to return `true`
+  // here, so a SaaS tenant with `features: []` — the shape every newly created
+  // tenant has — saw the full menu and got a 403 FEATURE_NOT_ENABLED on every
+  // click. The two layers must agree, and the backend is the authority.
+  //
+  // Unconfigured/standalone tenants are already handled by the `!mode` check
+  // above and are unaffected.
+  if (!features) return true
   return features.includes(key)
 }
 

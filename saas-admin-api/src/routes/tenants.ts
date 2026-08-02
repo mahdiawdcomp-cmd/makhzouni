@@ -107,7 +107,9 @@ const createTenantSchema = z.object({
   subdomain: z.string().trim().min(2).max(40)
     .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "Invalid subdomain"),
   frontendUrl: z.string().url().optional(),
-  backendUrl: z.string().url(),
+  backendUrl: z.string().url().refine(isSafeOutboundUrl, {
+    message: "backendUrl must be a public https address",
+  }),
   customDomain: z.string().trim().max(253).optional(),
   notes: z.string().trim().max(2000).optional(),
   subscription: subscriptionSchema,
@@ -129,13 +131,52 @@ async function audit(req: Request, tenantId: string | null, action: string, deta
   });
 }
 
+/**
+ * `backendUrl` is admin-controlled and `z.string().url()` happily accepts
+ * http://localhost, http://169.254.169.254/ (cloud metadata) and any private
+ * range. check-backend and the doctor both fetch it, which turns this service
+ * into an SSRF probe against its own network — including the Railway metadata
+ * endpoint. Only public https origins are callable.
+ */
+export function isSafeOutboundUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  // IPv6 loopback / link-local / unique-local.
+  if (host === "::1" || host.startsWith("[") || host.startsWith("fe80") || host.startsWith("fc") || host.startsWith("fd")) {
+    return false;
+  }
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (a === 10 || a === 127 || a === 0) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 169 && b === 254) return false; // cloud metadata
+    if (a >= 224) return false;
+  }
+  return true;
+}
+
 router.get("/summary", async (_req: Request, res: Response) => {
   const [total, active, suspended, tenants, devices] = await Promise.all([
     prisma.tenant.count(),
     prisma.tenant.count({ where: { status: "ACTIVE" } }),
     prisma.tenant.count({ where: { status: "SUSPENDED" } }),
     prisma.tenant.findMany({
-      select: { subscriptions: { where: { isActive: true }, take: 1, select: { expiresAt: true } } },
+      // tenant.expiresAt is the authoritative field everywhere else (see
+      // tenant-config and activate); counting only the legacy subscription
+      // expiry made the dashboard under-report expired tenants.
+      select: {
+        expiresAt: true,
+        subscriptions: { where: { isActive: true }, take: 1, select: { expiresAt: true } },
+      },
     }),
     prisma.serialNumber.count({ where: { isActive: true } }),
   ]);
@@ -144,7 +185,7 @@ router.get("/summary", async (_req: Request, res: Response) => {
   let expired = 0;
   let expiringSoon = 0;
   for (const tenant of tenants) {
-    const expiry = tenant.subscriptions[0]?.expiresAt?.getTime();
+    const expiry = (tenant.expiresAt ?? tenant.subscriptions[0]?.expiresAt)?.getTime();
     if (!expiry) continue;
     if (expiry < now) expired++;
     else if (expiry <= inThirtyDays) expiringSoon++;
@@ -254,7 +295,9 @@ const updateTenantSchema = z.object({
   subdomain: z.string().trim().min(2).max(40)
     .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/).optional(),
   frontendUrl: z.string().url().nullable().optional(),
-  backendUrl: z.string().url().optional(),
+  backendUrl: z.string().url().refine(isSafeOutboundUrl, {
+    message: "backendUrl must be a public https address",
+  }).optional(),
   customDomain: z.string().trim().max(253).nullable().optional(),
   status: z.enum(["ACTIVE", "SUSPENDED", "EXPIRED"]).optional(),
   provisioningStatus: z.enum(["PENDING", "READY", "ERROR"]).optional(),
@@ -415,6 +458,10 @@ router.post("/:id/check-backend", async (req: Request, res: Response) => {
     res.status(404).json({ error: "TENANT_NOT_FOUND" });
     return;
   }
+  if (!isSafeOutboundUrl(tenant.backendUrl)) {
+    res.status(400).json({ ok: false, error: "backendUrl must be a public https address" });
+    return;
+  }
   const startedAt = Date.now();
   try {
     const response = await fetch(`${tenant.backendUrl}/health`, { signal: AbortSignal.timeout(7000) });
@@ -455,6 +502,12 @@ router.get("/:id/doctor", async (req: Request, res: Response) => {
     });
     if (!tenant) {
       res.status(404).json({ error: "TENANT_NOT_FOUND" });
+      return;
+    }
+    // The doctor also fetches the tenant's backendUrl (/health and
+    // /api/tenant-info), so it needs the same outbound restriction.
+    if (!isSafeOutboundUrl(tenant.backendUrl)) {
+      res.status(400).json({ error: "UNSAFE_BACKEND_URL", message: "backendUrl must be a public https address" });
       return;
     }
     const report = await buildDoctorReport(tenant);
