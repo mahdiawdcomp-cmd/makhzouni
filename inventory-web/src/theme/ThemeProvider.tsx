@@ -1,15 +1,21 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import {
+  applyFontSize,
   applyTheme,
   fonts,
+  fontSizes,
   getCustomOverrides,
+  getStoredFontSizeId,
   getStoredThemeId,
   saveCustomOverrides,
   setStoredFont,
+  setStoredFontSizeId,
   themes,
   type CustomThemeOverrides,
   type FontDef,
   type FontId,
+  type FontSizeDef,
+  type FontSizeId,
   type ThemeId,
 } from "./themes"
 
@@ -20,6 +26,9 @@ interface ThemeContextValue {
   fontId: FontId
   setFontId: (id: FontId) => void
   fontDefs: FontDef[]
+  fontSizeId: FontSizeId
+  setFontSizeId: (id: FontSizeId) => void
+  fontSizeDefs: FontSizeDef[]
   customOverrides: CustomThemeOverrides
   setCustomOverrides: (o: CustomThemeOverrides) => void
 }
@@ -36,6 +45,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return "inter"
   })
   const [customOverrides, setCustomOverridesRaw] = useState<CustomThemeOverrides>(() => getCustomOverrides())
+  const [fontSizeId, setFontSizeIdRaw] = useState<FontSizeId>(() => getStoredFontSizeId())
 
   const applyFont = useCallback((id: FontId) => {
     const f = fonts.find((x) => x.id === id)
@@ -50,6 +60,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (themeId !== "custom") applyFont(fontId)
   }, [fontId, themeId, applyFont])
 
+  useEffect(() => {
+    applyFontSize(fontSizeId)
+  }, [fontSizeId])
+
   const setThemeId = useCallback((id: ThemeId) => {
     setThemeIdRaw(id)
   }, [])
@@ -57,6 +71,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const setFontId = useCallback((id: FontId) => {
     setFontIdRaw(id)
     setStoredFont(id)
+  }, [])
+
+  const setFontSizeId = useCallback((id: FontSizeId) => {
+    setFontSizeIdRaw(id)
+    setStoredFontSizeId(id)
   }, [])
 
   const setCustomOverrides = useCallback((o: CustomThemeOverrides) => {
@@ -70,8 +89,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     presets: themes,
     fontId, setFontId,
     fontDefs: fonts,
+    fontSizeId, setFontSizeId,
+    fontSizeDefs: fontSizes,
     customOverrides, setCustomOverrides,
-  }), [themeId, setThemeId, fontId, setFontId, customOverrides, setCustomOverrides])
+  }), [themeId, setThemeId, fontId, setFontId, fontSizeId, setFontSizeId, customOverrides, setCustomOverrides])
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
 }

@@ -2123,7 +2123,7 @@ function SaveRow({ onSave, isPending, saved, error, label }: { onSave: () => voi
 }
 
 function ThemePanel() {
-  const { themeId, setThemeId, presets, fontId, setFontId, fontDefs, customOverrides, setCustomOverrides } = useTheme()
+  const { themeId, setThemeId, presets, fontId, setFontId, fontDefs, fontSizeId, setFontSizeId, fontSizeDefs, customOverrides, setCustomOverrides } = useTheme()
 
   return (
     <div className="space-y-6">
@@ -2257,6 +2257,35 @@ function ThemePanel() {
                     <div className="text-[10px] text-slate-500 mt-0.5">{f.label}</div>
                   </div>
                   {active && <span className="text-xs font-bold text-indigo-600 shrink-0">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Font Size Selector ─── */}
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div>
+            <SectionTitle>حجم الخط</SectionTitle>
+            <p className="text-xs text-slate-500 mt-0.5">يكبّر أو يصغّر كل النصوص في الموقع دفعة واحدة.</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {fontSizeDefs.map((f) => {
+              const active = fontSizeId === f.id
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setFontSizeId(f.id)}
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-2.5 transition hover:shadow-sm",
+                    active ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:border-slate-300",
+                  )}
+                >
+                  <span className="font-bold" style={{ fontSize: f.rootPx }}>أ</span>
+                  <span className="text-[11px] text-slate-500">{f.label}</span>
                 </button>
               )
             })}

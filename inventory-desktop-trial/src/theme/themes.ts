@@ -69,6 +69,43 @@ export function setStoredFont(id: FontId) {
   try { localStorage.setItem(FONT_STORAGE_KEY, id) } catch {}
 }
 
+// ── Site-wide font size ──────────────────────────────────────────────────────
+// Scales the root font-size — every rem-based Tailwind text class (the whole
+// app) scales proportionally with it, like a permanent browser zoom.
+
+export type FontSizeId = "sm" | "md" | "lg"
+
+export interface FontSizeDef {
+  id: FontSizeId
+  label: string
+  rootPx: number
+}
+
+export const fontSizes: FontSizeDef[] = [
+  { id: "sm", label: "صغير", rootPx: 14 },
+  { id: "md", label: "متوسط", rootPx: 16 },
+  { id: "lg", label: "كبير", rootPx: 18 },
+]
+
+export const FONT_SIZE_STORAGE_KEY = "inventory_font_size"
+
+export function getStoredFontSizeId(): FontSizeId {
+  try {
+    const id = localStorage.getItem(FONT_SIZE_STORAGE_KEY) as FontSizeId | null
+    if (id && fontSizes.some((f) => f.id === id)) return id
+  } catch {}
+  return "md"
+}
+
+export function setStoredFontSizeId(id: FontSizeId) {
+  try { localStorage.setItem(FONT_SIZE_STORAGE_KEY, id) } catch {}
+}
+
+export function applyFontSize(id: FontSizeId) {
+  const def = fontSizes.find((f) => f.id === id) ?? fontSizes[1]
+  document.documentElement.style.fontSize = `${def.rootPx}px`
+}
+
 const INTER = '"Inter", "Segoe UI", system-ui, -apple-system, sans-serif'
 const CAIRO = '"Cairo", "Segoe UI", system-ui, -apple-system, sans-serif'
 const TAJAWAL = '"Tajawal", "Segoe UI", system-ui, -apple-system, sans-serif'

@@ -44,6 +44,27 @@ type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
 type InvoiceType = "SALE" | "PURCHASE"
 
+// ── Row density (per-device UI preference, like the theme/font settings) ────
+// "compact" is the default so a 50-line invoice fits on screen without a
+// mile of scrolling; "cozy" reproduces the original (pre-density) row size.
+type RowDensity = "compact" | "normal" | "cozy"
+const ROW_DENSITY_KEY = "invoiceRowDensity"
+const ROW_DENSITY: Record<RowDensity, { label: string; h: string; text: string; hint: string; td: string }> = {
+  compact: { label: "مضغوط", h: "h-6", text: "text-[11px]", hint: "text-[9px] leading-3", td: "[&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-1" },
+  normal:  { label: "متوسط", h: "h-7", text: "text-xs",     hint: "text-[10px] leading-3.5", td: "[&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5" },
+  cozy:    { label: "مريح", h: "h-8", text: "text-sm",     hint: "text-[11px] leading-4", td: "[&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5" },
+}
+function loadRowDensity(): RowDensity {
+  try {
+    const v = localStorage.getItem(ROW_DENSITY_KEY)
+    if (v === "compact" || v === "normal" || v === "cozy") return v
+  } catch { /* ignore */ }
+  return "compact"
+}
+function saveRowDensity(d: RowDensity) {
+  try { localStorage.setItem(ROW_DENSITY_KEY, d) } catch { /* ignore */ }
+}
+
 // Read a barcode character from the PHYSICAL key (e.code), not e.key — so a
 // scanner works the same whether the keyboard is set to Arabic or English.
 // (e.key returns Arabic letters / Arabic-Indic digits under an Arabic layout.)
@@ -468,6 +489,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const [showPurchase, setShowPurchase] = useState(false)
   const [showStock, setShowStock] = useState(false)
   const [useRetailPrice, setUseRetailPrice] = useState(false)
+  const [rowDensity, setRowDensityRaw] = useState<RowDensity>(loadRowDensity)
+  const setRowDensity = (d: RowDensity) => { setRowDensityRaw(d); saveRowDensity(d) }
+  const dz = ROW_DENSITY[rowDensity]
   // When the clerk flips جملة/مفرد while rows already exist we ask what to do
   // with the existing lines. Holds the *target* useRetailPrice value, or null.
   const [priceModePrompt, setPriceModePrompt] = useState<boolean | null>(null)
@@ -2035,108 +2059,124 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         </div>
       ) : null}
 
-      {/* Invoice header form */}
-      <div className={cn("rounded-xl border border-sky-200 bg-sky-50/60 px-2.5 py-2 dark:border-sky-900 dark:bg-sky-950/20", cardBorder)}>
-        {/* Row 1: customer + payment + walk-in */}
-        <div className="flex items-center gap-1.5">
-          {/* Customer picker */}
-          <div className="relative min-w-0 flex-1">
-            <Input
-              ref={customerInputRef}
-              className="h-8 text-sm"
-              placeholder={customerLabel}
-              value={customerQuery}
-              onChange={(event) => {
-                setCustomerQuery(event.target.value)
-                setCustomerHighlight(0)
-                setSelectedCustomer(null)
-                setCustomerListOpen(true)
-              }}
-              onFocus={() => { if (customerQuery && !selectedCustomer) setCustomerListOpen(true) }}
-              onBlur={() => window.setTimeout(() => setCustomerListOpen(false), 150)}
-              onKeyDown={handleCustomerKey}
-            />
-            {customerListOpen && !selectedCustomer && customerQuery ? (
-              <div className="absolute z-20 mt-1 w-full rounded-md border bg-white p-1 shadow dark:border-slate-700 dark:bg-slate-950">
-                {customerSuggestions.map((customer, idx) => (
-                  <button
-                    key={customer.id}
-                    type="button"
-                    className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-right text-sm ${idx === customerHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => pickCustomer(customer)}
-                    onMouseEnter={() => setCustomerHighlight(idx)}
-                  >
-                    <span className="flex-1 truncate">{customer.name} — {customer.phone}</span>
-                    {customer.isBoth ? (
-                      <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 shrink-0">ز+م</span>
-                    ) : customer.isSupplier ? (
-                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 shrink-0">مورد</span>
-                    ) : null}
-                  </button>
-                ))}
-                {customerSuggestions.length === 0 && (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-right text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={openQuickAddCustomer}
-                  >
-                    <Plus className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">أضف "{customerQuery.trim()}"</span>
-                  </button>
-                )}
-              </div>
-            ) : null}
-          </div>
-          {/* Payment type */}
-          <select
-            className="h-8 shrink-0 rounded-md border border-slate-200 bg-white px-1.5 text-sm dark:border-slate-700 dark:bg-slate-950"
-            value={paymentMode}
-            onChange={(e) => {
-              const mode = e.target.value as PaymentMode
-              setPaymentMode(mode)
-              if (mode === "CASH") setPaidAmount(total)
-              else setPaidAmount(0)
-            }}
-          >
-            <option value="CREDIT">آجل</option>
-            <option value="CASH">نقد</option>
-          </select>
-          {/* Walk-in */}
-          {!isPurchase && !isEdit && !selectedCustomer && (
-            <button
-              type="button"
-              disabled={walkInLoading}
-              onClick={async () => {
-                setWalkInLoading(true)
-                try {
-                  const c = await getWalkInCustomer()
-                  if (c) {
-                    setSelectedCustomer(c)
-                    setCustomerQuery(c.name)
-                    // A walk-in (الزبون النقدي) sale is paid on the spot — default
-                    // the payment to cash so the user doesn't have to switch it.
-                    setPaymentMode("CASH")
-                  }
-                } catch { /* ignore */ }
-                setWalkInLoading(false)
-              }}
-              className="h-8 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
-            >
-              {walkInLoading ? "..." : "⚡ نقدي"}
-            </button>
-          )}
-        </div>
-        {/* Row 2: notes */}
-        <div className="mt-1.5">
+      {/* Customer + payment bar — pinned to the top of the scroll area, always
+          one line, so it never disappears while scrolling a long item list. */}
+      <div className={cn("sticky top-0 z-10 flex items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 shadow-sm dark:border-sky-900 dark:bg-sky-950", cardBorder)}>
+        {/* Customer picker */}
+        <div className="relative min-w-0 w-full max-w-[16rem] flex-1">
           <Input
+            ref={customerInputRef}
             className="h-8 text-sm"
-            value={invoiceNotes}
-            onChange={(event) => setInvoiceNotes(event.target.value)}
-            placeholder="ملاحظات الفاتورة (اختياري)"
+            placeholder={customerLabel}
+            value={customerQuery}
+            onChange={(event) => {
+              setCustomerQuery(event.target.value)
+              setCustomerHighlight(0)
+              setSelectedCustomer(null)
+              setCustomerListOpen(true)
+            }}
+            onFocus={() => { if (customerQuery && !selectedCustomer) setCustomerListOpen(true) }}
+            onBlur={() => window.setTimeout(() => setCustomerListOpen(false), 150)}
+            onKeyDown={handleCustomerKey}
           />
+          {customerListOpen && !selectedCustomer && customerQuery ? (
+            <div className="absolute z-20 mt-1 w-full min-w-[16rem] rounded-md border bg-white p-1 shadow dark:border-slate-700 dark:bg-slate-950">
+              {customerSuggestions.map((customer, idx) => (
+                <button
+                  key={customer.id}
+                  type="button"
+                  className={`flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-right text-sm ${idx === customerHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickCustomer(customer)}
+                  onMouseEnter={() => setCustomerHighlight(idx)}
+                >
+                  <span className="flex-1 truncate">{customer.name} — {customer.phone}</span>
+                  {customer.isBoth ? (
+                    <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 shrink-0">ز+م</span>
+                  ) : customer.isSupplier ? (
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 shrink-0">مورد</span>
+                  ) : null}
+                </button>
+              ))}
+              {customerSuggestions.length === 0 && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-right text-sm text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={openQuickAddCustomer}
+                >
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">أضف "{customerQuery.trim()}"</span>
+                </button>
+              )}
+            </div>
+          ) : null}
         </div>
+        {/* Payment type — compact segmented toggle instead of a <select> */}
+        <div className="flex h-8 shrink-0 overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => { setPaymentMode("CREDIT"); setPaidAmount(0) }}
+            className={cn("px-2.5 text-xs font-medium transition", paymentMode === "CREDIT" ? "bg-amber-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-300")}
+          >
+            آجل
+          </button>
+          <button
+            type="button"
+            onClick={() => { setPaymentMode("CASH"); setPaidAmount(total) }}
+            className={cn("border-l border-slate-200 px-2.5 text-xs font-medium transition dark:border-slate-700", paymentMode === "CASH" ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-950 dark:text-slate-300")}
+          >
+            نقد
+          </button>
+        </div>
+        {/* Walk-in */}
+        {!isPurchase && !isEdit && !selectedCustomer && (
+          <button
+            type="button"
+            disabled={walkInLoading}
+            onClick={async () => {
+              setWalkInLoading(true)
+              try {
+                const c = await getWalkInCustomer()
+                if (c) {
+                  setSelectedCustomer(c)
+                  setCustomerQuery(c.name)
+                  // A walk-in (الزبون النقدي) sale is paid on the spot — default
+                  // the payment to cash so the user doesn't have to switch it.
+                  setPaymentMode("CASH")
+                }
+              } catch { /* ignore */ }
+              setWalkInLoading(false)
+            }}
+            className="h-8 shrink-0 rounded-md border border-amber-200 bg-amber-50 px-2 text-xs font-medium text-amber-700 hover:bg-amber-100 disabled:opacity-60 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+          >
+            {walkInLoading ? "..." : "⚡ نقدي"}
+          </button>
+        )}
+        {/* Row density picker — how tall the item rows below render */}
+        <div className="mr-auto flex h-8 shrink-0 items-center gap-0.5 rounded-md border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-950">
+          {(Object.keys(ROW_DENSITY) as RowDensity[]).map((d) => (
+            <button
+              key={d}
+              type="button"
+              title={`حجم سطر الفاتورة: ${ROW_DENSITY[d].label}`}
+              onClick={() => setRowDensity(d)}
+              className={cn("rounded px-1.5 py-1 text-[10px] font-medium transition", rowDensity === d ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900" : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800")}
+            >
+              {ROW_DENSITY[d].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Notes — unchanged: a normal (non-sticky) row, scrolls with the page */}
+      <div className={cn("rounded-xl border border-sky-200 bg-sky-50/60 px-2.5 py-2 dark:border-sky-900 dark:bg-sky-950/20", cardBorder)}>
+        <Input
+          className="h-8 text-sm"
+          value={invoiceNotes}
+          onChange={(event) => setInvoiceNotes(event.target.value)}
+          placeholder="ملاحظات الفاتورة (اختياري)"
+        />
       </div>
 
       {/* Main body */}
@@ -2179,8 +2219,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             {" "}الأصناف
           </span>
         </div>
-        {/* Dense rows: more invoice lines visible without scrolling */}
-        <div className="overflow-x-auto px-1 py-1 [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5">
+        {/* Rows size per the density picker in the sticky bar above — "compact" by default */}
+        <div className={cn("overflow-x-auto px-1 py-1", dz.td, dz.text)}>
             <Table>
               <THead>
                 <TR>
@@ -2287,7 +2327,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         </div>
                         {/* One compact sub-line instead of three stacked ones — keeps rows short */}
                         {(item.product.pcsPerCarton > 1 || showPurchase || showStock) ? (
-                          <div className="flex flex-wrap gap-x-2 text-[11px] leading-4 text-slate-500">
+                          <div className={cn("flex flex-wrap gap-x-2 text-slate-500", dz.hint)}>
                             {item.product.pcsPerCarton > 1 ? <span className="text-slate-400">{item.product.pcsPerCarton} قطعة/كرتون</span> : null}
                             {showPurchase ? <span>شراء: {fmt(item.product.purchasePrice)}</span> : null}
                             {showStock ? <span>متوفر: {stockOf(item.product)}</span> : null}
@@ -2298,7 +2338,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         {/* warehouse selector — shown only when product has stocks in multiple warehouses */}
                         {(item.product.warehouseStocks ?? []).length > 1 ? (
                           <select
-                            className="h-8 w-28 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                            className={cn(dz.h, dz.text, "w-28 rounded-md border bg-white px-2 dark:border-slate-700 dark:bg-slate-950")}
                             value={item.warehouseId ?? ""}
                             onChange={(e) => {
                               const wsId = e.target.value || undefined
@@ -2324,7 +2364,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                       <TD>
                         <select
                           ref={(el) => { unitRefs.current[rowKey] = el }}
-                          className="h-8 w-24 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          className={cn(dz.h, dz.text, "w-24 rounded-md border bg-white px-2 dark:border-slate-700 dark:bg-slate-950")}
                           value={item.unit}
                           onChange={(event) => updateItem(index, { unit: event.target.value as Unit })}
                           onKeyDown={(e) => handleRowKey(e, rowKey, "unit")}
@@ -2338,7 +2378,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         <NumericInput
                           ref={(el) => { quantityRefs.current[rowKey] = el }}
                           decimal={false}
-                          className="h-8 w-20"
+                          className={cn(dz.h, dz.text, "w-20")}
                           value={item.quantity}
                           onFocus={selectAllOnFocus}
                           onValueChange={(n) => updateItem(index, { quantity: n })}
@@ -2372,7 +2412,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         <TD>
                           <NumericInput
                             ref={(el) => { priceRefs.current[rowKey] = el }}
-                            className="h-8 w-24"
+                            className={cn(dz.h, dz.text, "w-24")}
                             value={item.unitPrice}
                             onFocus={selectAllOnFocus}
                             onValueChange={(n) => updateItem(index, { unitPrice: n })}
@@ -2384,7 +2424,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         <TD>
                           <NumericInput
                             ref={(el) => { totalRefs.current[rowKey] = el }}
-                            className="h-8 w-28 font-semibold"
+                            className={cn(dz.h, dz.text, "w-28 font-semibold")}
                             value={Math.round(item.quantity * item.unitPrice * 1000) / 1000}
                             onFocus={selectAllOnFocus}
                             onValueChange={(n) => updateItemTotal(index, n)}
@@ -2395,7 +2435,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                       <TD>
                         <Input
                           ref={(el) => { notesRefs.current[rowKey] = el }}
-                          className="h-8 min-w-32"
+                          className={cn(dz.h, dz.text, "min-w-32")}
                           value={item.notes ?? ""}
                           onChange={(event) => updateItem(index, { notes: event.target.value })}
                           onKeyDown={(e) => handleRowKey(e, rowKey, "notes")}
@@ -2491,12 +2531,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       {/* Financial summary */}
       <div className={cn("rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 dark:border-amber-900 dark:bg-amber-950/20", cardBorder)}>
 
-        {/* Top grid: amounts on right, balance on left */}
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+        {/* Top grid: amounts on right, balance/settlement on left — each side
+            reads top-to-bottom (compute → adjust) instead of scattered rows. */}
+        <div className="grid grid-cols-2 gap-x-3">
 
           {/* Right column: invoice amounts */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-sm">
+          <div className="space-y-1.5 border-l border-amber-100 pl-3 dark:border-amber-900/40">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">المبلغ</p>
+            <div className="flex items-center justify-between rounded-md bg-white/70 px-2 py-1 text-sm dark:bg-slate-900/30">
               <span className="font-semibold">{fmt(subtotal)}</span>
               <span className="text-slate-500">المجموع</span>
             </div>
@@ -2532,9 +2574,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             )}
           </div>
 
-          {/* Left column: balance / payment */}
+          {/* Left column: settling the account */}
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-sm">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">التسوية</p>
+            <div className="flex items-center justify-between rounded-md bg-white/70 px-2 py-1 text-sm dark:bg-slate-900/30">
               <span className={cn("font-semibold", previousBalance > 0 ? "text-red-600 dark:text-red-400" : previousBalance < 0 ? "text-amber-600 dark:text-amber-400" : "")}>{fmt(Math.abs(previousBalance))}</span>
               <span className="text-slate-500 text-right">{isPurchase ? "رصيد المورد" : "حساب سابق"}</span>
             </div>
@@ -2569,7 +2612,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                 }}
               />
             </div>
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between rounded-md bg-white/70 px-2 py-1 text-sm dark:bg-slate-900/30">
               <span className="font-semibold">{fmt(remaining)}</span>
               <span className="text-slate-500">متبقي</span>
             </div>
@@ -2577,7 +2620,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         </div>
 
         {/* Totals highlight row */}
-        <div className="mt-2 grid grid-cols-2 gap-2">
+        <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-amber-100 pt-2.5 dark:border-amber-900/40">
           <div className="flex items-center justify-between rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-1.5 dark:border-emerald-800 dark:bg-emerald-950/30">
             <span className="font-bold text-emerald-700 dark:text-emerald-400">{fmt(total)}</span>
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">الإجمالي</span>
@@ -2605,28 +2648,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             ↑ زيادة {fmt(overpayment)} — سيُنشأ سند قبض تلقائياً
           </div>
         ) : null}
-
-        {/* Action buttons */}
-        <div className="mt-2 flex flex-wrap gap-1.5 border-t border-amber-100 pt-2 dark:border-amber-900/50">
-          <Button size="sm" className="h-8 text-xs" onClick={() => setPreview(true)}>معاينة</Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={readOnly || !selectedCustomer || items.length === 0 || hasInvalidTotal || missingPurchasePrice || createMutation.isPending || editSaving} title={readOnly ? READ_ONLY_MESSAGE : missingPurchasePrice ? "أدخل سعر شراء صحيح لكل مادة قبل الحفظ" : undefined}>
-            {(createMutation.isPending || editSaving) ? "..." : isEdit ? "حفظ التعديلات" : "حفظ"}
-          </Button>
-          {isEdit ? (
-            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate(`/invoices/${editId}`)} disabled={editSaving}>
-              إلغاء
-            </Button>
-          ) : (
-            <>
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-                <Download className="h-3.5 w-3.5 ml-1" /> PDF
-              </Button>
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
-                <ImageDown className="h-3.5 w-3.5 ml-1" /> صورة
-              </Button>
-            </>
-          )}
-        </div>
 
         {missingPurchasePrice ? (
           <div className="mt-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -2664,6 +2685,29 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             ⚠ {extractErrorMessage(createMutation.error)}
           </div>
         ) : null}
+      </div>
+
+      {/* Save/preview bar — pinned to the bottom, always reachable without
+          scrolling down a long invoice. */}
+      <div className={cn("sticky bottom-0 z-10 -mx-1 flex flex-wrap gap-1.5 rounded-xl border border-amber-200 bg-white px-3 py-2 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] dark:border-amber-900 dark:bg-slate-900", cardBorder)}>
+        <Button size="sm" className="h-8 text-xs" onClick={() => setPreview(true)}>معاينة</Button>
+        <Button size="sm" variant="outline" className="h-8 text-xs" onClick={save} disabled={readOnly || !selectedCustomer || items.length === 0 || hasInvalidTotal || missingPurchasePrice || createMutation.isPending || editSaving} title={readOnly ? READ_ONLY_MESSAGE : missingPurchasePrice ? "أدخل سعر شراء صحيح لكل مادة قبل الحفظ" : undefined}>
+          {(createMutation.isPending || editSaving) ? "..." : isEdit ? "حفظ التعديلات" : "حفظ"}
+        </Button>
+        {isEdit ? (
+          <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => navigate(`/invoices/${editId}`)} disabled={editSaving}>
+            إلغاء
+          </Button>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("pdf")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+              <Download className="h-3.5 w-3.5 ml-1" /> PDF
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs" onClick={() => void openExport("image")} disabled={!selectedCustomer || items.length === 0 || hasInvalidTotal || createMutation.isPending}>
+              <ImageDown className="h-3.5 w-3.5 ml-1" /> صورة
+            </Button>
+          </>
+        )}
       </div>
 
       <input ref={scanInputRef} className="sr-only" aria-hidden tabIndex={-1} />
