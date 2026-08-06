@@ -2376,38 +2376,39 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         </select>
                       </TD>
                       <TD>
-                        <NumericInput
-                          ref={(el) => { quantityRefs.current[rowKey] = el }}
-                          decimal={false}
-                          className={cn(dz.h, dz.text, "w-20")}
-                          value={item.quantity}
-                          onFocus={selectAllOnFocus}
-                          onValueChange={(n) => updateItem(index, { quantity: n })}
-                          onKeyDown={(e) => handleRowKey(e, rowKey, "qty")}
-                        />
-                        {item.unit !== "PIECE" && (
-                          <div className="mt-0.5 text-[10px] text-slate-400">= {itemQuantityInPieces(item)} قطعة</div>
-                        )}
-                        {item.product.pcsPerCarton > 1 && item.unit === "PIECE" && (
-                          <div className="mt-0.5 flex flex-wrap gap-0.5">
-                            {(["carton", "halfCarton", "dozen"] as const).map((kind) => {
+                        <div className="flex flex-nowrap items-center gap-1 whitespace-nowrap">
+                          <NumericInput
+                            ref={(el) => { quantityRefs.current[rowKey] = el }}
+                            decimal={false}
+                            className={cn(dz.h, dz.text, "w-16")}
+                            value={item.quantity}
+                            onFocus={selectAllOnFocus}
+                            onValueChange={(n) => updateItem(index, { quantity: n })}
+                            onKeyDown={(e) => handleRowKey(e, rowKey, "qty")}
+                          />
+                          {item.unit !== "PIECE" && (
+                            <span className={cn("text-slate-400", dz.hint)}>= {itemQuantityInPieces(item)}ق</span>
+                          )}
+                          {item.product.pcsPerCarton > 1 && item.unit === "PIECE" && (
+                            (["carton", "halfCarton", "dozen"] as const).map((kind) => {
                               const delta = quickQtyIncrement(item, kind)
                               if (delta === null) return null
-                              const label = kind === "carton" ? "+كرتون" : kind === "halfCarton" ? "+نصف" : "+درزن"
+                              const fullLabel = kind === "carton" ? "كرتون" : kind === "halfCarton" ? "نصف كرتون" : "درزن"
+                              const label = kind === "carton" ? "+ك" : kind === "halfCarton" ? "+ن" : "+د"
                               return (
                                 <button
                                   key={kind}
                                   type="button"
-                                  title={`أضف ${delta} قطعة`}
-                                  className="rounded border border-slate-200 px-1 text-[9px] text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
+                                  title={`أضف ${fullLabel} (${delta} قطعة)`}
+                                  className="shrink-0 rounded border border-slate-200 px-1 text-[9px] leading-4 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
                                   onClick={() => updateItem(index, { quantity: item.quantity + delta })}
                                 >
                                   {label}
                                 </button>
                               )
-                            })}
-                          </div>
-                        )}
+                            })
+                          )}
+                        </div>
                       </TD>
                       {!hidePrice && (
                         <TD>
