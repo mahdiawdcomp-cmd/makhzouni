@@ -49,10 +49,10 @@ type InvoiceType = "SALE" | "PURCHASE"
 // mile of scrolling; "cozy" reproduces the original (pre-density) row size.
 type RowDensity = "compact" | "normal" | "cozy"
 const ROW_DENSITY_KEY = "invoiceRowDensity"
-const ROW_DENSITY: Record<RowDensity, { label: string; h: string; text: string; hint: string; td: string }> = {
-  compact: { label: "مضغوط", h: "h-6", text: "text-[11px]", hint: "text-[9px] leading-3", td: "[&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-1" },
-  normal:  { label: "متوسط", h: "h-7", text: "text-xs",     hint: "text-[10px] leading-3.5", td: "[&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5" },
-  cozy:    { label: "مريح", h: "h-8", text: "text-sm",     hint: "text-[11px] leading-4", td: "[&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5" },
+const ROW_DENSITY: Record<RowDensity, { label: string; h: string; text: string; hint: string; td: string; thumb: string; gap: string }> = {
+  compact: { label: "مضغوط", h: "h-6", text: "text-[11px]", hint: "text-[9px] leading-3", td: "[&_td]:px-1.5 [&_td]:py-0.5 [&_th]:px-1.5 [&_th]:py-1", thumb: "h-5 w-5", gap: "gap-1" },
+  normal:  { label: "متوسط", h: "h-7", text: "text-xs",     hint: "text-[10px] leading-3.5", td: "[&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5", thumb: "h-6 w-6", gap: "gap-1.5" },
+  cozy:    { label: "مريح", h: "h-8", text: "text-sm",     hint: "text-[11px] leading-4", td: "[&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1.5", thumb: "h-7 w-7", gap: "gap-2" },
 }
 function loadRowDensity(): RowDensity {
   try {
@@ -141,12 +141,12 @@ function quickQtyIncrement(item: DraftItem, kind: "carton" | "halfCarton" | "doz
   return 12
 }
 
-function ProductThumb({ product }: { product: Product }) {
+function ProductThumb({ product, size = "h-7 w-7" }: { product: Product; size?: string }) {
   const src = product.thumbnailUrl || product.imageUrl
   if (src) {
-    return <img src={src} alt={product.name} loading="lazy" decoding="async" className="h-7 w-7 shrink-0 rounded-md object-cover ring-1 ring-slate-200" />
+    return <img src={src} alt={product.name} loading="lazy" decoding="async" className={cn(size, "shrink-0 rounded-md object-cover ring-1 ring-slate-200")} />
   }
-  return <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200">{product.itemNumber.slice(0, 3)}</div>
+  return <div className={cn(size, "grid shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200")}>{product.itemNumber.slice(0, 3)}</div>
 }
 
 // Right-click on a line's product name → quick reference (last price for this
@@ -2288,9 +2288,18 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         }}
                         title="كلك يمين لخيارات إضافية"
                       >
-                        <div className="flex items-center gap-2 min-w-[140px] cursor-context-menu">
-                          <ProductThumb product={item.product} />
+                        <div className={cn("flex flex-nowrap items-center whitespace-nowrap cursor-context-menu", dz.gap, dz.text)}>
+                          <ProductThumb product={item.product} size={dz.thumb} />
                           <span className="font-medium">{item.product.name}</span>
+                          {(item.product.pcsPerCarton > 1 || showPurchase || showStock) ? (
+                            <span className={cn("text-slate-400", dz.hint)}>
+                              {[
+                                item.product.pcsPerCarton > 1 ? `${item.product.pcsPerCarton}/كرتون` : null,
+                                showPurchase ? `ش:${fmt(item.product.purchasePrice)}` : null,
+                                showStock ? `م:${stockOf(item.product)}` : null,
+                              ].filter(Boolean).join(" · ")}
+                            </span>
+                          ) : null}
                           {item.warehouseName && (
                             <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
                               📦 {item.warehouseName}
@@ -2325,14 +2334,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                             </span>
                           ) : null}
                         </div>
-                        {/* One compact sub-line instead of three stacked ones — keeps rows short */}
-                        {(item.product.pcsPerCarton > 1 || showPurchase || showStock) ? (
-                          <div className={cn("flex flex-wrap gap-x-2 text-slate-500", dz.hint)}>
-                            {item.product.pcsPerCarton > 1 ? <span className="text-slate-400">{item.product.pcsPerCarton} قطعة/كرتون</span> : null}
-                            {showPurchase ? <span>شراء: {fmt(item.product.purchasePrice)}</span> : null}
-                            {showStock ? <span>متوفر: {stockOf(item.product)}</span> : null}
-                          </div>
-                        ) : null}
                       </TD>
                       <TD>
                         {/* warehouse selector — shown only when product has stocks in multiple warehouses */}
@@ -2450,51 +2451,51 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                     </TR>
                     {lineShort && !shortageAcknowledged && (
                       <TR>
-                        <TD colSpan={hidePrice ? 7 : 9} className="p-0 pb-1">
-                          <div className="mx-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-700/50 dark:bg-amber-950/30">
-                            <div className="text-[12px] text-amber-800 dark:text-amber-300">
-                              ⚠️ <strong>{item.warehouseName ?? "المحل"} عنده {linePullPcs} قطعة</strong> — المطلوب {lineQtyPcs} قطعة.
-                              {otherWhs.length > 0
-                                ? ` متوفر بمخازن أخرى: ${otherWhs.map((ws) => `${ws.warehouse.name} (${ws.quantityPieces})`).join("، ")}.`
-                                : " لا يوجد رصيد بمخازن أخرى."}
-                              {" "}إذا تكمل بدون إجراء، النقص ينباع بالسالب.
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              {fullCoverWh && (
-                                <Button
-                                  size="sm"
-                                  className="h-7 bg-sky-600 px-2.5 text-xs text-white hover:bg-sky-700"
-                                  onClick={() => updateItem(index, { warehouseId: fullCoverWh.warehouseId, warehouseName: fullCoverWh.warehouse.name })}
-                                >
-                                  🔄 تحويل من {fullCoverWh.warehouse.name}
-                                </Button>
-                              )}
-                              {canSplit && !fullCoverWh && (
-                                <Button
-                                  size="sm"
-                                  className="h-7 bg-sky-600 px-2.5 text-xs text-white hover:bg-sky-700"
-                                  onClick={() => splitLineAcrossWarehouses(index)}
-                                >
-                                  ⚡ تقسيم تلقائي
-                                </Button>
-                              )}
+                        <TD colSpan={hidePrice ? 7 : 9} className="p-0 pb-0.5">
+                          <div
+                            className="mx-2 flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 dark:border-amber-700/50 dark:bg-amber-950/30"
+                            title={otherWhs.length > 0
+                              ? `متوفر بمخازن أخرى: ${otherWhs.map((ws) => `${ws.warehouse.name} (${ws.quantityPieces})`).join("، ")}`
+                              : "لا يوجد رصيد بمخازن أخرى — سيُسجَّل بالسالب"}
+                          >
+                            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                              ⚠️ {item.warehouseName ?? "المحل"}: {linePullPcs}/{lineQtyPcs}
+                            </span>
+                            {fullCoverWh && (
                               <Button
                                 size="sm"
-                                variant="outline"
-                                className="h-7 border-amber-400 px-2.5 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                                onClick={() => updateItem(index, { allowNegativeStock: true })}
+                                className="h-6 shrink-0 bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"
+                                onClick={() => updateItem(index, { warehouseId: fullCoverWh.warehouseId, warehouseName: fullCoverWh.warehouse.name })}
                               >
-                                بيع بالسالب
+                                🔄 {fullCoverWh.warehouse.name}
                               </Button>
+                            )}
+                            {canSplit && !fullCoverWh && (
                               <Button
                                 size="sm"
-                                variant="ghost"
-                                className="h-7 px-2 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                                onClick={() => removeItem(index)}
+                                className="h-6 shrink-0 bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"
+                                onClick={() => splitLineAcrossWarehouses(index)}
                               >
-                                إلغاء المادة
+                                ⚡ تقسيم
                               </Button>
-                            </div>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 shrink-0 border-amber-400 px-2 text-[11px] text-amber-800 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+                              onClick={() => updateItem(index, { allowNegativeStock: true })}
+                            >
+                              سالب
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="إلغاء المادة"
+                              className="h-6 shrink-0 px-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                              onClick={() => removeItem(index)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </TD>
                       </TR>
