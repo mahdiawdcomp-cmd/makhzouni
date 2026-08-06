@@ -141,7 +141,10 @@ export interface InstallerArtifacts {
   desktopInstallerUrl?: string | null;
   desktopVersion?: string | null;
   androidVersion?: string | null;
+  /** @deprecated kept for back-compat with already-stored data — use androidBuildStatus/desktopBuildStatus for new writes */
   buildStatus?: string | null;
+  androidBuildStatus?: string | null;
+  desktopBuildStatus?: string | null;
   lastBuildAt?: string | null;
 }
 

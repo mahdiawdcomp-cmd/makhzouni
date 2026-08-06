@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle, ArrowRight, Check, CheckCircle2, ChevronDown, Circle, Clipboard,
   Copy, ExternalLink, Fingerprint, HeartPulse, Power, RotateCcw, Save, Send,
-  Smartphone, Stethoscope, Wand2, XCircle,
+  Smartphone, Stethoscope, Trash2, Wand2, XCircle,
 } from "lucide-react";
 import {
   DOMAIN_ROOT, getErrorMessage, publicApi, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus,
@@ -65,7 +65,7 @@ export default function TenantDetailPage() {
   const tenant = query.data;
   const subscription = tenant?.subscriptions.find((item) => item.isActive);
   const [details, setDetails] = useState({ name: "", ownerName: "", phone: "", email: "", subdomain: "", backendUrl: "", notes: "" });
-  const [sub, setSub] = useState({ plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY", maxUsers: "", maxWarehouses: "", maxAndroidDevices: "", maxInvoices: "", maxCustomers: "", features: [] as FeatureKey[] });
+  const [sub, setSub] = useState({ plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY", maxUsers: "", maxWarehouses: "", maxAndroidDevices: "", maxCustomers: "", features: [] as FeatureKey[] });
   // ── license / entitlements local state ──
   const emptyLic: LicState = {
     licenseType: "SAAS", activatedAt: "", expiresAt: "", trialEndsAt: "", internalNotes: "",
@@ -88,7 +88,7 @@ export default function TenantDetailPage() {
       plan: subscription?.plan ?? "BASIC", expiresAt: subscription?.expiresAt?.slice(0, 10) ?? "",
       price: subscription?.price?.toString() ?? "", billingCycle: subscription?.billingCycle ?? "MONTHLY",
       maxUsers: subscription?.maxUsers?.toString() ?? "", maxWarehouses: subscription?.maxWarehouses?.toString() ?? "",
-      maxAndroidDevices: subscription?.maxAndroidDevices?.toString() ?? "", maxInvoices: subscription?.maxInvoices?.toString() ?? "",
+      maxAndroidDevices: subscription?.maxAndroidDevices?.toString() ?? "",
       maxCustomers: subscription?.maxCustomers?.toString() ?? "", features: subscription?.features ?? [],
     });
     const lm = tenant.limits ?? {}; const pf = tenant.platforms ?? {};
@@ -143,7 +143,7 @@ export default function TenantDetailPage() {
   const saveCurrentTab = () => {
     if (tab === "overview") run(() => tenantsApi.update(id, details), "تم حفظ بيانات المحل");
     else if (tab === "license") saveLicense();
-    else if (tab === "subscription") run(() => tenantsApi.updateSubscription(id, { ...sub, expiresAt: sub.expiresAt ? new Date(`${sub.expiresAt}T23:59:59`).toISOString() : null, price: number(sub.price), maxUsers: number(sub.maxUsers), maxWarehouses: number(sub.maxWarehouses), maxAndroidDevices: number(sub.maxAndroidDevices), maxInvoices: number(sub.maxInvoices), maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك والمزايا");
+    else if (tab === "subscription") run(() => tenantsApi.updateSubscription(id, { ...sub, expiresAt: sub.expiresAt ? new Date(`${sub.expiresAt}T23:59:59`).toISOString() : null, price: number(sub.price), maxUsers: number(sub.maxUsers), maxWarehouses: number(sub.maxWarehouses), maxAndroidDevices: number(sub.maxAndroidDevices), maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك والمزايا");
   };
   const canSaveTab = tab === "overview" || tab === "license" || tab === "subscription";
 
@@ -207,8 +207,8 @@ export default function TenantDetailPage() {
   if (!tenant) return <div className="alert error">المحل غير موجود</div>;
   const url = tenant.frontendUrl || `https://${tenant.subdomain}.${DOMAIN_ROOT}`;
   const artifacts: InstallerArtifacts = tenant.installerArtifacts ?? {};
-  const androidStatus = installerStatus(artifacts.buildStatus);
-  const desktopStatus = installerStatus(artifacts.buildStatus);
+  const androidStatus = installerStatus(artifacts.androidBuildStatus ?? artifacts.buildStatus);
+  const desktopStatus = installerStatus(artifacts.desktopBuildStatus ?? artifacts.buildStatus);
   const expiry = expiryState(tenant.expiresAt);
 
   return (
@@ -236,6 +236,24 @@ export default function TenantDetailPage() {
           <a className="secondary" href={url} target="_blank" rel="noreferrer" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 7 }}><ExternalLink size={17} /> فتح الموقع</a>
           <button className={tenant.status === "ACTIVE" ? "danger" : "primary"} onClick={() => run(() => tenantsApi.update(id, { status: tenant.status === "ACTIVE" ? "SUSPENDED" : "ACTIVE" }), tenant.status === "ACTIVE" ? "تم إيقاف المحل" : "تم تفعيل المحل")}><Power size={17} />{tenant.status === "ACTIVE" ? "إيقاف" : "تفعيل"}</button>
           <button className="primary" disabled={!canSaveTab} onClick={saveCurrentTab}><Save size={17} /> حفظ</button>
+          <button
+            className="danger"
+            disabled={tenant.status !== "SUSPENDED"}
+            title={tenant.status !== "SUSPENDED" ? "أوقف المحل أولاً قبل الحذف" : "حذف نهائي — لا يمكن التراجع"}
+            onClick={async () => {
+              const typed = window.prompt(`هذا حذف نهائي لا رجعة فيه. اكتب الرابط الفرعي "${tenant.subdomain}" للتأكيد.`);
+              if (typed !== tenant.subdomain) {
+                if (typed !== null) setMessage("النص المكتوب لا يطابق الرابط الفرعي — لم يتم الحذف.");
+                return;
+              }
+              try {
+                await tenantsApi.remove(id);
+                navigate("/tenants");
+              } catch (error) {
+                setMessage(getErrorMessage(error));
+              }
+            }}
+          ><Trash2 size={17} /> حذف نهائي</button>
         </div>
       </div>
 
@@ -401,10 +419,10 @@ export default function TenantDetailPage() {
           <label>تاريخ الانتهاء<input type="date" value={sub.expiresAt} onChange={(e) => setSub({ ...sub, expiresAt: e.target.value })} /></label>
           <label>السعر<input type="number" value={sub.price} onChange={(e) => setSub({ ...sub, price: e.target.value })} /></label>
           <label>الدفع<select value={sub.billingCycle} onChange={(e) => setSub({ ...sub, billingCycle: e.target.value })}><option value="MONTHLY">شهري</option><option value="YEARLY">سنوي</option><option value="CUSTOM">مخصص</option></select></label>
-          {[["maxUsers", "عدد المستخدمين"], ["maxWarehouses", "عدد المخازن"], ["maxAndroidDevices", "أجهزة أندرويد"], ["maxInvoices", "حد الفواتير"], ["maxCustomers", "حد الزبائن"]] .map(([key, label]) => <label key={key}>{label}<input type="number" min="1" value={sub[key as keyof typeof sub] as string} onChange={(e) => setSub({ ...sub, [key]: e.target.value })} placeholder="غير محدود" /></label>)}
+          {[["maxUsers", "عدد المستخدمين"], ["maxWarehouses", "عدد المخازن"], ["maxAndroidDevices", "أجهزة أندرويد"], ["maxCustomers", "حد الزبائن"]] .map(([key, label]) => <label key={key}>{label}<input type="number" min="1" value={sub[key as keyof typeof sub] as string} onChange={(e) => setSub({ ...sub, [key]: e.target.value })} placeholder="غير محدود" /></label>)}
         </div>
         <div className="feature-grid">{FEATURES.map((feature) => <button className={sub.features.includes(feature.key) ? "feature selected" : "feature"} key={feature.key} onClick={() => setSub({ ...sub, features: sub.features.includes(feature.key) ? sub.features.filter((item) => item !== feature.key) : [...sub.features, feature.key] })}><Check size={15} />{feature.label}</button>)}</div>
-        <div className="panel-actions"><button className="primary" onClick={() => run(() => tenantsApi.updateSubscription(id, { ...sub, expiresAt: sub.expiresAt ? new Date(`${sub.expiresAt}T23:59:59`).toISOString() : null, price: number(sub.price), maxUsers: number(sub.maxUsers), maxWarehouses: number(sub.maxWarehouses), maxAndroidDevices: number(sub.maxAndroidDevices), maxInvoices: number(sub.maxInvoices), maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك والمزايا")}><Save size={17} /> حفظ الاشتراك</button></div>
+        <div className="panel-actions"><button className="primary" onClick={() => run(() => tenantsApi.updateSubscription(id, { ...sub, expiresAt: sub.expiresAt ? new Date(`${sub.expiresAt}T23:59:59`).toISOString() : null, price: number(sub.price), maxUsers: number(sub.maxUsers), maxWarehouses: number(sub.maxWarehouses), maxAndroidDevices: number(sub.maxAndroidDevices), maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك والمزايا")}><Save size={17} /> حفظ الاشتراك</button></div>
       </section>}
 
       {tab === "devices" && <section className="panel">

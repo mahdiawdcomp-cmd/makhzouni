@@ -21,7 +21,7 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
     name: "", ownerName: "", phone: "", email: "", subdomain: "", backendUrl: "",
     plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY",
     maxUsers: "3", maxWarehouses: "1", maxAndroidDevices: "1",
-    maxInvoices: "", maxCustomers: "", notes: "",
+    maxCustomers: "", notes: "",
     features: ["POS", "RETURNS", "QUOTATIONS", "AUDIT_LOG"] as FeatureKey[],
     licenseType: "SAAS" as LicenseType, trialEndsAt: "", internalNotes: "",
   });
@@ -50,7 +50,6 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
           maxUsers: form.maxUsers ? Number(form.maxUsers) : null,
           maxWarehouses: form.maxWarehouses ? Number(form.maxWarehouses) : null,
           maxAndroidDevices: form.maxAndroidDevices ? Number(form.maxAndroidDevices) : null,
-          maxInvoices: form.maxInvoices ? Number(form.maxInvoices) : null,
           maxCustomers: form.maxCustomers ? Number(form.maxCustomers) : null,
           currency: "IQD",
           features: form.features,
@@ -97,7 +96,6 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
                 <label>عدد المستخدمين<input type="number" min="1" value={form.maxUsers} onChange={(e) => set("maxUsers", e.target.value)} /></label>
                 <label>عدد المخازن<input type="number" min="1" value={form.maxWarehouses} onChange={(e) => set("maxWarehouses", e.target.value)} /></label>
                 <label>أجهزة أندرويد<input type="number" min="0" value={form.maxAndroidDevices} onChange={(e) => set("maxAndroidDevices", e.target.value)} /></label>
-                <label>حد الفواتير<input type="number" min="1" value={form.maxInvoices} onChange={(e) => set("maxInvoices", e.target.value)} placeholder="فارغ = غير محدود" /></label>
               </div>
               <label>المزايا</label>
               <div className="feature-grid">{FEATURES.map((feature) => <button type="button" key={feature.key} className={form.features.includes(feature.key) ? "feature selected" : "feature"} onClick={() => toggleFeature(feature.key)}><Check size={15} />{feature.label}</button>)}</div>

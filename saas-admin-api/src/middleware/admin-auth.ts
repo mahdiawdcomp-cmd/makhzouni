@@ -1,7 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { timingSafeEqual } from "crypto";
 
 const JWT_SECRET = process.env.JWT_SECRET ?? "dev-secret";
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -11,7 +19,7 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
   }
   const token = authHeader.slice(7);
   const serviceKey = process.env.SUPER_ADMIN_API_KEY;
-  if (serviceKey && token === serviceKey) {
+  if (serviceKey && safeEqual(token, serviceKey)) {
     (req as any).adminId = null;
     (req as any).serviceAuth = true;
     next();

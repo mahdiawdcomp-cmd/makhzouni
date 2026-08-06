@@ -8,12 +8,21 @@ if (!process.env.DATABASE_URL) {
 // route files fall back to "dev-secret" for local convenience, so we must
 // reject it here (and any unset secret) before any token is signed/verified.
 const WEAK_JWT_SECRETS = new Set(["change-this-strong-secret", "dev-secret"]);
-if (!process.env.JWT_SECRET || WEAK_JWT_SECRETS.has(process.env.JWT_SECRET)) {
+const jwtSecret = process.env.JWT_SECRET;
+if (jwtSecret && (WEAK_JWT_SECRETS.has(jwtSecret) || jwtSecret.length < 32)) {
+  // Reject an explicitly-configured weak/short secret in every environment —
+  // not just when NODE_ENV is exactly "production". Relying on that single
+  // env var being configured correctly on every deploy target was the actual
+  // gap: a misconfigured NODE_ENV would let a placeholder secret slip through
+  // production with nothing but a warning.
+  console.error("[FATAL] JWT_SECRET is set but weak or too short (must be a random string of at least 32 characters).");
+  process.exit(1);
+} else if (!jwtSecret) {
   if (process.env.NODE_ENV === "production") {
     console.error("[FATAL] JWT_SECRET must be set to a strong random value in production.");
     process.exit(1);
   } else {
-    console.warn("[WARN] JWT_SECRET is unset or weak — using an insecure dev fallback. Do NOT use in production.");
+    console.warn("[WARN] JWT_SECRET is unset — using an insecure dev fallback. Do NOT use in production.");
   }
 }
 

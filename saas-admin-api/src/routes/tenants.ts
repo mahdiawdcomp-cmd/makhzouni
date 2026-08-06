@@ -39,7 +39,14 @@ const installerArtifactsSchema = z.object({
   desktopInstallerUrl: z.string().trim().max(500).nullable().optional(),
   desktopVersion: z.string().trim().max(60).nullable().optional(),
   androidVersion: z.string().trim().max(60).nullable().optional(),
+  // Legacy shared field, kept for back-compat with already-stored data (some
+  // existing tenants only have this one set). New writes should use
+  // androidBuildStatus/desktopBuildStatus instead — Android and Desktop are
+  // separate build pipelines and previously shared one status, so their UI
+  // pills always showed identical status even when only one was actually built.
   buildStatus: z.string().trim().max(60).nullable().optional(),
+  androidBuildStatus: z.string().trim().max(60).nullable().optional(),
+  desktopBuildStatus: z.string().trim().max(60).nullable().optional(),
   lastBuildAt: z.string().trim().max(60).nullable().optional(),
 }).strip();
 
@@ -352,6 +359,37 @@ router.patch("/:id", async (req: Request, res: Response) => {
   }
 });
 
+router.delete("/:id", async (req: Request, res: Response) => {
+  const id = param(req, "id");
+  const tenant = await prisma.tenant.findUnique({ where: { id } });
+  if (!tenant) {
+    res.status(404).json({ error: "TENANT_NOT_FOUND" });
+    return;
+  }
+  // Require SUSPENDED first as a safety rail against deleting a live tenant
+  // by mistake — an admin must make a deliberate two-step decision.
+  if (tenant.status !== "SUSPENDED") {
+    res.status(409).json({
+      error: "TENANT_MUST_BE_SUSPENDED",
+      message: "Suspend the tenant before deleting it.",
+    });
+    return;
+  }
+  // Log identifying details into an orphaned audit row BEFORE deleting —
+  // subscriptions and serials cascade-delete with the tenant (see
+  // schema.prisma onDelete: Cascade), so this is the only record left.
+  await prisma.adminAuditLog.create({
+    data: {
+      tenantId: null,
+      adminId: (req as any).adminId ?? null,
+      action: "TENANT_DELETED",
+      details: { id: tenant.id, name: tenant.name, subdomain: tenant.subdomain, backendUrl: tenant.backendUrl },
+    },
+  });
+  await prisma.tenant.delete({ where: { id } });
+  res.status(204).send();
+});
+
 const updateSubscriptionSchema = subscriptionSchema.partial().extend({
   isActive: z.boolean().optional(),
 });
@@ -373,18 +411,27 @@ router.patch("/:id/subscription", async (req: Request, res: Response) => {
       ? undefined
       : data.expiresAt ? new Date(data.expiresAt) : null,
   };
-  if (subscription) {
-    await prisma.subscription.update({ where: { id: subscription.id }, data: normalized });
-  } else {
-    await prisma.subscription.create({
-      data: {
-        tenantId: id,
-        plan: data.plan ?? "BASIC",
-        features: data.features ?? [],
-        ...normalized,
-      },
-    });
-  }
+  await prisma.$transaction(async (tx) => {
+    if (subscription) {
+      await tx.subscription.update({ where: { id: subscription.id }, data: normalized });
+    } else {
+      // Defense-in-depth: explicitly deactivate any other active subscription
+      // for this tenant before creating a new one, so "at most one active
+      // subscription per tenant" holds even without a DB-level constraint.
+      await tx.subscription.updateMany({
+        where: { tenantId: id, isActive: true },
+        data: { isActive: false },
+      });
+      await tx.subscription.create({
+        data: {
+          tenantId: id,
+          plan: data.plan ?? "BASIC",
+          features: data.features ?? [],
+          ...normalized,
+        },
+      });
+    }
+  });
   await audit(req, id, "SUBSCRIPTION_UPDATED", data as Prisma.InputJsonValue);
   const tenant = await prisma.tenant.findUnique({ where: { id }, include: tenantInclude });
   res.json(tenant);

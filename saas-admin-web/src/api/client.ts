@@ -94,7 +94,10 @@ export interface InstallerArtifacts {
   desktopInstallerUrl?: string | null;
   desktopVersion?: string | null;
   androidVersion?: string | null;
+  /** @deprecated kept for back-compat with already-stored data — use androidBuildStatus/desktopBuildStatus for new writes */
   buildStatus?: string | null;
+  androidBuildStatus?: string | null;
+  desktopBuildStatus?: string | null;
   lastBuildAt?: string | null;
 }
 
@@ -176,9 +179,26 @@ export interface Summary {
   activeDevices: number;
 }
 
+export interface AdminLoginLogEntry {
+  id: string;
+  username: string;
+  success: boolean;
+  reason: string | null;
+  ip: string | null;
+  createdAt: string;
+}
+
 export const authApi = {
-  login: (username: string, password: string) =>
-    api.post<{ token: string }>("/auth/login", { username, password }),
+  login: (username: string, password: string, totpCode?: string) =>
+    api.post<{ token: string }>("/auth/login", { username, password, totpCode }),
+  loginLog: () => api.get<AdminLoginLogEntry[]>("/auth/login-log"),
+};
+
+export const totpApi = {
+  status: () => api.get<{ totpEnabled: boolean; recoveryCodesRemaining: number }>("/auth/totp/status"),
+  enroll: () => api.post<{ secret: string; otpauthUri: string }>("/auth/totp/enroll"),
+  verifyEnroll: (code: string) => api.post<{ enabled: boolean; recoveryCodes: string[] }>("/auth/totp/verify-enroll", { code }),
+  disable: (password: string) => api.post<{ enabled: boolean }>("/auth/totp/disable", { password }),
 };
 
 export const tenantsApi = {
@@ -195,6 +215,7 @@ export const tenantsApi = {
     api.patch<SerialNumber>(`/tenants/${tenantId}/serials/${serialId}`, { isActive }),
   checkBackend: (id: string) => api.post<{ ok: boolean; latencyMs?: number }>(`/tenants/${id}/check-backend`),
   doctor: (id: string) => api.get<DoctorResult>(`/tenants/${id}/doctor`),
+  remove: (id: string) => api.delete<void>(`/tenants/${id}`),
 };
 
 // ── Batch 2 UI: readiness checklist reuses the existing public tenant-config
@@ -212,6 +233,11 @@ export function getErrorMessage(error: unknown): string {
     ANDROID_DEVICE_LIMIT_REACHED: "وصل المحل إلى الحد الأعلى لأجهزة أندرويد",
     TENANT_NOT_FOUND: "المحل غير موجود",
     VALIDATION_ERROR: "راجع الحقول المطلوبة والقيم المدخلة",
+    TENANT_MUST_BE_SUSPENDED: "أوقف المحل أولاً قبل حذفه",
+    ACCOUNT_LOCKED: "الحساب موقوف مؤقتاً بعد محاولات فاشلة متكررة",
+    INVALID_TOTP: "رمز التحقق غير صحيح",
+    TOTP_ALREADY_ENABLED: "التحقق بخطوتين مفعّل بالفعل",
+    NO_PENDING_ENROLLMENT: "ابدأ خطوة التفعيل أولاً",
   };
   return messages[code] ?? error.response?.data?.message ?? "تعذر الاتصال بالخادم";
 }

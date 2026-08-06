@@ -1,4 +1,4 @@
-import { Building2, LogOut, ShieldCheck } from "lucide-react";
+import { Building2, LogOut, ShieldCheck, Lock } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 export default function Layout() {
@@ -16,6 +16,9 @@ export default function Layout() {
         <nav>
           <NavLink to="/tenants" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
             <Building2 size={17} /> المحلات
+          </NavLink>
+          <NavLink to="/security" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>
+            <Lock size={17} /> الأمان
           </NavLink>
         </nav>
         <button className="icon-command" title="تسجيل الخروج" onClick={() => {

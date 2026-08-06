@@ -111,10 +111,19 @@ model SerialNumber {
 }
 
 model AdminUser {
-  id           String   @id @default(uuid()) @db.Uuid
-  username     String   @unique
-  passwordHash String   @map("password_hash")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id               String    @id @default(uuid()) @db.Uuid
+  username         String    @unique
+  passwordHash     String    @map("password_hash")
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil      DateTime? @map("locked_until")
+  // TOTP two-factor auth. Disabled by default — an admin must explicitly
+  // enroll; nothing in this schema forces it on for an existing account.
+  totpSecret       String?   @map("totp_secret")
+  totpEnabled      Boolean   @default(false) @map("totp_enabled")
+  // Bcrypt hashes only — plaintext codes are shown once at generation time
+  // and never stored.
+  recoveryCodes    String[]  @default([]) @map("recovery_codes")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   @@map("admin_users")
 }
@@ -131,4 +140,17 @@ model AdminAuditLog {
   @@index([tenantId])
   @@index([createdAt])
   @@map("admin_audit_logs")
+}
+
+model AdminLoginLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  username  String
+  success   Boolean
+  reason    String?
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([username])
+  @@index([createdAt])
+  @@map("admin_login_logs")
 }

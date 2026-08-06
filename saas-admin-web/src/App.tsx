@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import TenantsPage from "./pages/TenantsPage";
 import TenantDetailPage from "./pages/TenantDetailPage";
+import SecurityPage from "./pages/SecurityPage";
 import Layout from "./components/Layout";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -25,6 +26,7 @@ export default function App() {
         <Route index element={<Navigate to="/tenants" replace />} />
         <Route path="tenants" element={<TenantsPage />} />
         <Route path="tenants/:id" element={<TenantDetailPage />} />
+        <Route path="security" element={<SecurityPage />} />
       </Route>
     </Routes>
   );
