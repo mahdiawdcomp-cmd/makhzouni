@@ -130,17 +130,6 @@ function itemQuantityInPieces(item: DraftItem) {
   return unitToPieces(item.unit, item.quantity, item.product)
 }
 
-// Quick quantity-fill amount, expressed in the line's CURRENT unit. Restricted to
-// PIECE lines only: for any other unit (e.g. CARTON) "+half a carton" would need a
-// fractional quantity, which the quantity field (decimal={false}) can't hold.
-function quickQtyIncrement(item: DraftItem, kind: "carton" | "halfCarton" | "dozen"): number | null {
-  if (item.unit !== "PIECE") return null
-  const cartonPieces = item.product.pcsPerCarton
-  if (kind === "carton") return cartonPieces
-  if (kind === "halfCarton") return cartonPieces % 2 === 0 ? cartonPieces / 2 : null
-  return 12
-}
-
 function ProductThumb({ product, size = "h-7 w-7" }: { product: Product; size?: string }) {
   const src = product.thumbnailUrl || product.imageUrl
   if (src) {
@@ -2435,25 +2424,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           />
                           {item.unit !== "PIECE" && (
                             <span className={cn("text-slate-400", dz.hint)}>= {itemQuantityInPieces(item)}ق</span>
-                          )}
-                          {item.product.pcsPerCarton > 1 && item.unit === "PIECE" && (
-                            (["carton", "halfCarton", "dozen"] as const).map((kind) => {
-                              const delta = quickQtyIncrement(item, kind)
-                              if (delta === null) return null
-                              const fullLabel = kind === "carton" ? "كرتون" : kind === "halfCarton" ? "نصف كرتون" : "درزن"
-                              const label = kind === "carton" ? "+ك" : kind === "halfCarton" ? "+ن" : "+د"
-                              return (
-                                <button
-                                  key={kind}
-                                  type="button"
-                                  title={`أضف ${fullLabel} (${delta} قطعة)`}
-                                  className="shrink-0 rounded border border-slate-200 px-1 text-[9px] leading-4 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800"
-                                  onClick={() => updateItem(index, { quantity: item.quantity + delta })}
-                                >
-                                  {label}
-                                </button>
-                              )
-                            })
                           )}
                         </div>
                       </TD>
