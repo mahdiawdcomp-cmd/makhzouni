@@ -2333,6 +2333,53 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                               ⚠ سعر منخفض غير معتاد؟
                             </span>
                           ) : null}
+                          {lineShort && !shortageAcknowledged && (
+                            <span
+                              className="flex shrink-0 flex-nowrap items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 dark:border-amber-700/50 dark:bg-amber-950/30"
+                              title={otherWhs.length > 0
+                                ? `متوفر بمخازن أخرى: ${otherWhs.map((ws) => `${ws.warehouse.name} (${ws.quantityPieces})`).join("، ")}`
+                                : "لا يوجد رصيد بمخازن أخرى — سيُسجَّل بالسالب"}
+                            >
+                              <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                                ⚠️ {item.warehouseName ?? "المحل"}: {linePullPcs}/{lineQtyPcs}
+                              </span>
+                              {fullCoverWh && (
+                                <Button
+                                  size="sm"
+                                  className="h-6 shrink-0 bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"
+                                  onClick={() => updateItem(index, { warehouseId: fullCoverWh.warehouseId, warehouseName: fullCoverWh.warehouse.name })}
+                                >
+                                  🔄 {fullCoverWh.warehouse.name}
+                                </Button>
+                              )}
+                              {canSplit && !fullCoverWh && (
+                                <Button
+                                  size="sm"
+                                  className="h-6 shrink-0 bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"
+                                  onClick={() => splitLineAcrossWarehouses(index)}
+                                >
+                                  ⚡ تقسيم
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 shrink-0 border-amber-400 px-2 text-[11px] text-amber-800 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
+                                onClick={() => updateItem(index, { allowNegativeStock: true })}
+                              >
+                                سالب
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="إلغاء المادة"
+                                className="h-6 shrink-0 px-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                onClick={() => removeItem(index)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </span>
+                          )}
                         </div>
                       </TD>
                       <TD>
@@ -2450,57 +2497,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         </Button>
                       </TD>
                     </TR>
-                    {lineShort && !shortageAcknowledged && (
-                      <TR>
-                        <TD colSpan={hidePrice ? 7 : 9} className="p-0 pb-0.5">
-                          <div
-                            className="mx-2 flex flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 dark:border-amber-700/50 dark:bg-amber-950/30"
-                            title={otherWhs.length > 0
-                              ? `متوفر بمخازن أخرى: ${otherWhs.map((ws) => `${ws.warehouse.name} (${ws.quantityPieces})`).join("، ")}`
-                              : "لا يوجد رصيد بمخازن أخرى — سيُسجَّل بالسالب"}
-                          >
-                            <span className="text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-                              ⚠️ {item.warehouseName ?? "المحل"}: {linePullPcs}/{lineQtyPcs}
-                            </span>
-                            {fullCoverWh && (
-                              <Button
-                                size="sm"
-                                className="h-6 shrink-0 bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"
-                                onClick={() => updateItem(index, { warehouseId: fullCoverWh.warehouseId, warehouseName: fullCoverWh.warehouse.name })}
-                              >
-                                🔄 {fullCoverWh.warehouse.name}
-                              </Button>
-                            )}
-                            {canSplit && !fullCoverWh && (
-                              <Button
-                                size="sm"
-                                className="h-6 shrink-0 bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"
-                                onClick={() => splitLineAcrossWarehouses(index)}
-                              >
-                                ⚡ تقسيم
-                              </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 shrink-0 border-amber-400 px-2 text-[11px] text-amber-800 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                              onClick={() => updateItem(index, { allowNegativeStock: true })}
-                            >
-                              سالب
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              title="إلغاء المادة"
-                              className="h-6 shrink-0 px-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                              onClick={() => removeItem(index)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </TD>
-                      </TR>
-                    )}
                     </Fragment>
                   )
                 })}
