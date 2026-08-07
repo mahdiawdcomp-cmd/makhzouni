@@ -47,11 +47,20 @@ function typeLabel(row: CustomerTransaction) {
   if (row.status === "CANCELLED") return "فاتورة ملغاة"
   if (type === "RECEIPT") return "سند قبض"
   if (type === "PAYMENT") return "سند دفع"
+  if (type === "INVOICE_PAYMENT") return "دفعة"
   if (type === "EXPENSE") return "مصاريف"
   if (type === "SALE") return "فاتورة بيع"
   if (type === "PURCHASE") return "فاتورة شراء"
   if (type === "SALES_RETURN") return "فاتورة مرتجع"
-  if (type.includes("INVOICE")) return Number(row.debit) > 0 ? "فاتورة بيع" : "فاتورة"
+  if (type.includes("INVOICE")) {
+    // Read the actual invoice type instead of guessing from the debit side —
+    // a paid PURCHASE invoice has a non-zero debit too (the paid portion),
+    // so a debit>0 guess mislabels it as a sale.
+    if (row.invoiceType === "SALE") return "فاتورة بيع"
+    if (row.invoiceType === "PURCHASE") return "فاتورة شراء"
+    if (row.invoiceType === "SALES_RETURN") return "فاتورة مرتجع"
+    return "فاتورة"
+  }
   return row.type
 }
 

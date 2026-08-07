@@ -43,6 +43,9 @@ function rowLabel(row: Row): string {
 
 // Merge INVOICE + INVOICE_PAYMENT rows for the same invoice into one — same
 // rule as mergeStatementRows() on the web so the PDF matches the on-screen table.
+// (Bug fixed 2026-08-07, same class as the web fix: a paid PURCHASE invoice
+// carries its payment as a DEBIT, not a credit, so checking only `payment.credit`
+// silently dropped it — the row was always filtered out below regardless.)
 function mergeRows(rows: Row[]): Row[] {
   const payments = new Map<string, Row>();
   for (const row of rows) {
@@ -53,8 +56,16 @@ function mergeRows(rows: Row[]): Row[] {
     .map((row) => {
       if (row.type !== "INVOICE") return row;
       const payment = payments.get(row.id);
-      if (!payment || !Number(payment.credit)) return row;
-      return { ...row, credit: payment.credit, runningBalance: payment.runningBalance };
+      if (!payment) return row;
+      const paymentCredit = Number(payment.credit) || 0;
+      const paymentDebit = Number(payment.debit) || 0;
+      if (!paymentCredit && !paymentDebit) return row;
+      return {
+        ...row,
+        credit: (Number(row.credit) || 0) + paymentCredit,
+        debit: (Number(row.debit) || 0) + paymentDebit,
+        runningBalance: payment.runningBalance,
+      };
     });
 }
 

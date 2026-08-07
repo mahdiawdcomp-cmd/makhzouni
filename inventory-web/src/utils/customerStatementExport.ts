@@ -27,7 +27,16 @@ export function translateRow(row: CustomerTransaction): string {
   if (t === "SALE") return "فاتورة بيع"
   if (t === "PURCHASE") return "فاتورة شراء"
   if (t === "SALES_RETURN") return "فاتورة مرتجع"
-  if (t.includes("INVOICE")) return Number(row.debit) > 0 ? "فاتورة بيع" : Number(row.credit) > 0 ? "فاتورة شراء" : "فاتورة"
+  if (t.includes("INVOICE")) {
+    // Read the actual invoice type instead of guessing from which side
+    // (debit/credit) is non-zero — a paid PURCHASE invoice legitimately has
+    // BOTH a debit (the folded payment) and a credit (the purchase amount)
+    // on the same merged row, so a debit-first guess mislabels it "فاتورة بيع".
+    if (row.invoiceType === "SALE") return "فاتورة بيع"
+    if (row.invoiceType === "PURCHASE") return "فاتورة شراء"
+    if (row.invoiceType === "SALES_RETURN") return "فاتورة مرتجع"
+    return "فاتورة"
+  }
   return translateLastType(row.type)
 }
 
