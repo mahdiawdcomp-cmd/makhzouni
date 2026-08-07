@@ -32,7 +32,7 @@ import { apiErrorMessage } from "../utils/apiError"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import type { Voucher } from "../types/api"
 import { useSettings } from "../hooks/useSettings"
-import { fillTemplate } from "../utils/whatsapp"
+import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { fmt } from "../utils/fmt"
 import { Button } from "../components/ui/button"
 import { RecordNavigator } from "../components/RecordNavigator"
@@ -51,6 +51,9 @@ const typeMeta: Record<Voucher["type"], { label: string; bg: string; icon: typeo
   PAYMENT: { label: "سند دفع", bg: "from-orange-500 to-orange-600", icon: ReceiptText },
   EXPENSE: { label: "مصاريف", bg: "from-rose-500 to-rose-600", icon: Wallet },
 }
+
+// Marks a value we cannot know for legacy vouchers; its line is stripped.
+const UNKNOWN_BALANCE = "␀UNKNOWN␀"
 
 const DEFAULT_TEMPLATE =
   "مرحباً {{customerName}}،\nاستلمنا منكم {{amount}} {{currency}} بسند رقم {{voucherNumber}} بتاريخ {{date}}.\nشكراً، {{storeName}}."
@@ -167,16 +170,46 @@ export function VoucherDetailPage() {
   const [waChannelOpen, setWaChannelOpen] = useState(false)
   function buildVoucherMessage() {
     if (!voucher) return ""
+    // The balances printed here are the SNAPSHOT frozen when the voucher was
+    // created, the same way an invoice carries previousBalance/finalBalance.
+    //
+    // This used to reconstruct "previous" by reversing the voucher's amount out
+    // of the customer's LIVE balance, which is only correct while the voucher is
+    // still the customer's most recent transaction. One later invoice and BOTH
+    // printed figures were wrong — e.g. a receipt that actually took 500,000
+    // down to 400,000 was reported as 700,000 → 600,000 once a 200,000 invoice
+    // landed after it.
+    //
+    // Legacy vouchers (created before the snapshot columns existed) have null
+    // here; those lines are then dropped from the message entirely rather than
+    // printing a reconstructed guess.
+    const hasSnapshot = voucher.previousBalance != null && voucher.finalBalance != null
     const tpl = settings?.voucherTemplate || DEFAULT_TEMPLATE
-    return fillTemplate(tpl, {
+    const filled = fillTemplate(tpl, {
       customerName: voucher.customer?.name ?? "",
       voucherNumber: voucher.voucherNumber,
       amount: money(voucher.amount),
       date: String(voucher.date).slice(0, 10),
-      currentBalance: money(voucher.customer?.currentBalance),
+      // "استلمنا منكم" is a RECEIPT; a PAYMENT is money going the other way.
+      actionVerb: voucher.type === "RECEIPT" ? "استلمنا منكم" : "سلّمناكم",
+      previousBalance: hasSnapshot ? balanceForCustomer(voucher.previousBalance) : UNKNOWN_BALANCE,
+      // No snapshot: the customer's LIVE balance is still a true "current"
+      // figure, so it stays; only the unknowable "before" line is dropped.
+      currentBalance: hasSnapshot
+        ? balanceForCustomer(voucher.finalBalance)
+        : balanceForCustomer(voucher.customer?.currentBalance),
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
+    // Legacy voucher: the "before" figure is unknowable, so its whole line is
+    // removed rather than guessed. Matching on a sentinel keeps this working
+    // whatever wording a custom template uses.
+    if (hasSnapshot) return filled
+    return filled
+      .split(/\r?\n/)
+      .filter((line) => !line.includes(UNKNOWN_BALANCE))
+      .join("\n")
+      .trim()
   }
   function openWaChannel() {
     if (!voucher) return

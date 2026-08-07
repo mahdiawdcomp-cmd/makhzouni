@@ -46,3 +46,21 @@ export function openWhatsApp(phone: string | undefined | null, message: string) 
 export function sendWhatsAppWeb(phone: string, message: string) {
   openWhatsApp(phone, message)
 }
+
+/**
+ * A balance rendered for a CUSTOMER to read.
+ *
+ * The stored sign is an internal convention (positive = the customer owes us,
+ * negative = we owe them). Sending it raw meant a supplier or a customer in
+ * credit received a bare "-500,000" with nothing saying which direction it
+ * ran. The word goes BEFORE the number so the template's own {{currency}},
+ * which follows the placeholder, still reads correctly:
+ *
+ *   "حسابكم السابق: عليك 500,000 د.ع"
+ */
+export function balanceForCustomer(value: number | string | undefined | null): string {
+  const n = Number(value ?? 0)
+  if (!Number.isFinite(n) || n === 0) return "0"
+  const amount = Math.abs(n).toLocaleString("en-US")
+  return n > 0 ? `عليك ${amount}` : `لك ${amount}`
+}

@@ -8,7 +8,7 @@ import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
 import { applyCoupon, completeOrderPreparation, createReceipt, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
-import { fillTemplate } from "../utils/whatsapp"
+import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
 import { downloadBlobUrl } from "../utils/download"
 import { useCustomers } from "../hooks/useCustomers"
@@ -138,7 +138,7 @@ function otherWarehousesFor(item: DraftItem): WarehouseStock[] {
 // Same wording as the Meta invoice template (and InvoiceDetailPage) — the
 // wa.me web channel can't attach the PDF, so the text must carry the numbers.
 const DEFAULT_INVOICE_TEMPLATE =
-  "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير"
+  "مرحبا {{customerName}} تم اصدار {{invoiceTypeLabel}} رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير"
 
 function hasRealPhone(phone?: string | null): boolean {
   if (!phone) return false
@@ -3307,11 +3307,16 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             customerName: selectedCustomer?.name ?? "",
             invoiceNumber: waPromptInvoiceNumber,
             date,
+            // This page only creates SALE and PURCHASE; the label follows the
+            // actual type instead of the template hardcoding "فاتورة بيع".
+            invoiceTypeLabel: isPurchase ? "فاتورة شراء" : "فاتورة بيع",
             total: fmt(total),
             paid: fmt(effectivePaid),
             remaining: fmt(remaining),
-            previousBalance: fmt(previousBalance),
-            finalBalance: fmt(finalBalance),
+            // Balances carry a direction word so a supplier or a customer in
+            // credit does not receive a bare negative number.
+            previousBalance: balanceForCustomer(previousBalance),
+            finalBalance: balanceForCustomer(finalBalance),
             currency: waSettings?.currency ?? "د.ع",
             storeName: waSettings?.storeName ?? "",
           },

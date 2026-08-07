@@ -12,7 +12,7 @@ import {
   useEndOfDayReport,
   useInventoryReport, useSalesReport, useTopCustomers,
 } from "../hooks/useReports"
-import { normalizePhone } from "../utils/whatsapp"
+import { balanceForCustomer, normalizePhone } from "../utils/whatsapp"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
@@ -1011,7 +1011,7 @@ function DebtsTab() {
                   </TD>
                   <TD>
                     <Button size="sm" variant="outline"
-                      onClick={() => setWaTarget({ name: r.name, phone: r.phone, balance: fmt(r.currentBalance) })}>
+                      onClick={() => setWaTarget({ name: r.name, phone: r.phone, balance: balanceForCustomer(r.currentBalance) })}>
                       فردي
                     </Button>
                   </TD>

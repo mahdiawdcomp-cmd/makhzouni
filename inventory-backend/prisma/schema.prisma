@@ -919,6 +919,13 @@ model PaymentVoucher {
   branchId      String?     @map("branch_id") @db.Uuid
   branch        Branch?     @relation(fields: [branchId], references: [id])
   amount        Decimal     @db.Decimal(12, 2)
+  // Customer balance immediately BEFORE and AFTER this voucher, frozen at
+  // creation exactly like Invoice.previousBalance/finalBalance. The WhatsApp
+  // receipt used to re-derive these from the live balance, which was wrong for
+  // any voucher that was not the customer's latest transaction.
+  // NULL on vouchers created before this column existed.
+  previousBalance Decimal?  @map("previous_balance") @db.Decimal(12, 2)
+  finalBalance    Decimal?  @map("final_balance") @db.Decimal(12, 2)
   type          VoucherType
   date          DateTime    @default(now())
   notes         String?

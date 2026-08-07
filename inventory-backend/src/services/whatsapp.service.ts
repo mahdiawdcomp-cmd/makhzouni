@@ -1084,16 +1084,37 @@ export async function sendPdfWithTemplateFallback(
 // {{1}} customerName, {{2}} invoiceNumber, {{3}} date, {{4}} totalAmount,
 // {{5}} paidAmount, {{6}} remainingAmount, {{7}} previousBalance,
 // {{8}} finalBalance, {{9}} storeName.
+/** Thousands-separated, English digits — matches the free-text message the
+ *  clients build, so the SAME invoice reads identically on both send paths.
+ *  Raw String(1250000) used to reach the customer as "1250000". */
+function money(value: unknown): string {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n.toLocaleString("en-US") : "0";
+}
+
+/** Balance with a direction word, mirroring balanceForCustomer() on the
+ *  clients: the stored sign is an internal convention and a bare "-500,000"
+ *  means nothing to the person reading the message. */
+export function balanceForCustomer(value: unknown): string {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n === 0) return "0";
+  const amount = Math.abs(n).toLocaleString("en-US");
+  return n > 0 ? `عليك ${amount}` : `لك ${amount}`;
+}
+
 export function invoiceTemplateBodyParams(invoice: Awaited<ReturnType<typeof getInvoiceById>>, storeName: string): string[] {
   return [
     invoice.customer.name,
     invoice.invoiceNumber,
-    new Date(invoice.date).toLocaleDateString(),
-    String(invoice.totalAmount),
-    String(invoice.paidAmount),
-    String(invoice.remainingAmount),
-    String(invoice.previousBalance),
-    String(invoice.finalBalance),
+    // Fixed ISO-style date. toLocaleDateString() with no locale follows the
+    // SERVER's locale, so the same invoice showed a different date format here
+    // than in the free-text message the client builds.
+    new Date(invoice.date).toISOString().slice(0, 10),
+    money(invoice.totalAmount),
+    money(invoice.paidAmount),
+    money(invoice.remainingAmount),
+    balanceForCustomer(invoice.previousBalance),
+    balanceForCustomer(invoice.finalBalance),
     storeName,
   ];
 }

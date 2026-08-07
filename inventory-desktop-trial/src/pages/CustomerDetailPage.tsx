@@ -9,7 +9,7 @@ import { fmt } from "../utils/fmt"
 import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
-import { fillTemplate, normalizePhone } from "../utils/whatsapp"
+import { balanceForCustomer, fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { sendWhatsAppTemplatedMessage, type WhatsAppSendChannel } from "../api/endpoints"
 import { apiErrorMessage } from "../utils/apiError"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
@@ -124,7 +124,8 @@ export function CustomerDetailPage() {
       customerName: customer.name,
       date: localDateStr(),
       openingBalance: money(customer.openingBalance),
-      currentBalance: money(customer.currentBalance),
+      // Direction word so a customer in credit does not read a bare "-500,000".
+      currentBalance: balanceForCustomer(customer.currentBalance),
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "",
     })
@@ -145,7 +146,7 @@ export function CustomerDetailPage() {
         bodyParams: [
           customer.name,
           localDateStr(),
-          money(customer.currentBalance),
+          balanceForCustomer(customer.currentBalance),
           settings?.currency ?? "د.ع",
           settings?.storeName ?? "",
         ],

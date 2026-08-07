@@ -32,6 +32,7 @@ import {
   NotificationSeverity,
 } from "../constants/notifications";
 import { backendPublicUrl } from "../utils/public-urls";
+import { balanceForCustomer } from "./whatsapp.service";
 
 // node-cron evaluates every expression in UTC unless told otherwise, and the
 // container sets no TZ. So "0 10 * * *" — the debt reminder — was firing at
@@ -100,7 +101,9 @@ export async function runDebtReminderJob() {
     const daysLate = daysBetween(customer.lastTransactionAt ?? customer.createdAt);
     const message = await renderTemplateByType("DEBT_REMINDER", {
       customerName: customer.name,
-      amount: Number(customer.currentBalance),
+      // Formatted + direction word, matching the manual send from the debts /
+      // inactive tabs. A raw Number produced "1250000" in the message body.
+      amount: balanceForCustomer(customer.currentBalance),
       daysLate,
       storeName: settings.storeName,
       date: new Date().toLocaleDateString(),
@@ -137,7 +140,9 @@ export async function runInactiveCustomerJob() {
     const inactiveDays = daysBetween(customer.lastTransactionAt ?? customer.createdAt);
     const message = await renderTemplateByType("INACTIVE_CUSTOMER", {
       customerName: customer.name,
-      amount: Number(customer.currentBalance),
+      // Formatted + direction word, matching the manual send from the debts /
+      // inactive tabs. A raw Number produced "1250000" in the message body.
+      amount: balanceForCustomer(customer.currentBalance),
       invoiceNumber: "",
       daysLate: inactiveDays,
       storeName: settings.storeName,

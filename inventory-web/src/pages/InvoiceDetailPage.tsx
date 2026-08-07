@@ -25,7 +25,7 @@ import { fmt } from "../utils/fmt"
 import { useInvoice, useInvoices } from "../hooks/useInvoices"
 import { useProducts } from "../hooks/useProducts"
 import { useSettings } from "../hooks/useSettings"
-import { fillTemplate, normalizePhone } from "../utils/whatsapp"
+import { balanceForCustomer, fillTemplate, normalizePhone } from "../utils/whatsapp"
 import { parseDesigns, renderDesignHTML, renderDesignToPdfBlob, printHTML, type PaperSize, type PrintInvoice } from "../print/invoiceDesign"
 import { downloadBlobUrl } from "../utils/download"
 import type { InvoiceItem, Product } from "../types/api"
@@ -61,7 +61,7 @@ function unitLabel(unit: string) {
 }
 
 const DEFAULT_INVOICE_TEMPLATE =
-  "مرحبا {{customerName}} تم اصدار فاتورة بيع رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير"
+  "مرحبا {{customerName}} تم اصدار {{invoiceTypeLabel}} رقم {{invoiceNumber}}\nبتاريخ {{date}}\nمبلغ الفاتورة {{total}} {{currency}}\nالمبلغ الواصل {{paid}} {{currency}}\nالمتبقي من الفاتورة {{remaining}} {{currency}}\nحسابك السابق قبل الفاتورة {{previousBalance}} {{currency}}\nالحساب النهائي {{finalBalance}} {{currency}}\nشكرا لتسوق من {{storeName}}\nنتمنى لك الرزق الوفير والكثير"
 
 interface EditItem {
   productId: string; productName: string
@@ -216,11 +216,17 @@ export function InvoiceDetailPage() {
       customerName: invoice.customer?.name ?? "",
       invoiceNumber: invoice.invoiceNumber,
       date: String(invoice.date).slice(0, 10),
+      invoiceTypeLabel:
+        invoice.type === "PURCHASE" ? "فاتورة شراء"
+        : invoice.type === "SALES_RETURN" ? "فاتورة مرتجع مبيعات"
+        : "فاتورة بيع",
       total: money(invoice.totalAmount),
       paid: money(invoice.paidAmount),
       remaining: money(invoice.remainingAmount),
-      previousBalance: money(invoice.previousBalance ?? 0),
-      finalBalance: money(invoice.finalBalance),
+      // Balances carry a direction word so a supplier or a customer in
+      // credit does not receive a bare negative number.
+      previousBalance: balanceForCustomer(invoice.previousBalance ?? 0),
+      finalBalance: balanceForCustomer(invoice.finalBalance),
       currency: settings?.currency ?? "د.ع",
       storeName: settings?.storeName ?? "مهدي عوض",
     })

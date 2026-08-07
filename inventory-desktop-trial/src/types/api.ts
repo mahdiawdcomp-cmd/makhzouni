@@ -758,6 +758,13 @@ export interface Quotation {
 }
 
 export interface Voucher {
+  // Customer balance immediately before/after this voucher, frozen at
+  // creation (mirrors Invoice.previousBalance/finalBalance). null on
+  // vouchers created before the snapshot existed — callers must NOT
+  // reconstruct it from the live balance, which is only correct while the
+  // voucher is still the customer's most recent transaction.
+  previousBalance?: number | null
+  finalBalance?: number | null
   id: string
   voucherNumber: string
   customerId?: string | null

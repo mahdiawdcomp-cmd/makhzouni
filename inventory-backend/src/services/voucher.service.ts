@@ -1,7 +1,7 @@
 import { InvoiceStatus, InvoiceType, Prisma, VoucherType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { calculateCustomerBalance } from "../utils/financial";
+import { calculateCustomerBalance, roundMoney } from "../utils/financial";
 import { assistantTimezone, zonedDayRange } from "./daily-assistant.service";
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -49,6 +49,11 @@ function serializeVoucher(voucher: any) {
   return {
     ...voucher,
     amount: toNumber(voucher.amount),
+    // Decimal -> number, but keep NULL as null: the clients use "snapshot
+    // missing" to decide NOT to print a balance line rather than printing a
+    // reconstructed (and therefore possibly wrong) one.
+    previousBalance: voucher.previousBalance == null ? null : toNumber(voucher.previousBalance),
+    finalBalance: voucher.finalBalance == null ? null : toNumber(voucher.finalBalance),
   };
 }
 
@@ -273,6 +278,16 @@ async function createVoucherInTransaction(
     throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
   }
 
+  // Freeze the customer's balance around this voucher, exactly as invoices do.
+  // The customer row is already locked above and the voucher does not exist
+  // yet, so currentBalance IS the pre-voucher balance. Sign convention (see
+  // calculateCustomerBalance): a RECEIPT reduces what the customer owes, a
+  // PAYMENT increases it.
+  const previousBalance = toNumber(customer.currentBalance);
+  const finalBalance = roundMoney(
+    previousBalance + (input.type === VoucherType.RECEIPT ? -input.amount : input.amount)
+  );
+
   const voucher = await tx.paymentVoucher.create({
     data: {
       voucherNumber,
@@ -284,6 +299,8 @@ async function createVoucherInTransaction(
       date,
       notes: input.notes,
       description: input.description,
+      previousBalance,
+      finalBalance,
       createdBy,
     },
     include: {
@@ -337,7 +354,16 @@ async function updateVoucherInTransaction(
   const newCustomerId = input.customerId ?? oldCustomerId;
 
   const data: Prisma.PaymentVoucherUpdateInput = {};
-  if (input.amount !== undefined) data.amount = input.amount;
+  if (input.amount !== undefined) {
+    data.amount = input.amount;
+    // previousBalance is history and never moves; the AFTER figure does.
+    if (existing.previousBalance !== null) {
+      const before = toNumber(existing.previousBalance);
+      data.finalBalance = roundMoney(
+        before + (existing.type === VoucherType.RECEIPT ? -input.amount : input.amount)
+      );
+    }
+  }
   if (input.date !== undefined) data.date = new Date(input.date);
   if (input.notes !== undefined) data.notes = input.notes;
   if (input.description !== undefined) data.description = input.description;
