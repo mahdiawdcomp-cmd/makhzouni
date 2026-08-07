@@ -597,6 +597,13 @@ export const lastSoldPriceSchema = z.object({
   }),
 });
 
+export const customerProductHistorySchema = z.object({
+  query: z.object({
+    customerId: z.string().uuid(),
+    productId: z.string().uuid(),
+  }),
+});
+
 export const lastSoldPriceOverallSchema = z.object({
   query: z.object({
     productId: z.string().uuid(),

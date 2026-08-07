@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Receipt, RotateCcw, Trash2, X } from "lucide-react"
-import { getInvoices, getLastSoldPrice } from "../api/endpoints"
+import { getCustomerProductHistory, getInvoices } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
 import { useProducts } from "../hooks/useProducts"
 import { useCreateInvoice, useInvoice } from "../hooks/useInvoices"
@@ -12,6 +12,8 @@ import { Input } from "../components/ui/input"
 import { NumericInput } from "../components/ui/NumericInput"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { apiErrorMessage } from "../utils/apiError"
+import { formatDate } from "../utils/date"
+import { fmt } from "../utils/fmt"
 import { sortCustomersByRelevance, sortProductsByRelevance } from "../utils/search"
 import { UNIT_LABELS, unitToPieces, visibleUnits, type InvoiceUnit } from "../utils/units"
 import type { Customer, Product } from "../types/api"
@@ -20,10 +22,6 @@ const ALL_UNITS: InvoiceUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
 
 function isInvoiceUnit(value: string): value is InvoiceUnit {
   return (ALL_UNITS as string[]).includes(value)
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("ar-IQ").format(Math.round(value))
 }
 
 function placeholderProduct(productId: string, name: string, itemNumber: string, salePrice: number): Product {
@@ -124,18 +122,33 @@ export function SalesReturnsPage() {
 
   async function addProductLine(product: Product) {
     const id = crypto.randomUUID()
-    setLines((prev) => [...prev, { id, product, unit: "PIECE", quantity: 1, unitPrice: product.salePrice }])
+    setLines((prev) => [...prev, { id, product, unit: "PIECE", quantity: 1, unitPrice: product.salePrice, sourceNote: selectedCustomer ? "جاري التحقق من سجل الشراء..." : undefined }])
     setProductQuery("")
     setProductListOpen(false)
     if (!selectedCustomer) return
     try {
-      const result = await getLastSoldPrice(selectedCustomer.id, product.id)
-      if (!result) return
-      const soldUnit = isInvoiceUnit(result.unit) ? result.unit : "PIECE"
+      const history = await getCustomerProductHistory(selectedCustomer.id, product.id)
+      if (!history || history.timesSold === 0) {
+        setLines((prev) => prev.map((l) => l.id === id ? { ...l, sourceNote: "⚠ لم يشترِ هذا الزبون هذه المادة من قبل" } : l))
+        return
+      }
+      const last = history.last
+      const soldUnit = last && isInvoiceUnit(last.unit) ? last.unit : "PIECE"
+      const note = last
+        ? `بيعت ${fmt(history.timesSold)}× لهذا الزبون · آخر سعر ${fmt(last.unitPrice)}/${UNIT_LABELS[soldUnit]} · إجمالي الكمية ${fmt(history.totalQuantityPieces)} قطعة`
+        : `بيعت ${fmt(history.timesSold)}× لهذا الزبون`
       setLines((prev) => prev.map((l) => l.id === id
-        ? { ...l, unit: soldUnit, unitPrice: result.unitPrice, warehouseId: result.warehouseId ?? undefined, sourceNote: `آخر بيع: ${result.invoiceNumber}` }
+        ? {
+            ...l,
+            unit: soldUnit,
+            unitPrice: last ? last.unitPrice : l.unitPrice,
+            warehouseId: last?.warehouseId ?? undefined,
+            sourceNote: note,
+          }
         : l))
-    } catch { /* keep the manual defaults already set */ }
+    } catch {
+      setLines((prev) => prev.map((l) => l.id === id ? { ...l, sourceNote: undefined } : l))
+    }
   }
 
   function updateLine(id: string, patch: Partial<ReturnLine>) {
@@ -262,7 +275,7 @@ export function SalesReturnsPage() {
                         onClick={() => setOriginalInvoiceId(inv.id)}
                       >
                         <span className="flex items-center gap-1.5"><Receipt className="h-3.5 w-3.5 text-slate-400" /> #{inv.invoiceNumber}</span>
-                        <span className="text-slate-400">{new Date(inv.date).toLocaleDateString("ar-IQ")} · {money(inv.totalAmount)}</span>
+                        <span className="text-slate-400">{formatDate(inv.date)} · {fmt(inv.totalAmount)}</span>
                       </button>
                     ))}
                   </div>
@@ -271,7 +284,7 @@ export function SalesReturnsPage() {
                 <div className="mt-1 flex flex-wrap items-center justify-between gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 dark:border-sky-800 dark:bg-sky-950/30">
                   <span className="text-sm font-medium text-sky-800 dark:text-sky-300">
                     <Receipt className="inline h-3.5 w-3.5 ml-1" />
-                    #{originalInvoiceDetail.data?.invoiceNumber} — {money(originalInvoiceDetail.data?.totalAmount ?? 0)}
+                    #{originalInvoiceDetail.data?.invoiceNumber} — {fmt(originalInvoiceDetail.data?.totalAmount ?? 0)}
                   </span>
                   <Button size="sm" variant="outline" className="h-7 text-xs" disabled={!originalInvoiceDetail.data?.items?.length} onClick={importAllFromOriginal}>
                     <Plus className="h-3.5 w-3.5" /> استيراد كل الأصناف
@@ -395,7 +408,7 @@ export function SalesReturnsPage() {
                             onValueChange={(n) => updateLine(line.id, { unitPrice: n })}
                           />
                         </TD>
-                        <TD className="font-semibold">{money(line.quantity * line.unitPrice)}</TD>
+                        <TD className="font-semibold">{fmt(line.quantity * line.unitPrice)}</TD>
                         <TD>
                           <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)}>
                             <Trash2 className="h-4 w-4 text-rose-500" />
@@ -417,7 +430,7 @@ export function SalesReturnsPage() {
           <Input className="h-9" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات المرتجع (اختياري)" />
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">إجمالي المرتجع</span>
-            <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{money(total)}</span>
+            <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{fmt(total)}</span>
           </div>
           <Button disabled={!canSave || createMutation.isPending} onClick={save}>
             <RotateCcw className="h-4 w-4" /> {createMutation.isPending ? "..." : "حفظ مرتجع المبيعات"}

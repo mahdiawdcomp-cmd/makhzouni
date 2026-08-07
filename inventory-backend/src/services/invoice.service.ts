@@ -1667,6 +1667,40 @@ export async function createInvoice(
   return result;
 }
 
+// Purchase-history summary for one customer + product — how many times it was
+// sold to them, total quantity, and the last sale — so the sales-return
+// screen can show "sold 3 times to this customer" (or "never bought before")
+// the moment a product is added to a return.
+export async function getCustomerProductHistory(customerId: string, productId: string) {
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      productId,
+      invoice: { customerId, type: InvoiceType.SALE, status: InvoiceStatus.ACTIVE },
+    },
+    select: { quantity: true, unit: true },
+  });
+
+  if (items.length === 0) {
+    return { timesSold: 0, totalQuantityPieces: 0, last: null };
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { pcsPerCarton: true, boxPieces: true },
+  });
+
+  const totalQuantityPieces = items.reduce(
+    (sum, item) => sum + unitToPieces(item.unit, item.quantity, product?.pcsPerCarton ?? 1, product?.boxPieces ?? null),
+    0
+  );
+
+  return {
+    timesSold: items.length,
+    totalQuantityPieces,
+    last: await getLastSoldPrice(customerId, productId),
+  };
+}
+
 export async function getLastSoldPrice(customerId: string, productId: string) {
   const invoice = await prisma.invoice.findFirst({
     where: {

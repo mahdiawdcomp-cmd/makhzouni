@@ -1040,6 +1040,23 @@ export async function getLastSoldPriceOverall(productId: string) {
   return data.data ?? null
 }
 
+export interface CustomerProductHistory {
+  timesSold: number
+  totalQuantityPieces: number
+  last: LastSoldPrice | null
+}
+
+// Purchase-history summary for one customer + product — "sold N times to this
+// customer, last at price X" (or "never bought before") — used by the
+// sales-return screen the moment a product is added to a return line.
+export async function getCustomerProductHistory(customerId: string, productId: string) {
+  const { data } = await api.get<ApiEnvelope<CustomerProductHistory>>(
+    "/invoices/customer-product-history",
+    { params: { customerId, productId } },
+  )
+  return data.data
+}
+
 export async function getInvoice(id: string) {
   const { data } = await api.get<ApiEnvelope<Invoice>>(`/invoices/${id}`)
   return data.data
