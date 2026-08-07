@@ -52,6 +52,7 @@ import { validate } from "../middleware/validate";
 import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
 import prisma from "../config/database";
 import { asyncHandler } from "../utils/async-handler";
+import { totalStock } from "../utils/product-stock";
 import {
   catalogAccessQuerySchema,
   catalogAccessRequestSchema,
@@ -279,6 +280,7 @@ router.get("/display-products", catalogLimiter, asyncHandler(async (_req, res) =
       openingBalancePcs: true,
       cartonsAvailable: true,
       pcsPerCarton: true,
+      warehouseStocks: { select: { quantityPieces: true } },
     },
     orderBy: { name: "asc" },
     take: 200,
@@ -296,12 +298,12 @@ router.get("/display-products", catalogLimiter, asyncHandler(async (_req, res) =
       storeName: kv.storeName ?? "مخزوني",
       storeLogo: kv.storeLogo ?? "",
       currency: kv.currency ?? "IQD",
-      products: products.map((p) => ({
+      products: products.map(({ warehouseStocks, ...p }) => ({
         ...p,
         salePrice: Number(p.salePrice),
         retailPrice: Number(p.retailPrice ?? 0),
         imageUrl: p.imageUrl ?? null,
-        currentStock: p.openingBalancePcs + p.cartonsAvailable * p.pcsPerCarton,
+        currentStock: totalStock({ ...p, warehouseStocks }),
       })),
     },
   });

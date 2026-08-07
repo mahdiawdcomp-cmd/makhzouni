@@ -537,9 +537,10 @@ export async function approveStocktakeItem(
 
     // Refresh the denormalized legacy stock fields (openingBalancePcs /
     // cartonsAvailable) from the canonical warehouse table, exactly like every
-    // other stock-mutating path (invoice/transfer/loss) does. Without this the
-    // inventory-valuation report and dashboard low-stock counts — which still
-    // read the legacy fields via currentStock() — go stale after an approval.
+    // other stock-mutating path (invoice/transfer/loss) does. totalStock() falls
+    // back to these legacy fields for a product with zero warehouse-stock rows,
+    // so the inventory-valuation report and dashboard low-stock counts would
+    // still go stale after an approval without this.
     if (delta !== 0) await syncProductTotalStock(tx, item.productId);
 
     // Give the correction a financial trace: wrap the variance in a StockLoss

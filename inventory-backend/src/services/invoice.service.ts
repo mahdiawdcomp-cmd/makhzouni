@@ -148,37 +148,6 @@ function isStockInflow(type: InvoiceType) {
   return type === InvoiceType.PURCHASE || type === InvoiceType.SALES_RETURN;
 }
 
-function productStock(product: {
-  openingBalancePcs: number;
-  cartonsAvailable: number;
-  pcsPerCarton: number;
-}) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
-}
-
-function normalizeStock(balanceInPieces: number, pcsPerCarton: number) {
-  if (balanceInPieces < 0) {
-    return { openingBalancePcs: balanceInPieces, cartonsAvailable: 0 };
-  }
-
-  if (pcsPerCarton <= 0) {
-    return { openingBalancePcs: balanceInPieces, cartonsAvailable: 0 };
-  }
-
-  const cartonsAvailable = Math.floor(balanceInPieces / pcsPerCarton);
-  return {
-    openingBalancePcs: balanceInPieces - cartonsAvailable * pcsPerCarton,
-    cartonsAvailable,
-  };
-}
-
-function openingBalanceForStock(
-  desiredStock: number,
-  product: { cartonsAvailable: number; pcsPerCarton: number }
-) {
-  return desiredStock - product.cartonsAvailable * product.pcsPerCarton;
-}
-
 async function couponDiscount(
   tx: Db,
   code: string | undefined,

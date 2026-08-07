@@ -11,14 +11,14 @@
 //
 // All money/cost/unit math REUSES the exact helpers the profit & valuation
 // reports use (itemCostPrice, invoiceRevenueRatio, accountingUnitCost,
-// currentStock, amountInPieces) so numbers can never diverge from the Profit tab.
+// totalStock, amountInPieces) so numbers can never diverge from the Profit tab.
 
 import { InvoiceStatus, InvoiceType, Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { amountInPieces, roundMoney } from "../utils/financial";
+import { totalStock } from "../utils/product-stock";
 import {
   accountingUnitCost,
-  currentStock,
   invoiceRevenueRatio,
   itemCostPrice,
   getTopCustomersReport,
@@ -506,6 +506,7 @@ async function computeSleeping(now: Date): Promise<SleepingProduct[]> {
         id: true, name: true, itemNumber: true, thumbnailUrl: true,
         openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true,
         costPrice: true, purchasePrice: true, createdAt: true,
+        warehouseStocks: { select: { quantityPieces: true } },
       },
     }),
     lastSaleDateByProduct(),
@@ -513,7 +514,7 @@ async function computeSleeping(now: Date): Promise<SleepingProduct[]> {
 
   const out: SleepingProduct[] = [];
   for (const p of products) {
-    const stock = currentStock(p);
+    const stock = totalStock(p);
     if (stock <= 0) continue;
     if (!isProductOldEnoughToSleep(p.createdAt, ageCutoff)) continue; // defensive
     const lastSale = lastSaleMap.get(p.id) ?? null;
@@ -567,6 +568,7 @@ async function computeReorder(todayLocalStart: Date) {
       select: {
         id: true, name: true, itemNumber: true,
         openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true,
+        warehouseStocks: { select: { quantityPieces: true } },
       },
     }),
   ]);
@@ -575,7 +577,7 @@ async function computeReorder(todayLocalStart: Date) {
     reorderForProduct({
       productId: p.id, name: p.name, itemNumber: p.itemNumber,
       netSoldPieces: netMap.get(p.id) ?? 0,
-      stock: currentStock(p), minStock: p.minStock, pcsPerCarton: p.pcsPerCarton,
+      stock: totalStock(p), minStock: p.minStock, pcsPerCarton: p.pcsPerCarton,
     }),
   ).filter(Boolean) as Array<NonNullable<ReturnType<typeof reorderForProduct>>>;
 

@@ -9,6 +9,7 @@ import { createInvoice } from "../services/invoice.service";
 import { createVoucher } from "../services/voucher.service";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { totalStock } from "../utils/product-stock";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -149,14 +150,6 @@ function parseArgs(raw: string | undefined): JsonRecord {
   }
 }
 
-function currentStock(product: {
-  openingBalancePcs: number;
-  cartonsAvailable: number;
-  pcsPerCarton: number;
-}) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
-}
-
 function normalizeArabic(value: string) {
   return value
     .toLowerCase()
@@ -236,6 +229,7 @@ async function findProductByName(productName: string) {
       deletedAt: null,
       name: { contains: productName, mode: "insensitive" },
     },
+    include: { warehouseStocks: { select: { quantityPieces: true } } },
     orderBy: { name: "asc" },
   });
   if (!product) throw new AppError(`ما لقيت مادة باسم ${productName}`, 404, "PRODUCT_NOT_FOUND");
@@ -282,12 +276,13 @@ async function runTool(name: string, args: JsonRecord, userId: string) {
   if (name === "get_low_stock") {
     const products = await prisma.product.findMany({
       where: { deletedAt: null, minStock: { gt: 0 } },
+      include: { warehouseStocks: { select: { quantityPieces: true } } },
       orderBy: { name: "asc" },
     });
     return products
       .map((product) => ({
         name: product.name,
-        currentStock: currentStock(product),
+        currentStock: totalStock(product),
         minStock: product.minStock,
       }))
       .filter((product) => product.currentStock <= product.minStock)
@@ -299,7 +294,7 @@ async function runTool(name: string, args: JsonRecord, userId: string) {
     return {
       name: product.name,
       salePrice: toNumber(product.salePrice),
-      currentStock: currentStock(product),
+      currentStock: totalStock(product),
     };
   }
 

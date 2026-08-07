@@ -2,6 +2,7 @@ import { InvoiceStatus, InvoiceType, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { amountInPieces, roundMoney } from "../utils/financial";
+import { totalStock } from "../utils/product-stock";
 import { assistantTimezone, dayKeyInTz, zonedDayRange } from "./daily-assistant.service";
 
 type DecimalLike = Prisma.Decimal | number | string | null | undefined;
@@ -97,14 +98,6 @@ function labelFor(date: Date, groupBy: "day" | "week" | "month") {
   }
 
   return `${year}-${month}-${day}`;
-}
-
-export function currentStock(product: {
-  openingBalancePcs: number;
-  cartonsAvailable: number;
-  pcsPerCarton: number;
-}) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
 }
 
 export function invoiceRevenueRatio(invoice: {
@@ -219,10 +212,13 @@ export async function getDashboardReport() {
     }),
     prisma.product.findMany({
       where: { deletedAt: null },
-      // Only used for the low-stock count (currentStock() below) — a full
+      // Only used for the low-stock count (totalStock() below) — a full
       // row pulls every product's base64 imageUrl/thumbnailUrl on every
       // dashboard load, which is the single most-hit endpoint in the app.
-      select: { openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true },
+      select: {
+        openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true,
+        warehouseStocks: { select: { quantityPieces: true } },
+      },
     }),
     prisma.invoiceItem.findMany({
       where: {
@@ -275,7 +271,7 @@ export async function getDashboardReport() {
   ]);
 
   const lowStockCount = lowStockProducts.filter(
-    (product) => currentStock(product) <= product.minStock
+    (product) => totalStock(product) <= product.minStock
   ).length;
 
   const salesMap = new Map<string, number>();
@@ -558,12 +554,13 @@ export async function getInventoryValuationReport() {
       purchasePrice: true,
       costPrice: true,
       salePrice: true,
+      warehouseStocks: { select: { quantityPieces: true } },
     },
     orderBy: { itemNumber: "asc" },
   });
 
   const rows = products.map((product) => {
-    const quantity = currentStock(product);
+    const quantity = totalStock(product);
     // Inventory is valued at the accounting cost: costPrice first, falling back
     // to purchasePrice when no cost is set. Same rule as branch.service.ts so
     // both stock-valuation views agree. purchasePrice now means "last purchase
@@ -850,7 +847,10 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
       where: { deletedAt: null },
       // Only used for the low-stock count/names below — same rationale as
       // getDashboardReport's identical query above.
-      select: { name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true },
+      select: {
+        name: true, openingBalancePcs: true, cartonsAvailable: true, pcsPerCarton: true, minStock: true,
+        warehouseStocks: { select: { quantityPieces: true } },
+      },
     }),
     prisma.invoiceItem.findMany({
       where: {
@@ -921,7 +921,7 @@ export async function getDailySummaryData(): Promise<DailySummaryData> {
     // No `>= 0` floor: an oversold product at −12 pieces is the most urgent
     // restock in the shop. Excluding it made the 9 PM WhatsApp summary report a
     // smaller count than the dashboard card, which uses this same predicate.
-    (p) => currentStock(p) <= p.minStock
+    (p) => totalStock(p) <= p.minStock
   );
   const lowStockNames = lowStockItems.slice(0, 3).map((p) => p.name);
 
