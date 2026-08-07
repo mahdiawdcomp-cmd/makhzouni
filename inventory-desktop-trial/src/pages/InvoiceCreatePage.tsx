@@ -2208,8 +2208,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             {" "}الأصناف
           </span>
         </div>
-        {/* Rows size per the density picker in the sticky bar above — "compact" by default */}
-        <div className={cn("overflow-x-auto px-1 py-1", dz.td, dz.text)}>
+        {/* Rows size per the density picker in the sticky bar above — "compact" by default.
+            `invoice-rows` reserves scroll space for the two sticky bars — see the
+            rule in index.css. Adding a line focuses its quantity input, and the
+            browser scrolls it only just inside the scrollport, which put the new
+            row UNDERNEATH the sticky save bar. */}
+        <div className={cn("invoice-rows overflow-x-auto px-1 py-1", dz.td, dz.text)}>
             <Table>
               <THead>
                 <TR>

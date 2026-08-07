@@ -172,6 +172,8 @@ export interface Product {
   branch?: Branch | null
   currentStock?: number
   shopStock?: number
+  /** Which WarehouseStock row is المحل — lets clients identify it without guessing by name. */
+  shopWarehouseId?: string
   warehouseStocks?: WarehouseStock[]
   lastMovementAt?: string | null
   createdAt?: string

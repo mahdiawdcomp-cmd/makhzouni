@@ -399,3 +399,19 @@ input:focus, select:focus, textarea:focus {
   .rounded-xl, .rounded-lg { border-radius: 0 !important; box-shadow: none !important; }
   [style*="border-top"] { border-top-width: 6px !important; }
 }
+
+/* ── Invoice line rows: keep a newly added row clear of the sticky bars ──────
+   The invoice page pins a customer bar to the top and a save bar to the bottom
+   of the scroll container. When a line is added, its quantity input is focused
+   and the browser scrolls it just barely into view — it has no idea the sticky
+   bars overlay that same area, so the new row landed hidden beneath the save
+   bar ("the items get written underneath").
+
+   scroll-margin is the CSS primitive for exactly this: it tells the browser to
+   leave that much space around the element when scrolling it into view. The
+   bottom value is generous because the save bar wraps to two or three lines on
+   a narrow screen. */
+.invoice-rows :is(input, select, textarea, button) {
+  scroll-margin-block-end: 9rem;
+  scroll-margin-block-start: 4.5rem;
+}

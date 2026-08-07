@@ -68,10 +68,13 @@ export function serializeProduct<T extends {
   hidePurchasePrice = false,
   hideAllPrices = false
 ) {
-  const warehouseTotal = product.warehouseStocks?.reduce(
-    (sum, stock) => sum + stock.quantityPieces,
-    0
-  );
+  // `.reduce` on a present-but-EMPTY warehouseStocks array returns 0, which is
+  // NOT nullish — `?? stockFrom(product)` would never fire for such a product
+  // and it'd wrongly show currentStock 0 instead of falling back to the legacy
+  // total. Check length explicitly, matching utils/product-stock.ts's totalStock().
+  const warehouseTotal = product.warehouseStocks?.length
+    ? product.warehouseStocks.reduce((sum, stock) => sum + stock.quantityPieces, 0)
+    : undefined;
   // shopStock = pieces in المحل (the default sale warehouse). Sales come out of
   // here only, so the UI must show this rather than the all-warehouse total.
   const shopStock = shopWarehouseId
@@ -81,6 +84,10 @@ export function serializeProduct<T extends {
     ...product,
     currentStock: warehouseTotal ?? stockFrom(product),
     ...(shopStock === undefined ? {} : { shopStock }),
+    // Lets clients identify which WarehouseStock row is المحل without having to
+    // guess by name — the frontend previously did `.includes("محل")` in several
+    // places, which breaks for any tenant whose shop isn't literally named that.
+    ...(shopWarehouseId ? { shopWarehouseId } : {}),
   };
   // VIEW_WITHOUT_PRICES (warehouse-worker mode) is stronger than the purchase-
   // price rule below: NO money fields at all leave the server, so nothing can
@@ -293,7 +300,11 @@ export async function getProductByQrCode(qrCode: string, db: Db = prisma, hidePu
   const scannedUnit: "CARTON" | "PIECE" =
     product.cartonQrCode && product.cartonQrCode === code ? "CARTON" : "PIECE";
 
-  return { ...serializeProduct(product, undefined, hidePurchasePrice, hideAllPrices), scannedUnit };
+  // Was `undefined` — a scanned product never got shopStock/shopWarehouseId,
+  // so the invoice line it lands on couldn't tell the shop apart from a depot
+  // the same way products loaded via the list/detail endpoints could.
+  const shopWarehouseId = await resolveShopWarehouseId(db).catch(() => null);
+  return { ...serializeProduct(product, shopWarehouseId, hidePurchasePrice, hideAllPrices), scannedUnit };
 }
 
 /* ─── Manual stock adjustment (تعديل الكمية يدوياً) ───────────────────── */
