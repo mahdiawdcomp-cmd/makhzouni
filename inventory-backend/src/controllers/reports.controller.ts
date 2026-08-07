@@ -170,9 +170,9 @@ export const crossSellReport = asyncHandler(async (req, res) => {
 // GET /api/reports/customers/statements-export — paginated bulk statement export
 // (used by the "حفظ الكشف العام" master statement HTML download).
 export const customerStatementsExportReport = asyncHandler(async (req, res) => {
-  const { page, limit } = req.validatedQuery as Parameters<typeof getAllCustomerStatements>[0];
-  const { data, total, pages } = await getAllCustomerStatements({ page, limit });
-  res.json({ success: true, data, pagination: { total, page, limit, pages } });
+  const params = req.validatedQuery as Parameters<typeof getAllCustomerStatements>[0];
+  const { data, total, pages } = await getAllCustomerStatements(params);
+  res.json({ success: true, data, pagination: { total, page: params.page, limit: params.limit, pages } });
 });
 
 // POST /api/reports/debt-reminder/send  — send WhatsApp to selected customers

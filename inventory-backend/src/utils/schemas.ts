@@ -845,6 +845,14 @@ export const customerStatementsExportSchema = z.object({
   query: z.object({
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(25),
+    customerFilter: z.enum(["all", "withBalance", "inactive"]).optional(),
+    inactiveDays: z.coerce.number().int().min(1).max(3650).optional(),
+    from: dateString.optional(),
+    to: dateString.optional(),
+    all: z
+      .enum(["true", "false"])
+      .optional()
+      .transform((value) => value === "true"),
   }),
 });
 

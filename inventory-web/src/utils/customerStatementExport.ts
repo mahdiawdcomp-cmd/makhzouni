@@ -32,7 +32,14 @@ export function translateRow(row: CustomerTransaction): string {
 }
 
 // Merge INVOICE + INVOICE_PAYMENT rows for the same invoice into one row.
-// The merged row shows: debit = invoice total, credit = amount paid on that invoice,
+// A SALE invoice paid upfront carries its payment as a CREDIT (reduces what
+// the customer owes); a PURCHASE invoice paid upfront carries it as a DEBIT
+// (reduces what we owe the supplier) — only one side is ever non-zero on the
+// payment row, so fold whichever side it is instead of assuming credit.
+// (Bug fixed 2026-08-07: the old code only ever copied `payment.credit`, so a
+// paid PURCHASE invoice's payment silently disappeared from the statement —
+// the row was always dropped by the filter below, but never folded back in
+// because its amount lived in `debit`, not `credit`.)
 // runningBalance = balance after both (i.e. from the INVOICE_PAYMENT row).
 export function mergeStatementRows(rows: CustomerTransaction[]): CustomerTransaction[] {
   const payments = new Map<string, CustomerTransaction>()
@@ -44,8 +51,16 @@ export function mergeStatementRows(rows: CustomerTransaction[]): CustomerTransac
     .map((row) => {
       if (row.type !== "INVOICE") return row
       const payment = payments.get(row.id)
-      if (!payment || !Number(payment.credit)) return row
-      return { ...row, credit: payment.credit, runningBalance: payment.runningBalance }
+      if (!payment) return row
+      const paymentCredit = Number(payment.credit) || 0
+      const paymentDebit = Number(payment.debit) || 0
+      if (!paymentCredit && !paymentDebit) return row
+      return {
+        ...row,
+        credit: (Number(row.credit) || 0) + paymentCredit,
+        debit: (Number(row.debit) || 0) + paymentDebit,
+        runningBalance: payment.runningBalance,
+      }
     })
 }
 
@@ -101,8 +116,17 @@ export function transactionTone(row: CustomerTransaction) {
 
 // ---- "حفظ الكشف العام" — master statement HTML export ----
 
+export interface StatementExportFilter {
+  customerFilter?: "all" | "withBalance" | "inactive"
+  inactiveDays?: number
+  from?: string
+  to?: string
+  all?: boolean
+}
+
 /** Fetches every page of the bulk statement export, reporting progress as pages land. */
 export async function fetchAllCustomerStatements(
+  filter: StatementExportFilter,
   onProgress?: (done: number, total: number) => void,
 ): Promise<CustomerStatementsExportEntry[]> {
   const limit = 50
@@ -110,7 +134,7 @@ export async function fetchAllCustomerStatements(
   let pages = 1
   const all: CustomerStatementsExportEntry[] = []
   do {
-    const { entries, pagination } = await getCustomerStatementsExport({ page, limit })
+    const { entries, pagination } = await getCustomerStatementsExport({ page, limit, ...filter })
     all.push(...entries)
     pages = pagination?.pages ?? 1
     onProgress?.(all.length, pagination?.total ?? all.length)
@@ -216,7 +240,7 @@ export function buildStatementsHtmlReport(
 </head>
 <body>
   <div class="report-header">
-    ${store.storeLogo ? `<img src="${store.storeLogo}" alt="logo" />` : ""}
+    ${store.storeLogo ? `<img src="${escapeHtml(store.storeLogo)}" alt="logo" />` : ""}
     <div>
       <h1>${escapeHtml(store.storeName || "الكشف العام")}</h1>
       <div class="meta">الكشف العام لكل الزبائن — تاريخ التوليد: ${formatDateTime(generatedAt.toISOString())}</div>

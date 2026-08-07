@@ -705,14 +705,44 @@ export async function getCustomerTransactions(id: string, filter: TransactionFil
   return buildCustomerStatement(customer, invoices, vouchers, auditLogs, filter);
 }
 
-export async function getAllCustomerStatements(params: { page: number; limit: number }) {
+export interface CustomerStatementsExportParams {
+  page: number;
+  limit: number;
+  // "all" (default) — every customer, including ones with no activity yet.
+  // "withBalance" — only customers whose current balance isn't zero, even if
+  //   they have no invoice/voucher rows at all (e.g. an opening-balance-only
+  //   customer) — this must NOT depend on activity existing.
+  // "inactive" — no transaction in the last `inactiveDays` days (or never).
+  customerFilter?: "all" | "withBalance" | "inactive";
+  inactiveDays?: number;
+  from?: string;
+  to?: string;
+  all?: boolean;
+}
+
+export async function getAllCustomerStatements(params: CustomerStatementsExportParams) {
   const page = Math.max(1, params.page || 1);
   const limit = Math.max(1, Math.min(params.limit || 25, 100));
-
-  const where: Prisma.CustomerWhereInput = {
-    deletedAt: null,
-    OR: [{ invoices: { some: { archivedAt: null } } }, { paymentVouchers: { some: { archivedAt: null } } }],
+  // `all` defaults true when the caller sends no date bounds at all (mirrors
+  // customerTransactionsSchema's `all` transform, which always yields `false`
+  // rather than `undefined` for an absent query param — so this can't rely on
+  // `params.all` alone to mean "no dates were requested").
+  const filter: TransactionFilter = {
+    from: params.from,
+    to: params.to,
+    all: params.all || (!params.from && !params.to),
   };
+
+  let where: Prisma.CustomerWhereInput = { deletedAt: null };
+  if (params.customerFilter === "withBalance") {
+    where = { ...where, currentBalance: { not: 0 } };
+  } else if (params.customerFilter === "inactive") {
+    const cutoff = new Date(Date.now() - Math.max(0, params.inactiveDays ?? 30) * 24 * 60 * 60 * 1000);
+    where = { ...where, OR: [{ lastTransactionAt: null }, { lastTransactionAt: { lt: cutoff } }] };
+  }
+  // "all" (or unspecified): no activity/balance requirement at all — a
+  // customer with neither transactions nor a balance still appears, with an
+  // empty transaction list, matching "save every customer" literally.
 
   const [total, customers] = await Promise.all([
     prisma.customer.count({ where }),
@@ -726,17 +756,17 @@ export async function getAllCustomerStatements(params: { page: number; limit: nu
   ]);
 
   const customerIds = customers.map((c) => c.id);
-  const noFilter: TransactionFilter = { all: true };
+  const upperDateFilter = buildTransactionUpperDateFilter(filter);
 
   const [invoices, vouchers] = customerIds.length
     ? await Promise.all([
         prisma.invoice.findMany({
-          where: { customerId: { in: customerIds }, archivedAt: null },
+          where: { customerId: { in: customerIds }, archivedAt: null, ...(upperDateFilter ? { date: upperDateFilter } : {}) },
           include: customerStatementInvoiceInclude,
           orderBy: { date: "asc" },
         }),
         prisma.paymentVoucher.findMany({
-          where: { customerId: { in: customerIds }, archivedAt: null },
+          where: { customerId: { in: customerIds }, archivedAt: null, ...(upperDateFilter ? { date: upperDateFilter } : {}) },
           include: customerStatementVoucherInclude,
           orderBy: { date: "asc" },
         }),
@@ -785,7 +815,7 @@ export async function getAllCustomerStatements(params: { page: number; limit: nu
       ...customerVouchers.map((voucher) => voucher.id),
     ];
     const customerAuditLogs = customerRecordIds.flatMap((id) => auditLogsByRecord.get(id) ?? []);
-    const statement = buildCustomerStatement(customer, customerInvoices, customerVouchers, customerAuditLogs, noFilter);
+    const statement = buildCustomerStatement(customer, customerInvoices, customerVouchers, customerAuditLogs, filter);
     return {
       customer: { ...statement.customer, phone: customer.phone, currentBalance: toNumber(customer.currentBalance) },
       transactions: statement.transactions,

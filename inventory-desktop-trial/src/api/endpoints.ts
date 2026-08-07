@@ -681,9 +681,18 @@ export async function getCustomerTransactions(id: string, params?: { from?: stri
   return data.data?.transactions ?? []
 }
 
-// One page of the "حفظ الكشف العام" bulk export (customers who have at least
-// one transaction, each with their full merged statement + invoice line items).
-export async function getCustomerStatementsExport(params: { page: number; limit: number }) {
+// One page of the "حفظ الكشف العام" bulk export — every customer by default
+// (filterable to only-with-balance / inactive-for-N-days), each with their
+// full merged statement + invoice line items, optionally date-bounded.
+export async function getCustomerStatementsExport(params: {
+  page: number
+  limit: number
+  customerFilter?: "all" | "withBalance" | "inactive"
+  inactiveDays?: number
+  from?: string
+  to?: string
+  all?: boolean
+}) {
   const { data } = await api.get<PagedResponse<CustomerStatementsExportEntry>>("/reports/customers/statements-export", { params })
   return { entries: data.data ?? [], pagination: data.pagination }
 }
