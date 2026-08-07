@@ -18,7 +18,7 @@ import { useAuthStore } from "../store/authStore"
 import { useUiStore } from "../store/uiStore"
 import { useUnsavedWarning } from "../hooks/useUnsavedWarning"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
-import type { Customer, InvoiceItem, Product } from "../types/api"
+import type { Customer, InvoiceItem, Product, WarehouseStock } from "../types/api"
 import { Button } from "../components/ui/button"
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
@@ -94,13 +94,42 @@ function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
 }
 
+// The backend resolves which WarehouseStock row is المحل (settings-based, with a
+// name-match fallback only when unconfigured — see resolveShopWarehouseId) and
+// returns it as product.shopWarehouseId. Prefer that everywhere on this page
+// instead of independently re-guessing by name — a tenant whose shop isn't
+// literally named "محل" would otherwise get wrong answers here even though the
+// backend already knows the right warehouse.
+function shopWarehouseIdOf(product: Product): string | undefined {
+  return product.shopWarehouseId ?? product.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.warehouseId
+}
+
 // Pieces available in the exact warehouse the backend will deduct this sale line from
 // (the chosen warehouse, else المحل). Used to detect an out-of-stock sale.
 function effectiveAvailablePcs(item: DraftItem): number {
   const stocks = item.product.warehouseStocks ?? []
   if (!stocks.length) return stockOf(item.product)
   if (item.warehouseId) return stocks.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
-  return item.product.shopStock ?? stocks.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces ?? 0
+  const shopId = shopWarehouseIdOf(item.product)
+  return item.product.shopStock ?? stocks.find((ws) => ws.warehouseId === shopId)?.quantityPieces ?? 0
+}
+
+// Composite key so per-warehouse stock warnings don't collide across lines of the
+// same product that pull from different warehouses (see lowStockWarnings below).
+function lineStockKey(item: DraftItem): string {
+  return `${item.product.id}::${item.warehouseId ?? shopWarehouseIdOf(item.product) ?? "shop"}`
+}
+
+// Other warehouses (excluding المحل and whichever one this line already points at)
+// that hold spare stock — shared by the shortage-row prediction (which warehouses
+// can this line pull from) AND the actual split action, so the two can never
+// disagree the way two separately-duplicated "find other warehouses" computations
+// previously could.
+function otherWarehousesFor(item: DraftItem): WarehouseStock[] {
+  const shopId = shopWarehouseIdOf(item.product)
+  return (item.product.warehouseStocks ?? [])
+    .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopId && ws.warehouseId !== item.warehouseId)
+    .sort((a, b) => b.quantityPieces - a.quantityPieces)
 }
 
 // The walk-in (الزبون النقدي) customer carries a sentinel phone of all zeros.
@@ -753,29 +782,40 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // calculation is the only accurate "will go negative" signal available there.
   const { lowStockWarnings, negativeAfterByProduct } = useMemo(() => {
     if (isPurchase) return { lowStockWarnings: [] as string[], negativeAfterByProduct: new Map<string, number>() } // Purchase adds stock, can't go negative
-    // First pass: aggregate total piece-consumption per product across ALL rows
-    const consumed: Record<string, number> = {}
+    // Bucket consumption by (product, actual target warehouse) — a line explicitly
+    // pointed at a depot draws from THAT depot, not المحل. Lumping every line's
+    // quantity against shop-only stock (the old behavior) falsely warned "will go
+    // negative" for a line that had already been correctly split/redirected to a
+    // depot with plenty of stock.
+    const consumed = new Map<string, number>()
     for (const item of items) {
-      const pid = item.product.id
       const pcs = unitToPieces(item.unit, item.quantity, item.product)
-      consumed[pid] = (consumed[pid] ?? 0) + pcs
+      const key = lineStockKey(item)
+      consumed.set(key, (consumed.get(key) ?? 0) + pcs)
     }
-    // Second pass: warn once per product whose cumulative consumption exceeds available stock
+    // Second pass: warn once per (product, warehouse) whose cumulative consumption
+    // exceeds what that specific warehouse actually holds.
     const warnings: string[] = []
     const negativeAfterByProduct = new Map<string, number>()
     const warned = new Set<string>()
     for (const item of items) {
-      const pid = item.product.id
-      if (warned.has(pid)) continue
-      warned.add(pid)
-      // Sales come from المحل only — warn against المحل stock, not the total.
-      // (Edit mode: credit back what the original invoice already deducted.)
-      const available = (item.product.shopStock ?? stockOf(item.product)) + (originalInvoicePcs[pid] ?? 0)
-      const totalPcs = consumed[pid] ?? 0
+      const key = lineStockKey(item)
+      if (warned.has(key)) continue
+      warned.add(key)
+      const isShopLine = !item.warehouseId
+      const stocksList = item.product.warehouseStocks ?? []
+      const baseAvailable = isShopLine
+        ? (item.product.shopStock ?? stockOf(item.product))
+        : stocksList.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
+      // Credit-back (edit mode) only applies to what the ORIGINAL invoice deducted
+      // from المحل — a depot-specific line never touched المحل, so it doesn't apply.
+      const available = baseAvailable + (isShopLine ? (originalInvoicePcs[item.product.id] ?? 0) : 0)
+      const totalPcs = consumed.get(key) ?? 0
       const after = available - totalPcs
       if (after < 0) {
-        warnings.push(`${item.product.name} (المحل بي ${fmt(available)} فقط، تحتاج تحويل من المخزن — سيصبح ${fmt(after)})`)
-        negativeAfterByProduct.set(pid, after)
+        const whLabel = isShopLine ? "المحل" : (item.warehouseName ?? "المخزن")
+        warnings.push(`${item.product.name} (${whLabel} بيه ${fmt(available)} فقط — سيصبح ${fmt(after)})`)
+        negativeAfterByProduct.set(key, after)
       }
     }
     return { lowStockWarnings: warnings, negativeAfterByProduct }
@@ -1259,7 +1299,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const item = items[index]
     if (!item) return
     const allWhs = item.product.warehouseStocks ?? []
-    const shopWh = allWhs.find((ws) => ws.warehouse.name.includes("محل"))
+    const shopId = shopWarehouseIdOf(item.product)
+    const shopWh = allWhs.find((ws) => ws.warehouseId === shopId)
     const shopPcs = item.product.shopStock
       ?? shopWh?.quantityPieces
       ?? 0
@@ -1275,8 +1316,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const roundedPiecePrice = Math.round(piecePrice * 100) / 100
 
     // Greedy fill: المحل first, then the other warehouses by stock (most first),
-    // taking only what each holds so we never over-allocate a warehouse.
-    const shopId = shopWh?.warehouseId
+    // taking only what each holds so we never over-allocate a warehouse. Deliberately
+    // does NOT reuse otherWarehousesFor() here — that helper excludes the line's
+    // currently-selected warehouse (right for "is there somewhere ELSE to pull from"
+    // prediction), but a full redistribution should still use whatever's left in the
+    // currently-selected warehouse too, not skip it.
     const others = allWhs
       .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopId)
       .sort((a, b) => b.quantityPieces - a.quantityPieces)
@@ -2231,15 +2275,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
               <TBody>
                 {items.map((item, index) => {
                   const rowKey = `${index}`
-                  // Edit mode: current stock already reflects this invoice's original
-                  // deduction, so subtracting the line qty again would double-count —
-                  // use the credit-back-aware negativeAfterByProduct map instead (same
-                  // one the aggregate warning box above uses) so the badge is accurate.
-                  const editNegativeAfter = isEdit ? negativeAfterByProduct.get(item.product.id) : undefined
-                  const stockAfterLine = isPurchase ? stockOf(item.product) + itemQuantityInPieces(item) : stockOf(item.product) - itemQuantityInPieces(item)
-                  const hasNegativeStock = isEdit
-                    ? editNegativeAfter !== undefined
-                    : stockOf(item.product) < 0 || stockAfterLine < 0
                   const lineQtyPcs = itemQuantityInPieces(item)
                   // Shortage row: any sale line the warehouse it pulls from can't fully
                   // cover. Shown INLINE under the line (never a blocking dialog) with the
@@ -2251,16 +2286,26 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   const linePullPcs = effectiveAvailablePcs(item)
                   const lineShort = !isPurchase && !isEdit && lineQtyPcs > linePullPcs
                   const shortageAcknowledged = Boolean(item.allowNegativeStock)
-                  const stocksList = item.product.warehouseStocks ?? []
-                  const shopWhRow = stocksList.find((ws) => ws.warehouse.name.includes("محل"))
-                  const otherWhs = stocksList
-                    .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopWhRow?.warehouseId && ws.warehouseId !== item.warehouseId)
-                    .sort((a, b) => b.quantityPieces - a.quantityPieces)
+                  const otherWhs = otherWarehousesFor(item)
                   // A single other warehouse that covers the WHOLE line → offer a direct pull.
                   const fullCoverWh = otherWhs.find((ws) => ws.quantityPieces >= lineQtyPcs)
                   // Splitting helps whenever the others hold anything at all.
                   const canSplit = lineShort && !isPurchase && otherWhs.length > 0
                   const lineOutOfStock = lineShort && !canSplit && !fullCoverWh
+                  // Edit mode: current stock already reflects this invoice's original
+                  // deduction, so subtracting the line qty again would double-count —
+                  // use the credit-back-aware negativeAfterByProduct map instead (same
+                  // one the aggregate warning box above uses, keyed the same way) so the
+                  // badge is accurate. Non-edit mode reuses `lineShort` above (the same
+                  // per-warehouse-aware check the shortage row uses) instead of an
+                  // independent total-across-all-warehouses computation — the two used to
+                  // disagree on the exact same line (e.g. a line correctly pointed at a
+                  // depot with enough stock could still show "negative balance" because
+                  // this badge compared against the product's grand total instead).
+                  const editNegativeAfter = isEdit ? negativeAfterByProduct.get(lineStockKey(item)) : undefined
+                  const hasNegativeStock = isEdit
+                    ? editNegativeAfter !== undefined
+                    : isPurchase ? stockOf(item.product) < 0 : lineShort
                   return (
                     <Fragment key={index}>
                     <TR>
