@@ -113,8 +113,16 @@ export async function selectProductsForStrategy(
 
     case CycleCountStrategy.LEAST_RECENTLY_COUNTED: {
       // Never counted (no prior CycleCountItem in this warehouse) sorts first.
+      // Only items someone actually entered a count for, in a session that
+      // wasn't cancelled, count as "recently counted" — otherwise a product
+      // merely listed in a session (still OPEN and never reached, or
+      // CANCELLED seconds after creation) would be wrongly treated as
+      // reviewed and deprioritized from future scheduling.
       const priorItems = await db.cycleCountItem.findMany({
-        where: { session: { warehouseId } },
+        where: {
+          actualQty: { not: null },
+          session: { warehouseId, status: { not: CycleCountSessionStatus.CANCELLED } },
+        },
         select: { productId: true, session: { select: { createdAt: true } } },
       });
       const lastCounted = new Map<string, number>();

@@ -29,6 +29,7 @@ import {
   cycleCountApproveAllSchema,
   cycleCountApproveItemSchema,
   cycleCountCloseSchema,
+  cycleCountPublicScanSchema,
   cycleCountPublicSetQtySchema,
   cycleCountUpdateItemSchema,
 } from "../utils/schemas";
@@ -51,7 +52,7 @@ router.post("/:id/reject-all", authMiddleware, requirePermission("INVENTORY_MANA
 
 // ── Public (worker, no auth) ─────────────────────────────────────────────────
 router.get("/public/:token", publicGetSession);
-router.post("/public/:token/scan", publicScanQr);
+router.post("/public/:token/scan", validate(cycleCountPublicScanSchema), publicScanQr);
 router.put("/public/:token/item", validate(cycleCountPublicSetQtySchema), publicSetQty);
 router.post("/public/:token/submit", publicSubmit);
 

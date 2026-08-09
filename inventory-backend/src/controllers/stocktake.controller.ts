@@ -42,7 +42,8 @@ export const closeSession = asyncHandler(async (req, res) => {
 });
 
 export const archiveSession = asyncHandler(async (req, res) => {
-  const data = await archiveStocktakeSession(String(req.params.id));
+  const { force } = (req.body ?? {}) as { force?: boolean };
+  const data = await archiveStocktakeSession(String(req.params.id), Boolean(force));
   res.json({ success: true, data });
 });
 

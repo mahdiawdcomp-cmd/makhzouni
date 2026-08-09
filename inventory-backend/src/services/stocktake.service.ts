@@ -180,17 +180,38 @@ export async function closeStocktakeSession(sessionId: string, closedBy?: string
 // ─── Admin: Archive session (soft-delete) ────────────────────────────────────
 // Hides the session from the admin list. Never reverts approved quantities and
 // never deletes StockMovement rows.
-export async function archiveStocktakeSession(sessionId: string) {
-  const session = await prisma.stocktakeSession.findUnique({ where: { id: sessionId } });
+export async function archiveStocktakeSession(sessionId: string, force = false) {
+  const session = await prisma.stocktakeSession.findUnique({
+    where: { id: sessionId },
+    include: { items: { select: { approvalStatus: true, actualQty: true } } },
+  });
   if (!session) throw new AppError("جلسة الجرد غير موجودة", 404, "SESSION_NOT_FOUND");
   if (session.archivedAt) throw new AppError("الجلسة مؤرشفة بالفعل", 400, "ALREADY_ARCHIVED");
+
+  // Archiving only hides the session from listStocktakeSessions — it never
+  // resolves pending variances. Without this guard an OPEN/SUBMITTED session
+  // with unreviewed discrepancies could vanish from admin visibility with no
+  // warning, exactly like closeStocktakeSession's guard already prevents.
+  const unresolvedCount = session.items.filter(
+    (i) => (i.approvalStatus ?? StocktakeApprovalStatus.PENDING) === StocktakeApprovalStatus.PENDING && i.actualQty !== null,
+  ).length;
+  if (unresolvedCount > 0 && !force) {
+    throw new AppError(
+      `توجد ${unresolvedCount} فروقات لم تتم مراجعتها بعد — راجعها أو أرسل force لأرشفة الجلسة رغم ذلك`,
+      400,
+      "UNRESOLVED_ITEMS",
+    );
+  }
+  if (unresolvedCount > 0 && force) {
+    logger.warn(`[stocktake] archiving session ${sessionId} with ${unresolvedCount} unresolved item(s) (force=true)`);
+  }
 
   await prisma.stocktakeSession.update({
     where: { id: sessionId },
     data: { archivedAt: new Date() },
   });
 
-  return { success: true };
+  return { success: true, unresolvedCount };
 }
 
 // ─── Public (worker): Close session via token ────────────────────────────────
@@ -360,7 +381,7 @@ export async function getPublicSession(token: string) {
 export async function scanQrCode(token: string, qrCode: string) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { publicToken: token },
-    select: { id: true, status: true },
+    select: { id: true, status: true, branchId: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
   if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
@@ -390,9 +411,18 @@ export async function scanQrCode(token: string, qrCode: string) {
   const increment = isCartonBarcode ? Math.max(1, product.pcsPerCarton) : 1;
   const newQty = (item.actualQty ?? 0) + increment;
 
+  // Same live-refresh fix as setItemQty — see comment there.
+  const currentStock = session.branchId
+    ? await prisma.productWarehouseStock.findUnique({
+        where: { productId_warehouseId: { productId: product.id, warehouseId: session.branchId } },
+        select: { quantityPieces: true },
+      })
+    : null;
+  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+
   await prisma.stocktakeItem.update({
     where: { id: item.id },
-    data: { actualQty: newQty },
+    data: { actualQty: newQty, systemQty: freshSystemQty, variance: newQty - freshSystemQty },
   });
 
   return {
@@ -415,7 +445,7 @@ export async function setItemQty(
 ) {
   const session = await prisma.stocktakeSession.findUnique({
     where: { publicToken: token },
-    select: { id: true, status: true },
+    select: { id: true, status: true, branchId: true },
   });
   if (!session) throw new AppError("الرابط غير صحيح", 404, "SESSION_NOT_FOUND");
   if (session.status === StocktakeSessionStatus.CLOSED) throw new AppError("الجلسة مغلقة", 400, "SESSION_CLOSED");
@@ -430,9 +460,24 @@ export async function setItemQty(
   const actualPcsPerCarton = Math.max(1, item.product.pcsPerCarton);
   const qtyInPieces = unit === "CARTON" ? qty * actualPcsPerCarton : qty;
 
+  // Re-read the LIVE system quantity at count time instead of trusting the
+  // value frozen when the session was created — mirrors the cycle-count
+  // worker path (setCycleCountItemQty). approveStocktakeItem trusts this
+  // stored value verbatim, so it must be accurate as of the physical count,
+  // not stale by however long the session sat open. Stays invisible to the
+  // worker: only the stored systemQty is refreshed server-side, never
+  // exposed in the public response (see getPublicSession).
+  const currentStock = session.branchId
+    ? await prisma.productWarehouseStock.findUnique({
+        where: { productId_warehouseId: { productId, warehouseId: session.branchId } },
+        select: { quantityPieces: true },
+      })
+    : null;
+  const freshSystemQty = currentStock?.quantityPieces ?? item.systemQty;
+
   await prisma.stocktakeItem.update({
     where: { id: item.id },
-    data: { actualQty: qtyInPieces },
+    data: { actualQty: qtyInPieces, systemQty: freshSystemQty, variance: qtyInPieces - freshSystemQty },
   });
 
   return { productId, actualQty: qtyInPieces, unit, original: qty };
@@ -494,42 +539,33 @@ export async function approveStocktakeItem(
 
     if (!item.session.branchId) throw new AppError("المخزن غير محدد للجلسة", 400, "NO_WAREHOUSE");
 
-    // Measure the variance against the LIVE balance, not the snapshot frozen
-    // when the session was created. A physical count asserts "the shelf holds
-    // exactly N" — applying `actualQty - staleSystemQty` as an increment
-    // double-counts every sale made between session creation and approval.
-    // Concretely: snapshot 100, a sale of 30 drops the balance to 70, the
-    // worker correctly counts 70, variance reads −30, and approval drives the
-    // balance to 40 while booking a bogus 30-piece loss against net profit.
+    // The discrepancy is measured ONCE, against the live balance at the
+    // moment of physical counting — setItemQty/scanQrCode (public worker
+    // link) and updateStocktakeItem (admin manual entry) all refresh
+    // `systemQty` to the live balance right when actualQty is written. Trust
+    // that stored value here rather than re-deriving it against whatever the
+    // balance happens to be *right now*.
     //
-    // `item.systemQty` remains the fallback only when there is no warehouse row
-    // yet (legacy product never stocked in this warehouse).
-    const liveStock = await tx.productWarehouseStock.findUnique({
-      where: {
-        productId_warehouseId: {
-          productId: item.productId,
-          warehouseId: item.session.branchId,
-        },
-      },
-      select: { quantityPieces: true },
-    });
-    const baselineQty = liveStock?.quantityPieces ?? item.systemQty ?? 0;
-    const delta = item.actualQty - baselineQty;
-
-    // Keep the audit row consistent with what is actually being applied, so the
-    // reviewed variance and the resulting StockMovement/StockLoss agree.
-    if (baselineQty !== item.systemQty || delta !== item.variance) {
-      await tx.stocktakeItem.update({
-        where: { id: item.id },
-        data: { systemQty: baselineQty, variance: delta },
-      });
-    }
+    // Re-deriving here (against a fresh live read at approval time) would
+    // fold every legitimate sale/purchase/transfer that happened between the
+    // count and this approval into the "discovered" variance. Concretely: the
+    // worker's count matches the live balance exactly (zero real
+    // discrepancy), a legitimate sale of 20 lands before an admin gets to
+    // approving, and re-deriving against the now-lower live balance would
+    // book a bogus +20 gain and undo the sale's stock effect entirely.
+    //
+    // `adjustWarehouseStock` applies `delta` as a pure increment on top of
+    // whatever the live balance is right now — which already correctly
+    // reflects everything that happened since the count — so the fixed,
+    // once-measured delta stays correct no matter how long approval is
+    // delayed. This mirrors cycle-count's approveCycleCountItem exactly.
+    const delta = item.actualQty - item.systemQty;
 
     // adjustWarehouseStock locks the row and enforces the same negative-floor
-    // guard every other stock-mutating path (invoice/transfer/loss) uses — the
-    // raw increment update this replaced had no such guard. allowNegative:true
-    // matches the sale/transfer/cycle-count policy: never block a legitimate
-    // correction over a stock discrepancy — a deficit surfaces later instead.
+    // guard every other stock-mutating path (invoice/transfer/loss) uses.
+    // allowNegative:true matches the sale/transfer/cycle-count policy: never
+    // block a legitimate correction over a stock discrepancy — a deficit
+    // surfaces later instead.
     const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
       productId: item.productId,
       warehouseId: item.session.branchId,

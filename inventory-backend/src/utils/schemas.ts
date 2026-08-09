@@ -1345,3 +1345,24 @@ export const stocktakePublicSetQtySchema = z.object({
     pcsPerCarton: z.coerce.number().optional(),
   }),
 });
+
+export const stocktakePublicScanSchema = z.object({
+  params: publicTokenParams,
+  body: z.object({
+    qrCode: z.string().trim().min(1),
+  }),
+});
+
+export const cycleCountPublicScanSchema = z.object({
+  params: publicTokenParams,
+  body: z.object({
+    qrCode: z.string().trim().min(1),
+  }),
+});
+
+export const stocktakeArchiveSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    force: z.coerce.boolean().optional(),
+  }).optional(),
+});

@@ -20,7 +20,9 @@ import { requirePermission } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   stocktakeApproveItemSchema,
+  stocktakeArchiveSchema,
   stocktakeCloseSchema,
+  stocktakePublicScanSchema,
   stocktakePublicSetQtySchema,
   stocktakeUpdateItemSchema,
 } from "../utils/schemas";
@@ -34,13 +36,13 @@ router.get("/:id", authMiddleware, requirePermission("INVENTORY_MANAGE"), getSes
 router.patch("/:id/items", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeUpdateItemSchema), updateItem);
 router.post("/:id/submit", authMiddleware, requirePermission("INVENTORY_MANAGE"), submitSession);
 router.post("/:id/close", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeCloseSchema), closeSession);
-router.post("/:id/archive", authMiddleware, requirePermission("INVENTORY_MANAGE"), archiveSession);
+router.post("/:id/archive", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeArchiveSchema), archiveSession);
 router.post("/:id/items/:itemId/approve", authMiddleware, requirePermission("INVENTORY_MANAGE"), validate(stocktakeApproveItemSchema), approveItem);
 router.post("/:id/items/:itemId/reject", authMiddleware, requirePermission("INVENTORY_MANAGE"), rejectItem);
 
 // ── Public routes (no auth — for workers) ────────────────────────────────────
 router.get("/public/:token", publicGetSession);
-router.post("/public/:token/scan", publicScanQr);
+router.post("/public/:token/scan", validate(stocktakePublicScanSchema), publicScanQr);
 router.put("/public/:token/item", validate(stocktakePublicSetQtySchema), publicSetQty);
 router.post("/public/:token/submit", publicSubmit);
 router.post("/public/:token/close", publicClose);
