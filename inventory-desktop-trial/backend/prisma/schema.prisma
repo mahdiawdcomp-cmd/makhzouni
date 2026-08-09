@@ -476,6 +476,12 @@ model PaymentVoucher {
   branchId      String?     @map("branch_id")
   branch        Branch?     @relation(fields: [branchId], references: [id])
   amount        Decimal
+  // Customer balance immediately BEFORE and AFTER this voucher, frozen at
+  // creation exactly like Invoice.previousBalance/finalBalance. Matches the
+  // main Postgres backend's PaymentVoucher columns of the same name.
+  // NULL on vouchers created before this column existed.
+  previousBalance Decimal?  @map("previous_balance")
+  finalBalance    Decimal?  @map("final_balance")
   type          VoucherType
   date          DateTime    @default(now())
   notes         String?
