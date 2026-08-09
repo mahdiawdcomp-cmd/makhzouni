@@ -26,6 +26,13 @@ function resourceForPath(path: string): RealtimeResource {
   if (clean.startsWith("/api/order-preparations")) return "order-preparations";
   if (clean.startsWith("/api/stocktake")) return "stocktake";
   if (clean.startsWith("/api/reports")) return "reports";
+  // Matches both /api/whatsapp/* (send-invoice, send, send-invoice-image...)
+  // and /api/whatsapp-chat/* — neither was listed here, so every WhatsApp
+  // send fell through to "all" below, which the frontend treats as
+  // queryClient.invalidateQueries() with NO filter: every active query on
+  // the page — including the ~4.75 MB products catalogue — refetched at
+  // once. That's the multi-second freeze reported after every WhatsApp send.
+  if (clean.startsWith("/api/whatsapp")) return "whatsapp-chat";
 
   return "all";
 }

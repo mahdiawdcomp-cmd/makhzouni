@@ -22,6 +22,7 @@ type RealtimeResource =
   | "transfers"
   | "users"
   | "vouchers"
+  | "whatsapp-chat"
 
 type RealtimeEvent = {
   type: "connected" | "changed"
@@ -49,6 +50,12 @@ const queryKeysByResource: Record<RealtimeResource, string[]> = {
   transfers: ["transfers", "products", "branches"],
   users: ["users"],
   vouchers: ["vouchers", "voucher", "customers", "dashboard-report", "reports"],
+  // No dedicated chat UI in desktop (web-only feature) — just refresh the
+  // provider status/usage counters shown in the send-channel picker. An
+  // empty array here would still fall through to invalidateQueries() with
+  // no filter (empty key set == "unknown resource" to invalidate()), so a
+  // real, cheap key is needed to avoid that.
+  "whatsapp-chat": ["whatsapp-status"],
 }
 
 function realtimeUrl(token: string) {

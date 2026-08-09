@@ -19,7 +19,8 @@ export type RealtimeResource =
   | "stocktake"
   | "transfers"
   | "users"
-  | "vouchers";
+  | "vouchers"
+  | "whatsapp-chat";
 
 export interface RealtimeEvent {
   id: string;
