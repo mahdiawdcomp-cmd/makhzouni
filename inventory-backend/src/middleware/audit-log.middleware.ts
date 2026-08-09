@@ -111,6 +111,57 @@ async function loadBeforeSnapshot(req: Request) {
   return undefined;
 }
 
+// `before` is a raw Prisma snapshot (Decimal fields, no computed columns) and
+// `after` is the serialized API response (Decimal -> number, extra computed
+// fields like item.warehouseName). Those shape differences made every money
+// field register as "changed" even when untouched. Numeric-string vs number
+// is treated as equal; everything else still needs a real content diff.
+function looseEqual(a: unknown, b: unknown): boolean {
+  if (JSON.stringify(a) === JSON.stringify(b)) return true;
+  const na = typeof a === "number" ? a : typeof a === "string" && a.trim() !== "" ? Number(a) : NaN;
+  const nb = typeof b === "number" ? b : typeof b === "string" && b.trim() !== "" ? Number(b) : NaN;
+  return !Number.isNaN(na) && !Number.isNaN(nb) && na === nb;
+}
+
+type InvoiceItemRow = Record<string, unknown>;
+
+// Edits delete and recreate every invoice_items row, so before/after ids never
+// match even for an untouched line — match by product+warehouse instead, and
+// report added/removed/changed lines so the UI can show the real old vs new
+// product list instead of just an item count.
+function diffInvoiceItems(beforeItems: unknown, afterItems: unknown) {
+  const toArray = (value: unknown) => (Array.isArray(value) ? (value as InvoiceItemRow[]) : []);
+  const keyOf = (item: InvoiceItemRow) => `${item.productId ?? ""}::${item.warehouseId ?? ""}`;
+
+  const beforeMap = new Map(toArray(beforeItems).map((item) => [keyOf(item), item]));
+  const afterMap = new Map(toArray(afterItems).map((item) => [keyOf(item), item]));
+  // warehouseName is excluded: it's only present on the serialized "after"
+  // item (loadBeforeSnapshot's raw `items: true` never includes it), so
+  // comparing it would flag every untouched line as changed. A real
+  // warehouse change already surfaces as an add+remove via keyOf() above.
+  const compareFields = ["quantity", "unit", "unitPrice", "totalPrice"];
+
+  const added: InvoiceItemRow[] = [];
+  const changed: Array<{ productName: unknown; before: InvoiceItemRow; after: InvoiceItemRow }> = [];
+
+  for (const [key, afterItem] of afterMap) {
+    const beforeItem = beforeMap.get(key);
+    if (!beforeItem) {
+      added.push(afterItem);
+      continue;
+    }
+    if (compareFields.some((field) => !looseEqual(beforeItem[field], afterItem[field]))) {
+      changed.push({ productName: afterItem.productName ?? beforeItem.productName, before: beforeItem, after: afterItem });
+    }
+  }
+  const removed = [...beforeMap.entries()].filter(([key]) => !afterMap.has(key)).map(([, item]) => item);
+
+  if (!added.length && !removed.length && !changed.length) return undefined;
+  return { added, removed, changed };
+}
+
+type FieldChange = { before: unknown; after: unknown; itemsDiff?: ReturnType<typeof diffInvoiceItems> };
+
 function summarizeChanges(before: unknown, after: unknown, requestBody: unknown) {
   if (!before || !after || typeof before !== "object" || typeof after !== "object") {
     return undefined;
@@ -127,12 +178,19 @@ function summarizeChanges(before: unknown, after: unknown, requestBody: unknown)
     ? [...requestedKeys]
     : [...new Set([...Object.keys(beforeRecord), ...Object.keys(afterRecord)])];
 
-  const changes: Record<string, { before: unknown; after: unknown }> = {};
+  const changes: Record<string, FieldChange> = {};
   for (const key of keys) {
     if (ignored.has(key)) continue;
     const oldValue = beforeRecord[key];
     const newValue = afterRecord[key];
-    if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+
+    if (key === "items") {
+      const itemsDiff = diffInvoiceItems(oldValue, newValue);
+      if (itemsDiff) changes[key] = { before: undefined, after: undefined, itemsDiff };
+      continue;
+    }
+
+    if (!looseEqual(oldValue, newValue)) {
       changes[key] = { before: oldValue, after: newValue };
     }
   }

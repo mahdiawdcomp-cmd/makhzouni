@@ -741,13 +741,35 @@ export function InvoiceDetailPage() {
                         </div>
                       </div>
                       {entry.changes.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {entry.changes.map((change) => (
-                            <div key={`${entry.id}-${change.field}`} className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs">
-                              <span className="font-medium text-slate-600 dark:text-slate-400">{change.label}: </span>
-                              <span className="text-rose-500 line-through ml-1">{change.before}</span>
-                              <span className="mx-1 text-slate-400">←</span>
-                              <span className="text-emerald-600 dark:text-emerald-400 font-medium">{change.after}</span>
+                        <div className="mt-2 space-y-2">
+                          {entry.changes.some((change) => !change.itemsDiff) && (
+                            <div className="flex flex-wrap gap-2">
+                              {entry.changes.filter((change) => !change.itemsDiff).map((change) => (
+                                <div key={`${entry.id}-${change.field}`} className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs">
+                                  <span className="font-medium text-slate-600 dark:text-slate-400">{change.label}: </span>
+                                  <span className="text-rose-500 line-through ml-1">{change.before}</span>
+                                  <span className="mx-1 text-slate-400">←</span>
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">{change.after}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {entry.changes.filter((change) => change.itemsDiff).map((change) => (
+                            <div key={`${entry.id}-${change.field}-items`} className="rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs space-y-1.5">
+                              <div className="font-medium text-slate-600 dark:text-slate-400">{change.label}</div>
+                              {change.itemsDiff!.added.map((line, i) => (
+                                <div key={`add-${i}`} className="text-emerald-600 dark:text-emerald-400">+ {line}</div>
+                              ))}
+                              {change.itemsDiff!.removed.map((line, i) => (
+                                <div key={`rem-${i}`} className="text-rose-500 line-through">- {line}</div>
+                              ))}
+                              {change.itemsDiff!.changed.map((c, i) => (
+                                <div key={`chg-${i}`} className="space-y-0.5">
+                                  <div className="font-medium text-slate-700 dark:text-slate-200">{c.productName}</div>
+                                  <div className="text-rose-500 line-through">{c.before}</div>
+                                  <div className="text-emerald-600 dark:text-emerald-400">{c.after}</div>
+                                </div>
+                              ))}
                             </div>
                           ))}
                         </div>

@@ -78,15 +78,27 @@ function formatVal(value: unknown): string {
   return "(تفاصيل)"
 }
 
-type ChangeMap = Record<string, { before: unknown; after: unknown }>
+type ItemsDiff = { added: unknown[]; removed: unknown[]; changed: unknown[] }
+type ChangeMap = Record<string, { before: unknown; after: unknown; itemsDiff?: ItemsDiff }>
 
-function readableChanges(metadata: unknown): Array<{ key: string; before: unknown; after: unknown }> {
+function readableChanges(metadata: unknown): Array<{ key: string; before: unknown; after: unknown; itemsDiff?: ItemsDiff }> {
   if (!metadata || typeof metadata !== "object" || !("changes" in metadata)) return []
   const changes = (metadata as { changes?: ChangeMap }).changes
   if (!changes || typeof changes !== "object") return []
   return Object.entries(changes)
     .filter(([key]) => !hiddenFields.has(key))
-    .map(([key, v]) => ({ key, before: v?.before, after: v?.after }))
+    .map(([key, v]) => ({ key, before: v?.before, after: v?.after, itemsDiff: v?.itemsDiff }))
+}
+
+// The invoice items diff carries no flat before/after (see InvoiceDetailPage
+// for the full old-vs-new product list) — summarize add/remove/change counts
+// here instead of showing "— ← —".
+function formatItemsDiffSummary(diff: ItemsDiff): string {
+  const parts: string[] = []
+  if (diff.added.length) parts.push(`+${diff.added.length}`)
+  if (diff.removed.length) parts.push(`-${diff.removed.length}`)
+  if (diff.changed.length) parts.push(`~${diff.changed.length}`)
+  return parts.length ? parts.join(" ") : "—"
 }
 
 export function AuditLogsPage() {
@@ -183,9 +195,15 @@ export function AuditLogsPage() {
                         {changes.map((c) => (
                           <li key={c.key} className="flex flex-wrap items-center gap-1">
                             <span className="font-semibold text-slate-700 dark:text-slate-200">{fieldLabel(c.key)}:</span>
-                            <span className="text-rose-600 line-through dark:text-rose-400">{formatVal(c.before)}</span>
-                            <span className="text-slate-400">←</span>
-                            <span className="text-emerald-700 dark:text-emerald-400">{formatVal(c.after)}</span>
+                            {c.itemsDiff ? (
+                              <span className="text-slate-600 dark:text-slate-300">{formatItemsDiffSummary(c.itemsDiff)}</span>
+                            ) : (
+                              <>
+                                <span className="text-rose-600 line-through dark:text-rose-400">{formatVal(c.before)}</span>
+                                <span className="text-slate-400">←</span>
+                                <span className="text-emerald-700 dark:text-emerald-400">{formatVal(c.after)}</span>
+                              </>
+                            )}
                           </li>
                         ))}
                       </ul>

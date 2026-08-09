@@ -1310,11 +1310,18 @@ export interface AuditLog {
   createdAt: string
 }
 
+export interface InvoiceAuditItemsDiff {
+  added: string[]
+  removed: string[]
+  changed: Array<{ productName: string; before: string; after: string }>
+}
+
 export interface InvoiceAuditChange {
   field: string
   label: string
-  before: string
-  after: string
+  before?: string
+  after?: string
+  itemsDiff?: InvoiceAuditItemsDiff
 }
 
 export interface InvoiceAuditEntry {

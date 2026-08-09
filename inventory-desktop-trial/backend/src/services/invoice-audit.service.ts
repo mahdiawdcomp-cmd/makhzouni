@@ -29,19 +29,67 @@ function valueText(value: unknown) {
   return String(value);
 }
 
+const unitLabels: Record<string, string> = {
+  PIECE: "قطعة",
+  CARTON: "كارتون",
+  BOX: "علبة",
+  DOZEN: "دزينة",
+};
+
+function itemLineText(item: unknown) {
+  if (!item || typeof item !== "object") return "-";
+  const record = item as Record<string, unknown>;
+  const name = String(record.productName ?? "-");
+  const unit = unitLabels[String(record.unit ?? "")] ?? String(record.unit ?? "");
+  const warehouse = record.warehouseName ? ` — ${record.warehouseName}` : "";
+  return `${name}: ${valueText(record.quantity)} ${unit} × ${valueText(record.unitPrice)} = ${valueText(record.totalPrice)}${warehouse}`;
+}
+
+type ItemsDiff = {
+  added: unknown[];
+  removed: unknown[];
+  changed: Array<{ productName?: unknown; before?: unknown; after?: unknown }>;
+};
+
+// Old vs new product list for an invoice edit, instead of collapsing the
+// whole "items" field down to a bare count (which told the reader nothing).
+function formatItemsDiff(diff: ItemsDiff) {
+  return {
+    added: diff.added.map(itemLineText),
+    removed: diff.removed.map(itemLineText),
+    changed: diff.changed.map((entry) => ({
+      productName: String(entry.productName ?? "-"),
+      before: itemLineText(entry.before),
+      after: itemLineText(entry.after),
+    })),
+  };
+}
+
 function summarizeChanges(metadata: unknown) {
   if (!metadata || typeof metadata !== "object" || !("changes" in metadata)) return [];
   const changes = (metadata as { changes?: unknown }).changes;
   if (!changes || typeof changes !== "object") return [];
 
-  return Object.entries(changes as Record<string, { before?: unknown; after?: unknown }>)
+  return Object.entries(changes as Record<string, { before?: unknown; after?: unknown; itemsDiff?: ItemsDiff }>)
     .filter(([key]) => key !== "updatedAt")
-    .map(([key, change]) => ({
-      field: key,
-      label: fieldLabels[key] ?? key,
-      before: valueText(change?.before),
-      after: valueText(change?.after),
-    }));
+    .map(([key, change]) => {
+      if (key === "items" && change?.itemsDiff) {
+        return {
+          field: key,
+          label: fieldLabels[key] ?? key,
+          before: undefined as string | undefined,
+          after: undefined as string | undefined,
+          itemsDiff: formatItemsDiff(change.itemsDiff),
+        };
+      }
+      return {
+        field: key,
+        label: fieldLabels[key] ?? key,
+        before: valueText(change?.before),
+        after: valueText(change?.after),
+        itemsDiff: undefined as ReturnType<typeof formatItemsDiff> | undefined,
+      };
+    });
 }
 
 export async function getInvoiceAuditTrail(invoiceId: string) {
