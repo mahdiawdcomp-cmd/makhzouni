@@ -754,9 +754,9 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
     assert.equal(stockLosses.size, 0, "zero-delta approvals don't create a StockLoss");
   });
 
-  // ── Negative-floor guard (bug fix — approval no longer bypasses it) ────────
+  // ── Negative floor (deliberately not enforced — see allowNegative below) ───
 
-  it("approving a variance that would drive LIVE warehouse stock negative is rejected, not silently applied", async () => {
+  it("approving a variance that would drive LIVE warehouse stock negative is allowed, not rejected", async () => {
     const session = await svc.createCycleCountSession({
       createdBy: ADMIN_USER,
       warehouseId: WAREHOUSE,
@@ -769,16 +769,17 @@ describe("cycle-count.service — جدولة الجرد الذكي (independent 
 
     // Simulate a concurrent stock-reducing event between counting and approval —
     // live stock is now lower than the systemQty captured at session creation,
-    // so applying the full -10 delta would push it negative.
+    // so applying the full -10 delta pushes it negative. Matches the sale/
+    // transfer/stocktake/stock-loss policy: never block a legitimate
+    // correction over a stock discrepancy — the deficit surfaces later
+    // (e.g. the next stocktake) instead of blocking the approval.
     stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces = 3;
 
-    await assert.rejects(
-      () => svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR"),
-      (err: any) => err.code === "INSUFFICIENT_WAREHOUSE_STOCK",
-    );
-    assert.equal(stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces, 3, "stock untouched after rejection");
-    assert.equal(items.get(item.id)!.approvalStatus, "PENDING", "item stays pending — not silently approved");
-    assert.equal(stockLosses.size, 0, "no StockLoss written for a rejected approval");
+    const result = await svc.approveCycleCountItem(session.id, item.id, ADMIN_USER, "COUNT_ERROR");
+
+    assert.equal(result.delta, -10);
+    assert.equal(stocks.get(stockKey("p2", WAREHOUSE))!.quantityPieces, -7, "stock allowed to go negative");
+    assert.equal(items.get(item.id)!.approvalStatus, "APPROVED");
   });
 
   it("rejecting an item never touches stock and writes no StockMovement", async () => {

@@ -466,7 +466,9 @@ export async function approveCycleCountItem(
       productId: item.productId,
       warehouseId: item.session.warehouseId,
       deltaPieces: delta,
-      allowNegative: false,
+      // Matches the sale/transfer policy: never block a legitimate correction
+      // over a stock discrepancy — a deficit surfaces later instead.
+      allowNegative: true,
     });
 
     let lossId: string | null = null;
@@ -580,7 +582,9 @@ export async function approveAllCycleCountItems(sessionId: string, approvingUser
         productId: item.productId,
         warehouseId: session.warehouseId,
         deltaPieces: delta,
-        allowNegative: false,
+        // Matches the sale/transfer policy: never block a legitimate correction
+        // over a stock discrepancy — a deficit surfaces later instead.
+        allowNegative: true,
       });
 
       let lossId: string | null = null;

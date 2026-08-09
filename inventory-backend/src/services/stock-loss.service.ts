@@ -173,11 +173,14 @@ export async function createStockLoss(input: CreateStockLossInput, createdBy: st
       const pcs = lossUnitToPieces(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
 
       await ensureLegacyWarehouseStock(tx as typeof prisma, product);
+      // allowNegative:true — matches the sale/transfer/cycle-count/stocktake
+      // policy: never block a legitimate business action over a stock
+      // discrepancy — a deficit surfaces later instead.
       const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx as typeof prisma, {
         productId: product.id,
         warehouseId: resolvedWarehouseId,
         deltaPieces: -pcs,
-        allowNegative: false,
+        allowNegative: true,
       });
       await syncProductTotalStock(tx as typeof prisma, product.id);
 

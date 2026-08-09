@@ -527,12 +527,14 @@ export async function approveStocktakeItem(
 
     // adjustWarehouseStock locks the row and enforces the same negative-floor
     // guard every other stock-mutating path (invoice/transfer/loss) uses — the
-    // raw increment update this replaced had no such guard.
+    // raw increment update this replaced had no such guard. allowNegative:true
+    // matches the sale/transfer/cycle-count policy: never block a legitimate
+    // correction over a stock discrepancy — a deficit surfaces later instead.
     const { balanceBefore, balanceAfter } = await adjustWarehouseStock(tx, {
       productId: item.productId,
       warehouseId: item.session.branchId,
       deltaPieces: delta,
-      allowNegative: false,
+      allowNegative: true,
     });
 
     // Refresh the denormalized legacy stock fields (openingBalancePcs /
