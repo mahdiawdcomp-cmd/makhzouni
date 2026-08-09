@@ -145,24 +145,32 @@ export function VarietyConvertPage() {
     return [...(targetProduct.typeTags ?? []), ...(targetProduct.categoryTags ?? [])]
   }, [targetProduct])
 
+  const canAddSource = useCallback(
+    (p: Product) => {
+      if (p.id === targetProductId) return false
+      if (effectiveType === "VARIETY" && targetProductId && targetTags.length > 0) {
+        const pTags = [...(p.typeTags ?? []), ...(p.categoryTags ?? [])]
+        if (!targetTags.some((t) => pTags.includes(t))) return false
+      }
+      return true
+    },
+    [targetProductId, effectiveType, targetTags],
+  )
+
   const matches = useMemo(() => {
     if (!fromId) return []
     const q = normalize(search)
     return products
       .filter((p) => {
         if (warehouseStock(p, fromId) <= 0) return false
-        if (p.id === targetProductId) return false
-        if (effectiveType === "VARIETY" && targetProductId && targetTags.length > 0) {
-          const pTags = [...(p.typeTags ?? []), ...(p.categoryTags ?? [])]
-          if (!targetTags.some((t) => pTags.includes(t))) return false
-        }
+        if (!canAddSource(p)) return false
         if (!q) return false
         return [p.name, p.itemNumber, p.qrCode ?? "", p.cartonQrCode ?? ""].some((v) =>
           normalize(v).includes(q),
         )
       })
       .slice(0, 12)
-  }, [search, products, fromId, targetProductId, effectiveType, targetTags])
+  }, [search, products, fromId, canAddSource])
 
   // ── Rows ──────────────────────────────────────────────────────────────────
 
@@ -203,6 +211,17 @@ export function VarietyConvertPage() {
       toast({
         title: "المادة غير متوفرة في المخزن المحدد",
         description: `${hit.name} — المتوفر: 0`,
+        variant: "destructive",
+      })
+      return
+    }
+    if (!canAddSource(hit)) {
+      toast({
+        title: "لا يمكن إضافة هذه المادة",
+        description:
+          hit.id === targetProductId
+            ? "لا يمكن تحويل المادة الهدف إلى نفسها"
+            : `${hit.name} — لا تحمل تاغاً مناسباً للمادة الهدف`,
         variant: "destructive",
       })
       return
