@@ -593,7 +593,13 @@ export const listVouchersSchema = z.object({
     to: dateString.optional(),
     page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(5000).default(20),
-    showCancelled: z.coerce.boolean().optional(),
+    // z.coerce.boolean() runs `Boolean(value)` — on the query STRING "false"
+    // that's `Boolean("false") === true` (any non-empty string is truthy), so
+    // ?showCancelled=false silently flipped to true and inverted the filter.
+    // Since cancelling a voucher also archives it, that inverted filter
+    // (archivedAt: null AND cancelledAt: not null) matched zero rows for
+    // every tenant — every voucher looked "gone" even though none were.
+    showCancelled: z.preprocess((v) => (typeof v === "string" ? v === "true" : v), z.boolean().optional()),
   }),
 });
 
