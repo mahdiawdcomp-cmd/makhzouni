@@ -271,12 +271,17 @@ export async function createTransfer(input: CreateTransferInput, createdBy: stri
   if (!input.items?.length) {
     throw new AppError("Transfer must have at least one item", 400, "INVALID_TRANSFER");
   }
-  return prisma.$transaction((tx) => executeTransferWithin(tx, input, createdBy, false));
+  // allowNegative=true: matches the sale-invoice policy (never block a legit
+  // business action over a stock discrepancy — see InvoiceCreatePage's
+  // allowNegativeStock) and the approval-executor path below, which already
+  // always allowed it. Used to reject here, which was the one place in the
+  // app that still blocked instead of letting the deficit surface later.
+  return prisma.$transaction((tx) => executeTransferWithin(tx, input, createdBy, true));
 }
 
 // The actual stock movement + transfer record. Used directly (admin immediate)
-// and from the approval executor (allowNegative=true so an approved transfer
-// always goes through, surfacing any deficit later in the stocktake).
+// and from the approval executor — both allow negative stock; any deficit
+// surfaces later in the stocktake instead of blocking the transfer.
 export async function executeTransferWithin(
   tx: Prisma.TransactionClient,
   input: CreateTransferInput,
