@@ -760,6 +760,7 @@ export const updateSettingsSchema = z.object({
       cartonLabelNameFontSize: z.coerce.number().min(8).max(60).optional(),
       cartonLabelMetaFontSize: z.coerce.number().min(7).max(48).optional(),
       cartonLabelPaddingMm: z.coerce.number().min(1).max(15).optional(),
+      reportsProfitStartDate: z.string().trim().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one setting is required",

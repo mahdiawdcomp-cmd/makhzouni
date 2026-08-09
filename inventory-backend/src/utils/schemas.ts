@@ -973,6 +973,7 @@ export const updateSettingsSchema = z.object({
       cycleCountItemLimit: z.coerce.number().int().min(1).max(1000).optional(),
       cycleCountStrategy: z.enum(["RANDOM", "HIGH_VALUE", "FAST_MOVING", "LOW_STOCK", "LEAST_RECENTLY_COUNTED"]).optional(),
       personalDebtReminderWhatsappNumber: z.string().trim().optional(),
+      reportsProfitStartDate: z.string().trim().optional(),
       // Telegram backup delivery (fields existed in the UI but were silently
       // stripped here — validate() replaces req.body with the parsed object).
       telegramBotToken: nullAsUndefined(z.string().trim()),

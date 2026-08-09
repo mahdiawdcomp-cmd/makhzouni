@@ -1,5 +1,5 @@
 import { QueryErrorBox } from "../components/ui/query-error"
-import { useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { usePageTitle } from "../hooks/usePageTitle"
 import { useAuthStore } from "../store/authStore"
@@ -17,7 +17,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getProductReviews, getSearchMisses, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers } from "../api/endpoints"
+import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getProductReviews, getSearchMisses, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -481,6 +481,36 @@ function ProfitsTab() {
   const [from, setFrom] = useState("")
   const [to, setTo]     = useState("")
   const [groupBy, setGroupBy] = useState<"day" | "week" | "month">("month")
+  const queryClient = useQueryClient()
+
+  // The trial/setup period leaves messy history — "ابدأ فترة جديدة من اليوم"
+  // saves a per-tenant start date so this tab defaults to it on every future
+  // visit, without touching a single invoice, voucher, or balance. Old data
+  // stays fully intact and reachable by just picking an earlier "from" date.
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const appliedDefaultRef = useRef(false)
+  useEffect(() => {
+    if (appliedDefaultRef.current || !settingsQuery.isSuccess) return
+    appliedDefaultRef.current = true
+    if (settingsQuery.data.reportsProfitStartDate) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time default applied once settings load, guarded above so it can't loop
+      setFrom(settingsQuery.data.reportsProfitStartDate)
+    }
+  }, [settingsQuery.isSuccess, settingsQuery.data])
+
+  const startDateMutation = useMutation({
+    mutationFn: (date: string) => updateSettings({ reportsProfitStartDate: date }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+  })
+  const savedStartDate = settingsQuery.data?.reportsProfitStartDate
+  function startNewPeriod() {
+    const today = localDateStr()
+    setFrom(today)
+    startDateMutation.mutate(today)
+  }
+  function clearSavedStartDate() {
+    startDateMutation.mutate("")
+  }
 
   const report = useQuery({
     queryKey: ["profit-report", from, to, groupBy],
@@ -511,6 +541,17 @@ function ProfitsTab() {
             </button>
           ))}
         </div>
+        <Button type="button" variant="outline" size="sm" disabled={startDateMutation.isPending} onClick={startNewPeriod}>
+          🗓️ ابدأ فترة جديدة من اليوم
+        </Button>
+        {savedStartDate && (
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
+            نقطة البداية المحفوظة: {savedStartDate}
+            <button type="button" onClick={clearSavedStartDate} disabled={startDateMutation.isPending} className="underline hover:text-slate-700 dark:hover:text-slate-300">
+              إلغاء
+            </button>
+          </span>
+        )}
       </div>
 
       {/* `data` is undefined while loading, on error, and on a 403 from

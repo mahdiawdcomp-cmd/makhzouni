@@ -100,6 +100,10 @@ export interface AppSettings {
   cartonLabelNameFontSize?: number;
   cartonLabelMetaFontSize?: number;
   cartonLabelPaddingMm?: number;
+  // "ابدأ فترة جديدة من اليوم" على تبويب الأرباح — تاريخ بداية محفوظ يصير
+  // القيمة الافتراضية لفلتر "من" بدل الفراغ، بدون ما يلمس أي فاتورة أو رصيد
+  // أو مخزون. اختيار تاريخ أقدم يدويًا يرجّع كل السجل القديم كامل.
+  reportsProfitStartDate?: string;
 }
 
 export const defaultSettings: AppSettings = {
@@ -177,6 +181,7 @@ export const defaultSettings: AppSettings = {
   cartonLabelNameFontSize: 20,
   cartonLabelMetaFontSize: 14,
   cartonLabelPaddingMm: 5,
+  reportsProfitStartDate: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

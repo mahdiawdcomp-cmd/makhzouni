@@ -197,6 +197,11 @@ export interface AppSettings {
   // «الديون الشخصية» — WhatsApp number that receives the daily due-date reminder.
   // Sent through the same tenant WhatsApp provider as everything else above.
   personalDebtReminderWhatsappNumber?: string;
+  // "ابدأ فترة جديدة من اليوم" on the Profits report tab — a saved default
+  // `from` date so a messy setup/trial period stops polluting the default
+  // view. Purely a display default: never touches invoices, balances, or
+  // stock, and picking an earlier date on the tab still shows full history.
+  reportsProfitStartDate?: string;
 }
 
 export interface BotRule {
@@ -330,6 +335,7 @@ export const defaultSettings: AppSettings = {
   telegramFeaturedProductId: "",
   telegramFeaturedLastMessageId: 0,
   telegramFeaturedLastDate: "",
+  reportsProfitStartDate: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

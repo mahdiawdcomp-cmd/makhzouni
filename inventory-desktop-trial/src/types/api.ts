@@ -910,6 +910,7 @@ export interface PreparationWorker {
 
 export interface AppSettings {
   personalDebtReminderWhatsappNumber?: string
+  reportsProfitStartDate?: string
   storeName: string
   storeLogo: string
   storePhone: string

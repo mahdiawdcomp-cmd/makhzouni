@@ -1126,6 +1126,7 @@ export interface AppSettings {
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   personalDebtReminderWhatsappNumber?: string
+  reportsProfitStartDate?: string
   shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
