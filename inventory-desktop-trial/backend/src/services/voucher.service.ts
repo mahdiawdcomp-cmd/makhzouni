@@ -183,7 +183,7 @@ export async function listVouchers(query: ListVouchersQuery) {
           select: { id: true, name: true, username: true, role: true },
         },
       },
-      orderBy: { date: "desc" },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }],
       skip,
       take: query.limit,
     }),
