@@ -847,7 +847,7 @@ export async function getLastCustomerTransaction(id: string) {
       ? [
           {
             date: invoice.date,
-            type: "INVOICE",
+            type: invoice.type,
             amount: toNumber(invoice.totalAmount),
             referenceNumber: invoice.invoiceNumber,
             sortKey: invoice.createdAt.getTime(),

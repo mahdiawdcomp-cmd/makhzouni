@@ -71,6 +71,7 @@ export function VouchersPage() {
   const [typeFilter, setTypeFilter] = useState<FilterType>(
     urlType === "RECEIPT" || urlType === "PAYMENT" || urlType === "EXPENSE" ? urlType : "ALL",
   )
+  const [showCancelled, setShowCancelled] = useState(false)
 
   const [closeVoucherConfirm, setCloseVoucherConfirm] = useState(false)
 
@@ -125,8 +126,11 @@ export function VouchersPage() {
   }
 
   const vouchersQuery = useQuery({
-    queryKey: ["vouchers", typeFilter],
-    queryFn: () => getVouchers(typeFilter === "ALL" ? undefined : { type: typeFilter }),
+    queryKey: ["vouchers", typeFilter, showCancelled],
+    queryFn: () => getVouchers({
+      ...(typeFilter === "ALL" ? {} : { type: typeFilter }),
+      showCancelled,
+    }),
   })
   const customersQuery = useQuery({
     queryKey: ["customers", "voucher-picker"],
@@ -257,6 +261,17 @@ export function VouchersPage() {
             </button>
           )
         })}
+        <button
+          type="button"
+          onClick={() => setShowCancelled((v) => !v)}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition",
+            showCancelled ? "bg-rose-500 text-white" : filterChipIdle,
+          )}
+        >
+          <Ban className="h-4 w-4" />
+          عرض السندات الملغاة
+        </button>
       </div>
 
       {/* Today's income summary — cash sales, credit sales, receipt vouchers,
@@ -333,12 +348,18 @@ export function VouchersPage() {
                 const meta = typeMeta[voucher.type]
                 const Icon = meta.icon
                 return (
-                  <TR key={voucher.id} className={meta.rowTint}>
+                  <TR key={voucher.id} className={voucher.cancelledAt ? "bg-slate-100 opacity-60 dark:bg-slate-900/40" : meta.rowTint}>
                     <TD>
                       <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold", meta.chip)}>
                         <Icon className="h-3 w-3" />
                         {meta.label}
                       </span>
+                      {voucher.cancelledAt && (
+                        <span className="ms-1 inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                          <Ban className="h-3 w-3" />
+                          ملغى
+                        </span>
+                      )}
                     </TD>
                     <TD>{voucher.voucherNumber}</TD>
                     <TD>{Number(voucher.amount).toLocaleString("en-US")}</TD>

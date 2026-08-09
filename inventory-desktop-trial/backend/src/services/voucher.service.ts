@@ -320,6 +320,17 @@ async function updateVoucherInTransaction(
     throw new AppError("Voucher not found", 404, "VOUCHER_NOT_FOUND");
   }
 
+  // A cancelled or archived voucher exists purely as an audit artifact — it is
+  // already excluded from the balance, so rewriting its amount changed nothing
+  // anyone could see except the audit trail itself.
+  if (existing.cancelledAt || existing.archivedAt) {
+    throw new AppError(
+      "لا يمكن تعديل سند ملغى أو محذوف",
+      400,
+      "VOUCHER_NOT_EDITABLE"
+    );
+  }
+
   // EXPENSE vouchers cannot change customer; the rest cannot become EXPENSE on the fly either.
   const oldCustomerId = existing.customerId;
   const newCustomerId = input.customerId ?? oldCustomerId;

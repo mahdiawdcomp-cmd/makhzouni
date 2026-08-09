@@ -2,6 +2,9 @@ import { useState } from "react"
 import { Button } from "./ui/button"
 import { toast } from "./ui/use-toast"
 import type { Customer, CustomerTransaction } from "../types/api"
+import { translateRow } from "../utils/customerStatementExport"
+import { fmt } from "../utils/fmt"
+import { formatDate } from "../utils/date"
 
 /**
  * Generates the customer account-statement PDF on demand.
@@ -29,7 +32,7 @@ export function CustomerStatementPdfButton({
               <Text>كشف حساب: {customer.name}</Text>
               {rows.map((row) => (
                 <Text key={row.id}>
-                  {String(row.date).slice(0, 10)} - {row.type} - {row.runningBalance}
+                  {formatDate(row.date)} - {translateRow(row)} - مدين: {fmt(row.debit || 0)} - دائن: {fmt(row.credit || 0)} - الرصيد: {fmt(row.runningBalance)}
                 </Text>
               ))}
             </View>
