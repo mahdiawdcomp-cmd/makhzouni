@@ -92,6 +92,14 @@ export function VouchersPage() {
   // Auto-open dialog if URL has ?action=...
   useEffect(() => {
     if (urlAction === "RECEIPT" || urlAction === "PAYMENT" || urlAction === "EXPENSE") {
+      // This path bypasses openCreate(), which is the only other place the
+      // idempotency key got refreshed — without this, a dialog opened via
+      // ?action=... reused whatever key was left over from the previous
+      // successful save, and the backend's idempotency check silently
+      // returned that OLD voucher instead of creating the new one (money
+      // never actually recorded, no error shown).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      clientRequestIdRef.current = crypto.randomUUID()
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setType(urlAction)
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -186,6 +194,10 @@ export function VouchersPage() {
         date: localDateStr(),
       }),
     onSuccess: () => {
+      // A stale key here is exactly what let the ?action=... dialog-open path
+      // silently replay this save as an old voucher — reset unconditionally
+      // after every successful save, not just when openCreate() runs.
+      clientRequestIdRef.current = crypto.randomUUID()
       setDialogOpen(false)
       setCustomerId(""); setAmount(""); setNotes(""); setDescription(""); setCategory("")
       void queryClient.invalidateQueries({ queryKey: ["vouchers"] })
