@@ -76,7 +76,16 @@ import {
   validatePromoSchema,
   retailAiChatSchema,
   guestCatalogEnterSchema,
+  catalogProductIdSchema,
+  catalogGalleryImageSchema,
+  submitProductReviewSchema,
 } from "../utils/schemas";
+import {
+  getProductDetailCtrl,
+  getGalleryImageCtrl,
+  getMyProductReviewCtrl,
+  submitProductReviewCtrl,
+} from "../controllers/catalog-product-page.controller";
 
 const router = Router();
 
@@ -239,6 +248,14 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
     },
   });
 }));
+
+// Catalog product page. Token in ?access when the shopper came through a
+// customer link; without one the controller falls back to guest mode, which
+// the service refuses unless the shop enabled open browsing.
+router.get("/catalog/product/:id", catalogLimiter, validate(catalogProductIdSchema), getProductDetailCtrl);
+router.get("/catalog/product/:id/image/:imageId", catalogLimiter, validate(catalogGalleryImageSchema), getGalleryImageCtrl);
+router.get("/catalog/product/:id/my-review", catalogLimiter, validate(catalogProductIdSchema), getMyProductReviewCtrl);
+router.post("/catalog/product/:id/review", catalogLimiter, validate(submitProductReviewSchema), submitProductReviewCtrl);
 
 // Catalog public endpoints
 router.post("/catalog/access/request", catalogLimiter, validate(catalogAccessRequestSchema), createCatalogAccessRequest);

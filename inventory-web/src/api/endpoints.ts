@@ -461,6 +461,153 @@ export async function getPublicCatalogProductImage(access: string, id: string) {
   return data.data?.imageUrl ?? null
 }
 
+/* ── Catalog product page ─────────────────────────────────────────── */
+
+export interface CatalogProductSpec { label: string; value: string }
+
+export interface CatalogProductReviewItem {
+  id: string
+  rating: number
+  comment: string | null
+  createdAt: string
+  authorName: string
+}
+
+export interface CatalogProductDetail {
+  id: string
+  itemNumber: string
+  name: string
+  thumbnailUrl: string | null
+  category: string | null
+  isNewArrival: boolean
+  isOffer: boolean
+  oldPrice: number | null
+  salePrice: number | null
+  pcsPerCarton: number
+  boxPieces: number | null
+  hiddenUnits: Array<"DOZEN" | "BOX" | "CARTON">
+  currentStock: number
+  showStock: boolean
+  description: string
+  specs: CatalogProductSpec[]
+  gallery: Array<{ id: string; thumbnailUrl: string | null }>
+  reviews: { average: number | null; count: number; items: CatalogProductReviewItem[] }
+  related: Array<{
+    id: string; name: string; itemNumber: string; thumbnailUrl: string | null
+    salePrice: number | null; pcsPerCarton: number; currentStock: number
+  }>
+}
+
+export interface MyCatalogReview {
+  id: string
+  rating: number
+  comment: string | null
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  createdAt: string
+}
+
+/** `access` is "" for guest browsing — the backend refuses if guests are off. */
+export async function getCatalogProductDetail(productId: string, access: string) {
+  const { data } = await api.get<ApiEnvelope<CatalogProductDetail>>(
+    `/public/catalog/product/${productId}`,
+    { params: access ? { access } : {} },
+  )
+  return data.data!
+}
+
+export async function getCatalogGalleryImage(productId: string, imageId: string, access: string) {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
+    `/public/catalog/product/${productId}/image/${imageId}`,
+    { params: access ? { access } : {} },
+  )
+  return data.data?.imageUrl ?? null
+}
+
+export async function getMyCatalogReview(productId: string, access: string) {
+  if (!access) return null
+  const { data } = await api.get<ApiEnvelope<MyCatalogReview | null>>(
+    `/public/catalog/product/${productId}/my-review`,
+    { params: { access } },
+  )
+  return data.data ?? null
+}
+
+export async function submitCatalogProductReview(
+  productId: string, access: string, payload: { rating: number; comment?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(
+    `/public/catalog/product/${productId}/review`, payload, { params: { access } },
+  )
+  return data
+}
+
+/* ── Catalog product content + review moderation (admin) ──────────── */
+
+export interface AdminProductContent {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  description: string
+  specs: CatalogProductSpec[]
+  gallery: Array<{ id: string; thumbnailUrl: string | null; sortOrder: number }>
+}
+
+export interface AdminCatalogReview {
+  id: string
+  rating: number
+  comment: string | null
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  createdAt: string
+  reviewedAt: string | null
+  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null }
+  customer: { id: string; name: string; phone: string }
+}
+
+export async function getProductCatalogContent(productId: string) {
+  const { data } = await api.get<ApiEnvelope<AdminProductContent>>(
+    `/catalog-management/products/${productId}/content`,
+  )
+  return data.data!
+}
+
+export async function updateProductCatalogContent(
+  productId: string, payload: { description?: string; specs?: CatalogProductSpec[] },
+) {
+  const { data } = await api.put<ApiEnvelope<AdminProductContent>>(
+    `/catalog-management/products/${productId}/content`, payload,
+  )
+  return data.data!
+}
+
+export async function addProductCatalogImage(
+  productId: string, payload: { url: string; thumbnailUrl?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ id: string }>>(
+    `/catalog-management/products/${productId}/images`, payload,
+  )
+  return data.data!
+}
+
+export async function deleteProductCatalogImage(productId: string, imageId: string) {
+  await api.delete(`/catalog-management/products/${productId}/images/${imageId}`)
+}
+
+export async function listCatalogReviews(status?: "PENDING" | "APPROVED" | "REJECTED") {
+  const { data } = await api.get<ApiEnvelope<AdminCatalogReview[]>>(
+    "/catalog-management/reviews", { params: status ? { status } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function setCatalogReviewStatus(id: string, status: "APPROVED" | "REJECTED") {
+  await api.patch(`/catalog-management/reviews/${id}`, { status })
+}
+
+export async function deleteCatalogReview(id: string) {
+  await api.delete(`/catalog-management/reviews/${id}`)
+}
+
 export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string) {
   const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access } })
   return data

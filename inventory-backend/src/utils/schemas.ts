@@ -232,6 +232,54 @@ export const trackCatalogViewSchema = z.object({
   }),
 });
 
+/* ── Catalog product page ─────────────────────────────────────────── */
+
+export const catalogProductIdSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+});
+
+export const catalogGalleryImageSchema = z.object({
+  params: z.object({ id: z.string().uuid(), imageId: z.string().uuid() }),
+});
+
+export const submitProductReviewSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({
+    rating: z.coerce.number().int().min(1).max(5),
+    comment: z.string().trim().max(1000).optional(),
+  }),
+});
+
+export const updateProductContentSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({
+    description: z.string().trim().max(4000).optional(),
+    specs: z
+      .array(z.object({ label: z.string().trim().max(60), value: z.string().trim().max(200) }))
+      .max(30)
+      .optional(),
+  }),
+});
+
+export const addProductImageSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({
+    // Data URIs, so no .url() here. Bounded to keep one paste from writing a
+    // multi-megabyte row (and dragging every backup down with it).
+    url: z.string().min(1).max(4_000_000),
+    thumbnailUrl: z.string().max(1_000_000).optional(),
+  }),
+});
+
+export const deleteProductImageSchema = z.object({
+  params: z.object({ id: z.string().uuid(), imageId: z.string().uuid() }),
+});
+
+export const setReviewStatusSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({ status: z.enum(["APPROVED", "REJECTED"]) }),
+});
+
 export const visitorHeartbeatSchema = z.object({
   body: z.object({
     phone: z.string().trim().min(5).max(40),

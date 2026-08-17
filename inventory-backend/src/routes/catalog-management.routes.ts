@@ -18,6 +18,24 @@ import {
   broadcastVisitorsCtrl,
   getCatalogProductStatsCtrl,
 } from "../controllers/catalog-management.controller";
+import {
+  getProductContentCtrl,
+  updateProductContentCtrl,
+  addProductImageCtrl,
+  deleteProductImageCtrl,
+  listReviewsCtrl,
+  setReviewStatusCtrl,
+  deleteReviewCtrl,
+} from "../controllers/catalog-product-page.controller";
+import { validate } from "../middleware/validate";
+import {
+  catalogProductIdSchema,
+  updateProductContentSchema,
+  addProductImageSchema,
+  deleteProductImageSchema,
+  setReviewStatusSchema,
+  idParamSchema,
+} from "../utils/schemas";
 
 const router = Router();
 
@@ -54,5 +72,18 @@ router.patch("/promo-codes/:id/toggle", togglePromoCodeCtrl);
 // Design settings
 router.get("/design", getCatalogDesignCtrl);
 router.put("/design", updateCatalogDesignCtrl);
+
+// Storefront content for the product page (description, spec rows, gallery).
+// Two-segment paths, so none of these collide with the "/:id" customer routes.
+router.get("/products/:id/content", validate(catalogProductIdSchema), getProductContentCtrl);
+router.put("/products/:id/content", validate(updateProductContentSchema), updateProductContentCtrl);
+router.post("/products/:id/images", validate(addProductImageSchema), addProductImageCtrl);
+router.delete("/products/:id/images/:imageId", validate(deleteProductImageSchema), deleteProductImageCtrl);
+
+// Review moderation — nothing a shopper writes reaches the storefront until
+// one of these approves it.
+router.get("/reviews", listReviewsCtrl);
+router.patch("/reviews/:id", validate(setReviewStatusSchema), setReviewStatusCtrl);
+router.delete("/reviews/:id", validate(idParamSchema), deleteReviewCtrl);
 
 export default router;

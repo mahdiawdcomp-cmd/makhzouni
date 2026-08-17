@@ -117,6 +117,12 @@ enum CatalogStockFilter {
   FULL_CARTON_ONLY
 }
 
+enum ProductReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum StocktakeSessionStatus {
   OPEN
   SUBMITTED
@@ -428,10 +434,64 @@ model Product {
   isBoxPiecesManual Boolean @default(false) @map("is_box_pieces_manual")
   hiddenUnits       Unit[]  @default([]) @map("hidden_units")
 
+  // Storefront content for the wholesale catalog's product page. Kept apart
+  // from the operational fields above: this is marketing copy the shop writes
+  // for shoppers, and it is optional everywhere.
+  catalogDescription String? @map("catalog_description") @db.Text
+  // [{ label, value }] — free-form spec rows rendered as a table.
+  catalogSpecs       Json?   @map("catalog_specs")
+  catalogImages      ProductCatalogImage[]
+  catalogReviews     CatalogProductReview[]
+
   @@index([createdBy])
   @@index([branchId])
   @@index([deletedAt])
   @@map("products")
+}
+
+// Extra storefront images for a product, beyond the single operational
+// imageUrl/thumbnailUrl. Same storage approach as products.image_url (a data
+// URI in a Text column) so the shop uploads from a phone with no external
+// hosting — thumbnails are what the gallery lists, full images load on tap.
+model ProductCatalogImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url          String   @db.Text
+  thumbnailUrl String?  @map("thumbnail_url") @db.Text
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([productId, sortOrder])
+  @@map("product_catalog_images")
+}
+
+// Storefront reviews on the wholesale catalog's product page. Deliberately
+// NOT the existing ProductReview model: that one is a single rating per sale
+// INVOICE gathered over WhatsApp, which cannot be attributed to any one
+// product. This is per-product, written by the shopper on the product page.
+//
+// Only wholesale customers with a catalog link can post, and nothing reaches
+// the storefront until an admin approves it. The unique pair keeps one review
+// per customer per product (re-submitting edits their own, back to PENDING).
+model CatalogProductReview {
+  id         String              @id @default(uuid()) @db.Uuid
+  productId  String              @map("product_id") @db.Uuid
+  product    Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  customerId String              @map("customer_id") @db.Uuid
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  rating     Int
+  comment    String?             @db.Text
+  status     ProductReviewStatus @default(PENDING)
+  reviewedBy String?             @map("reviewed_by") @db.Uuid
+  reviewedAt DateTime?           @map("reviewed_at")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  @@unique([productId, customerId])
+  @@index([productId, status])
+  @@index([status, createdAt])
+  @@map("catalog_product_reviews")
 }
 
 // A Branch row is kept for API compatibility, but represents a warehouse
@@ -505,6 +565,7 @@ model Customer {
   arrivalSubscriptions ProductArrivalSubscription[]
   promoCodes           PromoCode[]
   productReviews       ProductReview[]
+  catalogReviews       CatalogProductReview[]
   createdAt            DateTime                     @default(now()) @map("created_at")
   updatedAt            DateTime                     @updatedAt @map("updated_at")
   deletedAt            DateTime?                    @map("deleted_at")

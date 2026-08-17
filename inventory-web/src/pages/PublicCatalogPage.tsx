@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { api, API_BASE_URL } from "../api/client"
 import {
   Check,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   Grid,
   HelpCircle,
   ImageIcon,
@@ -17,6 +18,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Share2,
   ShoppingBag,
   ShoppingCart,
   Trash2,
@@ -41,6 +43,10 @@ import {
   submitPublicCatalogOrder,
   validatePublicPromoCode,
   EMPTY_CATALOG_FOOTER,
+  getCatalogProductDetail,
+  getCatalogGalleryImage,
+  getMyCatalogReview,
+  submitCatalogProductReview,
   type CatalogFooter,
 } from "../api/endpoints"
 import type { CatalogStockFilter, PublicCatalogProduct } from "../types/api"
@@ -881,6 +887,34 @@ function CatalogShop({
   })
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  // A shared link (/catalog?product=<id>) opens straight onto that product —
+  // but only once the shopper is past the gate, since this component only
+  // mounts after it. The id stays in the URL so a refresh keeps the product.
+  const [openProductId, setOpenProductId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get("product"),
+  )
+
+  function openProduct(id: string) {
+    setOpenProductId(id)
+    const url = new URL(window.location.href)
+    url.searchParams.set("product", id)
+    window.history.pushState({}, "", url)
+  }
+  function closeProduct() {
+    setOpenProductId(null)
+    const url = new URL(window.location.href)
+    url.searchParams.delete("product")
+    window.history.replaceState({}, "", url)
+  }
+
+  // Back button should close the product page, not leave the catalog.
+  useEffect(() => {
+    function onPop() {
+      setOpenProductId(new URLSearchParams(window.location.search).get("product"))
+    }
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
   const [sortKey, setSortKey] = useState<SortKey>("default")
   const [viewMode, setViewMode] = useState<ViewMode>("grid")
   const [perRow, setPerRow] = useState(2)
@@ -894,7 +928,6 @@ function CatalogShop({
   const [notes, setNotes] = useState("")
   const [submitted, setSubmitted] = useState<string | null>(null)
   const [bannerIndex, setBannerIndex] = useState(0)
-  const [zoomedImg, setZoomedImg] = useState<{ src: string; name: string } | null>(null)
   const [pickerProduct, setPickerProduct] = useState<PublicCatalogProduct | null>(null)
   const [promoCode, setPromoCode] = useState("")
   const [promoResult, setPromoResult] = useState<{ code: string; type: string; value: number | null; description: string | null } | null>(null)
@@ -1134,20 +1167,6 @@ function CatalogShop({
     else if (e.key === "Escape") { setSearch(""); setActiveSugg(0) }
   }
 
-  // Zoom: show the lightweight thumbnail instantly, then fetch the full-res
-  // image in the background and swap it in once it arrives (mirrors the
-  // inventory page so the catalog loads fast and images load on tap).
-  async function openZoom(product: PublicCatalogProduct) {
-    const thumb = product.thumbnailUrl || product.imageUrl
-    if (!thumb) return
-    void trackCatalogProductView(product.id, visitorPhone)
-    setZoomedImg({ src: thumb, name: product.name })
-    try {
-      const full = guestMode ? await getGuestCatalogProductImage(product.id) : await getPublicCatalogProductImage(accessToken, product.id)
-      if (full) setZoomedImg({ src: full, name: product.name })
-    } catch {}
-  }
-
   function renderCard(product: PublicCatalogProduct) {
     const productLines = cart.filter(l => l.product.id === product.id)
     const qtyInCart = productLines.reduce((s, l) => s + l.quantity, 0)
@@ -1171,7 +1190,7 @@ function CatalogShop({
         onAdd={(unit) => add(product, unit)}
         onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
         onOpenPicker={() => setPickerProduct(product)}
-        onZoom={() => openZoom(product)}
+        onOpen={() => { void trackCatalogProductView(product.id, visitorPhone); openProduct(product.id) }}
       />
     )
   }
@@ -1587,21 +1606,6 @@ function CatalogShop({
         <GuestAccessRequestModal tk={tk} onClose={() => setAccessRequestOpen(false)} />
       )}
 
-      {/* ── Image lightbox ── */}
-      {zoomedImg && (
-        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-black/95"
-          onClick={() => setZoomedImg(null)}>
-          <button className="absolute right-4 top-4 rounded-full bg-white/10 p-2.5 transition hover:bg-white/20"
-            onClick={() => setZoomedImg(null)}>
-            <X className="h-6 w-6 text-white" />
-          </button>
-          <img src={zoomedImg.src} alt={zoomedImg.name}
-            className="max-h-[80vh] max-w-[90vw] rounded-2xl object-contain shadow-2xl"
-            onClick={(e) => e.stopPropagation()} />
-          <p className="mt-4 text-center text-sm font-semibold text-white/80 px-4">{zoomedImg.name}</p>
-        </div>
-      )}
-
       {/* ── Unit picker sheet ── */}
       {pickerProduct && (
         <UnitPickerSheet
@@ -1611,6 +1615,20 @@ function CatalogShop({
           tk={tk}
           onSelect={(unit) => { add(pickerProduct, unit); setPickerProduct(null) }}
           onClose={() => setPickerProduct(null)}
+        />
+      )}
+
+      {/* ── Product page ── */}
+      {openProductId && (
+        <ProductDetailSheet
+          productId={openProductId}
+          accessToken={accessToken}
+          guestMode={guestMode}
+          tk={tk}
+          allowPrices={allowPrices}
+          onClose={closeProduct}
+          onAdd={(p, unit) => { add(p, unit); closeProduct() }}
+          onOpenProduct={openProduct}
         />
       )}
 
@@ -1689,6 +1707,373 @@ function CatalogOnboardingTutorial({ tk, onClose }: { tk: ThemeTokens; onClose: 
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PRODUCT PAGE — gallery, description, specs, reviews, related
+══════════════════════════════════════════════════════════════════════ */
+function Stars({ value, size, onPick }: { value: number; size: string; onPick?: (n: number) => void }) {
+  return (
+    <span className="inline-flex items-center gap-0.5" dir="ltr">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          disabled={!onPick}
+          onClick={() => onPick?.(n)}
+          className={cn("leading-none transition", onPick && "active:scale-90 cursor-pointer")}
+          style={{ fontSize: size, opacity: n <= value ? 1 : 0.28 }}
+          aria-label={`${n}`}
+        >
+          ⭐
+        </button>
+      ))}
+    </span>
+  )
+}
+
+function ProductDetailSheet({
+  productId, accessToken, guestMode, tk, allowPrices, onClose, onAdd, onOpenProduct,
+}: {
+  productId: string
+  accessToken: string
+  guestMode: boolean
+  tk: ThemeTokens
+  allowPrices: boolean
+  onClose: () => void
+  onAdd: (product: PublicCatalogProduct, unit: CatalogUnit) => void
+  onOpenProduct: (id: string) => void
+}) {
+  const access = guestMode ? "" : accessToken
+  const [heroIdx, setHeroIdx] = useState(0)
+  const [zoom, setZoom] = useState<string | null>(null)
+  const [rating, setRating] = useState(0)
+  const [comment, setComment] = useState("")
+  const [copied, setCopied] = useState(false)
+  const qc = useQueryClient()
+
+  const detailQuery = useQuery({
+    queryKey: ["catalog-product", productId, access],
+    queryFn: () => getCatalogProductDetail(productId, access),
+    staleTime: 30_000,
+  })
+  const myReviewQuery = useQuery({
+    queryKey: ["catalog-my-review", productId, access],
+    queryFn: () => getMyCatalogReview(productId, access),
+    enabled: Boolean(access),
+  })
+  const product = detailQuery.data
+
+  // Seed the form from whatever the shopper already sent, so revising is
+  // editing rather than retyping from scratch.
+  useEffect(() => {
+    const mine = myReviewQuery.data
+    if (mine) { setRating(mine.rating); setComment(mine.comment ?? "") }
+  }, [myReviewQuery.data])
+
+  useEffect(() => { setHeroIdx(0) }, [productId])
+
+  const reviewMut = useMutation({
+    mutationFn: () => submitCatalogProductReview(productId, access, { rating, comment: comment.trim() || undefined }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["catalog-my-review", productId, access] })
+      void qc.invalidateQueries({ queryKey: ["catalog-product", productId, access] })
+    },
+  })
+
+  // Slides: the product's own thumbnail first, then the gallery.
+  const slides: Array<{ key: string; thumb: string | null; imageId?: string }> = product
+    ? [
+        { key: "main", thumb: product.thumbnailUrl },
+        ...product.gallery.map((g) => ({ key: g.id, thumb: g.thumbnailUrl, imageId: g.id })),
+      ].filter((s) => s.thumb)
+    : []
+  const hero = slides[Math.min(heroIdx, Math.max(0, slides.length - 1))]
+
+  async function openZoom() {
+    if (!hero?.thumb) return
+    setZoom(hero.thumb)
+    try {
+      const full = hero.imageId
+        ? await getCatalogGalleryImage(productId, hero.imageId, access)
+        : guestMode
+          ? await getGuestCatalogProductImage(productId)
+          : await getPublicCatalogProductImage(accessToken, productId)
+      if (full) setZoom(full)
+    } catch { /* thumbnail already shown */ }
+  }
+
+  async function share() {
+    // Deep link back into the catalog — the phone gate still applies, so a
+    // forwarded link never leaks the shop to someone who hasn't identified.
+    const url = `${window.location.origin}/catalog?product=${productId}`
+    const text = product ? `${product.name}\n${url}` : url
+    try {
+      if (navigator.share) { await navigator.share({ title: product?.name, url }); return }
+      await navigator.clipboard.writeText(text)
+      setCopied(true); window.setTimeout(() => setCopied(false), 2000)
+    } catch { /* user dismissed the share sheet */ }
+  }
+
+  const outOfStock = (product?.currentStock ?? 0) <= 0
+  const cartons = product ? Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)) : 0
+
+  return (
+    <div className="fixed inset-0 z-[120] overflow-y-auto" style={{ background: tk.bg }} dir="rtl">
+      {/* Sticky bar */}
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-2 px-3 py-2.5"
+        style={{ background: tk.accent, boxShadow: tk.shadowMd }}>
+        <button onClick={onClose} className="flex items-center gap-1.5 rounded-xl px-2.5 py-2 font-bold text-white transition active:scale-95"
+          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.sm }}>
+          <ChevronRight className="h-4 w-4" />
+          رجوع
+        </button>
+        <button onClick={share} className="flex items-center gap-1.5 rounded-xl px-3 py-2 font-bold text-white transition active:scale-95"
+          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.sm }}>
+          <Share2 className="h-4 w-4" />
+          {copied ? "تم نسخ الرابط" : "مشاركة"}
+        </button>
+      </div>
+
+      <div className="mx-auto max-w-[600px] pb-24">
+        {detailQuery.isLoading && (
+          <div className="space-y-3 p-3">
+            <div className="aspect-square w-full" style={{ background: tk.skeletonBg, borderRadius: tk.radiusLg }} />
+            <div className="h-4 w-2/3 rounded-full" style={{ background: tk.skeletonBg }} />
+            <div className="h-4 w-1/3 rounded-full" style={{ background: tk.skeletonBg }} />
+          </div>
+        )}
+
+        {detailQuery.isError && (
+          <div className="p-8 text-center">
+            <p className="font-bold" style={{ color: tk.text, fontSize: tk.fs.lg }}>تعذر فتح المنتج</p>
+            <button onClick={() => void detailQuery.refetch()} className="mt-3 rounded-xl px-5 py-2.5 font-bold text-white"
+              style={{ background: tk.accent, fontSize: tk.fs.sm }}>إعادة المحاولة</button>
+          </div>
+        )}
+
+        {product && (
+          <>
+            {/* ── Gallery ── */}
+            <div className="p-3">
+              <div className="relative aspect-square w-full overflow-hidden"
+                style={{ background: tk.catIdle, borderRadius: tk.radiusLg, boxShadow: tk.shadowSm }}>
+                {hero?.thumb ? (
+                  <img src={hero.thumb} alt={product.name} onClick={openZoom}
+                    className="h-full w-full cursor-pointer object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center">
+                    <ImageIcon className="h-14 w-14" style={{ color: tk.subtext, opacity: 0.25 }} />
+                  </div>
+                )}
+                <div className="absolute right-2 top-2 flex flex-col items-end gap-1">
+                  {product.isNewArrival && <span className="rounded-full px-2.5 py-1 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
+                  {product.isOffer && <span className="rounded-full bg-rose-500 px-2.5 py-1 font-bold text-white" style={{ fontSize: tk.fs.xs }}>عرض</span>}
+                </div>
+                {outOfStock && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/60">
+                    <span className="rounded-full bg-red-500 px-4 py-1.5 font-extrabold text-white" style={{ fontSize: tk.fs.md }}>نفد المخزون</span>
+                  </div>
+                )}
+              </div>
+
+              {slides.length > 1 && (
+                <div className="mt-2 flex gap-2 overflow-x-auto scrollbar-hide">
+                  {slides.map((s, i) => (
+                    <button key={s.key} onClick={() => setHeroIdx(i)}
+                      className="h-16 w-16 shrink-0 overflow-hidden transition"
+                      style={{
+                        borderRadius: tk.radiusSm,
+                        border: `2px solid ${i === heroIdx ? tk.accent : "transparent"}`,
+                        opacity: i === heroIdx ? 1 : 0.6,
+                      }}>
+                      <img src={s.thumb!} alt="" className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Title + price ── */}
+            <div className="px-3">
+              <h1 className="font-extrabold leading-snug" style={{ color: tk.text, fontSize: tk.fs.xl }}>{product.name}</h1>
+              <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                {product.itemNumber}{product.category ? ` · ${product.category}` : ""}
+              </p>
+
+              {product.reviews.count > 0 && (
+                <div className="mt-2 flex items-center gap-2">
+                  <Stars value={Math.round(product.reviews.average ?? 0)} size={tk.fs.md} />
+                  <span className="font-bold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{product.reviews.average}</span>
+                  <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>({product.reviews.count} تقييم)</span>
+                </div>
+              )}
+
+              {allowPrices && !outOfStock && (
+                <div className="mt-3 flex items-end gap-2">
+                  <span className="font-extrabold leading-none" style={{ color: tk.accent, fontSize: tk.fs.xxl }}>
+                    {money(product.salePrice)}
+                    <span className="font-normal mr-1" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>د.ع / قطعة</span>
+                  </span>
+                  {product.isOffer && product.oldPrice ? (
+                    <span className="line-through" style={{ color: tk.subtext, fontSize: tk.fs.md }}>{money(product.oldPrice)}</span>
+                  ) : null}
+                </div>
+              )}
+              {product.showStock && !outOfStock && (
+                <p className="mt-1.5 font-semibold" style={{ color: cartons <= 2 ? "#ef4444" : tk.subtext, fontSize: tk.fs.sm }}>
+                  {cartons <= 2 ? `⚠ ${cartons} كارتون متبقي فقط` : `${money(cartons)} كارتون متوفر`}
+                </p>
+              )}
+            </div>
+
+            {/* ── Description ── */}
+            {product.description && (
+              <section className="mx-3 mt-4 p-3.5" style={{ background: tk.cardBg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}` }}>
+                <h2 className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>الوصف</h2>
+                <p className="whitespace-pre-line leading-relaxed" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>{product.description}</p>
+              </section>
+            )}
+
+            {/* ── Specs ── */}
+            {product.specs.length > 0 && (
+              <section className="mx-3 mt-3 overflow-hidden" style={{ background: tk.cardBg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}` }}>
+                <h2 className="px-3.5 pt-3.5 pb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>المواصفات</h2>
+                {product.specs.map((s, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 px-3.5 py-2.5"
+                    style={{ borderTop: `1px solid ${tk.divider}`, background: i % 2 ? tk.pillBg : "transparent" }}>
+                    <span className="font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>{s.label}</span>
+                    <span className="text-left font-semibold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{s.value}</span>
+                  </div>
+                ))}
+              </section>
+            )}
+
+            {/* ── Reviews ── */}
+            <section className="mx-3 mt-3 p-3.5" style={{ background: tk.cardBg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}` }}>
+              <h2 className="mb-3 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+                آراء الزبائن {product.reviews.count > 0 ? `(${product.reviews.count})` : ""}
+              </h2>
+
+              {product.reviews.items.length === 0 && (
+                <p style={{ color: tk.subtext, fontSize: tk.fs.sm }}>لا توجد تقييمات بعد — كن أول من يقيّم.</p>
+              )}
+
+              <div className="space-y-3">
+                {product.reviews.items.map((r) => (
+                  <div key={r.id} className="pb-3" style={{ borderBottom: `1px solid ${tk.divider}` }}>
+                    <div className="flex items-center gap-2">
+                      <Stars value={r.rating} size={tk.fs.sm} />
+                      <span className="font-bold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{r.authorName}</span>
+                    </div>
+                    {r.comment && <p className="mt-1 leading-relaxed" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>{r.comment}</p>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Write / revise — customers only */}
+              {access ? (
+                <div className="mt-4 p-3" style={{ background: tk.bg, borderRadius: tk.radiusMd, border: `1px solid ${tk.divider}` }}>
+                  <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.sm }}>
+                    {myReviewQuery.data ? "عدّل تقييمك" : "اكتب تقييمك"}
+                  </p>
+                  {myReviewQuery.data?.status === "PENDING" && (
+                    <p className="mb-2 rounded-lg px-2.5 py-1.5 font-semibold"
+                      style={{ background: tk.accentSoft, color: tk.accent, fontSize: tk.fs.xs }}>
+                      تقييمك قيد المراجعة — يظهر بعد موافقة الإدارة
+                    </p>
+                  )}
+                  <Stars value={rating} size={tk.fs.xl} onPick={setRating} />
+                  <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={3}
+                    placeholder="شنو رأيك بالمنتج؟ (اختياري)"
+                    className="mt-2 w-full px-3 py-2 outline-none"
+                    style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}`, borderRadius: tk.radiusSm, fontSize: tk.fs.sm }}
+                  />
+                  {reviewMut.isSuccess && (
+                    <p className="mt-2 font-bold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>
+                      ✓ تم الإرسال — يظهر بعد موافقة الإدارة
+                    </p>
+                  )}
+                  {reviewMut.isError && (
+                    <p className="mt-2 font-bold text-red-500" style={{ fontSize: tk.fs.xs }}>تعذر إرسال التقييم، حاول مرة أخرى</p>
+                  )}
+                  <button
+                    disabled={rating < 1 || reviewMut.isPending}
+                    onClick={() => reviewMut.mutate()}
+                    className="mt-2.5 w-full py-3 font-extrabold text-white transition active:scale-95 disabled:opacity-40"
+                    style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+                    {reviewMut.isPending ? "جاري الإرسال..." : myReviewQuery.data ? "تحديث التقييم" : "إرسال التقييم"}
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-3 rounded-xl px-3 py-2.5 font-semibold"
+                  style={{ background: tk.accentSoft, color: tk.accent, fontSize: tk.fs.xs }}>
+                  التقييم متاح لزبائن الجملة — اطلب تفعيل حسابك للمشاركة
+                </p>
+              )}
+            </section>
+
+            {/* ── Related ── */}
+            {product.related.length > 0 && (
+              <section className="mt-4 px-3">
+                <h2 className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>منتجات مشابهة</h2>
+                <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide">
+                  {product.related.map((r) => (
+                    <button key={r.id} onClick={() => onOpenProduct(r.id)}
+                      className="w-[124px] shrink-0 overflow-hidden text-right transition active:scale-95"
+                      style={{ background: tk.cardBg, borderRadius: tk.radiusMd, border: `1px solid ${tk.divider}`, boxShadow: tk.shadowSm }}>
+                      <div className="aspect-square w-full" style={{ background: tk.catIdle }}>
+                        {r.thumbnailUrl
+                          ? <img src={r.thumbnailUrl} alt={r.name} className="h-full w-full object-cover" loading="lazy" />
+                          : <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>}
+                      </div>
+                      <div className="p-2">
+                        <p className="line-clamp-2 font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.xs }}>{r.name}</p>
+                        {allowPrices && r.salePrice != null && (
+                          <p className="mt-0.5 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{money(r.salePrice)} د.ع</p>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Sticky add-to-cart ── */}
+      {product && !outOfStock && (
+        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[600px] px-3 pb-3 pt-2"
+          style={{ background: tk.bg, borderTop: `1px solid ${tk.divider}` }}>
+          <button
+            onClick={() => {
+              // The detail payload is a superset of the grid's product shape —
+              // reuse the same add() so unit logic stays in one place.
+              onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor(product as unknown as PublicCatalogProduct))
+            }}
+            className="flex w-full items-center justify-center gap-2 py-4 font-extrabold text-white transition active:scale-95"
+            style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
+            <Plus className="h-5 w-5" />
+            أضف للسلة
+          </button>
+        </div>
+      )}
+
+      {/* Zoom */}
+      {zoom && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/95" onClick={() => setZoom(null)}>
+          <button className="absolute right-4 top-4 rounded-full bg-white/10 p-2.5" onClick={() => setZoom(null)}>
+            <X className="h-6 w-6 text-white" />
+          </button>
+          <img src={zoom} alt="" className="max-h-[85vh] max-w-[92vw] rounded-2xl object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   )
 }
@@ -2093,7 +2478,7 @@ function UnitPickerSheet({
 ══════════════════════════════════════════════════════════════════════ */
 function ProductCard({
   product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, compact,
-  onAdd, onRemoveOne, onOpenPicker, onZoom,
+  onAdd, onRemoveOne, onOpenPicker, onOpen,
 }: {
   product: PublicCatalogProduct
   allowPrices: boolean
@@ -2107,7 +2492,7 @@ function ProductCard({
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
   onOpenPicker: () => void
-  onZoom: () => void
+  onOpen: () => void
 }) {
   // Prefer the lightweight thumbnail; the full-res image is fetched on zoom.
   const thumbSrc = product.thumbnailUrl || product.imageUrl
@@ -2143,7 +2528,7 @@ function ProductCard({
         {/* Square image */}
         <div className="relative h-[76px] w-[76px] shrink-0 overflow-hidden" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }}>
           {thumbSrc ? (
-            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" decoding="async" onClick={onZoom} />
+            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-pointer object-cover" loading="lazy" decoding="async" onClick={onOpen} />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
@@ -2206,7 +2591,7 @@ function ProductCard({
         }}>
         <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
           {thumbSrc ? (
-            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" decoding="async" onClick={onZoom} />
+            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-pointer object-cover" loading="lazy" decoding="async" onClick={onOpen} />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
@@ -2257,8 +2642,8 @@ function ProductCard({
       <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
         {thumbSrc ? (
           <img src={thumbSrc} alt={product.name}
-            className="h-full w-full object-cover cursor-zoom-in transition-transform duration-300 hover:scale-105"
-            loading="lazy" decoding="async" onClick={onZoom} />
+            className="h-full w-full object-cover cursor-pointer transition-transform duration-300 hover:scale-105"
+            loading="lazy" decoding="async" onClick={onOpen} />
         ) : (
           <div className="flex h-full items-center justify-center">
             <ImageIcon className="h-10 w-10" style={{ color: tk.subtext, opacity: 0.2 }} />

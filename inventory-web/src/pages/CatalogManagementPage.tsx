@@ -8,6 +8,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileText,
   Globe,
   Image,
   Info,
@@ -63,6 +64,7 @@ import {
 } from "../api/endpoints"
 import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
+import { CatalogContentTab } from "../components/CatalogContentTab"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -1524,7 +1526,7 @@ function AnalyticsTab() {
 
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "promos">("customers")
+  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "content" | "promos">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1581,6 +1583,7 @@ export function CatalogManagementPage() {
           { key: "visitors", label: "الزوار الجدد", icon: <Users className="h-4 w-4" /> },
           { key: "analytics", label: "تحليلات الكتلوك", icon: <BarChart3 className="h-4 w-4" /> },
           { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
+          { key: "content", label: "محتوى المنتجات", icon: <FileText className="h-4 w-4" /> },
           { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
         ] as const).map(({ key, label, icon }) => (
           <button key={key} onClick={() => setTab(key)}
@@ -1596,6 +1599,7 @@ export function CatalogManagementPage() {
       {tab === "visitors" && <VisitorsTab />}
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "design" && <CatalogDesignTab />}
+      {tab === "content" && <CatalogContentTab />}
       {tab === "promos" && <PromoCodesTab />}
 
       {tab === "customers" && <>
