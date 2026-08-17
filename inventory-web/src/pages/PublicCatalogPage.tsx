@@ -40,6 +40,8 @@ import {
   verifyCatalogAccess,
   submitPublicCatalogOrder,
   validatePublicPromoCode,
+  EMPTY_CATALOG_FOOTER,
+  type CatalogFooter,
 } from "../api/endpoints"
 import type { CatalogStockFilter, PublicCatalogProduct } from "../types/api"
 import { cn } from "../utils/cn"
@@ -913,7 +915,7 @@ function CatalogShop({
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }> } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter> } }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const design = designQuery.data
@@ -1456,7 +1458,7 @@ function CatalogShop({
       })()}
 
       {/* ── Main content ── */}
-      <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-32 pt-4 overflow-hidden" style={{ background: tk.bg }}>
+      <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-6 pt-4 overflow-hidden" style={{ background: tk.bg }}>
 
         {/* Loading skeleton */}
         {productsQuery.isLoading && viewMode === "grid" && (
@@ -1532,6 +1534,17 @@ function CatalogShop({
           )
         )}
       </main>
+
+      {/* ── Storefront footer (hidden until an admin fills it in) ── */}
+      <CatalogFooterBlock
+        footer={{ ...EMPTY_CATALOG_FOOTER, ...(design?.footer ?? {}) }}
+        tk={tk}
+        shopName={design?.welcomeMessage?.trim() || "متجرنا"}
+      />
+
+      {/* Clearance for the floating cart button — kept here rather than on
+          <main> so it still applies when the footer renders nothing. */}
+      <div className="shrink-0" style={{ height: "88px" }} />
       </div>{/* end card container */}
 
       {/* ── Floating cart button ── */}
@@ -1677,6 +1690,142 @@ function CatalogOnboardingTutorial({ tk, onClose }: { tk: ThemeTokens; onClose: 
         </div>
       </div>
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   STOREFRONT FOOTER — trust block, filled in from catalog management
+══════════════════════════════════════════════════════════════════════ */
+const SOCIALS: Array<{ key: keyof CatalogFooter; label: string; icon: string; href: (v: string) => string }> = [
+  { key: "instagram", label: "انستغرام", icon: "📷", href: (v) => v.startsWith("http") ? v : `https://instagram.com/${v.replace(/^@/, "")}` },
+  { key: "facebook", label: "فيسبوك", icon: "👥", href: (v) => v.startsWith("http") ? v : `https://facebook.com/${v}` },
+  { key: "telegram", label: "تيليگرام", icon: "✈️", href: (v) => v.startsWith("http") ? v : `https://t.me/${v.replace(/^@/, "")}` },
+  { key: "tiktok", label: "تيك توك", icon: "🎵", href: (v) => v.startsWith("http") ? v : `https://tiktok.com/@${v.replace(/^@/, "")}` },
+]
+
+function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFooter; tk: ThemeTokens; shopName: string }) {
+  const [openAbout, setOpenAbout] = useState(false)
+  // Settings rows are free-form JSON, so a value can arrive as a number (an
+  // all-digits phone) or null from older/hand-edited data. Coerce once here
+  // rather than defending at every .trim() call site.
+  const s = (v: unknown) => (v == null ? "" : String(v)).trim()
+  const footer = {
+    ...raw,
+    about: s(raw.about), phone: s(raw.phone), whatsapp: s(raw.whatsapp),
+    address: s(raw.address), hours: s(raw.hours),
+    instagram: s(raw.instagram), facebook: s(raw.facebook),
+    telegram: s(raw.telegram), tiktok: s(raw.tiktok),
+    deliveryAreas: s(raw.deliveryAreas), deliveryTime: s(raw.deliveryTime),
+    minOrder: s(raw.minOrder),
+  }
+  const socials = SOCIALS.filter(x => s(footer[x.key]))
+  const hasContact = Boolean(footer.phone || footer.whatsapp || footer.address || footer.hours || socials.length)
+  const hasDelivery = Boolean(footer.deliveryAreas || footer.deliveryTime || footer.minOrder || footer.cashOnDelivery)
+  // Nothing filled in yet → render nothing at all rather than an empty shell.
+  if (!footer.enabled || (!footer.about && !hasContact && !hasDelivery)) return null
+
+  const Row = ({ icon, label, value }: { icon: string; label: string; value: string }) =>
+    value ? (
+      <div className="flex items-start gap-2">
+        <span className="shrink-0 leading-none" style={{ fontSize: tk.fs.md }}>{icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-bold" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{label}</span>
+          <span className="block font-semibold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{value}</span>
+        </span>
+      </div>
+    ) : null
+
+  const digits = (v: string) => v.replace(/\D/g, "")
+
+  return (
+    <footer className="px-3 pb-2 pt-1">
+      <div className="overflow-hidden" style={{ background: tk.cardBg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}`, boxShadow: tk.shadowSm }}>
+
+        {/* ── About (collapsible) ── */}
+        {footer.about && (
+          <div style={{ borderBottom: (hasContact || hasDelivery) ? `1px solid ${tk.divider}` : "none" }}>
+            <button onClick={() => setOpenAbout(v => !v)}
+              className="flex w-full items-center justify-between gap-2 px-4 py-3.5 text-right transition active:opacity-70">
+              <span className="flex items-center gap-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+                <span style={{ fontSize: tk.fs.lg }}>🏬</span>
+                من نحن
+              </span>
+              <ChevronLeft className="h-4 w-4 shrink-0 transition-transform"
+                style={{ color: tk.subtext, transform: openAbout ? "rotate(-90deg)" : "none" }} />
+            </button>
+            {openAbout && (
+              <p className="whitespace-pre-line px-4 pb-4 leading-relaxed"
+                style={{ color: tk.subtext, fontSize: tk.fs.sm }}>
+                {footer.about}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* ── Contact ── */}
+        {hasContact && (
+          <div className="px-4 py-4" style={{ borderBottom: hasDelivery ? `1px solid ${tk.divider}` : "none" }}>
+            <p className="mb-3 flex items-center gap-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+              <span style={{ fontSize: tk.fs.lg }}>📞</span>
+              تواصل معنا
+            </p>
+            <div className="space-y-2.5">
+              {footer.phone && (
+                <a href={`tel:${digits(footer.phone)}`} className="block transition active:opacity-70">
+                  <Row icon="☎️" label="الهاتف" value={footer.phone} />
+                </a>
+              )}
+              {footer.whatsapp && (
+                <a href={`https://wa.me/${digits(footer.whatsapp)}`} target="_blank" rel="noreferrer noopener"
+                  className="block transition active:opacity-70">
+                  <Row icon="💬" label="واتساب" value={footer.whatsapp} />
+                </a>
+              )}
+              <Row icon="📍" label="العنوان" value={footer.address} />
+              <Row icon="🕐" label="أوقات الدوام" value={footer.hours} />
+            </div>
+
+            {socials.length > 0 && (
+              <div className="mt-3.5 flex flex-wrap gap-2">
+                {socials.map((soc) => (
+                  <a key={soc.key} href={soc.href(s(footer[soc.key]))} target="_blank" rel="noreferrer noopener"
+                    className="flex items-center gap-1.5 px-3 py-2 font-bold transition active:scale-95"
+                    style={{ background: tk.accentSoft, color: tk.accent, borderRadius: tk.radiusSm, fontSize: tk.fs.xs }}>
+                    <span style={{ fontSize: tk.fs.md }}>{soc.icon}</span>
+                    {soc.label}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Delivery ── */}
+        {hasDelivery && (
+          <div className="px-4 py-4">
+            <p className="mb-3 flex items-center gap-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+              <span style={{ fontSize: tk.fs.lg }}>🚚</span>
+              التوصيل
+            </p>
+            <div className="space-y-2.5">
+              <Row icon="🗺️" label="مناطق التوصيل" value={footer.deliveryAreas} />
+              <Row icon="⏱️" label="مدة التوصيل" value={footer.deliveryTime} />
+              <Row icon="🧾" label="أقل مبلغ للطلب" value={footer.minOrder} />
+            </div>
+            {footer.cashOnDelivery && (
+              <span className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 font-extrabold"
+                style={{ background: tk.accentSoft, color: tk.accent, borderRadius: tk.radiusSm, fontSize: tk.fs.xs }}>
+                💵 الدفع عند الاستلام
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="mt-3 text-center" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+        © {new Date().getFullYear()} {shopName}
+      </p>
+    </footer>
   )
 }
 

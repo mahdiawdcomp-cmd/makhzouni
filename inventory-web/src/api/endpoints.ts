@@ -1799,6 +1799,31 @@ export async function revokeCatalogAccess(customerId: string) {
 }
 
 // ── Catalog Design Settings ───────────────────────────────────────────────────
+/** Storefront footer. Every string is "" until an admin fills it in, and an
+ *  empty value hides its row in the catalog rather than showing a blank one. */
+export interface CatalogFooter {
+  enabled: boolean
+  about: string
+  phone: string
+  whatsapp: string
+  address: string
+  hours: string
+  instagram: string
+  facebook: string
+  telegram: string
+  tiktok: string
+  deliveryAreas: string
+  deliveryTime: string
+  minOrder: string
+  cashOnDelivery: boolean
+}
+
+export const EMPTY_CATALOG_FOOTER: CatalogFooter = {
+  enabled: true, about: "", phone: "", whatsapp: "", address: "", hours: "",
+  instagram: "", facebook: "", telegram: "", tiktok: "",
+  deliveryAreas: "", deliveryTime: "", minOrder: "", cashOnDelivery: true,
+}
+
 export interface CatalogDesign {
   primaryColor: string | null
   bgColor: string | null
@@ -1807,6 +1832,7 @@ export interface CatalogDesign {
   welcomeMessage: string | null
   bannerEnabled: boolean
   bannerImages: Array<{ url: string; title: string; order: number }>
+  footer: CatalogFooter
 }
 
 export async function getCatalogDesign() {

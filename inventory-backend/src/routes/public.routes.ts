@@ -201,7 +201,12 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
   const settings = await prisma.setting.findMany({ where: { key: { startsWith: "catalogDesign" } } });
   const kv: Record<string, unknown> = {};
   for (const s of settings) {
-    try { kv[s.key] = JSON.parse(String(s.value)); } catch { kv[s.key] = s.value; }
+    // Prisma already decodes the Json column, so re-parsing it was pure noise
+    // that only ever corrupted values: a digits-only string like a WhatsApp
+    // number ("9647701234567") round-tripped into a *number*, while every
+    // other value threw and fell back to the correct one. getSettings() reads
+    // these rows raw for exactly this reason — match it.
+    kv[s.key] = s.value;
   }
   const guestModeEnabled = await isGuestCatalogEnabled();
   res.json({
@@ -214,6 +219,22 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
       welcomeMessage: (kv.catalogDesignWelcomeMessage as string) ?? null,
       bannerEnabled: kv.catalogDesignBannerEnabled ?? true,
       bannerImages: (kv.catalogDesignBannerImages as Array<{ url: string; title: string; order: number }>) ?? [],
+      footer: {
+        enabled: kv.catalogDesignFooterEnabled ?? true,
+        about: (kv.catalogDesignFooterAbout as string) ?? "",
+        phone: (kv.catalogDesignFooterPhone as string) ?? "",
+        whatsapp: (kv.catalogDesignFooterWhatsapp as string) ?? "",
+        address: (kv.catalogDesignFooterAddress as string) ?? "",
+        hours: (kv.catalogDesignFooterHours as string) ?? "",
+        instagram: (kv.catalogDesignFooterInstagram as string) ?? "",
+        facebook: (kv.catalogDesignFooterFacebook as string) ?? "",
+        telegram: (kv.catalogDesignFooterTelegram as string) ?? "",
+        tiktok: (kv.catalogDesignFooterTiktok as string) ?? "",
+        deliveryAreas: (kv.catalogDesignFooterDeliveryAreas as string) ?? "",
+        deliveryTime: (kv.catalogDesignFooterDeliveryTime as string) ?? "",
+        minOrder: (kv.catalogDesignFooterMinOrder as string) ?? "",
+        cashOnDelivery: kv.catalogDesignFooterCashOnDelivery ?? false,
+      },
       guestModeEnabled,
     },
   });

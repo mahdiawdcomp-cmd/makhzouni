@@ -175,13 +175,29 @@ export const getCatalogDesignCtrl = asyncHandler(async (_req, res) => {
       welcomeMessage: settings.catalogDesignWelcomeMessage ?? null,
       bannerEnabled: settings.catalogDesignBannerEnabled ?? true,
       bannerImages: settings.catalogDesignBannerImages ?? [],
+      footer: {
+        enabled: settings.catalogDesignFooterEnabled ?? true,
+        about: settings.catalogDesignFooterAbout ?? "",
+        phone: settings.catalogDesignFooterPhone ?? "",
+        whatsapp: settings.catalogDesignFooterWhatsapp ?? "",
+        address: settings.catalogDesignFooterAddress ?? "",
+        hours: settings.catalogDesignFooterHours ?? "",
+        instagram: settings.catalogDesignFooterInstagram ?? "",
+        facebook: settings.catalogDesignFooterFacebook ?? "",
+        telegram: settings.catalogDesignFooterTelegram ?? "",
+        tiktok: settings.catalogDesignFooterTiktok ?? "",
+        deliveryAreas: settings.catalogDesignFooterDeliveryAreas ?? "",
+        deliveryTime: settings.catalogDesignFooterDeliveryTime ?? "",
+        minOrder: settings.catalogDesignFooterMinOrder ?? "",
+        cashOnDelivery: settings.catalogDesignFooterCashOnDelivery ?? false,
+      },
     },
   });
 });
 
 export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
   const {
-    primaryColor, bgColor, defaultTheme, logoUrl, welcomeMessage, bannerEnabled, bannerImages,
+    primaryColor, bgColor, defaultTheme, logoUrl, welcomeMessage, bannerEnabled, bannerImages, footer,
   } = req.body as {
     primaryColor?: string;
     bgColor?: string;
@@ -190,6 +206,22 @@ export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
     welcomeMessage?: string;
     bannerEnabled?: boolean;
     bannerImages?: Array<{ url: string; title: string; order: number }>;
+    footer?: {
+      enabled?: boolean;
+      about?: string;
+      phone?: string;
+      whatsapp?: string;
+      address?: string;
+      hours?: string;
+      instagram?: string;
+      facebook?: string;
+      telegram?: string;
+      tiktok?: string;
+      deliveryAreas?: string;
+      deliveryTime?: string;
+      minOrder?: string;
+      cashOnDelivery?: boolean;
+    };
   };
 
   await updateSettings({
@@ -200,6 +232,23 @@ export const updateCatalogDesignCtrl = asyncHandler(async (req, res) => {
     catalogDesignWelcomeMessage: welcomeMessage,
     catalogDesignBannerEnabled: bannerEnabled,
     catalogDesignBannerImages: bannerImages,
+    // Footer fields are sent as "" (not omitted) when the admin clears one —
+    // updateSettings drops undefined as "no change", so an omitted key would
+    // make a cleared field silently come back on the next load.
+    catalogDesignFooterEnabled: footer?.enabled,
+    catalogDesignFooterAbout: footer?.about,
+    catalogDesignFooterPhone: footer?.phone,
+    catalogDesignFooterWhatsapp: footer?.whatsapp,
+    catalogDesignFooterAddress: footer?.address,
+    catalogDesignFooterHours: footer?.hours,
+    catalogDesignFooterInstagram: footer?.instagram,
+    catalogDesignFooterFacebook: footer?.facebook,
+    catalogDesignFooterTelegram: footer?.telegram,
+    catalogDesignFooterTiktok: footer?.tiktok,
+    catalogDesignFooterDeliveryAreas: footer?.deliveryAreas,
+    catalogDesignFooterDeliveryTime: footer?.deliveryTime,
+    catalogDesignFooterMinOrder: footer?.minOrder,
+    catalogDesignFooterCashOnDelivery: footer?.cashOnDelivery,
   });
 
   res.json({ success: true, message: "Catalog design updated" });

@@ -134,6 +134,25 @@ export interface AppSettings {
   catalogDesignWelcomeMessage?: string;
   catalogDesignBannerEnabled?: boolean;
   catalogDesignBannerImages?: Array<{ url: string; title: string; order: number }>;
+  // Wholesale catalog footer. Every field is optional and independent of the
+  // storeName/storePhone/storeAddress identity settings on purpose: those are
+  // the shop's internal/document details, while these are what the shop wants
+  // shoppers to see. An empty field simply hides its row in the storefront,
+  // so a tenant that fills in nothing gets no footer at all.
+  catalogDesignFooterEnabled?: boolean;
+  catalogDesignFooterAbout?: string;
+  catalogDesignFooterPhone?: string;
+  catalogDesignFooterWhatsapp?: string;
+  catalogDesignFooterAddress?: string;
+  catalogDesignFooterHours?: string;
+  catalogDesignFooterInstagram?: string;
+  catalogDesignFooterFacebook?: string;
+  catalogDesignFooterTelegram?: string;
+  catalogDesignFooterTiktok?: string;
+  catalogDesignFooterDeliveryAreas?: string;
+  catalogDesignFooterDeliveryTime?: string;
+  catalogDesignFooterMinOrder?: string;
+  catalogDesignFooterCashOnDelivery?: boolean;
   // Wholesale catalog OTP re-verification gate. Defaults to true (current
   // behavior unchanged) — undefined/missing must also mean true so existing
   // tenants are never silently opened up. When false, a valid catalog link

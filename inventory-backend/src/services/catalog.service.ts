@@ -688,6 +688,22 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
     welcomeMessage: settings.catalogDesignWelcomeMessage ?? null,
     bannerEnabled: settings.catalogDesignBannerEnabled ?? true,
     bannerImages: settings.catalogDesignBannerImages ?? [],
+    footer: {
+      enabled: settings.catalogDesignFooterEnabled ?? true,
+      about: settings.catalogDesignFooterAbout ?? "",
+      phone: settings.catalogDesignFooterPhone ?? "",
+      whatsapp: settings.catalogDesignFooterWhatsapp ?? "",
+      address: settings.catalogDesignFooterAddress ?? "",
+      hours: settings.catalogDesignFooterHours ?? "",
+      instagram: settings.catalogDesignFooterInstagram ?? "",
+      facebook: settings.catalogDesignFooterFacebook ?? "",
+      telegram: settings.catalogDesignFooterTelegram ?? "",
+      tiktok: settings.catalogDesignFooterTiktok ?? "",
+      deliveryAreas: settings.catalogDesignFooterDeliveryAreas ?? "",
+      deliveryTime: settings.catalogDesignFooterDeliveryTime ?? "",
+      minOrder: settings.catalogDesignFooterMinOrder ?? "",
+      cashOnDelivery: settings.catalogDesignFooterCashOnDelivery ?? false,
+    },
   };
 
   // SaaS entitlement gates — display-time only, the stored per-link values are

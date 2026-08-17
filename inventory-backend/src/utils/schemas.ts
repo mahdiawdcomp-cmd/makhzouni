@@ -1012,6 +1012,22 @@ export const updateSettingsSchema = z.object({
       catalogDesignBannerImages: nullAsUndefined(
         z.array(z.object({ url: z.string(), title: z.string(), order: z.coerce.number() })),
       ),
+      // Catalog footer — every field must be listed here or validate() strips
+      // it out of req.body and the save silently drops it.
+      catalogDesignFooterEnabled: nullAsUndefined(z.boolean()),
+      catalogDesignFooterAbout: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterPhone: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterWhatsapp: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterAddress: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterHours: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterInstagram: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterFacebook: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterTelegram: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterTiktok: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterDeliveryAreas: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterDeliveryTime: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterMinOrder: nullAsUndefined(z.string().trim()),
+      catalogDesignFooterCashOnDelivery: nullAsUndefined(z.boolean()),
       catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),

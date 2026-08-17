@@ -10,6 +10,7 @@ import {
   EyeOff,
   Globe,
   Image,
+  Info,
   Lock,
   MessageCircle,
   Package,
@@ -56,6 +57,8 @@ import {
   revokeCatalogAccess,
   sendCatalogLinkToCustomer,
   type CatalogDesign,
+  type CatalogFooter,
+  EMPTY_CATALOG_FOOTER,
   type PromoCode,
 } from "../api/endpoints"
 import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
@@ -609,6 +612,13 @@ function CatalogDesignTab() {
     welcomeMessage: null, bannerEnabled: true, bannerImages: [],
     ...data,
     ...form,
+    // Footer is a nested object, so a plain spread would replace the whole
+    // thing and lose every field the admin didn't just touch.
+    footer: { ...EMPTY_CATALOG_FOOTER, ...(data?.footer ?? {}), ...(form.footer ?? {}) },
+  }
+
+  function patchFooter(key: keyof CatalogFooter, value: unknown) {
+    setForm((f) => ({ ...f, footer: { ...current.footer, ...f.footer, [key]: value } }))
   }
 
   const saveMut = useMutation({
@@ -774,6 +784,112 @@ function CatalogDesignTab() {
 
           {/* Quick pick from products */}
           <BannerProductPicker onPick={(url, name) => { setNewBannerUrl(url); setNewBannerTitle(name) }} />
+        </CardContent>
+      </Card>
+
+      {/* Footer */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Info className="h-5 w-5 text-amber-600" />
+            الفوتر — معلومات المتجر أسفل الكتلوك
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-center gap-3">
+            <input type="checkbox" checked={current.footer.enabled}
+              onChange={(e) => patchFooter("enabled", e.target.checked)} className="h-4 w-4 accent-amber-600" />
+            <span className="text-sm font-medium text-slate-700">إظهار الفوتر بالكتلوك</span>
+          </label>
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            اترك أي خانة فارغة وما راح تظهر للزبون. إذا كل الخانات فارغة، الفوتر ما يظهر أصلاً.
+          </p>
+
+          {/* About */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">من نحن (نبذة عن المتجر — تظهر بقسم يفتح بالضغط)</span>
+            <textarea
+              value={current.footer.about}
+              onChange={(e) => patchFooter("about", e.target.value)}
+              rows={3}
+              placeholder="محل جملة متخصص بـ... نخدم السوق من سنة..."
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+            />
+          </label>
+
+          {/* Contact */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-700">📞 تواصل معنا</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">رقم الهاتف</span>
+                <Input value={current.footer.phone} onChange={(e) => patchFooter("phone", e.target.value)}
+                  placeholder="0770 000 0000" dir="ltr" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">رقم واتساب (يفتح محادثة مباشرة)</span>
+                <Input value={current.footer.whatsapp} onChange={(e) => patchFooter("whatsapp", e.target.value)}
+                  placeholder="964770 000 0000" dir="ltr" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">العنوان</span>
+                <Input value={current.footer.address} onChange={(e) => patchFooter("address", e.target.value)}
+                  placeholder="بغداد — شارع..." className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">أوقات الدوام</span>
+                <Input value={current.footer.hours} onChange={(e) => patchFooter("hours", e.target.value)}
+                  placeholder="السبت — الخميس، 9 صباحاً — 6 مساءً" className="text-sm" />
+              </label>
+            </div>
+          </div>
+
+          {/* Social */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-700">🔗 روابط التواصل الاجتماعي</p>
+            <p className="text-[11px] text-slate-400">اكتب اسم الحساب فقط أو الرابط الكامل — الاثنان يشتغلون.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {([
+                ["instagram", "انستغرام", "myshop"],
+                ["facebook", "فيسبوك", "myshop"],
+                ["telegram", "تيليگرام", "myshop"],
+                ["tiktok", "تيك توك", "myshop"],
+              ] as Array<[keyof CatalogFooter, string, string]>).map(([key, label, ph]) => (
+                <label key={key} className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-slate-600">{label}</span>
+                  <Input value={String(current.footer[key])} onChange={(e) => patchFooter(key, e.target.value)}
+                    placeholder={ph} dir="ltr" className="text-sm" />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Delivery */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-700">🚚 التوصيل</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">مناطق التوصيل</span>
+                <Input value={current.footer.deliveryAreas} onChange={(e) => patchFooter("deliveryAreas", e.target.value)}
+                  placeholder="بغداد وجميع المحافظات" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">مدة التوصيل</span>
+                <Input value={current.footer.deliveryTime} onChange={(e) => patchFooter("deliveryTime", e.target.value)}
+                  placeholder="24 — 48 ساعة" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">أقل مبلغ للطلب</span>
+                <Input value={current.footer.minOrder} onChange={(e) => patchFooter("minOrder", e.target.value)}
+                  placeholder="100,000 د.ع" className="text-sm" />
+              </label>
+            </div>
+            <label className="flex items-center gap-3">
+              <input type="checkbox" checked={current.footer.cashOnDelivery}
+                onChange={(e) => patchFooter("cashOnDelivery", e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+              <span className="text-sm font-medium text-slate-700">إظهار «الدفع عند الاستلام»</span>
+            </label>
+          </div>
         </CardContent>
       </Card>
 
