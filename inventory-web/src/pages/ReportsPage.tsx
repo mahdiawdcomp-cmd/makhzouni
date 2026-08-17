@@ -490,11 +490,14 @@ function ProfitsTab() {
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const appliedDefaultRef = useRef(false)
   useEffect(() => {
-    if (appliedDefaultRef.current || !settingsQuery.isSuccess) return
+    // Read the settings out before the ref assignment: TS drops the narrowing
+    // that isSuccess gives us as soon as another property is written to.
+    const settings = settingsQuery.data
+    if (appliedDefaultRef.current || !settingsQuery.isSuccess || !settings) return
     appliedDefaultRef.current = true
-    if (settingsQuery.data.reportsProfitStartDate) {
+    if (settings.reportsProfitStartDate) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time default applied once settings load, guarded above so it can't loop
-      setFrom(settingsQuery.data.reportsProfitStartDate)
+      setFrom(settings.reportsProfitStartDate)
     }
   }, [settingsQuery.isSuccess, settingsQuery.data])
 
