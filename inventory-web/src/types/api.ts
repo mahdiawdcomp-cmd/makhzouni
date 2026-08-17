@@ -561,6 +561,8 @@ export interface PublicCatalogProduct {
   hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[]
   currentStock: number
   showStock?: boolean
+  /** Deadline for isOffer, drives the storefront countdown. */
+  offerEndsAt?: string | null
   /** Ranking signals for the "best selling" / "top rated" sorts. */
   soldCount?: number
   ratingAvg?: number | null

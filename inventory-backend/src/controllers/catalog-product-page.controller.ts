@@ -71,8 +71,10 @@ export const getProductContentCtrl = asyncHandler(async (req, res) => {
 });
 
 export const updateProductContentCtrl = asyncHandler(async (req, res) => {
-  const { description, specs } = req.body as { description?: string; specs?: unknown };
-  const data = await updateProductCatalogContent(String(req.params.id), { description, specs });
+  const { description, specs, offerEndsAt } = req.body as {
+    description?: string; specs?: unknown; offerEndsAt?: string;
+  };
+  const data = await updateProductCatalogContent(String(req.params.id), { description, specs, offerEndsAt });
   res.json({ success: true, data });
 });
 

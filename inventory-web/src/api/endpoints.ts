@@ -482,6 +482,7 @@ export interface CatalogProductDetail {
   isNewArrival: boolean
   isOffer: boolean
   oldPrice: number | null
+  offerEndsAt: string | null
   salePrice: number | null
   pcsPerCarton: number
   boxPieces: number | null
@@ -551,6 +552,8 @@ export interface AdminProductContent {
   description: string
   specs: CatalogProductSpec[]
   gallery: Array<{ id: string; thumbnailUrl: string | null; sortOrder: number }>
+  isOffer: boolean
+  offerEndsAt: string | null
 }
 
 export interface AdminCatalogReview {
@@ -572,7 +575,8 @@ export async function getProductCatalogContent(productId: string) {
 }
 
 export async function updateProductCatalogContent(
-  productId: string, payload: { description?: string; specs?: CatalogProductSpec[] },
+  productId: string,
+  payload: { description?: string; specs?: CatalogProductSpec[]; offerEndsAt?: string },
 ) {
   const { data } = await api.put<ApiEnvelope<AdminProductContent>>(
     `/catalog-management/products/${productId}/content`, payload,
@@ -1971,6 +1975,23 @@ export const EMPTY_CATALOG_FOOTER: CatalogFooter = {
   deliveryAreas: "", deliveryTime: "", minOrder: "", cashOnDelivery: true,
 }
 
+export interface CatalogTrustBadge { enabled: boolean; text: string }
+
+/** Trust strip above the grid + the shop's own low-stock threshold (cartons). */
+export interface CatalogTrust {
+  badges: CatalogTrustBadge[]
+  lowStockCartons: number
+}
+
+export const EMPTY_CATALOG_TRUST: CatalogTrust = {
+  badges: [
+    { enabled: false, text: "" },
+    { enabled: false, text: "" },
+    { enabled: false, text: "" },
+  ],
+  lowStockCartons: 0,
+}
+
 export interface CatalogDesign {
   primaryColor: string | null
   bgColor: string | null
@@ -1980,6 +2001,7 @@ export interface CatalogDesign {
   bannerEnabled: boolean
   bannerImages: Array<{ url: string; title: string; order: number }>
   footer: CatalogFooter
+  trust: CatalogTrust
 }
 
 export async function getCatalogDesign() {

@@ -64,6 +64,7 @@ function ProductContentEditor({ productId }: { productId: string }) {
   const [uploading, setUploading] = useState(false)
   const [description, setDescription] = useState<string | null>(null)
   const [specs, setSpecs] = useState<CatalogProductSpec[] | null>(null)
+  const [offerEndsAt, setOfferEndsAt] = useState<string | null>(null)
 
   const contentQuery = useQuery({
     queryKey: ["product-catalog-content", productId],
@@ -74,15 +75,28 @@ function ProductContentEditor({ productId }: { productId: string }) {
   // null = "not edited yet", so a background refetch never clobbers typing.
   const desc = description ?? content?.description ?? ""
   const rows = specs ?? content?.specs ?? []
+  // <input type="datetime-local"> wants "YYYY-MM-DDTHH:mm" in LOCAL time; the
+  // API sends UTC ISO, so trim rather than slice the raw string (which would
+  // silently shift the deadline by the timezone offset).
+  const toLocalInput = (iso: string | null) => {
+    if (!iso) return ""
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ""
+    const p2 = (n: number) => String(n).padStart(2, "0")
+    return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`
+  }
+  const offerValue = offerEndsAt ?? toLocalInput(content?.offerEndsAt ?? null)
 
   const saveMut = useMutation({
     mutationFn: () => updateProductCatalogContent(productId, {
       description: desc,
       specs: rows.filter((r) => r.label.trim() && r.value.trim()),
+      // "" clears the deadline; a local datetime is sent as a real instant.
+      offerEndsAt: offerValue ? new Date(offerValue).toISOString() : "",
     }),
     onSuccess: () => {
       toast({ title: "تم حفظ محتوى المنتج" })
-      setDescription(null); setSpecs(null)
+      setDescription(null); setSpecs(null); setOfferEndsAt(null)
       void qc.invalidateQueries({ queryKey: ["product-catalog-content", productId] })
     },
     onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
@@ -167,6 +181,30 @@ function ProductContentEditor({ productId }: { productId: string }) {
             </button>
           </div>
         ))}
+      </div>
+
+      {/* Offer deadline */}
+      <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+        <p className="text-xs font-bold text-slate-700">⏳ نهاية العرض</p>
+        <p className="text-[11px] text-slate-400">
+          {content.isOffer
+            ? "عداد تنازلي يظهر للزبون على هذا المنتج. اتركه فارغ إذا العرض بدون وقت محدد."
+            : "هذا المنتج مو معلّم كعرض — العداد ما يظهر حتى لو حطيت تاريخ."}
+        </p>
+        <div className="flex items-center gap-2">
+          <Input
+            type="datetime-local"
+            value={offerValue}
+            onChange={(e) => setOfferEndsAt(e.target.value)}
+            className="w-64 text-sm"
+            dir="ltr"
+          />
+          {offerValue && (
+            <button onClick={() => setOfferEndsAt("")} className="text-xs text-slate-400 hover:text-red-500">
+              مسح
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Gallery */}

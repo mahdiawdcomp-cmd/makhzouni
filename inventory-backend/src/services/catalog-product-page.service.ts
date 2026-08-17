@@ -125,6 +125,7 @@ async function buildProductDetail(
     isNewArrival: product.isNewArrival,
     isOffer: product.isOffer,
     oldPrice: opts.allowPrices && product.oldPrice !== null ? toNumber(product.oldPrice) : null,
+    offerEndsAt: product.offerEndsAt,
     salePrice: opts.allowPrices ? toNumber(product.salePrice) : null,
     pcsPerCarton: product.pcsPerCarton,
     boxPieces: product.boxPieces,
@@ -225,6 +226,8 @@ export async function getProductCatalogContent(productId: string) {
       thumbnailUrl: true,
       catalogDescription: true,
       catalogSpecs: true,
+      isOffer: true,
+      offerEndsAt: true,
       catalogImages: {
         orderBy: { sortOrder: "asc" },
         select: { id: true, thumbnailUrl: true, sortOrder: true },
@@ -240,16 +243,28 @@ export async function getProductCatalogContent(productId: string) {
     description: product.catalogDescription ?? "",
     specs: parseSpecs(product.catalogSpecs),
     gallery: product.catalogImages,
+    isOffer: product.isOffer,
+    offerEndsAt: product.offerEndsAt,
   };
 }
 
 export async function updateProductCatalogContent(
   productId: string,
-  input: { description?: string; specs?: unknown },
+  input: { description?: string; specs?: unknown; offerEndsAt?: string | null },
 ) {
-  const data: { catalogDescription?: string | null; catalogSpecs?: SpecRow[] } = {};
+  const data: {
+    catalogDescription?: string | null;
+    catalogSpecs?: SpecRow[];
+    offerEndsAt?: Date | null;
+  } = {};
   if (input.description !== undefined) data.catalogDescription = input.description.trim() || null;
   if (input.specs !== undefined) data.catalogSpecs = parseSpecs(input.specs);
+  if (input.offerEndsAt !== undefined) {
+    // "" clears the deadline; an unparseable value is ignored rather than
+    // silently wiping a date the shop already set.
+    const parsed = input.offerEndsAt ? new Date(input.offerEndsAt) : null;
+    if (parsed === null || !Number.isNaN(parsed.getTime())) data.offerEndsAt = parsed;
+  }
   await prisma.product.update({ where: { id: productId }, data });
   return getProductCatalogContent(productId);
 }

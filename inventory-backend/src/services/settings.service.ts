@@ -153,6 +153,19 @@ export interface AppSettings {
   catalogDesignFooterDeliveryTime?: string;
   catalogDesignFooterMinOrder?: string;
   catalogDesignFooterCashOnDelivery?: boolean;
+  // Trust badges above the product grid. Each is off by default and carries
+  // its own text: a shop that does not deliver must never be made to claim
+  // it does just because the feature exists.
+  catalogDesignTrust1Enabled?: boolean;
+  catalogDesignTrust1Text?: string;
+  catalogDesignTrust2Enabled?: boolean;
+  catalogDesignTrust2Text?: string;
+  catalogDesignTrust3Enabled?: boolean;
+  catalogDesignTrust3Text?: string;
+  // Below this many CARTONS in stock, the storefront shows a "only N left"
+  // warning. Cartons, not pieces: this is a wholesale catalog and the old
+  // piece-based threshold effectively never fired. 0 = never warn.
+  catalogDesignLowStockCartons?: number;
   // Wholesale catalog OTP re-verification gate. Defaults to true (current
   // behavior unchanged) — undefined/missing must also mean true so existing
   // tenants are never silently opened up. When false, a valid catalog link

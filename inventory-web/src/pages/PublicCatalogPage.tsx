@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   ChevronLeft,
+  Clock,
   ChevronRight,
   Grid,
   HelpCircle,
@@ -19,6 +20,7 @@ import {
   RotateCcw,
   Search,
   Share2,
+  ShieldCheck,
   ShoppingBag,
   SlidersHorizontal,
   ShoppingCart,
@@ -44,11 +46,13 @@ import {
   submitPublicCatalogOrder,
   validatePublicPromoCode,
   EMPTY_CATALOG_FOOTER,
+  EMPTY_CATALOG_TRUST,
   getCatalogProductDetail,
   getCatalogGalleryImage,
   getMyCatalogReview,
   submitCatalogProductReview,
   type CatalogFooter,
+  type CatalogTrust,
 } from "../api/endpoints"
 import type { CatalogStockFilter, PublicCatalogProduct } from "../types/api"
 import { cn } from "../utils/cn"
@@ -959,7 +963,7 @@ function CatalogShop({
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter> } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust> } }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const design = designQuery.data
@@ -1226,6 +1230,7 @@ function CatalogShop({
         tk={tk}
         viewMode={viewMode}
         perRow={viewMode === "grid" ? perRow : 1}
+        lowStockCartons={design?.trust?.lowStockCartons ?? 0}
         onAdd={(unit) => add(product, unit)}
         onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
         onOpenPicker={() => setPickerProduct(product)}
@@ -1461,6 +1466,25 @@ function CatalogShop({
           </span>
         </button>
       )}
+
+      {/* ── Trust badges — only the ones this shop actually turned on ── */}
+      {(() => {
+        const badges = (design?.trust?.badges ?? EMPTY_CATALOG_TRUST.badges)
+          .filter((b) => b?.enabled && String(b.text ?? "").trim())
+        if (badges.length === 0) return null
+        return (
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide px-3 py-2" style={{ background: tk.accentSoft }}>
+            {badges.map((b, i) => (
+              <span key={i}
+                className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 font-bold"
+                style={{ background: tk.cardBg, color: tk.accent, fontSize: tk.fs.xs, boxShadow: tk.shadowSm }}>
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {String(b.text).trim()}
+              </span>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* ── Hero banner (slideshow) ── */}
       {(() => {
@@ -1701,6 +1725,7 @@ function CatalogShop({
           guestMode={guestMode}
           tk={tk}
           allowPrices={allowPrices}
+          lowStockCartons={design?.trust?.lowStockCartons ?? 0}
           onClose={closeProduct}
           onAdd={(p, unit) => { add(p, unit); closeProduct() }}
           onOpenProduct={openProduct}
@@ -1783,6 +1808,40 @@ function CatalogOnboardingTutorial({ tk, onClose }: { tk: ThemeTokens; onClose: 
         </div>
       </div>
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   URGENCY — offer countdown + shop-set scarcity threshold
+══════════════════════════════════════════════════════════════════════ */
+/** Remaining time as {d,h,m,s}, or null once the deadline has passed. */
+function remainingParts(endsAt: string | null | undefined) {
+  if (!endsAt) return null
+  const ms = new Date(endsAt).getTime() - Date.now()
+  if (!Number.isFinite(ms) || ms <= 0) return null
+  const s = Math.floor(ms / 1000)
+  return { d: Math.floor(s / 86400), h: Math.floor((s % 86400) / 3600), m: Math.floor((s % 3600) / 60), s: s % 60 }
+}
+
+function OfferCountdown({ endsAt, tk, size }: { endsAt: string; tk: ThemeTokens; size: "sm" | "lg" }) {
+  const [, tick] = useState(0)
+  // Re-render once a second so the countdown actually counts.
+  useEffect(() => {
+    const t = window.setInterval(() => tick((n) => n + 1), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+  const left = remainingParts(endsAt)
+  if (!left) return null
+  const pad = (n: number) => String(n).padStart(2, "0")
+  const label = left.d > 0
+    ? `${left.d} يوم ${pad(left.h)}:${pad(left.m)}:${pad(left.s)}`
+    : `${pad(left.h)}:${pad(left.m)}:${pad(left.s)}`
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-1 font-extrabold text-white"
+      style={{ background: "#e11d48", fontSize: size === "lg" ? tk.fs.sm : tk.fs.xs }}>
+      <Clock className="h-3.5 w-3.5" />
+      <span dir="ltr">{label}</span>
+    </span>
   )
 }
 
@@ -1919,13 +1978,14 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 }
 
 function ProductDetailSheet({
-  productId, accessToken, guestMode, tk, allowPrices, onClose, onAdd, onOpenProduct,
+  productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onOpenProduct,
 }: {
   productId: string
   accessToken: string
   guestMode: boolean
   tk: ThemeTokens
   allowPrices: boolean
+  lowStockCartons: number
   onClose: () => void
   onAdd: (product: PublicCatalogProduct, unit: CatalogUnit) => void
   onOpenProduct: (id: string) => void
@@ -2003,6 +2063,7 @@ function ProductDetailSheet({
 
   const outOfStock = (product?.currentStock ?? 0) <= 0
   const cartons = product ? Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)) : 0
+  const lowStock = !outOfStock && lowStockCartons > 0 && cartons <= lowStockCartons
 
   return (
     <div className="fixed inset-0 z-[120] overflow-y-auto" style={{ background: tk.bg }} dir="rtl">
@@ -2106,10 +2167,23 @@ function ProductDetailSheet({
                   ) : null}
                 </div>
               )}
+              {product.isOffer && product.offerEndsAt && (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>ينتهي العرض خلال</span>
+                  <OfferCountdown endsAt={product.offerEndsAt} tk={tk} size="lg" />
+                </div>
+              )}
               {product.showStock && !outOfStock && (
-                <p className="mt-1.5 font-semibold" style={{ color: cartons <= 2 ? "#ef4444" : tk.subtext, fontSize: tk.fs.sm }}>
-                  {cartons <= 2 ? `⚠ ${cartons} كارتون متبقي فقط` : `${money(cartons)} كارتون متوفر`}
-                </p>
+                lowStock ? (
+                  <span className="mt-2 inline-block rounded-full px-3 py-1.5 font-extrabold text-white"
+                    style={{ background: "#dc2626", fontSize: tk.fs.sm }}>
+                    ⚠ تبقى {cartons} كارتون فقط
+                  </span>
+                ) : (
+                  <p className="mt-1.5 font-semibold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>
+                    {money(cartons)} كارتون متوفر
+                  </p>
+                )
               )}
             </div>
 
@@ -2661,7 +2735,7 @@ function UnitPickerSheet({
    PRODUCT CARD
 ══════════════════════════════════════════════════════════════════════ */
 function ProductCard({
-  product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, perRow,
+  product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, perRow, lowStockCartons,
   onAdd, onRemoveOne, onOpenPicker, onOpen,
 }: {
   product: PublicCatalogProduct
@@ -2673,6 +2747,7 @@ function ProductCard({
   tk: ThemeTokens
   viewMode: ViewMode
   perRow: number
+  lowStockCartons: number
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
   onOpenPicker: () => void
@@ -2688,7 +2763,11 @@ function ProductCard({
     ? { price: tk.fs.lg, name: tk.fs.sm, sub: tk.fs.xs }
     : { price: tk.fs.xxl, name: tk.fs.md, sub: tk.fs.xs }
   const outOfStock = product.currentStock <= 0
-  const lowStock = product.currentStock > 0 && product.currentStock <= 5
+  const cartonsLeft = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton))
+  // Cartons, against the threshold the shop set. The old rule was "5 pieces
+  // or fewer", which on a wholesale catalog selling by the carton essentially
+  // never fired. 0 = the shop has not opted into scarcity warnings.
+  const lowStock = !outOfStock && lowStockCartons > 0 && cartonsLeft <= lowStockCartons
   // Price shown is per PIECE by default (when not in cart) or the cart unit
   const displayUnit = cartUnit ?? "PIECE"
   const displayPrice = linePrice(product, displayUnit)
@@ -2744,8 +2823,8 @@ function ProductCard({
                 </p>
               )}
               {showStock && !outOfStock && (
-                <p className="mt-1 font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext, fontSize: tk.fs.xs }}>
-                  {(() => { const c = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)); return lowStock ? `⚠ ${c} كرتون متبقي` : `${money(c)} كرتون متوفر` })()}
+                <p className="mt-1 font-extrabold" style={{ color: lowStock ? "#dc2626" : tk.subtext, fontSize: tk.fs.xs }}>
+                  {lowStock ? `⚠ تبقى ${cartonsLeft} كارتون` : `${money(cartonsLeft)} كرتون متوفر`}
                 </p>
               )}
             </div>
@@ -2861,6 +2940,9 @@ function ProductCard({
           )}
           {product.isNewArrival && <span className="rounded-full px-2 py-0.5 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
           {product.isOffer && <span className="rounded-full bg-rose-500 px-2 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>عرض</span>}
+          {product.isOffer && product.offerEndsAt && perRow <= 2 && (
+            <OfferCountdown endsAt={product.offerEndsAt} tk={tk} size="sm" />
+          )}
         </div>
 
         {/* Cart qty badge top-left */}
@@ -2888,9 +2970,16 @@ function ProductCard({
             )}
             {outOfStock && <span className="rounded-full bg-red-500 px-2 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>نفد</span>}
             {showStock && !outOfStock && (
-              <p className="leading-none mt-1 font-semibold" style={{ color: lowStock ? "#fca5a5" : "rgba(255,255,255,0.75)", fontSize: tk.fs.xs }}>
-                {(() => { const c = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)); return lowStock ? `⚠ ${c} كرتون متبقي` : `${money(c)} كرتون` })()}
-              </p>
+              lowStock ? (
+                <span className="mt-1 inline-block rounded-full px-2 py-0.5 font-extrabold text-white"
+                  style={{ background: "#dc2626", fontSize: tk.fs.xs }}>
+                  ⚠ تبقى {cartonsLeft} كارتون
+                </span>
+              ) : (
+                <p className="leading-none mt-1 font-semibold" style={{ color: "rgba(255,255,255,0.75)", fontSize: tk.fs.xs }}>
+                  {money(cartonsLeft)} كرتون
+                </p>
+              )
             )}
           </div>
 

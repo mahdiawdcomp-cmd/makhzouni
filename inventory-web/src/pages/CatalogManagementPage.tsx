@@ -19,6 +19,7 @@ import {
   Phone,
   Plus,
   Search,
+  ShieldCheck,
   Send,
   Shuffle,
   ShieldOff,
@@ -59,7 +60,9 @@ import {
   sendCatalogLinkToCustomer,
   type CatalogDesign,
   type CatalogFooter,
+  type CatalogTrust,
   EMPTY_CATALOG_FOOTER,
+  EMPTY_CATALOG_TRUST,
   type PromoCode,
 } from "../api/endpoints"
 import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
@@ -617,10 +620,18 @@ function CatalogDesignTab() {
     // Footer is a nested object, so a plain spread would replace the whole
     // thing and lose every field the admin didn't just touch.
     footer: { ...EMPTY_CATALOG_FOOTER, ...(data?.footer ?? {}), ...(form.footer ?? {}) },
+    trust: { ...EMPTY_CATALOG_TRUST, ...(data?.trust ?? {}), ...(form.trust ?? {}) },
   }
 
   function patchFooter(key: keyof CatalogFooter, value: unknown) {
     setForm((f) => ({ ...f, footer: { ...current.footer, ...f.footer, [key]: value } }))
+  }
+
+  function patchTrust(patch: Partial<CatalogTrust>) {
+    setForm((f) => ({ ...f, trust: { ...current.trust, ...f.trust, ...patch } }))
+  }
+  function patchBadge(i: number, patch: Partial<{ enabled: boolean; text: string }>) {
+    patchTrust({ badges: current.trust.badges.map((b, j) => (j === i ? { ...b, ...patch } : b)) })
   }
 
   const saveMut = useMutation({
@@ -786,6 +797,49 @@ function CatalogDesignTab() {
 
           {/* Quick pick from products */}
           <BannerProductPicker onPick={(url, name) => { setNewBannerUrl(url); setNewBannerTitle(name) }} />
+        </CardContent>
+      </Card>
+
+      {/* Trust + urgency */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-5 w-5 text-emerald-600" />
+            شارات الثقة والندرة
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            الشارات تظهر فوق المنتجات بالكتلوك. شغّل بس اللي ينطبق على محلك فعلاً — الشارة المطفية ما تظهر إطلاقاً.
+          </p>
+
+          <div className="space-y-2">
+            {current.trust.badges.map((b, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5">
+                <input type="checkbox" checked={b.enabled}
+                  onChange={(e) => patchBadge(i, { enabled: e.target.checked })}
+                  className="h-4 w-4 shrink-0 accent-emerald-600" />
+                <Input value={b.text} onChange={(e) => patchBadge(i, { text: e.target.value })}
+                  placeholder={["الدفع عند الاستلام", "ضمان الجودة", "توصيل سريع"][i] ?? "نص الشارة"}
+                  className="flex-1 text-sm" />
+              </div>
+            ))}
+          </div>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">
+              تحذير «تبقى X كارتون» يظهر لما يقل المخزون عن (بالكراتين)
+            </span>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number" min={0} max={1000}
+                value={String(current.trust.lowStockCartons)}
+                onChange={(e) => patchTrust({ lowStockCartons: Math.max(0, Number(e.target.value) || 0) })}
+                className="w-28 text-sm" dir="ltr"
+              />
+              <span className="text-xs text-slate-400">صفر = لا تظهر تحذير الندرة إطلاقاً</span>
+            </div>
+          </label>
         </CardContent>
       </Card>
 

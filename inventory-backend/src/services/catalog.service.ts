@@ -705,6 +705,14 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
       minOrder: settings.catalogDesignFooterMinOrder ?? "",
       cashOnDelivery: settings.catalogDesignFooterCashOnDelivery ?? false,
     },
+    trust: {
+      badges: [
+        { enabled: settings.catalogDesignTrust1Enabled ?? false, text: settings.catalogDesignTrust1Text ?? "" },
+        { enabled: settings.catalogDesignTrust2Enabled ?? false, text: settings.catalogDesignTrust2Text ?? "" },
+        { enabled: settings.catalogDesignTrust3Enabled ?? false, text: settings.catalogDesignTrust3Text ?? "" },
+      ],
+      lowStockCartons: settings.catalogDesignLowStockCartons ?? 0,
+    },
   };
 
   // SaaS entitlement gates — display-time only, the stored per-link values are
@@ -795,6 +803,7 @@ export async function listCatalogProducts(token: string) {
         isNewArrival: product.isNewArrival,
         isOffer: product.isOffer,
         oldPrice: access.allowPrices && product.oldPrice != null ? toNumber(product.oldPrice) : null,
+        offerEndsAt: product.offerEndsAt,
         createdAt: product.createdAt,
         salePrice: access.allowPrices ? toNumber(product.salePrice) : null,
         pcsPerCarton: product.pcsPerCarton,
@@ -867,6 +876,7 @@ export async function listGuestCatalogProducts() {
         isNewArrival: product.isNewArrival,
         isOffer: product.isOffer,
         oldPrice: null,
+        offerEndsAt: product.offerEndsAt,
         createdAt: product.createdAt,
         salePrice: null, // guests never see prices — request access first
         pcsPerCarton: product.pcsPerCarton,

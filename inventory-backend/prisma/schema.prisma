@@ -425,6 +425,9 @@ model Product {
   isNewArrival Boolean  @default(false) @map("is_new_arrival")
   isOffer      Boolean  @default(false) @map("is_offer")
   oldPrice     Decimal? @map("old_price") @db.Decimal(12, 2)
+  // Optional deadline for isOffer. Drives the storefront countdown; null
+  // means the offer simply has no end date, not that it has expired.
+  offerEndsAt  DateTime? @map("offer_ends_at")
 
   // Unit configuration. Stock stays piece-based; these only drive
   // conversion/display. boxPieces null = automatic (half the carton,

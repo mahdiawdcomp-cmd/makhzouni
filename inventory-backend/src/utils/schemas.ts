@@ -258,6 +258,8 @@ export const updateProductContentSchema = z.object({
       .array(z.object({ label: z.string().trim().max(60), value: z.string().trim().max(200) }))
       .max(30)
       .optional(),
+    // "" clears the offer deadline; otherwise an ISO datetime from the picker.
+    offerEndsAt: z.string().trim().max(40).optional(),
   }),
 });
 
@@ -1076,6 +1078,13 @@ export const updateSettingsSchema = z.object({
       catalogDesignFooterDeliveryTime: nullAsUndefined(z.string().trim()),
       catalogDesignFooterMinOrder: nullAsUndefined(z.string().trim()),
       catalogDesignFooterCashOnDelivery: nullAsUndefined(z.boolean()),
+      catalogDesignTrust1Enabled: nullAsUndefined(z.boolean()),
+      catalogDesignTrust1Text: nullAsUndefined(z.string().trim().max(60)),
+      catalogDesignTrust2Enabled: nullAsUndefined(z.boolean()),
+      catalogDesignTrust2Text: nullAsUndefined(z.string().trim().max(60)),
+      catalogDesignTrust3Enabled: nullAsUndefined(z.boolean()),
+      catalogDesignTrust3Text: nullAsUndefined(z.string().trim().max(60)),
+      catalogDesignLowStockCartons: nullAsUndefined(z.coerce.number().int().min(0).max(1000)),
       catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),

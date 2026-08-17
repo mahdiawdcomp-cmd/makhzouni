@@ -191,6 +191,14 @@ export const getCatalogDesignCtrl = asyncHandler(async (_req, res) => {
         minOrder: settings.catalogDesignFooterMinOrder ?? "",
         cashOnDelivery: settings.catalogDesignFooterCashOnDelivery ?? false,
       },
+      trust: {
+        badges: [
+          { enabled: settings.catalogDesignTrust1Enabled ?? false, text: settings.catalogDesignTrust1Text ?? "" },
+          { enabled: settings.catalogDesignTrust2Enabled ?? false, text: settings.catalogDesignTrust2Text ?? "" },
+          { enabled: settings.catalogDesignTrust3Enabled ?? false, text: settings.catalogDesignTrust3Text ?? "" },
+        ],
+        lowStockCartons: settings.catalogDesignLowStockCartons ?? 0,
+      },
     },
   });
 });

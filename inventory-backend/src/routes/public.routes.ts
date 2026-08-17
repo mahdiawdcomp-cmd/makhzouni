@@ -244,6 +244,14 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
         minOrder: (kv.catalogDesignFooterMinOrder as string) ?? "",
         cashOnDelivery: kv.catalogDesignFooterCashOnDelivery ?? false,
       },
+      trust: {
+        badges: [
+          { enabled: kv.catalogDesignTrust1Enabled ?? false, text: (kv.catalogDesignTrust1Text as string) ?? "" },
+          { enabled: kv.catalogDesignTrust2Enabled ?? false, text: (kv.catalogDesignTrust2Text as string) ?? "" },
+          { enabled: kv.catalogDesignTrust3Enabled ?? false, text: (kv.catalogDesignTrust3Text as string) ?? "" },
+        ],
+        lowStockCartons: (kv.catalogDesignLowStockCartons as number) ?? 0,
+      },
       guestModeEnabled,
     },
   });
