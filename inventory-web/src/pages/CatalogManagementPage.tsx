@@ -8,6 +8,9 @@ import {
   Download,
   Eye,
   EyeOff,
+  ChevronUp,
+  ChevronDown,
+  Upload,
   FileText,
   Globe,
   Image,
@@ -68,6 +71,7 @@ import {
 import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
 import { CatalogContentTab } from "../components/CatalogContentTab"
+import { downscaleImage } from "../utils/downscaleImage"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -609,6 +613,8 @@ function CatalogDesignTab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ["catalog-design"], queryFn: getCatalogDesign })
   const [form, setForm] = useState<Partial<CatalogDesign>>({})
+  const bannerFileRef = useRef<HTMLInputElement>(null)
+  const [bannerUploading, setBannerUploading] = useState(false)
   const [newBannerUrl, setNewBannerUrl] = useState("")
   const [newBannerTitle, setNewBannerTitle] = useState("")
 
@@ -653,6 +659,41 @@ function CatalogDesignTab() {
 
   function removeBanner(idx: number) {
     patch("bannerImages", current.bannerImages.filter((_, i) => i !== idx).map((img, i) => ({ ...img, order: i })))
+  }
+
+  /** Move a banner one slot earlier/later — order drives the slideshow. */
+  function moveBanner(idx: number, dir: -1 | 1) {
+    const next = [...current.bannerImages]
+    const target = idx + dir
+    if (target < 0 || target >= next.length) return
+    ;[next[idx], next[target]] = [next[target], next[idx]]
+    patch("bannerImages", next.map((img, i) => ({ ...img, order: i })))
+  }
+
+  function setBannerTitle(idx: number, title: string) {
+    patch("bannerImages", current.bannerImages.map((img, i) => (i === idx ? { ...img, title } : img)))
+  }
+
+  /** Upload straight from the device instead of hunting for an image URL.
+   *  Downscaled first: banners are stored inline, same as product images. */
+  async function uploadBanners(files: FileList | null) {
+    if (!files?.length) return
+    setBannerUploading(true)
+    try {
+      const added: Array<{ url: string; title: string; order: number }> = []
+      for (const file of Array.from(files)) {
+        const url = await downscaleImage(file, 1600, 0.82)
+        if (url) added.push({ url, title: "", order: 0 })
+      }
+      const merged = [...current.bannerImages, ...added].map((img, i) => ({ ...img, order: i }))
+      patch("bannerImages", merged)
+      toast({ title: `تمت إضافة ${added.length} صورة — اضغط «حفظ التغييرات»` })
+    } catch {
+      toast({ title: "تعذر رفع الصور", variant: "destructive" })
+    } finally {
+      setBannerUploading(false)
+      if (bannerFileRef.current) bannerFileRef.current.value = ""
+    }
   }
 
   if (isLoading) return <div className="py-10 text-center text-sm text-slate-400">جاري التحميل...</div>
@@ -741,21 +782,55 @@ function CatalogDesignTab() {
             <span className="text-sm font-medium text-slate-700">إظهار البانر المتحرك</span>
           </label>
 
-          {/* Existing images */}
+          {/* Upload straight from the device — no image URL to hunt down */}
+          <input ref={bannerFileRef} type="file" accept="image/*" multiple className="hidden"
+            onChange={(e) => void uploadBanners(e.target.files)} />
+          <button
+            onClick={() => bannerFileRef.current?.click()}
+            disabled={bannerUploading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            {bannerUploading ? "جاري الرفع..." : "رفع صور من الجهاز"}
+          </button>
+          <p className="text-[11px] text-slate-400">
+            أفضل مقاس للبانر عرضي (16:9). الصور تُصغّر تلقائياً، وتظهر كاملة بدون قص.
+          </p>
+
+          {/* Existing images — preview, rename, reorder, delete */}
           {current.bannerImages.length > 0 && (
             <div className="space-y-2">
               {current.bannerImages.map((img, idx) => (
-                <div key={idx} className="flex items-center gap-3 rounded-xl border bg-slate-50 p-2.5">
-                  <img src={img.url} alt="" className="h-12 w-16 rounded-lg object-cover border" onError={(e) => e.currentTarget.src = ""} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{img.title || "(بدون عنوان)"}</p>
-                    <p className="truncate text-xs text-slate-400" dir="ltr">{img.url}</p>
+                <div key={idx} className="flex items-center gap-2.5 rounded-xl border bg-slate-50 p-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">
+                    {idx + 1}
+                  </span>
+                  <div className="h-14 w-24 shrink-0 overflow-hidden rounded-lg border bg-white">
+                    <img src={img.url} alt="" className="h-full w-full object-contain"
+                      onError={(e) => { e.currentTarget.style.opacity = "0.25" }} />
                   </div>
-                  <button onClick={() => removeBanner(idx)} className="shrink-0 rounded-lg p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500">
+                  <Input
+                    value={img.title}
+                    onChange={(e) => setBannerTitle(idx, e.target.value)}
+                    placeholder="عنوان يظهر فوق الصورة (اختياري)"
+                    className="min-w-0 flex-1 text-sm"
+                  />
+                  <div className="flex shrink-0 flex-col">
+                    <button onClick={() => moveBanner(idx, -1)} disabled={idx === 0}
+                      className="rounded p-0.5 text-slate-400 transition hover:text-slate-700 disabled:opacity-25" title="تقديم">
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => moveBanner(idx, 1)} disabled={idx === current.bannerImages.length - 1}
+                      className="rounded p-0.5 text-slate-400 transition hover:text-slate-700 disabled:opacity-25" title="تأخير">
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <button onClick={() => removeBanner(idx)} className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-500">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
+              <p className="text-[11px] text-slate-400">الترتيب هنا هو ترتيب ظهورها بالبانر المتحرك.</p>
             </div>
           )}
 

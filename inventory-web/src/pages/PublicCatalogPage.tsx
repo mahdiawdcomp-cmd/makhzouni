@@ -1245,10 +1245,14 @@ function CatalogShop({
       <div className="mx-auto flex min-h-screen max-w-[600px] flex-col shadow-2xl shadow-slate-950/15" style={{ background: tk.bg }}>
 
       {/* ── Sticky Header ── */}
-      <header className="sticky top-0 z-30 overflow-hidden" style={{ background: `linear-gradient(135deg, ${tk.accent} 0%, ${tk.accent}cc 100%)`, boxShadow: "0 4px 24px rgba(0,0,0,0.22)" }}>
+      {/* No overflow-hidden here: it clipped the "more" dropdown, which is why
+          its last item was invisible. Only the decorations are clipped now. */}
+      <header className="sticky top-0 z-30" style={{ background: `linear-gradient(135deg, ${tk.accent} 0%, ${tk.accent}cc 100%)`, boxShadow: "0 4px 24px rgba(0,0,0,0.22)" }}>
         {/* Decorative circles */}
-        <div className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10 blur-sm" />
-        <div className="pointer-events-none absolute -bottom-14 left-6 h-28 w-28 rounded-full bg-white/10 blur-md" />
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute -right-8 -top-10 h-32 w-32 rounded-full bg-white/10 blur-sm" />
+          <div className="absolute -bottom-14 left-6 h-28 w-28 rounded-full bg-white/10 blur-md" />
+        </div>
 
         {/* Row 1: logo + search + actions */}
         <div className="relative px-3 py-2.5">
@@ -1398,11 +1402,11 @@ function CatalogShop({
         <div className="relative flex items-center gap-2 px-3 py-2 border-t border-white/15">
           {/* Filters — opens the sheet; badge shows how many are on */}
           <button onClick={() => setFiltersOpen(true)}
-            className="relative flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 font-bold transition active:scale-95"
+            className="relative flex shrink-0 items-center gap-1 rounded-full px-3 py-1 font-semibold transition active:scale-95"
             style={activeFilterCount > 0
               ? { background: "#ffffff", color: tk.accent, fontSize: tk.fs.xs }
               : { background: "rgba(255,255,255,0.2)", color: "#ffffff", fontSize: tk.fs.xs }}>
-            <SlidersHorizontal className="h-3.5 w-3.5" />
+            <SlidersHorizontal className="h-3 w-3" />
             فلترة
             {activeFilterCount > 0 && (
               <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 font-extrabold text-white"
@@ -1504,9 +1508,14 @@ function CatalogShop({
         const idx = ((bannerIndex % total) + total) % total
         const welcomeMsg = design?.welcomeMessage || (customerName ? `مرحباً ${customerName} 👋` : "مرحباً بك 👋")
         return (
+          /* A fixed 190px box cropped every banner into a thin strip, which is
+             what made the uploaded pictures look mangled. A 16:9 box matches
+             the shape a phone photo actually has, and object-contain over a
+             blurred copy of the same image fills the sides without cutting
+             anything out of the picture the shop chose. */
           <div
             className="relative overflow-hidden select-none"
-            style={{ height: "190px" }}
+            style={{ aspectRatio: "16 / 9", maxHeight: "260px", background: tk.catIdle }}
             onTouchStart={(e) => { bannerTouchX.current = e.touches[0].clientX }}
             onTouchEnd={(e) => {
               if (bannerTouchX.current === null) return
@@ -1518,17 +1527,22 @@ function CatalogShop({
           >
             {slides.map((s, i) => (
               <div key={i} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
-                <img src={s.src} alt={s.title} className="h-full w-full object-cover" />
-                <div className="absolute inset-0" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.15) 55%, transparent 100%)" }} />
-                <div className="absolute bottom-8 right-4 left-4">
-                  {s.title && <p className="text-sm font-extrabold text-white drop-shadow-md leading-snug">{s.title}</p>}
-                  {s.subtitle && <p className="mt-0.5 text-sm font-bold" style={{ color: "#6ee7b7" }}>{s.subtitle}</p>}
-                </div>
+                <img src={s.src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl opacity-60" />
+                <img src={s.src} alt={s.title} className="relative h-full w-full object-contain" />
+                {(s.title || s.subtitle) && (
+                  <>
+                    <div className="absolute inset-x-0 bottom-0 h-1/2" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
+                    <div className="absolute bottom-7 right-4 left-4">
+                      {s.title && <p className="font-extrabold text-white drop-shadow-md leading-snug" style={{ fontSize: tk.fs.md }}>{s.title}</p>}
+                      {s.subtitle && <p className="mt-0.5 font-bold" style={{ color: "#6ee7b7", fontSize: tk.fs.sm }}>{s.subtitle}</p>}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
             {/* welcome pill */}
             <div className="absolute right-3 top-3 rounded-full px-3 py-1 text-right" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)" }}>
-              <p className="text-[11px] font-semibold text-white">{welcomeMsg}</p>
+              <p className="font-semibold text-white" style={{ fontSize: tk.fs.xs }}>{welcomeMsg}</p>
             </div>
             {/* swipe hint arrows */}
             <button type="button" onClick={() => setBannerIndex(i => i - 1)}
@@ -1881,7 +1895,7 @@ function FilterSheet({
   return (
     <>
       <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-[160] max-h-[85vh] overflow-y-auto"
+      <div className="fixed inset-x-0 bottom-0 z-[160] mx-auto max-w-[600px] max-h-[85vh] overflow-y-auto"
         style={{ background: tk.cardBg, borderTopLeftRadius: tk.radiusXl, borderTopRightRadius: tk.radiusXl, boxShadow: tk.shadowLg }}
         dir="rtl">
         <div className="sticky top-0 z-10 flex justify-center pt-3 pb-1" style={{ background: tk.cardBg }}>
@@ -2066,19 +2080,19 @@ function ProductDetailSheet({
   const lowStock = !outOfStock && lowStockCartons > 0 && cartons <= lowStockCartons
 
   return (
-    <div className="fixed inset-0 z-[120] overflow-y-auto" style={{ background: tk.bg }} dir="rtl">
+    <div className="fixed inset-0 z-[120] mx-auto max-w-[600px] overflow-y-auto" style={{ background: tk.bg }} dir="rtl">
       {/* Sticky bar */}
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-2 px-3 py-2.5"
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-2 px-3 py-2"
         style={{ background: tk.accent, boxShadow: tk.shadowMd }}>
-        <button onClick={onClose} className="flex items-center gap-1.5 rounded-xl px-2.5 py-2 font-bold text-white transition active:scale-95"
-          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.sm }}>
-          <ChevronRight className="h-4 w-4" />
+        <button onClick={onClose} className="flex items-center gap-1 rounded-lg px-2 py-1.5 font-bold text-white transition active:scale-95"
+          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.xs }}>
+          <ChevronRight className="h-3.5 w-3.5" />
           رجوع
         </button>
-        <button onClick={share} className="flex items-center gap-1.5 rounded-xl px-3 py-2 font-bold text-white transition active:scale-95"
-          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.sm }}>
-          <Share2 className="h-4 w-4" />
-          {copied ? "تم نسخ الرابط" : "مشاركة"}
+        <button onClick={share} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-white transition active:scale-95"
+          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.xs }}>
+          <Share2 className="h-3.5 w-3.5" />
+          {copied ? "تم النسخ" : "مشاركة"}
         </button>
       </div>
 
@@ -2492,7 +2506,7 @@ function AppearanceSheet({
   return (
     <>
       <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-[160] max-h-[88vh] overflow-y-auto"
+      <div className="fixed inset-x-0 bottom-0 z-[160] mx-auto max-w-[600px] max-h-[88vh] overflow-y-auto"
         style={{ background: tk.cardBg, borderTopLeftRadius: tk.radiusXl, borderTopRightRadius: tk.radiusXl, boxShadow: tk.shadowLg }}
         dir="rtl">
         {/* Handle */}
@@ -2634,7 +2648,7 @@ function UnitPickerSheet({
   return (
     <>
       <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-[160] rounded-t-3xl shadow-2xl" style={{ background: tk.cardBg }} dir="rtl">
+      <div className="fixed inset-x-0 bottom-0 z-[160] mx-auto max-w-[600px] rounded-t-3xl shadow-2xl" style={{ background: tk.cardBg }} dir="rtl">
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
