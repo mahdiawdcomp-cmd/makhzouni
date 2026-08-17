@@ -1186,7 +1186,7 @@ function CatalogShop({
         cartUnit={cartUnit}
         tk={tk}
         viewMode={viewMode}
-        compact={viewMode === "grid" && perRow >= 4}
+        perRow={viewMode === "grid" ? perRow : 1}
         onAdd={(unit) => add(product, unit)}
         onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
         onOpenPicker={() => setPickerProduct(product)}
@@ -2477,7 +2477,7 @@ function UnitPickerSheet({
    PRODUCT CARD
 ══════════════════════════════════════════════════════════════════════ */
 function ProductCard({
-  product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, compact,
+  product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, perRow,
   onAdd, onRemoveOne, onOpenPicker, onOpen,
 }: {
   product: PublicCatalogProduct
@@ -2488,7 +2488,7 @@ function ProductCard({
   cartUnit: CatalogUnit | null
   tk: ThemeTokens
   viewMode: ViewMode
-  compact: boolean
+  perRow: number
   onAdd: (unit: CatalogUnit) => void
   onRemoveOne: () => void
   onOpenPicker: () => void
@@ -2496,6 +2496,13 @@ function ProductCard({
 }) {
   // Prefer the lightweight thumbnail; the full-res image is fetched on zoom.
   const thumbSrc = product.thumbnailUrl || product.imageUrl
+  const compact = perRow >= 4
+  // The catalog is a phone-only storefront, so a card at 3-per-row is ~110px
+  // wide. One fixed type scale made the price eat three quarters of that —
+  // step the card's own typography down as the columns get narrower.
+  const cardFs = perRow >= 3
+    ? { price: tk.fs.lg, name: tk.fs.sm, sub: tk.fs.xs }
+    : { price: tk.fs.xxl, name: tk.fs.md, sub: tk.fs.xs }
   const outOfStock = product.currentStock <= 0
   const lowStock = product.currentStock > 0 && product.currentStock <= 5
   // Price shown is per PIECE by default (when not in cart) or the cart unit
@@ -2526,9 +2533,9 @@ function ProductCard({
           padding: "8px",
         }}>
         {/* Square image */}
-        <div className="relative h-[76px] w-[76px] shrink-0 overflow-hidden" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }}>
+        <div className="relative h-[76px] w-[76px] shrink-0 cursor-pointer overflow-hidden" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }} onClick={onOpen}>
           {thumbSrc ? (
-            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-pointer object-cover" loading="lazy" decoding="async" onClick={onOpen} />
+            <img src={thumbSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
@@ -2589,9 +2596,9 @@ function ProductCard({
           borderRadius: tk.radiusMd,
           boxShadow: qtyInCart > 0 ? tk.shadowMd : tk.shadowSm,
         }}>
-        <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
+        <div className="relative aspect-square cursor-pointer overflow-hidden" style={{ background: tk.catIdle }} onClick={onOpen}>
           {thumbSrc ? (
-            <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-pointer object-cover" loading="lazy" decoding="async" onClick={onOpen} />
+            <img src={thumbSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
@@ -2601,29 +2608,33 @@ function ProductCard({
           )}
           {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>عرض</span>}
           {product.isNewArrival && !product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full px-1.5 py-0.5 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
-          {/* Bottom gradient with price + button */}
-          <div className="absolute inset-x-0 bottom-0 px-1.5 pb-1.5 pt-9" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.88) 0%, transparent 100%)" }}>
-            <div className="flex items-end justify-between">
-              <div className="min-w-0">
-                <p className="truncate font-bold leading-tight text-white" style={{ fontSize: tk.fs.sm }}>{product.name}</p>
-                {allowPrices && !outOfStock && <p className="font-extrabold" style={{ color: "#6ee7b7", fontSize: tk.fs.md }}>{money(displayPrice)} د.ع</p>}
-              </div>
-              <div className="flex items-center gap-0.5 shrink-0 mr-1">
-                {qtyInCart > 0 && (
-                  <button onClick={onRemoveOne} className="flex h-5 w-5 items-center justify-center rounded-full active:scale-90" style={{ background: "rgba(255,255,255,0.85)" }}>
-                    <Minus className="h-2.5 w-2.5" style={{ color: tk.text }} />
-                  </button>
-                )}
-                <button
-                  disabled={outOfStock || !canAddMore}
-                  onClick={handleAddPress}
-                  className="flex h-7 w-7 items-center justify-center rounded-full shadow-md disabled:opacity-40 active:scale-90 transition-transform"
-                  style={{ background: tk.accent }}>
-                  <Plus className="h-4 w-4 text-white" />
-                </button>
-              </div>
-            </div>
+
+          {/* At 4-per-row the card is ~80px wide. Sharing one row between the
+              text and the +/- buttons left the price about 35px and clipped
+              it, so the buttons float over the image and the name/price get
+              the card's full width underneath. */}
+          <div className="absolute bottom-1 left-1 flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+            {qtyInCart > 0 && (
+              <button onClick={onRemoveOne} className="flex h-6 w-6 items-center justify-center rounded-full shadow active:scale-90" style={{ background: "rgba(255,255,255,0.92)" }}>
+                <Minus className="h-3 w-3" style={{ color: tk.text }} />
+              </button>
+            )}
+            <button
+              disabled={outOfStock || !canAddMore}
+              onClick={handleAddPress}
+              className="flex h-7 w-7 items-center justify-center rounded-full shadow-md disabled:opacity-40 active:scale-90 transition-transform"
+              style={{ background: tk.accent }}>
+              <Plus className="h-4 w-4 text-white" />
+            </button>
           </div>
+        </div>
+
+        <div className="px-1.5 pb-1.5 pt-1">
+          <p className="truncate font-bold leading-tight" style={{ color: tk.text, fontSize: tk.fs.xs }}>{product.name}</p>
+          {allowPrices && !outOfStock && (
+            <p className="truncate font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{money(displayPrice)} د.ع</p>
+          )}
+          {outOfStock && <p className="font-bold text-red-500" style={{ fontSize: tk.fs.xs }}>نفد</p>}
         </div>
       </div>
     )
@@ -2639,11 +2650,13 @@ function ProductCard({
         boxShadow: qtyInCart > 0 ? tk.shadowLg : tk.shadowSm,
       }}>
       {/* Image — full square with all controls overlaid */}
-      <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
+      {/* The whole tile opens the product — hanging the handler off the <img>
+          alone left every product without a photo with no way in at all. */}
+      <div className="relative aspect-square cursor-pointer overflow-hidden" style={{ background: tk.catIdle }} onClick={onOpen}>
         {thumbSrc ? (
           <img src={thumbSrc} alt={product.name}
-            className="h-full w-full object-cover cursor-pointer transition-transform duration-300 hover:scale-105"
-            loading="lazy" decoding="async" onClick={onOpen} />
+            className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+            loading="lazy" decoding="async" />
         ) : (
           <div className="flex h-full items-center justify-center">
             <ImageIcon className="h-10 w-10" style={{ color: tk.subtext, opacity: 0.2 }} />
@@ -2681,7 +2694,7 @@ function ProductCard({
                 {product.isOffer && product.oldPrice != null && Number(product.oldPrice) > 0 && (
                   <p className="text-white/60 line-through leading-none" style={{ fontSize: tk.fs.xs }}>{money(Number(product.oldPrice))}</p>
                 )}
-                <p className="font-extrabold text-white leading-none drop-shadow" style={{ fontSize: tk.fs.xxl }}>
+                <p className="font-extrabold text-white leading-none drop-shadow" style={{ fontSize: cardFs.price }}>
                   {money(displayPrice)}<span className="font-normal text-white/75 mr-0.5" style={{ fontSize: tk.fs.xs }}>د.ع</span>
                 </p>
                 {cartUnit && cartUnit !== "PIECE" && (
@@ -2720,7 +2733,7 @@ function ProductCard({
 
       {/* Name — two lines so long product names stay readable */}
       <div className="px-2.5 py-2">
-        <p className="line-clamp-2 font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
+        <p className="line-clamp-2 font-bold leading-snug" style={{ color: tk.text, fontSize: cardFs.name }}>{product.name}</p>
       </div>
     </div>
   )
