@@ -15,6 +15,7 @@ import { getSettings } from "./settings.service";
 import { createCustomer } from "./customer.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { hasFeature } from "../middleware/tenant.middleware";
+import { getCatalogRankingSignals, withRanking } from "./catalog-ranking.service";
 
 type CatalogOrderInput = {
   customerName: string;
@@ -778,11 +779,12 @@ export async function listCatalogProducts(token: string) {
   });
 
   const fullCartonOnly = access.stockFilter === CatalogStockFilter.FULL_CARTON_ONLY;
+  const signals = await getCatalogRankingSignals();
 
   const mapped = products
     .map((product) => {
       const stock = totalStock(product);
-      return {
+      return withRanking({
         id: product.id,
         itemNumber: product.itemNumber,
         name: product.name,
@@ -801,7 +803,7 @@ export async function listCatalogProducts(token: string) {
         // Always send stock for cart max-quantity logic; showStock controls display only
         currentStock: stock,
         showStock: access.showStock,
-      };
+      }, signals);
     })
     .filter((product) =>
       fullCartonOnly
@@ -849,10 +851,12 @@ export async function listGuestCatalogProducts() {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
+  const signals = await getCatalogRankingSignals();
+
   const mapped = products
     .map((product) => {
       const stock = totalStock(product);
-      return {
+      return withRanking({
         id: product.id,
         itemNumber: product.itemNumber,
         name: product.name,
@@ -870,7 +874,7 @@ export async function listGuestCatalogProducts() {
         hiddenUnits: product.hiddenUnits,
         currentStock: stock,
         showStock: true,
-      };
+      }, signals);
     })
     .filter((product) => product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
 

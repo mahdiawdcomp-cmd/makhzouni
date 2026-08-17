@@ -561,6 +561,10 @@ export interface PublicCatalogProduct {
   hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[]
   currentStock: number
   showStock?: boolean
+  /** Ranking signals for the "best selling" / "top rated" sorts. */
+  soldCount?: number
+  ratingAvg?: number | null
+  ratingCount?: number
 }
 
 export interface CatalogAccessRequestPayload {

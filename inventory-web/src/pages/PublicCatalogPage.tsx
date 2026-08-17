@@ -20,6 +20,7 @@ import {
   Search,
   Share2,
   ShoppingBag,
+  SlidersHorizontal,
   ShoppingCart,
   Trash2,
   Type,
@@ -56,7 +57,7 @@ import { cn } from "../utils/cn"
 type CatalogUnit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type CartLine = { id: string; product: PublicCatalogProduct; unit: CatalogUnit; quantity: number }
 type Theme = "clean" | "warm" | "dark" | "vibrant"
-type SortKey = "default" | "cheap" | "expensive" | "new"
+type SortKey = "default" | "best" | "rated" | "cheap" | "expensive" | "new"
 type ViewMode = "grid" | "list"
 type FontScale = "sm" | "md" | "lg" | "xl"
 type FsKey = "xs" | "sm" | "md" | "lg" | "xl" | "xxl"
@@ -243,8 +244,15 @@ function buildTokens(
 }
 
 const SORT_LABELS: Record<SortKey, string> = {
-  default: "الافتراضي", cheap: "الأرخص", expensive: "الأغلى", new: "الجديد أولاً",
+  default: "الافتراضي", best: "الأكثر مبيعاً", rated: "الأعلى تقييماً",
+  cheap: "الأرخص", expensive: "الأغلى", new: "الجديد أولاً",
 }
+
+/** Shopper-set filters that live alongside the category/type tabs. */
+type Filters = { minPrice: string; maxPrice: string; inStockOnly: boolean; offersOnly: boolean }
+const EMPTY_FILTERS: Filters = { minPrice: "", maxPrice: "", inStockOnly: false, offersOnly: false }
+const countActiveFilters = (f: Filters) =>
+  (f.minPrice.trim() ? 1 : 0) + (f.maxPrice.trim() ? 1 : 0) + (f.inStockOnly ? 1 : 0) + (f.offersOnly ? 1 : 0)
 
 /* ─── Helpers ────────────────────────────────────────────────────────── */
 const money = (v: number | null | undefined) =>
@@ -923,6 +931,9 @@ function CatalogShop({
   const suggItemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
   const [category, setCategory] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const activeFilterCount = countActiveFilters(filters)
   const [cart, setCart] = useState<CartLine[]>([])
   const [cartOpen, setCartOpen] = useState(false)
   const [notes, setNotes] = useState("")
@@ -1046,6 +1057,11 @@ function CatalogShop({
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
+    const min = Number(filters.minPrice.replace(/[^\d.]/g, ""))
+    const max = Number(filters.maxPrice.replace(/[^\d.]/g, ""))
+    const hasMin = filters.minPrice.trim() !== "" && Number.isFinite(min)
+    const hasMax = filters.maxPrice.trim() !== "" && Number.isFinite(max)
+
     let result = products.filter((p) => {
       if (!canDisplay(p)) return false
       if (category !== "all") {
@@ -1057,18 +1073,41 @@ function CatalogShop({
         const tTags = (p.typeTags ?? []).map(t => t.trim())
         if (tTags.length > 0 && !tTags.includes(typeFilter.trim())) return false
       }
+      if (filters.offersOnly && !p.isOffer) return false
+      // "In stock" means orderable, i.e. at least one full carton — the same
+      // rule the grid already uses to decide what can be added to the cart.
+      if (filters.inStockOnly && !(p.pcsPerCarton >= 1 && p.currentStock >= p.pcsPerCarton)) return false
+      // Price filters only mean something when prices are visible at all.
+      if (allowPrices && (hasMin || hasMax)) {
+        const price = Number(p.salePrice ?? 0)
+        if (hasMin && price < min) return false
+        if (hasMax && price > max) return false
+      }
       if (!q) return true
       return [p.name, p.itemNumber, p.category ?? ""].some((s) => s.toLowerCase().includes(q))
     })
+
     if (sortKey === "cheap") result = [...result].sort((a, b) => Number(a.salePrice ?? 0) - Number(b.salePrice ?? 0))
     else if (sortKey === "expensive") result = [...result].sort((a, b) => Number(b.salePrice ?? 0) - Number(a.salePrice ?? 0))
     else if (sortKey === "new") result = [...result].sort((a, b) => (a.isNewArrival === b.isNewArrival ? 0 : a.isNewArrival ? -1 : 1))
+    else if (sortKey === "best") result = [...result].sort((a, b) => (b.soldCount ?? 0) - (a.soldCount ?? 0))
+    else if (sortKey === "rated") {
+      // Unrated products sink below rated ones instead of tying at zero, and
+      // ties on the same average go to whichever has more reviews behind it.
+      result = [...result].sort((a, b) => {
+        const ar = a.ratingAvg ?? -1, br = b.ratingAvg ?? -1
+        return br === ar ? (b.ratingCount ?? 0) - (a.ratingCount ?? 0) : br - ar
+      })
+    }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, category, typeFilter, sortKey, stockFilter])
+  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices])
 
   const suggestions = visible.slice(0, 6)
-  const showSections = category === "all" && typeFilter === "all" && !search.trim()
+  // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
+  // once any filter is on — otherwise they'd show products the shopper just
+  // filtered out, right above the filtered grid.
+  const showSections = category === "all" && typeFilter === "all" && !search.trim() && activeFilterCount === 0
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter])
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1352,6 +1391,20 @@ function CatalogShop({
 
         {/* Row 4: Sort + View toggle */}
         <div className="relative flex items-center gap-2 px-3 py-2 border-t border-white/15">
+          {/* Filters — opens the sheet; badge shows how many are on */}
+          <button onClick={() => setFiltersOpen(true)}
+            className="relative flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 font-bold transition active:scale-95"
+            style={activeFilterCount > 0
+              ? { background: "#ffffff", color: tk.accent, fontSize: tk.fs.xs }
+              : { background: "rgba(255,255,255,0.2)", color: "#ffffff", fontSize: tk.fs.xs }}>
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+            فلترة
+            {activeFilterCount > 0 && (
+              <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 font-extrabold text-white"
+                style={{ background: tk.accent, fontSize: "9px" }}>{activeFilterCount}</span>
+            )}
+          </button>
+
           {/* Sort */}
           <div className="flex flex-1 gap-1 overflow-x-auto scrollbar-hide">
             {(Object.keys(SORT_LABELS) as SortKey[]).map(sk => (
@@ -1501,7 +1554,16 @@ function CatalogShop({
               <Search className="h-8 w-8" style={{ color: tk.subtext }} />
             </div>
             <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>لا توجد منتجات مطابقة</p>
-            <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.md }}>جرب كلمة بحث مختلفة أو فئة أخرى</p>
+            <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.md }}>
+              {activeFilterCount > 0 ? "الفلاتر الحالية ما طلّعت أي منتج" : "جرب كلمة بحث مختلفة أو فئة أخرى"}
+            </p>
+            {activeFilterCount > 0 && (
+              <button onClick={() => setFilters(EMPTY_FILTERS)}
+                className="mt-3 px-5 py-2.5 font-bold text-white transition active:scale-95"
+                style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+                مسح الفلاتر
+              </button>
+            )}
           </div>
         )}
 
@@ -1618,6 +1680,19 @@ function CatalogShop({
         />
       )}
 
+      {/* ── Filters ── */}
+      {filtersOpen && (
+        <FilterSheet
+          tk={tk}
+          filters={filters}
+          allowPrices={allowPrices}
+          resultCount={visible.length}
+          onChange={setFilters}
+          onClear={() => setFilters(EMPTY_FILTERS)}
+          onClose={() => setFiltersOpen(false)}
+        />
+      )}
+
       {/* ── Product page ── */}
       {openProductId && (
         <ProductDetailSheet
@@ -1708,6 +1783,115 @@ function CatalogOnboardingTutorial({ tk, onClose }: { tk: ThemeTokens; onClose: 
         </div>
       </div>
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   FILTER SHEET — price range, in-stock only, offers only
+══════════════════════════════════════════════════════════════════════ */
+function FilterSheet({
+  tk, filters, allowPrices, resultCount, onChange, onClear, onClose,
+}: {
+  tk: ThemeTokens
+  filters: Filters
+  allowPrices: boolean
+  resultCount: number
+  onChange: (next: Filters) => void
+  onClear: () => void
+  onClose: () => void
+}) {
+  const Toggle = ({ label, hint, on, onToggle }: { label: string; hint: string; on: boolean; onToggle: () => void }) => (
+    <button onClick={onToggle}
+      className="flex w-full items-center justify-between gap-3 p-3.5 text-right transition active:scale-[0.99]"
+      style={{
+        background: on ? tk.accentSoft : tk.bg,
+        border: `2px solid ${on ? tk.accent : tk.divider}`,
+        borderRadius: tk.radiusMd,
+      }}>
+      <span className="min-w-0">
+        <span className="block font-extrabold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{label}</span>
+        <span className="block" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{hint}</span>
+      </span>
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+        style={{ background: on ? tk.accent : "transparent", border: `2px solid ${on ? tk.accent : tk.divider}` }}>
+        {on && <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />}
+      </span>
+    </button>
+  )
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-[160] max-h-[85vh] overflow-y-auto"
+        style={{ background: tk.cardBg, borderTopLeftRadius: tk.radiusXl, borderTopRightRadius: tk.radiusXl, boxShadow: tk.shadowLg }}
+        dir="rtl">
+        <div className="sticky top-0 z-10 flex justify-center pt-3 pb-1" style={{ background: tk.cardBg }}>
+          <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
+        </div>
+
+        <div className="flex items-center justify-between px-4 pb-3 pt-1" style={{ borderBottom: `1px solid ${tk.divider}` }}>
+          <h2 className="flex items-center gap-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
+            <SlidersHorizontal className="h-5 w-5" style={{ color: tk.accent }} />
+            فلترة المنتجات
+          </h2>
+          <button onClick={onClose} className="p-2" style={{ background: tk.catIdle, borderRadius: tk.radiusSm }} aria-label="إغلاق">
+            <X className="h-5 w-5" style={{ color: tk.subtext }} />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-4 py-4 pb-8">
+          {/* Price range — pointless when prices are hidden from this shopper */}
+          {allowPrices && (
+            <section>
+              <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>نطاق السعر (د.ع للقطعة)</p>
+              <div className="flex items-center gap-2">
+                <input
+                  value={filters.minPrice}
+                  onChange={(e) => onChange({ ...filters, minPrice: e.target.value.replace(/[^\d]/g, "") })}
+                  inputMode="numeric" placeholder="من" dir="ltr"
+                  className="w-full px-3 py-3 text-center outline-none"
+                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}`, borderRadius: tk.radiusSm, fontSize: tk.fs.md }}
+                />
+                <span className="shrink-0" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>—</span>
+                <input
+                  value={filters.maxPrice}
+                  onChange={(e) => onChange({ ...filters, maxPrice: e.target.value.replace(/[^\d]/g, "") })}
+                  inputMode="numeric" placeholder="إلى" dir="ltr"
+                  className="w-full px-3 py-3 text-center outline-none"
+                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}`, borderRadius: tk.radiusSm, fontSize: tk.fs.md }}
+                />
+              </div>
+            </section>
+          )}
+
+          <Toggle
+            label="المتوفر فقط"
+            hint="اخفِ المنتجات اللي ما عندها كارتون كامل"
+            on={filters.inStockOnly}
+            onToggle={() => onChange({ ...filters, inStockOnly: !filters.inStockOnly })}
+          />
+          <Toggle
+            label="العروض فقط"
+            hint="اعرض المنتجات اللي عليها عرض"
+            on={filters.offersOnly}
+            onToggle={() => onChange({ ...filters, offersOnly: !filters.offersOnly })}
+          />
+
+          <div className="flex gap-2 pt-1">
+            <button onClick={onClear}
+              className="flex-1 py-3.5 font-bold transition active:scale-95"
+              style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+              مسح الفلاتر
+            </button>
+            <button onClick={onClose}
+              className="flex-[2] py-3.5 font-extrabold text-white transition active:scale-95"
+              style={{ background: tk.accent, borderRadius: tk.radiusMd, boxShadow: tk.shadowMd, fontSize: tk.fs.md }}>
+              عرض {resultCount} منتج
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 
