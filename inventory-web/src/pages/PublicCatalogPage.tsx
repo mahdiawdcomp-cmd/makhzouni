@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { api, API_BASE_URL } from "../api/client"
 import {
+  Check,
   CheckCircle2,
   ChevronLeft,
   Grid,
@@ -10,13 +11,16 @@ import {
   ImageIcon,
   LayoutList,
   Minus,
+  MoreHorizontal,
   Palette,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   ShoppingBag,
   ShoppingCart,
   Trash2,
+  Type,
   X,
 } from "lucide-react"
 import {
@@ -46,9 +50,16 @@ type CartLine = { id: string; product: PublicCatalogProduct; unit: CatalogUnit; 
 type Theme = "clean" | "warm" | "dark" | "vibrant"
 type SortKey = "default" | "cheap" | "expensive" | "new"
 type ViewMode = "grid" | "list"
+type FontScale = "sm" | "md" | "lg" | "xl"
+type FsKey = "xs" | "sm" | "md" | "lg" | "xl" | "xxl"
+type AccentKey =
+  | "emerald" | "teal" | "blue" | "indigo" | "violet"
+  | "rose" | "red" | "orange" | "amber" | "slate"
 
 const storageKey = "inventory_catalog_access"
 const themeKey = "catalog_theme"
+const accentKey = "catalog_accent"
+const fontScaleKey = "catalog_font_scale"
 const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", BOX: "علبة", CARTON: "كارتون" }
 const UNIT_DESC: Record<CatalogUnit, (pcsInUnit: number) => string> = {
   PIECE: () => "قطعة واحدة",
@@ -71,75 +82,156 @@ const defaultUnitFor = (product: PublicCatalogProduct): CatalogUnit => {
 }
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
-interface ThemeTokens {
+/* ─── Design system ──────────────────────────────────────────────────
+   The shopper picks three things independently — a surface mood
+   (SURFACES), an accent colour (ACCENTS) and a text size (FONT_SCALES)
+   — and buildTokens() combines them into the single token object every
+   component in this page reads. Radii, shadows and the type scale live
+   in there too, so the whole catalog stays visually consistent instead
+   of each card inventing its own px values.
+──────────────────────────────────────────────────────────────────── */
+
+/** Colours that describe a surface mood only — no accent, no sizing. */
+interface SurfaceTokens {
+  isDark: boolean
   bg: string
   cardBg: string
   cardBorder: string
-  headerBg: string
-  headerShadow: string
   text: string
   subtext: string
+  catIdle: string
+  catIdleText: string
+  divider: string
+  skeletonBg: string
+  icon: string
+  name: string
+  desc: string
+}
+
+interface ThemeTokens extends SurfaceTokens {
+  headerBg: string
+  headerShadow: string
   accent: string
   accentText: string
   accentLight: string
+  accentSoft: string
   catActive: string
   catActiveText: string
-  catIdle: string
-  catIdleText: string
   inputBg: string
   inputText: string
-  divider: string
-  skeletonBg: string
   pillBg: string
-  icon: string
-  name: string
+  /* Shape + depth — one ladder, used everywhere */
+  radiusSm: string
+  radiusMd: string
+  radiusLg: string
+  radiusXl: string
+  shadowSm: string
+  shadowMd: string
+  shadowLg: string
+  /* Type scale, already multiplied by the shopper's font-size choice */
+  fs: Record<FsKey, string>
 }
 
-const THEMES: Record<Theme, ThemeTokens> = {
+const SURFACES: Record<Theme, SurfaceTokens> = {
   clean: {
-    bg: "#f8fafc", cardBg: "#ffffff", cardBorder: "rgba(0,0,0,0.06)",
-    headerBg: "#ffffff", headerShadow: "0 1px 4px rgba(0,0,0,0.07)",
+    isDark: false,
+    bg: "#f5f7fa", cardBg: "#ffffff", cardBorder: "rgba(15,23,42,0.07)",
     text: "#0f172a", subtext: "#64748b",
-    accent: "#059669", accentText: "#ffffff", accentLight: "#d1fae5",
-    catActive: "#059669", catActiveText: "#ffffff",
-    catIdle: "#f1f5f9", catIdleText: "#475569",
-    inputBg: "#f1f5f9", inputText: "#0f172a",
-    divider: "#e2e8f0", skeletonBg: "#e2e8f0", pillBg: "#f0fdf4",
-    icon: "☀️", name: "نظيف",
+    catIdle: "#eef2f7", catIdleText: "#475569",
+    divider: "#e4e9f0", skeletonBg: "#e8edf3",
+    icon: "☀️", name: "نهاري", desc: "أبيض هادئ ومريح",
   },
   warm: {
-    bg: "#fffbeb", cardBg: "#fffdf7", cardBorder: "rgba(180,83,9,0.08)",
-    headerBg: "#ffffff", headerShadow: "0 1px 4px rgba(180,83,9,0.08)",
-    text: "#78350f", subtext: "#92400e",
-    accent: "#d97706", accentText: "#ffffff", accentLight: "#fef3c7",
-    catActive: "#d97706", catActiveText: "#ffffff",
-    catIdle: "#fef3c7", catIdleText: "#92400e",
-    inputBg: "#fef3c7", inputText: "#78350f",
-    divider: "#fde68a", skeletonBg: "#fde68a", pillBg: "#fefce8",
-    icon: "🏪", name: "دافئ",
+    isDark: false,
+    bg: "#fdf9f3", cardBg: "#fffefb", cardBorder: "rgba(120,53,15,0.09)",
+    text: "#3f2d16", subtext: "#8a6a44",
+    catIdle: "#f6eddf", catIdleText: "#7c5c34",
+    divider: "#eee0cc", skeletonBg: "#f0e4d3",
+    icon: "🏺", name: "دافئ", desc: "كريمي ناعم للعين",
   },
   dark: {
-    bg: "#0f172a", cardBg: "#1e293b", cardBorder: "rgba(255,255,255,0.06)",
-    headerBg: "#1e293b", headerShadow: "0 1px 8px rgba(0,0,0,0.4)",
+    isDark: true,
+    bg: "#0b1120", cardBg: "#161f33", cardBorder: "rgba(255,255,255,0.08)",
     text: "#f1f5f9", subtext: "#94a3b8",
-    accent: "#10b981", accentText: "#ffffff", accentLight: "rgba(16,185,129,0.15)",
-    catActive: "#10b981", catActiveText: "#ffffff",
-    catIdle: "#334155", catIdleText: "#94a3b8",
-    inputBg: "#334155", inputText: "#f1f5f9",
-    divider: "#334155", skeletonBg: "#334155", pillBg: "rgba(16,185,129,0.1)",
-    icon: "🌙", name: "فاخر",
+    catIdle: "#25314a", catIdleText: "#b6c2d4",
+    divider: "#25314a", skeletonBg: "#1f2a40",
+    icon: "🌙", name: "ليلي", desc: "مريح بالإضاءة الواطية",
   },
   vibrant: {
-    bg: "#faf5ff", cardBg: "#ffffff", cardBorder: "rgba(139,92,246,0.1)",
-    headerBg: "#ffffff", headerShadow: "0 1px 4px rgba(139,92,246,0.1)",
-    text: "#2e1065", subtext: "#7c3aed",
-    accent: "#7c3aed", accentText: "#ffffff", accentLight: "#ede9fe",
-    catActive: "#7c3aed", catActiveText: "#ffffff",
-    catIdle: "#ede9fe", catIdleText: "#6d28d9",
-    inputBg: "#ede9fe", inputText: "#2e1065",
-    divider: "#ddd6fe", skeletonBg: "#ddd6fe", pillBg: "#f5f3ff",
-    icon: "🎨", name: "حيوي",
+    isDark: false,
+    bg: "#ffffff", cardBg: "#ffffff", cardBorder: "rgba(15,23,42,0.16)",
+    text: "#000000", subtext: "#3f4a5a",
+    catIdle: "#eceff3", catIdleText: "#1e293b",
+    divider: "#cfd6e0", skeletonBg: "#e3e8ee",
+    icon: "🔳", name: "تباين عالي", desc: "أوضح قراءة للنصوص",
   },
+}
+
+/** Curated accents — each has a lighter twin so it stays readable on the night surface. */
+const ACCENTS: Array<{ key: AccentKey; name: string; hex: string; darkHex: string }> = [
+  { key: "emerald", name: "أخضر", hex: "#047857", darkHex: "#10b981" },
+  { key: "teal", name: "تركوازي", hex: "#0f766e", darkHex: "#2dd4bf" },
+  { key: "blue", name: "أزرق", hex: "#1d4ed8", darkHex: "#60a5fa" },
+  { key: "indigo", name: "نيلي", hex: "#4338ca", darkHex: "#818cf8" },
+  { key: "violet", name: "بنفسجي", hex: "#6d28d9", darkHex: "#a78bfa" },
+  { key: "rose", name: "وردي", hex: "#be123c", darkHex: "#fb7185" },
+  { key: "red", name: "أحمر", hex: "#b91c1c", darkHex: "#f87171" },
+  { key: "orange", name: "برتقالي", hex: "#c2410c", darkHex: "#fb923c" },
+  { key: "amber", name: "عسلي", hex: "#a16207", darkHex: "#fbbf24" },
+  { key: "slate", name: "رمادي", hex: "#334155", darkHex: "#94a3b8" },
+]
+const DEFAULT_ACCENT: AccentKey = "emerald"
+
+const FONT_SCALES: Record<FontScale, { label: string; mult: number }> = {
+  sm: { label: "صغير", mult: 0.9 },
+  md: { label: "متوسط", mult: 1 },
+  lg: { label: "كبير", mult: 1.16 },
+  xl: { label: "أكبر", mult: 1.34 },
+}
+
+/* Base type scale in px at the "متوسط" setting. Deliberately larger than a
+   phone-app scale — this is a storefront, product names and prices have to
+   read at arm's length. */
+const FS_BASE: Record<FsKey, number> = { xs: 11, sm: 12.5, md: 14, lg: 16, xl: 19, xxl: 23 }
+
+/** Appends an alpha channel, but only to a real 6-digit hex (admin colours are free text). */
+const withAlpha = (hex: string, alpha: string) =>
+  /^#[0-9a-fA-F]{6}$/.test(hex) ? hex + alpha : hex
+
+function buildTokens(
+  theme: Theme, accentHex: string, scale: FontScale, bgOverride?: string | null,
+): ThemeTokens {
+  const s = SURFACES[theme]
+  const mult = FONT_SCALES[scale].mult
+  const fs = {} as Record<FsKey, string>
+  for (const k of Object.keys(FS_BASE) as FsKey[]) {
+    fs[k] = `${Math.round(FS_BASE[k] * mult * 10) / 10}px`
+  }
+  // Shadows are tinted by the surface so they read as depth, not as grey smudge.
+  const tint = s.isDark ? "0,0,0" : "15,23,42"
+  return {
+    ...s,
+    bg: bgOverride || s.bg,
+    headerBg: s.cardBg,
+    headerShadow: s.isDark ? "0 2px 18px rgba(0,0,0,0.5)" : "0 2px 18px rgba(15,23,42,0.10)",
+    accent: accentHex,
+    accentText: "#ffffff",
+    accentLight: withAlpha(accentHex, s.isDark ? "2e" : "1f"),
+    accentSoft: withAlpha(accentHex, s.isDark ? "17" : "10"),
+    catActive: accentHex,
+    catActiveText: "#ffffff",
+    inputBg: s.catIdle,
+    inputText: s.text,
+    pillBg: s.isDark ? "rgba(255,255,255,0.035)" : "rgba(15,23,42,0.025)",
+    radiusSm: "10px",
+    radiusMd: "16px",
+    radiusLg: "22px",
+    radiusXl: "28px",
+    shadowSm: `0 1px 2px rgba(${tint},0.05), 0 1px 3px rgba(${tint},0.04)`,
+    shadowMd: `0 4px 14px rgba(${tint},0.08), 0 2px 5px rgba(${tint},0.04)`,
+    shadowLg: `0 14px 36px rgba(${tint},0.16), 0 5px 10px rgba(${tint},0.07)`,
+    fs,
+  }
 }
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -770,7 +862,23 @@ function CatalogShop({
   }, [visitorPhone])
 
   /* ── State ── */
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem(themeKey) as Theme) || "clean")
+  // Appearance is the shopper's call. Each preference stays null until they
+  // actually pick one — while null the shop's own admin design wins, and the
+  // moment they choose, their choice sticks (and beats the admin default).
+  const [themePref, setThemePref] = useState<Theme | null>(() => {
+    const v = localStorage.getItem(themeKey)
+    return v && v in SURFACES ? (v as Theme) : null
+  })
+  const [accentPref, setAccentPref] = useState<AccentKey | null>(() => {
+    const v = localStorage.getItem(accentKey)
+    return v && ACCENTS.some(a => a.key === v) ? (v as AccentKey) : null
+  })
+  const [fontScale, setFontScale] = useState<FontScale>(() => {
+    const v = localStorage.getItem(fontScaleKey)
+    return v && v in FONT_SCALES ? (v as FontScale) : "md"
+  })
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>("default")
   const [viewMode, setViewMode] = useState<ViewMode>("grid")
   const [perRow, setPerRow] = useState(2)
@@ -784,7 +892,6 @@ function CatalogShop({
   const [notes, setNotes] = useState("")
   const [submitted, setSubmitted] = useState<string | null>(null)
   const [bannerIndex, setBannerIndex] = useState(0)
-  const [showThemePicker, setShowThemePicker] = useState(false)
   const [zoomedImg, setZoomedImg] = useState<{ src: string; name: string } | null>(null)
   const [pickerProduct, setPickerProduct] = useState<PublicCatalogProduct | null>(null)
   const [promoCode, setPromoCode] = useState("")
@@ -801,7 +908,7 @@ function CatalogShop({
   const [accessRequestOpen, setAccessRequestOpen] = useState(false)
   const [showTutorial, setShowTutorial] = useState<boolean>(() => !localStorage.getItem(TUTORIAL_SEEN_KEY))
   const searchRef = useRef<HTMLInputElement>(null)
-  const themeRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLDivElement>(null)
   const bannerTouchX = useRef<number | null>(null)
 
   const designQuery = useQuery({
@@ -811,32 +918,50 @@ function CatalogShop({
   })
   const design = designQuery.data
 
-  const baseTk = THEMES[design?.defaultTheme ?? theme]
-  const tk: ThemeTokens = {
-    ...baseTk,
-    ...(design?.primaryColor ? {
-      accent: design.primaryColor,
-      catActive: design.primaryColor,
-      accentLight: design.primaryColor + "22",
-    } : {}),
-    ...(design?.bgColor ? { bg: design.bgColor } : {}),
-  }
+  // The admin's design is the *default* look, not a lock: it only applies to
+  // preferences the shopper hasn't set for themselves.
+  const theme: Theme = themePref ?? (design?.defaultTheme && design.defaultTheme in SURFACES ? design.defaultTheme : "clean")
+  const isDark = SURFACES[theme].isDark
+  const accentHex = accentPref
+    ? (isDark ? ACCENTS.find(a => a.key === accentPref)!.darkHex : ACCENTS.find(a => a.key === accentPref)!.hex)
+    : design?.primaryColor
+      ? design.primaryColor
+      : (isDark ? ACCENTS.find(a => a.key === DEFAULT_ACCENT)!.darkHex : ACCENTS.find(a => a.key === DEFAULT_ACCENT)!.hex)
+  // A custom background from the admin only makes sense against the surface
+  // they picked — once the shopper chooses their own mood, drop it.
+  const bgOverride = themePref === null ? design?.bgColor ?? null : null
+  const tk = useMemo(
+    () => buildTokens(theme, accentHex, fontScale, bgOverride),
+    [theme, accentHex, fontScale, bgOverride],
+  )
 
   function applyTheme(t: Theme) {
-    setTheme(t)
+    setThemePref(t)
     localStorage.setItem(themeKey, t)
-    setShowThemePicker(false)
+  }
+  function applyAccent(a: AccentKey) {
+    setAccentPref(a)
+    localStorage.setItem(accentKey, a)
+  }
+  function applyFontScale(f: FontScale) {
+    setFontScale(f)
+    localStorage.setItem(fontScaleKey, f)
+  }
+  function resetAppearance() {
+    setThemePref(null); localStorage.removeItem(themeKey)
+    setAccentPref(null); localStorage.removeItem(accentKey)
+    setFontScale("md"); localStorage.removeItem(fontScaleKey)
   }
 
-  // Close theme picker on outside click
+  // Close the "more" menu on outside click
   useEffect(() => {
-    if (!showThemePicker) return
+    if (!moreOpen) return
     function handler(e: MouseEvent) {
-      if (themeRef.current && !themeRef.current.contains(e.target as Node)) setShowThemePicker(false)
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
     }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
-  }, [showThemePicker])
+  }, [moreOpen])
 
   // Banner auto-advance
   useEffect(() => {
@@ -1081,8 +1206,8 @@ function CatalogShop({
                 onChange={(e) => { setSearch(e.target.value); setActiveSugg(0) }}
                 onKeyDown={handleKey}
                 placeholder="ابحث عن منتج..."
-                className="h-9 w-full rounded-xl border-0 pr-9 pl-3 text-sm text-white outline-none transition placeholder:text-white/55"
-                style={{ background: "rgba(255,255,255,0.2)" }}
+                className="h-10 w-full border-0 pr-9 pl-3 text-white outline-none transition placeholder:text-white/60"
+                style={{ background: "rgba(255,255,255,0.2)", borderRadius: tk.radiusSm, fontSize: tk.fs.md }}
               />
               {search && (
                 <button onClick={() => setSearch("")} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100">
@@ -1091,12 +1216,12 @@ function CatalogShop({
               )}
               {/* Autocomplete */}
               {search.trim() && suggestions.length > 0 && (
-                <div className="absolute top-full right-0 z-50 mt-1 w-full overflow-hidden rounded-xl border shadow-xl"
-                  style={{ background: tk.cardBg, borderColor: tk.divider }}>
+                <div className="absolute top-full right-0 z-50 mt-1.5 w-full overflow-hidden border"
+                  style={{ background: tk.cardBg, borderColor: tk.divider, borderRadius: tk.radiusMd, boxShadow: tk.shadowLg }}>
                   {suggestions.map((p, i) => (
                     <button key={p.id} type="button"
                       ref={(el) => { suggItemRefs.current[i] = el }}
-                      className="flex w-full items-center gap-3 px-3 py-2.5 text-right text-sm transition"
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-right transition"
                       style={{ background: i === activeSugg ? tk.accentLight : "transparent" }}
                       onMouseEnter={() => setActiveSugg(i)}
                       onMouseDown={(e) => e.preventDefault()}
@@ -1104,71 +1229,63 @@ function CatalogShop({
                     >
                       <MiniThumb product={p} />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium" style={{ color: tk.text }}>{p.name}</span>
-                        <span className="text-xs" style={{ color: tk.subtext }}>{p.itemNumber}{showStock ? ` · ${money(Math.floor(p.currentStock / Math.max(1, p.pcsPerCarton)))} كارتون` : ""}</span>
+                        <span className="block truncate font-semibold" style={{ color: tk.text, fontSize: tk.fs.md }}>{p.name}</span>
+                        <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{p.itemNumber}{showStock ? ` · ${money(Math.floor(p.currentStock / Math.max(1, p.pcsPerCarton)))} كارتون` : ""}</span>
                       </span>
-                      {allowPrices && <span className="shrink-0 text-xs font-bold" style={{ color: tk.accent }}>{money(p.salePrice)} د.ع</span>}
+                      {allowPrices && <span className="shrink-0 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{money(p.salePrice)} د.ع</span>}
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Theme picker */}
-            <div className="relative" ref={themeRef}>
+            {/* "More" menu — the secondary actions (appearance, help, refresh)
+                live here so the header keeps only search + cart in reach. */}
+            <div className="relative shrink-0" ref={moreRef}>
               <button
-                onClick={() => setShowThemePicker(v => !v)}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
-                style={{ background: showThemePicker ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.2)" }}
-                title="تغيير الثيم"
+                onClick={() => setMoreOpen(v => !v)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl transition active:scale-95"
+                style={{ background: moreOpen ? "rgba(255,255,255,0.36)" : "rgba(255,255,255,0.2)" }}
+                title="المزيد"
+                aria-label="المزيد"
               >
-                <Palette className="h-4 w-4 text-white" />
+                <MoreHorizontal className="h-5 w-5 text-white" />
               </button>
-              {showThemePicker && (
-                <div className="absolute top-full left-0 z-50 mt-2 rounded-2xl p-2 shadow-2xl"
-                  style={{ background: tk.cardBg, border: `1px solid ${tk.divider}`, minWidth: "160px" }}>
-                  <p className="mb-1.5 px-1 text-[10px] font-bold" style={{ color: tk.subtext }}>اختر الثيم</p>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(Object.keys(THEMES) as Theme[]).map(t => (
-                      <button key={t} onClick={() => applyTheme(t)}
-                        className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-right transition active:scale-95"
-                        style={{ background: theme === t ? tk.accentLight : "transparent", border: `1.5px solid ${theme === t ? tk.accent : "transparent"}` }}>
-                        <span className="text-base leading-none">{THEMES[t].icon}</span>
-                        <span className="text-[11px] font-bold" style={{ color: tk.text }}>{THEMES[t].name}</span>
-                      </button>
-                    ))}
-                  </div>
+              {moreOpen && (
+                <div className="absolute top-full left-0 z-50 mt-2 overflow-hidden"
+                  style={{
+                    background: tk.cardBg, border: `1px solid ${tk.divider}`,
+                    borderRadius: tk.radiusMd, boxShadow: tk.shadowLg, minWidth: "196px",
+                  }}>
+                  {[
+                    { icon: <Palette className="h-4 w-4" style={{ color: tk.accent }} />, label: "تخصيص المظهر", onClick: () => { setMoreOpen(false); setAppearanceOpen(true) } },
+                    { icon: <HelpCircle className="h-4 w-4" style={{ color: tk.accent }} />, label: "شلون أشتري؟", onClick: () => { setMoreOpen(false); setShowTutorial(true) } },
+                    {
+                      icon: <RefreshCw className={cn("h-4 w-4", productsQuery.isFetching && "animate-spin")} style={{ color: tk.accent }} />,
+                      label: productsQuery.isFetching ? "جاري التحديث..." : "تحديث المنتجات",
+                      onClick: () => { setMoreOpen(false); void productsQuery.refetch() },
+                    },
+                  ].map((item, i) => (
+                    <button key={i} onClick={item.onClick}
+                      className="flex w-full items-center gap-2.5 px-3.5 py-3 text-right transition active:opacity-70"
+                      style={{ borderTop: i === 0 ? "none" : `1px solid ${tk.divider}`, fontSize: tk.fs.sm, color: tk.text }}>
+                      {item.icon}
+                      <span className="font-bold">{item.label}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* Help / tutorial */}
-            <button
-              onClick={() => setShowTutorial(true)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
-              style={{ background: "rgba(255,255,255,0.2)" }}
-              title="شلون أشتري؟"
-            >
-              <HelpCircle className="h-4 w-4 text-white" />
-            </button>
-
-            {/* Refresh */}
-            <button
-              onClick={() => void productsQuery.refetch()}
-              disabled={productsQuery.isFetching}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-50 active:scale-95"
-              style={{ background: "rgba(255,255,255,0.2)" }}
-            >
-              <RefreshCw className={cn("h-4 w-4 text-white/80", productsQuery.isFetching && "animate-spin")} />
-            </button>
-
             {/* Cart */}
             <button onClick={() => setCartOpen(true)}
-              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
-              style={{ background: "rgba(255,255,255,0.28)" }}>
+              className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition active:scale-95"
+              style={{ background: "rgba(255,255,255,0.3)" }}
+              aria-label="السلة">
               <ShoppingCart className="h-5 w-5 text-white" />
               {cartQty > 0 && (
-                <span className="absolute -left-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+                <span className="absolute -left-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 font-bold leading-none text-white"
+                  style={{ fontSize: tk.fs.xs }}>
                   {cartQty}
                 </span>
               )}
@@ -1182,10 +1299,10 @@ function CatalogShop({
             <div className="flex gap-2 px-3 py-2">
               {["all", ...categories].map((cat) => (
                 <button key={cat} onClick={() => { setCategory(cat); setTypeFilter("all") }}
-                  className="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-bold transition-all active:scale-95"
+                  className="shrink-0 rounded-full px-3.5 py-1.5 font-bold transition-all active:scale-95"
                   style={category === cat
-                    ? { background: "rgba(255,255,255,0.92)", color: tk.accent }
-                    : { background: "rgba(255,255,255,0.2)", color: "rgba(255,255,255,0.92)" }
+                    ? { background: "#ffffff", color: tk.accent, fontSize: tk.fs.sm, boxShadow: "0 2px 8px rgba(0,0,0,0.14)" }
+                    : { background: "rgba(255,255,255,0.2)", color: "#ffffff", fontSize: tk.fs.sm }
                   }>
                   {cat === "all" ? "الكل" : cat}
                 </button>
@@ -1200,10 +1317,10 @@ function CatalogShop({
             <div className="flex gap-1.5 px-3 py-1.5">
               {["all", ...availableTypes].map((t) => (
                 <button key={t} onClick={() => setTypeFilter(t)}
-                  className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold transition-all"
+                  className="shrink-0 rounded-full px-3 py-1 font-semibold transition-all"
                   style={typeFilter === t
-                    ? { background: "rgba(255,255,255,0.85)", color: tk.accent }
-                    : { background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.8)", border: "1px solid rgba(255,255,255,0.25)" }
+                    ? { background: "rgba(255,255,255,0.92)", color: tk.accent, fontSize: tk.fs.xs }
+                    : { background: "rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.9)", border: "1px solid rgba(255,255,255,0.28)", fontSize: tk.fs.xs }
                   }>
                   {t === "all" ? "كل الأنواع" : t}
                 </button>
@@ -1218,10 +1335,10 @@ function CatalogShop({
           <div className="flex flex-1 gap-1 overflow-x-auto scrollbar-hide">
             {(Object.keys(SORT_LABELS) as SortKey[]).map(sk => (
               <button key={sk} onClick={() => setSortKey(sk)}
-                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-all"
+                className="shrink-0 rounded-full px-3 py-1 font-semibold transition-all"
                 style={sortKey === sk
-                  ? { background: "rgba(255,255,255,0.9)", color: tk.accent }
-                  : { background: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.85)" }
+                  ? { background: "rgba(255,255,255,0.92)", color: tk.accent, fontSize: tk.fs.xs }
+                  : { background: "rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", fontSize: tk.fs.xs }
                 }>
                 {SORT_LABELS[sk]}
               </button>
@@ -1245,8 +1362,8 @@ function CatalogShop({
             <div className="flex shrink-0 items-center gap-0.5 rounded-xl overflow-hidden" style={{ border: "1.5px solid rgba(255,255,255,0.35)" }}>
               {[2, 3, 4].map(n => (
                 <button key={n} onClick={() => setPerRow(n)}
-                  className="flex h-7 w-6 items-center justify-center text-[11px] font-bold transition"
-                  style={{ background: perRow === n ? "rgba(255,255,255,0.9)" : "transparent", color: perRow === n ? tk.accent : "rgba(255,255,255,0.8)" }}>
+                  className="flex h-7 w-6 items-center justify-center font-bold transition"
+                  style={{ background: perRow === n ? "rgba(255,255,255,0.92)" : "transparent", color: perRow === n ? tk.accent : "rgba(255,255,255,0.85)", fontSize: tk.fs.xs }}>
                   {n}
                 </button>
               ))}
@@ -1262,10 +1379,10 @@ function CatalogShop({
           className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80"
           style={{ background: tk.accentLight }}
         >
-          <span className="text-xs font-bold" style={{ color: tk.accent }}>
+          <span className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
             🔒 الأسعار غير ظاهرة لك بعد — اضغط لطلب تفعيلها
           </span>
-          <span className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold text-white" style={{ background: tk.accent }}>
+          <span className="shrink-0 rounded-full px-2.5 py-1 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>
             طلب الأسعار
           </span>
         </button>
@@ -1362,8 +1479,8 @@ function CatalogShop({
             <div className="mb-4 rounded-full p-5" style={{ background: tk.catIdle }}>
               <Search className="h-8 w-8" style={{ color: tk.subtext }} />
             </div>
-            <p className="font-bold" style={{ color: tk.text }}>لا توجد منتجات مطابقة</p>
-            <p className="mt-1 text-sm" style={{ color: tk.subtext }}>جرب كلمة بحث مختلفة أو فئة أخرى</p>
+            <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>لا توجد منتجات مطابقة</p>
+            <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.md }}>جرب كلمة بحث مختلفة أو فئة أخرى</p>
           </div>
         )}
 
@@ -1372,7 +1489,7 @@ function CatalogShop({
           <div className="mb-5 space-y-5">
             {offers.length > 0 && (
               <section>
-                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold" style={{ color: "#e11d48" }}>
+                <h2 className="mb-2 flex items-center gap-1.5 font-extrabold" style={{ color: "#e11d48", fontSize: tk.fs.lg }}>
                   🏷️ العروض
                 </h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -1384,7 +1501,7 @@ function CatalogShop({
             )}
             {newArrivals.length > 0 && (
               <section>
-                <h2 className="mb-2 flex items-center gap-1.5 text-sm font-extrabold" style={{ color: tk.accent }}>
+                <h2 className="mb-2 flex items-center gap-1.5 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.lg }}>
                   ✨ وصل حديثاً
                 </h2>
                 <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -1396,7 +1513,7 @@ function CatalogShop({
             )}
             <div className="flex items-center gap-2 pt-1">
               <div className="h-px flex-1" style={{ background: tk.divider }} />
-              <span className="text-xs font-semibold" style={{ color: tk.subtext }}>كل المنتجات</span>
+              <span className="font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>كل المنتجات</span>
               <div className="h-px flex-1" style={{ background: tk.divider }} />
             </div>
           </div>
@@ -1421,11 +1538,11 @@ function CatalogShop({
       {cartQty > 0 && !cartOpen && (
         <button
           onClick={() => setCartOpen(true)}
-          className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 rounded-2xl px-5 py-3.5 text-white shadow-2xl transition active:scale-95"
-          style={{ background: tk.accent }}>
+          className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 flex items-center gap-3 px-5 py-3.5 text-white transition active:scale-95"
+          style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowLg }}>
           <ShoppingCart className="h-5 w-5" />
-          <span className="font-bold text-sm">السلة — {cartQty} مادة</span>
-          {allowPrices && <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">{money(finalTotal)} د.ع{promoResult && <span className="mr-1 opacity-80 line-through text-[9px]">{money(subtotal)}</span>}</span>}
+          <span className="font-extrabold" style={{ fontSize: tk.fs.md }}>السلة — {cartQty} مادة</span>
+          {allowPrices && <span className="rounded-full bg-white/20 px-2 py-0.5 font-bold" style={{ fontSize: tk.fs.sm }}>{money(finalTotal)} د.ع{promoResult && <span className="mr-1 opacity-80 line-through" style={{ fontSize: tk.fs.xs }}>{money(subtotal)}</span>}</span>}
           <ChevronLeft className="h-4 w-4 opacity-70" />
         </button>
       )}
@@ -1481,6 +1598,17 @@ function CatalogShop({
           tk={tk}
           onSelect={(unit) => { add(pickerProduct, unit); setPickerProduct(null) }}
           onClose={() => setPickerProduct(null)}
+        />
+      )}
+
+      {/* ── Appearance: theme + accent colour + text size ── */}
+      {appearanceOpen && (
+        <AppearanceSheet
+          tk={tk}
+          theme={theme} accent={accentPref} fontScale={fontScale}
+          onTheme={applyTheme} onAccent={applyAccent} onFontScale={applyFontScale}
+          onReset={resetAppearance}
+          onClose={() => setAppearanceOpen(false)}
         />
       )}
 
@@ -1553,6 +1681,156 @@ function CatalogOnboardingTutorial({ tk, onClose }: { tk: ThemeTokens; onClose: 
 }
 
 /* ══════════════════════════════════════════════════════════════════════
+   APPEARANCE SHEET — the shopper's own control over how the shop looks
+══════════════════════════════════════════════════════════════════════ */
+function AppearanceSheet({
+  tk, theme, accent, fontScale, onTheme, onAccent, onFontScale, onReset, onClose,
+}: {
+  tk: ThemeTokens
+  theme: Theme
+  accent: AccentKey | null
+  fontScale: FontScale
+  onTheme: (t: Theme) => void
+  onAccent: (a: AccentKey) => void
+  onFontScale: (f: FontScale) => void
+  onReset: () => void
+  onClose: () => void
+}) {
+  const isDark = SURFACES[theme].isDark
+  return (
+    <>
+      <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-x-0 bottom-0 z-[160] max-h-[88vh] overflow-y-auto"
+        style={{ background: tk.cardBg, borderTopLeftRadius: tk.radiusXl, borderTopRightRadius: tk.radiusXl, boxShadow: tk.shadowLg }}
+        dir="rtl">
+        {/* Handle */}
+        <div className="sticky top-0 z-10 flex justify-center pt-3 pb-1" style={{ background: tk.cardBg }}>
+          <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 pb-3 pt-1" style={{ borderBottom: `1px solid ${tk.divider}` }}>
+          <h2 className="flex items-center gap-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
+            <Palette className="h-5 w-5" style={{ color: tk.accent }} />
+            تخصيص المظهر
+          </h2>
+          <button onClick={onClose} className="p-2" style={{ background: tk.catIdle, borderRadius: tk.radiusSm }} aria-label="إغلاق">
+            <X className="h-5 w-5" style={{ color: tk.subtext }} />
+          </button>
+        </div>
+
+        <div className="space-y-6 px-4 py-5 pb-9">
+          {/* ── Live preview ── */}
+          <div className="overflow-hidden" style={{ background: tk.bg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}` }}>
+            <div className="px-3.5 py-2.5 font-extrabold text-white" style={{ background: tk.accent, fontSize: tk.fs.sm }}>
+              معاينة مباشرة
+            </div>
+            <div className="flex items-center gap-3 p-3.5">
+              <div className="h-14 w-14 shrink-0" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>اسم منتج للتجربة</p>
+                <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xl }}>
+                  12,500 <span className="font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>د.ع</span>
+                </p>
+              </div>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                style={{ background: tk.accent, boxShadow: tk.shadowMd }}>
+                <Plus className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Text size ── */}
+          <section>
+            <p className="mb-2.5 flex items-center gap-1.5 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+              <Type className="h-4 w-4" style={{ color: tk.accent }} />
+              حجم الخط
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {(Object.keys(FONT_SCALES) as FontScale[]).map((f) => {
+                const active = fontScale === f
+                return (
+                  <button key={f} onClick={() => onFontScale(f)}
+                    className="flex flex-col items-center justify-center gap-1 py-3 transition active:scale-95"
+                    style={{
+                      background: active ? tk.accentLight : tk.catIdle,
+                      border: `2px solid ${active ? tk.accent : "transparent"}`,
+                      borderRadius: tk.radiusMd,
+                      color: active ? tk.accent : tk.catIdleText,
+                    }}>
+                    <span className="font-extrabold leading-none" style={{ fontSize: `${Math.round(FS_BASE.lg * FONT_SCALES[f].mult)}px` }}>أ</span>
+                    <span className="font-bold" style={{ fontSize: tk.fs.xs }}>{FONT_SCALES[f].label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── Accent colour ── */}
+          <section>
+            <p className="mb-2.5 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>لون المتجر</p>
+            <div className="grid grid-cols-5 gap-2.5">
+              {ACCENTS.map((a) => {
+                const hex = isDark ? a.darkHex : a.hex
+                const active = accent === a.key
+                return (
+                  <button key={a.key} onClick={() => onAccent(a.key)} title={a.name}
+                    className="flex flex-col items-center gap-1.5 transition active:scale-90">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full"
+                      style={{ background: hex, boxShadow: active ? `0 0 0 3px ${tk.cardBg}, 0 0 0 5px ${hex}` : tk.shadowSm }}>
+                      {active && <Check className="h-5 w-5 text-white" strokeWidth={3} />}
+                    </span>
+                    <span className="font-semibold" style={{ color: active ? tk.text : tk.subtext, fontSize: tk.fs.xs }}>{a.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── Surface mood ── */}
+          <section>
+            <p className="mb-2.5 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>الخلفية</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              {(Object.keys(SURFACES) as Theme[]).map((t) => {
+                const s = SURFACES[t]
+                const active = theme === t
+                return (
+                  <button key={t} onClick={() => onTheme(t)}
+                    className="flex items-center gap-2.5 p-3 text-right transition active:scale-95"
+                    style={{
+                      background: s.bg,
+                      border: `2px solid ${active ? tk.accent : s.divider}`,
+                      borderRadius: tk.radiusMd,
+                      boxShadow: active ? tk.shadowMd : "none",
+                    }}>
+                    <span className="leading-none" style={{ fontSize: tk.fs.xl }}>{s.icon}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1 font-extrabold" style={{ color: s.text, fontSize: tk.fs.sm }}>
+                        {s.name}
+                        {active && <Check className="h-3.5 w-3.5" style={{ color: tk.accent }} strokeWidth={3} />}
+                      </span>
+                      <span className="block truncate" style={{ color: s.subtext, fontSize: tk.fs.xs }}>{s.desc}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── Reset ── */}
+          <button onClick={onReset}
+            className="flex w-full items-center justify-center gap-2 py-3 font-bold transition active:scale-95"
+            style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+            <RotateCcw className="h-4 w-4" />
+            رجّع المظهر الافتراضي للمتجر
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
    UNIT PICKER SHEET
 ══════════════════════════════════════════════════════════════════════ */
 function UnitPickerSheet({
@@ -1580,8 +1858,8 @@ function UnitPickerSheet({
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 text-sm font-bold" style={{ color: tk.text }}>{product.name}</p>
-            <p className="text-xs" style={{ color: tk.subtext }}>{product.itemNumber}</p>
+            <p className="line-clamp-2 font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
+            <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{product.itemNumber}</p>
             {showStock && (() => {
               const cartonsAvail = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton))
               return (
@@ -1597,7 +1875,7 @@ function UnitPickerSheet({
 
         {/* Unit options */}
         <div className="p-4 space-y-2.5 pb-8">
-          <p className="text-xs font-semibold mb-3" style={{ color: tk.subtext }}>اختر الوحدة:</p>
+          <p className="mb-3 font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>اختر الوحدة:</p>
           {unitsFor(product).map((u) => {
             const qty = maxQty(product, u)
             const price = linePrice(product, u)
@@ -1621,16 +1899,16 @@ function UnitPickerSheet({
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-base font-extrabold" style={{ color: disabled ? tk.subtext : tk.text }}>
+                    <span className="font-extrabold" style={{ color: disabled ? tk.subtext : tk.text, fontSize: tk.fs.lg }}>
                       {UNIT_LABELS[u]}
                     </span>
                     {u === "BOX" && (
-                      <span className="rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: tk.accentLight, color: tk.accent }}>
+                      <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
                         نصف كارتون
                       </span>
                     )}
                   </div>
-                  <p className="text-xs" style={{ color: tk.subtext }}>
+                  <p style={{ color: tk.subtext, fontSize: tk.fs.sm }}>
                     {UNIT_DESC[u](pcs(product, u))}
                     {showStock && !disabled && ` · متوفر: ${qty} ${UNIT_LABELS[u]}`}
                     {disabled && " · غير متوفر"}
@@ -1638,10 +1916,10 @@ function UnitPickerSheet({
                 </div>
                 {allowPrices && !disabled && (
                   <div className="text-right">
-                    <p className="text-base font-extrabold" style={{ color: tk.accent }}>{money(price)}</p>
-                    <p className="text-[10px]" style={{ color: tk.subtext }}>د.ع / {UNIT_LABELS[u]}</p>
+                    <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xl }}>{money(price)}</p>
+                    <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>د.ع / {UNIT_LABELS[u]}</p>
                     {pcsCount > 1 && (
-                      <p className="text-[9px]" style={{ color: tk.subtext }}>
+                      <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
                         ({money(Math.round(price / pcsCount))} للقطعة)
                       </p>
                     )}
@@ -1705,42 +1983,43 @@ function ProductCard({
   /* ── List view ── */
   if (viewMode === "list") {
     return (
-      <div className="flex gap-2.5 overflow-hidden rounded-2xl transition active:scale-[0.99]"
+      <div className="flex gap-2.5 overflow-hidden transition active:scale-[0.99]"
         style={{
           background: tk.cardBg,
-          border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}`,
-          boxShadow: qtyInCart > 0 ? `0 0 0 1px ${tk.accent}30` : "0 1px 6px rgba(0,0,0,0.05)",
+          border: `2px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`,
+          borderRadius: tk.radiusLg,
+          boxShadow: qtyInCart > 0 ? tk.shadowMd : tk.shadowSm,
           padding: "8px",
         }}>
         {/* Square image */}
-        <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
+        <div className="relative h-[76px] w-[76px] shrink-0 overflow-hidden" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }}>
           {thumbSrc ? (
             <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" decoding="async" onClick={onZoom} />
           ) : (
             <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
           {qtyInCart > 0 && (
-            <span className="absolute left-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-extrabold text-white ring-1 ring-white/50" style={{ background: tk.accent }}>{qtyInCart}</span>
+            <span className="absolute left-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full font-extrabold text-white ring-1 ring-white/50" style={{ background: tk.accent, fontSize: tk.fs.xs }}>{qtyInCart}</span>
           )}
-          {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1 py-0.5 text-[7px] font-bold text-white">عرض</span>}
-          {outOfStock && <div className="absolute inset-0 bg-white/55 flex items-center justify-center"><span className="text-[8px] font-bold text-red-600">نفد</span></div>}
+          {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>عرض</span>}
+          {outOfStock && <div className="absolute inset-0 bg-white/60 flex items-center justify-center"><span className="font-extrabold text-red-600" style={{ fontSize: tk.fs.xs }}>نفد</span></div>}
         </div>
 
         {/* Info */}
         <div className="flex min-w-0 flex-1 flex-col justify-between">
           <div className="flex items-start gap-1">
-            <p className="line-clamp-2 flex-1 text-xs font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
-            {product.isNewArrival && <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[7px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+            <p className="line-clamp-2 flex-1 font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
+            {product.isNewArrival && <span className="shrink-0 rounded-full px-1.5 py-0.5 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
           </div>
           <div className="flex items-center justify-between gap-1 mt-1">
             <div>
               {allowPrices && (
-                <p className="text-sm font-extrabold leading-none" style={{ color: tk.accent }}>
-                  {money(displayPrice)} <span className="text-[9px] font-normal" style={{ color: tk.subtext }}>د.ع/{UNIT_LABELS[displayUnit]}</span>
+                <p className="font-extrabold leading-none" style={{ color: tk.accent, fontSize: tk.fs.xl }}>
+                  {money(displayPrice)} <span className="font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>د.ع/{UNIT_LABELS[displayUnit]}</span>
                 </p>
               )}
               {showStock && !outOfStock && (
-                <p className="text-[9px] mt-0.5" style={{ color: lowStock ? "#ef4444" : tk.subtext }}>
+                <p className="mt-1 font-semibold" style={{ color: lowStock ? "#ef4444" : tk.subtext, fontSize: tk.fs.xs }}>
                   {(() => { const c = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)); return lowStock ? `⚠ ${c} كرتون متبقي` : `${money(c)} كرتون متوفر` })()}
                 </p>
               )}
@@ -1769,8 +2048,13 @@ function ProductCard({
   /* ── Compact grid (4+ per row) ── */
   if (compact) {
     return (
-      <div className="overflow-hidden rounded-xl transition-transform active:scale-[0.97]"
-        style={{ background: tk.cardBg, border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}` }}>
+      <div className="overflow-hidden transition-transform active:scale-[0.97]"
+        style={{
+          background: tk.cardBg,
+          border: `2px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`,
+          borderRadius: tk.radiusMd,
+          boxShadow: qtyInCart > 0 ? tk.shadowMd : tk.shadowSm,
+        }}>
         <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
           {thumbSrc ? (
             <img src={thumbSrc} alt={product.name} className="h-full w-full cursor-zoom-in object-cover" loading="lazy" decoding="async" onClick={onZoom} />
@@ -1779,16 +2063,16 @@ function ProductCard({
           )}
           {outOfStock && <div className="absolute inset-0 bg-white/55 pointer-events-none" />}
           {qtyInCart > 0 && (
-            <span className="absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded-full text-[8px] font-extrabold text-white ring-1 ring-white/40 shadow" style={{ background: tk.accent }}>{qtyInCart}</span>
+            <span className="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-full font-extrabold text-white ring-1 ring-white/40 shadow" style={{ background: tk.accent, fontSize: tk.fs.xs }}>{qtyInCart}</span>
           )}
-          {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1 py-0.5 text-[6px] font-bold text-white">عرض</span>}
-          {product.isNewArrival && !product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full px-1 py-0.5 text-[6px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
+          {product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full bg-rose-500 px-1.5 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>عرض</span>}
+          {product.isNewArrival && !product.isOffer && <span className="absolute right-0.5 top-0.5 rounded-full px-1.5 py-0.5 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
           {/* Bottom gradient with price + button */}
-          <div className="absolute inset-x-0 bottom-0 px-1.5 pb-1.5 pt-8" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)" }}>
+          <div className="absolute inset-x-0 bottom-0 px-1.5 pb-1.5 pt-9" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.88) 0%, transparent 100%)" }}>
             <div className="flex items-end justify-between">
-              <div>
-                <p className="truncate text-[9px] font-bold leading-tight text-white">{product.name}</p>
-                {allowPrices && !outOfStock && <p className="text-[8px] font-semibold" style={{ color: "#6ee7b7" }}>{money(displayPrice)} د.ع</p>}
+              <div className="min-w-0">
+                <p className="truncate font-bold leading-tight text-white" style={{ fontSize: tk.fs.sm }}>{product.name}</p>
+                {allowPrices && !outOfStock && <p className="font-extrabold" style={{ color: "#6ee7b7", fontSize: tk.fs.md }}>{money(displayPrice)} د.ع</p>}
               </div>
               <div className="flex items-center gap-0.5 shrink-0 mr-1">
                 {qtyInCart > 0 && (
@@ -1813,11 +2097,12 @@ function ProductCard({
 
   /* ── Full grid card (2-3 per row) ── */
   return (
-    <div className="flex flex-col overflow-hidden rounded-2xl transition-transform active:scale-[0.98]"
+    <div className="flex flex-col overflow-hidden transition-transform active:scale-[0.98]"
       style={{
         background: tk.cardBg,
-        border: `2px solid ${qtyInCart > 0 ? tk.accent : "transparent"}`,
-        boxShadow: qtyInCart > 0 ? `0 0 0 1px ${tk.accent}40, 0 4px 16px rgba(0,0,0,0.08)` : "0 2px 8px rgba(0,0,0,0.06)",
+        border: `2px solid ${qtyInCart > 0 ? tk.accent : tk.cardBorder}`,
+        borderRadius: tk.radiusLg,
+        boxShadow: qtyInCart > 0 ? tk.shadowLg : tk.shadowSm,
       }}>
       {/* Image — full square with all controls overlaid */}
       <div className="relative aspect-square overflow-hidden" style={{ background: tk.catIdle }}>
@@ -1841,16 +2126,16 @@ function ProductCard({
         {/* Top-right badges */}
         <div className="absolute right-1.5 top-1.5 flex flex-col items-end gap-1">
           {product.category && (
-            <span className="rounded-full px-2 py-0.5 text-[8px] font-bold text-white" style={{ background: "rgba(0,0,0,0.55)" }}>{product.category}</span>
+            <span className="rounded-full px-2 py-0.5 font-bold text-white" style={{ background: "rgba(0,0,0,0.6)", fontSize: tk.fs.xs }}>{product.category}</span>
           )}
-          {product.isNewArrival && <span className="rounded-full px-2 py-0.5 text-[8px] font-bold text-white" style={{ background: tk.accent }}>جديد</span>}
-          {product.isOffer && <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[8px] font-bold text-white">عرض</span>}
+          {product.isNewArrival && <span className="rounded-full px-2 py-0.5 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
+          {product.isOffer && <span className="rounded-full bg-rose-500 px-2 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>عرض</span>}
         </div>
 
         {/* Cart qty badge top-left */}
         {qtyInCart > 0 && (
-          <span className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-extrabold text-white shadow-lg ring-2 ring-white/40"
-            style={{ background: tk.accent }}>{qtyInCart}</span>
+          <span className="absolute left-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full font-extrabold text-white shadow-lg ring-2 ring-white/40"
+            style={{ background: tk.accent, fontSize: tk.fs.sm }}>{qtyInCart}</span>
         )}
 
         {/* Bottom overlay: price + controls */}
@@ -1860,19 +2145,19 @@ function ProductCard({
             {allowPrices && !outOfStock && (
               <>
                 {product.isOffer && product.oldPrice != null && Number(product.oldPrice) > 0 && (
-                  <p className="text-[9px] text-white/60 line-through leading-none">{money(Number(product.oldPrice))}</p>
+                  <p className="text-white/60 line-through leading-none" style={{ fontSize: tk.fs.xs }}>{money(Number(product.oldPrice))}</p>
                 )}
-                <p className="text-sm font-extrabold text-white leading-none drop-shadow">
-                  {money(displayPrice)}<span className="text-[9px] font-normal text-white/70 mr-0.5">د.ع</span>
+                <p className="font-extrabold text-white leading-none drop-shadow" style={{ fontSize: tk.fs.xxl }}>
+                  {money(displayPrice)}<span className="font-normal text-white/75 mr-0.5" style={{ fontSize: tk.fs.xs }}>د.ع</span>
                 </p>
                 {cartUnit && cartUnit !== "PIECE" && (
-                  <p className="text-[8px] text-white/70 leading-none mt-0.5">للـ{UNIT_LABELS[cartUnit]}</p>
+                  <p className="text-white/75 leading-none mt-0.5" style={{ fontSize: tk.fs.xs }}>للـ{UNIT_LABELS[cartUnit]}</p>
                 )}
               </>
             )}
-            {outOfStock && <span className="rounded-full bg-red-500 px-2 py-0.5 text-[9px] font-bold text-white">نفد</span>}
+            {outOfStock && <span className="rounded-full bg-red-500 px-2 py-0.5 font-bold text-white" style={{ fontSize: tk.fs.xs }}>نفد</span>}
             {showStock && !outOfStock && (
-              <p className="text-[8px] leading-none mt-0.5" style={{ color: lowStock ? "#fca5a5" : "rgba(255,255,255,0.65)" }}>
+              <p className="leading-none mt-1 font-semibold" style={{ color: lowStock ? "#fca5a5" : "rgba(255,255,255,0.75)", fontSize: tk.fs.xs }}>
                 {(() => { const c = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)); return lowStock ? `⚠ ${c} كرتون متبقي` : `${money(c)} كرتون` })()}
               </p>
             )}
@@ -1899,9 +2184,9 @@ function ProductCard({
         </div>
       </div>
 
-      {/* Name only — one line, compact */}
-      <div className="px-2 py-1.5">
-        <p className="line-clamp-1 text-[11px] font-bold leading-snug" style={{ color: tk.text }}>{product.name}</p>
+      {/* Name — two lines so long product names stay readable */}
+      <div className="px-2.5 py-2">
+        <p className="line-clamp-2 font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
       </div>
     </div>
   )
@@ -1940,11 +2225,11 @@ function CartOverlay({
           <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
         </div>
         <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: `1px solid ${tk.divider}` }}>
-          <h2 className="flex items-center gap-2 text-base font-extrabold" style={{ color: tk.text }}>
+          <h2 className="flex items-center gap-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
             <ShoppingCart className="h-5 w-5" style={{ color: tk.accent }} />
             سلة التسوق
             {cart.length > 0 && (
-              <span className="rounded-full px-2 py-0.5 text-xs font-bold" style={{ background: tk.accentLight, color: tk.accent }}>
+              <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
                 {cart.reduce((s, l) => s + l.quantity, 0)} مادة
               </span>
             )}
@@ -1960,8 +2245,8 @@ function CartOverlay({
               <div className="flex h-16 w-16 items-center justify-center rounded-full" style={{ background: tk.accentLight }}>
                 <CheckCircle2 className="h-8 w-8" style={{ color: tk.accent }} />
               </div>
-              <p className="text-lg font-extrabold" style={{ color: tk.text }}>تم إرسال الطلب!</p>
-              <p className="text-sm" style={{ color: tk.subtext }}>
+              <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.xl }}>تم إرسال الطلب!</p>
+              <p style={{ color: tk.subtext, fontSize: tk.fs.md }}>
                 {guestMode
                   ? "سيتم التواصل معك على رقمك وإرسال فاتورتك بعد تجهيز الطلب."
                   : "طلبك ينتظر موافقة الإدارة. سيتم التواصل معك قريباً."}
@@ -2063,7 +2348,7 @@ function CartOverlay({
                     <span>مجاني</span>
                   </div>
                 )}
-                <div className="flex justify-between border-t pt-1.5 text-sm font-extrabold" style={{ borderColor: tk.divider, color: tk.text }}>
+                <div className="flex justify-between border-t pt-2 font-extrabold" style={{ borderColor: tk.divider, color: tk.text, fontSize: tk.fs.lg }}>
                   <span>الإجمالي</span>
                   <span style={{ color: tk.accent }}>{money(finalTotal)} د.ع</span>
                 </div>
@@ -2073,8 +2358,8 @@ function CartOverlay({
             {isError && <p className="text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
             {guestDetailsMissing && <p className="text-xs" style={{ color: tk.subtext }}>أدخل اسمك ورقم هاتفك لإتمام الطلب</p>}
             <button disabled={isPending || guestDetailsMissing} onClick={onSubmit}
-              className="w-full rounded-2xl py-3.5 text-sm font-extrabold text-white shadow-lg transition active:scale-95 disabled:opacity-50"
-              style={{ background: tk.accent }}>
+              className="w-full py-4 font-extrabold text-white transition active:scale-95 disabled:opacity-50"
+              style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
               {isPending ? "جاري الإرسال..." : "إرسال الطلب للمراجعة ✓"}
             </button>
           </div>
@@ -2102,29 +2387,29 @@ function CartItem({
         <MiniThumb product={line.product} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="truncate text-sm font-bold" style={{ color: tk.text }}>{line.product.name}</p>
+            <p className="truncate font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>{line.product.name}</p>
             <button onClick={() => onRemove(line.id)} className="shrink-0 transition hover:scale-110">
               <Trash2 className="h-4 w-4 text-red-400" />
             </button>
           </div>
           {/* Unit badge */}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: tk.accentLight, color: tk.accent }}>
+            <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
               {UNIT_LABELS[line.unit]}
             </span>
-            <span className="text-[10px]" style={{ color: tk.subtext }}>
+            <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
               {unitPcs > 1 ? `${unitPcs} قطعة/وحدة` : "قطعة"}
             </span>
             {allowPrices && (
-              <span className="text-[10px] font-semibold" style={{ color: tk.subtext }}>
+              <span className="font-semibold" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
                 · {money(unitPriceVal)} د.ع/وحدة
               </span>
             )}
           </div>
           {allowPrices && (
-            <p className="mt-0.5 text-xs font-bold" style={{ color: tk.accent }}>
+            <p className="mt-1 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.md }}>
               {line.quantity} وحدة × {money(unitPriceVal)} = {money(unitPriceVal * line.quantity)} د.ع
-              {unitPcs > 1 && <span className="mr-1 text-[9px] font-normal" style={{ color: tk.subtext }}>({money(totalPcs)} قطعة إجمالاً)</span>}
+              {unitPcs > 1 && <span className="mr-1 font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>({money(totalPcs)} قطعة إجمالاً)</span>}
             </p>
           )}
         </div>
@@ -2136,8 +2421,10 @@ function CartItem({
           {unitsFor(line.product).map((u) =>
             maxQty(line.product, u) > 0 ? (
               <button key={u} onClick={() => onChangeUnit(line.id, u)}
-                className="rounded-lg px-2 py-1 text-[9px] font-bold transition"
-                style={u === line.unit ? { background: tk.accent, color: tk.accentText } : { background: tk.catIdle, color: tk.catIdleText }}>
+                className="rounded-lg px-2.5 py-1 font-bold transition"
+                style={u === line.unit
+                  ? { background: tk.accent, color: tk.accentText, fontSize: tk.fs.xs }
+                  : { background: tk.catIdle, color: tk.catIdleText, fontSize: tk.fs.xs }}>
                 {UNIT_LABELS[u]}
               </button>
             ) : null
@@ -2148,7 +2435,7 @@ function CartItem({
           <button onClick={() => onChangeQty(line.id, -1)} className="flex h-6 w-6 items-center justify-center rounded-lg bg-white shadow-sm active:scale-90">
             <Minus className="h-3 w-3" style={{ color: tk.text }} />
           </button>
-          <span className="min-w-[1.5rem] text-center text-sm font-bold" style={{ color: tk.text }}>{line.quantity}</span>
+          <span className="min-w-[1.5rem] text-center font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>{line.quantity}</span>
           <button onClick={() => onChangeQty(line.id, 1)} disabled={line.quantity >= maxQty(line.product, line.unit)}
             className="flex h-6 w-6 items-center justify-center rounded-lg shadow-sm disabled:opacity-40 active:scale-90"
             style={{ background: tk.accent }}>
