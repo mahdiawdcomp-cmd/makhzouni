@@ -134,7 +134,10 @@ export async function customerLogin(rawPhone: string, rawCode: string): Promise<
     // hand back the same catalog token the emailed/WhatsApp link uses. Every
     // existing catalog endpoint keeps working untouched, and the OTP
     // re-verification clock is reset because this WAS the verification.
-    const token = await ensureCatalogToken(customer.id, !customer.catalogPricesHidden);
+    const token = await ensureCatalogToken(
+      customer.id,
+      await effectiveAllowPrices(customer.catalogPricesHidden),
+    );
     return {
       kind: "CUSTOMER",
       token,
@@ -321,10 +324,12 @@ export async function setCustomerPricesHidden(customerId: string, hidden: boolea
     data: { catalogPricesHidden: hidden },
   });
   // Keep the live catalog link in step, otherwise the change only lands the
-  // next time they sign in.
+  // next time they sign in. Un-hiding restores the shop-wide default rather
+  // than forcing prices on.
+  const allow = await effectiveAllowPrices(hidden);
   await prisma.$executeRaw`
     UPDATE "catalog_access_links"
-    SET "allow_prices" = ${!hidden}
+    SET "allow_prices" = ${allow}
     WHERE "customer_id" = ${customerId}::uuid AND "revoked_at" IS NULL
   `;
   return { ok: true };
@@ -349,6 +354,33 @@ export async function unlockAccount(kind: "CUSTOMER" | "VISITOR", idOrPhone: str
 export async function storefrontPricesDefaultVisible() {
   const settings = await getSettings();
   return settings.catalogPricesVisibleByDefault !== false;
+}
+
+/**
+ * The one place that decides whether a given customer sees prices: the
+ * shop-wide default, minus anyone the shop hid them from. Every path that
+ * writes allow_prices goes through here so the switch and the per-customer
+ * exception can never disagree.
+ */
+export async function effectiveAllowPrices(pricesHidden: boolean) {
+  if (pricesHidden) return false;
+  return storefrontPricesDefaultVisible();
+}
+
+/**
+ * Re-apply the shop-wide default to every live catalog link. Without this,
+ * flipping the switch only reached customers on their next sign-in, so the
+ * setting looked broken for everyone already holding a link.
+ */
+export async function applyPricesDefaultToAllLinks() {
+  const visible = await storefrontPricesDefaultVisible();
+  await prisma.$executeRaw`
+    UPDATE "catalog_access_links" AS l
+    SET "allow_prices" = ${visible} AND NOT c."catalog_prices_hidden"
+    FROM "customers" AS c
+    WHERE c."id" = l."customer_id" AND l."revoked_at" IS NULL
+  `;
+  return { ok: true, visible };
 }
 
 /* ── First sign-in for a not-yet-customer ────────────────────────── */

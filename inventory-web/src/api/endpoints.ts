@@ -320,6 +320,31 @@ export async function sendStorefrontCredentialsBulk(
   return data.data!
 }
 
+/** True recipient counts — the accounts list is paged, these are not. */
+export async function getCredentialTargetCounts() {
+  const { data } = await api.get<ApiEnvelope<{ customers: number; visitors: number }>>(
+    "/catalog-management/accounts/target-counts",
+  )
+  return data.data ?? { customers: 0, visitors: 0 }
+}
+
+/** Sends to every recipient in the group, resolved server-side. */
+export async function sendStorefrontCredentialsToAll(group: "customers" | "visitors" | "all") {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-credentials-all", { group })
+  return data.data!
+}
+
+/** Push the shop-wide price default onto every live catalog link. */
+export async function applyPricesDefaultToAll() {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; visible: boolean }>>(
+    "/catalog-management/accounts/apply-prices-default",
+  )
+  return data.data!
+}
+
 export async function setCustomerPricesHidden(customerId: string, hidden: boolean) {
   await api.patch(`/catalog-management/accounts/${customerId}/prices-hidden`, { hidden })
 }

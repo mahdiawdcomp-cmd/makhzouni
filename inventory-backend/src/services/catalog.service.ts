@@ -898,6 +898,10 @@ export async function getCatalogProductImage(token: string, productId: string) {
 // name/phone/address at checkout instead and go to the same approval queue.
 export async function isGuestCatalogEnabled() {
   const settings = await getSettings();
+  // Requiring a sign-in closes anonymous browsing outright — it has to win
+  // over the older OTP switch, otherwise turning it on would appear to do
+  // nothing on a shop that had guest mode left enabled.
+  if (settings.catalogRequireLogin === true) return false;
   return settings.catalogRequireOtp === false;
 }
 

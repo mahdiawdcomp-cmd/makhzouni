@@ -269,6 +269,13 @@ export const sendCredentialsBulkSchema = z.object({
   }),
 });
 
+export const sendCredentialsToAllSchema = z.object({
+  body: z.object({
+    group: z.enum(["customers", "visitors", "all"]).optional(),
+    channel: z.enum(["official", "personal"]).optional(),
+  }),
+});
+
 export const setPricesHiddenSchema = z.object({
   params: z.object({ id: z.string().uuid() }),
   body: z.object({ hidden: z.boolean() }),

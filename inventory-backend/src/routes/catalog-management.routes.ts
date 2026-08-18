@@ -33,6 +33,9 @@ import {
   sendCredentialsBulkCtrl,
   setPricesHiddenCtrl,
   unlockAccountCtrl,
+  sendCredentialsToAllCtrl,
+  credentialTargetCountsCtrl,
+  applyPricesDefaultCtrl,
 } from "../controllers/customer-login.controller";
 import { validate } from "../middleware/validate";
 import {
@@ -46,6 +49,7 @@ import {
   sendCredentialsBulkSchema,
   setPricesHiddenSchema,
   unlockAccountSchema,
+  sendCredentialsToAllSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -103,5 +107,8 @@ router.post("/accounts/send-credentials", validate(sendCredentialsSchema), sendC
 router.post("/accounts/send-credentials-bulk", validate(sendCredentialsBulkSchema), sendCredentialsBulkCtrl);
 router.patch("/accounts/:id/prices-hidden", validate(setPricesHiddenSchema), setPricesHiddenCtrl);
 router.post("/accounts/unlock", validate(unlockAccountSchema), unlockAccountCtrl);
+router.get("/accounts/target-counts", credentialTargetCountsCtrl);
+router.post("/accounts/send-credentials-all", validate(sendCredentialsToAllSchema), sendCredentialsToAllCtrl);
+router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);
 
 export default router;

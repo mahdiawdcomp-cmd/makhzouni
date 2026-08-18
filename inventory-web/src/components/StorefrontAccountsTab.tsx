@@ -1,12 +1,16 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { KeyRound, Lock, Search, Send, Unlock, UserRound, Users } from "lucide-react"
+import { KeyRound, Lock, MessageSquare, RotateCcw, Search, Send, Unlock, UserRound, Users } from "lucide-react"
 import {
+  applyPricesDefaultToAll,
+  getCredentialTargetCounts,
+  getSettings,
   listStorefrontAccounts,
   sendStorefrontCredentials,
-  sendStorefrontCredentialsBulk,
+  sendStorefrontCredentialsToAll,
   setCustomerPricesHidden,
   unlockStorefrontAccount,
+  updateSettings,
   type StorefrontCustomerAccount,
   type StorefrontVisitorAccount,
 } from "../api/endpoints"
@@ -18,6 +22,19 @@ import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
 
 type Group = "customers" | "visitors"
+
+/** Mirrors the backend default, shown as the textarea's placeholder so the
+ *  shop can see exactly what goes out when they leave the field empty. */
+const DEFAULT_CREDENTIALS_TEMPLATE = [
+  "مرحباً {{customerName}} 👋",
+  "هذا حسابك للدخول إلى متجر {{storeName}}:",
+  "",
+  "👤 اسم المستخدم: {{username}}",
+  "🔑 الرمز: {{code}}",
+  "",
+  "🔗 رابط المتجر:",
+  "{{link}}",
+].join("\n")
 
 const fmtDate = (v: string | null) =>
   v ? new Date(v).toLocaleDateString("ar-IQ", { year: "numeric", month: "short", day: "numeric" }) : "—"
@@ -35,7 +52,44 @@ export function StorefrontAccountsTab() {
   const customers = useMemo(() => accountsQuery.data?.customers ?? [], [accountsQuery.data])
   const visitors = useMemo(() => accountsQuery.data?.visitors ?? [], [accountsQuery.data])
 
-  const refresh = () => void qc.invalidateQueries({ queryKey: ["storefront-accounts"] })
+  // The rows above are paged; these are the real totals a "send to all" hits.
+  const countsQuery = useQuery({
+    queryKey: ["credential-target-counts"],
+    queryFn: getCredentialTargetCounts,
+  })
+  const totals = countsQuery.data ?? { customers: 0, visitors: 0 }
+  const totalForGroup = group === "customers" ? totals.customers : totals.visitors
+
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const [templateDraft, setTemplateDraft] = useState<string | null>(null)
+  const [showTemplate, setShowTemplate] = useState(false)
+  const savedTemplate = settingsQuery.data?.storefrontCredentialsTemplate ?? ""
+  const template = templateDraft ?? savedTemplate
+  const pricesVisible = settingsQuery.data?.catalogPricesVisibleByDefault !== false
+  const requireLogin = settingsQuery.data?.catalogRequireLogin === true
+
+  const settingsMut = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => {
+      toast({ title: "تم الحفظ" })
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  const applyDefaultMut = useMutation({
+    mutationFn: applyPricesDefaultToAll,
+    onSuccess: (r) => {
+      toast({ title: r.visible ? "الأسعار ظاهرة الآن لكل الزبائن" : "الأسعار مخفية الآن عن الجميع" })
+      refresh()
+    },
+    onError: () => toast({ title: "تعذر التطبيق", variant: "destructive" }),
+  })
+
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["storefront-accounts"] })
+    void qc.invalidateQueries({ queryKey: ["credential-target-counts"] })
+  }
 
   const sendOneMut = useMutation({
     mutationFn: (t: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }) =>
@@ -48,12 +102,9 @@ export function StorefrontAccountsTab() {
   })
 
   const bulkMut = useMutation({
-    mutationFn: () => {
-      const targets = group === "customers"
-        ? customers.map((c) => ({ kind: "CUSTOMER" as const, id: c.id }))
-        : visitors.map((v) => ({ kind: "VISITOR" as const, phone: v.phone }))
-      return sendStorefrontCredentialsBulk(targets)
-    },
+    // Server-resolved: building this from the loaded rows silently skipped
+    // everyone past the list's page cap.
+    mutationFn: () => sendStorefrontCredentialsToAll(group),
     onSuccess: (r) => {
       toast({ title: `أُرسلت ${r.sent} من ${r.total}${r.failed ? ` — فشل ${r.failed}` : ""}` })
       refresh()
@@ -78,7 +129,7 @@ export function StorefrontAccountsTab() {
   })
 
   const rowShell = "flex items-center gap-3 rounded-xl border bg-white p-3"
-  const currentCount = group === "customers" ? customers.length : visitors.length
+  const currentCount = totalForGroup
 
   return (
     <div className="space-y-4">
@@ -107,14 +158,14 @@ export function StorefrontAccountsTab() {
                 "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
                 group === "customers" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
               )}>
-              <UserRound className="h-4 w-4" /> زبائن ({customers.length})
+              <UserRound className="h-4 w-4" /> زبائن ({totals.customers})
             </button>
             <button onClick={() => setGroup("visitors")}
               className={cn(
                 "flex flex-1 items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition",
                 group === "visitors" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
               )}>
-              <Users className="h-4 w-4" /> جدد بدون حساب ({visitors.length})
+              <Users className="h-4 w-4" /> جدد بدون حساب ({totals.visitors})
             </button>
           </div>
 
@@ -221,6 +272,111 @@ export function StorefrontAccountsTab() {
                 <p className="py-6 text-center text-sm text-slate-400">ما في أرقام جديدة</p>
               )}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Login + pricing rules for the whole shop */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Lock className="h-5 w-5 text-slate-600" />
+            قواعد الدخول والأسعار
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
+            <input type="checkbox" checked={requireLogin}
+              onChange={(e) => settingsMut.mutate({ catalogRequireLogin: e.target.checked })}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-slate-700" />
+            <span>
+              <span className="block text-sm font-bold text-slate-800">إلزام تسجيل الدخول</span>
+              <span className="block text-xs text-slate-500">
+                ما حد يتصفح المتجر بدون حساب. لما يكون مطفي، يبقى التصفح المفتوح حسب إعداد رمز التحقق.
+              </span>
+            </span>
+          </label>
+
+          <div className="rounded-xl border border-slate-200 p-3">
+            <label className="flex items-start gap-3">
+              <input type="checkbox" checked={pricesVisible}
+                onChange={(e) => settingsMut.mutate({ catalogPricesVisibleByDefault: e.target.checked })}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" />
+              <span>
+                <span className="block text-sm font-bold text-slate-800">إظهار الأسعار لكل الزبائن</span>
+                <span className="block text-xs text-slate-500">
+                  الافتراضي لكل زبون مسجّل. مفتاح «إخفاء السعر» بجنب أي زبون يتجاوز هذا الإعداد له وحده.
+                </span>
+              </span>
+            </label>
+            <Button
+              variant="outline"
+              className="mt-2 w-full"
+              disabled={applyDefaultMut.isPending}
+              onClick={() => applyDefaultMut.mutate()}
+            >
+              <RotateCcw className="ml-1 h-4 w-4" />
+              {applyDefaultMut.isPending ? "جاري التطبيق..." : "طبّق على الزبائن الحاليين الآن"}
+            </Button>
+            <p className="mt-1 text-[11px] text-slate-400">
+              بدون هذا الزر، التغيير يوصل الزبون عند تسجيل دخوله الجاي فقط.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Credentials message */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="h-5 w-5 text-emerald-600" />
+            نص رسالة بيانات الدخول
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <button
+            onClick={() => setShowTemplate((v) => !v)}
+            className="w-full rounded-xl bg-slate-100 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+          >
+            {showTemplate ? "إخفاء المحرر" : "تعديل نص الرسالة"}
+          </button>
+
+          {showTemplate && (
+            <>
+              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                المتغيرات المتاحة: <code>{"{{customerName}}"}</code> <code>{"{{storeName}}"}</code>{" "}
+                <code>{"{{username}}"}</code> <code>{"{{code}}"}</code> <code>{"{{link}}"}</code>
+                <br />
+                اتركه فارغ لاستخدام النص الافتراضي.
+              </p>
+              <textarea
+                value={template}
+                onChange={(e) => setTemplateDraft(e.target.value)}
+                rows={9}
+                dir="rtl"
+                placeholder={DEFAULT_CREDENTIALS_TEMPLATE}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+              />
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setTemplateDraft("")}
+                >
+                  استخدم النص الافتراضي
+                </Button>
+                <Button
+                  className="flex-[2]"
+                  disabled={settingsMut.isPending || templateDraft === null}
+                  onClick={() => {
+                    settingsMut.mutate({ storefrontCredentialsTemplate: template })
+                    setTemplateDraft(null)
+                  }}
+                >
+                  {settingsMut.isPending ? "جاري الحفظ..." : "حفظ نص الرسالة"}
+                </Button>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

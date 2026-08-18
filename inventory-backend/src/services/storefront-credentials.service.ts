@@ -107,19 +107,55 @@ export async function sendStorefrontCredentialsBulk(targets: BulkTarget[], chann
   };
 }
 
-/** Everyone the shop can send credentials to, for the "send to all" button. */
-export async function listCredentialTargets() {
-  const customers = await prisma.customer.findMany({
-    where: { deletedAt: null, phone: { not: "" } },
-    select: { id: true, phone: true },
-  });
-  const customerPhones = new Set(customers.map((c) => c.phone));
-  const visitors = await prisma.catalogVisitor.findMany({ select: { phone: true } });
+export type TargetGroup = "customers" | "visitors" | "all";
+
+/**
+ * Everyone the shop can send credentials to, resolved HERE rather than from
+ * whatever the admin screen happens to have loaded.
+ *
+ * The accounts list is paged, so building "send to all" from the rows on
+ * screen silently skipped every recipient past the page — the run reported
+ * success while part of the customer base never received anything.
+ */
+export async function listCredentialTargets(group: TargetGroup = "all"): Promise<BulkTarget[]> {
+  const wantCustomers = group === "customers" || group === "all";
+  const wantVisitors = group === "visitors" || group === "all";
+
+  const customers = wantCustomers
+    ? await prisma.customer.findMany({
+        where: { deletedAt: null, phone: { not: "" } },
+        select: { id: true, phone: true },
+        orderBy: { name: "asc" },
+      })
+    : [];
+
+  // A phone that became a customer must not also be messaged as a visitor.
+  const customerPhones = new Set(
+    (await prisma.customer.findMany({ where: { deletedAt: null }, select: { phone: true } }))
+      .map((c) => c.phone),
+  );
+  const visitors = wantVisitors
+    ? (await prisma.catalogVisitor.findMany({ select: { phone: true }, orderBy: { lastSeenAt: "desc" } }))
+        .filter((v) => !customerPhones.has(v.phone))
+    : [];
 
   return [
     ...customers.map((c) => ({ kind: "CUSTOMER" as const, id: c.id, phone: c.phone })),
-    ...visitors
-      .filter((v) => !customerPhones.has(v.phone))
-      .map((v) => ({ kind: "VISITOR" as const, phone: v.phone })),
+    ...visitors.map((v) => ({ kind: "VISITOR" as const, phone: v.phone })),
   ];
+}
+
+/** How many recipients a "send to all" would actually reach. */
+export async function countCredentialTargets() {
+  const [customers, visitors] = await Promise.all([
+    listCredentialTargets("customers"),
+    listCredentialTargets("visitors"),
+  ]);
+  return { customers: customers.length, visitors: visitors.length };
+}
+
+export async function sendCredentialsToGroup(group: TargetGroup, channel?: string) {
+  const targets = await listCredentialTargets(group);
+  if (targets.length === 0) throw new AppError("لا يوجد مستلمون", 400, "NO_TARGETS");
+  return sendStorefrontCredentialsBulk(targets, channel);
 }

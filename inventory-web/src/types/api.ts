@@ -1138,6 +1138,12 @@ export interface AppSettings {
   catalogAdminWhatsappNumber?: string
   catalogRequireOtp?: boolean
   catalogFullCartonOnly?: boolean
+  /** Storefront login: close anonymous browsing entirely. */
+  catalogRequireLogin?: boolean
+  /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */
+  catalogPricesVisibleByDefault?: boolean
+  /** WhatsApp text carrying username + code + link. Empty = built-in default. */
+  storefrontCredentialsTemplate?: string
   catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string

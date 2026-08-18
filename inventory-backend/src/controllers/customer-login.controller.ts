@@ -10,7 +10,13 @@ import {
   unlockAccount,
   getAccountForCatalogToken,
 } from "../services/customer-login.service";
-import { sendStorefrontCredentials, sendStorefrontCredentialsBulk } from "../services/storefront-credentials.service";
+import {
+  sendStorefrontCredentials,
+  sendStorefrontCredentialsBulk,
+  sendCredentialsToGroup,
+  countCredentialTargets,
+  type TargetGroup,
+} from "../services/storefront-credentials.service";
 
 /* ── Public ──────────────────────────────────────────────────────── */
 
@@ -71,6 +77,25 @@ export const sendCredentialsBulkCtrl = asyncHandler(async (req, res) => {
   };
   if (!targets?.length) throw new AppError("لا يوجد مستلمون", 400, "NO_TARGETS");
   const data = await sendStorefrontCredentialsBulk(targets, channel);
+  res.json({ success: true, data });
+});
+
+/** Send to EVERY recipient in the group — resolved on the server, so a paged
+ *  admin list can never cause part of the customer base to be skipped. */
+export const sendCredentialsToAllCtrl = asyncHandler(async (req, res) => {
+  const { group, channel } = req.body as { group?: TargetGroup; channel?: string };
+  const data = await sendCredentialsToGroup(group ?? "all", channel);
+  res.json({ success: true, data });
+});
+
+export const credentialTargetCountsCtrl = asyncHandler(async (_req, res) => {
+  const data = await countCredentialTargets();
+  res.json({ success: true, data });
+});
+
+export const applyPricesDefaultCtrl = asyncHandler(async (_req, res) => {
+  const { applyPricesDefaultToAllLinks } = await import("../services/customer-login.service");
+  const data = await applyPricesDefaultToAllLinks();
   res.json({ success: true, data });
 });
 
