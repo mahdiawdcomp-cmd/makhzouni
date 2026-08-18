@@ -87,6 +87,12 @@ function makeToken() {
   return `cat_${randomBytes(32).toString("base64url")}`;
 }
 
+/** Shared with the storefront-login service — same identity rules for a
+ *  phone number everywhere, so a login and a catalog link resolve alike. */
+export function normalizeCustomerPhone(input: string) {
+  return normalizePhone(input);
+}
+
 function normalizePhone(input: string) {
   let digits = input.replace(/[^\d]/g, "");
   if (digits.startsWith("00")) digits = digits.slice(2);
@@ -412,6 +418,17 @@ export async function createCatalogAccessLink(
   };
 }
 
+/** The customer's current non-revoked catalog link, or null. */
+export async function getCatalogAccessLinkFor(customerId: string) {
+  const rows = await prisma.$queryRaw<CatalogAccessRow[]>`
+    SELECT "id", "token", "customer_id", "allow_prices", "show_stock", "catalog_stock_filter", "revoked_at", "last_verified_at"
+    FROM "catalog_access_links"
+    WHERE "customer_id" = ${customerId}::uuid AND "revoked_at" IS NULL
+    ORDER BY "created_at" DESC LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
+
 export async function updateCatalogAccessLink(
   customerId: string,
   patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter },
@@ -580,6 +597,45 @@ export async function requestCatalogAccess(input: CatalogAccessInput) {
       input.address,
       input.notes,
     ).catch((err) => console.error("[CatalogAccess] request notify failed:", err));
+  });
+
+  return { approvalId: approval.id };
+}
+
+/**
+ * Same approval a public access request raises, but for someone who has
+ * already signed in with their code — so the OTP precondition does not apply
+ * (the code they used IS proof they own the number).
+ */
+export async function requestStorefrontAccountApproval(input: CatalogAccessInput) {
+  const phone = normalizePhone(input.phone);
+  const existingCustomer = await prisma.customer.findUnique({
+    where: { phone },
+    select: { id: true, name: true },
+  });
+  const customerName = existingCustomer ? existingCustomer.name : input.customerName.trim();
+
+  const requester = await findApprovalRequester();
+  const approval = await createPendingApproval(
+    approvalRequestTypes.CATALOG_ACCESS,
+    {
+      source: "STOREFRONT_SIGNUP",
+      customerName,
+      phone,
+      originalPhone: input.phone,
+      address: input.address,
+      notes: input.notes,
+      allowPrices: false,
+      isExistingCustomer: Boolean(existingCustomer),
+      existingCustomerId: existingCustomer?.id ?? null,
+      body: { customerName, phone, address: input.address, notes: input.notes },
+    },
+    requester.id,
+  );
+
+  setImmediate(() => {
+    notifyCatalogAccessRequested(customerName, phone, input.address, input.notes)
+      .catch((err) => console.error("[StorefrontSignup] notify failed:", err));
   });
 
   return { approvalId: approval.id };

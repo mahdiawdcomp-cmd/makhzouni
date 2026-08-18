@@ -232,6 +232,55 @@ export const trackCatalogViewSchema = z.object({
   }),
 });
 
+/* ── Storefront login ─────────────────────────────────────────────── */
+
+export const customerLoginSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(5).max(40),
+    code: z.string().trim().min(4).max(10),
+  }),
+});
+
+export const visitorDetailsSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(5).max(40),
+    customerName: z.string().trim().min(2).max(120),
+    address: z.string().trim().max(240).optional(),
+    notes: z.string().trim().max(500).optional(),
+  }),
+});
+
+const credentialTargetSchema = z.object({
+  kind: z.enum(["CUSTOMER", "VISITOR"]),
+  id: z.string().uuid().optional(),
+  phone: z.string().trim().max(40).optional(),
+});
+
+export const sendCredentialsSchema = z.object({
+  body: credentialTargetSchema.extend({
+    channel: z.enum(["official", "personal"]).optional(),
+  }),
+});
+
+export const sendCredentialsBulkSchema = z.object({
+  body: z.object({
+    targets: z.array(credentialTargetSchema).min(1).max(2000),
+    channel: z.enum(["official", "personal"]).optional(),
+  }),
+});
+
+export const setPricesHiddenSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({ hidden: z.boolean() }),
+});
+
+export const unlockAccountSchema = z.object({
+  body: z.object({
+    kind: z.enum(["CUSTOMER", "VISITOR"]),
+    idOrPhone: z.string().trim().min(1).max(64),
+  }),
+});
+
 /* ── Catalog product page ─────────────────────────────────────────── */
 
 export const catalogProductIdSchema = z.object({
@@ -1085,6 +1134,9 @@ export const updateSettingsSchema = z.object({
       catalogDesignTrust3Enabled: nullAsUndefined(z.boolean()),
       catalogDesignTrust3Text: nullAsUndefined(z.string().trim().max(60)),
       catalogDesignLowStockCartons: nullAsUndefined(z.coerce.number().int().min(0).max(1000)),
+      catalogPricesVisibleByDefault: nullAsUndefined(z.boolean()),
+      catalogRequireLogin: nullAsUndefined(z.boolean()),
+      storefrontCredentialsTemplate: nullAsUndefined(z.string().max(2000)),
       catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),

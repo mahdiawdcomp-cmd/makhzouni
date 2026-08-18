@@ -166,6 +166,14 @@ export interface AppSettings {
   // warning. Cartons, not pieces: this is a wholesale catalog and the old
   // piece-based threshold effectively never fired. 0 = never warn.
   catalogDesignLowStockCartons?: number;
+  // Storefront login: whether a signed-in customer sees prices by default.
+  // Per-customer exceptions live on Customer.catalogPricesHidden.
+  catalogPricesVisibleByDefault?: boolean;
+  // When true the catalog cannot be browsed without signing in at all.
+  catalogRequireLogin?: boolean;
+  // WhatsApp text sent to a customer with their storefront username + code.
+  // Placeholders: customerName, storeName, username, code, link.
+  storefrontCredentialsTemplate?: string;
   // Wholesale catalog OTP re-verification gate. Defaults to true (current
   // behavior unchanged) — undefined/missing must also mean true so existing
   // tenants are never silently opened up. When false, a valid catalog link

@@ -215,6 +215,119 @@ export async function getCatalogSession(access: string) {
   return data.data
 }
 
+/* ── Storefront login ─────────────────────────────────────────────── */
+
+export type CustomerLoginResult =
+  | { kind: "CUSTOMER"; token: string; customer: { id: string; name: string; phone: string } }
+  | { kind: "VISITOR"; phone: string; detailsSubmitted: boolean }
+
+export async function customerLogin(phone: string, code: string) {
+  const { data } = await api.post<ApiEnvelope<CustomerLoginResult>>(
+    "/public/catalog/login", { phone, code },
+  )
+  return data.data!
+}
+
+export async function submitStorefrontSignupDetails(payload: {
+  phone: string; customerName: string; address?: string; notes?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>(
+    "/public/catalog/signup-details", payload,
+  )
+  return data
+}
+
+export interface CustomerAccountTx {
+  id: string
+  type: string
+  invoiceType?: string | null
+  date: string
+  description: string
+  referenceNumber?: string | null
+  debit: number
+  credit: number
+  runningBalance: number
+  status?: string | null
+}
+
+export interface CustomerAccount {
+  customer: {
+    id: string; name: string; phone: string; address: string | null
+    openingBalance: number; currentBalance: number
+    lastTransactionAt: string | null; loyaltyPoints: number
+  }
+  transactions: CustomerAccountTx[]
+  storeName: string
+  storePhone: string | null
+  currency: string
+}
+
+export async function getCustomerAccount(access: string) {
+  const { data } = await api.get<ApiEnvelope<CustomerAccount>>(
+    "/public/catalog/account", { params: { access } },
+  )
+  return data.data!
+}
+
+/* ── Storefront accounts (admin) ──────────────────────────────────── */
+
+export interface StorefrontCustomerAccount {
+  kind: "CUSTOMER"
+  id: string
+  name: string
+  phone: string
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  pricesHidden: boolean
+}
+
+export interface StorefrontVisitorAccount {
+  kind: "VISITOR"
+  phone: string
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  detailsSubmitted: boolean
+}
+
+export async function listStorefrontAccounts(search?: string) {
+  const { data } = await api.get<ApiEnvelope<{
+    customers: StorefrontCustomerAccount[]
+    visitors: StorefrontVisitorAccount[]
+  }>>("/catalog-management/accounts", { params: search ? { search } : {} })
+  return data.data ?? { customers: [], visitors: [] }
+}
+
+export async function sendStorefrontCredentials(
+  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string; sent: boolean }>>(
+    "/catalog-management/accounts/send-credentials", target,
+  )
+  return data
+}
+
+export async function sendStorefrontCredentialsBulk(
+  targets: Array<{ kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }>,
+) {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-credentials-bulk", { targets })
+  return data.data!
+}
+
+export async function setCustomerPricesHidden(customerId: string, hidden: boolean) {
+  await api.patch(`/catalog-management/accounts/${customerId}/prices-hidden`, { hidden })
+}
+
+export async function unlockStorefrontAccount(kind: "CUSTOMER" | "VISITOR", idOrPhone: string) {
+  await api.post("/catalog-management/accounts/unlock", { kind, idOrPhone })
+}
+
 // After a successful OTP for an existing link (6-month re-verification): stamps
 // the link as verified again — same token, no new admin approval.
 export async function verifyCatalogAccess(access: string) {

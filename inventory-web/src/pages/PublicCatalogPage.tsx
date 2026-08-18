@@ -24,6 +24,8 @@ import {
   ShoppingBag,
   SlidersHorizontal,
   ShoppingCart,
+  LogOut,
+  UserRound,
   Trash2,
   Type,
   X,
@@ -45,6 +47,9 @@ import {
   verifyCatalogAccess,
   submitPublicCatalogOrder,
   validatePublicPromoCode,
+  customerLogin,
+  submitStorefrontSignupDetails,
+  getCustomerAccount,
   EMPTY_CATALOG_FOOTER,
   EMPTY_CATALOG_TRUST,
   getCatalogProductDetail,
@@ -336,6 +341,9 @@ export function PublicCatalogPage() {
           </div>
         </div>
       )
+    // Signing in is the way into the shop now. Guest browsing stays available
+    // only while the merchant explicitly leaves it on, and the old per-customer
+    // ?access= links keep working because the token is read before this point.
     if (guestConfigQuery.data?.guestModeEnabled) {
       return (
         <GuestPhoneGate>
@@ -346,7 +354,7 @@ export function PublicCatalogPage() {
         </GuestPhoneGate>
       )
     }
-    return <CatalogGate onAccess={handleAccess} />
+    return <LoginGate onAccess={handleAccess} />
   }
 
   if (sessionQuery.isPending || sessionQuery.isLoading)
@@ -359,7 +367,7 @@ export function PublicCatalogPage() {
       </div>
     )
 
-  if (!sessionQuery.data) return <CatalogGate onAccess={handleAccess} />
+  if (!sessionQuery.data) return <LoginGate onAccess={handleAccess} />
 
   const { customer, allowPrices, showStock, stockFilter, needsOtp } = sessionQuery.data
 
@@ -472,176 +480,140 @@ function ReVerifyGate({
 /* ══════════════════════════════════════════════════════════════════════
    GATE
 ══════════════════════════════════════════════════════════════════════ */
-type GateStep = "phone" | "otp" | "details" | "check"
 
-function CatalogGate({ onAccess }: { onAccess: (token: string) => void }) {
-  const [step, setStep] = useState<GateStep>("phone")
+/* ══════════════════════════════════════════════════════════════════════
+   LOGIN GATE — phone number + the 6-digit code the shop sent
+   Two kinds of account come through here: a real customer (straight into
+   their catalog) and a phone the shop knows but hasn't made a customer yet
+   (fills in their details, which go to the approvals queue).
+══════════════════════════════════════════════════════════════════════ */
+const SIGNUP_PHONE_KEY = "catalog_signup_phone"
+
+function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
   const [phone, setPhone] = useState("")
-  const [otp, setOtp] = useState("")
+  const [code, setCode] = useState("")
+  const [msg, setMsg] = useState("")
+  // A visitor who signed in but has no customer record yet.
+  const [signupPhone, setSignupPhone] = useState<string | null>(null)
+  const [signupDone, setSignupDone] = useState(false)
   const [name, setName] = useState("")
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
-  const [msg, setMsg] = useState("")
 
-  const sendOtpMut = useMutation({
-    mutationFn: async () => {
-      const status = await getCatalogAccessStatus(phone.trim())
-      // The backend only returns a token when this phone has already proved
-      // ownership via OTP, or when the merchant has turned OTP off entirely.
-      // Anything else falls through to the OTP step below. Never treat
-      // `approved` alone as permission to skip — knowing a customer's phone
-      // number is not authentication.
-      if (status?.approved && status.token) return { skip: true, token: status.token }
-      await sendCatalogOtp(phone.trim())
-      return { skip: false, token: null }
-    },
+  const loginMut = useMutation({
+    mutationFn: () => customerLogin(phone.trim(), code.trim()),
     onSuccess: (result) => {
       setMsg("")
-      if (result.skip && result.token) onAccess(result.token)
-      else setStep("otp")
+      if (result.kind === "CUSTOMER") { onAccess(result.token); return }
+      localStorage.setItem(SIGNUP_PHONE_KEY, result.phone)
+      setSignupPhone(result.phone)
+      setSignupDone(result.detailsSubmitted)
     },
-    onError: () => setMsg("تعذر إرسال الرمز. تأكد من الرقم وحاول مرة ثانية."),
+    onError: (e) => setMsg(e instanceof Error ? e.message : "تعذر تسجيل الدخول"),
   })
 
-  const verifyOtpMut = useMutation({
-    // Verifying is now the ONLY way an already-approved customer gets their
-    // access token: the status lookup deliberately withholds it until the phone
-    // has proved ownership. So re-check status right after verifying — an
-    // existing customer goes straight into the catalog, and only a genuinely
-    // new phone falls through to the access-request form.
-    mutationFn: async () => {
-      await verifyCatalogOtp(phone.trim(), otp.trim())
-      return getCatalogAccessStatus(phone.trim())
-    },
-    onSuccess: (status) => {
-      setMsg("")
-      if (status?.approved && status.token) onAccess(status.token)
-      else setStep("details")
-    },
-    onError: () => setMsg("الرمز غير صحيح أو انتهت صلاحيته."),
+  const signupMut = useMutation({
+    mutationFn: () => submitStorefrontSignupDetails({
+      phone: signupPhone ?? "", customerName: name.trim(),
+      address: address.trim() || undefined, notes: notes.trim() || undefined,
+    }),
+    onSuccess: () => { setMsg(""); setSignupDone(true) },
+    onError: (e) => setMsg(e instanceof Error ? e.message : "تعذر إرسال بياناتك"),
   })
 
-  const requestMut = useMutation({
-    mutationFn: () => requestCatalogAccess({ customerName: name.trim(), phone: phone.trim(), address: address.trim() || undefined, notes: notes.trim() || undefined }),
-    onSuccess: () => { setMsg("تم إرسال طلبك! انتظر موافقة الإدارة ثم اضغط «فحص الموافقة»."); setStep("check") },
-    onError: () => setMsg("تعذر إرسال الطلب. حاول مرة ثانية."),
-  })
-
-  const checkMut = useMutation({
-    mutationFn: () => getCatalogAccessStatus(phone.trim()),
-    onSuccess: (s) => s?.approved && s.token ? onAccess(s.token) : setMsg("طلبك لم يُوافق عليه بعد، حاول لاحقاً."),
-  })
-
-  return (
+  const shell = (children: React.ReactNode) => (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8" dir="rtl">
       <div className="mb-6 flex flex-col items-center gap-2">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
           <ShoppingBag className="h-8 w-8 text-white" />
         </div>
-        <h1 className="text-xl font-extrabold text-gray-900">كتالوج المنتجات</h1>
-        <p className="text-sm text-gray-500">تصفح واطلب بكل سهولة</p>
+        <h1 className="text-xl font-extrabold text-gray-900">متجر الجملة</h1>
+        <p className="text-sm text-gray-500">سجّل الدخول لتتصفح وتطلب</p>
       </div>
-
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
-        {step === "phone" && (
-          <div className="space-y-4">
-            <div className="text-center">
-              <p className="font-semibold text-gray-800">أدخل رقم هاتفك</p>
-              <p className="mt-1 text-xs text-gray-500">سنرسل رمز تحقق عبر الواتساب</p>
-            </div>
-            <Field icon="📱" placeholder="07xxxxxxxx" value={phone} onChange={setPhone} type="tel" />
-            <button
-              disabled={phone.trim().length < 9 || sendOtpMut.isPending}
-              onClick={() => sendOtpMut.mutate()}
-              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {sendOtpMut.isPending ? "جاري الإرسال..." : "إرسال رمز التحقق"}
-            </button>
-            <button onClick={() => setStep("check")} className="w-full text-center text-xs text-emerald-600 hover:underline">
-              لدي طلب سابق — فحص الموافقة
-            </button>
-          </div>
-        )}
-
-        {step === "otp" && (
-          <div className="space-y-4">
-            <div className="text-center">
-              <p className="font-semibold text-gray-800">أدخل رمز التحقق</p>
-              <p className="mt-1 text-xs text-gray-500">أُرسل إلى {phone} عبر الواتساب</p>
-            </div>
-            <input
-              type="text" inputMode="numeric" maxLength={6}
-              value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-              placeholder="000000"
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-2xl font-bold tracking-widest outline-none focus:border-emerald-400 focus:bg-white"
-              dir="ltr"
-            />
-            <button
-              disabled={otp.length < 4 || verifyOtpMut.isPending}
-              onClick={() => verifyOtpMut.mutate()}
-              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {verifyOtpMut.isPending ? "جاري التحقق..." : "تحقق"}
-            </button>
-            <button onClick={() => { setStep("phone"); setOtp(""); setMsg("") }} className="w-full text-center text-xs text-gray-400 hover:underline">
-              ← تغيير الرقم
-            </button>
-          </div>
-        )}
-
-        {step === "details" && (
-          <div className="space-y-3">
-            <div className="text-center mb-2">
-              <p className="font-semibold text-gray-800">أكمل بياناتك</p>
-              <p className="mt-1 text-xs text-emerald-600">✓ تم التحقق من {phone}</p>
-            </div>
-            <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
-            <Field icon="📍" placeholder="العنوان (اختياري)" value={address} onChange={setAddress} />
-            <Field icon="📝" placeholder="ملاحظات (اختيارية)" value={notes} onChange={setNotes} />
-            <button
-              disabled={name.trim().length < 2 || requestMut.isPending}
-              onClick={() => requestMut.mutate()}
-              className="mt-2 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {requestMut.isPending ? "جاري الإرسال..." : "إرسال طلب الدخول"}
-            </button>
-          </div>
-        )}
-
-        {step === "check" && (
-          <div className="space-y-3">
-            <div className="text-center mb-2">
-              <p className="font-semibold text-gray-800">فحص حالة الطلب</p>
-            </div>
-            <Field icon="📱" placeholder="رقم الهاتف المسجل" value={phone} onChange={setPhone} type="tel" />
-            <button
-              disabled={phone.trim().length < 5 || checkMut.isPending}
-              onClick={() => checkMut.mutate()}
-              className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {checkMut.isPending ? "جاري الفحص..." : "فحص الموافقة"}
-            </button>
-            <button onClick={() => { setStep("phone"); setMsg("") }} className="w-full text-center text-xs text-emerald-600 hover:underline">
-              ← طلب جديد
-            </button>
-          </div>
-        )}
-
+        {children}
         {msg && (
-          <div className={cn(
-            "mt-4 rounded-xl px-4 py-3 text-sm border",
-            msg.includes("تعذر") || msg.includes("غير صحيح") || msg.includes("لم يُوافق")
-              ? "bg-red-50 text-red-700 border-red-100"
-              : "bg-emerald-50 text-emerald-800 border-emerald-100"
-          )}>
+          <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
             {msg}
           </div>
         )}
       </div>
     </div>
   )
-}
 
+  // Signed in, details already with the shop — nothing to do but wait.
+  if (signupPhone && signupDone) {
+    return shell(
+      <div className="space-y-3 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
+          <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+        </div>
+        <p className="font-bold text-gray-800">تم استلام بياناتك</p>
+        <p className="text-sm text-gray-500">
+          حسابك بانتظار موافقة الإدارة. راح نتواصل وياك، وبعد الموافقة تقدر تدخل بنفس الرقم والرمز.
+        </p>
+        <button
+          onClick={() => loginMut.mutate()}
+          disabled={loginMut.isPending}
+          className="mt-2 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white transition active:scale-95 disabled:opacity-50"
+        >
+          {loginMut.isPending ? "جاري الفحص..." : "فحص الموافقة"}
+        </button>
+      </div>,
+    )
+  }
+
+  // Signed in as a not-yet-customer — collect who they are.
+  if (signupPhone) {
+    return shell(
+      <div className="space-y-3">
+        <div className="mb-2 text-center">
+          <p className="font-semibold text-gray-800">أكمل بياناتك</p>
+          <p className="mt-1 text-xs text-emerald-600">✓ تم الدخول برقم {signupPhone}</p>
+        </div>
+        <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
+        <Field icon="📍" placeholder="العنوان (اختياري)" value={address} onChange={setAddress} />
+        <Field icon="📝" placeholder="ملاحظات (اختيارية)" value={notes} onChange={setNotes} />
+        <button
+          disabled={name.trim().length < 2 || signupMut.isPending}
+          onClick={() => signupMut.mutate()}
+          className="mt-2 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {signupMut.isPending ? "جاري الإرسال..." : "إرسال بياناتي"}
+        </button>
+      </div>,
+    )
+  }
+
+  return shell(
+    <div className="space-y-4">
+      <div className="text-center">
+        <p className="font-semibold text-gray-800">تسجيل الدخول</p>
+        <p className="mt-1 text-xs text-gray-500">استخدم رقم هاتفك والرمز المرسل لك بالواتساب</p>
+      </div>
+      <Field icon="📱" placeholder="رقم الهاتف" value={phone} onChange={setPhone} type="tel" />
+      <input
+        type="text" inputMode="numeric" maxLength={6}
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+        onKeyDown={(e) => { if (e.key === "Enter" && phone.trim() && code.length >= 4) loginMut.mutate() }}
+        placeholder="••••••"
+        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-center text-2xl font-bold tracking-[0.4em] outline-none focus:border-emerald-400 focus:bg-white"
+        dir="ltr"
+      />
+      <button
+        disabled={phone.trim().length < 9 || code.length < 4 || loginMut.isPending}
+        onClick={() => loginMut.mutate()}
+        className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {loginMut.isPending ? "جاري الدخول..." : "دخول"}
+      </button>
+      <p className="text-center text-xs text-gray-400">
+        ما عندك رمز؟ تواصل مع المحل وراح يرسله لك على الواتساب.
+      </p>
+    </div>,
+  )
+}
 function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: string; placeholder: string; value: string; onChange: (v: string) => void; type?: string }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 focus-within:border-emerald-400 focus-within:bg-white transition">
@@ -898,6 +870,7 @@ function CatalogShop({
     return v && v in FONT_SCALES ? (v as FontScale) : "md"
   })
   const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [accountOpen, setAccountOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   // A shared link (/catalog?product=<id>) opens straight onto that product —
   // but only once the shopper is past the gate, since this component only
@@ -1334,6 +1307,20 @@ function CatalogShop({
                       label: productsQuery.isFetching ? "جاري التحديث..." : "تحديث المنتجات",
                       onClick: () => { setMoreOpen(false); void productsQuery.refetch() },
                     },
+                    // Account + sign out only exist for a signed-in customer;
+                    // a guest has no account to open and nothing to sign out of.
+                    ...(guestMode ? [] : [
+                      {
+                        icon: <UserRound className="h-4 w-4" style={{ color: tk.accent }} />,
+                        label: "حسابي وفواتيري",
+                        onClick: () => { setMoreOpen(false); setAccountOpen(true) },
+                      },
+                      {
+                        icon: <LogOut className="h-4 w-4" style={{ color: tk.accent }} />,
+                        label: "تسجيل الخروج",
+                        onClick: () => { localStorage.removeItem(storageKey); window.location.href = "/catalog" },
+                      },
+                    ]),
                   ].map((item, i) => (
                     <button key={i} onClick={item.onClick}
                       className="flex w-full items-center gap-2.5 px-3.5 py-3 text-right transition active:opacity-70"
@@ -1716,6 +1703,11 @@ function CatalogShop({
           onSelect={(unit) => { add(pickerProduct, unit); setPickerProduct(null) }}
           onClose={() => setPickerProduct(null)}
         />
+      )}
+
+      {/* ── My account ── */}
+      {accountOpen && !guestMode && (
+        <AccountSheet accessToken={accessToken} tk={tk} onClose={() => setAccountOpen(false)} />
       )}
 
       {/* ── Filters ── */}
@@ -2346,6 +2338,158 @@ function ProductDetailSheet({
           <img src={zoom} alt="" className="max-h-[85vh] max-w-[92vw] rounded-2xl object-contain" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   MY ACCOUNT — balance, invoices, vouchers and the full statement,
+   for the customer who is signed in. Same data the /client/:token portal
+   serves, reached with the catalog token they already hold.
+══════════════════════════════════════════════════════════════════════ */
+type AccountTab = "statement" | "invoices" | "vouchers"
+
+const ACCOUNT_TABS: Array<{ key: AccountTab; label: string }> = [
+  { key: "statement", label: "كشف الحساب" },
+  { key: "invoices", label: "فواتيري" },
+  { key: "vouchers", label: "سنداتي" },
+]
+
+function AccountSheet({
+  accessToken, tk, onClose,
+}: {
+  accessToken: string
+  tk: ThemeTokens
+  onClose: () => void
+}) {
+  const [tab, setTab] = useState<AccountTab>("statement")
+  const accountQuery = useQuery({
+    queryKey: ["customer-account", accessToken],
+    queryFn: () => getCustomerAccount(accessToken),
+    staleTime: 30_000,
+  })
+  const data = accountQuery.data
+
+  const rows = useMemo(() => {
+    const all = data?.transactions ?? []
+    if (tab === "invoices") return all.filter(t => t.type === "INVOICE")
+    if (tab === "vouchers") return all.filter(t => t.type !== "INVOICE")
+    return all
+  }, [data, tab])
+
+  // A positive balance is money the customer owes; show which way it runs
+  // instead of a bare signed number the shopper has to interpret.
+  const balance = data?.customer.currentBalance ?? 0
+
+  return (
+    <div className="fixed inset-0 z-[130] mx-auto max-w-[600px] overflow-y-auto" style={{ background: tk.bg }} dir="rtl">
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-2 px-3 py-2"
+        style={{ background: tk.accent, boxShadow: tk.shadowMd }}>
+        <button onClick={onClose} className="flex items-center gap-1 rounded-lg px-2 py-1.5 font-bold text-white transition active:scale-95"
+          style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.xs }}>
+          <ChevronRight className="h-3.5 w-3.5" />
+          رجوع
+        </button>
+        <span className="font-extrabold text-white" style={{ fontSize: tk.fs.md }}>حسابي</span>
+        <span className="w-14" />
+      </div>
+
+      <div className="px-3 pb-24 pt-3">
+        {accountQuery.isLoading && (
+          <p className="py-10 text-center" style={{ color: tk.subtext, fontSize: tk.fs.md }}>جاري التحميل...</p>
+        )}
+
+        {accountQuery.isError && (
+          <div className="py-10 text-center">
+            <p className="font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>تعذر تحميل حسابك</p>
+            <button onClick={() => void accountQuery.refetch()}
+              className="mt-3 px-5 py-2.5 font-bold text-white"
+              style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+              إعادة المحاولة
+            </button>
+          </div>
+        )}
+
+        {data && (
+          <>
+            {/* Identity + balance */}
+            <div className="p-4" style={{ background: tk.cardBg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}`, boxShadow: tk.shadowSm }}>
+              <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>{data.customer.name}</p>
+              <p style={{ color: tk.subtext, fontSize: tk.fs.sm }} dir="ltr">{data.customer.phone}</p>
+              {data.customer.address && (
+                <p className="mt-0.5" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>📍 {data.customer.address}</p>
+              )}
+
+              <div className="mt-3 flex items-center justify-between p-3"
+                style={{ background: tk.accentSoft, borderRadius: tk.radiusMd }}>
+                <span className="font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>
+                  {balance > 0 ? "المبلغ المستحق عليك" : balance < 0 ? "رصيد لك" : "الحساب"}
+                </span>
+                <span className="font-extrabold" style={{ color: balance > 0 ? "#dc2626" : tk.accent, fontSize: tk.fs.xl }}>
+                  {money(Math.abs(balance))} <span style={{ fontSize: tk.fs.xs }}>{data.currency}</span>
+                </span>
+              </div>
+
+              {data.customer.loyaltyPoints > 0 && (
+                <p className="mt-2 font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
+                  ⭐ نقاطك: {money(data.customer.loyaltyPoints)}
+                </p>
+              )}
+            </div>
+
+            {/* Tabs */}
+            <div className="mt-3 flex gap-1.5">
+              {ACCOUNT_TABS.map(t => (
+                <button key={t.key} onClick={() => setTab(t.key)}
+                  className="flex-1 py-2 font-bold transition active:scale-95"
+                  style={tab === t.key
+                    ? { background: tk.accent, color: "#fff", borderRadius: tk.radiusSm, fontSize: tk.fs.sm }
+                    : { background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusSm, fontSize: tk.fs.sm }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {rows.length === 0 && (
+              <p className="py-10 text-center" style={{ color: tk.subtext, fontSize: tk.fs.md }}>
+                ما في حركات بهذا القسم
+              </p>
+            )}
+
+            <div className="mt-3 space-y-2">
+              {rows.map((t) => (
+                <div key={t.id} className="p-3"
+                  style={{ background: tk.cardBg, borderRadius: tk.radiusMd, border: `1px solid ${tk.divider}` }}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{t.description}</p>
+                      <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                        {new Date(t.date).toLocaleDateString("ar-IQ")}
+                        {t.referenceNumber ? ` · ${t.referenceNumber}` : ""}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-left">
+                      {t.debit > 0 && (
+                        <p className="font-extrabold" style={{ color: "#dc2626", fontSize: tk.fs.md }}>
+                          {money(t.debit)}
+                        </p>
+                      )}
+                      {t.credit > 0 && (
+                        <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.md }}>
+                          {money(t.credit)}
+                        </p>
+                      )}
+                      <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                        الرصيد: {money(t.runningBalance)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

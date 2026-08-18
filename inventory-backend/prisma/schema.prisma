@@ -558,6 +558,19 @@ model Customer {
   // per-invoice snapshot this running total is built from. No redemption engine
   // yet — the owner decides/announces discounts manually using this number.
   loyaltyPoints        Int                          @default(0) @map("loyalty_points")
+  // ── Storefront login ────────────────────────────────────────────────
+  // The customer signs in with their phone plus a 6-digit code. Only the
+  // bcrypt hash is stored, exactly like staff passwords — so a code can be
+  // re-sent only by generating a fresh one, never by reading the old one back.
+  accessCodeHash       String?                      @map("access_code_hash")
+  accessCodeSetAt      DateTime?                    @map("access_code_set_at")
+  lastLoginAt          DateTime?                    @map("last_login_at")
+  // A 6-digit code is a small keyspace, so throttling is what actually keeps
+  // it safe: 5 failures locks the account for 15 minutes.
+  failedLoginCount     Int                          @default(0) @map("failed_login_count")
+  lockedUntil          DateTime?                    @map("locked_until")
+  // Per-customer override of the shop-wide "show prices" default.
+  catalogPricesHidden  Boolean                      @default(false) @map("catalog_prices_hidden")
   invoices             Invoice[]
   paymentVouchers      PaymentVoucher[]
   couponRedemptions    CouponRedemption[]
@@ -832,6 +845,19 @@ model CatalogVisitor {
   // Accumulated across all visits, via a client heartbeat while the catalog
   // tab is visible — see catalog.service.ts recordVisitorHeartbeat().
   totalTimeSeconds Int @default(0) @map("total_time_seconds")
+
+  // ── Storefront login for someone who is not a customer yet ──────────
+  // A visitor gets the same phone + 6-digit code as a real customer, so the
+  // shop can send credentials to every number it knows. On first sign-in they
+  // fill in their details, which go to the approvals queue — the Customer row
+  // is only created once an admin approves it, so the shop still controls who
+  // becomes a customer.
+  accessCodeHash     String?   @map("access_code_hash")
+  accessCodeSetAt    DateTime? @map("access_code_set_at")
+  lastLoginAt        DateTime? @map("last_login_at")
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until")
+  detailsSubmittedAt DateTime? @map("details_submitted_at")
 
   @@map("catalog_visitors")
 }

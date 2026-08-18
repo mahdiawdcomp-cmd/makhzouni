@@ -79,7 +79,14 @@ import {
   catalogProductIdSchema,
   catalogGalleryImageSchema,
   submitProductReviewSchema,
+  customerLoginSchema,
+  visitorDetailsSchema,
 } from "../utils/schemas";
+import {
+  customerLoginCtrl,
+  submitVisitorDetailsCtrl,
+  customerAccountCtrl,
+} from "../controllers/customer-login.controller";
 import {
   getProductDetailCtrl,
   getGalleryImageCtrl,
@@ -256,6 +263,15 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
     },
   });
 }));
+
+// Storefront login — phone + 6-digit code. Behind the catalog rate limiter,
+// which together with the per-account lockout is what makes a 6-digit secret
+// safe to use as a standing credential.
+router.post("/catalog/login", catalogLimiter, validate(customerLoginSchema), customerLoginCtrl);
+router.post("/catalog/signup-details", catalogLimiter, validate(visitorDetailsSchema), submitVisitorDetailsCtrl);
+// The signed-in customer's own account — same data the /client/:token portal
+// serves, reached with the catalog token instead of a second link.
+router.get("/catalog/account", catalogLimiter, validate(catalogAccessQuerySchema), customerAccountCtrl);
 
 // Catalog product page. Token in ?access when the shopper came through a
 // customer link; without one the controller falls back to guest mode, which

@@ -15,6 +15,7 @@ import {
   Globe,
   Image,
   Info,
+  KeyRound,
   Lock,
   MessageCircle,
   Package,
@@ -71,6 +72,7 @@ import {
 import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
 import { CatalogContentTab } from "../components/CatalogContentTab"
+import { StorefrontAccountsTab } from "../components/StorefrontAccountsTab"
 import { downscaleImage } from "../utils/downscaleImage"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -1655,7 +1657,7 @@ function AnalyticsTab() {
 
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "content" | "promos">("customers")
+  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "content" | "accounts" | "promos">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1713,6 +1715,7 @@ export function CatalogManagementPage() {
           { key: "analytics", label: "تحليلات الكتلوك", icon: <BarChart3 className="h-4 w-4" /> },
           { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
           { key: "content", label: "محتوى المنتجات", icon: <FileText className="h-4 w-4" /> },
+          { key: "accounts", label: "حسابات الدخول", icon: <KeyRound className="h-4 w-4" /> },
           { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
         ] as const).map(({ key, label, icon }) => (
           <button key={key} onClick={() => setTab(key)}
@@ -1729,6 +1732,7 @@ export function CatalogManagementPage() {
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "design" && <CatalogDesignTab />}
       {tab === "content" && <CatalogContentTab />}
+      {tab === "accounts" && <StorefrontAccountsTab />}
       {tab === "promos" && <PromoCodesTab />}
 
       {tab === "customers" && <>

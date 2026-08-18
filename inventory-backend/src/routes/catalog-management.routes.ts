@@ -27,6 +27,13 @@ import {
   setReviewStatusCtrl,
   deleteReviewCtrl,
 } from "../controllers/catalog-product-page.controller";
+import {
+  listAccountsCtrl,
+  sendCredentialsCtrl,
+  sendCredentialsBulkCtrl,
+  setPricesHiddenCtrl,
+  unlockAccountCtrl,
+} from "../controllers/customer-login.controller";
 import { validate } from "../middleware/validate";
 import {
   catalogProductIdSchema,
@@ -35,6 +42,10 @@ import {
   deleteProductImageSchema,
   setReviewStatusSchema,
   idParamSchema,
+  sendCredentialsSchema,
+  sendCredentialsBulkSchema,
+  setPricesHiddenSchema,
+  unlockAccountSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -85,5 +96,12 @@ router.delete("/products/:id/images/:imageId", validate(deleteProductImageSchema
 router.get("/reviews", listReviewsCtrl);
 router.patch("/reviews/:id", validate(setReviewStatusSchema), setReviewStatusCtrl);
 router.delete("/reviews/:id", validate(idParamSchema), deleteReviewCtrl);
+
+// Storefront accounts — who can sign in, and sending them their credentials.
+router.get("/accounts", listAccountsCtrl);
+router.post("/accounts/send-credentials", validate(sendCredentialsSchema), sendCredentialsCtrl);
+router.post("/accounts/send-credentials-bulk", validate(sendCredentialsBulkSchema), sendCredentialsBulkCtrl);
+router.patch("/accounts/:id/prices-hidden", validate(setPricesHiddenSchema), setPricesHiddenCtrl);
+router.post("/accounts/unlock", validate(unlockAccountSchema), unlockAccountCtrl);
 
 export default router;
