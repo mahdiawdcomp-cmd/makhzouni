@@ -478,6 +478,8 @@ async function executeApprovedRequest(
           customer.phone,
           link.urlPath,
           link.allowPrices,
+          // Lets the approval message carry their login code, not just a link.
+          customer.id,
         ).catch((err) => console.error("[CatalogAccess] approval notify failed:", err));
       });
       return link;

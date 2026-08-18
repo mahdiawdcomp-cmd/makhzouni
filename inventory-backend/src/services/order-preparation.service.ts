@@ -4,6 +4,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
+import { commitAccessCode, prepareCustomerCode } from "./customer-login.service";
 import { sendWhatsAppPdf, sendWhatsAppText, sendPdfWithTemplateFallback, sendTextWithTemplateFallback, invoiceTemplateBodyParams } from "./whatsapp.service";
 import { createInvoice, getInvoiceById } from "./invoice.service";
 import { resolveWarehouseId } from "./warehouse-stock.service";
@@ -580,11 +581,34 @@ export async function notifyNewCatalogLead(phone: string) {
   }
 }
 
+export const DEFAULT_ACCESS_APPROVED_TEMPLATE = [
+  "أهلاً {{customerName}} 👋",
+  "تمت الموافقة على طلبك، وصار عندك حساب في متجر {{storeName}}.",
+  "",
+  "👤 اسم المستخدم: {{username}}",
+  "🔑 الرمز: {{code}}",
+  "",
+  "🔗 ادخل من هنا:",
+  "{{link}}",
+  "",
+  "احتفظ بهذه الرسالة، ولا تشاركها مع أحد.",
+].join("\n");
+
+/**
+ * The message a newly approved customer receives.
+ *
+ * Since signing in is required, an approval that carried only a link left the
+ * customer at a login screen with no code — so the credentials are issued and
+ * delivered in this same message. The code is committed only after the send
+ * succeeds, otherwise a failed WhatsApp would leave them holding a code that
+ * was never delivered.
+ */
 export async function notifyCatalogAccessApproved(
   customerName: string,
   customerPhone: string,
   urlPath: string,
   _allowPrices: boolean,
+  customerId?: string,
 ) {
   const settings = await getSettings().catch(() => null);
   const url = catalogUrl(settings, urlPath);
@@ -604,12 +628,38 @@ export async function notifyCatalogAccessApproved(
     );
     return;
   }
+
+  let issued: Awaited<ReturnType<typeof prepareCustomerCode>> | null = null;
+  if (customerId) {
+    issued = await prepareCustomerCode(customerId).catch((err) => {
+      logger.warn(`[catalog] could not prepare a login code: ${String(err)}`);
+      return null;
+    });
+  }
+
+  const template = settings?.catalogAccessApprovedTemplate?.trim()
+    || (issued ? DEFAULT_ACCESS_APPROVED_TEMPLATE : "لقد تم الموافقه على طلبك يمكنك الدخول عبر الرابط\n{{link}}");
+
+  const message = template
+    .replaceAll("{{customerName}}", customerName || "زبوننا العزيز")
+    .replaceAll("{{storeName}}", settings?.storeName || "متجرنا")
+    .replaceAll("{{username}}", issued?.phone ?? customerPhone)
+    .replaceAll("{{code}}", issued?.code ?? "")
+    .replaceAll("{{link}}", url);
+
   await safeSendWATemplated(
     customerPhone,
-    `لقد تم الموافقه على طلبك يمكنك الدخول عبر الرابط\n${url}`,
+    message,
     settings?.catalogAccessApprovedTemplateName,
     [url],
   );
+
+  // Only now is the code real for the customer.
+  if (issued) {
+    await commitAccessCode(issued).catch((err) =>
+      logger.warn(`[catalog] could not store the login code: ${String(err)}`),
+    );
+  }
 }
 
 export async function notifyCatalogOrderSubmitted(

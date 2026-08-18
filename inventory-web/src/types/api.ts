@@ -1144,6 +1144,8 @@ export interface AppSettings {
   catalogPricesVisibleByDefault?: boolean
   /** WhatsApp text carrying username + code + link. Empty = built-in default. */
   storefrontCredentialsTemplate?: string
+  /** Message a newly approved customer gets: link + their login code. */
+  catalogAccessApprovedTemplate?: string
   catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string

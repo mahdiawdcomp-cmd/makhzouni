@@ -1144,6 +1144,7 @@ export const updateSettingsSchema = z.object({
       catalogPricesVisibleByDefault: nullAsUndefined(z.boolean()),
       catalogRequireLogin: nullAsUndefined(z.boolean()),
       storefrontCredentialsTemplate: nullAsUndefined(z.string().max(2000)),
+      catalogAccessApprovedTemplate: nullAsUndefined(z.string().max(2000)),
       catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),

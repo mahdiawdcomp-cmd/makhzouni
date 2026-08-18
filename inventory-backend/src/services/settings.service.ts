@@ -174,6 +174,10 @@ export interface AppSettings {
   // WhatsApp text sent to a customer with their storefront username + code.
   // Placeholders: customerName, storeName, username, code, link.
   storefrontCredentialsTemplate?: string;
+  // Message a NEWLY APPROVED customer receives: the link plus the login
+  // credentials they now need. Placeholders: customerName, storeName,
+  // username, code, link. Empty = the built-in default.
+  catalogAccessApprovedTemplate?: string;
   // Wholesale catalog OTP re-verification gate. Defaults to true (current
   // behavior unchanged) — undefined/missing must also mean true so existing
   // tenants are never silently opened up. When false, a valid catalog link

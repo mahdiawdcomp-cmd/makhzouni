@@ -25,6 +25,17 @@ type Group = "customers" | "visitors"
 
 /** Mirrors the backend default, shown as the textarea's placeholder so the
  *  shop can see exactly what goes out when they leave the field empty. */
+const DEFAULT_APPROVED_TEMPLATE = [
+  "أهلاً {{customerName}} 👋",
+  "تمت الموافقة على طلبك، وصار عندك حساب في متجر {{storeName}}.",
+  "",
+  "👤 اسم المستخدم: {{username}}",
+  "🔑 الرمز: {{code}}",
+  "",
+  "🔗 ادخل من هنا:",
+  "{{link}}",
+].join("\n")
+
 const DEFAULT_CREDENTIALS_TEMPLATE = [
   "مرحباً {{customerName}} 👋",
   "هذا حسابك للدخول إلى متجر {{storeName}}:",
@@ -65,6 +76,10 @@ export function StorefrontAccountsTab() {
   const [showTemplate, setShowTemplate] = useState(false)
   const savedTemplate = settingsQuery.data?.storefrontCredentialsTemplate ?? ""
   const template = templateDraft ?? savedTemplate
+  const [approvedDraft, setApprovedDraft] = useState<string | null>(null)
+  const [showApproved, setShowApproved] = useState(false)
+  const savedApproved = settingsQuery.data?.catalogAccessApprovedTemplate ?? ""
+  const approvedTemplate = approvedDraft ?? savedApproved
   const pricesVisible = settingsQuery.data?.catalogPricesVisibleByDefault !== false
   const requireLogin = settingsQuery.data?.catalogRequireLogin === true
 
@@ -371,6 +386,63 @@ export function StorefrontAccountsTab() {
                   onClick={() => {
                     settingsMut.mutate({ storefrontCredentialsTemplate: template })
                     setTemplateDraft(null)
+                  }}
+                >
+                  {settingsMut.isPending ? "جاري الحفظ..." : "حفظ نص الرسالة"}
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Message a newly approved customer receives */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageSquare className="h-5 w-5 text-amber-600" />
+            نص رسالة الموافقة على زبون جديد
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            هذي الرسالة اللي تنرسل للزبون أول ما توافق على طلبه. صار الرمز السري ينرسل معها
+            بنفس الرسالة، حتى يقدر يدخل مباشرة بدون ما تحتاج ترسل له شي ثاني.
+          </p>
+
+          <button
+            onClick={() => setShowApproved((v) => !v)}
+            className="w-full rounded-xl bg-slate-100 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
+          >
+            {showApproved ? "إخفاء المحرر" : "تعديل نص الرسالة"}
+          </button>
+
+          {showApproved && (
+            <>
+              <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                المتغيرات المتاحة: <code>{"{{customerName}}"}</code> <code>{"{{storeName}}"}</code>{" "}
+                <code>{"{{username}}"}</code> <code>{"{{code}}"}</code> <code>{"{{link}}"}</code>
+                <br />
+                اتركه فارغ لاستخدام النص الافتراضي.
+              </p>
+              <textarea
+                value={approvedTemplate}
+                onChange={(e) => setApprovedDraft(e.target.value)}
+                rows={9}
+                dir="rtl"
+                placeholder={DEFAULT_APPROVED_TEMPLATE}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-400"
+              />
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setApprovedDraft("")}>
+                  استخدم النص الافتراضي
+                </Button>
+                <Button
+                  className="flex-[2]"
+                  disabled={settingsMut.isPending || approvedDraft === null}
+                  onClick={() => {
+                    settingsMut.mutate({ catalogAccessApprovedTemplate: approvedTemplate })
+                    setApprovedDraft(null)
                   }}
                 >
                   {settingsMut.isPending ? "جاري الحفظ..." : "حفظ نص الرسالة"}
