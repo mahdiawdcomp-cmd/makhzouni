@@ -4,6 +4,7 @@ import { requirePermission } from "../middleware/permission.middleware";
 import {
   deleteCampaignRecipient,
   getCampaignById,
+  getCampaignFunnel,
   getCampaigns,
   patchCampaignStatus,
   postCampaign,
@@ -19,6 +20,8 @@ router.use(authMiddleware);
 const manage = requirePermission("MANAGE_CUSTOMERS");
 
 router.get("/", getCampaigns);
+// بند ٦ — يجب أن يسبق "/:id" وإلا اكسبرس يقرأ "funnel-report" كمعرّف حملة.
+router.get("/funnel-report", getCampaignFunnel);
 router.get("/:id", getCampaignById);
 router.post("/", manage, postCampaign);
 router.put("/:id", manage, putCampaign);

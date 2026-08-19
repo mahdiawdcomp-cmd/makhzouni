@@ -17,6 +17,7 @@ import type {
   CatalogSession,
   Campaign,
   CampaignDetail,
+  CampaignFunnelReport,
   CampaignPayload,
   CampaignStatus,
   SystemHealth,
@@ -590,6 +591,12 @@ export async function loadCampaignProspects(id: string) {
 
 export async function deleteCampaignRecipient(id: string, recipientId: string) {
   const { data } = await api.delete<ApiEnvelope<{ id: string }>>(`/campaigns/${id}/recipients/${recipientId}`)
+  return data.data
+}
+
+// بند ٦ — جدول القمع لكل صيغة رسالة.
+export async function getCampaignFunnelReport(params?: { from?: string; to?: string; tag?: string }) {
+  const { data } = await api.get<ApiEnvelope<CampaignFunnelReport>>("/campaigns/funnel-report", { params })
   return data.data
 }
 

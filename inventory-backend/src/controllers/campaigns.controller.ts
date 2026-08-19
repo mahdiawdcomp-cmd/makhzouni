@@ -11,6 +11,7 @@ import {
   setCampaignStatus,
   updateCampaign,
 } from "../services/campaign.service";
+import { getCampaignFunnelReport } from "../services/campaign-funnel.service";
 
 export const getCampaigns = asyncHandler(async (_req, res) => {
   const data = await listCampaigns();
@@ -54,5 +55,15 @@ export const postCampaignRecipients = asyncHandler(async (req, res) => {
 
 export const deleteCampaignRecipient = asyncHandler(async (req, res) => {
   const data = await removeRecipient(String(req.params.id), String(req.params.recipientId));
+  res.json({ success: true, data });
+});
+
+// بند ٦ — جدول القمع لكل صيغة (أُرسلت/ردّت/اختارت الشراء/سجّلت/فتحت الكتلوك/طلبت).
+export const getCampaignFunnel = asyncHandler(async (req, res) => {
+  const data = await getCampaignFunnelReport({
+    from: req.query.from ? String(req.query.from) : undefined,
+    to: req.query.to ? String(req.query.to) : undefined,
+    tag: req.query.tag ? String(req.query.tag) : undefined,
+  });
   res.json({ success: true, data });
 });

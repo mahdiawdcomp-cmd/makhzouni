@@ -467,6 +467,27 @@ export interface Campaign {
   processed?: number
 }
 
+// بند ٦ — جدول القمع لكل صيغة رسالة.
+export interface CampaignFunnelVariantStats {
+  variant: string
+  /** بند ٦ — نفس نص الصيغة ممكن يتكرر بأكثر من حملة؛ العدد يوضّح إذا الصف مجمّع. */
+  campaignCount: number
+  sent: number
+  replied: number
+  boughtChoice: number
+  registered: number
+  openedCatalog: number
+  firstOrder: number
+}
+
+export interface CampaignFunnelReport {
+  from: string | null
+  to: string | null
+  tag: string | null
+  totals: Omit<CampaignFunnelVariantStats, "variant">
+  byVariant: CampaignFunnelVariantStats[]
+}
+
 export type HealthLevel = "ok" | "warn" | "down" | "unknown"
 
 export interface SystemHealth {

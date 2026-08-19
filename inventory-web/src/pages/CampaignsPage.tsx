@@ -9,8 +9,9 @@ import {
   createCampaign, updateCampaign, deleteCampaign, getCampaign, getCampaigns, loadCampaignProspects,
   setCampaignStatus, deleteCampaignRecipient, getSettings, updateSettings,
   getInboundMessages, markInboundMessageRead, replyToInboundMessage,
+  getCampaignFunnelReport, getCustomerTags,
 } from "../api/endpoints"
-import type { Campaign, CampaignPayload, CampaignStatus, Prospect, BotRule, InboundMessage, InboundMessageStatus } from "../types/api"
+import type { Campaign, CampaignFunnelVariantStats, CampaignPayload, CampaignStatus, Prospect, BotRule, InboundMessage, InboundMessageStatus } from "../types/api"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 
 /* ─── Shared helpers ──────────────────────────────────────────────────── */
@@ -29,7 +30,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 /* ══════════════════════════════════════════════════════════════════════ */
 export function CampaignsPage() {
-  const [tab, setTab] = useState<"prospects" | "send" | "inbox">("prospects")
+  const [tab, setTab] = useState<"prospects" | "send" | "inbox" | "funnel">("prospects")
   const inboxQuery = useQuery({ queryKey: ["inbound-messages-unread-count"], queryFn: () => getInboundMessages({ status: "UNREAD" }), refetchInterval: 20_000 })
   const unreadCount = inboxQuery.data?.unreadCount ?? 0
   return (
@@ -45,9 +46,13 @@ export function CampaignsPage() {
         <TabBtn active={tab === "prospects"} onClick={() => setTab("prospects")}>الأرقام (محتملين)</TabBtn>
         <TabBtn active={tab === "send"} onClick={() => setTab("send")}>الإرسال</TabBtn>
         <TabBtn active={tab === "inbox"} onClick={() => setTab("inbox")} badge={unreadCount}>الرسائل الواردة</TabBtn>
+        <TabBtn active={tab === "funnel"} onClick={() => setTab("funnel")}>القمع</TabBtn>
       </div>
 
-      {tab === "prospects" ? <ProspectsTab /> : tab === "send" ? <SendTab /> : <InboxTab />}
+      {tab === "prospects" ? <ProspectsTab />
+        : tab === "send" ? <SendTab />
+        : tab === "inbox" ? <InboxTab />
+        : <FunnelTab />}
     </div>
   )
 }
@@ -836,6 +841,112 @@ function ReplyModal({ message, onClose, onSent }: { message: InboundMessage; onC
           <button onClick={onClose} className="rounded-xl bg-gray-100 px-5 py-2.5 text-sm font-bold text-gray-600">إغلاق</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   FUNNEL TAB (بند ٦ — القمع)
+══════════════════════════════════════════════════════════════════════ */
+const FUNNEL_STAGES: Array<{ key: keyof Omit<CampaignFunnelVariantStats, "variant">; label: string }> = [
+  { key: "sent", label: "أُرسلت" },
+  { key: "replied", label: "ردّت" },
+  { key: "boughtChoice", label: "اختارت الشراء" },
+  { key: "registered", label: "كمّلت التسجيل" },
+  { key: "openedCatalog", label: "فتحت الكتلوك" },
+  { key: "firstOrder", label: "أول طلب" },
+]
+
+function FunnelTab() {
+  const [from, setFrom] = useState("")
+  const [to, setTo] = useState("")
+  const [tag, setTag] = useState("")
+  const [appliedFilters, setAppliedFilters] = useState<{ from?: string; to?: string; tag?: string }>({})
+
+  const tagsQuery = useQuery({ queryKey: ["customer-tags"], queryFn: getCustomerTags })
+  const funnelQuery = useQuery({
+    queryKey: ["campaign-funnel", appliedFilters],
+    queryFn: () => getCampaignFunnelReport(appliedFilters),
+  })
+
+  function applyFilters() {
+    setAppliedFilters({ from: from || undefined, to: to || undefined, tag: tag.trim() || undefined })
+  }
+
+  const totals = funnelQuery.data?.totals
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-2 rounded-2xl border border-gray-200 bg-white p-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-bold text-gray-500">من تاريخ</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-bold text-gray-500">إلى تاريخ</span>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-lg border border-gray-200 px-2 py-1.5 text-sm" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-bold text-gray-500">تاك الزبون (اختياري)</span>
+          <input list="funnel-tags" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="مثلاً: بغداد"
+            className="w-40 rounded-lg border border-gray-200 px-2 py-1.5 text-sm" />
+          <datalist id="funnel-tags">
+            {(tagsQuery.data ?? []).map((t) => <option key={t} value={t} />)}
+          </datalist>
+        </div>
+        <button onClick={applyFilters} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white">تطبيق</button>
+      </div>
+
+      {appliedFilters.tag && (
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          تصفية التاك تنطبق بس على مرحلتي «فتحت الكتلوك» و«أول طلب» (لازم زبون فعلي أصلاً حتى يكون له تاك) — بقية المراحل تعرض العدد الكامل.
+        </p>
+      )}
+
+      {funnelQuery.isLoading && <p className="py-10 text-center text-sm text-gray-400">جاري التحميل...</p>}
+      {funnelQuery.isError && <p className="py-10 text-center text-sm text-red-500">تعذر تحميل التقرير</p>}
+
+      {totals && (
+        <>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {FUNNEL_STAGES.map((s) => (
+              <div key={s.key} className="rounded-xl border border-gray-200 bg-white p-3 text-center">
+                <p className="text-[11px] font-bold text-gray-500">{s.label}</p>
+                <p className="mt-1 text-xl font-extrabold text-gray-800">{totals[s.key]}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+            <table className="w-full text-right text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50 text-xs font-bold text-gray-500">
+                  <th className="px-3 py-2">الصيغة</th>
+                  {FUNNEL_STAGES.map((s) => <th key={s.key} className="px-3 py-2 text-center">{s.label}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {(funnelQuery.data?.byVariant ?? []).length === 0 && (
+                  <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">لا توجد بيانات بهذي الفترة</td></tr>
+                )}
+                {funnelQuery.data?.byVariant.map((v) => (
+                  <tr key={v.variant} className="border-b border-gray-50 last:border-0">
+                    <td className="max-w-[220px] px-3 py-2 text-xs text-gray-700">
+                      <span className="block truncate" title={v.variant}>{v.variant}</span>
+                      {v.campaignCount > 1 && (
+                        <span className="text-[10px] font-bold text-amber-600">مجمّعة من {v.campaignCount} حملات</span>
+                      )}
+                    </td>
+                    {FUNNEL_STAGES.map((s) => (
+                      <td key={s.key} className="px-3 py-2 text-center font-bold text-gray-800">{v[s.key]}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   )
 }
