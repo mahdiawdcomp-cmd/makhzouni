@@ -10,6 +10,7 @@ import {
   createPromoCodeCtrl,
   deletePromoCodeCtrl,
   togglePromoCodeCtrl,
+  getFirstOrderCouponReportCtrl,
   getCatalogDesignCtrl,
   updateCatalogDesignCtrl,
   getCatalogVisitorsCtrl,
@@ -86,6 +87,9 @@ router.delete("/:id", revokeCatalogAccessCtrl);
 
 // Promo codes
 router.get("/promo-codes", listPromoCodesCtrl);
+// بند ٧ — يجب أن يسبق أي "/promo-codes/:id" مستقبلي وإلا اكسبرس يقرأ
+// "first-order-report" كمعرّف كود خصم.
+router.get("/promo-codes/first-order-report", getFirstOrderCouponReportCtrl);
 router.post("/promo-codes", createPromoCodeCtrl);
 router.delete("/promo-codes/:id", deletePromoCodeCtrl);
 router.patch("/promo-codes/:id/toggle", togglePromoCodeCtrl);

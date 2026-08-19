@@ -1165,6 +1165,21 @@ export const updateSettingsSchema = z.object({
       // بند ٤ — خارطة المناطق وحد الشحن المجاني، قابلة للتعديل من إعدادات الكتلوك.
       catalogNorthGovernorates: nullAsUndefined(z.array(z.string().trim()).max(30)),
       catalogFreeShippingThreshold: nullAsUndefined(z.coerce.number().int().min(0)),
+      // بند ٧ — كوبون أول طلب.
+      firstOrderCouponPercent: nullAsUndefined(z.coerce.number().min(0).max(100)),
+      firstOrderCouponDurationDays: nullAsUndefined(z.coerce.number().int().min(1).max(365)),
+      // بند ٨ — المتابعات التلقائية الثلاث.
+      followUpNoReplyEnabled: nullAsUndefined(z.boolean()),
+      followUpNoReplyDays: nullAsUndefined(z.coerce.number().int().min(1).max(90)),
+      followUpNoReplyMessage: nullAsUndefined(z.string().max(1000)),
+      followUpRegisteredNoOrderEnabled: nullAsUndefined(z.boolean()),
+      followUpRegisteredNoOrderDays: nullAsUndefined(z.coerce.number().int().min(1).max(90)),
+      followUpRegisteredNoOrderMessage: nullAsUndefined(z.string().max(1000)),
+      followUpInactiveEnabled: nullAsUndefined(z.boolean()),
+      followUpInactiveDays: nullAsUndefined(z.coerce.number().int().min(1).max(365)),
+      followUpInactiveMessage: nullAsUndefined(z.string().max(1000)),
+      followUpActiveStartHour: nullAsUndefined(z.coerce.number().int().min(0).max(23)),
+      followUpActiveEndHour: nullAsUndefined(z.coerce.number().int().min(1).max(24)),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),
       telegramChannelBotToken: nullAsUndefined(z.string().trim()),

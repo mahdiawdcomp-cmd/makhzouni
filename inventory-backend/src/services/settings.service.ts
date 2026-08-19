@@ -178,9 +178,11 @@ export interface AppSettings {
   // Message a NEWLY APPROVED customer receives: the link plus the login
   // credentials they now need. Placeholders: customerName, storeName,
   // username, code, link, delivery (بند ٤ — the region-based delivery line;
-  // resolves to "" if the customer has no province set yet). Empty = the
-  // built-in default, which appends the delivery line automatically instead
-  // of requiring the placeholder.
+  // resolves to "" if the customer has no province set yet), coupon (بند ٧ —
+  // the auto-issued first-order welcome coupon line; resolves to "" if none
+  // was issued, e.g. a re-approval of an existing customer). Empty = the
+  // built-in default, which appends both lines automatically instead of
+  // requiring the placeholders.
   catalogAccessApprovedTemplate?: string;
   // «توقف» — words that opt a number out of MARKETING (campaigns and
   // follow-ups). Empty = the built-in Arabic/English defaults. Invoices and
@@ -260,6 +262,23 @@ export interface AppSettings {
   // catalogFreeShippingThreshold). قابلة للتعديل من تبويب إعدادات الكتلوك.
   catalogNorthGovernorates?: string[];
   catalogFreeShippingThreshold?: number;
+  // بند ٧ — كوبون أول طلب: يُصدر تلقائياً عند الموافقة على زبون جديد.
+  firstOrderCouponPercent?: number;
+  firstOrderCouponDurationDays?: number;
+  // بند ٨ — ثلاث متابعات تلقائية مستقلة، كل وحدة بمفتاح ومدة خاصين. مطفّاة
+  // افتراضياً — إرسال تلقائي فعلي، ما يبدأ إلا بموافقة صريحة من المستخدم.
+  followUpNoReplyEnabled?: boolean;
+  followUpNoReplyDays?: number;
+  followUpNoReplyMessage?: string;
+  followUpRegisteredNoOrderEnabled?: boolean;
+  followUpRegisteredNoOrderDays?: number;
+  followUpRegisteredNoOrderMessage?: string;
+  followUpInactiveEnabled?: boolean;
+  followUpInactiveDays?: number;
+  followUpInactiveMessage?: string;
+  // ساعات العمل المشتركة للمتابعات الثلاث (تختلف عن ساعات كل حملة لحالها).
+  followUpActiveStartHour?: number;
+  followUpActiveEndHour?: number;
 }
 
 export interface BotRule {
@@ -316,6 +335,19 @@ export const defaultSettings: AppSettings = {
   catalogShuffleMode: "hourly",
   catalogNorthGovernorates: [...DEFAULT_NORTH_GOVERNORATES],
   catalogFreeShippingThreshold: DEFAULT_FREE_SHIPPING_THRESHOLD,
+  firstOrderCouponPercent: 5,
+  firstOrderCouponDurationDays: 7,
+  followUpNoReplyEnabled: false,
+  followUpNoReplyDays: 3,
+  followUpNoReplyMessage: "هلا 👋 شفنا ما رديت علينا، بس الفرصة لسه موجودة! تفضل شوف الكتلوك متى ما تريد:\n{{link}}",
+  followUpRegisteredNoOrderEnabled: false,
+  followUpRegisteredNoOrderDays: 5,
+  followUpRegisteredNoOrderMessage: "هلا {{customerName}} 👋 لاحظنا ما كمّلت طلبك لسه. أكثر المواد المطلوبة عندنا:\n{{products}}\n\nادخل الكتلوك واختار اللي يعجبك:\n{{link}}",
+  followUpInactiveEnabled: false,
+  followUpInactiveDays: 30,
+  followUpInactiveMessage: "هلا {{customerName}} 👋 اشتقنالك! آخر مرة طلبت هذي المواد:\n{{products}}\n\nتفضل شوف الجديد بالكتلوك:\n{{link}}",
+  followUpActiveStartHour: 9,
+  followUpActiveEndHour: 21,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,

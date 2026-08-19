@@ -580,6 +580,12 @@ model Customer {
   // STATIONERY / TOYS / MIXED — optional, admin-entered for now until the
   // WhatsApp registration conversation (بند ٥) can ask for it directly.
   businessType         String?                      @map("business_type")
+  // بند ٨ — two independent automatic follow-ups, each fired at most once
+  // ever per customer. Deliberately separate from inactiveCustomerDays /
+  // autoSendInactiveMessage above (those stay alert-only; these two send
+  // automatically, by explicit user decision).
+  registeredNoOrderFollowUpSentAt DateTime?          @map("registered_no_order_follow_up_sent_at")
+  inactiveFollowUpSentAt          DateTime?          @map("inactive_follow_up_sent_at")
   invoices             Invoice[]
   paymentVouchers      PaymentVoucher[]
   couponRedemptions    CouponRedemption[]
@@ -615,6 +621,9 @@ model Prospect {
   // Set once the auto-reply sent them the WhatsApp group invite link, so we
   // never spam the same prospect with the link twice.
   groupLinkSentAt     DateTime?      @map("group_link_sent_at")
+  // بند ٨ — "ما ردّ" follow-up. Once-ever, regardless of how many campaigns
+  // later re-target this prospect.
+  noReplyFollowUpSentAt DateTime?    @map("no_reply_follow_up_sent_at")
   createdAt           DateTime       @default(now()) @map("created_at")
   updatedAt           DateTime       @updatedAt @map("updated_at")
 
@@ -1930,6 +1939,13 @@ model PromoCode {
   usedCount   Int           @default(0) @map("used_count")
   active      Boolean       @default(true)
   description String?
+  // بند ٧ — distinguishes an auto-issued first-order welcome coupon from any
+  // other manually-created promo code, so the report can filter cleanly.
+  // Null for every code created before this field existed / created manually.
+  source      String?
+  // "تذكير قبل الانتهاء بيوم" dedupe — set once the reminder sends so the
+  // daily cron never re-sends it on a later run.
+  reminderSentAt DateTime?  @map("reminder_sent_at")
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 

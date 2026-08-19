@@ -50,6 +50,7 @@ import {
   getCatalogDesign,
   updateCatalogDesign,
   listAdminPromoCodes,
+  getFirstOrderCouponReport,
   createAdminPromoCode,
   deleteAdminPromoCode,
   toggleAdminPromoCode,
@@ -1091,8 +1092,32 @@ function PromoCodesTab() {
 
   const customersWithAccess = customers.filter((c) => c.hasAccess)
 
+  const { data: couponReport } = useQuery({ queryKey: ["first-order-coupon-report"], queryFn: getFirstOrderCouponReport })
+
   return (
     <div className="space-y-4">
+      {/* بند ٧ — تقرير كوبون أول طلب: يُصدر تلقائياً، هذا فقط عرض للأداء */}
+      {couponReport && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">كوبونات أول طلب صدرت</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.issued}</p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">استُخدمت</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.used}</p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">طلبات جاءت منها</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.salesCount}</p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">قيمة تلك الطلبات</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.salesTotal.toLocaleString("en-US")}</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-700">أكواد الخصم</p>

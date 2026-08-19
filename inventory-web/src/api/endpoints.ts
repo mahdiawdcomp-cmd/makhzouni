@@ -18,6 +18,7 @@ import type {
   Campaign,
   CampaignDetail,
   CampaignFunnelReport,
+  FirstOrderCouponReport,
   CampaignPayload,
   CampaignStatus,
   SystemHealth,
@@ -2226,6 +2227,12 @@ export async function deleteAdminPromoCode(id: string) {
 export async function toggleAdminPromoCode(id: string, active: boolean) {
   const { data } = await api.patch<ApiEnvelope<PromoCode>>(`/catalog-management/promo-codes/${id}/toggle`, { active })
   return data.data!
+}
+
+// بند ٧ — تقرير كوبون أول طلب.
+export async function getFirstOrderCouponReport() {
+  const { data } = await api.get<ApiEnvelope<FirstOrderCouponReport>>("/catalog-management/promo-codes/first-order-report")
+  return data.data
 }
 
 export async function validatePublicPromoCode(code: string, customerId: string) {

@@ -16,6 +16,8 @@ import { cleanupOldErrorLogs, recordError } from "./error-log.service";
 import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { runRatingRequestJob } from "./product-review.service";
+import { runCouponExpiryReminderJob } from "./first-order-coupon.service";
+import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFollowUpJob } from "./follow-up.service";
 import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
 import {
@@ -392,6 +394,35 @@ export function startNotificationJobs() {
   cron.schedule("0 11 * * *", () => {
     runRatingRequestJob().catch((error) => {
       reportCronFailure("PRODUCT_RATING_REQUEST", error);
+    });
+  }, CRON_OPTIONS);
+
+  // بند ٧ — "تذكير قبل الانتهاء بيوم" لكوبون أول طلب. 13:00 يومياً، خارج
+  // أوقات المهام الثقيلة الأخرى (11/12 مشغولتين بمهام التيليگرام).
+  cron.schedule("0 13 * * *", () => {
+    runCouponExpiryReminderJob().catch((error) => {
+      reportCronFailure("FIRST_ORDER_COUPON_REMINDER", error);
+    });
+  }, CRON_OPTIONS);
+
+  // بند ٨ — ثلاث متابعات تلقائية مستقلة، كل وحدة مطفّاة افتراضياً بمفتاحها
+  // الخاص (followUp*Enabled) — الكرون يشتغل دايماً لكن الدالة نفسها ترجع فوراً
+  // إذا المفتاح مطفي. مبعثرة زمنياً حتى ما تصير دفعة إرسال وحدة كبيرة.
+  cron.schedule("30 13 * * *", () => {
+    runNoReplyFollowUpJob().catch((error) => {
+      reportCronFailure("FOLLOW_UP_NO_REPLY", error);
+    });
+  }, CRON_OPTIONS);
+
+  cron.schedule("0 14 * * *", () => {
+    runRegisteredNoOrderFollowUpJob().catch((error) => {
+      reportCronFailure("FOLLOW_UP_REGISTERED_NO_ORDER", error);
+    });
+  }, CRON_OPTIONS);
+
+  cron.schedule("30 14 * * *", () => {
+    runInactiveFollowUpJob().catch((error) => {
+      reportCronFailure("FOLLOW_UP_INACTIVE", error);
     });
   }, CRON_OPTIONS);
 

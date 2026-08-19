@@ -610,6 +610,9 @@ export async function notifyCatalogAccessApproved(
   urlPath: string,
   _allowPrices: boolean,
   customerId?: string,
+  // بند ٧ — كوبون أول طلب، لو صدر بنجاح. null يعني ما صدر (فشل أو زبون
+  // موجود مسبقاً) — الرسالة تبقى تنرسل بلا سطر الكوبون، ما توقف الإرسال.
+  coupon?: { code: string; value: unknown; expiresAt: Date | null } | null,
 ) {
   const settings = await getSettings().catch(() => null);
   const url = catalogUrl(settings, urlPath);
@@ -663,6 +666,19 @@ export async function notifyCatalogAccessApproved(
       : `${message}\n\n🚚 ${deliveryLine}`;
   } else {
     message = message.replaceAll("{{delivery}}", "");
+  }
+
+  // بند ٧ — نفس الرسالة تحمل الكوبون، ما نزيد رسالة منفصلة.
+  const couponLine = coupon
+    ? `🎁 كود خصمك أول طلب: ${coupon.code} (${Number(coupon.value)}%)` +
+      (coupon.expiresAt ? ` — صالح لحد ${coupon.expiresAt.toLocaleDateString("ar-IQ")}` : "")
+    : null;
+  if (couponLine) {
+    message = message.includes("{{coupon}}")
+      ? message.replaceAll("{{coupon}}", couponLine)
+      : `${message}\n\n${couponLine}`;
+  } else {
+    message = message.replaceAll("{{coupon}}", "");
   }
 
   await safeSendWATemplated(

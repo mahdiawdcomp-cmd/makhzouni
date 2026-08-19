@@ -373,7 +373,7 @@ export function PublicCatalogPage() {
 
   if (!sessionQuery.data) return <LoginGate onAccess={handleAccess} />
 
-  const { customer, allowPrices, showStock, stockFilter, needsOtp, deliveryLine } = sessionQuery.data
+  const { customer, allowPrices, showStock, stockFilter, needsOtp, deliveryLine, firstOrderCoupon } = sessionQuery.data
 
   // 6-month re-verification: the link is still valid, we just need a fresh OTP.
   // No new admin approval and no new link — same token continues afterwards.
@@ -396,6 +396,7 @@ export function PublicCatalogPage() {
       customerName={customer.name}
       customerPhone={customer.phone}
       deliveryLine={deliveryLine ?? null}
+      firstOrderCoupon={firstOrderCoupon ?? null}
     />
   )
 }
@@ -786,11 +787,12 @@ const TUTORIAL_SEEN_KEY = "catalog_tutorial_seen_v1"
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
   accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
-  guestMode = false, deliveryLine = null,
+  guestMode = false, deliveryLine = null, firstOrderCoupon = null,
 }: {
   accessToken: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter
   customerId: string; customerName: string; customerPhone: string
   guestMode?: boolean; deliveryLine?: string | null
+  firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
 }) {
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
@@ -1746,6 +1748,7 @@ function CatalogShop({
           promoDiscount={promoDiscount} finalTotal={finalTotal} hasFreeDelivery={hasFreeDelivery}
           onClearPromo={() => { setPromoResult(null); setPromoCode(""); setPromoError("") }}
           deliveryLine={deliveryLine}
+          firstOrderCoupon={firstOrderCoupon}
           guestMode={guestMode}
           guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
           onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
@@ -3241,7 +3244,7 @@ function CartOverlay({
   cart, allowPrices, subtotal, notes, onNotes, onChangeQty, onChangeUnit, onRemove,
   onClose, onSubmit, isPending, submitted, isError, tk,
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
-  promoDiscount, finalTotal, hasFreeDelivery, onClearPromo, deliveryLine = null,
+  promoDiscount, finalTotal, hasFreeDelivery, onClearPromo, deliveryLine = null, firstOrderCoupon = null,
   guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
@@ -3254,6 +3257,7 @@ function CartOverlay({
   promoError: string; promoLoading: boolean; onApplyPromo: () => void
   promoDiscount: number; finalTotal: number; hasFreeDelivery: boolean; onClearPromo: () => void
   deliveryLine?: string | null
+  firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
   guestMode?: boolean
   guestName?: string; guestPhone?: string; guestAddress?: string
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
@@ -3371,6 +3375,17 @@ function CartOverlay({
               </div>
             ))}
             {!guestMode && promoError && <p className="text-xs text-red-600">{promoError}</p>}
+
+            {/* بند ٧ — كوبون أول طلب النشط، لو موجود (غير متاح للضيوف). */}
+            {firstOrderCoupon && (
+              <div className="flex items-center justify-between gap-2 rounded-xl px-3 py-2.5" style={{ background: "#fef3c7", border: "1px solid #fbbf24" }}>
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-extrabold text-amber-900">🎁 كوبونك: {firstOrderCoupon.code} — خصم {firstOrderCoupon.percent}%</p>
+                  <p className="text-[11px] text-amber-700">استخدمه بخانة كود الخصم قبل ما ينتهي</p>
+                </div>
+                <OfferCountdown endsAt={firstOrderCoupon.expiresAt} tk={tk} size="sm" />
+              </div>
+            )}
 
             {/* بند ٤ — جملة توصيل واحدة حسب محافظة الزبون (غير متاحة للضيوف والزبائن بلا محافظة مسجّلة) */}
             {deliveryLine && (

@@ -1,6 +1,7 @@
 import { CatalogStockFilter, PromoCodeType } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { getFirstOrderCouponReport } from "../services/first-order-coupon.service";
 import {
   listCustomersWithCatalogStatus,
   createCatalogAccessLink,
@@ -125,6 +126,12 @@ export const revokeCatalogAccessCtrl = asyncHandler(async (req, res) => {
 export const listPromoCodesCtrl = asyncHandler(async (_req, res) => {
   const codes = await listPromoCodes();
   res.json({ success: true, data: codes });
+});
+
+// بند ٧ — تقرير كوبون أول طلب: كم صدر، كم استُخدم، كم طلب/مبيعات جاء منه.
+export const getFirstOrderCouponReportCtrl = asyncHandler(async (_req, res) => {
+  const data = await getFirstOrderCouponReport();
+  res.json({ success: true, data });
 });
 
 export const createPromoCodeCtrl = asyncHandler(async (req, res) => {

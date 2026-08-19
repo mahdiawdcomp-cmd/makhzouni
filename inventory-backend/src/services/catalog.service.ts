@@ -743,6 +743,19 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
   const deliveryLine = buildDeliveryLine(customer.province, settings);
   const { province: _province, ...publicCustomer } = customer;
 
+  // بند ٧ — كوبون أول طلب النشط لهذا الزبون تحديداً (لو موجود وما استُخدم
+  // ولا انتهى)، لعرض العداد التنازلي بالكتلوك.
+  const activeCoupon = await prisma.promoCode.findFirst({
+    where: {
+      customerId: customer.id,
+      source: "FIRST_ORDER_WELCOME",
+      active: true,
+      usedCount: 0,
+      expiresAt: { gt: new Date() },
+    },
+    select: { code: true, value: true, expiresAt: true },
+  });
+
   const catalogDesign = {
     primaryColor: settings.catalogDesignPrimaryColor ?? null,
     bgColor: settings.catalogDesignBgColor ?? null,
@@ -806,6 +819,9 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
     needsOtp,
     catalogDesign,
     deliveryLine,
+    firstOrderCoupon: activeCoupon
+      ? { code: activeCoupon.code, percent: Number(activeCoupon.value), expiresAt: activeCoupon.expiresAt!.toISOString() }
+      : null,
   };
 }
 
@@ -1449,6 +1465,9 @@ export async function createPromoCode(input: {
   expiresAt?: Date;
   usageLimit?: number;
   description?: string;
+  // بند ٧ — "FIRST_ORDER_WELCOME" for an auto-issued coupon; undefined for a
+  // manually-created one (the existing behaviour, unchanged).
+  source?: string;
 }) {
   const code = input.code.trim().toUpperCase();
   const existing = await prisma.promoCode.findUnique({ where: { code } });
@@ -1463,6 +1482,7 @@ export async function createPromoCode(input: {
       expiresAt: input.expiresAt ?? null,
       usageLimit: input.usageLimit ?? null,
       description: input.description ?? null,
+      source: input.source ?? null,
     },
     include: { customer: { select: { id: true, name: true, phone: true } } },
   });

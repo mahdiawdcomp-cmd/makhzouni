@@ -619,6 +619,15 @@ export interface CatalogSession {
   needsOtp?: boolean
   // بند ٤ — جملة توصيل واحدة حسب محافظة الزبون؛ null لو محافظته غير معروفة.
   deliveryLine?: string | null
+  // بند ٧ — كوبون أول طلب النشط لهذا الزبون، لو موجود.
+  firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
+}
+
+export interface FirstOrderCouponReport {
+  issued: number
+  used: number
+  salesCount: number
+  salesTotal: number
 }
 
 export interface CatalogOrderPayload {
@@ -1186,6 +1195,21 @@ export interface AppSettings {
   catalogNorthGovernorates?: string[]
   /** بند ٤ — حد الشحن المجاني بالدينار لمحافظات وسط/جنوب/غرب. */
   catalogFreeShippingThreshold?: number
+  /** بند ٧ — كوبون أول طلب. */
+  firstOrderCouponPercent?: number
+  firstOrderCouponDurationDays?: number
+  /** بند ٨ — ثلاث متابعات تلقائية مستقلة. */
+  followUpNoReplyEnabled?: boolean
+  followUpNoReplyDays?: number
+  followUpNoReplyMessage?: string
+  followUpRegisteredNoOrderEnabled?: boolean
+  followUpRegisteredNoOrderDays?: number
+  followUpRegisteredNoOrderMessage?: string
+  followUpInactiveEnabled?: boolean
+  followUpInactiveDays?: number
+  followUpInactiveMessage?: string
+  followUpActiveStartHour?: number
+  followUpActiveEndHour?: number
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean

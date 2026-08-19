@@ -11,8 +11,9 @@ import {
   getInboundMessages, markInboundMessageRead, replyToInboundMessage,
   getCampaignFunnelReport, getCustomerTags,
 } from "../api/endpoints"
-import type { Campaign, CampaignFunnelVariantStats, CampaignPayload, CampaignStatus, Prospect, BotRule, InboundMessage, InboundMessageStatus } from "../types/api"
+import type { AppSettings, Campaign, CampaignFunnelVariantStats, CampaignPayload, CampaignStatus, Prospect, BotRule, InboundMessage, InboundMessageStatus } from "../types/api"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
+import { toast } from "../components/ui/use-toast"
 
 /* ─── Shared helpers ──────────────────────────────────────────────────── */
 function parseNumbers(text: string): string[] {
@@ -30,7 +31,7 @@ function fileToDataUrl(file: File): Promise<string> {
 
 /* ══════════════════════════════════════════════════════════════════════ */
 export function CampaignsPage() {
-  const [tab, setTab] = useState<"prospects" | "send" | "inbox" | "funnel">("prospects")
+  const [tab, setTab] = useState<"prospects" | "send" | "inbox" | "funnel" | "followups">("prospects")
   const inboxQuery = useQuery({ queryKey: ["inbound-messages-unread-count"], queryFn: () => getInboundMessages({ status: "UNREAD" }), refetchInterval: 20_000 })
   const unreadCount = inboxQuery.data?.unreadCount ?? 0
   return (
@@ -47,12 +48,14 @@ export function CampaignsPage() {
         <TabBtn active={tab === "send"} onClick={() => setTab("send")}>الإرسال</TabBtn>
         <TabBtn active={tab === "inbox"} onClick={() => setTab("inbox")} badge={unreadCount}>الرسائل الواردة</TabBtn>
         <TabBtn active={tab === "funnel"} onClick={() => setTab("funnel")}>القمع</TabBtn>
+        <TabBtn active={tab === "followups"} onClick={() => setTab("followups")}>المتابعات</TabBtn>
       </div>
 
       {tab === "prospects" ? <ProspectsTab />
         : tab === "send" ? <SendTab />
         : tab === "inbox" ? <InboxTab />
-        : <FunnelTab />}
+        : tab === "funnel" ? <FunnelTab />
+        : <FollowUpsTab />}
     </div>
   )
 }
@@ -947,6 +950,151 @@ function FunnelTab() {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   FOLLOW-UPS TAB (بند ٨ — المتابعات التلقائية)
+══════════════════════════════════════════════════════════════════════ */
+function FollowUpsTab() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const s = settingsQuery.data
+  const saveMut = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => { toast({ title: "تم حفظ الإعداد" }); void qc.invalidateQueries({ queryKey: ["settings"] }) },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  if (settingsQuery.isLoading) return <p className="py-10 text-center text-sm text-gray-400">جاري التحميل...</p>
+
+  return (
+    <div className="space-y-4">
+      <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+        إرسال تلقائي فعلي بدون مراجعة موظف. كل متابعة تُرسل <strong>مرة واحدة فقط</strong> لكل شخص للأبد، وتحترم «توقف»
+        وساعات العمل المشتركة أدناه.
+      </p>
+
+      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+        <p className="mb-2 text-sm font-bold text-gray-800">ساعات العمل المشتركة للمتابعات الثلاث</p>
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          من الساعة
+          <input type="number" min={0} max={23}
+            defaultValue={s?.followUpActiveStartHour ?? 9}
+            onBlur={(e) => saveMut.mutate({ followUpActiveStartHour: Number(e.target.value) || 0 })}
+            className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-center" dir="ltr" />
+          إلى
+          <input type="number" min={1} max={24}
+            defaultValue={s?.followUpActiveEndHour ?? 21}
+            onBlur={(e) => saveMut.mutate({ followUpActiveEndHour: Number(e.target.value) || 24 })}
+            className="w-16 rounded-lg border border-gray-200 px-2 py-1 text-center" dir="ltr" />
+        </div>
+      </div>
+
+      <FollowUpCard
+        title="ما ردّ" description="استلم رسالة حملة ولا ردّ أبداً — بعد عدد الأيام أدناه"
+        enabledKey="followUpNoReplyEnabled" daysKey="followUpNoReplyDays" messageKey="followUpNoReplyMessage"
+        settings={s} defaultDays={3}
+        defaultMessage="هلا 👋 شفنا ما رديت علينا، بس الفرصة لسه موجودة! تفضل شوف الكتلوك متى ما تريد:\n{{link}}"
+        placeholdersHint="المتاح: {{link}}"
+      />
+      <FollowUpCard
+        title="سجّل وما طلب" description="صار عنده حساب بالكتلوك بس ما سوى طلب أبداً — بعد عدد الأيام أدناه"
+        enabledKey="followUpRegisteredNoOrderEnabled" daysKey="followUpRegisteredNoOrderDays" messageKey="followUpRegisteredNoOrderMessage"
+        settings={s} defaultDays={5}
+        defaultMessage="هلا {{customerName}} 👋 لاحظنا ما كمّلت طلبك لسه. أكثر المواد المطلوبة عندنا:\n{{products}}\n\nادخل الكتلوك واختار اللي يعجبك:\n{{link}}"
+        placeholdersHint="المتاح: {{customerName}} {{products}} {{link}}"
+      />
+      <FollowUpCard
+        title="طلب وانقطع" description="سوى طلب قبل بس صار غايب — بعد عدد الأيام أدناه"
+        enabledKey="followUpInactiveEnabled" daysKey="followUpInactiveDays" messageKey="followUpInactiveMessage"
+        settings={s} defaultDays={30}
+        defaultMessage="هلا {{customerName}} 👋 اشتقنالك! آخر مرة طلبت هذي المواد:\n{{products}}\n\nتفضل شوف الجديد بالكتلوك:\n{{link}}"
+        placeholdersHint="المتاح: {{customerName}} {{products}} {{link}}"
+      />
+    </div>
+  )
+}
+
+function FollowUpCard({
+  title, description, enabledKey, daysKey, messageKey, settings, defaultDays, defaultMessage, placeholdersHint,
+}: {
+  title: string
+  description: string
+  enabledKey: keyof AppSettings
+  daysKey: keyof AppSettings
+  messageKey: keyof AppSettings
+  settings: AppSettings | undefined
+  defaultDays: number
+  defaultMessage: string
+  placeholdersHint: string
+}) {
+  // Own mutation instance — 3 cards render side by side, and sharing one
+  // mutation from the parent meant saving ANY card (or the business-hours
+  // inputs above them) disabled every other card's Save button until it
+  // settled, since `isPending` was one shared boolean.
+  const qc = useQueryClient()
+  const saveMut = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => { toast({ title: "تم حفظ الإعداد" }); void qc.invalidateQueries({ queryKey: ["settings"] }) },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+  const enabled = Boolean(settings?.[enabledKey])
+  const [days, setDays] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setDays(null)
+  }, [settings?.[daysKey]])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setMessage(null)
+  }, [settings?.[messageKey]])
+
+  const daysValue = days ?? String((settings?.[daysKey] as number | undefined) ?? defaultDays)
+  const messageValue = message ?? ((settings?.[messageKey] as string | undefined) || defaultMessage)
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-bold text-gray-800">{title}</p>
+          <p className="text-xs text-gray-500">{description}</p>
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-xs font-bold text-gray-600">
+          مفعّل
+          <input type="checkbox" checked={enabled}
+            onChange={(e) => saveMut.mutate({ [enabledKey]: e.target.checked })}
+            className="h-4 w-4 accent-emerald-600" />
+        </label>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-[120px_1fr]">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-gray-600">بعد كم يوم</span>
+          <div className="flex gap-1">
+            <input type="number" min={1}
+              value={daysValue} onChange={(e) => setDays(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-sm" dir="ltr" />
+          </div>
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold text-gray-600">نص الرسالة — {placeholdersHint}</span>
+          <textarea rows={3}
+            value={messageValue} onChange={(e) => setMessage(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 px-2.5 py-2 text-sm" />
+        </label>
+      </div>
+      <div className="mt-2 flex justify-end gap-2">
+        <button
+          onClick={() => saveMut.mutate({ [daysKey]: Number(daysValue) || defaultDays, [messageKey]: messageValue })}
+          disabled={saveMut.isPending || (days === null && message === null)}
+          className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+        >
+          حفظ
+        </button>
+      </div>
     </div>
   )
 }

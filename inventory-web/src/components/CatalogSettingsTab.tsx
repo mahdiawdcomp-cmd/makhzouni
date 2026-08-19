@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link2, Package, Shuffle, ShieldOff, Sliders, Truck } from "lucide-react"
+import { Link2, Package, Shuffle, ShieldOff, Sliders, Truck, Gift } from "lucide-react"
 import { getSettings, updateSettings } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -54,6 +54,16 @@ export function CatalogSettingsTab() {
   const [adminPhone, setAdminPhone] = useState<string | null>(null)
   const [freeShipping, setFreeShipping] = useState<string | null>(null)
   const [northDraft, setNorthDraft] = useState<string[] | null>(null)
+  const [couponPercent, setCouponPercent] = useState<string | null>(null)
+  const [couponDays, setCouponDays] = useState<string | null>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setCouponPercent(null)
+  }, [s?.firstOrderCouponPercent])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setCouponDays(null)
+  }, [s?.firstOrderCouponDurationDays])
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
     setPublicUrl(null)
@@ -79,6 +89,8 @@ export function CatalogSettingsTab() {
   const phoneValue = adminPhone ?? s?.catalogAdminWhatsappNumber ?? ""
   const freeShippingValue = freeShipping ?? String(s?.catalogFreeShippingThreshold ?? 1_500_000)
   const northValue = northDraft ?? (s?.catalogNorthGovernorates as string[] | undefined) ?? DEFAULT_NORTH_GOVERNORATES
+  const couponPercentValue = couponPercent ?? String(s?.firstOrderCouponPercent ?? 5)
+  const couponDaysValue = couponDays ?? String(s?.firstOrderCouponDurationDays ?? 7)
 
   const saveMut = useMutation({
     mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
@@ -299,6 +311,59 @@ export function CatalogSettingsTab() {
                 حفظ خارطة المناطق
               </Button>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* بند ٧ — كوبون أول طلب: يصدر تلقائياً عند الموافقة على زبون جديد */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Gift className="h-5 w-5 text-rose-600" />
+            كوبون أول طلب
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            يُصدر تلقائياً لكل زبون جديد عند الموافقة عليه، ويُرسل ضمن رسالة رمز الدخول نفسها. استخدام واحد فقط لكل كوبون.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-slate-600">نسبة الخصم (%)</span>
+              <div className="flex gap-2">
+                <Input
+                  type="number" min={0} max={100}
+                  value={couponPercentValue}
+                  onChange={(e) => setCouponPercent(e.target.value)}
+                  dir="ltr" className="flex-1 text-sm"
+                />
+                <Button
+                  onClick={() => saveMut.mutate({ firstOrderCouponPercent: Number(couponPercentValue) || 0 })}
+                  disabled={saveMut.isPending || couponPercent === null}
+                  className="shrink-0"
+                >
+                  حفظ
+                </Button>
+              </div>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs font-semibold text-slate-600">مدة الصلاحية (أيام)</span>
+              <div className="flex gap-2">
+                <Input
+                  type="number" min={1}
+                  value={couponDaysValue}
+                  onChange={(e) => setCouponDays(e.target.value)}
+                  dir="ltr" className="flex-1 text-sm"
+                />
+                <Button
+                  onClick={() => saveMut.mutate({ firstOrderCouponDurationDays: Number(couponDaysValue) || 1 })}
+                  disabled={saveMut.isPending || couponDays === null}
+                  className="shrink-0"
+                >
+                  حفظ
+                </Button>
+              </div>
+            </label>
           </div>
         </CardContent>
       </Card>

@@ -30,6 +30,7 @@ import {
   notifyPreparationStaffPending,
 } from "./order-preparation.service";
 import { getSettings } from "./settings.service";
+import { issueFirstOrderCoupon } from "./first-order-coupon.service";
 import { notifyAdmin, buildDedupeKey } from "./app-notification.service";
 import {
   NotificationType,
@@ -489,14 +490,22 @@ async function executeApprovedRequest(
       await tx.whatsappBotChat.deleteMany({ where: { phone: customer.phone } });
 
       const link = await createCatalogAccessLink(tx, customer.id, Boolean(options?.allowPrices), options?.showStock ?? true);
-      setImmediate(() => {
-        notifyCatalogAccessApproved(
+      // بند ٧ — only a genuinely brand-new customer gets a welcome coupon; a
+      // re-approval of an already-existing phone (e.g. after a soft-delete
+      // restore through this same flow) must never mint a second one.
+      const isNewCustomer = !existingCustomer;
+      setImmediate(async () => {
+        const coupon = isNewCustomer
+          ? await issueFirstOrderCoupon(customer.id, customer.name).catch(() => null)
+          : null;
+        await notifyCatalogAccessApproved(
           customer.name,
           customer.phone,
           link.urlPath,
           link.allowPrices,
           // Lets the approval message carry their login code, not just a link.
           customer.id,
+          coupon,
         ).catch((err) => console.error("[CatalogAccess] approval notify failed:", err));
       });
       return link;
