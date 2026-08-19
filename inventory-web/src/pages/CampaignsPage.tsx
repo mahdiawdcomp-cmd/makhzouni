@@ -223,7 +223,7 @@ const STATUS_COLOR: Record<CampaignStatus, string> = {
   PAUSED: "bg-amber-100 text-amber-700", DONE: "bg-blue-100 text-blue-700",
 }
 const emptyForm: CampaignPayload = {
-  name: "", messages: [], includeCatalogLink: true,
+  name: "", messages: [], includeCatalogLink: true, offerRegistrationChoices: false,
   minDelaySec: 90, maxDelaySec: 240, dailyMin: 20, dailyMax: 50, activeStartHour: 9, activeEndHour: 21,
   useTemplate: false, templateName: "", templateLanguage: "ar",
 }
@@ -465,6 +465,7 @@ function SendTab() {
             name: editTarget.name,
             messages: editTarget.messages,
             includeCatalogLink: editTarget.includeCatalogLink,
+            offerRegistrationChoices: editTarget.offerRegistrationChoices,
             minDelaySec: editTarget.minDelaySec,
             maxDelaySec: editTarget.maxDelaySec,
             dailyMin: editTarget.dailyMin,
@@ -614,6 +615,10 @@ function CampaignForm({ onClose, onSaved, initial, campaignId }: {
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={form.includeCatalogLink} onChange={(e) => set("includeCatalogLink", e.target.checked)} className="h-4 w-4" />
           إرفاق رابط الكتلوك تلقائياً
+        </label>
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={form.offerRegistrationChoices ?? false} onChange={(e) => set("offerRegistrationChoices", e.target.checked)} className="h-4 w-4" />
+          أضف «رد 1 للشراء / رد 2 للكروب» بآخر الرسالة (بند ٥)
         </label>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <NumField label="أقل تأخير (ث)" value={form.minDelaySec} onChange={(v) => set("minDelaySec", v)} num={num} />
@@ -776,7 +781,12 @@ function InboxTab() {
                 <span className="font-bold text-gray-800" dir="ltr">{m.phone}</span>
                 {m.name && <span className="text-xs text-gray-400">{m.name}</span>}
               </div>
-              <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${SOURCE_COLOR[m.source]}`}>{SOURCE_LABEL[m.source]}</span>
+              <div className="flex items-center gap-1.5">
+                {m.urgent && (
+                  <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">🚨 مستعجل</span>
+                )}
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${SOURCE_COLOR[m.source]}`}>{SOURCE_LABEL[m.source]}</span>
+              </div>
             </div>
             <p className="mt-1.5 truncate text-sm text-gray-600">{m.messageText}</p>
             {m.status === "REPLIED" && (
@@ -805,7 +815,12 @@ function ReplyModal({ message, onClose, onSent }: { message: InboundMessage; onC
       <div className="w-full max-w-md rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <span className="font-mono text-sm text-gray-800" dir="ltr">{message.phone}</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${SOURCE_COLOR[message.source]}`}>{SOURCE_LABEL[message.source]}</span>
+          <div className="flex items-center gap-1.5">
+            {message.urgent && (
+              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">🚨 مستعجل</span>
+            )}
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${SOURCE_COLOR[message.source]}`}>{SOURCE_LABEL[message.source]}</span>
+          </div>
         </div>
         <div className="mb-4 rounded-xl bg-gray-50 p-3 text-sm text-gray-700">{message.messageText}</div>
         <label className="mb-1 block text-xs font-bold text-gray-600">ردّك</label>

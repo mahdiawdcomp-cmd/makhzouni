@@ -9,6 +9,28 @@ import { hasFeature } from "../middleware/tenant.middleware";
 import { logChatMessage } from "./whatsapp-chat.service";
 import { tryCaptureProductReviewReply } from "./product-review.service";
 import { DEFAULT_STOP_CONFIRMATION, isStopRequest, optOutOfMarketing } from "./marketing-opt-out.service";
+import { handleRegistrationReply, startRegistration } from "./whatsapp-registration.service";
+import { normalizeArabic } from "../utils/arabic-search";
+
+// بند ٥ — "أريد أحچي مع موظف" يوقف البوت لهذا الرقم بأي لحظة (حتى وسط
+// محادثة تسجيل) ويرفعه لصندوق الوارد بعلامة مستعجل. عبارات متعددة الكلمات
+// عمداً لتقليل الإيجابيات الخاطئة (كلمة "موظف" لحالها تنطبق على رسائل عادية).
+// مطبَّعة بـnormalizeArabic حتى "أحچي"/"احچي" (بهمزة أو من غيرها) تتطابق —
+// اختبار حي كشف إن matchesAny العادية (lowercase فقط) ما تلتقط هذا الفرق.
+const HUMAN_HANDOFF_KEYWORDS = [
+  "احچي مع موظف",
+  "احجي مع موظف",
+  "اكلم موظف",
+  "اتكلم مع موظف",
+  "موظف من فضلك",
+  "talk to a human",
+  "human agent",
+].map(normalizeArabic);
+
+function isHumanHandoffRequest(text: string): boolean {
+  const normalized = normalizeArabic(text);
+  return HUMAN_HANDOFF_KEYWORDS.some((k) => normalized.includes(k));
+}
 
 function money(v: number | string | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)));
@@ -25,6 +47,7 @@ async function logInbound(input: {
   name?: string | null;
   source: InboundMessageSource;
   messageText: string;
+  urgent?: boolean;
 }) {
   await prisma.inboundMessage.create({
     data: {
@@ -32,6 +55,7 @@ async function logInbound(input: {
       name: input.name ?? null,
       source: input.source,
       messageText: input.messageText,
+      urgent: input.urgent ?? false,
     },
   });
 }
@@ -82,6 +106,34 @@ export async function routeIncomingMessage(
   }
 
   const customer = await prisma.customer.findUnique({ where: { phone } });
+  const prospect = customer ? null : await prisma.prospect.findUnique({ where: { phone } });
+
+  // 0.5) بند ٥ — "أريد أحچي مع موظف" outranks the registration conversation
+  // and any numeric funnel trigger: a prospect must be able to bail out to a
+  // human at any point. Scoped to non-customers — this is the registration
+  // funnel's escape hatch, not a general customer-service feature.
+  if (!customer && isHumanHandoffRequest(text)) {
+    await prisma.whatsappBotChat.deleteMany({ where: { phone } });
+    await sendWhatsAppText(phone, "تمام 👍 موظف راح يتواصل معك قريباً.").catch((err) =>
+      logger.warn(`[WhatsAppBot] handoff ack failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`),
+    );
+    await logInbound({
+      phone,
+      name: prospect?.name ?? null,
+      source: prospect ? "PROSPECT" : "UNKNOWN",
+      messageText: text,
+      urgent: true,
+    });
+    return;
+  }
+
+  // 0.6) بند ٥ — continue an in-progress registration conversation before any
+  // other rule decides what a bare "1"/free-text reply means. Returns false
+  // (falls through) when there's no conversation, or it just expired.
+  if (!customer) {
+    const handledAsRegistration = await handleRegistrationReply(phone, text).catch(() => false);
+    if (handledAsRegistration) return;
+  }
 
   // 0) A pending product-rating request always wins over every other rule —
   // checked first and BEFORE any keyword matching so a bare "5" never gets
@@ -108,8 +160,15 @@ export async function routeIncomingMessage(
     // Matched no rule — fall through to log it for a manual reply.
   }
 
-  // 2) Not a customer → try the prospect group-link auto-reply. This has its OWN
-  // toggle (prospectAutoReplyEnabled) and must work even when the bot is off.
+  // 2) Not a customer → بند ٥ numeric funnel trigger ("1" = buy → start the
+  // registration conversation), only for a known prospect (a campaign reply,
+  // not a random unrelated "1" from an unknown number). Then the existing
+  // prospect group-link auto-reply — "2" (the campaign's "join the group"
+  // option) always matches it too, regardless of configured keywords.
+  if (!customer && prospect && normalizeArabic(text) === "1") {
+    await startRegistration(phone);
+    return;
+  }
   if (!customer) {
     const handledAsProspect = await handleIncomingProspectReply(phone, text).catch(() => false);
     if (handledAsProspect) return;
@@ -118,7 +177,6 @@ export async function routeIncomingMessage(
   // 3) Fallback: always log to the inbox so the owner can reply by hand —
   // regardless of whether the bot is enabled. Only auto-send the "unknown"
   // message when the bot is actually enabled.
-  const prospect = customer ? null : await prisma.prospect.findUnique({ where: { phone } });
   const source: InboundMessageSource = customer ? "CUSTOMER_UNMATCHED" : prospect ? "PROSPECT" : "UNKNOWN";
   const name = customer?.name ?? prospect?.name ?? null;
 

@@ -635,10 +635,29 @@ model InboundMessage {
   status      InboundMessageStatus @default(UNREAD)
   replyText   String?              @map("reply_text")
   repliedAt   DateTime?            @map("replied_at")
+  // بند ٥ — set when the sender asked to talk to a human ("أريد أحچي مع
+  // موظف") during the registration bot. Surfaced as a badge in the inbox.
+  urgent      Boolean              @default(false)
   createdAt   DateTime             @default(now()) @map("created_at")
 
   @@index([status])
   @@map("inbound_messages")
+}
+
+// بند ٥ — one row per WhatsApp number mid-registration-conversation. Mirrors
+// TelegramBotChat's state-machine pattern (a JSON blob + a `mode` field
+// inside it), but for the "الاسم + المحافظة + نوع المحل" intake flow that
+// ends in a CATALOG_ACCESS approval request. No FK to Customer/Prospect —
+// this is pre-customer by definition, and the row is cleared once the
+// conversation finishes or expires.
+model WhatsappBotChat {
+  id        String   @id @default(uuid()) @db.Uuid
+  phone     String   @unique
+  state     Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("whatsapp_bot_chats")
 }
 
 // Full two-way WhatsApp conversation log (Meta Cloud API "messenger" screen) —
@@ -723,6 +742,11 @@ model Campaign {
   // (e.g. an offer name/date) — a template send with unfilled variables is
   // rejected outright by Meta, so this must be set whenever the template has any.
   templateBodyParams String[]            @default([]) @map("template_body_params")
+  // بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body (non-template
+  // sends only; a template's buttons are configured in Meta, not here).
+  // Off by default so campaigns unrelated to the registration funnel are
+  // never silently changed.
+  offerRegistrationChoices Boolean        @default(false) @map("offer_registration_choices")
   // Randomization windows.
   minDelaySec        Int                 @default(90) @map("min_delay_sec")
   maxDelaySec        Int                 @default(240) @map("max_delay_sec")

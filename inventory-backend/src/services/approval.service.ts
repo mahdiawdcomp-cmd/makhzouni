@@ -482,6 +482,12 @@ async function executeApprovedRequest(
 
       await applyCustomerAutoTags(tx, customer.id, body.province, body.businessType);
 
+      // بند ٥ — this phone just graduated from "prospect running the WhatsApp
+      // registration bot" to "real customer". Clear any leftover conversation
+      // row so it can never be read again — nothing else does, since the
+      // routing gate that reads it is `!customer` and this phone is now one.
+      await tx.whatsappBotChat.deleteMany({ where: { phone: customer.phone } });
+
       const link = await createCatalogAccessLink(tx, customer.id, Boolean(options?.allowPrices), options?.showStock ?? true);
       setImmediate(() => {
         notifyCatalogAccessApproved(

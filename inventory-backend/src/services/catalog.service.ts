@@ -378,7 +378,7 @@ export async function listCatalogProductStats(limit = 20) {
   return { topViewed, topOrdered, totalViews, totalOrders };
 }
 
-async function findApprovalRequester() {
+export async function findApprovalRequester() {
   const requester = await prisma.user.findFirst({
     where: { isActive: true },
     orderBy: [{ role: "asc" }, { createdAt: "asc" }],

@@ -446,6 +446,7 @@ export interface Campaign {
   messages: string[]
   productIds: string[]
   includeCatalogLink: boolean
+  offerRegistrationChoices: boolean
   minDelaySec: number
   maxDelaySec: number
   dailyMin: number
@@ -530,6 +531,8 @@ export interface CampaignPayload {
   messages: string[]
   productIds?: string[]
   includeCatalogLink?: boolean
+  /** بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body. */
+  offerRegistrationChoices?: boolean
   minDelaySec?: number
   maxDelaySec?: number
   dailyMin?: number
@@ -1267,6 +1270,8 @@ export interface InboundMessage {
   status: InboundMessageStatus
   replyText?: string | null
   repliedAt?: string | null
+  /** بند ٥ — set when the sender asked to talk to a human ("أريد أحچي مع موظف"). */
+  urgent?: boolean
   createdAt: string
 }
 

@@ -6,6 +6,7 @@ import { normalizePhone } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { logger } from "../utils/logger";
+import { normalizeArabic } from "../utils/arabic-search";
 
 let _groq: Groq | null = null;
 function getGroq(): Groq {
@@ -169,7 +170,10 @@ export async function handleIncomingProspectReply(rawPhone: string, text: string
     .map((k) => k.trim().toLowerCase())
     .filter(Boolean);
   const normalizedText = text?.trim().toLowerCase() ?? "";
-  const matched = keywords.length === 0 || keywords.some((k) => normalizedText.includes(k));
+  // بند ٥ — the campaign message promises "رد 2 للكروب" regardless of
+  // whatever keywords the admin configured, so a bare "2" always matches too
+  // (normalizeArabic also folds Arabic-Indic "٢" to "2").
+  const matched = keywords.length === 0 || keywords.some((k) => normalizedText.includes(k)) || normalizeArabic(text ?? "") === "2";
   if (!matched) return false;
 
   const phone = normalizePhone(rawPhone);

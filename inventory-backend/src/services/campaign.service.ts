@@ -95,6 +95,9 @@ export interface CampaignInput {
   messages?: string[];
   productIds?: string[];
   includeCatalogLink?: boolean;
+  // بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body. Off by
+  // default so campaigns unrelated to the registration funnel are unaffected.
+  offerRegistrationChoices?: boolean;
   minDelaySec?: number;
   maxDelaySec?: number;
   dailyMin?: number;
@@ -120,6 +123,7 @@ function sanitize(input: CampaignInput) {
     messages,
     productIds: input.productIds ?? [],
     includeCatalogLink: input.includeCatalogLink ?? true,
+    offerRegistrationChoices: input.offerRegistrationChoices ?? false,
     minDelaySec,
     maxDelaySec,
     dailyMin,
@@ -209,11 +213,17 @@ export async function removeRecipient(campaignId: string, recipientId: string) {
 
 /* ─── Background worker ──────────────────────────────────────────────── */
 
+// بند ٥ — appended to the free-text send path only. A template's buttons are
+// configured in Meta Business Manager, not here; the numeric fallback text
+// stays useful even then, for a recipient who types instead of tapping.
+const REGISTRATION_CHOICES_FOOTER = "رد 1️⃣ للشراء 🛒\nرد 2️⃣ للانضمام لكروبنا 👥";
+
 async function sendOneMessage(
   campaign: {
     messages: string[];
     productIds: string[];
     includeCatalogLink: boolean;
+    offerRegistrationChoices: boolean;
     useTemplate: boolean;
     templateName: string | null;
     templateLanguage: string | null;
@@ -237,6 +247,7 @@ async function sendOneMessage(
   const catalogLink = campaign.includeCatalogLink
     ? settings?.catalogPublicUrl?.trim() || ""
     : "";
+  const footer = campaign.offerRegistrationChoices ? `\n\n${REGISTRATION_CHOICES_FOOTER}` : "";
 
   const productImages =
     campaign.productIds.length > 0
@@ -257,8 +268,8 @@ async function sendOneMessage(
       let caption = `📦 ${product.name}${priceLine}`;
       if (idx === 0) {
         caption = catalogLink
-          ? `${message}\n\n${caption}\n\n🗂️ الكاتلوج: ${catalogLink}`
-          : `${message}\n\n${caption}`;
+          ? `${message}\n\n${caption}\n\n🗂️ الكاتلوج: ${catalogLink}${footer}`
+          : `${message}\n\n${caption}${footer}`;
       }
       const res = await sendWhatsAppImage(recipient.phone, caption, image.buffer, image.mime);
       if (idx === 0) firstMessageId = res.idMessage;
@@ -266,7 +277,7 @@ async function sendOneMessage(
       await new Promise((r) => setTimeout(r, 600));
     }
   } else {
-    const body = catalogLink ? `${message}\n\n🗂️ الكاتلوج: ${catalogLink}` : message;
+    const body = catalogLink ? `${message}\n\n🗂️ الكاتلوج: ${catalogLink}${footer}` : `${message}${footer}`;
     const res = await sendWhatsAppText(recipient.phone, body);
     firstMessageId = res.idMessage;
   }

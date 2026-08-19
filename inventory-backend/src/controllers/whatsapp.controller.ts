@@ -145,6 +145,14 @@ type CloudInboundMessage = {
   context?: { id?: string };
   reaction?: { message_id?: string; emoji?: string };
   text?: { body?: string };
+  // بند ٥ — quick-reply button click. Meta sends the legacy template-button
+  // shape ("button") for a QUICK_REPLY button on an approved template, and
+  // the interactive shape ("interactive"/button_reply) for a freeform
+  // interactive message. The button's payload/id is whatever the admin set
+  // up in Meta Business Manager — the campaign template must use "1"/"2" as
+  // the payload/id so it lines up with the numeric text fallback.
+  button?: { payload?: string; text?: string };
+  interactive?: { type?: string; button_reply?: { id?: string; title?: string } };
   image?: { id?: string; mime_type?: string; caption?: string };
   document?: { id?: string; mime_type?: string; filename?: string; caption?: string };
   audio?: { id?: string; mime_type?: string };
@@ -289,6 +297,23 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
           } else if (msg.type === "text") {
             const text = msg.text?.body ?? "";
             if (text) await routeIncomingMessage(phone, text, msg.id, { replyToWaMessageId: msg.context?.id });
+          } else if (msg.type === "button" || (msg.type === "interactive" && msg.interactive?.type === "button_reply")) {
+            // بند ٥ — a button click converges onto the exact same pipeline as
+            // typed text ("1"/"2"), so the numeric fallback and the real
+            // buttons can never disagree about what a reply means.
+            const buttonText =
+              msg.button?.payload?.trim() ||
+              msg.interactive?.button_reply?.id?.trim() ||
+              msg.button?.text?.trim() ||
+              msg.interactive?.button_reply?.title?.trim() ||
+              "";
+            if (buttonText) {
+              await routeIncomingMessage(phone, buttonText, msg.id, { replyToWaMessageId: msg.context?.id });
+            } else {
+              await logInboundMediaMessage(phone, msg).catch((err) =>
+                logger.warn(`[WhatsAppMeta] failed to log inbound ${msg.type} message: ${err instanceof Error ? err.message : String(err)}`)
+              );
+            }
           } else {
             await logInboundMediaMessage(phone, msg).catch((err) =>
               logger.warn(`[WhatsAppMeta] failed to log inbound ${msg.type} message: ${err instanceof Error ? err.message : String(err)}`)
