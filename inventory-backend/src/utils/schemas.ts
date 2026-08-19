@@ -1180,6 +1180,12 @@ export const updateSettingsSchema = z.object({
       followUpInactiveMessage: nullAsUndefined(z.string().max(1000)),
       followUpActiveStartHour: nullAsUndefined(z.coerce.number().int().min(0).max(23)),
       followUpActiveEndHour: nullAsUndefined(z.coerce.number().int().min(1).max(24)),
+      // بند ٩ — حماية جودة الرقم. الحالة نفسها (last*) تُكتب من الكود فقط
+      // (مو من الواجهة)، بس لازم تكون بالسكيمة وإلا تُحذف بصمت عند الحفظ.
+      whatsappLastQualityRating: nullAsUndefined(z.string().trim()),
+      whatsappLastPhoneStatus: nullAsUndefined(z.string().trim()),
+      whatsappQualityCheckedAt: nullAsUndefined(z.string().trim()),
+      campaignGlobalDailyCap: nullAsUndefined(z.coerce.number().int().min(1).max(10000)),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),
       telegramChannelBotToken: nullAsUndefined(z.string().trim()),

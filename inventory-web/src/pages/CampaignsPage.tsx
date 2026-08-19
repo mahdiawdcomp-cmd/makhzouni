@@ -43,6 +43,8 @@ export function CampaignsPage() {
         <p className="mt-1 text-sm text-gray-500">زبائن محتملين مستقلين عن زبائن المحل + إرسال تلقائي عشوائي لتجنب الحظر</p>
       </div>
 
+      <NumberHealthBanner />
+
       <div className="mb-5 flex gap-2">
         <TabBtn active={tab === "prospects"} onClick={() => setTab("prospects")}>الأرقام (محتملين)</TabBtn>
         <TabBtn active={tab === "send"} onClick={() => setTab("send")}>الإرسال</TabBtn>
@@ -67,6 +69,62 @@ function TabBtn({ active, onClick, children, badge }: { active: boolean; onClick
       {children}
       {!!badge && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{badge}</span>}
     </button>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   بند ٩ — حماية جودة الرقم: بانر حالة + سقف يومي إجمالي، ظاهر بأعلى
+   الصفحة دايماً بغض النظر عن التبويب المفتوح (وقائي، لازم يكون واضح).
+══════════════════════════════════════════════════════════════════════ */
+const QUALITY_LABELS: Record<string, string> = { GREEN: "ممتازة 🟢", YELLOW: "متوسطة 🟡", RED: "منخفضة 🔴" }
+
+function NumberHealthBanner() {
+  const qc = useQueryClient()
+  const { data: s } = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const [cap, setCap] = useState<string | null>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setCap(null)
+  }, [s?.campaignGlobalDailyCap])
+  const saveMut = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => { toast({ title: "تم حفظ الإعداد" }); void qc.invalidateQueries({ queryKey: ["settings"] }) },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  const rating = s?.whatsappLastQualityRating
+  const status = s?.whatsappLastPhoneStatus
+  const unhealthy = (status && status !== "CONNECTED") || rating === "RED"
+  const warning = rating === "YELLOW" && !unhealthy
+  const capValue = cap ?? String(s?.campaignGlobalDailyCap ?? 100)
+
+  return (
+    <div className={`mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
+      unhealthy ? "border-rose-300 bg-rose-50" : warning ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-white"
+    }`}>
+      <div className="text-xs">
+        <p className={`font-bold ${unhealthy ? "text-rose-800" : warning ? "text-amber-800" : "text-gray-600"}`}>
+          {unhealthy ? "🚨 مشكلة برقم الواتساب — راجع الحملات (بند ٩)" : "حماية جودة الرقم"}
+        </p>
+        <p className="mt-0.5 text-gray-500">
+          {rating ? `التقييم: ${QUALITY_LABELS[rating] ?? rating}` : "التقييم: لسه ما انفحص"}
+          {status && status !== "CONNECTED" ? ` — الحالة: ${status}` : ""}
+          {s?.whatsappQualityCheckedAt && ` (آخر فحص: ${new Date(s.whatsappQualityCheckedAt).toLocaleString("ar-IQ")})`}
+        </p>
+      </div>
+      <label className="flex items-center gap-2 text-xs font-bold text-gray-600">
+        السقف اليومي الإجمالي (كل الحملات)
+        <input type="number" min={1} value={capValue} onChange={(e) => setCap(e.target.value)}
+          className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-center" dir="ltr" />
+        <button
+          onClick={() => saveMut.mutate({ campaignGlobalDailyCap: Number(capValue) || 100 })}
+          disabled={saveMut.isPending || cap === null}
+          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-white disabled:opacity-50"
+        >
+          حفظ
+        </button>
+      </label>
+    </div>
   )
 }
 

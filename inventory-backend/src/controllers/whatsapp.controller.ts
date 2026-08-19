@@ -10,6 +10,7 @@ import { applyMessageReaction, fillConversationContactName, logChatMessage, upda
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import { logger } from "../utils/logger";
 import { recordError } from "../services/error-log.service";
+import { handleQualityWebhookEvent, handleAccountRestrictionEvent } from "../services/whatsapp-quality.service";
 import { ErrorLogSource } from "@prisma/client";
 import {
   getCloudWebhookConfig,
@@ -261,6 +262,10 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
       object?: string;
       entry?: Array<{
         changes?: Array<{
+          // بند ٩ — يميّز نوع التغيير: "messages" (الافتراضي الضمني سابقاً،
+          // لا يزال يعمل بدون هذا الحقل) مقابل phone_number_quality_update /
+          // account_update، الآن معالَجان صراحة بدل ما يمرّا بصمت بلا أثر.
+          field?: string;
           value?: {
             contacts?: Array<{ wa_id?: string; profile?: { name?: string } }>;
             messages?: CloudInboundMessage[];
@@ -269,6 +274,11 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
               status?: string;
               errors?: Array<{ title?: string; message?: string; error_data?: { details?: string } }>;
             }>;
+            // phone_number_quality_update
+            event?: string;
+            current_limit?: string;
+            // account_update
+            violation_info?: { violation_type?: string };
           };
         }>;
       }>;
@@ -278,6 +288,21 @@ export const whatsappMetaWebhookReceive = asyncHandler(async (req, res) => {
 
     for (const entry of body.entry ?? []) {
       for (const change of entry.changes ?? []) {
+        // بند ٩ — حماية جودة الرقم: هذان النوعان مستقلان كلياً عن معالجة
+        // الرسائل أدناه، تُعالجان وتُكمَّل الحلقة الحالية فوراً.
+        if (change.field === "phone_number_quality_update") {
+          await handleQualityWebhookEvent(change.value?.event, change.value?.current_limit).catch((err) =>
+            logger.warn(`[WhatsAppMeta] quality-update handling failed: ${err instanceof Error ? err.message : String(err)}`)
+          );
+          continue;
+        }
+        if (change.field === "account_update") {
+          await handleAccountRestrictionEvent(change.value?.violation_info?.violation_type).catch((err) =>
+            logger.warn(`[WhatsAppMeta] account-restriction handling failed: ${err instanceof Error ? err.message : String(err)}`)
+          );
+          continue;
+        }
+
         // Customer's WhatsApp profile name — fills the conversation title when
         // the number matches no customer/prospect record.
         const profile = change.value?.contacts?.[0];

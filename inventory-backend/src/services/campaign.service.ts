@@ -8,6 +8,7 @@ import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.service";
 import { filterOptedIn } from "./marketing-opt-out.service";
 import { normalizePhone } from "../utils/phone";
+import { assistantTimezone, todayStr, zonedDayRange } from "./daily-assistant.service";
 
 // Retry policy: after the first attempt fails, retry up to MAX_RETRIES more
 // times with an increasing backoff, then mark FAILED permanently.
@@ -431,6 +432,16 @@ export async function processCampaignsTick() {
   ticking = true;
   markCampaignTick(); // heartbeat for system-health
   try {
+    // بند ٩ — سقف يومي إجمالي عبر كل الحملات معاً، طبقة أمان فوق سقف كل
+    // حملة الخاص (dailyMin/dailyMax). حماية تُفحص كل تكة قبل أي إرسال —
+    // بسيطة عمداً (عدّ فعلي، لا عدّاد منفصل يحتاج مزامنة).
+    const settings = await getSettings().catch(() => null);
+    const globalCap = settings?.campaignGlobalDailyCap ?? 100;
+    const sentGloballyToday = await prisma.campaignRecipient.count({
+      where: { sentAt: { gte: zonedDayRange(todayStr(assistantTimezone()), assistantTimezone()).start } },
+    });
+    if (sentGloballyToday >= globalCap) return;
+
     const running = await prisma.campaign.findMany({
       where: { status: CampaignStatus.RUNNING },
       select: { id: true },

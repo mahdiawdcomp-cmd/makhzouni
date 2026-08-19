@@ -199,14 +199,38 @@ export async function listCatalogVisitors() {
       })
     : [];
   const byPhone = new Map(customers.map((c) => [c.phone, c]));
+
+  // بند ١٠ — عدد المنتجات المُشاهَدة لكل رقم، لترتيب "أولوية الاتصال" (وقت
+  // تصفح + عدد مشاهدات، بلا حاجة لتحميل تفاصيل كل زائر — استعلام وحد مجمّع).
+  const viewCounts = phones.length
+    ? await prisma.catalogVisitorProductView.groupBy({
+        by: ["phone"],
+        where: { phone: { in: phones } },
+        _count: { _all: true },
+      })
+    : [];
+  const viewCountByPhone = new Map(viewCounts.map((v) => [v.phone, v._count._all]));
+
   const rows = visitors.map((v) => {
     const match = byPhone.get(v.phone);
     return {
       ...v,
       customerId: match?.id ?? null,
       customerName: match?.name ?? null,
+      viewCount: viewCountByPhone.get(v.phone) ?? 0,
     };
   });
+
+  // أولوية الاتصال: زوار غير مسجّلين أولاً (هم المستهدفون فعلاً)، بعدين
+  // الأعلى اهتماماً (وقت تصفح، وعدد مشاهدات كفاصل تعادل).
+  rows.sort((a, b) => {
+    const aReg = a.customerId ? 1 : 0;
+    const bReg = b.customerId ? 1 : 0;
+    if (aReg !== bReg) return aReg - bReg;
+    if (b.totalTimeSeconds !== a.totalTimeSeconds) return b.totalTimeSeconds - a.totalTimeSeconds;
+    return b.viewCount - a.viewCount;
+  });
+
   const totalVisits = visitors.reduce((sum, v) => sum + v.visits, 0);
   return { visitors: rows, uniquePhones: visitors.length, totalVisits };
 }

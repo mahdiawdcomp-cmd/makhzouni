@@ -1349,6 +1349,9 @@ function VisitorsTab() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Users className="h-4 w-4" /> الأرقام التي دخلت الكتلوك
           </CardTitle>
+          <p className="text-xs text-slate-500">
+            بند ١٠ — مرتّبة أولوية اتصال: غير المسجّلين أولاً، والأعلى وقت تصفح ومشاهدات فوق.
+          </p>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -1365,6 +1368,7 @@ function VisitorsTab() {
                     <th className="p-2 font-medium">آخر زيارة</th>
                     <th className="p-2 font-medium">أول زيارة</th>
                     <th className="p-2 font-medium">مدة التصفح</th>
+                    <th className="p-2 font-medium">مشاهدات</th>
                     <th className="p-2 font-medium">الحالة</th>
                     <th className="p-2 font-medium">تواصل</th>
                     <th className="p-2 font-medium">شنو فتح</th>
@@ -1379,16 +1383,25 @@ function VisitorsTab() {
                       <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).locale("ar").fromNow()}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.firstSeenAt).format("YYYY-MM-DD")}</td>
                       <td className="p-2 text-slate-500">{formatDuration(v.totalTimeSeconds)}</td>
+                      <td className="p-2 text-slate-500">{v.viewCount}</td>
                       <td className="p-2">
                         {v.customerId ? (
                           <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
                             <Check className="h-3 w-3" /> {v.customerName}
                           </span>
                         ) : (
-                          <button onClick={() => convertMut.mutate(v.phone)} disabled={convertMut.isPending}
-                            className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
-                            <UserPlus className="h-3 w-3" /> أضفه كزبون
-                          </button>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {v.accessCodeSetAt && (
+                              <span title="طلب رمز دخول بس لسه ما وافقنا عليه"
+                                className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
+                                🔑 طلب رمز
+                              </span>
+                            )}
+                            <button onClick={() => convertMut.mutate(v.phone)} disabled={convertMut.isPending}
+                              className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                              <UserPlus className="h-3 w-3" /> أضفه كزبون
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td className="p-2">
@@ -1408,7 +1421,7 @@ function VisitorsTab() {
                     </tr>
                     {expandedPhone === v.phone && (
                       <tr className="border-b bg-slate-50/60 last:border-0">
-                        <td className="p-3" colSpan={8}>
+                        <td className="p-3" colSpan={9}>
                           <VisitorProductViewsList phone={v.phone} />
                         </td>
                       </tr>

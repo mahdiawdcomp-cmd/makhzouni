@@ -2066,6 +2066,10 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
 export type CatalogVisitor = {
   id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string
   customerId: string | null; customerName: string | null; totalTimeSeconds: number
+  /** بند ١٠ — عدد مشاهدات المنتجات، تستخدم لترتيب أولوية الاتصال. */
+  viewCount: number
+  /** بند ١٠ — طلب رمز دخول بس لسه ما صار زبون (قريب من التسجيل). */
+  accessCodeSetAt?: string | null
 }
 
 export type CatalogVisitorProductView = {

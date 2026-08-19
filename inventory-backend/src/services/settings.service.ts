@@ -279,6 +279,14 @@ export interface AppSettings {
   // ساعات العمل المشتركة للمتابعات الثلاث (تختلف عن ساعات كل حملة لحالها).
   followUpActiveStartHour?: number;
   followUpActiveEndHour?: number;
+  // بند ٩ — حماية جودة رقم الواتساب (وقائي). آخر حالة معروفة تُقارَن بيها كل
+  // قراءة جديدة (من الـwebhook أو الاستعلام اليومي) لاكتشاف أي هبوط. سقف
+  // يومي إجمالي عبر كل الحملات معاً (مو لكل حملة لحالها) — طبقة أمان إضافية
+  // فوق سقف كل حملة الخاص.
+  whatsappLastQualityRating?: string;
+  whatsappLastPhoneStatus?: string;
+  whatsappQualityCheckedAt?: string;
+  campaignGlobalDailyCap?: number;
 }
 
 export interface BotRule {
@@ -348,6 +356,7 @@ export const defaultSettings: AppSettings = {
   followUpInactiveMessage: "هلا {{customerName}} 👋 اشتقنالك! آخر مرة طلبت هذي المواد:\n{{products}}\n\nتفضل شوف الجديد بالكتلوك:\n{{link}}",
   followUpActiveStartHour: 9,
   followUpActiveEndHour: 21,
+  campaignGlobalDailyCap: 100,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,

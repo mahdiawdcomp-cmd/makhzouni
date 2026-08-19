@@ -142,6 +142,23 @@ export async function subscribeAppToWaba(wabaId: string) {
   return (await response.json()) as { success?: boolean };
 }
 
+/**
+ * بند ٩ — قراءة تقييم الجودة (GREEN/YELLOW/RED) وحالة الرقم (CONNECTED/
+ * FLAGGED/RESTRICTED/RATE_LIMITED/BANNED/...) من Meta مباشرة. استعلام
+ * احتياطي يومي يكمّل الـwebhook — لو الاثنان فاتوا حدث، هذا يلتقطه بعد أقصى
+ * يوم وحد. يرمي لو Cloud API غير مهيّأ — المستدعي مسؤول عن الالتقاط بصمت.
+ */
+export async function fetchPhoneNumberQualityStatus() {
+  const { token, baseUrl } = cloudConfig();
+  const response = await fetch(`${baseUrl}?fields=quality_rating,status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new AppError(`Failed to read phone number quality: ${await parseGraphError(response)}`, 502, "WHATSAPP_QUALITY_CHECK_FAILED");
+  }
+  return (await response.json()) as { quality_rating?: string; status?: string; id?: string };
+}
+
 function hasGreenApiCreds() {
   return Boolean(
     (_greenApiInstanceId || process.env.GREENAPI_INSTANCE_ID?.trim()) &&

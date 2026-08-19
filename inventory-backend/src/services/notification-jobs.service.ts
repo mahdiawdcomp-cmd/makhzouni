@@ -17,6 +17,7 @@ import { runScheduledCycleCountJob } from "./cycle-count.service";
 import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { runRatingRequestJob } from "./product-review.service";
 import { runCouponExpiryReminderJob } from "./first-order-coupon.service";
+import { runWhatsAppQualityCheckJob } from "./whatsapp-quality.service";
 import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFollowUpJob } from "./follow-up.service";
 import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
@@ -394,6 +395,15 @@ export function startNotificationJobs() {
   cron.schedule("0 11 * * *", () => {
     runRatingRequestJob().catch((error) => {
       reportCronFailure("PRODUCT_RATING_REQUEST", error);
+    });
+  }, CRON_OPTIONS);
+
+  // بند ٩ — استعلام يومي احتياطي لجودة رقم الواتساب، 07:00 قبل ما تبدأ
+  // حملات اليوم إرسالها أصلاً (9 صباحاً افتراضياً) — يلتقط أي هبوط الـwebhook
+  // فاته قبل أي رسالة تنرسل باليوم.
+  cron.schedule("0 7 * * *", () => {
+    runWhatsAppQualityCheckJob().catch((error) => {
+      reportCronFailure("WHATSAPP_QUALITY_CHECK", error);
     });
   }, CRON_OPTIONS);
 

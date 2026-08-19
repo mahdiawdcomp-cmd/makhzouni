@@ -1210,6 +1210,11 @@ export interface AppSettings {
   followUpInactiveMessage?: string
   followUpActiveStartHour?: number
   followUpActiveEndHour?: number
+  /** بند ٩ — حماية جودة الرقم (وقائي). */
+  whatsappLastQualityRating?: string
+  whatsappLastPhoneStatus?: string
+  whatsappQualityCheckedAt?: string
+  campaignGlobalDailyCap?: number
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean
