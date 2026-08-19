@@ -13,7 +13,8 @@ import { balanceForCustomer, fillTemplate, normalizePhone } from "../utils/whats
 import { apiErrorMessage } from "../utils/apiError"
 import { sendWhatsAppTemplatedMessage, sendCustomerStatementPdfWhatsapp, type WhatsAppSendChannel } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
-import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
+import type { Customer, CustomerBusinessType, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
+import { IRAQI_GOVERNORATES, BUSINESS_TYPE_OPTIONS } from "../utils/governorates"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -640,6 +641,8 @@ function EditCustomerModal({
     isBoth: customer.isBoth ?? false,
     creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
     openingBalance: String(customer.openingBalance ?? 0),
+    province: customer.province ?? "",
+    businessType: customer.businessType ?? "",
   })
 
   // Reset form to latest customer data every time the modal opens
@@ -656,6 +659,8 @@ function EditCustomerModal({
         isBoth: customer.isBoth ?? false,
         creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
         openingBalance: String(customer.openingBalance ?? 0),
+        province: customer.province ?? "",
+        businessType: customer.businessType ?? "",
       })
     }
   }, [open, customer])
@@ -677,6 +682,10 @@ function EditCustomerModal({
       isBoth: form.isBoth,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
       openingBalance: Number(form.openingBalance) || 0,
+      // بند ٤ — فاضي يعني "لا تعديل" إذا كان عنده قيمة أصلاً، لأن التاكات
+      // التلقائية تنضاف بس لما توصل قيمة فعلية بالتحديث.
+      province: (form.province.trim() || undefined) as CustomerPayload["province"],
+      businessType: (form.businessType || undefined) as CustomerBusinessType | undefined,
     })
   }
 
@@ -726,6 +735,36 @@ function EditCustomerModal({
         <div className="space-y-1">
           <Label>التاكات (اختر بالضغط أو أضف جديد)</Label>
           <TagPicker value={form.tags} onChange={(tags) => set("tags", tags)} />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>المحافظة (اختياري)</Label>
+            <select
+              value={form.province}
+              onChange={(e) => set("province", e.target.value)}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            >
+              <option value="">— غير محددة —</option>
+              {IRAQI_GOVERNORATES.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500">يضيف تاك المحافظة تلقائياً عند الحفظ.</p>
+          </div>
+          <div className="space-y-1">
+            <Label>نوع العمل (اختياري)</Label>
+            <select
+              value={form.businessType}
+              onChange={(e) => set("businessType", e.target.value)}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            >
+              <option value="">— غير محدد —</option>
+              {BUSINESS_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="space-y-1">

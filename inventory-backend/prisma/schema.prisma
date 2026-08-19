@@ -571,6 +571,15 @@ model Customer {
   lockedUntil          DateTime?                    @map("locked_until")
   // Per-customer override of the shop-wide "show prices" default.
   catalogPricesHidden  Boolean                      @default(false) @map("catalog_prices_hidden")
+  // ── WhatsApp funnel: auto-tags + region-based delivery message ─────────
+  // Free-form governorate name (fixed dropdown list on the frontend). Drives
+  // the automatic "محافظات"/province tags and the delivery line shown on the
+  // storefront and in WhatsApp messages. Optional — many existing customers
+  // won't have it, and it's never required to create a customer.
+  province             String?
+  // STATIONERY / TOYS / MIXED — optional, admin-entered for now until the
+  // WhatsApp registration conversation (بند ٥) can ask for it directly.
+  businessType         String?                      @map("business_type")
   invoices             Invoice[]
   paymentVouchers      PaymentVoucher[]
   couponRedemptions    CouponRedemption[]

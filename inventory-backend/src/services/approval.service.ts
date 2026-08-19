@@ -4,6 +4,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { amountInPieces } from "../utils/financial";
 import {
+  applyCustomerAutoTags,
   createCustomer,
   softDeleteCustomer,
   updateCustomer,
@@ -442,6 +443,10 @@ async function executeApprovedRequest(
         phone?: string;
         address?: string;
         notes?: string;
+        // بند ٤ — لا يملأهما نموذج الطلب الحالي، لكن محادثة الواتساب (بند ٥)
+        // ستملأهما لاحقاً؛ التاكات التلقائية تُطبَّق فوراً لو وصلا.
+        province?: string;
+        businessType?: string;
       };
       const phone = String(body.phone ?? "").trim();
       const customerName = String(body.customerName ?? "").trim();
@@ -458,6 +463,8 @@ async function executeApprovedRequest(
               address: body.address,
               notes: body.notes,
               deletedAt: null,
+              ...(body.province ? { province: body.province } : {}),
+              ...(body.businessType ? { businessType: body.businessType } : {}),
             },
           })
         : await tx.customer.create({
@@ -468,8 +475,12 @@ async function executeApprovedRequest(
               notes: body.notes,
               openingBalance: 0,
               currentBalance: 0,
+              province: body.province,
+              businessType: body.businessType,
             },
           });
+
+      await applyCustomerAutoTags(tx, customer.id, body.province, body.businessType);
 
       const link = await createCatalogAccessLink(tx, customer.id, Boolean(options?.allowPrices), options?.showStock ?? true);
       setImmediate(() => {

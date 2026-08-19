@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link2, Package, Shuffle, ShieldOff, Sliders } from "lucide-react"
+import { Link2, Package, Shuffle, ShieldOff, Sliders, Truck } from "lucide-react"
 import { getSettings, updateSettings } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
+import { IRAQI_GOVERNORATES, DEFAULT_NORTH_GOVERNORATES } from "../utils/governorates"
 
 /* ══════════════════════════════════════════════════════════════════════
    One place for the catalog switches that used to be scattered: two on
@@ -46,13 +47,24 @@ export function CatalogSettingsTab() {
   // Text fields are drafts so a background refetch never overwrites typing.
   const [publicUrl, setPublicUrl] = useState<string | null>(null)
   const [adminPhone, setAdminPhone] = useState<string | null>(null)
+  const [freeShipping, setFreeShipping] = useState<string | null>(null)
+  const [northDraft, setNorthDraft] = useState<string[] | null>(null)
+  // catalogNorthGovernorates is an array — React Query hands back a NEW
+  // reference on every refetch even when the content is unchanged (e.g. the
+  // SSE "settings" bridge invalidates ["settings"] whenever ANY setting
+  // saves, including the free-shipping-threshold button right above this
+  // one). Depending on the raw array would wipe an in-progress checkbox
+  // draft on every unrelated save, so this compares by value instead.
+  const northSignature = JSON.stringify(s?.catalogNorthGovernorates ?? null)
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clears drafts once a save lands
-    setPublicUrl(null); setAdminPhone(null)
-  }, [s?.catalogPublicUrl, s?.catalogAdminWhatsappNumber])
+    setPublicUrl(null); setAdminPhone(null); setFreeShipping(null); setNorthDraft(null)
+  }, [s?.catalogPublicUrl, s?.catalogAdminWhatsappNumber, s?.catalogFreeShippingThreshold, northSignature])
 
   const urlValue = publicUrl ?? s?.catalogPublicUrl ?? ""
   const phoneValue = adminPhone ?? s?.catalogAdminWhatsappNumber ?? ""
+  const freeShippingValue = freeShipping ?? String(s?.catalogFreeShippingThreshold ?? 1_500_000)
+  const northValue = northDraft ?? (s?.catalogNorthGovernorates as string[] | undefined) ?? DEFAULT_NORTH_GOVERNORATES
 
   const saveMut = useMutation({
     mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
@@ -195,6 +207,85 @@ export function CatalogSettingsTab() {
               ))}
             </div>
           </Row>
+        </CardContent>
+      </Card>
+
+      {/* بند ٤ — التوصيل: جملة واحدة حسب محافظة الزبون، بدون تفاصيل تدوّخه */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Truck className="h-5 w-5 text-emerald-600" />
+            التوصيل
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            الزبون المسجّل يشوف جملة واحدة حسب محافظته: مجاني فوق الحد أدناه لمحافظات وسط/جنوب/غرب، أو
+            «حسب البضاعة» لمحافظات الشمال. تحدَّد المحافظة من ملف الزبون.
+          </p>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">حد الشحن المجاني (دينار) — وسط/جنوب/غرب</span>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min={0}
+                value={freeShippingValue}
+                onChange={(e) => setFreeShipping(e.target.value)}
+                dir="ltr"
+                className="flex-1 text-sm"
+              />
+              <Button
+                onClick={() => saveMut.mutate({ catalogFreeShippingThreshold: Number(freeShippingValue) || 0 })}
+                disabled={saveMut.isPending || freeShipping === null}
+                className="shrink-0"
+              >
+                حفظ
+              </Button>
+            </div>
+          </label>
+
+          <div className="space-y-1.5">
+            <span className="text-xs font-semibold text-slate-600">
+              محافظات الشمال (توصيل حسب البضاعة) — الباقي وسط/جنوب/غرب تلقائياً
+            </span>
+            <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3">
+              {IRAQI_GOVERNORATES.map((g) => {
+                const checked = northValue.includes(g)
+                return (
+                  <label
+                    key={g}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors",
+                      checked ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600 hover:border-slate-300",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...northValue, g]
+                          : northValue.filter((x) => x !== g)
+                        setNorthDraft(next)
+                      }}
+                      className="h-3.5 w-3.5 accent-amber-600"
+                    />
+                    {g}
+                  </label>
+                )
+              })}
+            </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => saveMut.mutate({ catalogNorthGovernorates: northValue })}
+                disabled={saveMut.isPending || northDraft === null}
+                className="shrink-0"
+              >
+                حفظ خارطة المناطق
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

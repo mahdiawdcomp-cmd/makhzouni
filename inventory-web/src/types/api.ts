@@ -593,6 +593,8 @@ export interface CatalogSession {
   stockFilter?: CatalogStockFilter
   // true when the access link needs a fresh OTP (never verified, or older than ~6 months)
   needsOtp?: boolean
+  // بند ٤ — جملة توصيل واحدة حسب محافظة الزبون؛ null لو محافظته غير معروفة.
+  deliveryLine?: string | null
 }
 
 export interface CatalogOrderPayload {
@@ -683,7 +685,11 @@ export interface Customer {
   deletedAt?: string | null
   portalLinkEnabled?: boolean
   loyaltyPoints?: number
+  province?: string | null
+  businessType?: CustomerBusinessType | null
 }
+
+export type CustomerBusinessType = "STATIONERY" | "TOYS" | "MIXED"
 
 export interface CustomerPayload {
   name: string
@@ -695,6 +701,8 @@ export interface CustomerPayload {
   creditLimit?: number | null
   isSupplier?: boolean
   isBoth?: boolean
+  province?: string
+  businessType?: CustomerBusinessType
 }
 
 export interface CustomerBroadcastPayload {
@@ -1150,6 +1158,10 @@ export interface AppSettings {
   marketingStopKeywords?: string[]
   marketingStopConfirmation?: string
   catalogShuffleMode?: "hourly" | "daily" | "off"
+  /** بند ٤ — محافظات "الشمال" (توصيل حسب البضاعة)؛ الباقي وسط/جنوب/غرب. */
+  catalogNorthGovernorates?: string[]
+  /** بند ٤ — حد الشحن المجاني بالدينار لمحافظات وسط/جنوب/غرب. */
+  catalogFreeShippingThreshold?: number
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
   autoSendDailySummary?: boolean

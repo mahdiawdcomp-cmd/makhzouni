@@ -5,6 +5,7 @@ import { calculateCustomerBalance } from "../utils/financial";
 import { logger } from "../utils/logger";
 import { normalizePhone } from "../utils/phone";
 import { scoreCustomer } from "../utils/arabic-search";
+import { BUSINESS_TYPE_LABELS, CustomerBusinessType } from "../utils/deliveryRegion";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 import { assistantTimezone, dayKeyInTz, zonedDayRange } from "./daily-assistant.service";
@@ -36,6 +37,8 @@ export interface CreateCustomerInput {
   branchId?: string;
   isSupplier?: boolean;
   isBoth?: boolean;
+  province?: string;
+  businessType?: CustomerBusinessType;
 }
 
 export interface UpdateCustomerInput {
@@ -49,6 +52,47 @@ export interface UpdateCustomerInput {
   branchId?: string | null;
   isSupplier?: boolean;
   isBoth?: boolean;
+  province?: string | null;
+  businessType?: CustomerBusinessType | null;
+}
+
+/**
+ * بند ٤ — يضيف تاك "محافظات" + تاك اسم المحافظة (لو غير كربلاء) + تاك نوع
+ * العمل، فوق التاكات الموجودة بلا حذف. يُستدعى من الإنشاء/التعديل اليدوي
+ * ومن موافقة CATALOG_ACCESS؛ لا شي يحدث لو province وbusinessType كلاهما
+ * غائبان (لا تكلفة على كل تعديل زبون عادي).
+ */
+export async function applyCustomerAutoTags(
+  db: Db,
+  customerId: string,
+  province: string | null | undefined,
+  businessType: string | null | undefined,
+) {
+  if (!province && !businessType) return;
+
+  const customer = await db.customer.findUnique({ where: { id: customerId }, select: { tags: true } });
+  if (!customer) return;
+
+  const tags = new Set(customer.tags);
+  const additions: string[] = [];
+
+  if (province && province !== "كربلاء") {
+    if (!tags.has("محافظات")) { tags.add("محافظات"); additions.push("محافظات"); }
+    if (!tags.has(province)) { tags.add(province); additions.push(province); }
+  }
+
+  const businessLabel = businessType ? BUSINESS_TYPE_LABELS[businessType as CustomerBusinessType] : undefined;
+  if (businessLabel && !tags.has(businessLabel)) {
+    tags.add(businessLabel);
+    additions.push(businessLabel);
+  }
+
+  if (additions.length === 0) return;
+
+  await Promise.all(
+    additions.map((name) => db.customerTag.upsert({ where: { name }, update: {}, create: { name } })),
+  );
+  await db.customer.update({ where: { id: customerId }, data: { tags: [...tags] } });
 }
 
 export interface TransactionFilter {
@@ -358,10 +402,14 @@ export async function createCustomer(input: CreateCustomerInput, db: Db = prisma
       branchId: input.branchId,
       isSupplier: input.isSupplier ?? false,
       isBoth: input.isBoth ?? false,
+      province: input.province,
+      businessType: input.businessType,
     },
   });
 
-  return serializeCustomer(customer);
+  await applyCustomerAutoTags(db, customer.id, input.province, input.businessType);
+
+  return serializeCustomer(await getCustomerOrThrow(customer.id, db));
 }
 
 export async function updateCustomer(
@@ -383,11 +431,17 @@ export async function updateCustomer(
   if (input.branchId !== undefined) data.branchId = input.branchId;
   if (input.isSupplier !== undefined) data.isSupplier = input.isSupplier;
   if (input.isBoth !== undefined) data.isBoth = input.isBoth;
+  if (input.province !== undefined) data.province = input.province;
+  if (input.businessType !== undefined) data.businessType = input.businessType;
 
   await db.customer.update({
     where: { id },
     data,
   });
+
+  if (input.province || input.businessType) {
+    await applyCustomerAutoTags(db, id, input.province, input.businessType);
+  }
 
   return recalculateCustomerBalance(id, db);
 }

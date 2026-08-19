@@ -11,6 +11,7 @@ import { resolveWarehouseId } from "./warehouse-stock.service";
 import { notifyAdmin } from "./app-notification.service";
 import { sendTelegramDmToPhone } from "./telegram-bot.service";
 import { catalogPublicUrl } from "../utils/public-urls";
+import { buildDeliveryLine } from "../utils/deliveryRegion";
 
 const CLOUD_TEMPLATE_LANG = "ar";
 
@@ -637,15 +638,32 @@ export async function notifyCatalogAccessApproved(
     });
   }
 
+  // بند ٤ — جملة توصيل واحدة حسب محافظة الزبون، لو معروفة. Best-effort: عدم
+  // معرفتها لا يمنع إرسال رمز الدخول.
+  const province = customerId
+    ? await prisma.customer.findUnique({ where: { id: customerId }, select: { province: true } })
+        .then((c) => c?.province ?? null)
+        .catch(() => null)
+    : null;
+  const deliveryLine = buildDeliveryLine(province, settings);
+
   const template = settings?.catalogAccessApprovedTemplate?.trim()
     || (issued ? DEFAULT_ACCESS_APPROVED_TEMPLATE : "لقد تم الموافقه على طلبك يمكنك الدخول عبر الرابط\n{{link}}");
 
-  const message = template
+  let message = template
     .replaceAll("{{customerName}}", customerName || "زبوننا العزيز")
     .replaceAll("{{storeName}}", settings?.storeName || "متجرنا")
     .replaceAll("{{username}}", issued?.phone ?? customerPhone)
     .replaceAll("{{code}}", issued?.code ?? "")
     .replaceAll("{{link}}", url);
+
+  if (deliveryLine) {
+    message = message.includes("{{delivery}}")
+      ? message.replaceAll("{{delivery}}", deliveryLine)
+      : `${message}\n\n🚚 ${deliveryLine}`;
+  } else {
+    message = message.replaceAll("{{delivery}}", "");
+  }
 
   await safeSendWATemplated(
     customerPhone,

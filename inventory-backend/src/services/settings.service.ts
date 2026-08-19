@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { syncWhatsAppSettings, generateVerifyToken } from "./whatsapp.service";
+import { DEFAULT_NORTH_GOVERNORATES, DEFAULT_FREE_SHIPPING_THRESHOLD } from "../utils/deliveryRegion";
 
 export interface AppSettings {
   debtReminderDays: number;
@@ -176,7 +177,10 @@ export interface AppSettings {
   storefrontCredentialsTemplate?: string;
   // Message a NEWLY APPROVED customer receives: the link plus the login
   // credentials they now need. Placeholders: customerName, storeName,
-  // username, code, link. Empty = the built-in default.
+  // username, code, link, delivery (بند ٤ — the region-based delivery line;
+  // resolves to "" if the customer has no province set yet). Empty = the
+  // built-in default, which appends the delivery line automatically instead
+  // of requiring the placeholder.
   catalogAccessApprovedTemplate?: string;
   // «توقف» — words that opt a number out of MARKETING (campaigns and
   // follow-ups). Empty = the built-in Arabic/English defaults. Invoices and
@@ -251,6 +255,11 @@ export interface AppSettings {
   // view. Purely a display default: never touches invoices, balances, or
   // stock, and picking an earlier date on the tab still shows full history.
   reportsProfitStartDate?: string;
+  // بند ٤ — قمع الواتساب: أي محافظة تُصنَّف "الشمال" (توصيل حسب البضاعة).
+  // أي محافظة غائبة عن هذي القائمة تُعتبر ضمن وسط/جنوب/غرب (توصيل مجاني فوق
+  // catalogFreeShippingThreshold). قابلة للتعديل من تبويب إعدادات الكتلوك.
+  catalogNorthGovernorates?: string[];
+  catalogFreeShippingThreshold?: number;
 }
 
 export interface BotRule {
@@ -305,6 +314,8 @@ export const defaultSettings: AppSettings = {
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,
   catalogShuffleMode: "hourly",
+  catalogNorthGovernorates: [...DEFAULT_NORTH_GOVERNORATES],
+  catalogFreeShippingThreshold: DEFAULT_FREE_SHIPPING_THRESHOLD,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
   autoSendDailySummary: false,

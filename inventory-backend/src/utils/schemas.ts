@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { IRAQI_GOVERNORATES, CUSTOMER_BUSINESS_TYPES } from "./deliveryRegion";
 
 const uuidParam = z.object({
   id: z.string().uuid(),
@@ -450,6 +451,8 @@ export const createCustomerSchema = z.object({
     branchId: z.string().uuid().optional(),
     isSupplier: z.coerce.boolean().optional(),
     isBoth: z.coerce.boolean().optional(),
+    province: z.enum(IRAQI_GOVERNORATES).optional(),
+    businessType: z.enum(CUSTOMER_BUSINESS_TYPES).optional(),
   }),
 });
 
@@ -467,6 +470,8 @@ export const updateCustomerSchema = z.object({
       branchId: z.string().uuid().nullable().optional(),
       isSupplier: z.coerce.boolean().optional(),
       isBoth: z.coerce.boolean().optional(),
+      province: z.enum(IRAQI_GOVERNORATES).nullable().optional(),
+      businessType: z.enum(CUSTOMER_BUSINESS_TYPES).nullable().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one field is required",
@@ -1157,6 +1162,9 @@ export const updateSettingsSchema = z.object({
       marketingStopKeywords: nullAsUndefined(z.array(z.string().trim().max(40)).max(20)),
       marketingStopConfirmation: nullAsUndefined(z.string().max(1000)),
       catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
+      // بند ٤ — خارطة المناطق وحد الشحن المجاني، قابلة للتعديل من إعدادات الكتلوك.
+      catalogNorthGovernorates: nullAsUndefined(z.array(z.string().trim()).max(30)),
+      catalogFreeShippingThreshold: nullAsUndefined(z.coerce.number().int().min(0)),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),
       telegramChannelBotToken: nullAsUndefined(z.string().trim()),

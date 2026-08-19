@@ -16,6 +16,7 @@ import { createCustomer } from "./customer.service";
 import { sendWhatsAppText } from "./whatsapp.service";
 import { hasFeature } from "../middleware/tenant.middleware";
 import { getCatalogRankingSignals, withRanking } from "./catalog-ranking.service";
+import { buildDeliveryLine } from "../utils/deliveryRegion";
 
 type CatalogOrderInput = {
   customerName: string;
@@ -730,12 +731,17 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
 
   const customer = await prisma.customer.findFirst({
     where: { id: link.customer_id, deletedAt: null },
-    select: { id: true, name: true, phone: true },
+    select: { id: true, name: true, phone: true, province: true },
   });
 
   if (!customer) {
     throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
   }
+
+  // بند ٤ — جملة توصيل واحدة حسب محافظة الزبون؛ null لو محافظته غير معروفة
+  // (لا نعرض شي بدل تخمين خاطئ).
+  const deliveryLine = buildDeliveryLine(customer.province, settings);
+  const { province: _province, ...publicCustomer } = customer;
 
   const catalogDesign = {
     primaryColor: settings.catalogDesignPrimaryColor ?? null,
@@ -793,12 +799,13 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
     : CatalogStockFilter.ALL_PRODUCTS;
 
   return {
-    customer,
+    customer: publicCustomer,
     allowPrices,
     showStock,
     stockFilter,
     needsOtp,
     catalogDesign,
+    deliveryLine,
   };
 }
 

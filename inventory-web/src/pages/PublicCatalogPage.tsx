@@ -373,7 +373,7 @@ export function PublicCatalogPage() {
 
   if (!sessionQuery.data) return <LoginGate onAccess={handleAccess} />
 
-  const { customer, allowPrices, showStock, stockFilter, needsOtp } = sessionQuery.data
+  const { customer, allowPrices, showStock, stockFilter, needsOtp, deliveryLine } = sessionQuery.data
 
   // 6-month re-verification: the link is still valid, we just need a fresh OTP.
   // No new admin approval and no new link — same token continues afterwards.
@@ -395,6 +395,7 @@ export function PublicCatalogPage() {
       customerId={customer.id}
       customerName={customer.name}
       customerPhone={customer.phone}
+      deliveryLine={deliveryLine ?? null}
     />
   )
 }
@@ -785,11 +786,11 @@ const TUTORIAL_SEEN_KEY = "catalog_tutorial_seen_v1"
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
   accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
-  guestMode = false,
+  guestMode = false, deliveryLine = null,
 }: {
   accessToken: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter
   customerId: string; customerName: string; customerPhone: string
-  guestMode?: boolean
+  guestMode?: boolean; deliveryLine?: string | null
 }) {
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
@@ -1744,6 +1745,7 @@ function CatalogShop({
           promoLoading={promoLoading} onApplyPromo={applyPromo}
           promoDiscount={promoDiscount} finalTotal={finalTotal} hasFreeDelivery={hasFreeDelivery}
           onClearPromo={() => { setPromoResult(null); setPromoCode(""); setPromoError("") }}
+          deliveryLine={deliveryLine}
           guestMode={guestMode}
           guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
           onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
@@ -3239,7 +3241,7 @@ function CartOverlay({
   cart, allowPrices, subtotal, notes, onNotes, onChangeQty, onChangeUnit, onRemove,
   onClose, onSubmit, isPending, submitted, isError, tk,
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
-  promoDiscount, finalTotal, hasFreeDelivery, onClearPromo,
+  promoDiscount, finalTotal, hasFreeDelivery, onClearPromo, deliveryLine = null,
   guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
@@ -3251,6 +3253,7 @@ function CartOverlay({
   promoResult: { code: string; type: string; value: number | null; description: string | null } | null
   promoError: string; promoLoading: boolean; onApplyPromo: () => void
   promoDiscount: number; finalTotal: number; hasFreeDelivery: boolean; onClearPromo: () => void
+  deliveryLine?: string | null
   guestMode?: boolean
   guestName?: string; guestPhone?: string; guestAddress?: string
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
@@ -3368,6 +3371,13 @@ function CartOverlay({
               </div>
             ))}
             {!guestMode && promoError && <p className="text-xs text-red-600">{promoError}</p>}
+
+            {/* بند ٤ — جملة توصيل واحدة حسب محافظة الزبون (غير متاحة للضيوف والزبائن بلا محافظة مسجّلة) */}
+            {deliveryLine && (
+              <p className="rounded-xl px-3 py-2 text-xs font-semibold" style={{ background: tk.accentLight, color: tk.accent }}>
+                🚚 {deliveryLine}
+              </p>
+            )}
 
             {/* Totals */}
             {allowPrices && (
