@@ -269,6 +269,31 @@ export async function getCustomerAccount(access: string) {
   return data.data!
 }
 
+/* ── Marketing opt-out («توقف») ───────────────────────────────────── */
+
+export interface MarketingOptOut {
+  phone: string
+  name: string | null
+  reason: string | null
+  source: string
+  createdAt: string
+}
+
+export async function listMarketingOptOuts(search?: string) {
+  const { data } = await api.get<ApiEnvelope<MarketingOptOut[]>>(
+    "/catalog-management/opt-outs", { params: search ? { search } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function addMarketingOptOut(phone: string, reason?: string) {
+  await api.post("/catalog-management/opt-outs", { phone, reason })
+}
+
+export async function resumeMarketingFor(phone: string) {
+  await api.post("/catalog-management/opt-outs/resume", { phone })
+}
+
 /* ── Storefront accounts (admin) ──────────────────────────────────── */
 
 export interface StorefrontCustomerAccount {

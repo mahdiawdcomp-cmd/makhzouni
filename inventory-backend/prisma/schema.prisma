@@ -734,6 +734,28 @@ model Campaign {
   @@map("campaigns")
 }
 
+// A phone that asked to stop receiving MARKETING.
+//
+// Keyed by phone rather than by customer, because the same request can come
+// from a prospect, a catalog visitor or a customer — and it has to hold even
+// if that number later becomes a customer, or stops being one.
+//
+// This blocks campaigns and follow-ups ONLY. Invoices, statements, vouchers
+// and login codes still go out: those are the shop answering a transaction
+// the customer started, not advertising they opted out of.
+model MarketingOptOut {
+  id        String   @id @default(uuid()) @db.Uuid
+  phone     String   @unique
+  // What they actually typed, so the shop can see why the number is blocked.
+  reason    String?
+  // "WHATSAPP_REPLY" when the customer sent the stop word, "ADMIN" when set
+  // by hand from the dashboard.
+  source    String   @default("WHATSAPP_REPLY")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("marketing_opt_outs")
+}
+
 model CampaignRecipient {
   id                 String                  @id @default(uuid()) @db.Uuid
   campaignId         String                  @map("campaign_id") @db.Uuid

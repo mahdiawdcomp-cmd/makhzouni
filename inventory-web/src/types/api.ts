@@ -1146,6 +1146,9 @@ export interface AppSettings {
   storefrontCredentialsTemplate?: string
   /** Message a newly approved customer gets: link + their login code. */
   catalogAccessApprovedTemplate?: string
+  /** Words that opt a number out of marketing. Empty = built-in defaults. */
+  marketingStopKeywords?: string[]
+  marketingStopConfirmation?: string
   catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string

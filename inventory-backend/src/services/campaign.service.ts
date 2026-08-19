@@ -6,6 +6,8 @@ import { markCampaignTick } from "./campaign-heartbeat";
 import { recordError } from "./error-log.service";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppTemplate, sendWhatsAppText } from "./whatsapp.service";
+import { filterOptedIn } from "./marketing-opt-out.service";
+import { normalizePhone } from "../utils/phone";
 
 // Retry policy: after the first attempt fails, retry up to MAX_RETRIES more
 // times with an increasing backoff, then mark FAILED permanently.
@@ -317,7 +319,21 @@ async function processCampaign(campaignId: string) {
     take: 25,
   });
 
-  const recipient = candidates.find((r) => {
+  // Drop anyone who replied «توقف» — checked at send time, not at queue time,
+  // because a recipient queued last week may have opted out since. Marked
+  // SKIPPED rather than deleted so the campaign report still shows what
+  // happened to them.
+  const optedIn = await filterOptedIn(candidates.map((r) => r.phone));
+  const blocked = candidates.filter((r) => !optedIn.has(normalizePhone(r.phone)));
+  if (blocked.length > 0) {
+    await prisma.campaignRecipient.updateMany({
+      where: { id: { in: blocked.map((r) => r.id) } },
+      data: { status: CampaignRecipientStatus.SKIPPED, error: "OPTED_OUT", processedAt: now },
+    });
+  }
+  const sendable = candidates.filter((r) => optedIn.has(normalizePhone(r.phone)));
+
+  const recipient = sendable.find((r) => {
     if (r.retryCount === 0 || !r.retryLastAttemptAt) return true;
     return now.getTime() >= r.retryLastAttemptAt.getTime() + backoffFor(r.retryCount - 1);
   });

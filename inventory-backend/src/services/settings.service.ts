@@ -178,6 +178,11 @@ export interface AppSettings {
   // credentials they now need. Placeholders: customerName, storeName,
   // username, code, link. Empty = the built-in default.
   catalogAccessApprovedTemplate?: string;
+  // «توقف» — words that opt a number out of MARKETING (campaigns and
+  // follow-ups). Empty = the built-in Arabic/English defaults. Invoices and
+  // statements are never affected.
+  marketingStopKeywords?: string[];
+  marketingStopConfirmation?: string;
   // Wholesale catalog OTP re-verification gate. Defaults to true (current
   // behavior unchanged) — undefined/missing must also mean true so existing
   // tenants are never silently opened up. When false, a valid catalog link

@@ -232,6 +232,15 @@ export const trackCatalogViewSchema = z.object({
   }),
 });
 
+/* ── Marketing opt-out («توقف») ───────────────────────────────────── */
+
+export const optOutPhoneSchema = z.object({
+  body: z.object({
+    phone: z.string().trim().min(5).max(40),
+    reason: z.string().trim().max(200).optional(),
+  }),
+});
+
 /* ── Storefront login ─────────────────────────────────────────────── */
 
 export const customerLoginSchema = z.object({
@@ -1145,6 +1154,8 @@ export const updateSettingsSchema = z.object({
       catalogRequireLogin: nullAsUndefined(z.boolean()),
       storefrontCredentialsTemplate: nullAsUndefined(z.string().max(2000)),
       catalogAccessApprovedTemplate: nullAsUndefined(z.string().max(2000)),
+      marketingStopKeywords: nullAsUndefined(z.array(z.string().trim().max(40)).max(20)),
+      marketingStopConfirmation: nullAsUndefined(z.string().max(1000)),
       catalogShuffleMode: nullAsUndefined(z.enum(["hourly", "daily", "off"])),
       // «قناة تيليگرام» — wholesale-catalog mirror channel (separate bot).
       telegramChannelEnabled: nullAsUndefined(z.boolean()),

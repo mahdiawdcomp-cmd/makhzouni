@@ -20,6 +20,7 @@ import { ConfirmDialog } from "./ui/confirm-dialog"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
+import { MarketingOptOutCard } from "./MarketingOptOutCard"
 
 type Group = "customers" | "visitors"
 
@@ -395,6 +396,8 @@ export function StorefrontAccountsTab() {
           )}
         </CardContent>
       </Card>
+
+      <MarketingOptOutCard />
 
       {/* Message a newly approved customer receives */}
       <Card>

@@ -74,6 +74,10 @@ type AccentKey =
   | "emerald" | "teal" | "blue" | "indigo" | "violet"
   | "rose" | "red" | "orange" | "amber" | "slate"
 
+/** Products shown per page. The catalog used to render every product at once,
+ *  which on a phone with a few hundred products is a very long scroll. */
+const PAGE_SIZE = 40
+
 const storageKey = "inventory_catalog_access"
 const themeKey = "catalog_theme"
 const accentKey = "catalog_accent"
@@ -910,6 +914,7 @@ function CatalogShop({
   const [typeFilter, setTypeFilter] = useState("all")
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [page, setPage] = useState(0)
   const activeFilterCount = countActiveFilters(filters)
   const [cart, setCart] = useState<CartLine[]>([])
   const [cartOpen, setCartOpen] = useState(false)
@@ -1079,6 +1084,30 @@ function CatalogShop({
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices])
+
+  // ── Paging ──
+  // `visible` above is the WHOLE catalog after search, filters and sorting —
+  // paging only decides how much of that result is on screen. Filtering a
+  // page instead of the catalog would make search useless past product 40.
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageItems = useMemo(
+    () => visible.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE),
+    [visible, safePage],
+  )
+
+  // Any change to what is being shown starts again from the first page —
+  // otherwise a shopper on page 5 filters down to 12 results and sees nothing.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets paging when the result set changes
+    setPage(0)
+  }, [search, category, typeFilter, sortKey, filters])
+
+  function goToPage(next: number) {
+    setPage(Math.max(0, Math.min(next, pageCount - 1)))
+    // Land at the top of the grid, not wherever the previous page was scrolled.
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
 
   const suggestions = visible.slice(0, 6)
   // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
@@ -1631,13 +1660,46 @@ function CatalogShop({
         {!productsQuery.isLoading && visible.length > 0 && (
           viewMode === "list" ? (
             <div className="flex flex-col gap-2.5">
-              {visible.map(p => renderCard(p))}
+              {pageItems.map(p => renderCard(p))}
             </div>
           ) : (
             <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${perRow}, minmax(0, 1fr))` }}>
-              {visible.map(p => renderCard(p))}
+              {pageItems.map(p => renderCard(p))}
             </div>
           )
+        )}
+
+        {/* ── Paging ── */}
+        {!productsQuery.isLoading && pageCount > 1 && (
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <div className="flex w-full items-center gap-2">
+              <button
+                onClick={() => goToPage(safePage - 1)}
+                disabled={safePage === 0}
+                className="flex flex-1 items-center justify-center gap-1 py-3 font-bold transition active:scale-95 disabled:opacity-35"
+                style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+                <ChevronRight className="h-4 w-4" />
+                السابق
+              </button>
+
+              <span className="shrink-0 px-3 py-3 font-extrabold"
+                style={{ color: tk.text, fontSize: tk.fs.sm }}>
+                {safePage + 1} / {pageCount}
+              </span>
+
+              <button
+                onClick={() => goToPage(safePage + 1)}
+                disabled={safePage >= pageCount - 1}
+                className="flex flex-1 items-center justify-center gap-1 py-3 font-bold text-white transition active:scale-95 disabled:opacity-35"
+                style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+                التالي
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </div>
+            <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+              عرض {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, visible.length)} من {money(visible.length)} منتج
+            </p>
+          </div>
         )}
       </main>
 

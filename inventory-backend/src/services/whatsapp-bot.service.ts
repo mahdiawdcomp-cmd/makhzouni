@@ -8,6 +8,7 @@ import { handleIncomingProspectReply } from "./prospect.service";
 import { hasFeature } from "../middleware/tenant.middleware";
 import { logChatMessage } from "./whatsapp-chat.service";
 import { tryCaptureProductReviewReply } from "./product-review.service";
+import { DEFAULT_STOP_CONFIRMATION, isStopRequest, optOutOfMarketing } from "./marketing-opt-out.service";
 
 function money(v: number | string | null | undefined) {
   return new Intl.NumberFormat("en-US").format(Math.round(Number(v ?? 0)));
@@ -65,6 +66,19 @@ export async function routeIncomingMessage(
   const botEntitled = await hasFeature("whatsappBot");
   if (settings.whatsappBotEnabled && !botEntitled) {
     logger.info("[whatsapp-bot] skipped: feature disabled");
+  }
+
+  // 0) «توقف» outranks everything, including a pending rating request: the
+  // campaign message promises this word works, so it must never be swallowed
+  // by another rule or answered with anything but the confirmation.
+  if (await isStopRequest(text)) {
+    await optOutOfMarketing(phone, { reason: text.trim(), source: "WHATSAPP_REPLY" });
+    const confirmation = settings.marketingStopConfirmation?.trim() || DEFAULT_STOP_CONFIRMATION;
+    await sendWhatsAppText(phone, confirmation).catch((err) =>
+      logger.warn(`[WhatsAppBot] stop confirmation failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`),
+    );
+    logger.info(`[WhatsAppBot] ${phone} opted out of marketing`);
+    return;
   }
 
   const customer = await prisma.customer.findUnique({ where: { phone } });

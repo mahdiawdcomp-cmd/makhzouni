@@ -37,6 +37,11 @@ import {
   credentialTargetCountsCtrl,
   applyPricesDefaultCtrl,
 } from "../controllers/customer-login.controller";
+import {
+  listOptOutsCtrl,
+  addOptOutCtrl,
+  resumeMarketingCtrl,
+} from "../controllers/marketing-opt-out.controller";
 import { validate } from "../middleware/validate";
 import {
   catalogProductIdSchema,
@@ -50,6 +55,7 @@ import {
   setPricesHiddenSchema,
   unlockAccountSchema,
   sendCredentialsToAllSchema,
+  optOutPhoneSchema,
 } from "../utils/schemas";
 
 const router = Router();
@@ -110,5 +116,10 @@ router.post("/accounts/unlock", validate(unlockAccountSchema), unlockAccountCtrl
 router.get("/accounts/target-counts", credentialTargetCountsCtrl);
 router.post("/accounts/send-credentials-all", validate(sendCredentialsToAllSchema), sendCredentialsToAllCtrl);
 router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);
+
+// «توقف» — numbers that asked to stop receiving marketing.
+router.get("/opt-outs", listOptOutsCtrl);
+router.post("/opt-outs", validate(optOutPhoneSchema), addOptOutCtrl);
+router.post("/opt-outs/resume", validate(optOutPhoneSchema), resumeMarketingCtrl);
 
 export default router;
