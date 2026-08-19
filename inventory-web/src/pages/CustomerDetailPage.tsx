@@ -672,6 +672,8 @@ function EditCustomerModal({
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!form.name.trim() || !form.phone.trim()) return
+    const provinceInput = form.province.trim()
+    const businessTypeInput = form.businessType
     onSave({
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -682,10 +684,11 @@ function EditCustomerModal({
       isBoth: form.isBoth,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
       openingBalance: Number(form.openingBalance) || 0,
-      // بند ٤ — فاضي يعني "لا تعديل" إذا كان عنده قيمة أصلاً، لأن التاكات
-      // التلقائية تنضاف بس لما توصل قيمة فعلية بالتحديث.
-      province: (form.province.trim() || undefined) as CustomerPayload["province"],
-      businessType: (form.businessType || undefined) as CustomerBusinessType | undefined,
+      // بند ٤ — فاضي بعد ما كان معبّى يعني "امسحه" (null، يوصل للباكند).
+      // فاضي وكان فاضي أصلاً يعني "ما تغيّر شي" (undefined) — وإلا كل حفظ
+      // يبعث null بلا داعي. غير فاضي دايماً يعني القيمة الجديدة.
+      province: (provinceInput || (customer.province ? null : undefined)) as CustomerPayload["province"],
+      businessType: (businessTypeInput || (customer.businessType ? null : undefined)) as CustomerBusinessType | undefined,
     })
   }
 

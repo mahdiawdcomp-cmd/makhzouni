@@ -5,7 +5,13 @@ import { calculateCustomerBalance } from "../utils/financial";
 import { logger } from "../utils/logger";
 import { normalizePhone } from "../utils/phone";
 import { scoreCustomer } from "../utils/arabic-search";
-import { BUSINESS_TYPE_LABELS, CustomerBusinessType } from "../utils/deliveryRegion";
+import {
+  BUSINESS_TYPE_LABELS,
+  CUSTOMER_BUSINESS_TYPES,
+  CustomerBusinessType,
+  IRAQI_GOVERNORATES,
+  IraqiGovernorate,
+} from "../utils/deliveryRegion";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 import { assistantTimezone, dayKeyInTz, zonedDayRange } from "./daily-assistant.service";
@@ -61,6 +67,14 @@ export interface UpdateCustomerInput {
  * العمل، فوق التاكات الموجودة بلا حذف. يُستدعى من الإنشاء/التعديل اليدوي
  * ومن موافقة CATALOG_ACCESS؛ لا شي يحدث لو province وbusinessType كلاهما
  * غائبان (لا تكلفة على كل تعديل زبون عادي).
+ *
+ * التحقق من صحة القيمتين يحصل هنا (نقطة الاختناق الوحيدة) لأن مسار الموافقة
+ * يمرّرهما من JSON مخزّن سابقاً بلا تحقق zod — قيمة غير معروفة تُتجاهل بصمت
+ * بدل ما تلوّث تاك أو عمود بقيمة مهملة.
+ *
+ * الإضافة على customers.tags تتم بجملة SQL واحدة ذرّية (append + de-dupe على
+ * السيرفر) بدل قراءة ثم كتابة — تعديل تاكات متزامن (TagPicker أو موافقة
+ * ثانية بنفس اللحظة) ما يعيد قيمة قديمة فوق تعديل حديث.
  */
 export async function applyCustomerAutoTags(
   db: Db,
@@ -68,31 +82,31 @@ export async function applyCustomerAutoTags(
   province: string | null | undefined,
   businessType: string | null | undefined,
 ) {
-  if (!province && !businessType) return;
-
-  const customer = await db.customer.findUnique({ where: { id: customerId }, select: { tags: true } });
-  if (!customer) return;
-
-  const tags = new Set(customer.tags);
   const additions: string[] = [];
 
-  if (province && province !== "كربلاء") {
-    if (!tags.has("محافظات")) { tags.add("محافظات"); additions.push("محافظات"); }
-    if (!tags.has(province)) { tags.add(province); additions.push(province); }
+  if (province && IRAQI_GOVERNORATES.includes(province as IraqiGovernorate) && province !== "كربلاء") {
+    additions.push("محافظات", province);
   }
 
-  const businessLabel = businessType ? BUSINESS_TYPE_LABELS[businessType as CustomerBusinessType] : undefined;
-  if (businessLabel && !tags.has(businessLabel)) {
-    tags.add(businessLabel);
-    additions.push(businessLabel);
-  }
+  const businessLabel = businessType && CUSTOMER_BUSINESS_TYPES.includes(businessType as CustomerBusinessType)
+    ? BUSINESS_TYPE_LABELS[businessType as CustomerBusinessType]
+    : undefined;
+  if (businessLabel) additions.push(businessLabel);
 
   if (additions.length === 0) return;
 
   await Promise.all(
     additions.map((name) => db.customerTag.upsert({ where: { name }, update: {}, create: { name } })),
   );
-  await db.customer.update({ where: { id: customerId }, data: { tags: [...tags] } });
+
+  await db.$executeRaw`
+    UPDATE "customers"
+    SET "tags" = (
+      SELECT array_agg(DISTINCT t)
+      FROM unnest("tags" || ${additions}::text[]) AS t
+    )
+    WHERE "id" = ${customerId}::uuid
+  `;
 }
 
 export interface TransactionFilter {
@@ -407,7 +421,12 @@ export async function createCustomer(input: CreateCustomerInput, db: Db = prisma
     },
   });
 
-  await applyCustomerAutoTags(db, customer.id, input.province, input.businessType);
+  // Best-effort: the customer row is already committed at this point, so a
+  // tag-write hiccup must not turn into a 500 for a request that actually
+  // succeeded (and a client retry would then hit a duplicate-phone 409).
+  await applyCustomerAutoTags(db, customer.id, input.province, input.businessType).catch((err) =>
+    logger.warn(`[Customer] auto-tags failed for ${customer.id}: ${err instanceof Error ? err.message : String(err)}`),
+  );
 
   return serializeCustomer(await getCustomerOrThrow(customer.id, db));
 }
@@ -440,7 +459,9 @@ export async function updateCustomer(
   });
 
   if (input.province || input.businessType) {
-    await applyCustomerAutoTags(db, id, input.province, input.businessType);
+    await applyCustomerAutoTags(db, id, input.province, input.businessType).catch((err) =>
+      logger.warn(`[Customer] auto-tags failed for ${id}: ${err instanceof Error ? err.message : String(err)}`),
+    );
   }
 
   return recalculateCustomerBalance(id, db);

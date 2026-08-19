@@ -45,21 +45,35 @@ export function CatalogSettingsTab() {
   const s = settingsQuery.data
 
   // Text fields are drafts so a background refetch never overwrites typing.
+  // Each field gets its OWN effect keyed only on its own settings value —
+  // a shared effect keyed on all four would clear every draft whenever ANY
+  // one of them saves (e.g. clicking "حفظ" next to the free-shipping input
+  // would silently wipe an in-progress, unsaved north-governorate selection,
+  // since saving invalidates ["settings"] for the whole tab).
   const [publicUrl, setPublicUrl] = useState<string | null>(null)
   const [adminPhone, setAdminPhone] = useState<string | null>(null)
   const [freeShipping, setFreeShipping] = useState<string | null>(null)
   const [northDraft, setNorthDraft] = useState<string[] | null>(null)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setPublicUrl(null)
+  }, [s?.catalogPublicUrl])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setAdminPhone(null)
+  }, [s?.catalogAdminWhatsappNumber])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setFreeShipping(null)
+  }, [s?.catalogFreeShippingThreshold])
   // catalogNorthGovernorates is an array — React Query hands back a NEW
-  // reference on every refetch even when the content is unchanged (e.g. the
-  // SSE "settings" bridge invalidates ["settings"] whenever ANY setting
-  // saves, including the free-shipping-threshold button right above this
-  // one). Depending on the raw array would wipe an in-progress checkbox
-  // draft on every unrelated save, so this compares by value instead.
+  // reference on every refetch even when the content is unchanged, so this
+  // compares by value instead of depending on the array reference directly.
   const northSignature = JSON.stringify(s?.catalogNorthGovernorates ?? null)
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears drafts once a save lands
-    setPublicUrl(null); setAdminPhone(null); setFreeShipping(null); setNorthDraft(null)
-  }, [s?.catalogPublicUrl, s?.catalogAdminWhatsappNumber, s?.catalogFreeShippingThreshold, northSignature])
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the draft once its own save lands
+    setNorthDraft(null)
+  }, [northSignature])
 
   const urlValue = publicUrl ?? s?.catalogPublicUrl ?? ""
   const phoneValue = adminPhone ?? s?.catalogAdminWhatsappNumber ?? ""
