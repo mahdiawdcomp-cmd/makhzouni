@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useMemo, useRef } from "react"
+import {Fragment, useState, useMemo, useRef} from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BarChart3,
@@ -18,15 +18,14 @@ import {
   KeyRound,
   Lock,
   MessageCircle,
-  Package,
   Palette,
   Phone,
   Plus,
   Search,
   ShieldCheck,
-  Send,
-  Shuffle,
   ShieldOff,
+  Sliders,
+  Send,
   Tag,
   Ticket,
   Users,
@@ -56,8 +55,6 @@ import {
   toggleAdminPromoCode,
   getCustomerTags,
   getCustomersPaged,
-  getSettings,
-  updateSettings,
   grantCatalogAccess,
   patchCatalogAccess,
   revokeCatalogAccess,
@@ -73,6 +70,7 @@ import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
 import { CatalogContentTab } from "../components/CatalogContentTab"
 import { StorefrontAccountsTab } from "../components/StorefrontAccountsTab"
+import { CatalogSettingsTab } from "../components/CatalogSettingsTab"
 import { downscaleImage } from "../utils/downscaleImage"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -1252,157 +1250,10 @@ function PromoCodesTab() {
 }
 
 /* ─── Catalog OTP re-verification toggle ──────────────────────────────── */
-function CatalogOtpSettings() {
-  const qc = useQueryClient()
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
-  const [enabled, setEnabled] = useState(true)
-
-  useEffect(() => {
-    const s = settingsQuery.data
-    if (!s) return
-    setEnabled(s.catalogRequireOtp !== false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsQuery.data])
-
-  const saveMut = useMutation({
-    mutationFn: (value: boolean) => updateSettings({ catalogRequireOtp: value }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] })
-      toast({ title: "تم حفظ الإعداد" })
-    },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحفظ"), variant: "destructive" }),
-  })
-
-  function toggle(checked: boolean) {
-    setEnabled(checked)
-    saveMut.mutate(checked)
-  }
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-      <label className="flex cursor-pointer items-center justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-            <ShieldOff className="h-4 w-4 text-slate-500" />
-            تفعيل التحقق برمز واتساب عند دخول الكتالوك
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            عند إيقافه، يصبح رابط الكتالوك العام مفتوح للجميع بدون رقم أو رمز تحقق — الزبون المجهول يتصفح المنتجات
-            بدون أسعار، وله زر لطلب تفعيل الأسعار، وعند الشراء يكتب اسمه ورقمه وعنوانه فيروح الطلب لموافقتك مباشرة.
-          </p>
-        </div>
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={saveMut.isPending}
-          onChange={(e) => toggle(e.target.checked)}
-          className="h-4 w-4 shrink-0 accent-blue-600"
-        />
-      </label>
-    </div>
-  )
-}
-
 /* ─── Global carton-only display toggle ─────────────────────────────── */
-function CatalogFullCartonOnlySettings() {
-  const qc = useQueryClient()
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
-  const [enabled, setEnabled] = useState(false)
-
-  useEffect(() => {
-    const s = settingsQuery.data
-    if (!s) return
-    setEnabled(s.catalogFullCartonOnly === true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsQuery.data])
-
-  const saveMut = useMutation({
-    mutationFn: (value: boolean) => updateSettings({ catalogFullCartonOnly: value }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings"] })
-      toast({ title: "تم حفظ الإعداد" })
-    },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحفظ"), variant: "destructive" }),
-  })
-
-  function toggle(checked: boolean) {
-    setEnabled(checked)
-    saveMut.mutate(checked)
-  }
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-      <label className="flex cursor-pointer items-center justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-            <Package className="h-4 w-4 text-slate-500" />
-            عرض المواد المتوفرة بكارتون كامل فقط (لكل الزبائن)
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            عند التفعيل، أي مادة كميتها أقل من كارتون كامل تختفي من الكتالوج لجميع الزبائن — يتجاوز إعداد كل زبون
-            المخصص. عند الإيقاف، تبقى إعدادات كل زبون كما هي.
-          </p>
-        </div>
-        <input
-          type="checkbox"
-          checked={enabled}
-          disabled={saveMut.isPending}
-          onChange={(e) => toggle(e.target.checked)}
-          className="h-4 w-4 shrink-0 accent-blue-600"
-        />
-      </label>
-    </div>
-  )
-}
-
 const PAGE_SIZE = 50
 
 /* ── Reshuffle interval setting ──────────────────────────────────────── */
-function CatalogShuffleSettings() {
-  const qc = useQueryClient()
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
-  const mode = (settingsQuery.data?.catalogShuffleMode as "hourly" | "daily" | "off" | undefined) ?? "hourly"
-
-  const saveMut = useMutation({
-    mutationFn: (value: "hourly" | "daily" | "off") => updateSettings({ catalogShuffleMode: value }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast({ title: "تم حفظ الإعداد" }) },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحفظ"), variant: "destructive" }),
-  })
-
-  const opts: Array<{ key: "hourly" | "daily" | "off"; label: string }> = [
-    { key: "hourly", label: "كل ساعة" },
-    { key: "daily", label: "كل يوم" },
-    { key: "off", label: "ثابت" },
-  ]
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-            <Shuffle className="h-4 w-4 text-slate-500" />
-            تبديل ترتيب عرض البضاعة تلقائياً
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            يعيد ترتيب المنتجات لكل الزبائن على نفس الفترة — يعطي فرصة عرض لكل البضاعة. «ثابت» يبقيها بالترتيب الأبجدي.
-          </p>
-        </div>
-        <div className="flex gap-1 rounded-xl bg-white p-1 shadow-sm">
-          {opts.map((o) => (
-            <button key={o.key} disabled={saveMut.isPending} onClick={() => saveMut.mutate(o.key)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
-                mode === o.key ? "bg-blue-600 text-white" : "text-slate-500 hover:text-slate-700",
-              )}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 /* ── Guest visitors (phone-gate leads) ──────────────────────────────── */
 // "125" -> "دقيقتين"-style would need a full Arabic pluralizer; keep it simple
 // and numeric (still far more useful than nothing) — د for minutes, ث for seconds.
@@ -1657,7 +1508,7 @@ function AnalyticsTab() {
 
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "content" | "accounts" | "promos">("customers")
+  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "content" | "accounts" | "promos" | "settings">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1701,14 +1552,11 @@ export function CatalogManagementPage() {
         <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن والتصميم وأكواد الخصم</p>
       </div>
 
-      <div className="space-y-3">
-        <CatalogOtpSettings />
-        <CatalogFullCartonOnlySettings />
-        <CatalogShuffleSettings />
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
+      {/* Tabs. The three switches that used to sit loose above these now live
+          in the «الإعدادات» tab, so the page has one shape instead of a header
+          of settings followed by tabs of settings. Scrollable because eight
+          labels no longer fit a narrow window. */}
+      <div className="flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1">
         {([
           { key: "customers", label: "الزبائن", icon: <Globe className="h-4 w-4" /> },
           { key: "visitors", label: "الزوار الجدد", icon: <Users className="h-4 w-4" /> },
@@ -1717,10 +1565,11 @@ export function CatalogManagementPage() {
           { key: "content", label: "محتوى المنتجات", icon: <FileText className="h-4 w-4" /> },
           { key: "accounts", label: "حسابات الدخول", icon: <KeyRound className="h-4 w-4" /> },
           { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
+          { key: "settings", label: "الإعدادات", icon: <Sliders className="h-4 w-4" /> },
         ] as const).map(({ key, label, icon }) => (
           <button key={key} onClick={() => setTab(key)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+              "flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition-all",
               tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
             )}>
             {icon}{label}
@@ -1733,6 +1582,7 @@ export function CatalogManagementPage() {
       {tab === "design" && <CatalogDesignTab />}
       {tab === "content" && <CatalogContentTab />}
       {tab === "accounts" && <StorefrontAccountsTab />}
+      {tab === "settings" && <CatalogSettingsTab />}
       {tab === "promos" && <PromoCodesTab />}
 
       {tab === "customers" && <>
