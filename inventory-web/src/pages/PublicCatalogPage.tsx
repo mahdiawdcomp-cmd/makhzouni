@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { api, API_BASE_URL } from "../api/client"
@@ -54,6 +54,7 @@ import {
   EMPTY_CATALOG_TRUST,
   getCatalogProductDetail,
   getCatalogGalleryImage,
+  getCatalogThumbnails,
   getMyCatalogReview,
   submitCatalogProductReview,
   type CatalogFooter,
@@ -1112,7 +1113,55 @@ function CatalogShop({
     window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
+  // ── Thumbnails ──
+  // The grid arrives without pictures (see catalog.service: a few hundred
+  // base64 thumbnails is megabytes on a phone). Fetch only what is about to be
+  // drawn, and keep what we already fetched so paging back is instant.
+  const [thumbs, setThumbs] = useState<Record<string, string | null>>({})
+  const withThumb = useCallback(
+    (p: PublicCatalogProduct): PublicCatalogProduct =>
+      thumbs[p.id] ? { ...p, thumbnailUrl: thumbs[p.id] } : p,
+    [thumbs],
+  )
+
   const suggestions = visible.slice(0, 6)
+
+  // Ask for the page on screen, the search suggestions and the banner picks.
+  // Anything already fetched is skipped, so paging back costs nothing.
+  const bannerIds = useMemo(
+    () => products.filter(p => (p.hasImage ?? Boolean(p.thumbnailUrl)) && canDisplay(p)).slice(0, 8).map(p => p.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [products, stockFilter],
+  )
+  const neededThumbIds = useMemo(() => {
+    const ids = [...pageItems.map(p => p.id), ...suggestions.map(p => p.id), ...bannerIds]
+    return [...new Set(ids)].filter(id => !(id in thumbs))
+  }, [pageItems, suggestions, bannerIds, thumbs])
+
+  useEffect(() => {
+    if (neededThumbIds.length === 0) return
+    let cancelled = false
+    const batch = neededThumbIds.slice(0, 120)
+    getCatalogThumbnails(batch, guestMode ? "" : accessToken)
+      .then((loaded) => {
+        if (cancelled) return
+        // Record every id we asked for, including ones that came back empty —
+        // otherwise a product with no picture is re-requested on every render
+        // for as long as it stays on screen.
+        const merged: Record<string, string | null> = {}
+        for (const id of batch) merged[id] = loaded[id] ?? null
+        setThumbs(prev => ({ ...prev, ...merged }))
+      })
+      .catch(() => {
+        if (cancelled) return
+        // Mark as attempted so a failure cannot become a retry loop; the cards
+        // simply keep their placeholder.
+        const failed: Record<string, string | null> = {}
+        for (const id of batch) failed[id] = null
+        setThumbs(prev => ({ ...prev, ...failed }))
+      })
+    return () => { cancelled = true }
+  }, [neededThumbIds, accessToken, guestMode])
   // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
   // once any filter is on — otherwise they'd show products the shopper just
   // filtered out, right above the filtered grid.
@@ -1215,7 +1264,8 @@ function CatalogShop({
     else if (e.key === "Escape") { setSearch(""); setActiveSugg(0) }
   }
 
-  function renderCard(product: PublicCatalogProduct) {
+  function renderCard(rawProduct: PublicCatalogProduct) {
+    const product = withThumb(rawProduct)
     const productLines = cart.filter(l => l.product.id === product.id)
     const qtyInCart = productLines.reduce((s, l) => s + l.quantity, 0)
     // Total pieces already in cart for this product (for stock-ceiling check)
@@ -1301,7 +1351,7 @@ function CatalogShop({
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => { add(p); setSearch("") }}
                     >
-                      <MiniThumb product={p} />
+                      <MiniThumb product={withThumb(p)} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-semibold" style={{ color: tk.text, fontSize: tk.fs.md }}>{p.name}</span>
                         <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{p.itemNumber}{showStock ? ` · ${money(Math.floor(p.currentStock / Math.max(1, p.pcsPerCarton)))} كارتون` : ""}</span>
@@ -1518,7 +1568,10 @@ function CatalogShop({
         const slides: Array<{ src: string; title: string; subtitle?: string }> =
           adminImgs.length >= 2
             ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
-            : products.filter(p => (p.thumbnailUrl || p.imageUrl) && canDisplay(p)).slice(0, 8).map(p => ({
+            : products.filter(p => (p.hasImage ?? Boolean(p.thumbnailUrl)) && canDisplay(p)).slice(0, 8)
+                .map(withThumb)
+                .filter(p => p.thumbnailUrl || p.imageUrl)
+                .map(p => ({
                 src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
                 subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
               }))
@@ -1763,7 +1816,7 @@ function CatalogShop({
       {/* ── Unit picker sheet ── */}
       {pickerProduct && (
         <UnitPickerSheet
-          product={pickerProduct}
+          product={withThumb(pickerProduct)}
           allowPrices={allowPrices}
           showStock={showStock}
           tk={tk}
@@ -1921,18 +1974,19 @@ function OfferCountdown({ endsAt, tk, size }: { endsAt: string; tk: ThemeTokens;
 /* ══════════════════════════════════════════════════════════════════════
    FILTER SHEET — price range, in-stock only, offers only
 ══════════════════════════════════════════════════════════════════════ */
-function FilterSheet({
-  tk, filters, allowPrices, resultCount, onChange, onClear, onClose,
-}: {
+type FilterToggleProps = {
   tk: ThemeTokens
-  filters: Filters
-  allowPrices: boolean
-  resultCount: number
-  onChange: (next: Filters) => void
-  onClear: () => void
-  onClose: () => void
-}) {
-  const Toggle = ({ label, hint, on, onToggle }: { label: string; hint: string; on: boolean; onToggle: () => void }) => (
+  label: string
+  hint: string
+  on: boolean
+  onToggle: () => void
+}
+
+/** Defined at module level, not inside FilterSheet: a component created during
+ *  render is a brand-new type every pass, so React unmounts and remounts it —
+ *  losing focus and animation state on each keystroke in the sheet. */
+function FilterToggle({ tk, label, hint, on, onToggle }: FilterToggleProps) {
+  return (
     <button onClick={onToggle}
       className="flex w-full items-center justify-between gap-3 p-3.5 text-right transition active:scale-[0.99]"
       style={{
@@ -1950,6 +2004,19 @@ function FilterSheet({
       </span>
     </button>
   )
+}
+
+function FilterSheet({
+  tk, filters, allowPrices, resultCount, onChange, onClear, onClose,
+}: {
+  tk: ThemeTokens
+  filters: Filters
+  allowPrices: boolean
+  resultCount: number
+  onChange: (next: Filters) => void
+  onClear: () => void
+  onClose: () => void
+}) {
 
   return (
     <>
@@ -1996,13 +2063,15 @@ function FilterSheet({
             </section>
           )}
 
-          <Toggle
+          <FilterToggle
+            tk={tk}
             label="المتوفر فقط"
             hint="اخفِ المنتجات اللي ما عندها كارتون كامل"
             on={filters.inStockOnly}
             onToggle={() => onChange({ ...filters, inStockOnly: !filters.inStockOnly })}
           />
-          <Toggle
+          <FilterToggle
+            tk={tk}
             label="العروض فقط"
             hint="اعرض المنتجات اللي عليها عرض"
             on={filters.offersOnly}
@@ -2064,10 +2133,21 @@ function ProductDetailSheet({
   onOpenProduct: (id: string) => void
 }) {
   const access = guestMode ? "" : accessToken
-  const [heroIdx, setHeroIdx] = useState(0)
+  // Keyed by product rather than reset in an effect: opening a related product
+  // re-renders with the gallery already back at the first slide, instead of
+  // painting the previous product's slide and then correcting it.
+  const [heroState, setHeroState] = useState({ id: productId, idx: 0 })
+  const heroIdx = heroState.id === productId ? heroState.idx : 0
+  const setHeroIdx = (idx: number) => setHeroState({ id: productId, idx })
   const [zoom, setZoom] = useState<string | null>(null)
-  const [rating, setRating] = useState(0)
-  const [comment, setComment] = useState("")
+  // The form is seeded from the review they already sent so revising means
+  // editing, not retyping. `seededFrom` records which review it was filled
+  // from, so a later load re-seeds while their in-progress typing survives.
+  const [draft, setDraft] = useState<{ seededFrom: string | null; rating: number; comment: string }>({
+    seededFrom: null, rating: 0, comment: "",
+  })
+  const setRating = (rating: number) => setDraft((d) => ({ ...d, rating }))
+  const setComment = (comment: string) => setDraft((d) => ({ ...d, comment }))
   const [copied, setCopied] = useState(false)
   const qc = useQueryClient()
 
@@ -2083,14 +2163,15 @@ function ProductDetailSheet({
   })
   const product = detailQuery.data
 
-  // Seed the form from whatever the shopper already sent, so revising is
-  // editing rather than retyping from scratch.
-  useEffect(() => {
-    const mine = myReviewQuery.data
-    if (mine) { setRating(mine.rating); setComment(mine.comment ?? "") }
-  }, [myReviewQuery.data])
-
-  useEffect(() => { setHeroIdx(0) }, [productId])
+  const myReview = myReviewQuery.data
+  const seedId = myReview?.id ?? null
+  if (draft.seededFrom !== seedId) {
+    // Adjusting state during render (the documented React escape hatch for
+    // derived state) — no second render pass and nothing to clobber typing.
+    setDraft({ seededFrom: seedId, rating: myReview?.rating ?? 0, comment: myReview?.comment ?? "" })
+  }
+  const rating = draft.rating
+  const comment = draft.comment
 
   const reviewMut = useMutation({
     mutationFn: () => submitCatalogProductReview(productId, access, { rating, comment: comment.trim() || undefined }),
@@ -2571,6 +2652,22 @@ const SOCIALS: Array<{ key: keyof CatalogFooter; label: string; icon: string; hr
   { key: "tiktok", label: "تيك توك", icon: "🎵", href: (v) => v.startsWith("http") ? v : `https://tiktok.com/@${v.replace(/^@/, "")}` },
 ]
 
+/** Module level, not inside CatalogFooterBlock — a component defined during
+ *  render is a new type on every pass, so React throws the old one away and
+ *  mounts a fresh one each time the footer re-renders. */
+function FooterRow({ tk, icon, label, value }: { tk: ThemeTokens; icon: string; label: string; value: string }) {
+  if (!value) return null
+  return (
+    <div className="flex items-start gap-2">
+      <span className="shrink-0 leading-none" style={{ fontSize: tk.fs.md }}>{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-bold" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{label}</span>
+        <span className="block font-semibold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{value}</span>
+      </span>
+    </div>
+  )
+}
+
 function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFooter; tk: ThemeTokens; shopName: string }) {
   const [openAbout, setOpenAbout] = useState(false)
   // Settings rows are free-form JSON, so a value can arrive as a number (an
@@ -2591,17 +2688,6 @@ function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFoot
   const hasDelivery = Boolean(footer.deliveryAreas || footer.deliveryTime || footer.minOrder || footer.cashOnDelivery)
   // Nothing filled in yet → render nothing at all rather than an empty shell.
   if (!footer.enabled || (!footer.about && !hasContact && !hasDelivery)) return null
-
-  const Row = ({ icon, label, value }: { icon: string; label: string; value: string }) =>
-    value ? (
-      <div className="flex items-start gap-2">
-        <span className="shrink-0 leading-none" style={{ fontSize: tk.fs.md }}>{icon}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block font-bold" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{label}</span>
-          <span className="block font-semibold" style={{ color: tk.text, fontSize: tk.fs.sm }}>{value}</span>
-        </span>
-      </div>
-    ) : null
 
   const digits = (v: string) => v.replace(/\D/g, "")
 
@@ -2640,17 +2726,17 @@ function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFoot
             <div className="space-y-2.5">
               {footer.phone && (
                 <a href={`tel:${digits(footer.phone)}`} className="block transition active:opacity-70">
-                  <Row icon="☎️" label="الهاتف" value={footer.phone} />
+                  <FooterRow tk={tk} icon="☎️" label="الهاتف" value={footer.phone} />
                 </a>
               )}
               {footer.whatsapp && (
                 <a href={`https://wa.me/${digits(footer.whatsapp)}`} target="_blank" rel="noreferrer noopener"
                   className="block transition active:opacity-70">
-                  <Row icon="💬" label="واتساب" value={footer.whatsapp} />
+                  <FooterRow tk={tk} icon="💬" label="واتساب" value={footer.whatsapp} />
                 </a>
               )}
-              <Row icon="📍" label="العنوان" value={footer.address} />
-              <Row icon="🕐" label="أوقات الدوام" value={footer.hours} />
+              <FooterRow tk={tk} icon="📍" label="العنوان" value={footer.address} />
+              <FooterRow tk={tk} icon="🕐" label="أوقات الدوام" value={footer.hours} />
             </div>
 
             {socials.length > 0 && (
@@ -2676,9 +2762,9 @@ function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFoot
               التوصيل
             </p>
             <div className="space-y-2.5">
-              <Row icon="🗺️" label="مناطق التوصيل" value={footer.deliveryAreas} />
-              <Row icon="⏱️" label="مدة التوصيل" value={footer.deliveryTime} />
-              <Row icon="🧾" label="أقل مبلغ للطلب" value={footer.minOrder} />
+              <FooterRow tk={tk} icon="🗺️" label="مناطق التوصيل" value={footer.deliveryAreas} />
+              <FooterRow tk={tk} icon="⏱️" label="مدة التوصيل" value={footer.deliveryTime} />
+              <FooterRow tk={tk} icon="🧾" label="أقل مبلغ للطلب" value={footer.minOrder} />
             </div>
             {footer.cashOnDelivery && (
               <span className="mt-3 inline-flex items-center gap-1.5 px-3 py-2 font-extrabold"
@@ -2980,6 +3066,10 @@ function ProductCard({
 }) {
   // Prefer the lightweight thumbnail; the full-res image is fetched on zoom.
   const thumbSrc = product.thumbnailUrl || product.imageUrl
+  // The picture exists but has not arrived yet — a quiet loading box, not the
+  // "no picture" icon, which would otherwise flash on every card each time the
+  // shopper turns a page.
+  const awaitingThumb = !thumbSrc && (product.hasImage ?? false)
   const compact = perRow >= 4
   // The catalog is a phone-only storefront, so a card at 3-per-row is ~110px
   // wide. One fixed type scale made the price eat three quarters of that —
@@ -3025,7 +3115,9 @@ function ProductCard({
           {thumbSrc ? (
             <img src={thumbSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
-            <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
+            awaitingThumb
+              ? <div className="h-full w-full animate-pulse" style={{ background: tk.skeletonBg }} />
+              : <div className="flex h-full items-center justify-center"><ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
           {qtyInCart > 0 && (
             <span className="absolute left-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full font-extrabold text-white ring-1 ring-white/50" style={{ background: tk.accent, fontSize: tk.fs.xs }}>{qtyInCart}</span>
@@ -3088,7 +3180,9 @@ function ProductCard({
           {thumbSrc ? (
             <img src={thumbSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
-            <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
+            awaitingThumb
+              ? <div className="h-full w-full animate-pulse" style={{ background: tk.skeletonBg }} />
+              : <div className="flex h-full items-center justify-center"><ImageIcon className="h-5 w-5" style={{ color: tk.subtext, opacity: 0.3 }} /></div>
           )}
           {outOfStock && <div className="absolute inset-0 bg-white/55 pointer-events-none" />}
           {qtyInCart > 0 && (
@@ -3146,9 +3240,13 @@ function ProductCard({
             className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
             loading="lazy" decoding="async" />
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <ImageIcon className="h-10 w-10" style={{ color: tk.subtext, opacity: 0.2 }} />
-          </div>
+          awaitingThumb ? (
+            <div className="h-full w-full animate-pulse" style={{ background: tk.skeletonBg }} />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <ImageIcon className="h-10 w-10" style={{ color: tk.subtext, opacity: 0.2 }} />
+            </div>
+          )
         )}
 
         {/* Gradient overlay - bottom half only */}

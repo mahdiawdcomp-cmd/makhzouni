@@ -305,15 +305,19 @@ function AutoReplySettings() {
   const [message, setMessage] = useState(DEFAULT_AUTO_REPLY_MESSAGE)
   const [enabled, setEnabled] = useState(false)
 
-  useEffect(() => {
+  // Seeded from saved settings during render rather than in an effect: an
+  // effect renders the empty form first and then corrects it, which shows a
+  // blank field for a frame and can land on top of the admin's typing.
+  // `seeded` marks which settings object the form was filled from.
+  const [seeded, setSeeded] = useState<unknown>(null)
+  if (settingsQuery.data && seeded !== settingsQuery.data) {
     const s = settingsQuery.data
-    if (!s) return
+    setSeeded(s)
     setLink(s.prospectGroupInviteLink ?? "")
     setKeywordsText((s.prospectAutoReplyKeywords ?? []).join(", ") || DEFAULT_AUTO_REPLY_KEYWORDS)
     setMessage(s.prospectAutoReplyMessage ?? DEFAULT_AUTO_REPLY_MESSAGE)
     setEnabled(s.prospectAutoReplyEnabled ?? false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsQuery.data])
+  }
 
   const saveMut = useMutation({
     mutationFn: () => updateSettings({
@@ -386,14 +390,16 @@ function CustomerBotSettings() {
   const [unknownMessage, setUnknownMessage] = useState("")
   const [rules, setRules] = useState<BotRule[]>([])
 
-  useEffect(() => {
+  // Same reasoning as the auto-reply form above: seed during render, keyed on
+  // the settings object the form was filled from.
+  const [seeded, setSeeded] = useState<unknown>(null)
+  if (settingsQuery.data && seeded !== settingsQuery.data) {
     const s = settingsQuery.data
-    if (!s) return
+    setSeeded(s)
     setEnabled(s.whatsappBotEnabled ?? false)
     setUnknownMessage(s.botUnknownMessage ?? "")
     setRules(s.botRules ?? [])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsQuery.data])
+  }
 
   const saveMut = useMutation({
     mutationFn: () => updateSettings({

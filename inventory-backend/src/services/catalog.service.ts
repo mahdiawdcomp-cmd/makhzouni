@@ -899,7 +899,12 @@ export async function listCatalogProducts(token: string) {
         id: product.id,
         itemNumber: product.itemNumber,
         name: product.name,
-        thumbnailUrl: product.thumbnailUrl,
+        // Thumbnails are NOT sent with the grid: at ~8-16 KB of base64 each,
+        // a few hundred products is several megabytes on the first open. The
+        // client asks for just the ones it is about to draw, via
+        // /catalog/thumbnails. hasImage lets a card reserve the right space
+        // and show a placeholder only when there genuinely is no picture.
+        hasImage: Boolean(product.thumbnailUrl),
         category: product.category,
         categoryTags: product.categoryTags,
         typeTags: product.typeTags,
@@ -976,7 +981,12 @@ export async function listGuestCatalogProducts() {
         id: product.id,
         itemNumber: product.itemNumber,
         name: product.name,
-        thumbnailUrl: product.thumbnailUrl,
+        // Thumbnails are NOT sent with the grid: at ~8-16 KB of base64 each,
+        // a few hundred products is several megabytes on the first open. The
+        // client asks for just the ones it is about to draw, via
+        // /catalog/thumbnails. hasImage lets a card reserve the right space
+        // and show a placeholder only when there genuinely is no picture.
+        hasImage: Boolean(product.thumbnailUrl),
         category: product.category,
         categoryTags: product.categoryTags,
         typeTags: product.typeTags,

@@ -572,6 +572,9 @@ export interface PublicCatalogProduct {
   name: string
   imageUrl?: string | null
   thumbnailUrl?: string | null
+  /** The grid ships without thumbnails; this says whether one exists, so a
+   *  card can show a loading box instead of a "no picture" icon. */
+  hasImage?: boolean
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]

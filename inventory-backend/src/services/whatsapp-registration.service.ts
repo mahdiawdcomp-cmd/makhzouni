@@ -42,7 +42,9 @@ const BUSINESS_TYPE_KEYWORDS: Record<CustomerBusinessType, string[]> = {
 const GOVERNORATE_LIST_TEXT = IRAQI_GOVERNORATES.join("، ");
 const BUSINESS_TYPE_PROMPT = `شنو نوع محلك؟ (${CUSTOMER_BUSINESS_TYPES.map((t) => BUSINESS_TYPE_LABELS[t]).join(" / ")})\n\nأو اكتب «تخطي» إذا ما تريد تحدد.`;
 
-function matchGovernorate(text: string): string | null {
+// Exported for tests: these two decide what a shopper's free-text reply means,
+// and a silent regression here mis-files customers or stalls the conversation.
+export function matchGovernorate(text: string): string | null {
   const normalized = normalizeArabic(text);
   if (!normalized) return null;
   for (const g of IRAQI_GOVERNORATES) {
@@ -57,7 +59,7 @@ function matchGovernorate(text: string): string | null {
   return null;
 }
 
-function matchBusinessType(text: string): CustomerBusinessType | null {
+export function matchBusinessType(text: string): CustomerBusinessType | null {
   const normalized = normalizeArabic(text);
   if (!normalized) return null;
   for (const type of CUSTOMER_BUSINESS_TYPES) {

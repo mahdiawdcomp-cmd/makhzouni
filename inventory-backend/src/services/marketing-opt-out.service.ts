@@ -28,21 +28,29 @@ async function stopKeywords() {
 }
 
 /**
- * Whether a reply is a stop request.
+ * Whether a reply is a stop request, given an already-resolved keyword list.
  *
  * Deliberately an EXACT match, not "contains": the campaign message itself
  * ends with «رد بكلمة: توقف», so a customer quoting or forwarding it, or
  * writing "ما اريد توقف الرسائل بس ابي اطلب", must not be silently
  * unsubscribed. The instruction asks for one word — honour exactly that.
+ *
+ * Split from isStopRequest() so the matching rule can be tested directly,
+ * without a database behind it.
  */
-export async function isStopRequest(text: string): Promise<boolean> {
+export function matchesStopKeyword(text: string, keywords: string[]): boolean {
   const normalized = String(text ?? "")
     .trim()
     .toLowerCase()
     // Strip surrounding punctuation/emoji so "توقف." or "توقف!" still counts.
     .replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, "");
   if (!normalized) return false;
-  return (await stopKeywords()).includes(normalized);
+  return keywords.map((k) => k.trim().toLowerCase()).filter(Boolean).includes(normalized);
+}
+
+/** Whether a reply is a stop request, using this shop's configured keywords. */
+export async function isStopRequest(text: string): Promise<boolean> {
+  return matchesStopKeyword(text, await stopKeywords());
 }
 
 export async function optOutOfMarketing(

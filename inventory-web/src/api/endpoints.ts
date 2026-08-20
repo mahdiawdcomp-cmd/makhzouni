@@ -687,6 +687,20 @@ export async function getCatalogProductDetail(productId: string, access: string)
   return data.data!
 }
 
+/**
+ * Thumbnails for the products currently on screen.
+ *
+ * The grid ships without them on purpose: a few hundred base64 thumbnails is
+ * several megabytes on the first open. `access` is "" for guest browsing.
+ */
+export async function getCatalogThumbnails(ids: string[], access: string) {
+  if (ids.length === 0) return {}
+  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
+    "/public/catalog/thumbnails", { ids }, { params: access ? { access } : {} },
+  )
+  return data.data ?? {}
+}
+
 export async function getCatalogGalleryImage(productId: string, imageId: string, access: string) {
   const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
     `/public/catalog/product/${productId}/image/${imageId}`,

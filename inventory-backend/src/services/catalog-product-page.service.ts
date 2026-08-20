@@ -349,3 +349,36 @@ export async function deleteCatalogReview(id: string) {
 export async function countPendingCatalogReviews() {
   return prisma.catalogProductReview.count({ where: { status: "PENDING" } });
 }
+
+/**
+ * Thumbnails for a specific set of products.
+ *
+ * The catalog grid deliberately ships without them — at ~8-16 KB of base64
+ * each, a few hundred products is several megabytes on the first open, on
+ * phones with poor data. The client asks only for the page it is about to
+ * draw, so the cost scales with what is on screen instead of with the size
+ * of the catalog.
+ *
+ * Access is checked the same way the grid is: a token identifies a customer,
+ * no token falls back to guest mode, which the service refuses unless the
+ * shop enabled open browsing.
+ */
+export async function getCatalogThumbnails(token: string, productIds: string[]) {
+  if (token) {
+    await getCatalogAccess(token);
+  } else {
+    await assertGuestCatalogEnabled();
+  }
+
+  const ids = [...new Set(productIds)].slice(0, 120);
+  if (ids.length === 0) return {};
+
+  const rows = await prisma.product.findMany({
+    where: { id: { in: ids }, deletedAt: null },
+    select: { id: true, thumbnailUrl: true },
+  });
+
+  const out: Record<string, string | null> = {};
+  for (const row of rows) out[row.id] = row.thumbnailUrl;
+  return out;
+}

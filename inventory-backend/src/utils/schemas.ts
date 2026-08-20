@@ -304,6 +304,10 @@ export const catalogProductIdSchema = z.object({
   params: z.object({ id: z.string().uuid() }),
 });
 
+export const catalogThumbnailsSchema = z.object({
+  body: z.object({ ids: z.array(z.string().uuid()).min(1).max(120) }),
+});
+
 export const catalogGalleryImageSchema = z.object({
   params: z.object({ id: z.string().uuid(), imageId: z.string().uuid() }),
 });

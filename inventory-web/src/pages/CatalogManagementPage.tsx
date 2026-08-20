@@ -1567,7 +1567,9 @@ export function CatalogManagementPage() {
     placeholderData: (prev) => prev,
   })
 
-  const customers = data?.rows ?? []
+  // Memoised so the `?? []` fallback does not hand `filtered` a brand-new
+  // array identity on every render, which would re-run the filter each pass.
+  const customers = useMemo(() => data?.rows ?? [], [data])
   const total = data?.total ?? 0
 
   // Client-side filter for has/no access (fast, only within the current page)

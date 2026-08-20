@@ -10,6 +10,7 @@ import {
   getProductCatalogContent,
   getPublicGalleryImage,
   getPublicProductDetail,
+  getCatalogThumbnails,
   listCatalogReviews,
   setCatalogReviewStatus,
   submitProductReview,
@@ -37,6 +38,13 @@ export const getGalleryImageCtrl = asyncHandler(async (req, res) => {
     ? await getPublicGalleryImage(token, productId, imageId)
     : await getGuestGalleryImage(productId, imageId);
   res.json({ success: true, data: { imageUrl } });
+});
+
+export const getThumbnailsCtrl = asyncHandler(async (req, res) => {
+  const token = String(req.query.access ?? "");
+  const { ids } = req.body as { ids: string[] };
+  const data = await getCatalogThumbnails(token, ids ?? []);
+  res.json({ success: true, data });
 });
 
 export const submitProductReviewCtrl = asyncHandler(async (req, res) => {

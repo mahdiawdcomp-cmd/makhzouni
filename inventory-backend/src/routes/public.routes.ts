@@ -78,6 +78,7 @@ import {
   guestCatalogEnterSchema,
   catalogProductIdSchema,
   catalogGalleryImageSchema,
+  catalogThumbnailsSchema,
   submitProductReviewSchema,
   customerLoginSchema,
   visitorDetailsSchema,
@@ -90,6 +91,7 @@ import {
 import {
   getProductDetailCtrl,
   getGalleryImageCtrl,
+  getThumbnailsCtrl,
   getMyProductReviewCtrl,
   submitProductReviewCtrl,
 } from "../controllers/catalog-product-page.controller";
@@ -277,6 +279,7 @@ router.get("/catalog/account", catalogLimiter, validate(catalogAccessQuerySchema
 // customer link; without one the controller falls back to guest mode, which
 // the service refuses unless the shop enabled open browsing.
 router.get("/catalog/product/:id", catalogLimiter, validate(catalogProductIdSchema), getProductDetailCtrl);
+router.post("/catalog/thumbnails", catalogLimiter, validate(catalogThumbnailsSchema), getThumbnailsCtrl);
 router.get("/catalog/product/:id/image/:imageId", catalogLimiter, validate(catalogGalleryImageSchema), getGalleryImageCtrl);
 router.get("/catalog/product/:id/my-review", catalogLimiter, validate(catalogProductIdSchema), getMyProductReviewCtrl);
 router.post("/catalog/product/:id/review", catalogLimiter, validate(submitProductReviewSchema), submitProductReviewCtrl);
