@@ -1173,6 +1173,12 @@ export interface AppSettings {
   productArrivalTemplateName?: string
   debtReminderTemplateName?: string
   inactiveCustomerTemplateName?: string
+  storefrontCredentialsTemplateName?: string
+  catalogAccessApprovedV2TemplateName?: string
+  couponExpiryReminderTemplateName?: string
+  followUpNoReplyTemplateName?: string
+  followUpNoOrderTemplateName?: string
+  followUpInactiveTemplateName?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   personalDebtReminderWhatsappNumber?: string

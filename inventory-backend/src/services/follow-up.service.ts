@@ -4,7 +4,7 @@
 import prisma from "../config/database";
 import { logger } from "../utils/logger";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppText } from "./whatsapp.service";
+import { sendTextWithTemplateFallback } from "./whatsapp.service";
 import { isOptedOut } from "./marketing-opt-out.service";
 import { assistantTimezone } from "./daily-assistant.service";
 
@@ -100,7 +100,14 @@ export async function runNoReplyFollowUpJob() {
     }
     const message = fillTemplate(template, { link });
     try {
-      await sendWhatsAppText(p.phone, message);
+      // متابعة تسويقية نبدأها إحنا، فبدون قالب معتمد ميتا تسقطها بعد ٢٤ ساعة.
+      await sendTextWithTemplateFallback(
+        p.phone,
+        settings.followUpNoReplyTemplateName,
+        "ar",
+        message,
+        [link || "-"],
+      );
       sent++;
     } catch (err) {
       logger.warn(`[FollowUp:NoReply] send failed to ${p.phone}: ${err instanceof Error ? err.message : String(err)}`);
@@ -178,7 +185,13 @@ export async function runRegisteredNoOrderFollowUpJob() {
       link,
     });
     try {
-      await sendWhatsAppText(c.phone, message);
+      await sendTextWithTemplateFallback(
+        c.phone,
+        settings.followUpNoOrderTemplateName,
+        "ar",
+        message,
+        [c.name, products.length > 0 ? products.join("، ") : "تشكيلة واسعة من المواد", link || "-"],
+      );
       sent++;
     } catch (err) {
       logger.warn(`[FollowUp:RegisteredNoOrder] send failed to ${c.phone}: ${err instanceof Error ? err.message : String(err)}`);
@@ -239,7 +252,13 @@ export async function runInactiveFollowUpJob() {
       link,
     });
     try {
-      await sendWhatsAppText(c.phone, message);
+      await sendTextWithTemplateFallback(
+        c.phone,
+        settings.followUpInactiveTemplateName,
+        "ar",
+        message,
+        [c.name, products.length > 0 ? products.join("، ") : "منتجاتنا", link || "-"],
+      );
       sent++;
     } catch (err) {
       logger.warn(`[FollowUp:Inactive] send failed to ${c.phone}: ${err instanceof Error ? err.message : String(err)}`);

@@ -49,6 +49,16 @@ export interface AppSettings {
   // number" button, via POST /whatsapp/send-templated.
   debtReminderTemplateName?: string;
   inactiveCustomerTemplateName?: string;
+  // Meta template names for the funnel's business-initiated sends. Every one
+  // of these goes out when the customer has NOT just messaged us, so without
+  // an approved template Meta silently drops it past the 24h window.
+  // Empty = free text (works only inside the window).
+  storefrontCredentialsTemplateName?: string;
+  catalogAccessApprovedV2TemplateName?: string;
+  couponExpiryReminderTemplateName?: string;
+  followUpNoReplyTemplateName?: string;
+  followUpNoOrderTemplateName?: string;
+  followUpInactiveTemplateName?: string;
   // UI preferences
   themePreset: "classic" | "iraqi" | "exclusive" | "bold" | "designer";
   // Backup
@@ -332,6 +342,16 @@ export const defaultSettings: AppSettings = {
   productArrivalTemplateName: "",
   debtReminderTemplateName: "debt_reminder",
   inactiveCustomerTemplateName: "inactive_customer_reminder",
+  // Blank on purpose: these six templates do not exist in any tenant's Meta
+  // account yet. A non-empty default would make every send try a template
+  // name Meta has never approved. The merchant pastes the real name from
+  // WhatsApp Manager once approved, and sends switch over with no deploy.
+  storefrontCredentialsTemplateName: "",
+  catalogAccessApprovedV2TemplateName: "",
+  couponExpiryReminderTemplateName: "",
+  followUpNoReplyTemplateName: "",
+  followUpNoOrderTemplateName: "",
+  followUpInactiveTemplateName: "",
   themePreset: "classic",
   shopWarehouseId: "",
   // Intentionally blank — see utils/public-urls.ts. A tenant-specific default

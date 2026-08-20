@@ -681,12 +681,26 @@ export async function notifyCatalogAccessApproved(
     message = message.replaceAll("{{coupon}}", "");
   }
 
-  await safeSendWATemplated(
-    customerPhone,
-    message,
-    settings?.catalogAccessApprovedTemplateName,
-    [url],
-  );
+  // When a Meta template name is set, Cloud API sends the TEMPLATE and drops
+  // the text we just composed. The original catalogAccessApproved template only
+  // carries the link, so using it for a code-bearing approval would land the
+  // customer on a login screen with no code. Prefer the v2 template (name,
+  // store, username, code, link) whenever a code was issued, and only fall
+  // back to the link-only template when there is no code to deliver.
+  const approvedTemplateName = issued
+    ? settings?.catalogAccessApprovedV2TemplateName
+    : settings?.catalogAccessApprovedTemplateName;
+  const approvedParams = issued
+    ? [
+        customerName || "زبوننا العزيز",
+        settings?.storeName || "متجرنا",
+        issued.phone,
+        issued.code,
+        url,
+      ]
+    : [url];
+
+  await safeSendWATemplated(customerPhone, message, approvedTemplateName, approvedParams);
 
   // Only now is the code real for the customer.
   if (issued) {

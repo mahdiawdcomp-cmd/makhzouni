@@ -1,7 +1,7 @@
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppText } from "./whatsapp.service";
+import { sendTextWithTemplateFallback } from "./whatsapp.service";
 import { commitAccessCode, prepareCustomerCode, prepareVisitorCode, type IssuedCode } from "./customer-login.service";
 import type { WhatsAppSendChannel } from "./whatsapp.service";
 
@@ -63,10 +63,26 @@ export async function buildCredentialsMessage(issued: IssuedCode) {
  * holding a code that was never delivered.
  */
 export async function sendStorefrontCredentials(issued: IssuedCode, channel?: string) {
+  const settings = await getSettings();
   const message = await buildCredentialsMessage(issued);
-  await sendWhatsAppText(issued.phone, message, {
-    channel: channel as WhatsAppSendChannel | undefined,
-  });
+  // Business-initiated: the shop pushes credentials to a list, nobody messaged
+  // first. Past Meta's 24h window free text is dropped without an error, so an
+  // approved template is what actually makes a bulk send land. Params must
+  // match the template body order: name, store, username, code, link.
+  await sendTextWithTemplateFallback(
+    issued.phone,
+    settings.storefrontCredentialsTemplateName,
+    "ar",
+    message,
+    [
+      issued.name || "زبوننا العزيز",
+      settings.storeName || "متجرنا",
+      issued.phone,
+      issued.code,
+      storefrontLink(settings.catalogPublicUrl),
+    ],
+    channel as WhatsAppSendChannel | undefined,
+  );
   await commitAccessCode(issued);
   return { phone: issued.phone, sent: true };
 }

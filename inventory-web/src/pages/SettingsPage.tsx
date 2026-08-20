@@ -147,6 +147,12 @@ const fallbackSettings: AppSettings = {
   productArrivalTemplateName: "",
   debtReminderTemplateName: "",
   inactiveCustomerTemplateName: "",
+  storefrontCredentialsTemplateName: "",
+  catalogAccessApprovedV2TemplateName: "",
+  couponExpiryReminderTemplateName: "",
+  followUpNoReplyTemplateName: "",
+  followUpNoOrderTemplateName: "",
+  followUpInactiveTemplateName: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
   orderPreparationWhatsappNumbers: "",
@@ -1241,6 +1247,54 @@ export function SettingsPage() {
                   dir="ltr"
                 />
               </Field>
+              <Field label="قالب إرسال بيانات الدخول للمتجر">
+                <Input
+                  value={settings.storefrontCredentialsTemplateName ?? ""}
+                  onChange={(e) => upd("storefrontCredentialsTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب الموافقة مع رمز الدخول (نسخة ٢)">
+                <Input
+                  value={settings.catalogAccessApprovedV2TemplateName ?? ""}
+                  onChange={(e) => upd("catalogAccessApprovedV2TemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب تذكير انتهاء الكوبون">
+                <Input
+                  value={settings.couponExpiryReminderTemplateName ?? ""}
+                  onChange={(e) => upd("couponExpiryReminderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب متابعة: ما رد علينا">
+                <Input
+                  value={settings.followUpNoReplyTemplateName ?? ""}
+                  onChange={(e) => upd("followUpNoReplyTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب متابعة: سجّل وما طلب">
+                <Input
+                  value={settings.followUpNoOrderTemplateName ?? ""}
+                  onChange={(e) => upd("followUpNoOrderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب متابعة: زبون غير نشط">
+                <Input
+                  value={settings.followUpInactiveTemplateName ?? ""}
+                  onChange={(e) => upd("followUpInactiveTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
             </div>
             <SaveRow
               onSave={() => saveSettings.mutate({
@@ -1256,6 +1310,12 @@ export function SettingsPage() {
                 productArrivalTemplateName: settings.productArrivalTemplateName,
                 debtReminderTemplateName: settings.debtReminderTemplateName,
                 inactiveCustomerTemplateName: settings.inactiveCustomerTemplateName,
+                storefrontCredentialsTemplateName: settings.storefrontCredentialsTemplateName,
+                catalogAccessApprovedV2TemplateName: settings.catalogAccessApprovedV2TemplateName,
+                couponExpiryReminderTemplateName: settings.couponExpiryReminderTemplateName,
+                followUpNoReplyTemplateName: settings.followUpNoReplyTemplateName,
+                followUpNoOrderTemplateName: settings.followUpNoOrderTemplateName,
+                followUpInactiveTemplateName: settings.followUpInactiveTemplateName,
               })}
               isPending={saveSettings.isPending}
               saved={saved}

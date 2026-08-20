@@ -1122,6 +1122,12 @@ export const updateSettingsSchema = z.object({
       productArrivalTemplateName: nullAsUndefined(z.string().trim()),
       debtReminderTemplateName: nullAsUndefined(z.string().trim()),
       inactiveCustomerTemplateName: nullAsUndefined(z.string().trim()),
+      storefrontCredentialsTemplateName: nullAsUndefined(z.string().trim()),
+      catalogAccessApprovedV2TemplateName: nullAsUndefined(z.string().trim()),
+      couponExpiryReminderTemplateName: nullAsUndefined(z.string().trim()),
+      followUpNoReplyTemplateName: nullAsUndefined(z.string().trim()),
+      followUpNoOrderTemplateName: nullAsUndefined(z.string().trim()),
+      followUpInactiveTemplateName: nullAsUndefined(z.string().trim()),
       // WhatsApp send channels (per-send picker)
       personalChannelEnabled: nullAsUndefined(z.boolean()),
       personalChannelDailyLimit: nullAsUndefined(z.coerce.number().int().min(1).max(10000)),

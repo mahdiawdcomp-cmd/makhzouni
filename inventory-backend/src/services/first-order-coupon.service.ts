@@ -8,7 +8,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { getSettings } from "./settings.service";
-import { sendWhatsAppText } from "./whatsapp.service";
+import { sendTextWithTemplateFallback } from "./whatsapp.service";
 import { isOptedOut } from "./marketing-opt-out.service";
 import { createPromoCode } from "./catalog.service";
 
@@ -98,7 +98,15 @@ export async function runCouponExpiryReminderJob() {
       `استخدمه قبل لا يفوتك` + (link ? `:\n${link}` : ".");
 
     try {
-      await sendWhatsAppText(phone, message);
+      // تذكير تسويقي يخرج من عندنا، مو رد على الزبون — بدون قالب معتمد
+      // ميتا تسقطه بصمت بعد ٢٤ ساعة. ترتيب البارامترات: الكود، النسبة، الرابط.
+      await sendTextWithTemplateFallback(
+        phone,
+        settings?.couponExpiryReminderTemplateName,
+        "ar",
+        message,
+        [promo.code, String(Number(promo.value)), link || "-"],
+      );
       sent++;
     } catch (err) {
       logger.warn(`[FirstOrderCoupon] reminder failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`);
