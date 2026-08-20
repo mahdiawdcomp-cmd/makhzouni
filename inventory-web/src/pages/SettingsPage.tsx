@@ -148,6 +148,7 @@ const fallbackSettings: AppSettings = {
   debtReminderTemplateName: "",
   inactiveCustomerTemplateName: "",
   storefrontCredentialsTemplateName: "",
+  storefrontLoginCodeTemplateName: "",
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",
@@ -1247,7 +1248,7 @@ export function SettingsPage() {
                   dir="ltr"
                 />
               </Field>
-              <Field label="قالب إرسال بيانات الدخول للمتجر">
+              <Field label="قالب ترحيب الحساب — أداة مساعدة (بلا رمز)">
                 <Input
                   value={settings.storefrontCredentialsTemplateName ?? ""}
                   onChange={(e) => upd("storefrontCredentialsTemplateName", e.target.value)}
@@ -1255,7 +1256,15 @@ export function SettingsPage() {
                   dir="ltr"
                 />
               </Field>
-              <Field label="قالب الموافقة مع رمز الدخول (نسخة ٢)">
+              <Field label="قالب رمز الدخول — مصادقة (الرمز فقط)">
+                <Input
+                  value={settings.storefrontLoginCodeTemplateName ?? ""}
+                  onChange={(e) => upd("storefrontLoginCodeTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب الموافقة على الحساب — أداة مساعدة (بلا رمز)">
                 <Input
                   value={settings.catalogAccessApprovedV2TemplateName ?? ""}
                   onChange={(e) => upd("catalogAccessApprovedV2TemplateName", e.target.value)}
@@ -1311,6 +1320,7 @@ export function SettingsPage() {
                 debtReminderTemplateName: settings.debtReminderTemplateName,
                 inactiveCustomerTemplateName: settings.inactiveCustomerTemplateName,
                 storefrontCredentialsTemplateName: settings.storefrontCredentialsTemplateName,
+                storefrontLoginCodeTemplateName: settings.storefrontLoginCodeTemplateName,
                 catalogAccessApprovedV2TemplateName: settings.catalogAccessApprovedV2TemplateName,
                 couponExpiryReminderTemplateName: settings.couponExpiryReminderTemplateName,
                 followUpNoReplyTemplateName: settings.followUpNoReplyTemplateName,

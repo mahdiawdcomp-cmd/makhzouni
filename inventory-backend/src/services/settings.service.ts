@@ -54,6 +54,13 @@ export interface AppSettings {
   // an approved template Meta silently drops it past the 24h window.
   // Empty = free text (works only inside the window).
   storefrontCredentialsTemplateName?: string;
+  // Meta refuses to approve a Utility template that carries a login code, and
+  // an Authentication template's body is fixed to the code alone. So the
+  // credentials arrive as a pair: the utility welcome (name, store, username,
+  // link) plus this authentication template carrying only the code. Both must
+  // be filled in for the split to engage — otherwise sends stay on free text,
+  // which still delivers everything inside the 24h window.
+  storefrontLoginCodeTemplateName?: string;
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -347,6 +354,7 @@ export const defaultSettings: AppSettings = {
   // name Meta has never approved. The merchant pastes the real name from
   // WhatsApp Manager once approved, and sends switch over with no deploy.
   storefrontCredentialsTemplateName: "",
+  storefrontLoginCodeTemplateName: "",
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

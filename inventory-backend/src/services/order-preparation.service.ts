@@ -5,6 +5,7 @@ import { logger } from "../utils/logger";
 import { generateInvoicePdf } from "./invoice-export.service";
 import { getSettings } from "./settings.service";
 import { commitAccessCode, prepareCustomerCode } from "./customer-login.service";
+import { sendCredentialsOverWhatsApp } from "./storefront-credentials.service";
 import { sendWhatsAppPdf, sendWhatsAppText, sendPdfWithTemplateFallback, sendTextWithTemplateFallback, invoiceTemplateBodyParams } from "./whatsapp.service";
 import { createInvoice, getInvoiceById } from "./invoice.service";
 import { resolveWarehouseId } from "./warehouse-stock.service";
@@ -682,25 +683,36 @@ export async function notifyCatalogAccessApproved(
   }
 
   // When a Meta template name is set, Cloud API sends the TEMPLATE and drops
-  // the text we just composed. The original catalogAccessApproved template only
+  // the text composed above. The original catalogAccessApproved template only
   // carries the link, so using it for a code-bearing approval would land the
-  // customer on a login screen with no code. Prefer the v2 template (name,
-  // store, username, code, link) whenever a code was issued, and only fall
-  // back to the link-only template when there is no code to deliver.
-  const approvedTemplateName = issued
-    ? settings?.catalogAccessApprovedV2TemplateName
-    : settings?.catalogAccessApprovedTemplateName;
-  const approvedParams = issued
-    ? [
-        customerName || "زبوننا العزيز",
-        settings?.storeName || "متجرنا",
-        issued.phone,
-        issued.code,
-        url,
-      ]
-    : [url];
-
-  await safeSendWATemplated(customerPhone, message, approvedTemplateName, approvedParams);
+  // customer on a login screen with no code. An approval that issued a code
+  // therefore goes out as the same welcome + authentication pair the bulk
+  // credentials send uses; approvals without a code keep the link-only
+  // template.
+  if (issued) {
+    try {
+      await sendCredentialsOverWhatsApp(
+        customerPhone,
+        {
+          name: customerName || "زبوننا العزيز",
+          store: settings?.storeName || "متجرنا",
+          username: issued.phone,
+          code: issued.code,
+          link: url,
+        },
+        message,
+        settings?.catalogAccessApprovedV2TemplateName,
+        settings?.storefrontLoginCodeTemplateName,
+      );
+      logger.info(`[WhatsApp] Sent to ${customerPhone}`);
+    } catch (err) {
+      logger.warn(
+        `[WhatsApp] Approval send failed to ${customerPhone}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  } else {
+    await safeSendWATemplated(customerPhone, message, settings?.catalogAccessApprovedTemplateName, [url]);
+  }
 
   // Only now is the code real for the customer.
   if (issued) {

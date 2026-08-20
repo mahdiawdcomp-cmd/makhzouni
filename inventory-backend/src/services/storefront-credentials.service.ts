@@ -1,7 +1,7 @@
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { getSettings } from "./settings.service";
-import { sendTextWithTemplateFallback } from "./whatsapp.service";
+import { sendTextWithTemplateFallback, sendWhatsAppTemplate } from "./whatsapp.service";
 import { commitAccessCode, prepareCustomerCode, prepareVisitorCode, type IssuedCode } from "./customer-login.service";
 import type { WhatsAppSendChannel } from "./whatsapp.service";
 
@@ -57,6 +57,61 @@ export async function buildCredentialsMessage(issued: IssuedCode) {
   });
 }
 
+export type CredentialParts = {
+  name: string;
+  store: string;
+  username: string;
+  code: string;
+  link: string;
+};
+
+/**
+ * Deliver credentials over WhatsApp, respecting what Meta actually approves.
+ *
+ * Meta will not approve a Utility template containing a login code — it
+ * reclassifies it as Authentication, whose body is fixed to the code alone
+ * with no room for the username or the storefront link. So when both template
+ * names are configured the credentials go out as a pair: a utility welcome
+ * carrying name/store/username/link, then an authentication template carrying
+ * only the code.
+ *
+ * Both names are required for the split. With only the welcome template set,
+ * sending it would deliver everything except the code — the customer would
+ * land on a login screen holding nothing to type — so anything short of a
+ * complete pair falls back to the single free-text message.
+ */
+export async function sendCredentialsOverWhatsApp(
+  phone: string,
+  parts: CredentialParts,
+  fallbackMessage: string,
+  welcomeTemplateName: string | undefined,
+  codeTemplateName: string | undefined,
+  channel?: WhatsAppSendChannel,
+) {
+  const welcome = welcomeTemplateName?.trim();
+  const codeTpl = codeTemplateName?.trim();
+
+  if (!welcome || !codeTpl) {
+    await sendTextWithTemplateFallback(phone, undefined, "ar", fallbackMessage, [], channel);
+    return;
+  }
+
+  await sendTextWithTemplateFallback(
+    phone,
+    welcome,
+    "ar",
+    fallbackMessage,
+    [parts.name, parts.store, parts.username, parts.link],
+    channel,
+  );
+  // The code is the half that matters — a failure here must surface, not be
+  // swallowed behind a welcome message that already went out.
+  await sendWhatsAppTemplate(phone, codeTpl, "ar", {
+    bodyParams: [parts.code],
+    copyCode: parts.code,
+  });
+}
+
 /**
  * Send the code, then store it — never the other way round. Persisting first
  * meant a failed send still rotated the code, leaving the customer locked out
@@ -66,21 +121,19 @@ export async function sendStorefrontCredentials(issued: IssuedCode, channel?: st
   const settings = await getSettings();
   const message = await buildCredentialsMessage(issued);
   // Business-initiated: the shop pushes credentials to a list, nobody messaged
-  // first. Past Meta's 24h window free text is dropped without an error, so an
-  // approved template is what actually makes a bulk send land. Params must
-  // match the template body order: name, store, username, code, link.
-  await sendTextWithTemplateFallback(
+  // first, so past Meta's 24h window free text is dropped without an error.
+  await sendCredentialsOverWhatsApp(
     issued.phone,
-    settings.storefrontCredentialsTemplateName,
-    "ar",
+    {
+      name: issued.name || "زبوننا العزيز",
+      store: settings.storeName || "متجرنا",
+      username: issued.phone,
+      code: issued.code,
+      link: storefrontLink(settings.catalogPublicUrl),
+    },
     message,
-    [
-      issued.name || "زبوننا العزيز",
-      settings.storeName || "متجرنا",
-      issued.phone,
-      issued.code,
-      storefrontLink(settings.catalogPublicUrl),
-    ],
+    settings.storefrontCredentialsTemplateName,
+    settings.storefrontLoginCodeTemplateName,
     channel as WhatsAppSendChannel | undefined,
   );
   await commitAccessCode(issued);

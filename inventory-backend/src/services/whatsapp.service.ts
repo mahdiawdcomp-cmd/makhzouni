@@ -953,6 +953,10 @@ export async function sendWhatsAppTemplate(
   options?: {
     bodyParams?: string[];
     documentHeader?: { mediaId: string; filename: string };
+    // Meta AUTHENTICATION templates are built with a copy-code button, and the
+    // API rejects the send unless that button gets the code as its own
+    // parameter on top of the body one. Same value both places, by design.
+    copyCode?: string;
   },
 ): Promise<{ to: string; idMessage?: string }> {
   const prov = assertCanSend();
@@ -978,6 +982,15 @@ export async function sendWhatsAppTemplate(
     components.push({
       type: "body",
       parameters: options.bodyParams.map((text) => ({ type: "text", text })),
+    });
+  }
+
+  if (options?.copyCode) {
+    components.push({
+      type: "button",
+      sub_type: "copy_code",
+      index: "0",
+      parameters: [{ type: "coupon_code", coupon_code: options.copyCode }],
     });
   }
 

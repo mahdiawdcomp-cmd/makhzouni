@@ -1174,6 +1174,7 @@ export interface AppSettings {
   debtReminderTemplateName?: string
   inactiveCustomerTemplateName?: string
   storefrontCredentialsTemplateName?: string
+  storefrontLoginCodeTemplateName?: string
   catalogAccessApprovedV2TemplateName?: string
   couponExpiryReminderTemplateName?: string
   followUpNoReplyTemplateName?: string
