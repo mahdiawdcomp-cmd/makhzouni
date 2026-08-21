@@ -61,6 +61,13 @@ export interface AppSettings {
   // be filled in for the split to engage — otherwise sends stay on free text,
   // which still delivers everything inside the 24h window.
   storefrontLoginCodeTemplateName?: string;
+  // «دعوة الحساب» — the cold marketing template that asks the shopper to
+  // reply. Their reply opens Meta's 24h window, and the credentials then go
+  // out as plain text with no template involved. This is the only compliant
+  // route left: no template carrying a code is approvable on this account.
+  storefrontInviteTemplateName?: string;
+  storefrontInviteMessage?: string;
+  storefrontInviteKeywords?: string[];
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -355,6 +362,9 @@ export const defaultSettings: AppSettings = {
   // WhatsApp Manager once approved, and sends switch over with no deploy.
   storefrontCredentialsTemplateName: "",
   storefrontLoginCodeTemplateName: "",
+  storefrontInviteTemplateName: "",
+  storefrontInviteMessage: "",
+  storefrontInviteKeywords: [],
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

@@ -149,6 +149,9 @@ const fallbackSettings: AppSettings = {
   inactiveCustomerTemplateName: "",
   storefrontCredentialsTemplateName: "",
   storefrontLoginCodeTemplateName: "",
+  storefrontInviteTemplateName: "",
+  storefrontInviteMessage: "",
+  storefrontInviteKeywords: [] as string[],
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",
@@ -1264,6 +1267,14 @@ export function SettingsPage() {
                   dir="ltr"
                 />
               </Field>
+              <Field label="قالب دعوة الحساب — تسويق (بلا رمز)">
+                <Input
+                  value={settings.storefrontInviteTemplateName ?? ""}
+                  onChange={(e) => upd("storefrontInviteTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
               <Field label="قالب الموافقة على الحساب — أداة مساعدة (بلا رمز)">
                 <Input
                   value={settings.catalogAccessApprovedV2TemplateName ?? ""}
@@ -1321,6 +1332,7 @@ export function SettingsPage() {
                 inactiveCustomerTemplateName: settings.inactiveCustomerTemplateName,
                 storefrontCredentialsTemplateName: settings.storefrontCredentialsTemplateName,
                 storefrontLoginCodeTemplateName: settings.storefrontLoginCodeTemplateName,
+                storefrontInviteTemplateName: settings.storefrontInviteTemplateName,
                 catalogAccessApprovedV2TemplateName: settings.catalogAccessApprovedV2TemplateName,
                 couponExpiryReminderTemplateName: settings.couponExpiryReminderTemplateName,
                 followUpNoReplyTemplateName: settings.followUpNoReplyTemplateName,

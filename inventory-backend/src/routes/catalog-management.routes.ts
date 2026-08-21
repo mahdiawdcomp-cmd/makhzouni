@@ -35,6 +35,7 @@ import {
   setPricesHiddenCtrl,
   unlockAccountCtrl,
   sendCredentialsToAllCtrl,
+  sendInvitesToAllCtrl,
   credentialTargetCountsCtrl,
   applyPricesDefaultCtrl,
 } from "../controllers/customer-login.controller";
@@ -56,6 +57,7 @@ import {
   setPricesHiddenSchema,
   unlockAccountSchema,
   sendCredentialsToAllSchema,
+  sendInvitesToAllSchema,
   optOutPhoneSchema,
 } from "../utils/schemas";
 
@@ -119,6 +121,7 @@ router.patch("/accounts/:id/prices-hidden", validate(setPricesHiddenSchema), set
 router.post("/accounts/unlock", validate(unlockAccountSchema), unlockAccountCtrl);
 router.get("/accounts/target-counts", credentialTargetCountsCtrl);
 router.post("/accounts/send-credentials-all", validate(sendCredentialsToAllSchema), sendCredentialsToAllCtrl);
+router.post("/accounts/send-invites-all", validate(sendInvitesToAllSchema), sendInvitesToAllCtrl);
 router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);
 
 // «توقف» — numbers that asked to stop receiving marketing.

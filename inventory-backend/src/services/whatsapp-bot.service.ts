@@ -10,6 +10,7 @@ import { logChatMessage } from "./whatsapp-chat.service";
 import { tryCaptureProductReviewReply } from "./product-review.service";
 import { DEFAULT_STOP_CONFIRMATION, isStopRequest, optOutOfMarketing } from "./marketing-opt-out.service";
 import { handleRegistrationReply, startRegistration } from "./whatsapp-registration.service";
+import { handleStorefrontInviteReply } from "./storefront-invite.service";
 import { normalizeArabic } from "../utils/arabic-search";
 
 // بند ٥ — "أريد أحچي مع موظف" يوقف البوت لهذا الرقم بأي لحظة (حتى وسط
@@ -104,6 +105,14 @@ export async function routeIncomingMessage(
     logger.info(`[WhatsAppBot] ${phone} opted out of marketing`);
     return;
   }
+
+  // 0.1) «حسابي» — the reply the account invite asks for. Ranks above every
+  // rule below because it applies to customers and strangers alike, and a
+  // known customer would otherwise have this swallowed by the command bot or
+  // dropped into the inbox as unmatched text. Their reply is what opened
+  // Meta's 24h window, so the credentials go out as plain text right here —
+  // the only route left once Meta refused every template carrying a code.
+  if (await handleStorefrontInviteReply(phone, text).catch(() => false)) return;
 
   const customer = await prisma.customer.findUnique({ where: { phone } });
   const prospect = customer ? null : await prisma.prospect.findUnique({ where: { phone } });

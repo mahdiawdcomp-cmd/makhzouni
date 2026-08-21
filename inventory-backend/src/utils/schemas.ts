@@ -279,6 +279,13 @@ export const sendCredentialsBulkSchema = z.object({
   }),
 });
 
+export const sendInvitesToAllSchema = z.object({
+  body: z.object({
+    group: z.enum(["customers", "visitors", "all"]).optional(),
+    channel: z.enum(["official", "personal"]).optional(),
+  }),
+});
+
 export const sendCredentialsToAllSchema = z.object({
   body: z.object({
     group: z.enum(["customers", "visitors", "all"]).optional(),
@@ -1124,6 +1131,9 @@ export const updateSettingsSchema = z.object({
       inactiveCustomerTemplateName: nullAsUndefined(z.string().trim()),
       storefrontCredentialsTemplateName: nullAsUndefined(z.string().trim()),
       storefrontLoginCodeTemplateName: nullAsUndefined(z.string().trim()),
+      storefrontInviteTemplateName: nullAsUndefined(z.string().trim()),
+      storefrontInviteMessage: nullAsUndefined(z.string()),
+      storefrontInviteKeywords: nullAsUndefined(z.array(z.string().trim())),
       catalogAccessApprovedV2TemplateName: nullAsUndefined(z.string().trim()),
       couponExpiryReminderTemplateName: nullAsUndefined(z.string().trim()),
       followUpNoReplyTemplateName: nullAsUndefined(z.string().trim()),

@@ -364,6 +364,19 @@ export async function sendStorefrontCredentialsToAll(group: "customers" | "visit
   return data.data!
 }
 
+/**
+ * «دعوة الحساب» — the cold invite. Credentials cannot be pushed to a number
+ * that has not messaged us (Meta approves no template carrying a code), so
+ * this asks the shopper to reply; their reply is what earns the credentials.
+ */
+export async function sendStorefrontInvitesToAll(group: "customers" | "visitors" | "all") {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-invites-all", { group })
+  return data.data!
+}
+
 /** Push the shop-wide price default onto every live catalog link. */
 export async function applyPricesDefaultToAll() {
   const { data } = await api.post<ApiEnvelope<{ ok: boolean; visible: boolean }>>(

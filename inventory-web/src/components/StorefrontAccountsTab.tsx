@@ -8,6 +8,7 @@ import {
   listStorefrontAccounts,
   sendStorefrontCredentials,
   sendStorefrontCredentialsToAll,
+  sendStorefrontInvitesToAll,
   setCustomerPricesHidden,
   unlockStorefrontAccount,
   updateSettings,
@@ -21,6 +22,7 @@ import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
 import { MarketingOptOutCard } from "./MarketingOptOutCard"
+import { StorefrontInviteCard } from "./StorefrontInviteCard"
 
 type Group = "customers" | "visitors"
 
@@ -56,6 +58,7 @@ export function StorefrontAccountsTab() {
   const [search, setSearch] = useState("")
   const [group, setGroup] = useState<Group>("customers")
   const [confirmBulk, setConfirmBulk] = useState(false)
+  const [confirmInvite, setConfirmInvite] = useState(false)
 
   const accountsQuery = useQuery({
     queryKey: ["storefront-accounts", search],
@@ -131,6 +134,18 @@ export function StorefrontAccountsTab() {
     }),
   })
 
+  const inviteMut = useMutation({
+    mutationFn: () => sendStorefrontInvitesToAll(group),
+    onSuccess: (r) => {
+      toast({ title: `أُرسلت الدعوة إلى ${r.sent} من ${r.total}${r.failed ? ` — فشل ${r.failed}` : ""}` })
+      refresh()
+    },
+    onError: (e) => toast({
+      title: e instanceof Error ? e.message : "تعذر إرسال الدعوات",
+      variant: "destructive",
+    }),
+  })
+
   const unlockMut = useMutation({
     mutationFn: (t: { kind: "CUSTOMER" | "VISITOR"; idOrPhone: string }) =>
       unlockStorefrontAccount(t.kind, t.idOrPhone),
@@ -186,15 +201,31 @@ export function StorefrontAccountsTab() {
           </div>
 
           <Button
+            onClick={() => setConfirmInvite(true)}
+            disabled={inviteMut.isPending || currentCount === 0}
+            className="w-full"
+          >
+            <Send className="ml-1 h-4 w-4" />
+            {inviteMut.isPending
+              ? "جاري الإرسال..."
+              : `إرسال دعوة الحساب لكل ${group === "customers" ? "الزبائن" : "الجدد"} (${currentCount})`}
+          </Button>
+
+          <Button
+            variant="outline"
             onClick={() => setConfirmBulk(true)}
             disabled={bulkMut.isPending || currentCount === 0}
             className="w-full"
           >
-            <Send className="ml-1 h-4 w-4" />
             {bulkMut.isPending
               ? "جاري الإرسال..."
-              : `إرسال بيانات الدخول لكل ${group === "customers" ? "الزبائن" : "الجدد"} (${currentCount})`}
+              : `إرسال بيانات الدخول مباشرة (${currentCount})`}
           </Button>
+
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            الإرسال المباشر يوصل فقط للأرقام الي راسلتك خلال آخر ٢٤ ساعة — ميتا تسقط الباقي بصمت.
+            الدعوة تشتغل مع الكل: الزبون يرد بكلمة «حسابي» ويوصله رمزه فوراً.
+          </p>
 
           {accountsQuery.isLoading && <p className="py-6 text-center text-sm text-slate-400">جاري التحميل...</p>}
 
@@ -397,6 +428,8 @@ export function StorefrontAccountsTab() {
         </CardContent>
       </Card>
 
+      <StorefrontInviteCard />
+
       <MarketingOptOutCard />
 
       {/* Message a newly approved customer receives */}
@@ -455,6 +488,20 @@ export function StorefrontAccountsTab() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmInvite}
+        title="إرسال دعوة الحساب"
+        description={
+          `راح تنرسل دعوة إلى ${currentCount} ` +
+          `${group === "customers" ? "زبون" : "رقم"} تطلب منهم الرد بكلمة «حسابي». ` +
+          "الرمز ما ينولّد الآن — يوصل لكل واحد لحظة ما يرد، وأرقامهم الحالية تبقى شغالة."
+        }
+        confirmLabel="إرسال الدعوة"
+        loading={inviteMut.isPending}
+        onConfirm={() => { setConfirmInvite(false); inviteMut.mutate() }}
+        onCancel={() => setConfirmInvite(false)}
+      />
 
       <ConfirmDialog
         open={confirmBulk}
