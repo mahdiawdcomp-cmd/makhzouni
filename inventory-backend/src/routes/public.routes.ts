@@ -217,7 +217,17 @@ router.get("/otp/check", catalogLimiter, validate(checkVerifiedSchema), checkVer
 
 // Catalog design (public — no auth needed)
 router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => {
-  const settings = await prisma.setting.findMany({ where: { key: { startsWith: "catalogDesign" } } });
+  const settings = await prisma.setting.findMany({
+    where: {
+      OR: [
+        { key: { startsWith: "catalogDesign" } },
+        // Not catalogDesign* keys, but the code-request button below needs
+        // them — without this they silently read as undefined and the button
+        // fell back to a hardcoded keyword instead of the configured one.
+        { key: { in: ["storefrontInviteKeywords", "catalogAdminWhatsappNumber", "storePhone"] } },
+      ],
+    },
+  });
   const kv: Record<string, unknown> = {};
   for (const s of settings) {
     // Prisma already decodes the Json column, so re-parsing it was pure noise
