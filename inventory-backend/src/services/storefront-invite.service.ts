@@ -60,8 +60,15 @@ function normalizeKeyword(value: string): string {
   return String(value ?? "")
     .trim()
     .toLowerCase()
-    .replace(/^[\s\p{P}\p{S}]+|[\s\p{P}\p{S}]+$/gu, "")
+    // Punctuation is dropped everywhere, not just at the ends: a quick-reply
+    // button label like «نعم، أريد حسابي» carries a comma in the MIDDLE, and
+    // trimming only the edges left it there and missed the match — which
+    // silently broke the whole flow for every button the merchant styled with
+    // a comma. Dropping punctuation does not weaken the exact-match rule that
+    // keeps a quoted keyword inside a sentence from counting.
+    .replace(/[\p{P}\p{S}]+/gu, " ")
     .replace(/\s+/g, " ")
+    .trim()
     // Arabic writes the same word with and without diacritics/hamza forms;
     // matching would otherwise depend on which keyboard the shopper used.
     .replace(/[أإآ]/g, "ا")

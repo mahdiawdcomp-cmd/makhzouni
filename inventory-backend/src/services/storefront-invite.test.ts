@@ -40,6 +40,19 @@ describe("matchesInviteKeyword", () => {
     assert.equal(matchesInviteKeyword("توقف", KW), false);
   });
 
+  // The exact labels on the shop's live toys_offer_intro template. The first
+  // one carries a comma in the middle — the shape that used to miss.
+  test("matches the live quick-reply button labels", () => {
+    assert.equal(matchesInviteKeyword("نعم، أريد حسابي", KW), true);
+    assert.equal(matchesInviteKeyword("نعم، اريد حسابي", KW), true);
+  });
+
+  test("matches a label however the merchant punctuates it", () => {
+    const custom = ["افتحلي حساب"];
+    assert.equal(matchesInviteKeyword("افتحلي، حساب", custom), true);
+    assert.equal(matchesInviteKeyword("افتحلي حساب!", custom), true);
+  });
+
   test("honours a merchant's custom button label", () => {
     assert.equal(matchesInviteKeyword("افتحلي حساب", ["افتحلي حساب"]), true);
     assert.equal(matchesInviteKeyword("حسابي", ["افتحلي حساب"]), false);
