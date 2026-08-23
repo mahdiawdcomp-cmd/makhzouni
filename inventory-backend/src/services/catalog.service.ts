@@ -781,6 +781,11 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
   });
 
   const catalogDesign = {
+    // Shown to customers and visitors alike — one line the shop controls.
+    announcement:
+      settings.catalogAnnouncementEnabled === true && settings.catalogAnnouncementText?.trim()
+        ? settings.catalogAnnouncementText.trim()
+        : null,
     primaryColor: settings.catalogDesignPrimaryColor ?? null,
     bgColor: settings.catalogDesignBgColor ?? null,
     defaultTheme: settings.catalogDesignDefaultTheme ?? "clean",
@@ -963,8 +968,15 @@ async function assertGuestCatalogEnabled() {
   }
 }
 
-export async function listGuestCatalogProducts() {
-  await assertGuestCatalogEnabled();
+/**
+ * The open catalog grid — every in-stock product, no per-customer filtering.
+ *
+ * Shared by anonymous guest browsing and by a signed-in visitor, which differ
+ * in exactly two ways: whether open browsing has to be enabled at all, and
+ * whether prices are shown. Keeping one body means the two can never drift
+ * into showing different products.
+ */
+async function listOpenCatalogProducts(opts: { withPrices: boolean }) {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     omit: { imageUrl: true },
@@ -995,7 +1007,9 @@ export async function listGuestCatalogProducts() {
         oldPrice: null,
         offerEndsAt: product.offerEndsAt,
         createdAt: product.createdAt,
-        salePrice: null, // guests never see prices — request access first
+        // Hidden until the shop unlocks them for this visitor; a guest with
+        // no account never gets them at all.
+        salePrice: opts.withPrices ? Number(product.salePrice ?? 0) : null,
         pcsPerCarton: product.pcsPerCarton,
         boxPieces: product.boxPieces,
         hiddenUnits: product.hiddenUnits,
@@ -1006,6 +1020,19 @@ export async function listGuestCatalogProducts() {
     .filter((product) => product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
 
   return applyCatalogOrder(mapped, await catalogOrderSeed());
+}
+
+export async function listGuestCatalogProducts() {
+  await assertGuestCatalogEnabled();
+  return listOpenCatalogProducts({ withPrices: false });
+}
+
+/**
+ * The grid for a signed-in visitor. No guest-mode gate: they proved a code,
+ * so browsing is theirs whether or not the shop leaves anonymous browsing on.
+ */
+export async function listVisitorCatalogProducts(opts: { pricesUnlocked: boolean }) {
+  return listOpenCatalogProducts({ withPrices: opts.pricesUnlocked });
 }
 
 export async function getGuestCatalogProductImage(productId: string) {

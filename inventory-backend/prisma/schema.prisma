@@ -923,6 +923,36 @@ model CatalogVisitor {
   lockedUntil        DateTime? @map("locked_until")
   detailsSubmittedAt DateTime? @map("details_submitted_at")
 
+  // ── Who they are ────────────────────────────────────────────────────
+  // Held HERE, not in an approvals row, because a visitor is now a real
+  // standing identity: they browse, they order, and they may never become a
+  // shop customer at all. Promoting them to a Customer is a deliberate press
+  // of «احفظ كزبون بالمحل», never a side effect of signing in.
+  name         String?
+  address      String?
+  notes        String?
+  province     String?
+  businessType String? @map("business_type")
+
+  // Browsing session, issued at sign-in. Separate from CatalogAccessLink on
+  // purpose: that table's token is bound to a Customer row by a non-null FK,
+  // and inventing a Customer just to hand out a token is exactly what this
+  // whole change exists to stop.
+  sessionTokenHash String?   @map("session_token_hash")
+  sessionIssuedAt  DateTime? @map("session_issued_at")
+
+  // Wholesale prices stay hidden until the shop says otherwise — the visitor
+  // asks with «اطلب عرض سعر» and an admin approves. Null = still hidden.
+  pricesUnlockedAt DateTime? @map("prices_unlocked_at")
+  // Set while a price request is waiting, so the button can show its state
+  // and a second request cannot pile another row onto the queue.
+  priceRequestedAt DateTime? @map("price_requested_at")
+
+  // The Customer this visitor was promoted into, if it ever happened. Keeps
+  // the storefront account list honest about who is already on the books.
+  customerId String? @map("customer_id") @db.Uuid
+
+  @@index([sessionTokenHash])
   @@map("catalog_visitors")
 }
 

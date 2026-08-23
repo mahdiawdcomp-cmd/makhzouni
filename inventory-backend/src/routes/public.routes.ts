@@ -10,6 +10,7 @@ import {
   getCatalogSession,
   getGuestCatalogProductImageCtrl,
   getGuestCatalogProducts,
+  getVisitorCatalogProducts,
   guestCatalogEnter,
   trackCatalogProductView,
   postVisitorHeartbeat,
@@ -83,10 +84,15 @@ import {
   submitProductReviewSchema,
   customerLoginSchema,
   visitorDetailsSchema,
+  visitorTokenSchema,
+  visitorTokenQuerySchema,
+  visitorPhoneSchema,
 } from "../utils/schemas";
 import {
   customerLoginCtrl,
   submitVisitorDetailsCtrl,
+  visitorSessionCtrl,
+  requestPriceAccessCtrl,
   customerAccountCtrl,
 } from "../controllers/customer-login.controller";
 import {
@@ -224,7 +230,7 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
         // Not catalogDesign* keys, but the code-request button below needs
         // them — without this they silently read as undefined and the button
         // fell back to a hardcoded keyword instead of the configured one.
-        { key: { in: ["storefrontInviteKeywords", "catalogAdminWhatsappNumber", "storePhone"] } },
+        { key: { in: ["storefrontInviteKeywords", "catalogAdminWhatsappNumber", "storePhone", "catalogAnnouncementEnabled", "catalogAnnouncementText"] } },
       ],
     },
   });
@@ -298,6 +304,10 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
         const keyword = (keywords.find((k) => String(k).trim()) ?? "حسابي").trim();
         return digits ? { whatsapp: digits, keyword } : null;
       })(),
+      announcement: (() => {
+        const text = String((kv.catalogAnnouncementText as string) ?? "").trim();
+        return kv.catalogAnnouncementEnabled === true && text ? text : null;
+      })(),
       guestModeEnabled,
     },
   });
@@ -308,6 +318,10 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
 // safe to use as a standing credential.
 router.post("/catalog/login", catalogLimiter, validate(customerLoginSchema), customerLoginCtrl);
 router.post("/catalog/signup-details", catalogLimiter, validate(visitorDetailsSchema), submitVisitorDetailsCtrl);
+// A signed-in visitor: their own session, their grid, and asking for prices.
+router.get("/catalog/visitor-session", catalogLimiter, validate(visitorTokenQuerySchema), visitorSessionCtrl);
+router.get("/catalog/visitor-products", catalogLimiter, validate(visitorTokenQuerySchema), getVisitorCatalogProducts);
+router.post("/catalog/request-prices", catalogLimiter, validate(visitorTokenSchema), requestPriceAccessCtrl);
 // The signed-in customer's own account — same data the /client/:token portal
 // serves, reached with the catalog token instead of a second link.
 router.get("/catalog/account", catalogLimiter, validate(catalogAccessQuerySchema), customerAccountCtrl);

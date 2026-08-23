@@ -1178,6 +1178,9 @@ export interface AppSettings {
   storefrontInviteTemplateName?: string
   storefrontInviteMessage?: string
   storefrontInviteKeywords?: string[]
+  storefrontInviteTemplateParams?: string[]
+  catalogAnnouncementEnabled?: boolean
+  catalogAnnouncementText?: string
   catalogAccessApprovedV2TemplateName?: string
   couponExpiryReminderTemplateName?: string
   followUpNoReplyTemplateName?: string

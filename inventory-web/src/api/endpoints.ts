@@ -221,7 +221,27 @@ export async function getCatalogSession(access: string) {
 
 export type CustomerLoginResult =
   | { kind: "CUSTOMER"; token: string; customer: { id: string; name: string; phone: string } }
-  | { kind: "VISITOR"; phone: string; detailsSubmitted: boolean }
+  | {
+      kind: "VISITOR"
+      phone: string
+      token: string
+      detailsSubmitted: boolean
+      pricesUnlocked: boolean
+      priceRequestPending: boolean
+    }
+
+export interface VisitorSession {
+  phone: string
+  name: string | null
+  address: string | null
+  notes: string | null
+  province: string | null
+  businessType: string | null
+  detailsSubmitted: boolean
+  pricesUnlocked: boolean
+  priceRequestPending: boolean
+  customerId: string | null
+}
 
 export async function customerLogin(phone: string, code: string) {
   const { data } = await api.post<ApiEnvelope<CustomerLoginResult>>(
@@ -230,13 +250,82 @@ export async function customerLogin(phone: string, code: string) {
   return data.data!
 }
 
+/** Identified by the browsing session, never by a phone the caller supplies. */
 export async function submitStorefrontSignupDetails(payload: {
-  phone: string; customerName: string; address?: string; notes?: string
+  token: string; customerName: string; address?: string; notes?: string
+  province?: string; businessType?: string
 }) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>(
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>(
     "/public/catalog/signup-details", payload,
   )
   return data
+}
+
+export async function getVisitorSession(token: string) {
+  const { data } = await api.get<ApiEnvelope<VisitorSession>>(
+    "/public/catalog/visitor-session", { params: { token } },
+  )
+  return data.data!
+}
+
+export async function getVisitorCatalogProducts(token: string) {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>(
+    "/public/catalog/visitor-products", { params: { token } },
+  )
+  return data.data ?? []
+}
+
+export async function requestCatalogPrices(token: string) {
+  const { data } = await api.post<ApiEnvelope<{ alreadyUnlocked: boolean; pending: boolean }>>(
+    "/public/catalog/request-prices", { token },
+  )
+  return data.data!
+}
+
+/* ── Storefront accounts, admin side ──────────────────────────────── */
+
+export interface StorefrontAccountRow {
+  kind: "CUSTOMER" | "VISITOR"
+  phone: string
+  name: string
+  address: string | null
+  province: string | null
+  lastLoginAt: string | null
+  detailsSubmitted: boolean
+  pricesUnlocked: boolean
+  priceRequestPending: boolean
+  customerId: string | null
+  hasCode: boolean
+  locked: boolean
+}
+
+export async function listStorefrontAccountsUnified(search?: string) {
+  const { data } = await api.get<ApiEnvelope<StorefrontAccountRow[]>>(
+    "/catalog-management/accounts/unified", { params: search ? { search } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function grantCatalogPrices(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
+    "/catalog-management/accounts/grant-prices", { phone },
+  )
+  return data.data!
+}
+
+export async function revokeCatalogPrices(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
+    "/catalog-management/accounts/revoke-prices", { phone },
+  )
+  return data.data!
+}
+
+/** «احفظ كزبون بالمحل» — the only thing that puts a visitor on the books. */
+export async function promoteVisitorToCustomer(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; customerName: string; created: boolean }>>(
+    "/catalog-management/accounts/promote", { phone },
+  )
+  return data.data!
 }
 
 export interface CustomerAccountTx {

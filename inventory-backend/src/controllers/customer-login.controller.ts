@@ -18,6 +18,15 @@ import {
   type TargetGroup,
 } from "../services/storefront-credentials.service";
 import { sendInvitesToGroup } from "../services/storefront-invite.service";
+import {
+  saveVisitorDetails,
+  resolveVisitorSession,
+  requestPriceAccess,
+  grantPriceAccess,
+  revokePriceAccess,
+  promoteVisitorToCustomer,
+  listStorefrontAccountsUnified,
+} from "../services/catalog-visitor.service";
 
 /* ── Public ──────────────────────────────────────────────────────── */
 
@@ -27,16 +36,52 @@ export const customerLoginCtrl = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
+// Details are saved straight onto the visitor, no approval queue: the shop
+// approves prices now, not people, so there is nothing here to wait on.
 export const submitVisitorDetailsCtrl = asyncHandler(async (req, res) => {
-  const { phone, customerName, address, notes } = req.body as {
-    phone: string; customerName: string; address?: string; notes?: string;
+  const { token, customerName, address, notes, province, businessType } = req.body as {
+    token: string; customerName: string; address?: string; notes?: string;
+    province?: string; businessType?: string;
   };
-  const result = await submitVisitorDetails(phone, { customerName, address, notes });
-  res.status(201).json({
-    success: true,
-    message: "تم إرسال بياناتك — بانتظار موافقة الإدارة",
-    data: result,
+  const result = await saveVisitorDetails(token, {
+    name: customerName, address, notes, province, businessType,
   });
+  res.status(201).json({ success: true, message: "تم حفظ بياناتك", data: result });
+});
+
+export const visitorSessionCtrl = asyncHandler(async (req, res) => {
+  const session = await resolveVisitorSession(String(req.query.token ?? ""));
+  if (!session) throw new AppError("سجّل الدخول أولاً", 401, "VISITOR_SESSION_INVALID");
+  res.json({ success: true, data: session });
+});
+
+export const requestPriceAccessCtrl = asyncHandler(async (req, res) => {
+  const data = await requestPriceAccess(String((req.body as { token: string }).token));
+  res.json({ success: true, data });
+});
+
+/* ── Admin side of the storefront accounts screen ─────────────────── */
+
+export const unifiedAccountsCtrl = asyncHandler(async (req, res) => {
+  const data = await listStorefrontAccountsUnified(
+    typeof req.query.search === "string" ? req.query.search : undefined,
+  );
+  res.json({ success: true, data });
+});
+
+export const grantPricesCtrl = asyncHandler(async (req, res) => {
+  const data = await grantPriceAccess(String((req.body as { phone: string }).phone));
+  res.json({ success: true, data });
+});
+
+export const revokePricesCtrl = asyncHandler(async (req, res) => {
+  const data = await revokePriceAccess(String((req.body as { phone: string }).phone));
+  res.json({ success: true, data });
+});
+
+export const promoteVisitorCtrl = asyncHandler(async (req, res) => {
+  const data = await promoteVisitorToCustomer(String((req.body as { phone: string }).phone));
+  res.json({ success: true, data });
 });
 
 export const customerAccountCtrl = asyncHandler(async (req, res) => {

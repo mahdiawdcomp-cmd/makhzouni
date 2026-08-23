@@ -5,15 +5,17 @@ import {
   applyPricesDefaultToAll,
   getCredentialTargetCounts,
   getSettings,
-  listStorefrontAccounts,
+  listStorefrontAccountsUnified,
+  grantCatalogPrices,
+  revokeCatalogPrices,
+  promoteVisitorToCustomer,
   sendStorefrontCredentials,
   sendStorefrontCredentialsToAll,
   sendStorefrontInvitesToAll,
   setCustomerPricesHidden,
   unlockStorefrontAccount,
   updateSettings,
-  type StorefrontCustomerAccount,
-  type StorefrontVisitorAccount,
+  type StorefrontAccountRow,
 } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -22,7 +24,7 @@ import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
 import { MarketingOptOutCard } from "./MarketingOptOutCard"
-import { StorefrontInviteCard } from "./StorefrontInviteCard"
+import { CatalogAnnouncementCard, StorefrontInviteCard } from "./StorefrontInviteCard"
 
 type Group = "customers" | "visitors"
 
@@ -59,13 +61,7 @@ export function StorefrontAccountsTab() {
   const [group, setGroup] = useState<Group>("customers")
   const [confirmBulk, setConfirmBulk] = useState(false)
   const [confirmInvite, setConfirmInvite] = useState(false)
-
-  const accountsQuery = useQuery({
-    queryKey: ["storefront-accounts", search],
-    queryFn: () => listStorefrontAccounts(search.trim() || undefined),
-  })
-  const customers = useMemo(() => accountsQuery.data?.customers ?? [], [accountsQuery.data])
-  const visitors = useMemo(() => accountsQuery.data?.visitors ?? [], [accountsQuery.data])
+  const [confirmPromote, setConfirmPromote] = useState<string | null>(null)
 
   // The rows above are paged; these are the real totals a "send to all" hits.
   const countsQuery = useQuery({
@@ -108,7 +104,40 @@ export function StorefrontAccountsTab() {
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ["storefront-accounts"] })
     void qc.invalidateQueries({ queryKey: ["credential-target-counts"] })
+    void qc.invalidateQueries({ queryKey: ["storefront-accounts-unified"] })
   }
+
+  const unifiedQuery = useQuery({
+    queryKey: ["storefront-accounts-unified", search],
+    queryFn: () => listStorefrontAccountsUnified(search.trim() || undefined),
+  })
+  const rows = useMemo(
+    () => (unifiedQuery.data ?? []).filter(
+      (r: StorefrontAccountRow) => (group === "customers" ? r.kind === "CUSTOMER" : r.kind === "VISITOR"),
+    ),
+    [unifiedQuery.data, group],
+  )
+
+  const grantMut = useMutation({
+    mutationFn: (phone: string) => grantCatalogPrices(phone),
+    onSuccess: () => { toast({ title: "تم فتح الأسعار" }); refresh() },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الفتح", variant: "destructive" }),
+  })
+
+  const revokeMut = useMutation({
+    mutationFn: (phone: string) => revokeCatalogPrices(phone),
+    onSuccess: () => { toast({ title: "تم إخفاء الأسعار" }); refresh() },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الإخفاء", variant: "destructive" }),
+  })
+
+  const promoteMut = useMutation({
+    mutationFn: (phone: string) => promoteVisitorToCustomer(phone),
+    onSuccess: (r) => {
+      toast({ title: r.created ? `صار زبون بالمحل: ${r.customerName}` : "هذا الرقم زبون عندك أصلاً" })
+      refresh()
+    },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحفظ", variant: "destructive" }),
+  })
 
   const sendOneMut = useMutation({
     mutationFn: (t: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }) =>
@@ -233,99 +262,117 @@ export function StorefrontAccountsTab() {
             الدفعة الوحدة ٥٠ رقم حماية لتقييم رقمك؛ للأعداد الكبيرة استخدم الحملات.
           </p>
 
-          {accountsQuery.isLoading && <p className="py-6 text-center text-sm text-slate-400">جاري التحميل...</p>}
+          {unifiedQuery.isLoading && <p className="py-6 text-center text-sm text-slate-400">جاري التحميل...</p>}
 
-          {group === "customers" && (
-            <div className="space-y-2">
-              {customers.map((c: StorefrontCustomerAccount) => (
-                <div key={c.id} className={rowShell}>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-slate-800">{c.name}</p>
-                    <p className="text-xs text-slate-400" dir="ltr">{c.phone}</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">
-                      {c.hasCode ? `أُرسل الرمز ${fmtDate(c.codeSetAt)}` : "ما عنده رمز بعد"}
-                      {c.lastLoginAt ? ` · آخر دخول ${fmtDate(c.lastLoginAt)}` : ""}
-                    </p>
-                    {c.locked && (
-                      <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600">
+          {/* One labelled list. A row says plainly whether that phone is on the
+              shop's books, so nobody has to cross-reference two screens. */}
+          <div className="space-y-2">
+            {group === "visitors" && (
+              <p className="text-[11px] text-slate-400">
+                أرقام تتصفح الكتلوك وما دخلت سجلات المحل. تصير زبون بس لما تضغط «احفظ كزبون»،
+                أو لما توافق على أول طلب إله.
+              </p>
+            )}
+            {rows.map((r) => (
+              <div key={r.phone} className={rowShell}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="truncate text-sm font-bold text-slate-800">{r.name || "بلا اسم"}</p>
+                    <span className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
+                      r.kind === "CUSTOMER" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600",
+                    )}>
+                      {r.kind === "CUSTOMER" ? "زبون المحل" : "زائر"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400" dir="ltr">{r.phone}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    {r.hasCode ? "عنده رمز" : "ما عنده رمز بعد"}
+                    {r.lastLoginAt ? ` · آخر دخول ${fmtDate(r.lastLoginAt)}` : ""}
+                    {r.address ? ` · ${r.address}` : ""}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {r.priceRequestPending && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                        ⏳ يطلب عرض أسعار
+                      </span>
+                    )}
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[11px] font-bold",
+                      r.pricesUnlocked ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500",
+                    )}>
+                      {r.pricesUnlocked ? "الأسعار مفتوحة" : "الأسعار مخفية"}
+                    </span>
+                    {r.kind === "VISITOR" && !r.detailsSubmitted && (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">
+                        ما كمّل بياناته
+                      </span>
+                    )}
+                    {r.locked && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600">
                         <Lock className="h-3 w-3" /> مقفل مؤقتاً
                       </span>
                     )}
                   </div>
+                </div>
 
+                {r.kind === "CUSTOMER" ? (
                   <label className="flex shrink-0 flex-col items-center gap-1 text-[10px] font-semibold text-slate-500">
-                    <input type="checkbox" checked={c.pricesHidden}
-                      onChange={(e) => pricesMut.mutate({ id: c.id, hidden: e.target.checked })}
+                    <input type="checkbox" checked={!r.pricesUnlocked}
+                      onChange={(e) => r.customerId && pricesMut.mutate({ id: r.customerId, hidden: e.target.checked })}
                       className="h-4 w-4 accent-amber-600" />
                     إخفاء السعر
                   </label>
-
-                  {c.locked && (
-                    <button onClick={() => unlockMut.mutate({ kind: "CUSTOMER", idOrPhone: c.id })}
-                      className="shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
-                      title="فك القفل">
-                      <Unlock className="h-4 w-4" />
-                    </button>
-                  )}
-                  <button onClick={() => sendOneMut.mutate({ kind: "CUSTOMER", id: c.id })}
-                    disabled={sendOneMut.isPending}
-                    className="shrink-0 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50">
-                    {c.hasCode ? "رمز جديد" : "إرسال"}
+                ) : (
+                  <button
+                    onClick={() => (r.pricesUnlocked ? revokeMut : grantMut).mutate(r.phone)}
+                    disabled={grantMut.isPending || revokeMut.isPending}
+                    className={cn(
+                      "shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition disabled:opacity-50",
+                      r.pricesUnlocked
+                        ? "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+                    )}>
+                    {r.pricesUnlocked ? "إخفاء الأسعار" : "افتح الأسعار"}
                   </button>
-                </div>
-              ))}
-              {!accountsQuery.isLoading && customers.length === 0 && (
-                <p className="py-6 text-center text-sm text-slate-400">ما في زبائن مطابقين</p>
-              )}
-            </div>
-          )}
+                )}
 
-          {group === "visitors" && (
-            <div className="space-y-2">
-              <p className="text-[11px] text-slate-400">
-                أرقام دخلت الكتلوك وما صارت زبائن بعد. لما يدخل ويرسل بياناته، يوصلك طلب بصفحة الموافقات
-                تعدله وتوافق عليه قبل ما يصير حساب زبون.
-              </p>
-              {visitors.map((v: StorefrontVisitorAccount) => (
-                <div key={v.phone} className={rowShell}>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-bold text-slate-800" dir="ltr">{v.phone}</p>
-                    <p className="mt-0.5 text-[11px] text-slate-400">
-                      {v.hasCode ? `أُرسل الرمز ${fmtDate(v.codeSetAt)}` : "ما عنده رمز بعد"}
-                      {v.lastLoginAt ? ` · آخر دخول ${fmtDate(v.lastLoginAt)}` : ""}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {v.detailsSubmitted && (
-                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
-                          أرسل بياناته — بانتظار موافقتك
-                        </span>
-                      )}
-                      {v.locked && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600">
-                          <Lock className="h-3 w-3" /> مقفل مؤقتاً
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {v.locked && (
-                    <button onClick={() => unlockMut.mutate({ kind: "VISITOR", idOrPhone: v.phone })}
-                      className="shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
-                      title="فك القفل">
-                      <Unlock className="h-4 w-4" />
-                    </button>
-                  )}
-                  <button onClick={() => sendOneMut.mutate({ kind: "VISITOR", phone: v.phone })}
-                    disabled={sendOneMut.isPending}
-                    className="shrink-0 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50">
-                    {v.hasCode ? "رمز جديد" : "إرسال"}
+                {r.kind === "VISITOR" && (
+                  <button
+                    onClick={() => setConfirmPromote(r.phone)}
+                    disabled={promoteMut.isPending}
+                    className="shrink-0 rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-100 disabled:opacity-50">
+                    احفظ كزبون
                   </button>
-                </div>
-              ))}
-              {!accountsQuery.isLoading && visitors.length === 0 && (
-                <p className="py-6 text-center text-sm text-slate-400">ما في أرقام جديدة</p>
-              )}
-            </div>
-          )}
+                )}
+
+                {r.locked && (
+                  <button
+                    onClick={() => unlockMut.mutate({
+                      kind: r.kind,
+                      idOrPhone: r.kind === "CUSTOMER" ? (r.customerId ?? r.phone) : r.phone,
+                    })}
+                    className="shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
+                    title="فك القفل">
+                    <Unlock className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  onClick={() => sendOneMut.mutate(
+                    r.kind === "CUSTOMER"
+                      ? { kind: "CUSTOMER", id: r.customerId ?? undefined }
+                      : { kind: "VISITOR", phone: r.phone },
+                  )}
+                  disabled={sendOneMut.isPending}
+                  className="shrink-0 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50">
+                  {r.hasCode ? "رمز جديد" : "إرسال"}
+                </button>
+              </div>
+            ))}
+            {!unifiedQuery.isLoading && rows.length === 0 && (
+              <p className="py-6 text-center text-sm text-slate-400">ما في نتائج</p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -434,6 +481,8 @@ export function StorefrontAccountsTab() {
         </CardContent>
       </Card>
 
+      <CatalogAnnouncementCard />
+
       <StorefrontInviteCard />
 
       <MarketingOptOutCard />
@@ -494,6 +543,19 @@ export function StorefrontAccountsTab() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmPromote !== null}
+        title="حفظ كزبون بالمحل"
+        description={
+          "راح ينضاف هذا الرقم لسجل زبائن المحل ببياناته، ورمز دخوله يبقى نفسه. " +
+          "بعدها تكدر تقطعله فواتير وكشف حساب."
+        }
+        confirmLabel="احفظ"
+        loading={promoteMut.isPending}
+        onConfirm={() => { const p = confirmPromote; setConfirmPromote(null); if (p) promoteMut.mutate(p) }}
+        onCancel={() => setConfirmPromote(null)}
+      />
 
       <ConfirmDialog
         open={confirmInvite}

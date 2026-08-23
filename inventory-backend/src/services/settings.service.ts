@@ -74,6 +74,11 @@ export interface AppSettings {
   // parameters are sent with it — and the entry template most shops already
   // run is a plain paragraph with none.
   storefrontInviteTemplateParams?: string[];
+  // «شريط الإعلان» — one line the shop writes for everyone browsing the
+  // catalog: a running offer, a promo code, a holiday closure. Shown to
+  // customers and visitors alike; empty text hides the bar entirely.
+  catalogAnnouncementEnabled?: boolean;
+  catalogAnnouncementText?: string;
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -372,6 +377,8 @@ export const defaultSettings: AppSettings = {
   storefrontInviteMessage: "",
   storefrontInviteKeywords: [],
   storefrontInviteTemplateParams: [],
+  catalogAnnouncementEnabled: false,
+  catalogAnnouncementText: "",
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

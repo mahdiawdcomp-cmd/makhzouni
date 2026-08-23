@@ -251,13 +251,29 @@ export const customerLoginSchema = z.object({
   }),
 });
 
+// Identified by the browsing session, not by a phone in the body: a phone
+// alone would let anyone overwrite a stranger's details.
 export const visitorDetailsSchema = z.object({
   body: z.object({
-    phone: z.string().trim().min(5).max(40),
+    token: z.string().trim().min(10).max(200),
     customerName: z.string().trim().min(2).max(120),
     address: z.string().trim().max(240).optional(),
     notes: z.string().trim().max(500).optional(),
+    province: z.string().trim().max(60).optional(),
+    businessType: z.string().trim().max(60).optional(),
   }),
+});
+
+export const visitorTokenSchema = z.object({
+  body: z.object({ token: z.string().trim().min(10).max(200) }),
+});
+
+export const visitorTokenQuerySchema = z.object({
+  query: z.object({ token: z.string().trim().min(10).max(200) }),
+});
+
+export const visitorPhoneSchema = z.object({
+  body: z.object({ phone: z.string().trim().min(5).max(40) }),
 });
 
 const credentialTargetSchema = z.object({
@@ -1135,6 +1151,8 @@ export const updateSettingsSchema = z.object({
       storefrontInviteMessage: nullAsUndefined(z.string()),
       storefrontInviteKeywords: nullAsUndefined(z.array(z.string().trim())),
       storefrontInviteTemplateParams: nullAsUndefined(z.array(z.string())),
+      catalogAnnouncementEnabled: nullAsUndefined(z.boolean()),
+      catalogAnnouncementText: nullAsUndefined(z.string()),
       catalogAccessApprovedV2TemplateName: nullAsUndefined(z.string().trim()),
       couponExpiryReminderTemplateName: nullAsUndefined(z.string().trim()),
       followUpNoReplyTemplateName: nullAsUndefined(z.string().trim()),

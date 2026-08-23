@@ -91,9 +91,15 @@ export type CustomerLoginResult =
     }
   | {
       kind: "VISITOR";
-      /** Signed-in but not a customer yet — the UI collects details next. */
+      /**
+       * Signed in, but not on the shop's books. They browse with this session
+       * token; whether they ever become a Customer is the merchant's call.
+       */
       phone: string;
+      token: string;
       detailsSubmitted: boolean;
+      pricesUnlocked: boolean;
+      priceRequestPending: boolean;
     };
 
 export async function customerLogin(rawPhone: string, rawCode: string): Promise<CustomerLoginResult> {
@@ -173,10 +179,17 @@ export async function customerLogin(rawPhone: string, rawCode: string): Promise<
     data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() },
   });
 
+  const { issueVisitorSession, resolveVisitorSession } = await import("./catalog-visitor.service");
+  const token = await issueVisitorSession(visitor.phone);
+  const session = await resolveVisitorSession(token);
+
   return {
     kind: "VISITOR",
     phone: visitor.phone,
-    detailsSubmitted: Boolean(visitor.detailsSubmittedAt),
+    token,
+    detailsSubmitted: Boolean(session?.detailsSubmitted),
+    pricesUnlocked: Boolean(session?.pricesUnlocked),
+    priceRequestPending: Boolean(session?.priceRequestPending),
   };
 }
 

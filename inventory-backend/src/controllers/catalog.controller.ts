@@ -86,6 +86,17 @@ export const getGuestCatalogProducts = asyncHandler(async (_req, res) => {
   res.json({ success: true, data: products });
 });
 
+// A signed-in visitor's grid. Same products as guest browsing, but gated on
+// their session instead of the shop's open-browsing switch, and carrying
+// prices once the shop has unlocked them for this phone.
+export const getVisitorCatalogProducts = asyncHandler(async (req, res) => {
+  const { requireVisitorSession } = await import("../services/catalog-visitor.service");
+  const { listVisitorCatalogProducts } = await import("../services/catalog.service");
+  const session = await requireVisitorSession(String(req.query.token ?? ""));
+  const products = await listVisitorCatalogProducts({ pricesUnlocked: session.pricesUnlocked });
+  res.json({ success: true, data: products });
+});
+
 export const getGuestCatalogProductImageCtrl = asyncHandler(async (req, res) => {
   const imageUrl = await getGuestCatalogProductImage(String(req.query.id ?? ""));
   res.json({ success: true, data: { imageUrl } });

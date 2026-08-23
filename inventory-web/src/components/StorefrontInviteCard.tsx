@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MessageSquarePlus } from "lucide-react"
+import { Megaphone, MessageSquarePlus } from "lucide-react"
 import { getSettings, updateSettings } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -102,6 +102,79 @@ export function StorefrontInviteCard() {
           onClick={() => saveMut.mutate()}
         >
           {saveMut.isPending ? "جاري الحفظ..." : "حفظ"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * «شريط الإعلان» — one line shown at the top of the catalog to everyone
+ * browsing, customer and visitor alike. Empty text hides the bar even when
+ * the switch is on, so clearing it is enough to take an offer down.
+ */
+export function CatalogAnnouncementCard() {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const savedText = settingsQuery.data?.catalogAnnouncementText ?? ""
+  const enabled = settingsQuery.data?.catalogAnnouncementEnabled ?? false
+  const text = draft ?? savedText
+
+  const saveMut = useMutation({
+    mutationFn: (next: { text?: string; enabled?: boolean }) => updateSettings({
+      ...(next.text !== undefined ? { catalogAnnouncementText: next.text } : {}),
+      ...(next.enabled !== undefined ? { catalogAnnouncementEnabled: next.enabled } : {}),
+    }),
+    onSuccess: () => {
+      toast({ title: "تم الحفظ" })
+      setDraft(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Megaphone className="h-5 w-5 text-amber-600" />
+          شريط الإعلان بالكتلوك
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          سطر واحد يطلع بأعلى الكتلوك لكل الي يتصفحون — زبائن المحل والزوار. اكتب بيه العرض
+          الشغال أو كود الخصم. إذا فرّغته، الشريط ما يطلع حتى لو المفتاح مفتوح.
+        </p>
+
+        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => saveMut.mutate({ enabled: e.target.checked })}
+            className="h-4 w-4 accent-amber-600"
+          />
+          إظهار الشريط
+        </label>
+
+        <textarea
+          value={text}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={2}
+          maxLength={200}
+          placeholder="مثال: خصم ١٠٪ على كل الألعاب لحد نهاية الأسبوع — كود: EID10"
+          className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-amber-500"
+        />
+
+        <Button
+          size="sm"
+          className="w-full"
+          disabled={draft === null || saveMut.isPending}
+          onClick={() => saveMut.mutate({ text: text.trim() })}
+        >
+          {saveMut.isPending ? "جاري الحفظ..." : "حفظ النص"}
         </Button>
       </CardContent>
     </Card>

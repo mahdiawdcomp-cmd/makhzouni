@@ -547,6 +547,20 @@ async function executeApprovedRequest(
             totalPrice: undefined,
           }));
 
+      // «عند أول طلب» — approving an order is the merchant saying this person
+      // is real, and an invoice has to belong to a Customer anyway. Runs
+      // outside the transaction and never blocks the approval: a visitor row
+      // that fails to promote leaves the order untouched and can still be
+      // promoted by hand from the storefront accounts screen.
+      setImmediate(async () => {
+        try {
+          const { promoteVisitorToCustomer } = await import("./catalog-visitor.service");
+          await promoteVisitorToCustomer(phone);
+        } catch {
+          /* not a visitor, or already a customer — nothing to do */
+        }
+      });
+
       // Create preparation record without invoice — invoice created when staff marks prepared
       const prep = await tx.orderPreparation.create({
         data: {

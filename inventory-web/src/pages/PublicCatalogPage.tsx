@@ -37,6 +37,7 @@ import {
   getPublicCatalogProducts,
   getPublicCatalogProductImage,
   getGuestCatalogProducts,
+  getVisitorCatalogProducts,
   getGuestCatalogProductImage,
   guestCatalogEnter,
   trackCatalogProductView,
@@ -50,6 +51,8 @@ import {
   validatePublicPromoCode,
   customerLogin,
   submitStorefrontSignupDetails,
+  getVisitorSession,
+  requestCatalogPrices,
   getCustomerAccount,
   EMPTY_CATALOG_FOOTER,
   EMPTY_CATALOG_TRUST,
@@ -81,6 +84,9 @@ type AccentKey =
 const PAGE_SIZE = 40
 
 const storageKey = "inventory_catalog_access"
+// A signed-in visitor's browsing session. Deliberately a different key from
+// the customer token above: the two resolve to different things server-side.
+const VISITOR_TOKEN_KEY = "catalog_visitor_token"
 const themeKey = "catalog_theme"
 const accentKey = "catalog_accent"
 const fontScaleKey = "catalog_font_scale"
@@ -314,6 +320,24 @@ export function PublicCatalogPage() {
     setSearchParams({}, { replace: true })
   }
 
+  // A signed-in visitor: browsing without being on the shop's books. Kept
+  // separate from the customer token because the two resolve to different
+  // things server-side and must never be confused for one another.
+  const [visitorToken, setVisitorToken] = useState<string>(
+    () => localStorage.getItem(VISITOR_TOKEN_KEY) || "",
+  )
+  function handleVisitor(token: string) {
+    localStorage.setItem(VISITOR_TOKEN_KEY, token)
+    setVisitorToken(token)
+  }
+  const visitorQuery = useQuery({
+    queryKey: ["visitor-session", visitorToken],
+    queryFn: () => getVisitorSession(visitorToken),
+    enabled: Boolean(visitorToken) && !accessToken,
+    retry: false,
+    staleTime: 60_000,
+  })
+
   const sessionQuery = useQuery({
     queryKey: ["catalog-session", accessToken],
     queryFn: () => getCatalogSession(accessToken),
@@ -360,7 +384,40 @@ export function PublicCatalogPage() {
         </GuestPhoneGate>
       )
     }
-    return <LoginGate onAccess={handleAccess} />
+    // A visitor session outranks the login form: they already proved a code.
+    if (visitorToken && visitorQuery.data) {
+      const visitor = visitorQuery.data
+      if (!visitor.detailsSubmitted) {
+        return (
+          <VisitorDetailsGate
+            token={visitorToken}
+            phone={visitor.phone}
+            onDone={() => visitorQuery.refetch()}
+          />
+        )
+      }
+      return (
+        <CatalogShop
+          accessToken="" visitorToken={visitorToken}
+          allowPrices={visitor.pricesUnlocked} showStock stockFilter="FULL_CARTON_ONLY"
+          customerId="" customerName={visitor.name ?? ""} customerPhone={visitor.phone}
+          guestMode
+          priceRequestPending={visitor.priceRequestPending}
+          onPricesRequested={() => visitorQuery.refetch()}
+        />
+      )
+    }
+    if (visitorToken && visitorQuery.isLoading) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
+          <div className="flex flex-col items-center gap-3 text-gray-400">
+            <ShoppingBag className="h-10 w-10 animate-pulse" />
+            <p className="text-sm font-medium">جاري فتح المتجر...</p>
+          </div>
+        </div>
+      )
+    }
+    return <LoginGate onAccess={handleAccess} onVisitor={handleVisitor} />
   }
 
   if (sessionQuery.isPending || sessionQuery.isLoading)
@@ -373,7 +430,7 @@ export function PublicCatalogPage() {
       </div>
     )
 
-  if (!sessionQuery.data) return <LoginGate onAccess={handleAccess} />
+  if (!sessionQuery.data) return <LoginGate onAccess={handleAccess} onVisitor={handleVisitor} />
 
   const { customer, allowPrices, showStock, stockFilter, needsOtp, deliveryLine, firstOrderCoupon } = sessionQuery.data
 
@@ -499,16 +556,69 @@ const SIGNUP_PHONE_KEY = "catalog_signup_phone"
 
 type CodeRequest = { whatsapp: string; keyword: string }
 
-function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
-  const [phone, setPhone] = useState("")
-  const [code, setCode] = useState("")
-  const [msg, setMsg] = useState("")
-  // A visitor who signed in but has no customer record yet.
-  const [signupPhone, setSignupPhone] = useState<string | null>(null)
-  const [signupDone, setSignupDone] = useState(false)
+/**
+ * Who the visitor is — asked once, before any browsing.
+ *
+ * Nothing is queued for approval here. The shop decides about prices and
+ * about putting someone on its books; it does not decide whether a person is
+ * allowed to look at the catalog, so there is nothing to wait for.
+ */
+function VisitorDetailsGate({
+  token, phone, onDone,
+}: { token: string; phone: string; onDone: () => void }) {
   const [name, setName] = useState("")
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
+  const [msg, setMsg] = useState("")
+
+  const saveMut = useMutation({
+    mutationFn: () => submitStorefrontSignupDetails({
+      token,
+      customerName: name.trim(),
+      address: address.trim() || undefined,
+      notes: notes.trim() || undefined,
+    }),
+    onSuccess: () => { setMsg(""); onDone() },
+    onError: (e) => setMsg(e instanceof Error ? e.message : "تعذر حفظ بياناتك"),
+  })
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8" dir="rtl">
+      <div className="mb-6 flex flex-col items-center gap-2">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
+          <ShoppingBag className="h-8 w-8 text-white" />
+        </div>
+        <h1 className="text-xl font-extrabold text-gray-900">خطوة وحدة وتفوت</h1>
+        <p className="text-sm text-gray-500">عرّفنا بنفسك ونفتحلك المتجر</p>
+      </div>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
+        <p className="mb-3 text-center text-xs text-emerald-600">✓ تم الدخول برقم {phone}</p>
+        <div className="space-y-3">
+          <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
+          <Field icon="📍" placeholder="العنوان" value={address} onChange={setAddress} />
+          <Field icon="📝" placeholder="نوع عملك أو ملاحظات (اختياري)" value={notes} onChange={setNotes} />
+          <button
+            disabled={name.trim().length < 2 || saveMut.isPending}
+            onClick={() => saveMut.mutate()}
+            className="mt-1 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {saveMut.isPending ? "جاري الحفظ..." : "ادخل المتجر"}
+          </button>
+        </div>
+        {msg && (
+          <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">{msg}</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LoginGate({
+  onAccess, onVisitor,
+}: { onAccess: (token: string) => void; onVisitor: (token: string) => void }) {
+  const [phone, setPhone] = useState("")
+  const [code, setCode] = useState("")
+  const [msg, setMsg] = useState("")
 
   // The shop's WhatsApp number plus the exact word the inbound handler
   // matches. Resolved server-side so the button cannot drift out of sync with
@@ -524,21 +634,14 @@ function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
     mutationFn: () => customerLogin(phone.trim(), code.trim()),
     onSuccess: (result) => {
       setMsg("")
+      // A visitor now walks straight in — no approval to wait on. Whether
+      // they ever become a shop customer is the merchant's decision, taken
+      // later from the storefront accounts screen.
       if (result.kind === "CUSTOMER") { onAccess(result.token); return }
       localStorage.setItem(SIGNUP_PHONE_KEY, result.phone)
-      setSignupPhone(result.phone)
-      setSignupDone(result.detailsSubmitted)
+      onVisitor(result.token)
     },
     onError: (e) => setMsg(e instanceof Error ? e.message : "تعذر تسجيل الدخول"),
-  })
-
-  const signupMut = useMutation({
-    mutationFn: () => submitStorefrontSignupDetails({
-      phone: signupPhone ?? "", customerName: name.trim(),
-      address: address.trim() || undefined, notes: notes.trim() || undefined,
-    }),
-    onSuccess: () => { setMsg(""); setSignupDone(true) },
-    onError: (e) => setMsg(e instanceof Error ? e.message : "تعذر إرسال بياناتك"),
   })
 
   const shell = (children: React.ReactNode) => (
@@ -560,50 +663,6 @@ function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
       </div>
     </div>
   )
-
-  // Signed in, details already with the shop — nothing to do but wait.
-  if (signupPhone && signupDone) {
-    return shell(
-      <div className="space-y-3 text-center">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50">
-          <CheckCircle2 className="h-7 w-7 text-emerald-600" />
-        </div>
-        <p className="font-bold text-gray-800">تم استلام بياناتك</p>
-        <p className="text-sm text-gray-500">
-          حسابك بانتظار موافقة الإدارة. راح نتواصل وياك، وبعد الموافقة تقدر تدخل بنفس الرقم والرمز.
-        </p>
-        <button
-          onClick={() => loginMut.mutate()}
-          disabled={loginMut.isPending}
-          className="mt-2 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white transition active:scale-95 disabled:opacity-50"
-        >
-          {loginMut.isPending ? "جاري الفحص..." : "فحص الموافقة"}
-        </button>
-      </div>,
-    )
-  }
-
-  // Signed in as a not-yet-customer — collect who they are.
-  if (signupPhone) {
-    return shell(
-      <div className="space-y-3">
-        <div className="mb-2 text-center">
-          <p className="font-semibold text-gray-800">أكمل بياناتك</p>
-          <p className="mt-1 text-xs text-emerald-600">✓ تم الدخول برقم {signupPhone}</p>
-        </div>
-        <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
-        <Field icon="📍" placeholder="العنوان (اختياري)" value={address} onChange={setAddress} />
-        <Field icon="📝" placeholder="ملاحظات (اختيارية)" value={notes} onChange={setNotes} />
-        <button
-          disabled={name.trim().length < 2 || signupMut.isPending}
-          onClick={() => signupMut.mutate()}
-          className="mt-2 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {signupMut.isPending ? "جاري الإرسال..." : "إرسال بياناتي"}
-        </button>
-      </div>,
-    )
-  }
 
   return shell(
     <div className="space-y-4">
@@ -824,11 +883,16 @@ const TUTORIAL_SEEN_KEY = "catalog_tutorial_seen_v1"
 function CatalogShop({
   accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
   guestMode = false, deliveryLine = null, firstOrderCoupon = null,
+  visitorToken = "", priceRequestPending = false, onPricesRequested,
 }: {
   accessToken: string; allowPrices: boolean; showStock: boolean; stockFilter: CatalogStockFilter
   customerId: string; customerName: string; customerPhone: string
   guestMode?: boolean; deliveryLine?: string | null
   firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
+  /** Set for a signed-in visitor: same layout as guest browsing, own grid. */
+  visitorToken?: string
+  priceRequestPending?: boolean
+  onPricesRequested?: () => void
 }) {
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
@@ -836,8 +900,12 @@ function CatalogShop({
   const canDisplay = (p: PublicCatalogProduct) =>
     guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
   const productsQuery = useQuery({
-    queryKey: guestMode ? ["guest-catalog-products"] : ["public-catalog-products", accessToken],
-    queryFn: () => guestMode ? getGuestCatalogProducts() : getPublicCatalogProducts(accessToken),
+    queryKey: visitorToken
+      ? ["visitor-catalog-products", visitorToken]
+      : guestMode ? ["guest-catalog-products"] : ["public-catalog-products", accessToken],
+    queryFn: () => visitorToken
+      ? getVisitorCatalogProducts(visitorToken)
+      : guestMode ? getGuestCatalogProducts() : getPublicCatalogProducts(accessToken),
     refetchOnMount: "always",
     staleTime: 0,
   })
@@ -851,6 +919,11 @@ function CatalogShop({
   // (catalog_visitors is how anonymous phone numbers get surfaced to admins
   // for conversion) — token-mode customers are already real customers, and
   // nothing in the admin UI reads this data for them, so skip it entirely.
+  const priceMut = useMutation({
+    mutationFn: () => requestCatalogPrices(visitorToken),
+    onSuccess: () => onPricesRequested?.(),
+  })
+
   const visitorPhone = guestMode ? (localStorage.getItem(GUEST_PHONE_KEY) || "") : ""
 
   // Browsing-time heartbeat: accumulate ~20s chunks while the tab is visible
@@ -980,7 +1053,7 @@ function CatalogShop({
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust> } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust>; announcement?: string | null } }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const design = designQuery.data
@@ -1559,8 +1632,39 @@ function CatalogShop({
         </div>
       </header>
 
+      {/* ── Shop announcement — one line the merchant writes for everyone ── */}
+      {design?.announcement ? (
+        <div className="px-4 py-2 text-center font-bold"
+          style={{ background: tk.accent, color: "#fff", fontSize: tk.fs.sm }}>
+          📣 {design.announcement}
+        </div>
+      ) : null}
+
+      {/* ── Signed-in visitor: prices are the thing that needs approval, not
+             the door. They browse everything; the price is what they ask for. ── */}
+      {visitorToken && !allowPrices && (
+        <button
+          onClick={() => { if (!priceRequestPending) priceMut.mutate() }}
+          disabled={priceRequestPending || priceMut.isPending}
+          className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80 disabled:opacity-100"
+          style={{ background: tk.accentLight }}
+        >
+          <span className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
+            {priceRequestPending
+              ? "⏳ طلبك وصل للمحل — راح تنفتحلك الأسعار بعد الموافقة"
+              : "🔒 الأسعار مخفية — اضغط لطلب عرض الأسعار"}
+          </span>
+          {!priceRequestPending && (
+            <span className="shrink-0 rounded-full px-2.5 py-1 font-bold text-white"
+              style={{ background: tk.accent, fontSize: tk.fs.xs }}>
+              {priceMut.isPending ? "..." : "اطلب عرض سعر"}
+            </span>
+          )}
+        </button>
+      )}
+
       {/* ── Guest banner: prices hidden until admin grants access ── */}
-      {guestMode && (
+      {!visitorToken && guestMode && (
         <button
           onClick={() => setAccessRequestOpen(true)}
           className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80"

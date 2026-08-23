@@ -36,6 +36,10 @@ import {
   unlockAccountCtrl,
   sendCredentialsToAllCtrl,
   sendInvitesToAllCtrl,
+  unifiedAccountsCtrl,
+  grantPricesCtrl,
+  revokePricesCtrl,
+  promoteVisitorCtrl,
   credentialTargetCountsCtrl,
   applyPricesDefaultCtrl,
 } from "../controllers/customer-login.controller";
@@ -58,6 +62,7 @@ import {
   unlockAccountSchema,
   sendCredentialsToAllSchema,
   sendInvitesToAllSchema,
+  visitorPhoneSchema,
   optOutPhoneSchema,
 } from "../utils/schemas";
 
@@ -122,6 +127,12 @@ router.post("/accounts/unlock", validate(unlockAccountSchema), unlockAccountCtrl
 router.get("/accounts/target-counts", credentialTargetCountsCtrl);
 router.post("/accounts/send-credentials-all", validate(sendCredentialsToAllSchema), sendCredentialsToAllCtrl);
 router.post("/accounts/send-invites-all", validate(sendInvitesToAllSchema), sendInvitesToAllCtrl);
+// One labelled list of everyone who can sign in, plus the two things the shop
+// decides about a visitor: their prices, and whether they go on the books.
+router.get("/accounts/unified", unifiedAccountsCtrl);
+router.post("/accounts/grant-prices", validate(visitorPhoneSchema), grantPricesCtrl);
+router.post("/accounts/revoke-prices", validate(visitorPhoneSchema), revokePricesCtrl);
+router.post("/accounts/promote", validate(visitorPhoneSchema), promoteVisitorCtrl);
 router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);
 
 // «توقف» — numbers that asked to stop receiving marketing.
