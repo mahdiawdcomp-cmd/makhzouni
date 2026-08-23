@@ -1134,6 +1134,7 @@ export const updateSettingsSchema = z.object({
       storefrontInviteTemplateName: nullAsUndefined(z.string().trim()),
       storefrontInviteMessage: nullAsUndefined(z.string()),
       storefrontInviteKeywords: nullAsUndefined(z.array(z.string().trim())),
+      storefrontInviteTemplateParams: nullAsUndefined(z.array(z.string())),
       catalogAccessApprovedV2TemplateName: nullAsUndefined(z.string().trim()),
       couponExpiryReminderTemplateName: nullAsUndefined(z.string().trim()),
       followUpNoReplyTemplateName: nullAsUndefined(z.string().trim()),

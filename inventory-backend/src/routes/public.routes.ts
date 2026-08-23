@@ -261,6 +261,24 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
         ],
         lowStockCartons: (kv.catalogDesignLowStockCartons as number) ?? 0,
       },
+      // «اطلب رمزي» — a wa.me link that pre-fills the exact keyword the
+      // inbound handler matches, so tapping it and hitting send is the whole
+      // flow: the message opens Meta's 24h window and the code comes back
+      // automatically. Blank whatsapp = the button is simply not rendered.
+      codeRequest: (() => {
+        const raw = String(
+          (kv.catalogDesignFooterWhatsapp as string) ??
+          (kv.catalogAdminWhatsappNumber as string) ??
+          (kv.storePhone as string) ?? "",
+        ).trim();
+        let digits = raw.replace(/\D/g, "");
+        if (digits.startsWith("00")) digits = digits.slice(2);
+        if (digits.startsWith("0")) digits = `964${digits.slice(1)}`;
+        else if (digits.startsWith("7")) digits = `964${digits}`;
+        const keywords = (kv.storefrontInviteKeywords as string[]) ?? [];
+        const keyword = (keywords.find((k) => String(k).trim()) ?? "حسابي").trim();
+        return digits ? { whatsapp: digits, keyword } : null;
+      })(),
       guestModeEnabled,
     },
   });

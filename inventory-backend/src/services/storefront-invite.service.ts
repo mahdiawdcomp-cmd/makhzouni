@@ -116,7 +116,15 @@ export async function sendStorefrontInvite(target: BulkTarget, channel?: string)
     settings.storefrontInviteTemplateName,
     "ar",
     message,
-    [name || "زبوننا العزيز", settings.storeName || "متجرنا"],
+    // Only what the merchant's template actually declares. Meta rejects a
+    // send whose parameter count does not match the template exactly, and a
+    // plain no-variable paragraph is the common case — so default to none.
+    (settings.storefrontInviteTemplateParams ?? []).map((param) =>
+      renderInvite(param, {
+        customerName: name || "زبوننا العزيز",
+        storeName: settings.storeName || "متجرنا",
+      }),
+    ),
     channel as WhatsAppSendChannel | undefined,
   );
   return { phone, sent: true };

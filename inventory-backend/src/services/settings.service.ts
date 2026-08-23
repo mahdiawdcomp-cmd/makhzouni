@@ -68,6 +68,12 @@ export interface AppSettings {
   storefrontInviteTemplateName?: string;
   storefrontInviteMessage?: string;
   storefrontInviteKeywords?: string[];
+  // Body params for the invite template, in order. Each entry may contain
+  // {{customerName}} / {{storeName}}, rendered per recipient. Empty by
+  // default because a template with no variables is REJECTED outright when
+  // parameters are sent with it — and the entry template most shops already
+  // run is a plain paragraph with none.
+  storefrontInviteTemplateParams?: string[];
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -365,6 +371,7 @@ export const defaultSettings: AppSettings = {
   storefrontInviteTemplateName: "",
   storefrontInviteMessage: "",
   storefrontInviteKeywords: [],
+  storefrontInviteTemplateParams: [],
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

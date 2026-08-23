@@ -21,6 +21,7 @@ import {
   Search,
   Share2,
   ShieldCheck,
+  MessageCircle,
   ShoppingBag,
   SlidersHorizontal,
   ShoppingCart,
@@ -496,6 +497,8 @@ function ReVerifyGate({
 ══════════════════════════════════════════════════════════════════════ */
 const SIGNUP_PHONE_KEY = "catalog_signup_phone"
 
+type CodeRequest = { whatsapp: string; keyword: string }
+
 function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
   const [phone, setPhone] = useState("")
   const [code, setCode] = useState("")
@@ -506,6 +509,16 @@ function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
   const [name, setName] = useState("")
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
+
+  // The shop's WhatsApp number plus the exact word the inbound handler
+  // matches. Resolved server-side so the button cannot drift out of sync with
+  // the keyword the bot actually answers to.
+  const codeRequestQuery = useQuery({
+    queryKey: ["catalog-design-public"],
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { codeRequest?: CodeRequest | null } }).data ?? {}),
+    staleTime: 5 * 60_000,
+  })
+  const codeRequest = codeRequestQuery.data?.codeRequest ?? null
 
   const loginMut = useMutation({
     mutationFn: () => customerLogin(phone.trim(), code.trim()),
@@ -615,9 +628,31 @@ function LoginGate({ onAccess }: { onAccess: (token: string) => void }) {
       >
         {loginMut.isPending ? "جاري الدخول..." : "دخول"}
       </button>
-      <p className="text-center text-xs text-gray-400">
-        ما عندك رمز؟ تواصل مع المحل وراح يرسله لك على الواتساب.
-      </p>
+      {codeRequest ? (
+        <>
+          <div className="flex items-center gap-3 pt-1">
+            <span className="h-px flex-1 bg-gray-100" />
+            <span className="text-[11px] text-gray-400">ما عندك رمز؟</span>
+            <span className="h-px flex-1 bg-gray-100" />
+          </div>
+          <a
+            href={`https://wa.me/${codeRequest.whatsapp}?text=${encodeURIComponent(codeRequest.keyword)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500 py-3 text-sm font-bold text-emerald-700 transition active:scale-95"
+          >
+            <MessageCircle className="h-4 w-4" />
+            اطلب رمزي على الواتساب
+          </a>
+          <p className="text-center text-[11px] leading-relaxed text-gray-400">
+            راح تنفتح دردشة المحل والرسالة مكتوبة — بس اضغط إرسال ويوصلك رمزك فوراً.
+          </p>
+        </>
+      ) : (
+        <p className="text-center text-xs text-gray-400">
+          ما عندك رمز؟ تواصل مع المحل وراح يرسله لك على الواتساب.
+        </p>
+      )}
     </div>,
   )
 }
