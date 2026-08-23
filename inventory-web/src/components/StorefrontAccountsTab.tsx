@@ -137,7 +137,12 @@ export function StorefrontAccountsTab() {
   const inviteMut = useMutation({
     mutationFn: () => sendStorefrontInvitesToAll(group),
     onSuccess: (r) => {
-      toast({ title: `أُرسلت الدعوة إلى ${r.sent} من ${r.total}${r.failed ? ` — فشل ${r.failed}` : ""}` })
+      toast({
+        title: `أُرسلت الدعوة إلى ${r.sent} من ${r.total}${r.failed ? ` — فشل ${r.failed}` : ""}`,
+        description: r.remaining > 0
+          ? `باقي ${r.remaining} رقم. رقمك محدود بعدد رسائل يومي من ميتا، فالدفعة الوحدة ٥٠ رقم. اضغط الزر مرة ثانية بعد شوية، أو استخدم الحملات للأعداد الكبيرة.`
+          : undefined,
+      })
       refresh()
     },
     onError: (e) => toast({
@@ -224,7 +229,8 @@ export function StorefrontAccountsTab() {
 
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
             الإرسال المباشر يوصل فقط للأرقام الي راسلتك خلال آخر ٢٤ ساعة — ميتا تسقط الباقي بصمت.
-            الدعوة تشتغل مع الكل: الزبون يرد بكلمة «حسابي» ويوصله رمزه فوراً.
+            الدعوة تشتغل مع الكل: الزبون يضغط الزر بالرسالة ويوصله رمزه فوراً.
+            الدفعة الوحدة ٥٠ رقم حماية لتقييم رقمك؛ للأعداد الكبيرة استخدم الحملات.
           </p>
 
           {accountsQuery.isLoading && <p className="py-6 text-center text-sm text-slate-400">جاري التحميل...</p>}

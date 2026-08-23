@@ -450,6 +450,41 @@ function cloudConfig() {
   };
 }
 
+/**
+ * The shop's own WhatsApp number, as Meta knows it.
+ *
+ * Needed wherever we hand a customer a wa.me link to message us: the number
+ * in the catalog footer is whatever the merchant typed for display, and
+ * pointing "message us for your code" at a number the bot does not listen on
+ * means the reply never reaches the webhook and no code is ever sent.
+ *
+ * Cached because it changes about never, and the public catalog endpoint that
+ * needs it is hit on every visit. Returns null rather than throwing when
+ * Cloud is not configured — the caller falls back to the display number.
+ */
+let _cloudDisplayNumber: { value: string | null; at: number } | null = null;
+const DISPLAY_NUMBER_TTL_MS = 60 * 60 * 1000;
+
+export async function getCloudDisplayPhoneNumber(): Promise<string | null> {
+  if (_cloudDisplayNumber && Date.now() - _cloudDisplayNumber.at < DISPLAY_NUMBER_TTL_MS) {
+    return _cloudDisplayNumber.value;
+  }
+  let value: string | null = null;
+  try {
+    const { token, baseUrl } = cloudConfig();
+    const res = await fetch(`${baseUrl}?fields=display_phone_number`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = (await res.json()) as { display_phone_number?: string };
+    const digits = (json.display_phone_number ?? "").replace(/\D/g, "");
+    value = digits || null;
+  } catch (err) {
+    logger.warn(`[WhatsApp] could not resolve the display number: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  _cloudDisplayNumber = { value, at: Date.now() };
+  return value;
+}
+
 // Keep-alive: ping every 2 minutes to detect dead sessions early
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
 

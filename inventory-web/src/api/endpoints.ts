@@ -371,7 +371,7 @@ export async function sendStorefrontCredentialsToAll(group: "customers" | "visit
  */
 export async function sendStorefrontInvitesToAll(group: "customers" | "visitors" | "all") {
   const { data } = await api.post<ApiEnvelope<{
-    total: number; sent: number; failed: number
+    total: number; sent: number; failed: number; remaining: number
     results: Array<{ phone: string; ok: boolean; error?: string }>
   }>>("/catalog-management/accounts/send-invites-all", { group })
   return data.data!

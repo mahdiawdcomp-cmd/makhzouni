@@ -51,6 +51,7 @@ import {
 import { validate } from "../middleware/validate";
 import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
 import prisma from "../config/database";
+import { getCloudDisplayPhoneNumber } from "../services/whatsapp.service";
 import { asyncHandler } from "../utils/async-handler";
 import { totalStock } from "../utils/product-stock";
 import {
@@ -227,6 +228,7 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
     kv[s.key] = s.value;
   }
   const guestModeEnabled = await isGuestCatalogEnabled();
+  const businessNumber = await getCloudDisplayPhoneNumber().catch(() => null);
   res.json({
     success: true,
     data: {
@@ -266,10 +268,17 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
       // flow: the message opens Meta's 24h window and the code comes back
       // automatically. Blank whatsapp = the button is simply not rendered.
       codeRequest: (() => {
+        // The bot only hears messages sent to the Cloud API business number.
+        // The footer number is whatever the merchant typed for display, and
+        // on this account the two differ — pointing the button at the footer
+        // number sent shoppers to a chat nothing was listening on, so no code
+        // ever came back. Meta's own number wins; the typed ones are the
+        // fallback for a shop with no Cloud number configured.
         const raw = String(
-          (kv.catalogDesignFooterWhatsapp as string) ??
-          (kv.catalogAdminWhatsappNumber as string) ??
-          (kv.storePhone as string) ?? "",
+          businessNumber ||
+          (kv.catalogDesignFooterWhatsapp as string) ||
+          (kv.catalogAdminWhatsappNumber as string) ||
+          (kv.storePhone as string) || "",
         ).trim();
         let digits = raw.replace(/\D/g, "");
         if (digits.startsWith("00")) digits = digits.slice(2);

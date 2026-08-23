@@ -53,6 +53,23 @@ export const DEFAULT_INVITE_KEYWORDS = [
   "أريد حساب",
 ];
 
+/**
+ * How many invites one press of the button may send.
+ *
+ * Meta caps a number at its messaging tier (250 unique customers per rolling
+ * 24 hours on the starting tier), and a tight loop of hundreds of identical
+ * cold messages is exactly the pattern that drops a number's quality rating.
+ * A list bigger than this belongs in the campaign system, which paces sends,
+ * respects working hours and carries its own daily cap.
+ */
+const MAX_INVITES_PER_RUN = 50;
+
+/** Randomized so the send pattern does not look mechanical to Meta. */
+const MIN_GAP_MS = 1500;
+const MAX_GAP_MS = 3500;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Re-issuing rotates the code, so a double tap must not lock anyone out. */
 const REISSUE_COOLDOWN_MS = 2 * 60 * 1000;
 
@@ -144,9 +161,13 @@ export async function sendStorefrontInvite(target: BulkTarget, channel?: string)
  */
 export async function sendStorefrontInvitesBulk(targets: BulkTarget[], channel?: string) {
   const results: Array<{ phone: string; ok: boolean; error?: string }> = [];
+  const batch = targets.slice(0, MAX_INVITES_PER_RUN);
+  const remaining = targets.length - batch.length;
 
-  for (const target of targets) {
+  for (const [index, target] of batch.entries()) {
     const phone = target.phone ?? "";
+    // Paced, not blasted — see MAX_INVITES_PER_RUN.
+    if (index > 0) await sleep(MIN_GAP_MS + Math.floor(Math.random() * (MAX_GAP_MS - MIN_GAP_MS)));
     try {
       await sendStorefrontInvite(target, channel);
       results.push({ phone, ok: true });
@@ -159,10 +180,17 @@ export async function sendStorefrontInvitesBulk(targets: BulkTarget[], channel?:
     }
   }
 
+  if (remaining > 0) {
+    logger.info(`[StorefrontInvite] stopped at ${batch.length}; ${remaining} recipients not contacted this run`);
+  }
+
   return {
     total: results.length,
     sent: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
+    // Never silently truncate: the caller reports what was left out, so a
+    // partial run cannot read as "everyone was reached".
+    remaining,
     results,
   };
 }
