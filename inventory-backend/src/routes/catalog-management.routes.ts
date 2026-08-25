@@ -40,6 +40,7 @@ import {
   grantPricesCtrl,
   revokePricesCtrl,
   promoteVisitorCtrl,
+  revealCredentialsCtrl,
   credentialTargetCountsCtrl,
   applyPricesDefaultCtrl,
 } from "../controllers/customer-login.controller";
@@ -133,6 +134,7 @@ router.get("/accounts/unified", unifiedAccountsCtrl);
 router.post("/accounts/grant-prices", validate(visitorPhoneSchema), grantPricesCtrl);
 router.post("/accounts/revoke-prices", validate(visitorPhoneSchema), revokePricesCtrl);
 router.post("/accounts/promote", validate(visitorPhoneSchema), promoteVisitorCtrl);
+router.post("/accounts/reveal", validate(sendCredentialsSchema), revealCredentialsCtrl);
 router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);
 
 // «توقف» — numbers that asked to stop receiving marketing.

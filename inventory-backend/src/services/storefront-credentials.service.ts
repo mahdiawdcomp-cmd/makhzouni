@@ -8,9 +8,11 @@ import type { WhatsAppSendChannel } from "./whatsapp.service";
 /* ══════════════════════════════════════════════════════════════════════
    Sending storefront credentials over WhatsApp.
 
-   The plaintext code exists only inside this send: it is generated, hashed
-   into the row, rendered into one message, and dropped. Nothing returns it
-   to the browser and nothing logs it.
+   The plaintext code exists only inside one send: it is generated, hashed
+   into the row, rendered into one message, and dropped. Nothing logs it, and
+   the only path that ever returns it to a browser is
+   revealStorefrontCredentials — an authenticated admin explicitly asking for
+   a code to pass on by hand.
 ══════════════════════════════════════════════════════════════════════ */
 
 export const DEFAULT_CREDENTIALS_TEMPLATE =
@@ -56,6 +58,8 @@ export async function buildCredentialsMessage(issued: IssuedCode) {
     link,
   });
 }
+
+export type BulkTarget = { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string };
 
 export type CredentialParts = {
   name: string;
@@ -140,7 +144,45 @@ export async function sendStorefrontCredentials(issued: IssuedCode, channel?: st
   return { phone: issued.phone, sent: true };
 }
 
-export type BulkTarget = { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string };
+/**
+ * Issue a code and hand it back in plaintext instead of sending it.
+ *
+ * The stored code is a bcrypt hash — nothing, including this server, can read
+ * an existing one back. So «أظهر الرمز» necessarily mints a NEW code, which
+ * retires whatever the customer was holding. That is the honest trade and the
+ * screen says so before the admin presses it.
+ *
+ * The plaintext is returned to an authenticated admin who asked for it, and to
+ * nobody else: it is never logged, never stored, and not sent anywhere. The
+ * admin passes it on themselves — from their own WhatsApp, which is the whole
+ * point of this route existing next to the automatic send.
+ */
+export async function revealStorefrontCredentials(target: BulkTarget) {
+  const settings = await getSettings();
+  const issued = target.kind === "CUSTOMER"
+    ? await prepareCustomerCode(String(target.id))
+    : await prepareVisitorCode(String(target.phone));
+
+  const message = await buildCredentialsMessage(issued);
+  await commitAccessCode(issued);
+
+  // wa.me opens whichever WhatsApp the admin is signed into — their personal
+  // one — with the message already written and the customer already selected.
+  let waPhone = issued.phone.replace(/\D/g, "");
+  if (waPhone.startsWith("00")) waPhone = waPhone.slice(2);
+  if (waPhone.startsWith("0")) waPhone = `964${waPhone.slice(1)}`;
+  else if (waPhone.startsWith("7")) waPhone = `964${waPhone}`;
+
+  return {
+    phone: issued.phone,
+    name: issued.name,
+    username: issued.phone,
+    code: issued.code,
+    message,
+    waLink: `https://wa.me/${waPhone}?text=${encodeURIComponent(message)}`,
+    link: storefrontLink(settings.catalogPublicUrl),
+  };
+}
 
 /**
  * Issue and send to many recipients. One failure never aborts the run — a

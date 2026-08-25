@@ -320,6 +320,23 @@ export async function revokeCatalogPrices(phone: string) {
   return data.data!
 }
 
+/**
+ * «أظهر الرمز» — get the credentials in hand instead of sending them.
+ *
+ * Mints a NEW code (the stored one is a hash nobody can read back) and returns
+ * it once, with the message and a wa.me link so the admin can send it from
+ * their own WhatsApp rather than the shop number.
+ */
+export async function revealStorefrontCredentials(
+  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{
+    phone: string; name: string; username: string; code: string
+    message: string; waLink: string; link: string
+  }>>("/catalog-management/accounts/reveal", target)
+  return data.data!
+}
+
 /** «احفظ كزبون بالمحل» — the only thing that puts a visitor on the books. */
 export async function promoteVisitorToCustomer(phone: string) {
   const { data } = await api.post<ApiEnvelope<{ customerId: string; customerName: string; created: boolean }>>(

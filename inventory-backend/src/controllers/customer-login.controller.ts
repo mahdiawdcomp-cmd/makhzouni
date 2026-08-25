@@ -11,6 +11,7 @@ import {
 } from "../services/customer-login.service";
 import {
   sendStorefrontCredentials,
+  revealStorefrontCredentials,
   sendStorefrontCredentialsBulk,
   sendCredentialsToGroup,
   countCredentialTargets,
@@ -138,6 +139,15 @@ export const sendCredentialsToAllCtrl = asyncHandler(async (req, res) => {
 export const sendInvitesToAllCtrl = asyncHandler(async (req, res) => {
   const { group, channel } = req.body as { group?: TargetGroup; channel?: string };
   const data = await sendInvitesToGroup(group ?? "all", channel);
+  res.json({ success: true, data });
+});
+
+// «أظهر الرمز» — the admin takes the credentials and passes them on from
+// their own WhatsApp instead of the shop number. Mints a fresh code, since a
+// stored one is a hash nobody can read back.
+export const revealCredentialsCtrl = asyncHandler(async (req, res) => {
+  const { kind, id, phone } = req.body as { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string };
+  const data = await revealStorefrontCredentials({ kind, id, phone });
   res.json({ success: true, data });
 });
 

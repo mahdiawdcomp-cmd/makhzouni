@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { KeyRound, Lock, MessageSquare, RotateCcw, Search, Send, Unlock, UserRound, Users } from "lucide-react"
+import { Copy, KeyRound, Lock, MessageSquare, RotateCcw, Search, Send, Unlock, UserRound, Users } from "lucide-react"
 import {
   applyPricesDefaultToAll,
   getCredentialTargetCounts,
@@ -9,6 +9,7 @@ import {
   grantCatalogPrices,
   revokeCatalogPrices,
   promoteVisitorToCustomer,
+  revealStorefrontCredentials,
   sendStorefrontCredentials,
   sendStorefrontCredentialsToAll,
   sendStorefrontInvitesToAll,
@@ -62,6 +63,14 @@ export function StorefrontAccountsTab() {
   const [confirmBulk, setConfirmBulk] = useState(false)
   const [confirmInvite, setConfirmInvite] = useState(false)
   const [confirmPromote, setConfirmPromote] = useState<string | null>(null)
+  // Held in state only while the dialog is open — the plaintext code is never
+  // written anywhere else, and closing the dialog drops it.
+  const [revealed, setRevealed] = useState<{
+    name: string; username: string; code: string; message: string; waLink: string
+  } | null>(null)
+  const [confirmReveal, setConfirmReveal] = useState<
+    { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string } | null
+  >(null)
 
   // The rows above are paged; these are the real totals a "send to all" hits.
   const countsQuery = useQuery({
@@ -117,6 +126,16 @@ export function StorefrontAccountsTab() {
     ),
     [unifiedQuery.data, group],
   )
+
+  const revealMut = useMutation({
+    mutationFn: (t: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }) =>
+      revealStorefrontCredentials(t),
+    onSuccess: (r) => { setRevealed(r); refresh() },
+    onError: (e) => toast({
+      title: e instanceof Error ? e.message : "تعذر إظهار الرمز",
+      variant: "destructive",
+    }),
+  })
 
   const grantMut = useMutation({
     mutationFn: (phone: string) => grantCatalogPrices(phone),
@@ -358,6 +377,17 @@ export function StorefrontAccountsTab() {
                   </button>
                 )}
                 <button
+                  onClick={() => setConfirmReveal(
+                    r.kind === "CUSTOMER"
+                      ? { kind: "CUSTOMER", id: r.customerId ?? undefined }
+                      : { kind: "VISITOR", phone: r.phone },
+                  )}
+                  disabled={revealMut.isPending}
+                  className="shrink-0 rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                  title="أظهر الرمز وأرسله من واتسابك">
+                  أظهر الرمز
+                </button>
+                <button
                   onClick={() => sendOneMut.mutate(
                     r.kind === "CUSTOMER"
                       ? { kind: "CUSTOMER", id: r.customerId ?? undefined }
@@ -543,6 +573,63 @@ export function StorefrontAccountsTab() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmReveal !== null}
+        title="إظهار الرمز"
+        description={
+          "الرمز محفوظ مشفّراً وما ينقرأ — فراح يتولّد رمز جديد ويُعرض لك مرة وحدة، " +
+          "وأي رمز قديم عند الزبون يبطل فوراً. ما راح تنرسل ولا رسالة من رقم المحل."
+        }
+        confirmLabel="أظهر"
+        loading={revealMut.isPending}
+        onConfirm={() => { const t = confirmReveal; setConfirmReveal(null); if (t) revealMut.mutate(t) }}
+        onCancel={() => setConfirmReveal(null)}
+      />
+
+      {revealed && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl"
+          onClick={() => setRevealed(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1 text-base font-bold text-slate-900">بيانات دخول {revealed.name || "الزبون"}</h3>
+            <p className="mb-3 text-xs text-slate-500">
+              الرمز يُعرض هذي المرة فقط. إذا سكّرت النافذة ما تكدر تشوفه مرة ثانية — بس تكدر تولّد غيره.
+            </p>
+
+            <div className="space-y-2 rounded-xl bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-500">اسم المستخدم</span>
+                <span className="font-mono text-sm font-bold text-slate-800" dir="ltr">{revealed.username}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-500">الرمز</span>
+                <span className="font-mono text-xl font-extrabold tracking-[0.3em] text-slate-900" dir="ltr">
+                  {revealed.code}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex gap-2">
+              <Button variant="outline" size="sm" className="flex-1"
+                onClick={() => {
+                  void navigator.clipboard.writeText(revealed.message)
+                  toast({ title: "اننسخت الرسالة" })
+                }}>
+                <Copy className="ml-1 h-4 w-4" />
+                انسخ الرسالة
+              </Button>
+              <a href={revealed.waLink} target="_blank" rel="noopener noreferrer"
+                className="flex flex-1 items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm font-bold text-white transition active:scale-95">
+                افتح واتسابي
+              </a>
+            </div>
+
+            <div className="mt-3 flex justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setRevealed(null)}>تم</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmDialog
         open={confirmPromote !== null}
