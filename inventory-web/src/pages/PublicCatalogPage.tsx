@@ -1905,7 +1905,7 @@ function CatalogShop({
             <div className="mb-4 rounded-full p-5" style={{ background: tk.catIdle }}>
               <Search className="h-8 w-8" style={{ color: tk.subtext }} />
             </div>
-            <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>لا توجد منتجات مطابقة</p>
+            <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>{catalogText(design?.texts, "emptyResults")}</p>
             <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.md }}>
               {activeFilterCount > 0 ? "الفلاتر الحالية ما طلّعت أي منتج" : "جرب كلمة بحث مختلفة أو فئة أخرى"}
             </p>

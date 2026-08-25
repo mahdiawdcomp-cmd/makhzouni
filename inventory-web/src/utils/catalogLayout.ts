@@ -38,7 +38,7 @@ export const CATALOG_TEXT_DEFAULTS: Record<string, string> = {
   pricesPendingBar: "⏳ طلبك وصل للمحل — راح تنفتحلك الأسعار بعد الموافقة",
   requestPriceButton: "اطلب عرض سعر",
   featuredTitle: "مختاراتنا",
-  emptyResults: "ما في نتائج مطابقة",
+  emptyResults: "لا توجد منتجات مطابقة",
 }
 
 /** Shop wording for a key, falling back to the built-in Arabic. */

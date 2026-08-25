@@ -19,13 +19,23 @@ import { CATALOG_TEXT_DEFAULTS } from "../utils/catalogLayout"
 
 const SECTION_LABELS: Record<string, { label: string; hint: string }> = {
   announcement: { label: "شريط الإعلان", hint: "السطر الي تكتبه بنفسك — عرض أو كود خصم" },
-  priceBar: { label: "شريط الأسعار", hint: "يطلع للزائر الي أسعاره مخفية مع زر طلب العرض" },
+  priceBar: { label: "شريط الأسعار", hint: "زر «اطلب عرض سعر» — إطفاؤه يشيل الطريقة الوحيدة الي يطلب بيها الزائر أسعارك" },
   badges: { label: "شارات الثقة", hint: "الثلاث شارات الي تفعّلها من تصميم الكتلوك" },
   banner: { label: "البنر المتحرك", hint: "شريط الصور المتحرك بأعلى الصفحة" },
   featured: { label: "مختاراتنا", hint: "صف المنتجات الي تختارها بنفسك" },
 }
 
 const DEFAULT_ORDER = ["announcement", "priceBar", "badges", "banner", "featured"]
+
+/** Mirrors SORT_LABELS on the storefront. */
+const SORT_OPTIONS = [
+  { key: "default", label: "الافتراضي" },
+  { key: "best", label: "الأكثر مبيعاً" },
+  { key: "rated", label: "الأعلى تقييماً" },
+  { key: "cheap", label: "الأرخص" },
+  { key: "expensive", label: "الأغلى" },
+  { key: "new", label: "الجديد أولاً" },
+]
 
 /** Wording the shop is most likely to want to change, in the order it appears. */
 const PRIMARY_TEXT_KEYS = [
@@ -289,6 +299,22 @@ function CatalogBehaviourCard() {
               </button>
             ))}
           </div>
+          <div className="space-y-1.5">
+            <span className="text-xs text-slate-500">الترتيب الافتراضي</span>
+            <div className="flex flex-wrap gap-1.5">
+              {SORT_OPTIONS.map(({ key, label }) => (
+                <button key={key} onClick={() => saveMut.mutate({ catalogDefaultSort: key })}
+                  className={cn(
+                    "rounded-lg px-2.5 py-1.5 text-xs font-bold transition",
+                    (s?.catalogDefaultSort || "default") === key
+                      ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                  )}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500">منتجات بالصف</span>
             {[1, 2, 3].map((n) => (
