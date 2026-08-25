@@ -1094,6 +1094,24 @@ async function listOpenCatalogProducts(opts: { withPrices: boolean }) {
   return applyCatalogOrder(mapped, await catalogOrderSeed());
 }
 
+/**
+ * Open browsing OR a signed-in visitor.
+ *
+ * A visitor proved a code, so the shop's anonymous-browsing switch has no say
+ * over them. Gating their orders and images on it meant everything worked
+ * only for shops that also left the catalog open to strangers — which is
+ * nobody who turned on login.
+ */
+async function assertOpenOrVisitor(visitorToken?: string) {
+  if (visitorToken?.trim()) {
+    const { resolveVisitorSession } = await import("./catalog-visitor.service");
+    const session = await resolveVisitorSession(visitorToken);
+    if (session) return session;
+  }
+  await assertGuestCatalogEnabled();
+  return null;
+}
+
 export async function listGuestCatalogProducts() {
   await assertGuestCatalogEnabled();
   return listOpenCatalogProducts({ withPrices: false });
@@ -1107,8 +1125,8 @@ export async function listVisitorCatalogProducts(opts: { pricesUnlocked: boolean
   return listOpenCatalogProducts({ withPrices: opts.pricesUnlocked });
 }
 
-export async function getGuestCatalogProductImage(productId: string) {
-  await assertGuestCatalogEnabled();
+export async function getGuestCatalogProductImage(productId: string, visitorToken?: string) {
+  await assertOpenOrVisitor(visitorToken);
   const product = await prisma.product.findFirst({
     where: { id: productId, deletedAt: null },
     select: { imageUrl: true },
@@ -1124,8 +1142,11 @@ export type GuestCatalogOrderInput = {
   items: Array<{ productId: string; unit: Unit; quantity: number }>;
 };
 
-export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput) {
-  await assertGuestCatalogEnabled();
+export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { visitorToken?: string }) {
+  // A signed-in visitor ordering is the whole point of letting them browse
+  // without prices — refusing it because anonymous browsing is off left them
+  // with a cart they could fill and never send.
+  await assertOpenOrVisitor(input.visitorToken);
 
   const customerName = input.customerName.trim();
   const phone = normalizePhone(input.phone);

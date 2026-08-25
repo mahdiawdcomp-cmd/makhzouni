@@ -460,8 +460,7 @@ export async function sendStorefrontCredentialsToAll(group: "customers" | "visit
  */
 export async function sendStorefrontInvitesToAll(group: "customers" | "visitors" | "all") {
   const { data } = await api.post<ApiEnvelope<{
-    total: number; sent: number; failed: number; remaining: number
-    results: Array<{ phone: string; ok: boolean; error?: string }>
+    queued: number; remaining: number; total: number
   }>>("/catalog-management/accounts/send-invites-all", { group })
   return data.data!
 }
@@ -528,12 +527,15 @@ export async function postVisitorHeartbeat(phone: string, seconds: number) {
   try { await api.post("/public/catalog/visitor-heartbeat", { phone, seconds }) } catch { /* best-effort */ }
 }
 
-export async function getGuestCatalogProductImage(id: string) {
-  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>("/public/catalog/guest-product-image", { params: { id } })
+export async function getGuestCatalogProductImage(id: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
+    "/public/catalog/guest-product-image",
+    { params: { id, ...(visitor ? { visitor } : {}) } },
+  )
   return data.data?.imageUrl ?? null
 }
 
-export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload) {
+export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }) {
   const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload)
   return data
 }

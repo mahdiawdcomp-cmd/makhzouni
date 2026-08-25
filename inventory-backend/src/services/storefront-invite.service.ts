@@ -195,10 +195,28 @@ export async function sendStorefrontInvitesBulk(targets: BulkTarget[], channel?:
   };
 }
 
+/**
+ * Queue a run and answer immediately.
+ *
+ * The sends are paced 1.5–3.5s apart, so a full batch holds the connection
+ * for minutes — long enough for the browser to look frozen and for a proxy to
+ * time the request out and leave the merchant with no idea how far it got.
+ * The run continues server-side; the count returned is what was queued.
+ */
 export async function sendInvitesToGroup(group: TargetGroup, channel?: string) {
   const targets = await listCredentialTargets(group);
   if (targets.length === 0) throw new AppError("لا يوجد مستلمون", 400, "NO_TARGETS");
-  return sendStorefrontInvitesBulk(targets, channel);
+
+  const queued = Math.min(targets.length, MAX_INVITES_PER_RUN);
+  const remaining = targets.length - queued;
+
+  setImmediate(() => {
+    sendStorefrontInvitesBulk(targets, channel)
+      .then((r) => logger.info(`[StorefrontInvite] run finished — sent ${r.sent}/${r.total}, failed ${r.failed}`))
+      .catch((err) => logger.warn(`[StorefrontInvite] run failed: ${err instanceof Error ? err.message : String(err)}`));
+  });
+
+  return { queued, remaining, total: targets.length };
 }
 
 /* ── Inbound: the reply that earns the credentials ─────────────────── */

@@ -167,10 +167,10 @@ export function StorefrontAccountsTab() {
     mutationFn: () => sendStorefrontInvitesToAll(group),
     onSuccess: (r) => {
       toast({
-        title: `أُرسلت الدعوة إلى ${r.sent} من ${r.total}${r.failed ? ` — فشل ${r.failed}` : ""}`,
+        title: `بدأ إرسال الدعوة إلى ${r.queued} رقم`,
         description: r.remaining > 0
-          ? `باقي ${r.remaining} رقم. رقمك محدود بعدد رسائل يومي من ميتا، فالدفعة الوحدة ٥٠ رقم. اضغط الزر مرة ثانية بعد شوية، أو استخدم الحملات للأعداد الكبيرة.`
-          : undefined,
+          ? `الإرسال يتم بالتتابع بفواصل حماية لرقمك، فياخذ دقائق. باقي ${r.remaining} رقم — اضغط الزر مرة ثانية بعد ما تخلص الدفعة، أو استخدم الحملات للأعداد الكبيرة.`
+          : "الإرسال يتم بالتتابع بفواصل حماية لرقمك، فياخذ دقائق.",
       })
       refresh()
     },

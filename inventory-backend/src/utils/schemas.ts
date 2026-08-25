@@ -221,6 +221,8 @@ export const createGuestCatalogOrderSchema = z.object({
     address: z.string().trim().max(240).optional(),
     notes: z.string().trim().max(500).optional(),
     items: z.array(catalogOrderItemSchema).min(1).max(200),
+    // Present when a signed-in visitor is ordering; absent for a true guest.
+    visitorToken: z.string().trim().min(10).max(200).optional(),
   }),
 });
 

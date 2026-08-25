@@ -98,7 +98,10 @@ export const getVisitorCatalogProducts = asyncHandler(async (req, res) => {
 });
 
 export const getGuestCatalogProductImageCtrl = asyncHandler(async (req, res) => {
-  const imageUrl = await getGuestCatalogProductImage(String(req.query.id ?? ""));
+  const imageUrl = await getGuestCatalogProductImage(
+    String(req.query.id ?? ""),
+    String(req.query.visitor ?? ""),
+  );
   res.json({ success: true, data: { imageUrl } });
 });
 

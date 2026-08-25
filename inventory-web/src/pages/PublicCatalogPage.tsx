@@ -932,7 +932,11 @@ function CatalogShop({
     onSuccess: () => onPricesRequested?.(),
   })
 
-  const visitorPhone = guestMode ? (localStorage.getItem(GUEST_PHONE_KEY) || "") : ""
+  // A signed-in visitor's own number, falling back to the anonymous guest
+  // gate's. Without the first case their browsing counted for nothing: the
+  // «الزوار» screen showed no time and no product views for exactly the people
+  // the shop just invited.
+  const visitorPhone = customerPhone || (guestMode ? (localStorage.getItem(GUEST_PHONE_KEY) || "") : "")
 
   // Browsing-time heartbeat: accumulate ~20s chunks while the tab is visible
   // and flush to the server, so admins can see how long a visitor stayed.
@@ -1361,6 +1365,9 @@ function CatalogShop({
         ? submitGuestCatalogOrder({
             customerName: guestName.trim(), phone: guestPhone.trim(), address: guestAddress.trim() || undefined,
             notes: notes.trim() || undefined,
+            // A signed-in visitor orders through the same endpoint; the token
+            // is what tells the server they are not an anonymous guest.
+            ...(visitorToken ? { visitorToken } : {}),
             items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
           })
         : submitPublicCatalogOrder(
@@ -2442,7 +2449,7 @@ function ProductDetailSheet({
       const full = hero.imageId
         ? await getCatalogGalleryImage(productId, hero.imageId, access, visitorToken)
         : guestMode
-          ? await getGuestCatalogProductImage(productId)
+          ? await getGuestCatalogProductImage(productId, visitorToken)
           : await getPublicCatalogProductImage(accessToken, productId)
       if (full) setZoom(full)
     } catch { /* thumbnail already shown */ }
