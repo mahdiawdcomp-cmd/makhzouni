@@ -210,8 +210,14 @@ export async function getConversations(search?: string, opts?: { includeArchived
       : {}),
   };
   const rows = await prisma.whatsappConversation.findMany({ where, orderBy: { lastMessageAt: "desc" }, take: 200 });
-  // Pinned conversations float to the top; each group keeps its recency order.
-  return [...rows].sort((a, b) => Number(b.isPinned) - Number(a.isPinned));
+  // Pinned conversations float to the top; each group keeps its recency order,
+  // which the sort's stability preserves.
+  //
+  // Boolean() rather than Number() on purpose: a null/undefined isPinned makes
+  // Number() produce NaN, and a comparator that returns NaN is treated as "no
+  // opinion", so the whole pinned ordering silently stops happening instead of
+  // failing loudly.
+  return [...rows].sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned)));
 }
 
 export async function getUnreadCount() {

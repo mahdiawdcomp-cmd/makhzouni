@@ -24,7 +24,11 @@ const fakePrisma = {
       return null;
     },
     create: async ({ data }: any) => {
-      const row = { id: nextId(), ...data };
+      // Column defaults from the schema. Without them a fresh conversation
+      // came back with isPinned undefined, which the real database never
+      // does — and that gap produced a failure that only appeared when the
+      // clock happened to tick between two inserts.
+      const row = { id: nextId(), isArchived: false, isPinned: false, unreadCount: 0, ...data };
       conversations.push(row);
       return row;
     },
@@ -336,6 +340,30 @@ describe("whatsapp-chat.service", () => {
     await svc.setConversationPinned("9647701111111", true);
     const convs = await svc.getConversations();
     assert.equal(convs[0].phone, "9647701111111");
+  });
+
+  // The regression this file kept hitting: a conversation whose isPinned the
+  // store never set came back undefined, Number(undefined) is NaN, and a NaN
+  // comparator makes sort keep the original order — so pinning did nothing.
+  it("keeps a pinned conversation on top even when isPinned is missing", async () => {
+    await svc.logChatMessage({ phone: "9647703333333", direction: "IN", text: "a" });
+    await svc.setConversationPinned("9647703333333", true);
+    await svc.logChatMessage({ phone: "9647704444444", direction: "IN", text: "b" });
+    for (const c of conversations) {
+      if (c.phone !== "9647704444444") continue;
+      // Simulate a row from before the column had a default...
+      delete c.isPinned;
+      // ...and make it unambiguously the more recent one, so it sorts first
+      // before the pinned pass runs. Without this the two timestamps can land
+      // in the same millisecond and a stable sort hides the bug — which is
+      // exactly why the original failure only appeared some runs.
+      c.lastMessageAt = new Date(c.lastMessageAt.getTime() + 60_000);
+    }
+
+    const convs = await svc.getConversations();
+    const pinnedAt = convs.findIndex((c: any) => c.phone === "9647703333333");
+    const otherAt = convs.findIndex((c: any) => c.phone === "9647704444444");
+    assert.ok(pinnedAt < otherAt, "pinned conversation must sort above the unpinned one");
   });
 
   it("setConversationNotes trims and stores staff-only notes, blank clears them", async () => {
