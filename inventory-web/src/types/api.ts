@@ -1181,6 +1181,17 @@ export interface AppSettings {
   storefrontInviteTemplateParams?: string[]
   catalogAnnouncementEnabled?: boolean
   catalogAnnouncementText?: string
+  catalogSections?: Array<{ key: string; enabled: boolean }>
+  catalogTexts?: Record<string, string>
+  catalogHiddenCategories?: string[]
+  catalogCategoryOrder?: string[]
+  catalogFeaturedProductIds?: string[]
+  catalogDefaultView?: "grid" | "list"
+  catalogDefaultPerRow?: number
+  catalogDefaultSort?: string
+  catalogReviewsEnabled?: boolean
+  catalogSuggestionsEnabled?: boolean
+  catalogTutorialEnabled?: boolean
   catalogAccessApprovedV2TemplateName?: string
   couponExpiryReminderTemplateName?: string
   followUpNoReplyTemplateName?: string

@@ -15,7 +15,6 @@ import {
   Globe,
   Image,
   Info,
-  KeyRound,
   Lock,
   MessageCircle,
   Palette,
@@ -70,6 +69,7 @@ import {
 import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
 import { CatalogContentTab } from "../components/CatalogContentTab"
+import { CatalogLayoutTab } from "../components/CatalogLayoutTab"
 import { StorefrontAccountsTab } from "../components/StorefrontAccountsTab"
 import { CatalogSettingsTab } from "../components/CatalogSettingsTab"
 import { downscaleImage } from "../utils/downscaleImage"
@@ -1544,9 +1544,56 @@ function AnalyticsTab() {
   )
 }
 
+/* ── How the screen is grouped ─────────────────────────────────────────
+   Four things a merchant comes here to do: look after people, arrange the
+   storefront, manage what is on it, and run the machinery behind it. */
+const GROUPS = [
+  {
+    key: "people" as const,
+    label: "الناس",
+    icon: <Users className="h-4 w-4" />,
+    tabs: [
+      { key: "customers" as const, label: "صلاحيات الزبائن" },
+      { key: "accounts" as const, label: "حسابات الدخول" },
+      { key: "visitors" as const, label: "الزوار الجدد" },
+    ],
+  },
+  {
+    key: "front" as const,
+    label: "الواجهة",
+    icon: <Palette className="h-4 w-4" />,
+    tabs: [
+      { key: "layout" as const, label: "الترتيب والنصوص" },
+      { key: "design" as const, label: "التصميم والألوان" },
+    ],
+  },
+  {
+    key: "content" as const,
+    label: "المحتوى",
+    icon: <FileText className="h-4 w-4" />,
+    tabs: [
+      { key: "content" as const, label: "محتوى المنتجات" },
+      { key: "promos" as const, label: "البروموكود" },
+    ],
+  },
+  {
+    key: "ops" as const,
+    label: "التشغيل",
+    icon: <Sliders className="h-4 w-4" />,
+    tabs: [
+      { key: "settings" as const, label: "الإعدادات" },
+      { key: "analytics" as const, label: "التحليلات" },
+    ],
+  },
+]
+
 export function CatalogManagementPage() {
   const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "content" | "accounts" | "promos" | "settings">("customers")
+  // Four groups, each with its own sub-tabs. Eight flat tabs put three
+  // people-shaped screens and two settings-shaped screens side by side, so
+  // finding anything meant remembering which of the eight it lived in.
+  const [group, setGroup] = useState<"people" | "front" | "content" | "ops">("people")
+  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "layout" | "content" | "accounts" | "promos" | "settings">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1596,23 +1643,28 @@ export function CatalogManagementPage() {
           in the «الإعدادات» tab, so the page has one shape instead of a header
           of settings followed by tabs of settings. Scrollable because eight
           labels no longer fit a narrow window. */}
-      <div className="flex gap-1 overflow-x-auto rounded-2xl bg-slate-100 p-1">
-        {([
-          { key: "customers", label: "الزبائن", icon: <Globe className="h-4 w-4" /> },
-          { key: "visitors", label: "الزوار الجدد", icon: <Users className="h-4 w-4" /> },
-          { key: "analytics", label: "تحليلات الكتلوك", icon: <BarChart3 className="h-4 w-4" /> },
-          { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
-          { key: "content", label: "محتوى المنتجات", icon: <FileText className="h-4 w-4" /> },
-          { key: "accounts", label: "حسابات الدخول", icon: <KeyRound className="h-4 w-4" /> },
-          { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
-          { key: "settings", label: "الإعدادات", icon: <Sliders className="h-4 w-4" /> },
-        ] as const).map(({ key, label, icon }) => (
+      {/* Group bar, then the sub-tabs of the active group. */}
+      <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
+        {GROUPS.map((g) => (
+          <button key={g.key}
+            onClick={() => { setGroup(g.key); setTab(g.tabs[0].key) }}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+              group === g.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+            )}>
+            {g.icon}{g.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-white p-1 ring-1 ring-slate-200">
+        {(GROUPS.find((g) => g.key === group)?.tabs ?? []).map(({ key, label }) => (
           <button key={key} onClick={() => setTab(key)}
             className={cn(
-              "flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition-all",
-              tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+              "shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition",
+              tab === key ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100",
             )}>
-            {icon}{label}
+            {label}
           </button>
         ))}
       </div>
@@ -1623,6 +1675,7 @@ export function CatalogManagementPage() {
       {tab === "content" && <CatalogContentTab />}
       {tab === "accounts" && <StorefrontAccountsTab />}
       {tab === "settings" && <CatalogSettingsTab />}
+      {tab === "layout" && <CatalogLayoutTab />}
       {tab === "promos" && <PromoCodesTab />}
 
       {tab === "customers" && <>
