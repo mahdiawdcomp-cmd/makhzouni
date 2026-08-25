@@ -3,8 +3,25 @@ import { publishRealtimeChange, RealtimeResource } from "../services/realtime.se
 
 const mutationMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-function resourceForPath(path: string): RealtimeResource {
+function resourceForPath(path: string): RealtimeResource | null {
   const clean = path.split("?")[0];
+
+  // Shopper traffic is not a staff mutation. /api/public carries POSTs that
+  // fire constantly while someone browses — thumbnails on every page of the
+  // grid, visit heartbeats, OTP, price requests — and each one used to fall
+  // through to "all", which the frontend treats as an unfiltered
+  // queryClient.invalidateQueries(): every open admin tab refetches its whole
+  // cache, the ~4.75 MB products query included. So the owner's screen froze
+  // for seconds at a time whenever a customer opened the catalog, which is
+  // exactly after a WhatsApp message goes out. Only the two public actions
+  // that genuinely change something staff-facing are published.
+  if (clean.startsWith("/api/public")) {
+    // "guest-orders" carries a hyphen, not a slash — matching on "/orders"
+    // silently skipped every guest order.
+    if (clean.endsWith("/orders") || clean.endsWith("/guest-orders")) return "order-preparations";
+    if (clean.includes("/access/request")) return "approvals";
+    return null;
+  }
 
   if (clean.startsWith("/api/products")) return "products";
   if (clean.startsWith("/api/customers")) return "customers";
@@ -45,8 +62,12 @@ export function realtimeMutationMiddleware(req: Request, res: Response, next: Ne
 
   res.on("finish", () => {
     if (res.statusCode >= 200 && res.statusCode < 400) {
+      const resource = resourceForPath(req.originalUrl);
+      // null = nothing a staff screen is showing changed; staying quiet is the
+      // point, not an oversight.
+      if (!resource) return;
       publishRealtimeChange({
-        resource: resourceForPath(req.originalUrl),
+        resource,
         action: req.method,
         path: req.originalUrl.split("?")[0],
       });
@@ -56,3 +77,6 @@ export function realtimeMutationMiddleware(req: Request, res: Response, next: Ne
   next();
 }
 
+
+/** Exported for tests only — the routing table is worth pinning down. */
+export const __resourceForPathForTests = resourceForPath;

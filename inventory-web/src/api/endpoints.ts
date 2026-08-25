@@ -781,10 +781,10 @@ export interface MyCatalogReview {
 }
 
 /** `access` is "" for guest browsing — the backend refuses if guests are off. */
-export async function getCatalogProductDetail(productId: string, access: string) {
+export async function getCatalogProductDetail(productId: string, access: string, visitor = "") {
   const { data } = await api.get<ApiEnvelope<CatalogProductDetail>>(
     `/public/catalog/product/${productId}`,
-    { params: access ? { access } : {} },
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
   )
   return data.data!
 }
@@ -795,18 +795,24 @@ export async function getCatalogProductDetail(productId: string, access: string)
  * The grid ships without them on purpose: a few hundred base64 thumbnails is
  * several megabytes on the first open. `access` is "" for guest browsing.
  */
-export async function getCatalogThumbnails(ids: string[], access: string) {
+/**
+ * A signed-in visitor carries their own token: without it the request falls
+ * into the guest branch, which the backend refuses whenever the shop requires
+ * a login — and every card silently loses its picture.
+ */
+export async function getCatalogThumbnails(ids: string[], access: string, visitor = "") {
   if (ids.length === 0) return {}
   const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
-    "/public/catalog/thumbnails", { ids }, { params: access ? { access } : {} },
+    "/public/catalog/thumbnails", { ids },
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
   )
   return data.data ?? {}
 }
 
-export async function getCatalogGalleryImage(productId: string, imageId: string, access: string) {
+export async function getCatalogGalleryImage(productId: string, imageId: string, access: string, visitor = "") {
   const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
     `/public/catalog/product/${productId}/image/${imageId}`,
-    { params: access ? { access } : {} },
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
   )
   return data.data?.imageUrl ?? null
 }

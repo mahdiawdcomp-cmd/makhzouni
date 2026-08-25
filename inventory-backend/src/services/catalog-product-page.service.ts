@@ -22,6 +22,25 @@ async function assertGuestCatalogEnabled() {
   }
 }
 
+/**
+ * Let a signed-in visitor through where a guest would be turned away.
+ *
+ * A visitor proved a code, so their pictures and product pages are theirs
+ * whether or not the shop leaves anonymous browsing on. Without this they
+ * fell into the guest branch and got a 403 the moment open browsing was off —
+ * which is every shop that requires a login. Prices still follow their own
+ * unlock, never this check.
+ */
+async function assertVisitorOrGuest(visitorToken: string | undefined) {
+  if (visitorToken?.trim()) {
+    const { resolveVisitorSession } = await import("./catalog-visitor.service");
+    const session = await resolveVisitorSession(visitorToken);
+    if (session) return session;
+  }
+  await assertGuestCatalogEnabled();
+  return null;
+}
+
 /** catalogSpecs is free-form Json; keep only well-shaped, non-empty rows. */
 export function parseSpecs(value: unknown): SpecRow[] {
   if (!Array.isArray(value)) return [];
@@ -149,10 +168,14 @@ export async function getPublicProductDetail(token: string, productId: string) {
   });
 }
 
-export async function getGuestProductDetail(productId: string) {
-  await assertGuestCatalogEnabled();
-  // Guests never see prices — same rule as the guest product list.
-  return buildProductDetail(productId, { allowPrices: false, showStock: true });
+export async function getGuestProductDetail(productId: string, visitorToken?: string) {
+  const visitor = await assertVisitorOrGuest(visitorToken);
+  // A guest never sees prices; a visitor sees them once the shop unlocked
+  // them for that phone — the same rule the grid follows.
+  return buildProductDetail(productId, {
+    allowPrices: Boolean(visitor?.pricesUnlocked),
+    showStock: true,
+  });
 }
 
 /** Full-resolution gallery image, fetched when the shopper taps a thumbnail. */
@@ -165,8 +188,8 @@ export async function getPublicGalleryImage(token: string, productId: string, im
   return image?.url ?? null;
 }
 
-export async function getGuestGalleryImage(productId: string, imageId: string) {
-  await assertGuestCatalogEnabled();
+export async function getGuestGalleryImage(productId: string, imageId: string, visitorToken?: string) {
+  await assertVisitorOrGuest(visitorToken);
   const image = await prisma.productCatalogImage.findFirst({
     where: { id: imageId, productId },
     select: { url: true },
@@ -363,11 +386,15 @@ export async function countPendingCatalogReviews() {
  * no token falls back to guest mode, which the service refuses unless the
  * shop enabled open browsing.
  */
-export async function getCatalogThumbnails(token: string, productIds: string[]) {
+export async function getCatalogThumbnails(
+  token: string,
+  productIds: string[],
+  visitorToken?: string,
+) {
   if (token) {
     await getCatalogAccess(token);
   } else {
-    await assertGuestCatalogEnabled();
+    await assertVisitorOrGuest(visitorToken);
   }
 
   const ids = [...new Set(productIds)].slice(0, 120);

@@ -1302,7 +1302,7 @@ function CatalogShop({
     if (neededThumbIds.length === 0) return
     let cancelled = false
     const batch = neededThumbIds.slice(0, 120)
-    getCatalogThumbnails(batch, guestMode ? "" : accessToken)
+    getCatalogThumbnails(batch, guestMode ? "" : accessToken, visitorToken)
       .then((loaded) => {
         if (cancelled) return
         // Record every id we asked for, including ones that came back empty —
@@ -1321,7 +1321,7 @@ function CatalogShop({
         setThumbs(prev => ({ ...prev, ...failed }))
       })
     return () => { cancelled = true }
-  }, [neededThumbIds, accessToken, guestMode])
+  }, [neededThumbIds, accessToken, guestMode, visitorToken])
   // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
   // once any filter is on — otherwise they'd show products the shopper just
   // filtered out, right above the filtered grid.
@@ -2081,6 +2081,7 @@ function CatalogShop({
       {/* ── Product page ── */}
       {openProductId && (
         <ProductDetailSheet
+          visitorToken={visitorToken}
           reviewsEnabled={design?.reviewsEnabled !== false}
           suggestionsEnabled={design?.suggestionsEnabled !== false}
           productId={openProductId}
@@ -2358,11 +2359,14 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 
 function ProductDetailSheet({
   productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onOpenProduct,
-  reviewsEnabled = true, suggestionsEnabled = true,
+  reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "",
 }: {
   productId: string
   accessToken: string
   guestMode: boolean
+  /** A signed-in visitor's session — without it the page falls to the guest
+   *  branch, which is refused whenever the shop requires a login. */
+  visitorToken?: string
   tk: ThemeTokens
   allowPrices: boolean
   lowStockCartons: number
@@ -2393,8 +2397,8 @@ function ProductDetailSheet({
   const qc = useQueryClient()
 
   const detailQuery = useQuery({
-    queryKey: ["catalog-product", productId, access],
-    queryFn: () => getCatalogProductDetail(productId, access),
+    queryKey: ["catalog-product", productId, access, visitorToken],
+    queryFn: () => getCatalogProductDetail(productId, access, visitorToken),
     staleTime: 30_000,
   })
   const myReviewQuery = useQuery({
@@ -2436,7 +2440,7 @@ function ProductDetailSheet({
     setZoom(hero.thumb)
     try {
       const full = hero.imageId
-        ? await getCatalogGalleryImage(productId, hero.imageId, access)
+        ? await getCatalogGalleryImage(productId, hero.imageId, access, visitorToken)
         : guestMode
           ? await getGuestCatalogProductImage(productId)
           : await getPublicCatalogProductImage(accessToken, productId)

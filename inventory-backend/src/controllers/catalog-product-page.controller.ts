@@ -26,7 +26,7 @@ export const getProductDetailCtrl = asyncHandler(async (req, res) => {
   // a missing token can never widen access beyond what the shop allows.
   const data = token
     ? await getPublicProductDetail(token, productId)
-    : await getGuestProductDetail(productId);
+    : await getGuestProductDetail(productId, String(req.query.visitor ?? ""));
   res.json({ success: true, data });
 });
 
@@ -36,14 +36,14 @@ export const getGalleryImageCtrl = asyncHandler(async (req, res) => {
   const token = String(req.query.access ?? "");
   const imageUrl = token
     ? await getPublicGalleryImage(token, productId, imageId)
-    : await getGuestGalleryImage(productId, imageId);
+    : await getGuestGalleryImage(productId, imageId, String(req.query.visitor ?? ""));
   res.json({ success: true, data: { imageUrl } });
 });
 
 export const getThumbnailsCtrl = asyncHandler(async (req, res) => {
   const token = String(req.query.access ?? "");
   const { ids } = req.body as { ids: string[] };
-  const data = await getCatalogThumbnails(token, ids ?? []);
+  const data = await getCatalogThumbnails(token, ids ?? [], String(req.query.visitor ?? ""));
   res.json({ success: true, data });
 });
 
