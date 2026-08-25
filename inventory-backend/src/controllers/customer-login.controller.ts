@@ -6,7 +6,6 @@ import {
   prepareVisitorCode,
   listStorefrontAccounts,
   setCustomerPricesHidden,
-  submitVisitorDetails,
   unlockAccount,
   getAccountForCatalogToken,
 } from "../services/customer-login.service";

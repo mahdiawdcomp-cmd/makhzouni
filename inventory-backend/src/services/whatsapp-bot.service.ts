@@ -121,15 +121,19 @@ export async function routeIncomingMessage(
   // and any numeric funnel trigger: a prospect must be able to bail out to a
   // human at any point. Scoped to non-customers — this is the registration
   // funnel's escape hatch, not a general customer-service feature.
-  if (!customer && isHumanHandoffRequest(text)) {
+  // Asking for a human is not a prospect-only need. A registered customer who
+  // taps the same button used to get silence — their message reached the inbox
+  // but nothing told them anyone was coming, so they sat waiting on a reply
+  // the bot had already decided not to send.
+  if (isHumanHandoffRequest(text)) {
     await prisma.whatsappBotChat.deleteMany({ where: { phone } });
     await sendWhatsAppText(phone, "تمام 👍 موظف راح يتواصل معك قريباً.").catch((err) =>
       logger.warn(`[WhatsAppBot] handoff ack failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`),
     );
     await logInbound({
       phone,
-      name: prospect?.name ?? null,
-      source: prospect ? "PROSPECT" : "UNKNOWN",
+      name: customer?.name ?? prospect?.name ?? null,
+      source: customer ? "CUSTOMER_UNMATCHED" : prospect ? "PROSPECT" : "UNKNOWN",
       messageText: text,
       urgent: true,
     });

@@ -403,39 +403,6 @@ export async function applyPricesDefaultToAllLinks() {
  * it raises the same CATALOG_ACCESS approval the public request form uses, so
  * the shop reviews and edits the details before the account exists.
  */
-export async function submitVisitorDetails(
-  rawPhone: string,
-  input: { customerName: string; address?: string; notes?: string },
-) {
-  const phone = normalizeCustomerPhone(rawPhone);
-  const visitor = await prisma.catalogVisitor.findFirst({
-    where: { phone: { in: phoneCandidates(rawPhone) } },
-    select: { phone: true, accessCodeHash: true },
-  });
-  // Guard: only a phone that actually holds credentials can file this, so the
-  // endpoint cannot be used to spam the approvals queue.
-  if (!visitor?.accessCodeHash) {
-    throw new AppError("سجّل الدخول أولاً", 403, "LOGIN_REQUIRED");
-  }
-
-  const name = input.customerName.trim();
-  if (name.length < 2) throw new AppError("الاسم مطلوب", 400, "NAME_REQUIRED");
-
-  const { requestStorefrontAccountApproval } = await import("./catalog.service");
-  const result = await requestStorefrontAccountApproval({
-    customerName: name,
-    phone,
-    address: input.address?.trim() || undefined,
-    notes: input.notes?.trim() || undefined,
-  });
-
-  await prisma.catalogVisitor.update({
-    where: { phone: visitor.phone },
-    data: { detailsSubmittedAt: new Date() },
-  });
-  return result;
-}
-
 /* ── The signed-in customer's own account ────────────────────────── */
 
 /**

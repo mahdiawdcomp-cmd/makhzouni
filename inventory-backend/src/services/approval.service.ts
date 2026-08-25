@@ -456,6 +456,53 @@ async function executeApprovedRequest(
       }
 
       const existingCustomer = await tx.customer.findUnique({ where: { phone } });
+
+      // A catalog-access request from someone who is NOT already a customer no
+      // longer manufactures one. Browsing is not something the shop approves —
+      // prices are. So an unknown phone becomes a visitor with its prices
+      // unlocked, and joins the shop's books only when someone presses «احفظ
+      // كزبون بالمحل» or approves its first order. This is the same rule the
+      // storefront login follows; leaving this path creating customers was the
+      // last place the two disagreed.
+      if (!existingCustomer) {
+        await tx.catalogVisitor.upsert({
+          where: { phone },
+          update: {
+            name: customerName,
+            address: body.address,
+            notes: body.notes,
+            ...(body.province ? { province: body.province } : {}),
+            ...(body.businessType ? { businessType: body.businessType } : {}),
+            detailsSubmittedAt: new Date(),
+            pricesUnlockedAt: new Date(),
+            priceRequestedAt: null,
+          },
+          create: {
+            phone,
+            name: customerName,
+            address: body.address,
+            notes: body.notes,
+            ...(body.province ? { province: body.province } : {}),
+            ...(body.businessType ? { businessType: body.businessType } : {}),
+            detailsSubmittedAt: new Date(),
+            pricesUnlockedAt: new Date(),
+          },
+        });
+
+        // Send their credentials so the approval actually lets them in.
+        setImmediate(async () => {
+          try {
+            const { prepareVisitorCode } = await import("./customer-login.service");
+            const { sendStorefrontCredentials } = await import("./storefront-credentials.service");
+            await sendStorefrontCredentials(await prepareVisitorCode(phone));
+          } catch (err) {
+            console.error("[CatalogAccess] visitor credentials send failed:", err);
+          }
+        });
+
+        return { visitorPhone: phone };
+      }
+
       const customer = existingCustomer
         ? await tx.customer.update({
             where: { id: existingCustomer.id },
