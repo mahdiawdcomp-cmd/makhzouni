@@ -718,6 +718,79 @@ export async function lookupCatalogAccess(phone: string) {
   };
 }
 
+
+/* ── Storefront layout, shared by both session payloads ──────────────── */
+
+/**
+ * The blocks between the header and the product grid, in the order the
+ * storefront draws them when the shop has not said otherwise.
+ *
+ * Only these reorder. The search header, the product grid and the footer stay
+ * where they are by design — a grid above its own search box, or a footer in
+ * the middle of the page, is not an arrangement any shop wants, and offering
+ * it would be a control that only ever breaks the page. Those blocks get
+ * on/off switches instead (footerEnabled, reviewsEnabled, …).
+ *
+ * Keys are stable identifiers, not labels — renaming a section in the UI must
+ * never reshuffle a shop's saved order.
+ */
+export const CATALOG_SECTION_KEYS = [
+  "announcement",
+  "priceBar",
+  "badges",
+  "banner",
+  "featured",
+] as const;
+
+export type CatalogSectionKey = (typeof CATALOG_SECTION_KEYS)[number];
+
+/**
+ * Merge the shop's saved section list with the built-in one.
+ *
+ * Saved entries keep their order and their switch; anything the shop has
+ * never seen (a section added in a later release) is appended enabled. So a
+ * new section appears for everyone without a data migration, and nobody's
+ * arrangement is silently rewritten.
+ */
+export function resolveCatalogSections(
+  saved: Array<{ key: string; enabled: boolean }> | undefined,
+): Array<{ key: CatalogSectionKey; enabled: boolean }> {
+  const known = new Set<string>(CATALOG_SECTION_KEYS);
+  const seen = new Set<string>();
+  const out: Array<{ key: CatalogSectionKey; enabled: boolean }> = [];
+
+  for (const entry of saved ?? []) {
+    if (!known.has(entry.key) || seen.has(entry.key)) continue;
+    seen.add(entry.key);
+    out.push({ key: entry.key as CatalogSectionKey, enabled: entry.enabled !== false });
+  }
+  for (const key of CATALOG_SECTION_KEYS) {
+    if (!seen.has(key)) out.push({ key, enabled: true });
+  }
+  return out;
+}
+
+/** Everything the storefront needs to draw itself the way the shop set it up. */
+export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettings>>) {
+  return {
+    announcement:
+      settings.catalogAnnouncementEnabled === true && settings.catalogAnnouncementText?.trim()
+        ? settings.catalogAnnouncementText.trim()
+        : null,
+    sections: resolveCatalogSections(settings.catalogSections),
+    texts: settings.catalogTexts ?? {},
+    hiddenCategories: settings.catalogHiddenCategories ?? [],
+    categoryOrder: settings.catalogCategoryOrder ?? [],
+    featuredProductIds: settings.catalogFeaturedProductIds ?? [],
+    defaultView: settings.catalogDefaultView ?? "grid",
+    defaultPerRow: settings.catalogDefaultPerRow ?? 2,
+    defaultSort: settings.catalogDefaultSort ?? "",
+    reviewsEnabled: settings.catalogReviewsEnabled !== false,
+    suggestionsEnabled: settings.catalogSuggestionsEnabled !== false,
+    tutorialEnabled: settings.catalogTutorialEnabled !== false,
+  };
+}
+
 export async function getCatalogAccess(token: string, opts?: { requireVerified?: boolean }) {
   const requireVerified = opts?.requireVerified ?? true;
   const tokenHash = hashToken(token);
@@ -781,11 +854,10 @@ export async function getCatalogAccess(token: string, opts?: { requireVerified?:
   });
 
   const catalogDesign = {
-    // Shown to customers and visitors alike — one line the shop controls.
-    announcement:
-      settings.catalogAnnouncementEnabled === true && settings.catalogAnnouncementText?.trim()
-        ? settings.catalogAnnouncementText.trim()
-        : null,
+    // Layout, wording and feature switches — the same shape the public
+    // /catalog/design endpoint serves, so a signed-in customer and an
+    // anonymous visitor can never see the page arranged differently.
+    ...buildCatalogLayout(settings),
     primaryColor: settings.catalogDesignPrimaryColor ?? null,
     bgColor: settings.catalogDesignBgColor ?? null,
     defaultTheme: settings.catalogDesignDefaultTheme ?? "clean",

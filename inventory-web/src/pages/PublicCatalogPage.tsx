@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { catalogText, type CatalogLayout } from "../utils/catalogLayout"
+import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { api, API_BASE_URL } from "../api/client"
@@ -566,6 +567,12 @@ type CodeRequest = { whatsapp: string; keyword: string }
 function VisitorDetailsGate({
   token, phone, onDone,
 }: { token: string; phone: string; onDone: () => void }) {
+  const textsQuery = useQuery({
+    queryKey: ["catalog-design-public"],
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { texts?: Record<string, string> } }).data ?? {}),
+    staleTime: 5 * 60_000,
+  })
+  const texts = textsQuery.data?.texts
   const [name, setName] = useState("")
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
@@ -588,8 +595,8 @@ function VisitorDetailsGate({
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
           <ShoppingBag className="h-8 w-8 text-white" />
         </div>
-        <h1 className="text-xl font-extrabold text-gray-900">خطوة وحدة وتفوت</h1>
-        <p className="text-sm text-gray-500">عرّفنا بنفسك ونفتحلك المتجر</p>
+        <h1 className="text-xl font-extrabold text-gray-900">{catalogText(texts, "detailsTitle")}</h1>
+        <p className="text-sm text-gray-500">{catalogText(texts, "detailsSubtitle")}</p>
       </div>
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
         <p className="mb-3 text-center text-xs text-emerald-600">✓ تم الدخول برقم {phone}</p>
@@ -602,7 +609,7 @@ function VisitorDetailsGate({
             onClick={() => saveMut.mutate()}
             className="mt-1 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saveMut.isPending ? "جاري الحفظ..." : "ادخل المتجر"}
+            {saveMut.isPending ? "جاري الحفظ..." : catalogText(texts, "detailsButton")}
           </button>
         </div>
         {msg && (
@@ -625,10 +632,11 @@ function LoginGate({
   // the keyword the bot actually answers to.
   const codeRequestQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { codeRequest?: CodeRequest | null } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { codeRequest?: CodeRequest | null; texts?: Record<string, string> } }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const codeRequest = codeRequestQuery.data?.codeRequest ?? null
+  const texts = codeRequestQuery.data?.texts
 
   const loginMut = useMutation({
     mutationFn: () => customerLogin(phone.trim(), code.trim()),
@@ -650,8 +658,8 @@ function LoginGate({
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
           <ShoppingBag className="h-8 w-8 text-white" />
         </div>
-        <h1 className="text-xl font-extrabold text-gray-900">متجر الجملة</h1>
-        <p className="text-sm text-gray-500">سجّل الدخول لتتصفح وتطلب</p>
+        <h1 className="text-xl font-extrabold text-gray-900">{catalogText(texts, "storeTitle")}</h1>
+        <p className="text-sm text-gray-500">{catalogText(texts, "loginSubtitle")}</p>
       </div>
       <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
         {children}
@@ -667,8 +675,8 @@ function LoginGate({
   return shell(
     <div className="space-y-4">
       <div className="text-center">
-        <p className="font-semibold text-gray-800">تسجيل الدخول</p>
-        <p className="mt-1 text-xs text-gray-500">استخدم رقم هاتفك والرمز المرسل لك بالواتساب</p>
+        <p className="font-semibold text-gray-800">{catalogText(texts, "loginHeading")}</p>
+        <p className="mt-1 text-xs text-gray-500">{catalogText(texts, "loginHint")}</p>
       </div>
       <Field icon="📱" placeholder="رقم الهاتف" value={phone} onChange={setPhone} type="tel" />
       <input
@@ -685,13 +693,13 @@ function LoginGate({
         onClick={() => loginMut.mutate()}
         className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md shadow-emerald-100 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loginMut.isPending ? "جاري الدخول..." : "دخول"}
+        {loginMut.isPending ? "جاري الدخول..." : catalogText(texts, "loginButton")}
       </button>
       {codeRequest ? (
         <>
           <div className="flex items-center gap-3 pt-1">
             <span className="h-px flex-1 bg-gray-100" />
-            <span className="text-[11px] text-gray-400">ما عندك رمز؟</span>
+            <span className="text-[11px] text-gray-400">{catalogText(texts, "noCodeLabel")}</span>
             <span className="h-px flex-1 bg-gray-100" />
           </div>
           <a
@@ -701,10 +709,10 @@ function LoginGate({
             className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500 py-3 text-sm font-bold text-emerald-700 transition active:scale-95"
           >
             <MessageCircle className="h-4 w-4" />
-            اطلب رمزي على الواتساب
+            {catalogText(texts, "requestCodeButton")}
           </a>
           <p className="text-center text-[11px] leading-relaxed text-gray-400">
-            راح تنفتح دردشة المحل والرسالة مكتوبة — بس اضغط إرسال ويوصلك رمزك فوراً.
+            {catalogText(texts, "requestCodeHint")}
           </p>
         </>
       ) : (
@@ -1016,9 +1024,14 @@ function CatalogShop({
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
   }, [])
+  // Seeded from the shop's defaults on first paint only — this is where the
+  // storefront starts, not a lock. Anything the shopper changes afterwards is
+  // theirs, and a later settings change must not yank the grid out from under
+  // someone mid-browse.
   const [sortKey, setSortKey] = useState<SortKey>("default")
   const [viewMode, setViewMode] = useState<ViewMode>("grid")
   const [perRow, setPerRow] = useState(2)
+  const [seededDefaults, setSeededDefaults] = useState(false)
   const [search, setSearch] = useState("")
   const [activeSugg, setActiveSugg] = useState(0)
   const suggItemRefs = useRef<Record<number, HTMLButtonElement | null>>({})
@@ -1047,13 +1060,14 @@ function CatalogShop({
   const [guestAddress, setGuestAddress] = useState("")
   const [accessRequestOpen, setAccessRequestOpen] = useState(false)
   const [showTutorial, setShowTutorial] = useState<boolean>(() => !localStorage.getItem(TUTORIAL_SEEN_KEY))
+
   const searchRef = useRef<HTMLInputElement>(null)
   const moreRef = useRef<HTMLDivElement>(null)
   const bannerTouchX = useRef<number | null>(null)
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust>; announcement?: string | null } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust> } & Partial<CatalogLayout> }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const design = designQuery.data
@@ -1119,6 +1133,30 @@ function CatalogShop({
 
   const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
 
+  // The shop's arrangement, already merged with the built-in order by the
+  // backend — an unknown key here simply renders nothing.
+  // Seed the grid from the shop's defaults exactly once, when the design
+  // actually arrives. Derived-during-render rather than an effect, so the
+  // first paint is already correct and nothing flashes.
+  if (!seededDefaults && design) {
+    setSeededDefaults(true)
+    if (design.defaultView === "list") setViewMode("list")
+    if (design.defaultPerRow && design.defaultPerRow !== perRow) setPerRow(design.defaultPerRow)
+    if (design.defaultSort) setSortKey(design.defaultSort as SortKey)
+  }
+
+  const layoutSections = design?.sections ?? []
+
+  // «مختاراتنا» resolved against the products actually on the grid, so a
+  // featured item that sold out or got hidden drops out quietly instead of
+  // rendering a dead card.
+  const featuredProducts = useMemo(() => {
+    const ids = design?.featuredProductIds ?? []
+    if (ids.length === 0) return []
+    const byId = new Map(products.map((p) => [p.id, p]))
+    return ids.map((id) => byId.get(id)).filter(Boolean) as PublicCatalogProduct[]
+  }, [design?.featuredProductIds, products])
+
   const categories = useMemo(() => {
     const catSet = new Set<string>()
     products.forEach(p => {
@@ -1133,8 +1171,22 @@ function CatalogShop({
       if (bi !== -1) return 1
       return a.localeCompare(b)
     })
-    return sorted
-  }, [products, catalogCatsList])
+    // The shop's own arrangement wins over the alphabetical fallback, and a
+    // hidden category disappears from the storefront without touching a
+    // single product's data.
+    const hidden = new Set(design?.hiddenCategories ?? [])
+    const order = design?.categoryOrder ?? []
+    const shown = sorted.filter((c) => !hidden.has(c))
+    if (order.length === 0) return shown
+    return [...shown].sort((a, b) => {
+      const ai = order.indexOf(a)
+      const bi = order.indexOf(b)
+      if (ai !== -1 && bi !== -1) return ai - bi
+      if (ai !== -1) return -1
+      if (bi !== -1) return 1
+      return 0
+    })
+  }, [products, catalogCatsList, design?.hiddenCategories, design?.categoryOrder])
 
   const availableTypes = useMemo(() => {
     if (category === "all") return []
@@ -1402,6 +1454,191 @@ function CatalogShop({
     )
   }
 
+  /* ── The blocks the shop arranges for itself ────────────────────────
+     Built here and drawn in the merchant's saved order, so moving a block is
+     a setting rather than a deploy. The switch decides whether a block is
+     offered at all; its own content still decides whether it appears. */
+  const sectionNodes: Record<string, React.ReactNode> = {
+    announcement: (
+      <>
+        {/* ── Shop announcement — one line the merchant writes for everyone ── */}
+        {design?.announcement ? (
+          <div className="px-4 py-2 text-center font-bold"
+            style={{ background: tk.accent, color: "#fff", fontSize: tk.fs.sm }}>
+            📣 {design.announcement}
+          </div>
+        ) : null}
+      </>
+    ),
+    priceBar: (
+      <>
+        {/* ── Signed-in visitor: prices are the thing that needs approval, not
+               the door. They browse everything; the price is what they ask for. ── */}
+        {visitorToken && !allowPrices && (
+          <button
+            onClick={() => { if (!priceRequestPending) priceMut.mutate() }}
+            disabled={priceRequestPending || priceMut.isPending}
+            className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80 disabled:opacity-100"
+            style={{ background: tk.accentLight }}
+          >
+            <span className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
+              {priceRequestPending
+                ? catalogText(design?.texts, "pricesPendingBar")
+                : catalogText(design?.texts, "pricesLockedBar")}
+            </span>
+            {!priceRequestPending && (
+              <span className="shrink-0 rounded-full px-2.5 py-1 font-bold text-white"
+                style={{ background: tk.accent, fontSize: tk.fs.xs }}>
+                {priceMut.isPending ? "..." : catalogText(design?.texts, "requestPriceButton")}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* ── Guest banner: prices hidden until admin grants access ── */}
+        {!visitorToken && guestMode && (
+          <button
+            onClick={() => setAccessRequestOpen(true)}
+            className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80"
+            style={{ background: tk.accentLight }}
+          >
+            <span className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
+              🔒 الأسعار غير ظاهرة لك بعد — اضغط لطلب تفعيلها
+            </span>
+            <span className="shrink-0 rounded-full px-2.5 py-1 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>
+              طلب الأسعار
+            </span>
+          </button>
+        )}
+      </>
+    ),
+    badges: (
+      <>
+        {/* ── Trust badges — only the ones this shop actually turned on ── */}
+        {(() => {
+          const badges = (design?.trust?.badges ?? EMPTY_CATALOG_TRUST.badges)
+            .filter((b) => b?.enabled && String(b.text ?? "").trim())
+          if (badges.length === 0) return null
+          return (
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-hide px-3 py-2" style={{ background: tk.accentSoft }}>
+              {badges.map((b, i) => (
+                <span key={i}
+                  className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 font-bold"
+                  style={{ background: tk.cardBg, color: tk.accent, fontSize: tk.fs.xs, boxShadow: tk.shadowSm }}>
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  {String(b.text).trim()}
+                </span>
+              ))}
+            </div>
+          )
+        })()}
+      </>
+    ),
+    banner: (
+      <>
+        {/* ── Hero banner (slideshow) ── */}
+        {(() => {
+          const bannerEnabled = design?.bannerEnabled !== false
+          if (!bannerEnabled) return null
+          // Admin banner images take priority over product images
+          const adminImgs = [...(design?.bannerImages ?? [])].sort((a, b) => a.order - b.order)
+          const slides: Array<{ src: string; title: string; subtitle?: string }> =
+            adminImgs.length >= 2
+              ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
+              : products.filter(p => (p.hasImage ?? Boolean(p.thumbnailUrl)) && canDisplay(p)).slice(0, 8)
+                  .map(withThumb)
+                  .filter(p => p.thumbnailUrl || p.imageUrl)
+                  .map(p => ({
+                  src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
+                  subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
+                }))
+          if (slides.length < 2) return null
+          const total = slides.length
+          const idx = ((bannerIndex % total) + total) % total
+          const welcomeMsg = design?.welcomeMessage || (customerName ? `مرحباً ${customerName} 👋` : "مرحباً بك 👋")
+          return (
+            /* A fixed 190px box cropped every banner into a thin strip, which is
+               what made the uploaded pictures look mangled. A 16:9 box matches
+               the shape a phone photo actually has, and object-contain over a
+               blurred copy of the same image fills the sides without cutting
+               anything out of the picture the shop chose. */
+            <div
+              className="relative overflow-hidden select-none"
+              style={{ aspectRatio: "16 / 9", maxHeight: "260px", background: tk.catIdle }}
+              onTouchStart={(e) => { bannerTouchX.current = e.touches[0].clientX }}
+              onTouchEnd={(e) => {
+                if (bannerTouchX.current === null) return
+                const delta = bannerTouchX.current - e.changedTouches[0].clientX
+                bannerTouchX.current = null
+                if (delta > 40) setBannerIndex(i => i + 1)
+                else if (delta < -40) setBannerIndex(i => i - 1)
+              }}
+            >
+              {slides.map((s, i) => (
+                <div key={i} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
+                  <img src={s.src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl opacity-60" />
+                  <img src={s.src} alt={s.title} className="relative h-full w-full object-contain" />
+                  {(s.title || s.subtitle) && (
+                    <>
+                      <div className="absolute inset-x-0 bottom-0 h-1/2" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
+                      <div className="absolute bottom-7 right-4 left-4">
+                        {s.title && <p className="font-extrabold text-white drop-shadow-md leading-snug" style={{ fontSize: tk.fs.md }}>{s.title}</p>}
+                        {s.subtitle && <p className="mt-0.5 font-bold" style={{ color: "#6ee7b7", fontSize: tk.fs.sm }}>{s.subtitle}</p>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              {/* welcome pill */}
+              <div className="absolute right-3 top-3 rounded-full px-3 py-1 text-right" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)" }}>
+                <p className="font-semibold text-white" style={{ fontSize: tk.fs.xs }}>{welcomeMsg}</p>
+              </div>
+              {/* swipe hint arrows */}
+              <button type="button" onClick={() => setBannerIndex(i => i - 1)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full opacity-60 active:opacity-100"
+                style={{ background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
+                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-white stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+              </button>
+              <button type="button" onClick={() => setBannerIndex(i => i + 1)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full opacity-60 active:opacity-100"
+                style={{ background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
+                <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-white stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              {/* dots */}
+              <div className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 gap-1.5">
+                {slides.map((_, i) => (
+                  <button key={i} type="button" onClick={() => setBannerIndex(i)}
+                    className="rounded-full transition-all duration-300"
+                    style={{ height: "5px", width: i === idx ? "18px" : "5px", background: i === idx ? "#fff" : "rgba(255,255,255,0.45)" }} />
+                ))}
+              </div>
+            </div>
+          )
+        })()}
+      </>
+    ),
+    featured: featuredProducts.length > 0 ? (
+      <div className="px-3 pt-3">
+        <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+          {catalogText(design?.texts, "featuredTitle")}
+        </p>
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+          {featuredProducts.map((fp) => (
+            <button key={fp.id} onClick={() => openProduct(fp.id)}
+              className="flex w-[128px] shrink-0 flex-col gap-1.5 rounded-2xl p-2 text-right transition active:scale-95"
+              style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}` }}>
+              <MiniThumb product={withThumb(fp)} />
+              <span className="truncate font-semibold" style={{ color: tk.text, fontSize: tk.fs.xs }}>{fp.name}</span>
+              {allowPrices && (
+                <span className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>{money(fp.salePrice)} د.ع</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null,
+  }
+
   /* ── Render ── */
   return (
     <div dir="rtl" style={{ minHeight: "100vh", background: `radial-gradient(circle at top right, ${tk.accent}35 0%, ${tk.accent}55 28%, ${tk.bg} 65%)`, transition: "background 0.3s" }}>
@@ -1632,151 +1869,10 @@ function CatalogShop({
         </div>
       </header>
 
-      {/* ── Shop announcement — one line the merchant writes for everyone ── */}
-      {design?.announcement ? (
-        <div className="px-4 py-2 text-center font-bold"
-          style={{ background: tk.accent, color: "#fff", fontSize: tk.fs.sm }}>
-          📣 {design.announcement}
-        </div>
-      ) : null}
-
-      {/* ── Signed-in visitor: prices are the thing that needs approval, not
-             the door. They browse everything; the price is what they ask for. ── */}
-      {visitorToken && !allowPrices && (
-        <button
-          onClick={() => { if (!priceRequestPending) priceMut.mutate() }}
-          disabled={priceRequestPending || priceMut.isPending}
-          className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80 disabled:opacity-100"
-          style={{ background: tk.accentLight }}
-        >
-          <span className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
-            {priceRequestPending
-              ? "⏳ طلبك وصل للمحل — راح تنفتحلك الأسعار بعد الموافقة"
-              : "🔒 الأسعار مخفية — اضغط لطلب عرض الأسعار"}
-          </span>
-          {!priceRequestPending && (
-            <span className="shrink-0 rounded-full px-2.5 py-1 font-bold text-white"
-              style={{ background: tk.accent, fontSize: tk.fs.xs }}>
-              {priceMut.isPending ? "..." : "اطلب عرض سعر"}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* ── Guest banner: prices hidden until admin grants access ── */}
-      {!visitorToken && guestMode && (
-        <button
-          onClick={() => setAccessRequestOpen(true)}
-          className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80"
-          style={{ background: tk.accentLight }}
-        >
-          <span className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
-            🔒 الأسعار غير ظاهرة لك بعد — اضغط لطلب تفعيلها
-          </span>
-          <span className="shrink-0 rounded-full px-2.5 py-1 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>
-            طلب الأسعار
-          </span>
-        </button>
-      )}
-
-      {/* ── Trust badges — only the ones this shop actually turned on ── */}
-      {(() => {
-        const badges = (design?.trust?.badges ?? EMPTY_CATALOG_TRUST.badges)
-          .filter((b) => b?.enabled && String(b.text ?? "").trim())
-        if (badges.length === 0) return null
-        return (
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide px-3 py-2" style={{ background: tk.accentSoft }}>
-            {badges.map((b, i) => (
-              <span key={i}
-                className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 font-bold"
-                style={{ background: tk.cardBg, color: tk.accent, fontSize: tk.fs.xs, boxShadow: tk.shadowSm }}>
-                <ShieldCheck className="h-3.5 w-3.5" />
-                {String(b.text).trim()}
-              </span>
-            ))}
-          </div>
-        )
-      })()}
-
-      {/* ── Hero banner (slideshow) ── */}
-      {(() => {
-        const bannerEnabled = design?.bannerEnabled !== false
-        if (!bannerEnabled) return null
-        // Admin banner images take priority over product images
-        const adminImgs = [...(design?.bannerImages ?? [])].sort((a, b) => a.order - b.order)
-        const slides: Array<{ src: string; title: string; subtitle?: string }> =
-          adminImgs.length >= 2
-            ? adminImgs.map(img => ({ src: img.url, title: img.title || "" }))
-            : products.filter(p => (p.hasImage ?? Boolean(p.thumbnailUrl)) && canDisplay(p)).slice(0, 8)
-                .map(withThumb)
-                .filter(p => p.thumbnailUrl || p.imageUrl)
-                .map(p => ({
-                src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
-                subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
-              }))
-        if (slides.length < 2) return null
-        const total = slides.length
-        const idx = ((bannerIndex % total) + total) % total
-        const welcomeMsg = design?.welcomeMessage || (customerName ? `مرحباً ${customerName} 👋` : "مرحباً بك 👋")
-        return (
-          /* A fixed 190px box cropped every banner into a thin strip, which is
-             what made the uploaded pictures look mangled. A 16:9 box matches
-             the shape a phone photo actually has, and object-contain over a
-             blurred copy of the same image fills the sides without cutting
-             anything out of the picture the shop chose. */
-          <div
-            className="relative overflow-hidden select-none"
-            style={{ aspectRatio: "16 / 9", maxHeight: "260px", background: tk.catIdle }}
-            onTouchStart={(e) => { bannerTouchX.current = e.touches[0].clientX }}
-            onTouchEnd={(e) => {
-              if (bannerTouchX.current === null) return
-              const delta = bannerTouchX.current - e.changedTouches[0].clientX
-              bannerTouchX.current = null
-              if (delta > 40) setBannerIndex(i => i + 1)
-              else if (delta < -40) setBannerIndex(i => i - 1)
-            }}
-          >
-            {slides.map((s, i) => (
-              <div key={i} className="absolute inset-0 transition-opacity duration-700" style={{ opacity: i === idx ? 1 : 0 }}>
-                <img src={s.src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl opacity-60" />
-                <img src={s.src} alt={s.title} className="relative h-full w-full object-contain" />
-                {(s.title || s.subtitle) && (
-                  <>
-                    <div className="absolute inset-x-0 bottom-0 h-1/2" style={{ background: "linear-gradient(to top, rgba(0,0,0,0.75) 0%, transparent 100%)" }} />
-                    <div className="absolute bottom-7 right-4 left-4">
-                      {s.title && <p className="font-extrabold text-white drop-shadow-md leading-snug" style={{ fontSize: tk.fs.md }}>{s.title}</p>}
-                      {s.subtitle && <p className="mt-0.5 font-bold" style={{ color: "#6ee7b7", fontSize: tk.fs.sm }}>{s.subtitle}</p>}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))}
-            {/* welcome pill */}
-            <div className="absolute right-3 top-3 rounded-full px-3 py-1 text-right" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)" }}>
-              <p className="font-semibold text-white" style={{ fontSize: tk.fs.xs }}>{welcomeMsg}</p>
-            </div>
-            {/* swipe hint arrows */}
-            <button type="button" onClick={() => setBannerIndex(i => i - 1)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full opacity-60 active:opacity-100"
-              style={{ background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
-              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-white stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
-            <button type="button" onClick={() => setBannerIndex(i => i + 1)}
-              className="absolute left-2 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full opacity-60 active:opacity-100"
-              style={{ background: "rgba(255,255,255,0.2)", backdropFilter: "blur(4px)" }}>
-              <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-white stroke-2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            {/* dots */}
-            <div className="absolute bottom-2.5 left-1/2 flex -translate-x-1/2 gap-1.5">
-              {slides.map((_, i) => (
-                <button key={i} type="button" onClick={() => setBannerIndex(i)}
-                  className="rounded-full transition-all duration-300"
-                  style={{ height: "5px", width: i === idx ? "18px" : "5px", background: i === idx ? "#fff" : "rgba(255,255,255,0.45)" }} />
-              ))}
-            </div>
-          </div>
-        )
-      })()}
+      {/* ── Arranged blocks, in the shop's own order ── */}
+      {layoutSections.map(({ key, enabled }) => (
+        enabled ? <React.Fragment key={key}>{sectionNodes[key]}</React.Fragment> : null
+      ))}
 
       {/* ── Main content ── */}
       <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-6 pt-4 overflow-hidden" style={{ background: tk.bg }}>
@@ -1985,6 +2081,8 @@ function CatalogShop({
       {/* ── Product page ── */}
       {openProductId && (
         <ProductDetailSheet
+          reviewsEnabled={design?.reviewsEnabled !== false}
+          suggestionsEnabled={design?.suggestionsEnabled !== false}
           productId={openProductId}
           accessToken={accessToken}
           guestMode={guestMode}
@@ -2009,7 +2107,7 @@ function CatalogShop({
       )}
 
       {/* ── First-visit onboarding tutorial ── */}
-      {showTutorial && (
+      {showTutorial && design?.tutorialEnabled !== false && (
         <CatalogOnboardingTutorial
           tk={tk}
           onClose={() => { localStorage.setItem(TUTORIAL_SEEN_KEY, "1"); setShowTutorial(false) }}
@@ -2260,6 +2358,7 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 
 function ProductDetailSheet({
   productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onOpenProduct,
+  reviewsEnabled = true, suggestionsEnabled = true,
 }: {
   productId: string
   accessToken: string
@@ -2267,6 +2366,9 @@ function ProductDetailSheet({
   tk: ThemeTokens
   allowPrices: boolean
   lowStockCartons: number
+  /** Shop-wide switches — a shop that does not want reviews gets no reviews. */
+  reviewsEnabled?: boolean
+  suggestionsEnabled?: boolean
   onClose: () => void
   onAdd: (product: PublicCatalogProduct, unit: CatalogUnit) => void
   onOpenProduct: (id: string) => void
@@ -2503,6 +2605,7 @@ function ProductDetailSheet({
             )}
 
             {/* ── Reviews ── */}
+            {reviewsEnabled && (
             <section className="mx-3 mt-3 p-3.5" style={{ background: tk.cardBg, borderRadius: tk.radiusLg, border: `1px solid ${tk.divider}` }}>
               <h2 className="mb-3 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
                 آراء الزبائن {product.reviews.count > 0 ? `(${product.reviews.count})` : ""}
@@ -2569,8 +2672,10 @@ function ProductDetailSheet({
               )}
             </section>
 
+            )}
+
             {/* ── Related ── */}
-            {product.related.length > 0 && (
+            {suggestionsEnabled && product.related.length > 0 && (
               <section className="mt-4 px-3">
                 <h2 className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>منتجات مشابهة</h2>
                 <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide">

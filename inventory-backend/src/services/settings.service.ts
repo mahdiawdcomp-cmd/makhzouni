@@ -79,6 +79,42 @@ export interface AppSettings {
   // customers and visitors alike; empty text hides the bar entirely.
   catalogAnnouncementEnabled?: boolean;
   catalogAnnouncementText?: string;
+
+  /* ── Storefront layout, in the merchant's hands ──────────────────────
+     Everything below used to be fixed in the storefront's JSX. A shop that
+     wants its banner above the badges, or no reviews at all, or its own
+     wording on the login screen, should not need a deploy — so the page now
+     reads its shape from here. Empty/undefined everywhere means "exactly the
+     behaviour that shipped", which is what keeps existing tenants unchanged. */
+
+  // Ordered sections with their on/off switch. Unknown keys are ignored and
+  // known keys missing from the list fall back to their built-in position,
+  // so adding a section in code never needs a data migration.
+  catalogSections?: Array<{ key: string; enabled: boolean }>;
+
+  // Per-key overrides for the storefront's visible wording. A missing or
+  // blank value means the built-in Arabic text.
+  catalogTexts?: Record<string, string>;
+
+  // Categories the shop does not want on the storefront, and the order it
+  // wants the rest in. Products keep their category either way — this is
+  // display only, never a data change.
+  catalogHiddenCategories?: string[];
+  catalogCategoryOrder?: string[];
+
+  // «مختاراتنا» — products the shop puts in a row of their own at the top.
+  catalogFeaturedProductIds?: string[];
+
+  // What the grid looks like before the shopper touches anything. They can
+  // still change it for themselves; this is the default, not a lock.
+  catalogDefaultView?: "grid" | "list";
+  catalogDefaultPerRow?: number;
+  catalogDefaultSort?: string;
+
+  // Shop-wide switches for whole features.
+  catalogReviewsEnabled?: boolean;
+  catalogSuggestionsEnabled?: boolean;
+  catalogTutorialEnabled?: boolean;
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -379,6 +415,17 @@ export const defaultSettings: AppSettings = {
   storefrontInviteTemplateParams: [],
   catalogAnnouncementEnabled: false,
   catalogAnnouncementText: "",
+  catalogSections: [],
+  catalogTexts: {},
+  catalogHiddenCategories: [],
+  catalogCategoryOrder: [],
+  catalogFeaturedProductIds: [],
+  catalogDefaultView: "grid",
+  catalogDefaultPerRow: 2,
+  catalogDefaultSort: "",
+  catalogReviewsEnabled: true,
+  catalogSuggestionsEnabled: true,
+  catalogTutorialEnabled: true,
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

@@ -52,6 +52,8 @@ import {
 import { validate } from "../middleware/validate";
 import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
 import prisma from "../config/database";
+import { buildCatalogLayout } from "../services/catalog.service";
+import { getSettings } from "../services/settings.service";
 import { getCloudDisplayPhoneNumber } from "../services/whatsapp.service";
 import { asyncHandler } from "../utils/async-handler";
 import { totalStock } from "../utils/product-stock";
@@ -304,10 +306,10 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
         const keyword = (keywords.find((k) => String(k).trim()) ?? "حسابي").trim();
         return digits ? { whatsapp: digits, keyword } : null;
       })(),
-      announcement: (() => {
-        const text = String((kv.catalogAnnouncementText as string) ?? "").trim();
-        return kv.catalogAnnouncementEnabled === true && text ? text : null;
-      })(),
+      // Layout + wording + feature switches, from the one builder the
+      // signed-in session also uses — two payloads that drifted would let the
+      // same shop look different to a customer and to a visitor.
+      ...buildCatalogLayout(await getSettings()),
       guestModeEnabled,
     },
   });
