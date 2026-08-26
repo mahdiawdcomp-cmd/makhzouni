@@ -566,6 +566,7 @@ async function executeApprovedRequest(
         warehouseId?: string;
         items?: Parameters<typeof createInvoice>[0]["items"];
         couponCode?: string;
+        discount?: number;
       };
       const phone = String(body.phone ?? "").trim();
       const customerName = String(body.customerName ?? "").trim();
@@ -620,7 +621,10 @@ async function executeApprovedRequest(
             address: body.address,
             warehouseId: body.warehouseId,
             items: body.items,
-            discount: 0,
+            // The order's earned tier discount, computed from server-side
+            // prices when the order was placed. Hardcoding 0 here quietly
+            // dropped it before it ever reached the invoice.
+            discount: Math.max(0, Number(body.discount) || 0),
             tax: 0,
             paidAmount: 0,
             paymentType: "CREDIT",

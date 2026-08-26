@@ -1204,6 +1204,12 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
   });
 
   const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+
+  // A visitor's order earns the same offers a customer's does — the ladder is
+  // about the size of the basket, not about who is holding it.
+  const guestTierSettings = await getSettings().catch(() => null);
+  const guestTier = resolveOrderTier(subtotal, guestTierSettings?.catalogOrderTiers ?? DEFAULT_ORDER_TIERS);
+
   const requester = await findApprovalRequester();
 
   const approval = await createPendingApproval(
@@ -1215,12 +1221,18 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
       address: input.address,
       notes: input.notes,
       subtotal,
-      finalTotal: subtotal,
+      isFreeDelivery: guestTier.freeDelivery,
+      tierDiscount: guestTier.discountAmount,
+      tierPercent: guestTier.discountPercent,
+      finalTotal: subtotal - guestTier.discountAmount,
       body: {
         customerName,
         phone,
         address: input.address,
         notes: input.notes,
+        discount: guestTier.discountAmount,
+        isFreeDelivery: guestTier.freeDelivery,
+        tierPercent: guestTier.discountPercent,
         items: normalizedItems.map((item) => ({
           productId: item.productId,
           unit: item.unit,
@@ -1344,6 +1356,14 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
     }
   }
 
+  // «عروض القائمة» — resolved HERE, from prices the server just computed.
+  // A tier read from the request body would let anyone claim the top rung by
+  // editing one number before pressing send.
+  const tierSettings = await getSettings().catch(() => null);
+  const tier = resolveOrderTier(subtotal, tierSettings?.catalogOrderTiers ?? DEFAULT_ORDER_TIERS);
+  const tierDiscount = tier.discountAmount;
+  const tierFreeDelivery = tier.freeDelivery;
+
   // Check if this is customer's first order
   const invoiceCount = await prisma.invoice.count({
     where: { customerId: access.customer.id, status: "ACTIVE" },
@@ -1366,8 +1386,10 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       promoCode: input.promoCode,
       promoDiscount,
       promoLabel,
-      isFreeDelivery,
-      finalTotal: subtotal - promoDiscount,
+      isFreeDelivery: isFreeDelivery || tierFreeDelivery,
+      tierDiscount,
+      tierPercent: tier.discountPercent,
+      finalTotal: subtotal - promoDiscount - tierDiscount,
       body: {
         customerName: access.customer.name,
         phone: access.customer.phone,
@@ -1375,7 +1397,12 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
         notes: input.notes,
         promoCode: input.promoCode,
         promoDiscount,
-        isFreeDelivery,
+        isFreeDelivery: isFreeDelivery || tierFreeDelivery,
+        // ONLY the tier discount. The promo code travels as couponCode and
+        // createInvoice applies it itself, so adding promoDiscount here would
+        // take the same discount off the invoice twice.
+        discount: tierDiscount,
+        tierPercent: tier.discountPercent,
         items: normalizedItems.map((item) => ({
           productId: item.productId,
           unit: item.unit,

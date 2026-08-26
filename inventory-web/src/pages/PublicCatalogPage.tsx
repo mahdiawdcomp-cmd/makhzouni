@@ -1,4 +1,4 @@
-import { catalogText, type CatalogLayout } from "../utils/catalogLayout"
+import { catalogText, resolveCartTier, type CatalogLayout } from "../utils/catalogLayout"
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
@@ -2088,6 +2088,7 @@ function CatalogShop({
       {cartOpen && (
         <CartOverlay
           cart={cart} allowPrices={allowPrices} subtotal={subtotal}
+          orderTiers={design?.orderTiers}
           notes={notes} onNotes={setNotes}
           onChangeQty={changeQty} onChangeUnit={changeUnit}
           onRemove={(id) => setCart(prev => prev.filter(l => l.id !== id))}
@@ -3752,6 +3753,7 @@ function CartOverlay({
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
   promoDiscount, finalTotal, hasFreeDelivery, onClearPromo, deliveryLine = null, firstOrderCoupon = null,
   guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress,
+  orderTiers,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
   onNotes: (v: string) => void; onChangeQty: (id: string, d: number) => void
@@ -3767,8 +3769,10 @@ function CartOverlay({
   guestMode?: boolean
   guestName?: string; guestPhone?: string; guestAddress?: string
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
+  orderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }) {
   const guestDetailsMissing = Boolean(guestMode) && (!guestName?.trim() || (guestPhone?.replace(/\D/g, "").length ?? 0) < 7)
+  const tier = resolveCartTier(subtotal, orderTiers)
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
@@ -3846,6 +3850,36 @@ function CartOverlay({
               placeholder="ملاحظات إضافية (اختياري)"
               className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
               style={{ background: tk.cardBg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+
+            {/* ── «عروض القائمة»: what this basket has earned, and what one
+                   more carton would earn. Hidden when the shop runs no offers
+                   and when prices are — showing a dinar target to someone who
+                   cannot see prices is just noise. ── */}
+            {allowPrices && (tier.reached || tier.next) && (
+              <div className="rounded-xl px-3 py-2.5" style={{ background: tk.accentLight }}>
+                {tier.reached && (
+                  <p className="font-bold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
+                    🎉 {tier.freeDelivery ? "توصيل مجاني" : ""}
+                    {tier.freeDelivery && tier.discountPercent > 0 ? " + " : ""}
+                    {tier.discountPercent > 0 ? `خصم ${tier.discountPercent}% (${money(tier.discountAmount)} د.ع)` : ""}
+                  </p>
+                )}
+                {tier.next && (
+                  <>
+                    <p className="mt-0.5" style={{ color: tk.text, fontSize: tk.fs.xs }}>
+                      باقي <span className="font-extrabold">{money(tier.remaining)}</span> د.ع وتحصل على
+                      {tier.next.freeDelivery && !tier.freeDelivery ? " توصيل مجاني" : ""}
+                      {tier.next.freeDelivery && !tier.freeDelivery && tier.next.discountPercent > 0 ? " و" : ""}
+                      {tier.next.discountPercent > 0 ? ` خصم ${tier.next.discountPercent}%` : ""}
+                    </p>
+                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full" style={{ background: tk.divider }}>
+                      <div className="h-full rounded-full transition-all"
+                        style={{ width: `${Math.round(tier.progress * 100)}%`, background: tk.accent }} />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Promo code — not available for anonymous guests (no account to attach it to) */}
             {!guestMode && (promoResult ? (

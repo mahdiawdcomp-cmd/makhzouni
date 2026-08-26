@@ -19,6 +19,45 @@ export interface CatalogLayout {
   reviewsEnabled: boolean
   suggestionsEnabled: boolean
   tutorialEnabled: boolean
+  /** «عروض القائمة» — thresholds that grant free delivery and/or a discount. */
+  orderTiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
+}
+
+/**
+ * What this cart has earned and what one more carton would earn.
+ *
+ * Mirrors resolveOrderTier on the backend, which is the authority — this copy
+ * exists so the cart can show progress live without a round trip. The server
+ * recomputes from its own prices when the order is placed, so a stale or
+ * tampered client can never award itself a discount.
+ */
+export function resolveCartTier(
+  subtotal: number,
+  tiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }> | undefined,
+) {
+  const total = Math.max(0, Number(subtotal) || 0)
+  const ladder = [...(tiers ?? [])]
+    .filter((t) => t && t.minTotal > 0 && (t.freeDelivery || t.discountPercent > 0))
+    .sort((a, b) => a.minTotal - b.minTotal)
+
+  let reached: (typeof ladder)[number] | null = null
+  let next: (typeof ladder)[number] | null = null
+  for (const tier of ladder) {
+    if (total >= tier.minTotal) reached = tier
+    else { next = tier; break }
+  }
+
+  const discountPercent = reached?.discountPercent ?? 0
+  return {
+    reached,
+    next,
+    remaining: next ? Math.max(0, next.minTotal - total) : 0,
+    freeDelivery: reached?.freeDelivery ?? false,
+    discountPercent,
+    discountAmount: Math.round(total * (discountPercent / 100)),
+    /** 0..1 progress toward the next rung, for the bar. */
+    progress: next ? Math.min(1, total / next.minTotal) : 1,
+  }
 }
 
 /** Built-in wording, overridden per key from «نصوص الكتلوك». */
