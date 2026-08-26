@@ -250,8 +250,7 @@ function InvoiceLineContextMenu({
   // when explicitly set, otherwise المحل (the default for every sale line that hasn't
   // been redirected). Comparing against item.warehouseId alone would, for the common
   // undefined-means-shop case, wrongly list المحل itself as a "transfer from" target.
-  const currentWarehouseId = item.warehouseId
-    ?? item.product.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.warehouseId
+  const currentWarehouseId = item.warehouseId ?? shopWarehouseIdOf(item.product)
   const otherWarehouses = (item.product.warehouseStocks ?? []).filter((ws) => ws.warehouseId !== currentWarehouseId)
   const units = visibleUnits(item.product)
   const lastForCustomer = forCustomer.data
@@ -964,8 +963,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         const piecePrice = linePrice / piecesPerUnit(unit, product)
         const totalPcs = unitToPieces(unit, pi.quantity, product)
 
-        const shopWh = allWhs.find((ws) => ws.warehouse.name.includes("محل"))
-        const shopId = shopWh?.warehouseId
+        const shopId = shopWarehouseIdOf(product)
+        const shopWh = allWhs.find((ws) => ws.warehouseId === shopId)
         const others = allWhs
           .filter((ws) => ws.quantityPieces > 0 && ws.warehouseId !== shopId)
           .sort((a, b) => b.quantityPieces - a.quantityPieces)
@@ -2844,7 +2843,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                       shortage up front instead of only after the line is on the
                       invoice (matches the sale-only "sales come from المحل" rule). */}
                   {!isPurchase ? (() => {
-                    const shop = product.shopStock ?? product.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
+                    const shopId = shopWarehouseIdOf(product)
+                    const shop = product.shopStock ?? product.warehouseStocks?.find((ws) => ws.warehouseId === shopId)?.quantityPieces
                     if (shop === undefined) return null
                     const state = stockState(product)
                     return (
@@ -2922,7 +2922,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         const p = scanPreview.product
         const img = p.thumbnailUrl || p.imageUrl
         const totalStock = p.currentStock ?? (p.openingBalancePcs + p.cartonsAvailable * p.pcsPerCarton)
-        const shopStock = p.shopStock ?? p.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
+        const shopId = shopWarehouseIdOf(p)
+        const shopStock = p.shopStock ?? p.warehouseStocks?.find((ws) => ws.warehouseId === shopId)?.quantityPieces
         const unitPrice = unitPriceFor(p, scanPreview.unit)
         return (
           <div
