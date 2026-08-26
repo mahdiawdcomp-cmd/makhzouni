@@ -2,6 +2,7 @@ import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { normalizePhone } from "../utils/phone";
+import { makeThumbnail } from "../utils/thumbnail";
 
 /* ══════════════════════════════════════════════════════════════════════
    «احجز البضاعة القادمة الجديدة»
@@ -102,7 +103,13 @@ export async function reserveIncomingItem(input: {
   return { ok: true, quantity };
 }
 
-/** What this shopper has already reserved, so the storefront can show it back. */
+/**
+ * What this shopper has already reserved, so the storefront can show it back.
+ *
+ * Returns quantities only — never names, notes or anyone else's rows. A phone
+ * number in a query string is not proof of identity, so this deliberately
+ * exposes nothing a person could not already guess about themselves.
+ */
 export async function listMyReservations(rawPhone: string) {
   const phone = normalizePhone(String(rawPhone ?? ""));
   if (!phone) return {};
@@ -133,13 +140,21 @@ export async function listIncomingItems() {
   }));
 }
 
-function itemData(input: IncomingItemInput) {
+async function itemData(input: IncomingItemInput) {
   const name = String(input.name ?? "").trim();
   if (name.length < 2) throw new AppError("الاسم مطلوب", 400, "NAME_REQUIRED");
+
+  // Shrunk to a thumbnail before it is stored, the way products already are.
+  // The public list returns every item's picture inline, so keeping originals
+  // would have sent megabytes down a shopper's phone connection to draw a row
+  // of 150px cards — the exact problem the product grid was fixed for.
+  const raw = input.imageUrl?.trim() || null;
+  const imageUrl = raw ? (await makeThumbnail(raw)) ?? raw : null;
+
   return {
     name,
     description: input.description?.trim() || null,
-    imageUrl: input.imageUrl?.trim() || null,
+    imageUrl,
     expectedAt: input.expectedAt ? new Date(input.expectedAt) : null,
     price: input.price == null || Number.isNaN(Number(input.price)) ? null : Number(input.price),
     active: input.active !== false,
@@ -148,11 +163,11 @@ function itemData(input: IncomingItemInput) {
 }
 
 export async function createIncomingItem(input: IncomingItemInput) {
-  return prisma.catalogIncomingItem.create({ data: itemData(input) });
+  return prisma.catalogIncomingItem.create({ data: await itemData(input) });
 }
 
 export async function updateIncomingItem(id: string, input: IncomingItemInput) {
-  return prisma.catalogIncomingItem.update({ where: { id }, data: itemData(input) });
+  return prisma.catalogIncomingItem.update({ where: { id }, data: await itemData(input) });
 }
 
 /** Deleting takes its reservations with it — see the cascade on the relation. */

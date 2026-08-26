@@ -3565,7 +3565,10 @@ function IncomingRow({ tk, phone, customerName }: { tk: ThemeTokens; phone: stri
     },
   })
 
-  if (items.length === 0) return null
+  // An anonymous guest has no phone on file, and reserving without one fails
+  // server-side — so the row simply does not appear rather than offering a
+  // button that answers «تعذر الحجز» whatever they do.
+  if (items.length === 0 || !phone) return null
 
   return (
     <div className="px-3 pt-3">
