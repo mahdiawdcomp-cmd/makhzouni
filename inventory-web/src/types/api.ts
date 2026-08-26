@@ -1192,6 +1192,7 @@ export interface AppSettings {
   catalogReviewsEnabled?: boolean
   catalogSuggestionsEnabled?: boolean
   catalogTutorialEnabled?: boolean
+  catalogOrderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
   catalogAccessApprovedV2TemplateName?: string
   couponExpiryReminderTemplateName?: string
   followUpNoReplyTemplateName?: string

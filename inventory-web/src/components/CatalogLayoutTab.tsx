@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, Eye, EyeOff, LayoutList, Sparkles, Tags, Type } from "lucide-react"
+import { ArrowDown, ArrowUp, Eye, EyeOff, Gift, LayoutList, Sparkles, Tags, Type, Trash2 } from "lucide-react"
 import { getSettings, updateSettings, getProducts } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -184,6 +184,9 @@ export function CatalogLayoutTab() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ── Order tiers ── */}
+      <OrderTiersCard />
 
       {/* ── Feature switches + grid defaults ── */}
       <CatalogBehaviourCard />
@@ -511,6 +514,123 @@ function CatalogCategoriesCard() {
             )
           })}
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ── «عروض القائمة» ───────────────────────────────────────────────── */
+
+type Tier = { minTotal: number; freeDelivery: boolean; discountPercent: number }
+
+/**
+ * The ladder of order-total offers.
+ *
+ * Saved as one list so the rungs can never disagree with each other, and the
+ * storefront reads the same list — the cart's progress bar and the discount
+ * that lands on the invoice come from this and nothing else.
+ */
+function OrderTiersCard() {
+  const qc = useQueryClient()
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const savedTiers = settingsQuery.data?.catalogOrderTiers
+  const [draft, setDraft] = useState<Tier[] | null>(null)
+  const tiers = draft ?? savedTiers ?? []
+
+  const saveMut = useMutation({
+    mutationFn: (next: Tier[]) => updateSettings({ catalogOrderTiers: next }),
+    onSuccess: () => {
+      toast({ title: "تم حفظ العروض" })
+      setDraft(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+    },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  function patch(index: number, next: Partial<Tier>) {
+    setDraft(tiers.map((t, i) => (i === index ? { ...t, ...next } : t)))
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Gift className="h-5 w-5 text-rose-600" />
+          عروض القائمة
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          كل عرض إله مبلغ. لمن توصل قائمة الزبون للمبلغ يحصل على العرض، ويشوف بالسلة كم باقي
+          للعرض الي بعده. الزبون ياخذ عرض المرتبة الي وصلها فقط — ما تتجمع المراتب فوق بعض.
+          الخصم ينزل تلقائياً على الفاتورة.
+        </p>
+
+        {tiers.length === 0 && (
+          <p className="py-3 text-center text-sm text-slate-400">ما اكو عروض — الكتلوك ما يعرض شي</p>
+        )}
+
+        <div className="space-y-2">
+          {tiers.map((t, i) => (
+            <div key={i} className="space-y-2 rounded-xl border bg-white p-3">
+              <div className="flex items-center gap-2">
+                <span className="shrink-0 text-xs font-semibold text-slate-500">لمن توصل القائمة</span>
+                <Input
+                  type="number"
+                  value={String(t.minTotal)}
+                  onChange={(e) => patch(i, { minTotal: Math.max(0, Number(e.target.value) || 0) })}
+                  className="w-40"
+                  dir="ltr"
+                />
+                <span className="shrink-0 text-xs text-slate-500">دينار</span>
+                <button onClick={() => setDraft(tiers.filter((_, x) => x !== i))}
+                  className="mr-auto shrink-0 rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                  title="حذف">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input type="checkbox" checked={t.freeDelivery}
+                    onChange={(e) => patch(i, { freeDelivery: e.target.checked })}
+                    className="h-4 w-4 accent-rose-600" />
+                  توصيل مجاني
+                </label>
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  خصم
+                  <Input
+                    type="number"
+                    value={String(t.discountPercent)}
+                    onChange={(e) => patch(i, {
+                      discountPercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)),
+                    })}
+                    className="w-20"
+                    dir="ltr"
+                  />
+                  ٪
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setDraft([...tiers, { minTotal: 0, freeDelivery: true, discountPercent: 0 }])}
+          className="w-full rounded-xl bg-slate-100 py-2 text-xs font-bold text-slate-600 transition hover:bg-slate-200">
+          + أضف مرتبة
+        </button>
+
+        <Button size="sm" className="w-full"
+          disabled={draft === null || saveMut.isPending}
+          onClick={() => saveMut.mutate(
+            // Rungs that grant nothing, or have no threshold, are dropped —
+            // they would show the shopper a target that pays them nothing.
+            tiers
+              .filter((t) => t.minTotal > 0 && (t.freeDelivery || t.discountPercent > 0))
+              .sort((a, b) => a.minTotal - b.minTotal),
+          )}>
+          {saveMut.isPending ? "جاري الحفظ..." : "حفظ العروض"}
+        </Button>
       </CardContent>
     </Card>
   )

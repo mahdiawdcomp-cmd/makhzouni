@@ -1430,6 +1430,32 @@ function CatalogShop({
     })
   }
 
+  /**
+   * Everything the picker chose, in one go.
+   *
+   * Adding unit by unit meant a shopper wanting three cartons made three round
+   * trips through the sheet. The stock ceiling is re-checked here rather than
+   * trusted from the sheet: the grid can refresh underneath an open sheet, and
+   * the cart must never hold more than the warehouse has.
+   */
+  function addMany(product: PublicCatalogProduct, lines: Array<{ unit: CatalogUnit; quantity: number }>) {
+    if (lines.length === 0) return
+    setSubmitted(null)
+    setCart((prev) => {
+      let next = prev
+      for (const { unit, quantity } of lines) {
+        const max = maxQty(product, unit)
+        if (max < 1 || quantity < 1) continue
+        const id = key(product.id, unit)
+        const cur = next.find((l) => l.id === id)
+        next = cur
+          ? next.map((l) => (l.id === id ? { ...l, quantity: Math.min(l.quantity + quantity, max) } : l))
+          : [...next, { id, product, unit, quantity: Math.min(quantity, max) }]
+      }
+      return next
+    })
+  }
+
   function changeQty(lineId: string, delta: number) {
     setCart((prev) =>
       prev.flatMap((l) => {
@@ -2121,7 +2147,7 @@ function CatalogShop({
           allowPrices={allowPrices}
           showStock={showStock}
           tk={tk}
-          onSelect={(unit) => { add(pickerProduct, unit); setPickerProduct(null) }}
+          onAdd={(lines) => { addMany(pickerProduct, lines); setPickerProduct(null) }}
           onClose={() => setPickerProduct(null)}
         />
       )}
@@ -3265,21 +3291,47 @@ function AppearanceSheet({
    UNIT PICKER SHEET
 ══════════════════════════════════════════════════════════════════════ */
 function UnitPickerSheet({
-  product, allowPrices, showStock, tk, onSelect, onClose,
+  product, allowPrices, showStock, tk, onAdd, onClose,
 }: {
   product: PublicCatalogProduct; allowPrices: boolean; showStock: boolean
-  tk: ThemeTokens; onSelect: (unit: CatalogUnit) => void; onClose: () => void
+  tk: ThemeTokens
+  onAdd: (lines: Array<{ unit: CatalogUnit; quantity: number }>) => void
+  onClose: () => void
 }) {
+  const units = unitsFor(product)
+
+  // The wholesale default: a carton, one of them. Opening the sheet already
+  // holding what most shoppers want turns the common case into a single tap.
+  const [qty, setQty] = useState<Record<string, number>>(() => {
+    const biggest = units[units.length - 1]
+    return biggest && maxQty(product, biggest) >= 1 ? { [biggest]: 1 } : {}
+  })
+
+  // Pieces are the shared budget: 2 cartons and 5 dozens of the same product
+  // draw on one pile of stock. Checking each unit against the total on its own
+  // let a shopper build a basket the warehouse could not fill.
+  const piecesChosen = units.reduce((sum, u) => sum + (qty[u] ?? 0) * pcs(product, u), 0)
+  const piecesLeft = Math.max(0, product.currentStock - piecesChosen)
+
+  const totalPrice = units.reduce((sum, u) => sum + (qty[u] ?? 0) * linePrice(product, u), 0)
+  const anyChosen = units.some((u) => (qty[u] ?? 0) > 0)
+
+  function setUnitQty(u: CatalogUnit, next: number) {
+    const perUnit = Math.max(1, pcs(product, u))
+    const current = qty[u] ?? 0
+    // How many more of THIS unit fit in what is left, plus what it already holds.
+    const ceiling = current + Math.floor(piecesLeft / perUnit)
+    setQty((prev) => ({ ...prev, [u]: Math.max(0, Math.min(next, ceiling)) }))
+  }
+
   return (
     <>
       <div className="fixed inset-0 z-[150] bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-[160] mx-auto max-w-[600px] rounded-t-3xl shadow-2xl" style={{ background: tk.cardBg }} dir="rtl">
-        {/* Handle */}
+      <div className="fixed inset-x-0 bottom-0 z-[160] mx-auto flex max-h-[92vh] max-w-[600px] flex-col rounded-t-3xl shadow-2xl" style={{ background: tk.cardBg }} dir="rtl">
         <div className="flex justify-center pt-3 pb-1">
           <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />
         </div>
 
-        {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${tk.divider}` }}>
           {(product.thumbnailUrl || product.imageUrl) ? (
             <img src={product.thumbnailUrl || product.imageUrl!} alt={product.name} className="h-14 w-14 rounded-xl object-cover border" style={{ borderColor: tk.divider }} loading="lazy" decoding="async" />
@@ -3291,79 +3343,120 @@ function UnitPickerSheet({
           <div className="min-w-0 flex-1">
             <p className="line-clamp-2 font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
             <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{product.itemNumber}</p>
-            {showStock && (() => {
-              const cartonsAvail = Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton))
-              return (
-              <p className="text-xs font-semibold" style={{ color: cartonsAvail <= 2 ? "#ef4444" : tk.subtext }}>
-                {cartonsAvail <= 2 ? `⚠️ ${cartonsAvail} كارتون متبقي` : `${money(cartonsAvail)} كارتون متوفر`}
+            {showStock && (
+              <p className="font-semibold" style={{ color: piecesLeft === 0 ? "#ef4444" : tk.subtext, fontSize: tk.fs.xs }}>
+                {piecesLeft === 0 ? "وصلت لكل المتوفر" : `متبقي ${money(piecesLeft)} قطعة`}
               </p>
-              )})()}
+            )}
           </div>
           <button onClick={onClose} className="shrink-0 rounded-xl p-2" style={{ background: tk.catIdle }}>
             <X className="h-5 w-5" style={{ color: tk.subtext }} />
           </button>
         </div>
 
-        {/* Unit options */}
-        <div className="p-4 space-y-2.5 pb-8">
-          <p className="mb-3 font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>اختر الوحدة:</p>
-          {unitsFor(product).map((u) => {
-            const qty = maxQty(product, u)
-            const price = linePrice(product, u)
-            const disabled = qty < 1
-            const pcsCount = pcs(product, u)
+        <div className="flex-1 space-y-2.5 overflow-y-auto p-4">
+          {units.map((u) => {
+            const perUnit = Math.max(1, pcs(product, u))
+            const available = maxQty(product, u)
+            const chosen = qty[u] ?? 0
+            const disabled = available < 1
+            const canAddMore = piecesLeft >= perUnit
+
             return (
-              <button
-                key={u}
-                disabled={disabled}
-                onClick={() => onSelect(u)}
-                className="flex w-full items-center gap-3 rounded-2xl p-4 text-right transition active:scale-[0.98] disabled:opacity-35"
+              <div key={u}
+                className="rounded-2xl p-3.5 transition"
                 style={{
                   background: disabled ? tk.catIdle : tk.cardBg,
-                  border: `2px solid ${disabled ? tk.divider : tk.accent}`,
-                  boxShadow: disabled ? "none" : `0 2px 8px ${tk.accent}22`,
-                }}
-              >
-                {/* Unit emoji / icon */}
-                <span className="text-2xl">
-                  {u === "PIECE" ? "1️⃣" : u === "DOZEN" ? "📦" : u === "BOX" ? "🗂️" : "📫"}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-extrabold" style={{ color: disabled ? tk.subtext : tk.text, fontSize: tk.fs.lg }}>
-                      {UNIT_LABELS[u]}
+                  border: `2px solid ${chosen > 0 ? tk.accent : tk.divider}`,
+                  opacity: disabled ? 0.4 : 1,
+                }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">
+                    {u === "PIECE" ? "1️⃣" : u === "DOZEN" ? "📦" : u === "BOX" ? "🗂️" : "📫"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
+                        {UNIT_LABELS[u]}
+                      </span>
+                      {u === "BOX" && (
+                        <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
+                          نصف كارتون
+                        </span>
+                      )}
+                    </div>
+                    <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                      {UNIT_DESC[u](perUnit)}
+                      {showStock && !disabled ? ` · متوفر ${money(available)}` : ""}
+                      {disabled ? " · غير متوفر" : ""}
+                    </p>
+                  </div>
+                  {allowPrices && !disabled && (
+                    <div className="text-left">
+                      <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.md }}>{money(linePrice(product, u))}</p>
+                      {perUnit > 1 && (
+                        <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                          {money(Math.round(linePrice(product, u) / perUnit))} للقطعة
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {!disabled && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => setUnitQty(u, chosen - 1)}
+                      disabled={chosen === 0}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-lg font-extrabold disabled:opacity-30"
+                      style={{ background: tk.catIdle, color: tk.text }}>
+                      −
+                    </button>
+                    <span className="w-12 text-center font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
+                      {chosen}
                     </span>
-                    {u === "BOX" && (
-                      <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
-                        نصف كارتون
+                    <button
+                      onClick={() => setUnitQty(u, chosen + 1)}
+                      disabled={!canAddMore}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white disabled:opacity-30"
+                      style={{ background: tk.accent }}>
+                      <Plus className="h-4 w-4" />
+                    </button>
+
+                    <div className="mr-auto flex gap-1.5">
+                      {[5, 10].map((n) => (
+                        <button key={n}
+                          onClick={() => setUnitQty(u, n)}
+                          disabled={available < n}
+                          className="rounded-lg px-2.5 py-1.5 font-bold disabled:opacity-30"
+                          style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+
+                    {allowPrices && chosen > 0 && (
+                      <span className="shrink-0 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>
+                        {money(chosen * linePrice(product, u))}
                       </span>
                     )}
                   </div>
-                  <p style={{ color: tk.subtext, fontSize: tk.fs.sm }}>
-                    {UNIT_DESC[u](pcs(product, u))}
-                    {showStock && !disabled && ` · متوفر: ${qty} ${UNIT_LABELS[u]}`}
-                    {disabled && " · غير متوفر"}
-                  </p>
-                </div>
-                {allowPrices && !disabled && (
-                  <div className="text-right">
-                    <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xl }}>{money(price)}</p>
-                    <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>د.ع / {UNIT_LABELS[u]}</p>
-                    {pcsCount > 1 && (
-                      <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
-                        ({money(Math.round(price / pcsCount))} للقطعة)
-                      </p>
-                    )}
-                  </div>
                 )}
-                {!disabled && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ background: tk.accent }}>
-                    <Plus className="h-4 w-4 text-white" />
-                  </div>
-                )}
-              </button>
+              </div>
             )
           })}
+        </div>
+
+        <div className="px-4 pb-6 pt-2" style={{ borderTop: `1px solid ${tk.divider}` }}>
+          <button
+            disabled={!anyChosen}
+            onClick={() => onAdd(units.filter((u) => (qty[u] ?? 0) > 0).map((u) => ({ unit: u, quantity: qty[u] })))}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl py-4 font-extrabold text-white transition active:scale-[0.98] disabled:opacity-40"
+            style={{ background: tk.accent, fontSize: tk.fs.md }}>
+            <Plus className="h-5 w-5" />
+            أضف للسلة
+            {allowPrices && anyChosen ? <span>· {money(totalPrice)} د.ع</span> : null}
+          </button>
         </div>
       </div>
     </>
