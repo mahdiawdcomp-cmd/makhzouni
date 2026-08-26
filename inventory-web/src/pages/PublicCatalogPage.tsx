@@ -1300,9 +1300,18 @@ function CatalogShop({
     [products, stockFilter],
   )
   const neededThumbIds = useMemo(() => {
-    const ids = [...pageItems.map(p => p.id), ...suggestions.map(p => p.id), ...bannerIds]
+    // «مختاراتنا» belongs here too. Its cards are drawn above the grid, so a
+    // featured product that happens to sit on a later page was never in the
+    // batch — the row rendered with placeholders no matter how many pictures
+    // the shop had uploaded.
+    const ids = [
+      ...pageItems.map(p => p.id),
+      ...featuredProducts.map(p => p.id),
+      ...suggestions.map(p => p.id),
+      ...bannerIds,
+    ]
     return [...new Set(ids)].filter(id => !(id in thumbs))
-  }, [pageItems, suggestions, bannerIds, thumbs])
+  }, [pageItems, featuredProducts, suggestions, bannerIds, thumbs])
 
   // Ids already given their one retry, so a persistent failure settles instead
   // of cycling.
@@ -1660,10 +1669,30 @@ function CatalogShop({
         </p>
         <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
           {featuredProducts.map((fp) => (
-            <button key={fp.id} onClick={() => openProduct(fp.id)}
+            <button key={fp.id} onClick={() => setImageProduct(fp)}
               className="flex w-[128px] shrink-0 flex-col gap-1.5 rounded-2xl p-2 text-right transition active:scale-95"
               style={{ background: tk.cardBg, border: `1px solid ${tk.cardBorder}` }}>
-              <MiniThumb product={withThumb(fp)} />
+              {(() => {
+                // A real square picture, not the 36px MiniThumb used in lists —
+                // inside a 128px card that read as an empty box even when the
+                // product had a photo. Same skeleton/placeholder rule as the
+                // grid so a pending thumbnail never flashes the "no picture"
+                // icon.
+                const fpThumb = withThumb(fp).thumbnailUrl || fp.imageUrl
+                if (fpThumb) {
+                  return (
+                    <span className="block aspect-square w-full overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
+                      <img src={fpThumb} alt={fp.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                    </span>
+                  )
+                }
+                return (
+                  <span className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl"
+                    style={{ background: fp.hasImage ? tk.skeletonBg : tk.catIdle }}>
+                    {!fp.hasImage && <ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} />}
+                  </span>
+                )
+              })()}
               <span className="truncate font-semibold" style={{ color: tk.text, fontSize: tk.fs.xs }}>{fp.name}</span>
               {allowPrices && (
                 <span className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>{money(fp.salePrice)} د.ع</span>
