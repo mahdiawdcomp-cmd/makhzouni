@@ -1149,6 +1149,8 @@ function CatalogShop({
     if (design.defaultSort) setSortKey(design.defaultSort as SortKey)
   }
 
+  const [imageProduct, setImageProduct] = useState<PublicCatalogProduct | null>(null)
+
   const layoutSections = design?.sections ?? []
 
   // «مختاراتنا» resolved against the products actually on the grid, so a
@@ -1302,6 +1304,11 @@ function CatalogShop({
     return [...new Set(ids)].filter(id => !(id in thumbs))
   }, [pageItems, suggestions, bannerIds, thumbs])
 
+  // Ids already given their one retry, so a persistent failure settles instead
+  // of cycling.
+  const retriedRef = useRef<Set<string>>(new Set())
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
     if (neededThumbIds.length === 0) return
     let cancelled = false
@@ -1318,13 +1325,34 @@ function CatalogShop({
       })
       .catch(() => {
         if (cancelled) return
-        // Mark as attempted so a failure cannot become a retry loop; the cards
-        // simply keep their placeholder.
+        // Mark as attempted so a failure cannot become a retry loop.
         const failed: Record<string, string | null> = {}
         for (const id of batch) failed[id] = null
         setThumbs(prev => ({ ...prev, ...failed }))
+
+        // One retry, once. A dropped connection on a phone used to leave those
+        // cards pictureless for the whole session — which is what «بعض الصور
+        // ما تفتح» looked like. Forgetting the batch lets the effect ask again;
+        // a second failure sticks, so this can never become a loop.
+        retryTimer.current = setTimeout(() => {
+          if (cancelled || retriedRef.current.size > 400) return
+          setThumbs(prev => {
+            const next = { ...prev }
+            let retried = false
+            for (const id of batch) {
+              if (retriedRef.current.has(id)) continue
+              retriedRef.current.add(id)
+              delete next[id]
+              retried = true
+            }
+            return retried ? next : prev
+          })
+        }, 4000)
       })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      if (retryTimer.current) clearTimeout(retryTimer.current)
+    }
   }, [neededThumbIds, accessToken, guestMode, visitorToken])
   // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
   // once any filter is on — otherwise they'd show products the shopper just
@@ -1457,6 +1485,7 @@ function CatalogShop({
         onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
         onOpenPicker={() => setPickerProduct(product)}
         onOpen={() => { void trackCatalogProductView(product.id, visitorPhone); openProduct(product.id) }}
+        onOpenImage={() => { void trackCatalogProductView(product.id, visitorPhone); setImageProduct(product) }}
       />
     )
   }
@@ -2111,6 +2140,20 @@ function CatalogShop({
           onTheme={applyTheme} onAccent={applyAccent} onFontScale={applyFontScale}
           onReset={resetAppearance}
           onClose={() => setAppearanceOpen(false)}
+        />
+      )}
+
+      {/* ── Full-resolution picture ── */}
+      {imageProduct && (
+        <ProductImageViewer
+          product={imageProduct}
+          thumb={withThumb(imageProduct).thumbnailUrl ?? null}
+          accessToken={accessToken}
+          guestMode={guestMode}
+          visitorToken={visitorToken}
+          tk={tk}
+          onClose={() => setImageProduct(null)}
+          onOpenProduct={() => openProduct(imageProduct.id)}
         />
       )}
 
@@ -3300,9 +3343,88 @@ function UnitPickerSheet({
 /* ══════════════════════════════════════════════════════════════════════
    PRODUCT CARD
 ══════════════════════════════════════════════════════════════════════ */
+/**
+ * Full-resolution picture, opened straight from the grid.
+ *
+ * The card shows a 200px thumbnail, which is all the grid needs and all it
+ * should download. Tapping it used to open the product sheet, so seeing the
+ * actual picture took a second tap and a scroll. Now the thumbnail is painted
+ * immediately as a placeholder and the full image swaps in behind it, so the
+ * viewer never opens empty even on a slow connection.
+ */
+function ProductImageViewer({
+  product, thumb, accessToken, guestMode, visitorToken, tk, onClose, onOpenProduct,
+}: {
+  product: PublicCatalogProduct
+  thumb: string | null
+  accessToken: string
+  guestMode: boolean
+  visitorToken: string
+  tk: ThemeTokens
+  onClose: () => void
+  onOpenProduct: () => void
+}) {
+  // null until the full-size image arrives; the thumbnail fills the gap.
+  const [full, setFull] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const src = full ?? thumb
+
+  useEffect(() => {
+    let cancelled = false
+    const load = guestMode || visitorToken
+      ? getGuestCatalogProductImage(product.id, visitorToken)
+      : getPublicCatalogProductImage(accessToken, product.id)
+    load
+      .then((image) => { if (!cancelled && image) setFull(image) })
+      // The thumbnail stays on screen — a failed full-size fetch must not
+      // leave the shopper looking at a black rectangle.
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [product.id, accessToken, guestMode, visitorToken])
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-black/95" dir="rtl" onClick={onClose}>
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
+        <span className="min-w-0 flex-1 truncate font-bold text-white" style={{ fontSize: tk.fs.md }}>
+          {product.name}
+        </span>
+        <button onClick={onClose} className="shrink-0 rounded-full bg-white/15 p-2 text-white" aria-label="إغلاق">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center overflow-auto px-2">
+        {src ? (
+          <img
+            src={src}
+            alt={product.name}
+            className="max-h-full max-w-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <ImageIcon className="h-16 w-16 text-white/30" />
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 px-4 py-4">
+        <span className="text-white/60" style={{ fontSize: tk.fs.xs }}>
+          {loading ? "جاري تحميل الصورة بالدقة الكاملة..." : "اضغط برة الصورة للإغلاق"}
+        </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onClose(); onOpenProduct() }}
+          className="shrink-0 rounded-xl px-4 py-2 font-bold text-white"
+          style={{ background: tk.accent, fontSize: tk.fs.sm }}>
+          تفاصيل المنتج
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function ProductCard({
   product, allowPrices, showStock, qtyInCart, pcsInCart, cartUnit, tk, viewMode, perRow, lowStockCartons,
-  onAdd, onRemoveOne, onOpenPicker, onOpen,
+  onAdd, onRemoveOne, onOpenPicker, onOpen, onOpenImage,
 }: {
   product: PublicCatalogProduct
   allowPrices: boolean
@@ -3318,6 +3440,8 @@ function ProductCard({
   onRemoveOne: () => void
   onOpenPicker: () => void
   onOpen: () => void
+  /** Tapping the picture shows the picture, not the product sheet. */
+  onOpenImage: () => void
 }) {
   // Prefer the lightweight thumbnail; the full-res image is fetched on zoom.
   const thumbSrc = product.thumbnailUrl || product.imageUrl
@@ -3366,7 +3490,7 @@ function ProductCard({
           padding: "8px",
         }}>
         {/* Square image */}
-        <div className="relative h-[76px] w-[76px] shrink-0 cursor-pointer overflow-hidden" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }} onClick={onOpen}>
+        <div className="relative h-[76px] w-[76px] shrink-0 cursor-pointer overflow-hidden" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }} onClick={onOpenImage}>
           {thumbSrc ? (
             <img src={thumbSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
@@ -3384,7 +3508,7 @@ function ProductCard({
         {/* Info */}
         <div className="flex min-w-0 flex-1 flex-col justify-between">
           <div className="flex items-start gap-1">
-            <p className="line-clamp-2 flex-1 font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
+            <p onClick={onOpen} className="line-clamp-2 flex-1 cursor-pointer font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.md }}>{product.name}</p>
             {product.isNewArrival && <span className="shrink-0 rounded-full px-1.5 py-0.5 font-bold text-white" style={{ background: tk.accent, fontSize: tk.fs.xs }}>جديد</span>}
           </div>
           <div className="flex items-center justify-between gap-1 mt-1">
@@ -3431,7 +3555,7 @@ function ProductCard({
           borderRadius: tk.radiusMd,
           boxShadow: qtyInCart > 0 ? tk.shadowMd : tk.shadowSm,
         }}>
-        <div className="relative aspect-square cursor-pointer overflow-hidden" style={{ background: tk.catIdle }} onClick={onOpen}>
+        <div className="relative aspect-square cursor-pointer overflow-hidden" style={{ background: tk.catIdle }} onClick={onOpenImage}>
           {thumbSrc ? (
             <img src={thumbSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
@@ -3467,7 +3591,7 @@ function ProductCard({
         </div>
 
         <div className="px-1.5 pb-1.5 pt-1">
-          <p className="truncate font-bold leading-tight" style={{ color: tk.text, fontSize: tk.fs.xs }}>{product.name}</p>
+          <p onClick={onOpen} className="truncate cursor-pointer font-bold leading-tight" style={{ color: tk.text, fontSize: tk.fs.xs }}>{product.name}</p>
           {allowPrices && !outOfStock && (
             <p className="truncate font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{money(displayPrice)} د.ع</p>
           )}
@@ -3489,7 +3613,7 @@ function ProductCard({
       {/* Image — full square with all controls overlaid */}
       {/* The whole tile opens the product — hanging the handler off the <img>
           alone left every product without a photo with no way in at all. */}
-      <div className="relative aspect-square cursor-pointer overflow-hidden" style={{ background: tk.catIdle }} onClick={onOpen}>
+      <div className="relative aspect-square cursor-pointer overflow-hidden" style={{ background: tk.catIdle }} onClick={onOpenImage}>
         {thumbSrc ? (
           <img src={thumbSrc} alt={product.name}
             className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
@@ -3584,7 +3708,7 @@ function ProductCard({
 
       {/* Name — two lines so long product names stay readable */}
       <div className="px-2.5 py-2">
-        <p className="line-clamp-2 font-bold leading-snug" style={{ color: tk.text, fontSize: cardFs.name }}>{product.name}</p>
+        <p onClick={onOpen} className="line-clamp-2 cursor-pointer font-bold leading-snug" style={{ color: tk.text, fontSize: cardFs.name }}>{product.name}</p>
       </div>
     </div>
   )
