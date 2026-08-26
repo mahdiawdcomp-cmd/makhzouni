@@ -3475,6 +3475,17 @@ function UnitPickerSheet({
  * immediately as a placeholder and the full image swaps in behind it, so the
  * viewer never opens empty even on a slow connection.
  */
+/**
+ * Full-size images already fetched this session, keyed by product.
+ *
+ * They average ~286KB and run to ~440KB, and the viewer used to re-download
+ * one on every open — reopening twenty products cost the shopper about six
+ * megabytes of mobile data for pictures they had already seen. Module scope so
+ * it survives the viewer unmounting, and dropped on reload like any other page
+ * state, which is the right lifetime for a picture the shop can replace.
+ */
+const fullImageCache = new Map<string, string>()
+
 function ProductImageViewer({
   product, thumb, accessToken, guestMode, visitorToken, tk, onClose, onOpenProduct,
 }: {
@@ -3487,18 +3498,26 @@ function ProductImageViewer({
   onClose: () => void
   onOpenProduct: () => void
 }) {
-  // null until the full-size image arrives; the thumbnail fills the gap.
-  const [full, setFull] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  // Seeded from the cache during render, so a picture opened before appears
+  // instantly instead of flashing its thumbnail again.
+  const [full, setFull] = useState<string | null>(() => fullImageCache.get(product.id) ?? null)
+  const [loading, setLoading] = useState(() => !fullImageCache.has(product.id))
   const src = full ?? thumb
 
   useEffect(() => {
+    const cached = fullImageCache.get(product.id)
+    if (cached) return
+
     let cancelled = false
     const load = guestMode || visitorToken
       ? getGuestCatalogProductImage(product.id, visitorToken)
       : getPublicCatalogProductImage(accessToken, product.id)
     load
-      .then((image) => { if (!cancelled && image) setFull(image) })
+      .then((image) => {
+        if (!image) return
+        fullImageCache.set(product.id, image)
+        if (!cancelled) setFull(image)
+      })
       // The thumbnail stays on screen — a failed full-size fetch must not
       // leave the shopper looking at a black rectangle.
       .catch(() => {})

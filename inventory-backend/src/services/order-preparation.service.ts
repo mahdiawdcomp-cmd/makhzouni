@@ -412,10 +412,29 @@ export async function markPrepared(
     const od = prep.orderData as unknown as OrderData;
     const phone = od.phone ?? prep.customerPhone;
 
-    // Find or create customer by phone
+    // Find or create the customer by phone.
+    //
+    // A storefront visitor goes through promoteVisitorToCustomer rather than
+    // being created here: that carries their login code, address, province and
+    // business type across and links the visitor row to the new customer.
+    // Creating the row directly left them with a customer that had no code, so
+    // they kept signing in as a visitor — with prices locked — even though the
+    // shop had just invoiced them.
     let customer = await prisma.customer.findUnique({ where: { phone } });
     if (!customer) {
-      customer = await prisma.customer.create({
+      const promoted = await (async () => {
+        try {
+          const { promoteVisitorToCustomer } = await import("./catalog-visitor.service");
+          const result = await promoteVisitorToCustomer(phone);
+          return await prisma.customer.findUnique({ where: { id: result.customerId } });
+        } catch {
+          // Not a visitor, or the promotion could not run — fall through to a
+          // plain create so a paying order is never blocked by it.
+          return null;
+        }
+      })();
+
+      customer = promoted ?? await prisma.customer.create({
         data: {
           name: od.customerName ?? prep.customerName,
           phone,

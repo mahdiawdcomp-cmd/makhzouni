@@ -1151,7 +1151,12 @@ async function createInvoiceInTransaction(
   }
 
   const coupon = await couponDiscount(tx, input.couponCode, subtotal);
-  const discount = roundMoney(coupon.couponId ? coupon.discount : manualDiscount);
+  // Both discounts apply. A coupon used to REPLACE the invoice discount, which
+  // silently threw away whatever else the order had earned — a catalog order
+  // that reached a free-delivery/percentage tier and also carried a promo code
+  // arrived with only the coupon on it, while the shopper had been shown both.
+  // Clamped to the subtotal so the pair can never drive a total negative.
+  const discount = roundMoney(Math.min(subtotal, Math.max(0, coupon.discount + manualDiscount)));
   const financials = calculateInvoiceFinancials({
     type: invoiceType,
     subtotal,

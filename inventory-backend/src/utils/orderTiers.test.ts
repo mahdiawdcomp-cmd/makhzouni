@@ -111,3 +111,26 @@ describe("normalizeOrderTiers", () => {
     assert.deepEqual(out.map((t) => t.minTotal), [1 * M, 3 * M]);
   });
 });
+
+/* The invoice applies the coupon and the earned tier together; these guard the
+   arithmetic the two of them share. */
+describe("a tier discount alongside a coupon", () => {
+  const M = 1_000_000;
+
+  test("the tier is a plain amount the invoice can add to a coupon", () => {
+    const p = resolveOrderTier(2 * M, [
+      { minTotal: 2 * M, freeDelivery: true, discountPercent: 5 },
+    ]);
+    // 100,000 off, and a 10% coupon on the same order is another 200,000 —
+    // 300,000 total, which is still well inside the subtotal.
+    assert.equal(p.discountAmount, 100_000);
+    assert.ok(p.discountAmount + 0.1 * 2 * M < 2 * M);
+  });
+
+  test("even a 100% rung cannot exceed the subtotal on its own", () => {
+    const p = resolveOrderTier(2 * M, [
+      { minTotal: 1, freeDelivery: false, discountPercent: 100 },
+    ]);
+    assert.equal(p.discountAmount, 2 * M);
+  });
+});

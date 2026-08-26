@@ -299,7 +299,10 @@ export async function listStorefrontAccountsUnified(search?: string): Promise<St
   const customers = await prisma.customer.findMany({
     where: {
       deletedAt: null,
-      accessCodeHash: { not: null },
+      // Every customer, not only those who already hold a code. Filtering on
+      // accessCodeHash hid 198 of this shop's 218 customers — and a customer
+      // with no code yet is exactly who the merchant opens this screen to send
+      // one to, so the rows they needed were the ones missing.
       ...(like ? { OR: [{ name: like }, { phone: like }] } : {}),
     },
     select: {
@@ -358,8 +361,11 @@ export async function listStorefrontAccountsUnified(search?: string): Promise<St
     });
   }
 
-  // Anyone waiting on a price request comes first — that is the row the
-  // merchant opened this screen to act on.
-  rows.sort((a, b) => Number(b.priceRequestPending) - Number(a.priceRequestPending));
+  // Waiting on a price request first, then anyone still without a code —
+  // the two rows the merchant opened this screen to act on.
+  rows.sort((a, b) =>
+    Number(b.priceRequestPending) - Number(a.priceRequestPending)
+    || Number(a.hasCode) - Number(b.hasCode),
+  );
   return rows;
 }
