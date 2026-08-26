@@ -59,7 +59,7 @@ function ProductPicker({ onPick }: { onPick: (productId: string, name: string) =
   )
 }
 
-function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
+function ItemRow({ item, batchId, highlighted }: { item: LandedCostItem; batchId: string; highlighted?: boolean }) {
   const queryClient = useQueryClient()
   const [showPicker, setShowPicker] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(item.action === "CREATE_NEW")
@@ -75,7 +75,12 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
   const image = imgSrc(item.product?.thumbnailUrl ?? item.product?.imageUrl)
 
   return (
-    <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-start">
+    <div
+      id={`lc-item-${item.id}`}
+      className={`flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-start${
+        highlighted ? " bg-amber-50 ring-2 ring-amber-400 dark:bg-amber-900/20" : ""
+      }`}
+    >
       <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-slate-50 dark:bg-slate-800">
         {image ? <img src={image} alt="" className="h-full w-full object-cover" /> : <span className="text-xs text-muted-foreground">لا صورة</span>}
       </div>
@@ -201,6 +206,8 @@ export function LandedCostReviewPage() {
   })
 
   const [confirmCancel, setConfirmCancel] = useState(false)
+  const [onlyUnresolved, setOnlyUnresolved] = useState(false)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const cancelMutation = useMutation({
     mutationFn: () => cancelLandedCostBatch(batchId),
     onSuccess: () => navigate("/inventory/landed-cost"),
@@ -208,7 +215,20 @@ export function LandedCostReviewPage() {
   })
 
   const batch = batchQuery.data
-  const unresolvedCount = useMemo(() => (batch?.items ?? []).filter((it) => it.action === "PENDING").length, [batch])
+  const unresolvedItems = useMemo(() => (batch?.items ?? []).filter((it) => it.action === "PENDING"), [batch])
+  const unresolvedCount = unresolvedItems.length
+  const visibleItems = useMemo(
+    () => (onlyUnresolved ? unresolvedItems : (batch?.items ?? [])),
+    [onlyUnresolved, unresolvedItems, batch]
+  )
+
+  function goToItem(itemId: string) {
+    setHighlightId(itemId)
+    setOnlyUnresolved(false)
+    requestAnimationFrame(() => {
+      document.getElementById(`lc-item-${itemId}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+    })
+  }
   const locked = batch?.status === "PURCHASE_INVOICE_CREATED" || batch?.status === "CANCELLED"
 
   if (batchQuery.isLoading) return <div className="p-6">جاري التحميل...</div>
@@ -243,14 +263,31 @@ export function LandedCostReviewPage() {
       </div>
 
       {unresolvedCount > 0 && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-          يوجد {unresolvedCount} صنف بحاجة لقرار (ربط بمادة موجودة / إنشاء مادة جديدة / تخطي) قبل إنشاء فاتورة الشراء.
+        <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          <div>
+            يوجد {unresolvedCount} صنف بحاجة لقرار (ربط بمادة موجودة / إنشاء مادة جديدة / تخطي) قبل إنشاء فاتورة الشراء.
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {unresolvedItems.slice(0, 20).map((it) => (
+              <Button key={it.id} size="sm" variant="outline" onClick={() => goToItem(it.id)}>
+                {it.productName || it.itemCode || "بدون اسم"}
+              </Button>
+            ))}
+            {unresolvedCount > 20 && <span className="text-xs">و {unresolvedCount - 20} صنف آخر</span>}
+          </div>
+          <div>
+            <Button size="sm" variant="ghost" onClick={() => setOnlyUnresolved((v) => !v)}>
+              {onlyUnresolved ? "أظهر كل الأصناف" : "أظهر غير المحسومة فقط"}
+            </Button>
+          </div>
         </div>
       )}
 
       <Card>
         <CardContent className="p-0">
-          {batch.items.map((item) => <ItemRow key={item.id} item={item} batchId={batchId} />)}
+          {visibleItems.map((item) => (
+            <ItemRow key={item.id} item={item} batchId={batchId} highlighted={highlightId === item.id} />
+          ))}
         </CardContent>
       </Card>
 

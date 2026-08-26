@@ -419,8 +419,13 @@ async function finalConfirmBatchInTransaction(
     (it) => it.action === LandedCostItemAction.PENDING
   );
   if (pendingBlocking.length > 0) {
+    const names = pendingBlocking
+      .slice(0, 10)
+      .map((it) => it.productName || it.itemCode || "بدون اسم")
+      .join("، ");
+    const more = pendingBlocking.length > 10 ? ` و ${pendingBlocking.length - 10} صنف آخر` : "";
     throw new AppError(
-      `يوجد ${pendingBlocking.length} صنف بحاجة لقرار (ربط بمادة / إنشاء مادة جديدة / تخطي) قبل التأكيد`,
+      `يوجد ${pendingBlocking.length} صنف بحاجة لقرار (ربط بمادة / إنشاء مادة جديدة / تخطي) قبل التأكيد: ${names}${more}`,
       400,
       "UNRESOLVED_ITEMS"
     );
