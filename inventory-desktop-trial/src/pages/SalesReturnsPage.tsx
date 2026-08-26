@@ -116,7 +116,8 @@ export function SalesReturnsPage() {
   const [productQuery, setProductQuery] = useState("")
   const [productListOpen, setProductListOpen] = useState(false)
   const productSuggestions = useMemo(
-    () => sortProductsByRelevance(products, productQuery).slice(0, 8),
+    // A return puts stock BACK — the item is usually the sold-out one.
+    () => sortProductsByRelevance(products, productQuery, { availabilityFirst: false }).slice(0, 8),
     [products, productQuery],
   )
 

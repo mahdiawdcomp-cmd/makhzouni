@@ -661,8 +661,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const productSuggestions = useMemo(
     // Cap the dropdown so a broad query shows the top matches only, not a wall
     // of results. Ranking already puts the best first.
-    () => sortProductsByRelevance(products, productQuery).slice(0, 15),
-    [products, productQuery],
+    () => sortProductsByRelevance(products, productQuery, { availabilityFirst: !isPurchase }).slice(0, 15),
+    [products, productQuery, isPurchase],
   )
 
   // Highlights reset inline in change handlers (avoid setState-in-effect)
@@ -2814,8 +2814,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900",
                   // Sold-out rows sort to the bottom AND get a red tint + badge,
                   // so a glance is enough — no reading the stock line.
-                  stockState(product) === "OUT" && "border-r-4 border-r-rose-400 bg-rose-50/70 dark:bg-rose-950/25",
-                  stockState(product) === "DEPOT_ONLY" && "border-r-4 border-r-amber-400 bg-amber-50/60 dark:bg-amber-950/20",
+                  // Sale side only: on a PURCHASE these colours would flag every
+                  // row you're actually there to restock.
+                  !isPurchase && stockState(product) === "OUT" && "border-r-4 border-r-rose-400 bg-rose-50/70 dark:bg-rose-950/25",
+                  !isPurchase && stockState(product) === "DEPOT_ONLY" && "border-r-4 border-r-amber-400 bg-amber-50/60 dark:bg-amber-950/20",
                 )}
                 onMouseEnter={() => setProductHighlight(idx)}
                 onClick={() => { if (isMobile) openScanPreview(product, "PIECE"); else addProduct(product) }}
@@ -2824,12 +2826,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   <span className="flex items-center gap-2 font-medium">
                     <ProductThumb product={product} />
                     {product.name}
-                    {stockState(product) === "OUT" && (
+                    {!isPurchase && stockState(product) === "OUT" && (
                       <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900/50 dark:text-rose-300">
                         نفذت الكمية
                       </span>
                     )}
-                    {stockState(product) === "DEPOT_ONLY" && (
+                    {!isPurchase && stockState(product) === "DEPOT_ONLY" && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
                         بالمخزن فقط: {depotPiecesOf(product)}
                       </span>

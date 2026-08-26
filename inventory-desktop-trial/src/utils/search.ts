@@ -48,9 +48,17 @@ export function isInStock(product: SearchableProduct): boolean {
 export type StockState = "IN_SHOP" | "DEPOT_ONLY" | "OUT"
 
 export function stockState(product: SearchableProduct): StockState {
-  if (totalPiecesOf(product) <= 0) return "OUT"
-  if (typeof product.shopStock === "number" && product.shopStock <= 0) return "DEPOT_ONLY"
-  return "IN_SHOP"
+  const total = totalPiecesOf(product)
+  if (typeof product.shopStock !== "number") {
+    // No المحل breakdown available — we can only say "has stock" or "doesn't".
+    return total > 0 ? "IN_SHOP" : "OUT"
+  }
+  if (product.shopStock > 0) return "IN_SHOP"
+  // The shop can go NEGATIVE (overselling is allowed), which drags the total to
+  // 0 or below even while a depot still holds real pieces. Judging by the total
+  // would call such a product "نفذت نهائياً" and hide a stock transfer that is
+  // actually possible — so ask the depots directly.
+  return total - product.shopStock > 0 ? "DEPOT_ONLY" : "OUT"
 }
 
 /** Sort weight: sellable now → needs a transfer → gone. */
@@ -59,11 +67,10 @@ export function stockRank(product: SearchableProduct): number {
   return state === "IN_SHOP" ? 2 : state === "DEPOT_ONLY" ? 1 : 0
 }
 
-/** Pieces sitting in depots (everything outside المحل). */
+/** Pieces sitting in depots (everything outside المحل); 0 when unknown. */
 export function depotPiecesOf(product: SearchableProduct): number {
-  const total = totalPiecesOf(product)
-  if (typeof product.shopStock !== "number") return total
-  return Math.max(0, total - product.shopStock)
+  if (typeof product.shopStock !== "number") return 0
+  return Math.max(0, totalPiecesOf(product) - product.shopStock)
 }
 
 type SearchableCustomer = {
@@ -145,7 +152,15 @@ export function matchProduct(product: SearchableProduct, q: string): boolean {
 }
 
 /** Sort a product list by descending relevance to the query (stable on name). */
-export function sortProductsByRelevance<T extends SearchableProduct>(products: T[], q: string): T[] {
+export function sortProductsByRelevance<T extends SearchableProduct>(
+  products: T[],
+  q: string,
+  // Purchases and returns ADD stock, so the items a user looks for there are
+  // exactly the sold-out ones — pushing those to the bottom would fight him.
+  // Only sale-side pickers want availability to lead.
+  opts: { availabilityFirst?: boolean } = {},
+): T[] {
+  const availabilityFirst = opts.availabilityFirst ?? true
   if (!q.trim()) return products
   return products
     .map((product) => ({ product, score: scoreProduct(product, q), rank: stockRank(product) }))
@@ -155,7 +170,7 @@ export function sortProductsByRelevance<T extends SearchableProduct>(products: T
     // then the sold-out ones. Nothing is hidden — only re-ordered.
     .sort(
       (a, b) =>
-        b.rank - a.rank ||
+        (availabilityFirst ? b.rank - a.rank : 0) ||
         b.score - a.score ||
         a.product.name.localeCompare(b.product.name, "ar"),
     )
