@@ -35,7 +35,7 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
-import { sortProductsByRelevance, sortCustomersByRelevance } from "../utils/search"
+import { sortProductsByRelevance, sortCustomersByRelevance, isInStock } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { UNIT_LABELS, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
@@ -2809,12 +2809,26 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                 key={`${product.id}-${idx}`}
                 ref={(el) => { productItemRefs.current[idx] = el }}
                 type="button"
-                className={`flex w-full items-center justify-between gap-3 border-b p-3 text-right text-sm ${idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900"} dark:border-slate-800`}
+                className={cn(
+                  "flex w-full items-center justify-between gap-3 border-b p-3 text-right text-sm dark:border-slate-800",
+                  idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900",
+                  // Sold-out rows sort to the bottom AND get a red tint + badge,
+                  // so a glance is enough — no reading the stock line.
+                  !isInStock(product) && "border-r-4 border-r-rose-400 bg-rose-50/70 dark:bg-rose-950/25",
+                )}
                 onMouseEnter={() => setProductHighlight(idx)}
                 onClick={() => { if (isMobile) openScanPreview(product, "PIECE"); else addProduct(product) }}
               >
                 <span className="flex flex-col items-start gap-0.5">
-                  <span className="flex items-center gap-2 font-medium"><ProductThumb product={product} />{product.name}</span>
+                  <span className="flex items-center gap-2 font-medium">
+                    <ProductThumb product={product} />
+                    {product.name}
+                    {!isInStock(product) && (
+                      <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900/50 dark:text-rose-300">
+                        نفذت الكمية
+                      </span>
+                    )}
+                  </span>
                   {product.pcsPerCarton > 1 && (
                     <span className="text-[11px] text-slate-400">{product.pcsPerCarton} قطعة/كرتون</span>
                   )}

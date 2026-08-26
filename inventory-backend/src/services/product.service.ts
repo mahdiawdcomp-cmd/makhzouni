@@ -228,10 +228,17 @@ export async function listProducts(query: {
       // Arabic-aware, multi-term, relevance-ranked (exact code → prefix →
       // phrase → all tokens → some tokens → fuzzy). Benefits web/desktop AND
       // Android since they all call this endpoint.
+      // Availability is the FIRST sort key: in-stock matches come before
+      // sold-out ones (which stay listed, just grouped underneath).
       list = list
         .map((product) => ({ product, score: scoreProduct(product, query.search!) }))
         .filter((x) => x.score > 0)
-        .sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name, "ar"))
+        .sort(
+          (a, b) =>
+            Number(b.product.currentStock > 0) - Number(a.product.currentStock > 0) ||
+            b.score - a.score ||
+            a.product.name.localeCompare(b.product.name, "ar")
+        )
         .map((x) => x.product);
     }
     const total = list.length;

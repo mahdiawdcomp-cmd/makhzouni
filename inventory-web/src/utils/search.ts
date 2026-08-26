@@ -10,6 +10,29 @@ type SearchableProduct = {
   qrCode?: string | null
   cartonQrCode?: string | null
   category?: string | null
+  // Availability — optional so callers that only match text still typecheck.
+  currentStock?: number | null
+  openingBalancePcs?: number | null
+  cartonsAvailable?: number | null
+  pcsPerCarton?: number | null
+  warehouseStocks?: { quantityPieces: number }[] | null
+}
+
+/**
+ * Total pieces on hand, from whichever shape the caller's product object has.
+ * Used ONLY for ordering search results — never for stock math.
+ */
+export function totalPiecesOf(product: SearchableProduct): number {
+  if (typeof product.currentStock === "number") return product.currentStock
+  if (product.warehouseStocks?.length) {
+    return product.warehouseStocks.reduce((sum, ws) => sum + (ws.quantityPieces || 0), 0)
+  }
+  return (product.openingBalancePcs ?? 0) + (product.cartonsAvailable ?? 0) * (product.pcsPerCarton ?? 0)
+}
+
+/** True when the product has any pieces left — the primary search sort key. */
+export function isInStock(product: SearchableProduct): boolean {
+  return totalPiecesOf(product) > 0
 }
 
 type SearchableCustomer = {
@@ -94,9 +117,17 @@ export function matchProduct(product: SearchableProduct, q: string): boolean {
 export function sortProductsByRelevance<T extends SearchableProduct>(products: T[], q: string): T[] {
   if (!q.trim()) return products
   return products
-    .map((product) => ({ product, score: scoreProduct(product, q) }))
+    .map((product) => ({ product, score: scoreProduct(product, q), inStock: isInStock(product) }))
     .filter((x) => x.score > 0)
-    .sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name, "ar"))
+    // Availability comes FIRST: a seller typing "لول لعابة" wants the items he
+    // can actually sell at the top, and the sold-out ones grouped underneath —
+    // still listed (so he can see they exist), just never above a stocked match.
+    .sort(
+      (a, b) =>
+        Number(b.inStock) - Number(a.inStock) ||
+        b.score - a.score ||
+        a.product.name.localeCompare(b.product.name, "ar"),
+    )
     .map((x) => x.product)
 }
 

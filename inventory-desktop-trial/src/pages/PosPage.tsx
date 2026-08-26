@@ -27,7 +27,7 @@ import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
-import { sortProductsByRelevance } from "../utils/search"
+import { sortProductsByRelevance, isInStock } from "../utils/search"
 import { unitPriceFrom, unitToPieces } from "../utils/units"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
@@ -1197,7 +1197,12 @@ export function POSPage() {
                 key={product.id}
                 type="button"
                 onClick={() => addProduct(product)}
-                className="flex flex-col items-center justify-between rounded-xl border-2 border-transparent bg-slate-50 p-2 text-center transition active:scale-95 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/30"
+                className={cn(
+                  "flex flex-col items-center justify-between rounded-xl border-2 border-transparent bg-slate-50 p-2 text-center transition active:scale-95 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/30",
+                  // Sold out everywhere → red tile, and search already pushed it
+                  // below every in-stock match.
+                  !isInStock(product) && "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/30",
+                )}
                 style={{ minHeight: "84px" }}
               >
                 <span className="line-clamp-2 w-full text-xs font-bold leading-tight text-slate-800 dark:text-slate-100">
