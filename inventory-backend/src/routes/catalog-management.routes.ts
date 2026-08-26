@@ -46,6 +46,7 @@ import {
   updateIncomingItemCtrl,
   deleteIncomingItemCtrl,
   itemReservationsCtrl,
+  markArrivedCtrl,
   reservationStatusCtrl,
   credentialTargetCountsCtrl,
   applyPricesDefaultCtrl,
@@ -151,6 +152,7 @@ router.get("/incoming", adminIncomingItemsCtrl);
 router.post("/incoming", validate(createIncomingItemSchema), createIncomingItemCtrl);
 router.put("/incoming/:id", validate(updateIncomingItemSchema), updateIncomingItemCtrl);
 router.delete("/incoming/:id", validate(incomingItemIdSchema), deleteIncomingItemCtrl);
+router.post("/incoming/:id/arrived", validate(incomingItemIdSchema), markArrivedCtrl);
 router.get("/incoming/:id/reservations", validate(incomingItemIdSchema), itemReservationsCtrl);
 router.patch("/incoming/reservations/:id", validate(reservationStatusSchema), reservationStatusCtrl);
 router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);

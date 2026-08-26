@@ -18,7 +18,7 @@ import { runPersonalDebtReminderJob } from "./personal-debt.service";
 import { runRatingRequestJob } from "./product-review.service";
 import { runCouponExpiryReminderJob } from "./first-order-coupon.service";
 import { runWhatsAppQualityCheckJob } from "./whatsapp-quality.service";
-import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFollowUpJob } from "./follow-up.service";
+import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFollowUpJob, runTierNudgeJob } from "./follow-up.service";
 import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
 import {
@@ -438,6 +438,15 @@ export function startNotificationJobs() {
   cron.schedule("30 14 * * *", () => {
     runInactiveFollowUpJob().catch((error) => {
       reportCronFailure("FOLLOW_UP_INACTIVE", error);
+    });
+  }, CRON_OPTIONS);
+
+  // «كنت قريب» — after the other follow-ups, so a customer who is due several
+  // messages does not get them in the same minute. No-op unless the shop
+  // turned it on.
+  cron.schedule("0 15 * * *", () => {
+    runTierNudgeJob().catch((error) => {
+      reportCronFailure("FOLLOW_UP_TIER_NUDGE", error);
     });
   }, CRON_OPTIONS);
 

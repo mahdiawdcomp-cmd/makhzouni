@@ -47,9 +47,27 @@ function phoneCandidates(raw: string): string[] {
  */
 export async function issueVisitorSession(phone: string): Promise<string> {
   const token = crypto.randomBytes(SESSION_BYTES).toString("base64url");
+
+  // Someone already on the shop's books does not have to ask for prices they
+  // are quoted every day in person. Resolved once, at sign-in, rather than on
+  // every request — and recorded, so the storefront, the admin list and the
+  // order all agree about why this shopper can see prices.
+  const settings = await getSettings().catch(() => null);
+  const autoUnlock = settings?.catalogAutoUnlockForCustomers !== false;
+  const knownCustomer = autoUnlock
+    ? await prisma.customer.findFirst({
+        where: { phone: { in: phoneCandidates(phone) }, deletedAt: null },
+        select: { id: true },
+      })
+    : null;
+
   await prisma.catalogVisitor.update({
     where: { phone },
-    data: { sessionTokenHash: hashSession(token), sessionIssuedAt: new Date() },
+    data: {
+      sessionTokenHash: hashSession(token),
+      sessionIssuedAt: new Date(),
+      ...(knownCustomer ? { pricesUnlockedAt: new Date(), priceRequestedAt: null } : {}),
+    },
   });
   return token;
 }

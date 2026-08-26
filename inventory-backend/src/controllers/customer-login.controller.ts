@@ -28,6 +28,7 @@ import {
   deleteIncomingItem,
   listItemReservations,
   setReservationStatus,
+  markIncomingArrived,
 } from "../services/catalog-incoming.service";
 import {
   saveVisitorDetails,
@@ -100,6 +101,12 @@ export const updateIncomingItemCtrl = asyncHandler(async (req, res) => {
 
 export const deleteIncomingItemCtrl = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await deleteIncomingItem(String(req.params.id)) });
+});
+
+export const markArrivedCtrl = asyncHandler(async (req, res) => {
+  const { productId } = (req.body ?? {}) as { productId?: string };
+  const data = await markIncomingArrived(String(req.params.id), { productId });
+  res.json({ success: true, data });
 });
 
 export const itemReservationsCtrl = asyncHandler(async (req, res) => {

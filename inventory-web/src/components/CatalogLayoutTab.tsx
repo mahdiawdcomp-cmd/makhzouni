@@ -256,10 +256,28 @@ function CatalogBehaviourCard() {
     onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
   })
 
-  const switches: Array<{ key: "catalogReviewsEnabled" | "catalogSuggestionsEnabled" | "catalogTutorialEnabled"; label: string; hint: string }> = [
+  const switches: Array<{
+    key: "catalogReviewsEnabled" | "catalogSuggestionsEnabled" | "catalogTutorialEnabled"
+      | "catalogAutoUnlockForCustomers" | "catalogTierNudgeEnabled"
+    label: string
+    hint: string
+    /** Off unless the shop says otherwise — see the note on each setting. */
+    defaultOff?: boolean
+  }> = [
     { key: "catalogReviewsEnabled", label: "تقييمات المنتجات", hint: "آراء الزبائن داخل صفحة المنتج" },
     { key: "catalogSuggestionsEnabled", label: "منتجات مقترحة", hint: "«شوف أيضاً» أسفل صفحة المنتج" },
     { key: "catalogTutorialEnabled", label: "شرح أول زيارة", hint: "الشاشة الي تشرح للزبون شلون يشتري" },
+    {
+      key: "catalogAutoUnlockForCustomers",
+      label: "افتح الأسعار لزبائن المحل تلقائياً",
+      hint: "أي رقم موجود بسجل زبائنك يشوف الأسعار أول ما يدخل بلا ما يطلب",
+    },
+    {
+      key: "catalogTierNudgeEnabled",
+      label: "تنبيه «كنت قريب»",
+      hint: "رسالة وحدة للزبون الي طلبيته وقفت قريبة من عرض — مرة وحدة لكل زبون",
+      defaultOff: true,
+    },
   ]
 
   return (
@@ -271,11 +289,11 @@ function CatalogBehaviourCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {switches.map(({ key, label, hint }) => (
+        {switches.map(({ key, label, hint, defaultOff }) => (
           <label key={key} className="flex items-start gap-2.5 rounded-xl border bg-white p-3">
             <input
               type="checkbox"
-              checked={s?.[key] !== false}
+              checked={defaultOff ? s?.[key] === true : s?.[key] !== false}
               onChange={(e) => saveMut.mutate({ [key]: e.target.checked })}
               className="mt-0.5 h-4 w-4 accent-emerald-600"
             />

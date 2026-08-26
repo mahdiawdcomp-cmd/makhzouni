@@ -6,6 +6,7 @@ import { logger } from "../utils/logger";
 import { getSettings } from "./settings.service";
 import { sendTextWithTemplateFallback } from "./whatsapp.service";
 import { isOptedOut } from "./marketing-opt-out.service";
+import { nearMiss, DEFAULT_ORDER_TIERS } from "../utils/orderTiers";
 import { assistantTimezone } from "./daily-assistant.service";
 
 const RUN_CAP = 30; // سقف أمان بكل تشغيلة — يحمي الرقم من دفعة كبيرة دفعة وحدة
@@ -267,4 +268,93 @@ export async function runInactiveFollowUpJob() {
   }
 
   return { checked: targets.length, sent };
+}
+
+/* ── «كنت قريب» — an order that fell just short of an offer ──────────── */
+
+/**
+ * Tell a customer their last order was nearly big enough to earn something.
+ *
+ * Only ever about their MOST RECENT invoice, and only once per customer: the
+ * point is a timely nudge while the order is still in mind, not a standing
+ * campaign. tierNudgeSentAt is stamped whether or not the send succeeds, for
+ * the same reason the other jobs do it — a WhatsApp hiccup must not turn into
+ * a message that retries every night forever.
+ *
+ * «توقف» is honoured. This is marketing, not bookkeeping.
+ */
+export async function runTierNudgeJob() {
+  const settings = await getSettings().catch(() => null);
+  if (settings?.catalogTierNudgeEnabled !== true) return { checked: 0, sent: 0 };
+
+  const tiers = settings?.catalogOrderTiers ?? DEFAULT_ORDER_TIERS;
+  const within = Number(settings?.catalogTierNudgePercent) || 20;
+  const link = settings?.catalogPublicUrl?.trim() ?? "";
+  const template = settings?.catalogTierNudgeMessage?.trim()
+    || "هلا {{customerName}} 👋 طلبيتك الأخيرة كانت قريبة من عرضنا!\nباقي {{remaining}} دينار وتحصل على {{reward}}.\n\nشوف الكتلوك:\n{{link}}";
+
+  // Yesterday's orders: recent enough to still be in mind, settled enough that
+  // the customer is not mid-basket.
+  const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+  const invoices = await prisma.invoice.findMany({
+    where: { type: "SALE", status: "ACTIVE", createdAt: { gte: since } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, customerId: true, subtotal: true, createdAt: true },
+    take: 500,
+  });
+
+  // One shot per customer, at their newest invoice in the window.
+  const newestByCustomer = new Map<string, (typeof invoices)[number]>();
+  for (const inv of invoices) {
+    if (!inv.customerId) continue;
+    if (!newestByCustomer.has(inv.customerId)) newestByCustomer.set(inv.customerId, inv);
+  }
+
+  let sent = 0;
+  let checked = 0;
+
+  for (const [customerId, invoice] of newestByCustomer) {
+    const miss = nearMiss(Number(invoice.subtotal), tiers, within);
+    if (!miss) continue;
+    checked++;
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: customerId, deletedAt: null, tierNudgeSentAt: null },
+      select: { id: true, name: true, phone: true },
+    });
+    if (!customer?.phone) continue;
+
+    if (await isOptedOut(customer.phone)) {
+      await prisma.customer.update({ where: { id: customer.id }, data: { tierNudgeSentAt: new Date() } });
+      continue;
+    }
+
+    const reward = [
+      miss.next.freeDelivery ? "توصيل مجاني" : "",
+      miss.next.discountPercent > 0 ? `خصم ${miss.next.discountPercent}%` : "",
+    ].filter(Boolean).join(" + ");
+
+    const message = fillTemplate(template, {
+      customerName: customer.name,
+      remaining: Number(miss.remaining).toLocaleString("en-US"),
+      reward,
+      link,
+    });
+
+    try {
+      await sendTextWithTemplateFallback(
+        customer.phone,
+        settings?.catalogTierNudgeTemplateName,
+        "ar",
+        message,
+        [customer.name, Number(miss.remaining).toLocaleString("en-US"), reward, link || "-"],
+      );
+      sent++;
+    } catch (err) {
+      logger.warn(`[FollowUp:TierNudge] send failed to ${customer.phone}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await prisma.customer.update({ where: { id: customer.id }, data: { tierNudgeSentAt: new Date() } });
+  }
+
+  return { checked, sent };
 }

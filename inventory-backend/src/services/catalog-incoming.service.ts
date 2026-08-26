@@ -35,7 +35,10 @@ export type IncomingItemInput = {
  */
 export async function listPublicIncomingItems() {
   const rows = await prisma.catalogIncomingItem.findMany({
-    where: { active: true },
+    // Arrived goods leave this list by definition: it is about what has NOT
+    // landed, and leaving them would invite reservations for stock that is
+    // already on the shelf and orderable normally.
+    where: { active: true, arrivedAt: null },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     select: {
       id: true, name: true, description: true, imageUrl: true,
@@ -64,7 +67,7 @@ export async function reserveIncomingItem(input: {
   if (!phone) throw new AppError("رقم هاتف غير صالح", 400, "PHONE_INVALID");
 
   const item = await prisma.catalogIncomingItem.findFirst({
-    where: { id: input.itemId, active: true },
+    where: { id: input.itemId, active: true, arrivedAt: null },
     select: { id: true, name: true },
   });
   if (!item) throw new AppError("هذه المادة غير متاحة للحجز", 404, "INCOMING_ITEM_NOT_FOUND");
@@ -136,6 +139,7 @@ export async function listIncomingItems() {
     price: r.price == null ? null : Number(r.price),
     active: r.active,
     sortOrder: r.sortOrder,
+    arrivedAt: r.arrivedAt,
     reservationCount: r._count.reservations,
   }));
 }
@@ -174,6 +178,69 @@ export async function updateIncomingItem(id: string, input: IncomingItemInput) {
 export async function deleteIncomingItem(id: string) {
   await prisma.catalogIncomingItem.delete({ where: { id } });
   return { ok: true };
+}
+
+/**
+ * «وصلت البضاعة» — close the loop the reservation opened.
+ *
+ * Marks the shipment as landed, takes it off the storefront, and tells
+ * everyone still holding a reservation. It deliberately does NOT create orders
+ * or invoices: quantities were promised weeks ago against goods nobody had
+ * seen, and turning that into a sale without asking would bill people for
+ * something they may no longer want. The message brings them back instead.
+ *
+ * Cancelled reservations are skipped — that shopper already said no.
+ */
+export async function markIncomingArrived(id: string, opts?: { productId?: string }) {
+  const item = await prisma.catalogIncomingItem.findUnique({
+    where: { id },
+    select: { id: true, name: true, arrivedAt: true },
+  });
+  if (!item) throw new AppError("المادة غير موجودة", 404, "INCOMING_ITEM_NOT_FOUND");
+  if (item.arrivedAt) return { alreadyArrived: true, notified: 0 };
+
+  await prisma.catalogIncomingItem.update({
+    where: { id },
+    data: {
+      arrivedAt: new Date(),
+      active: false,
+      ...(opts?.productId ? { productId: opts.productId } : {}),
+    },
+  });
+
+  const holders = await prisma.catalogIncomingReservation.findMany({
+    where: { itemId: id, status: { not: "CANCELLED" } },
+    select: { phone: true, quantity: true },
+  });
+
+  // Announced in the background and paced, like every other bulk send here: a
+  // shipment can have dozens of holders, and a tight loop of identical
+  // messages is what costs a number its quality rating.
+  setImmediate(async () => {
+    const { getSettings } = await import("./settings.service");
+    const { sendWhatsAppText } = await import("./whatsapp.service");
+    const settings = await getSettings().catch(() => null);
+    const link = settings?.catalogPublicUrl?.trim();
+
+    for (const [index, holder] of holders.entries()) {
+      if (index > 0) await new Promise((r) => setTimeout(r, 1500 + Math.floor(Math.random() * 2000)));
+      const text = [
+        "وصلت البضاعة الي حجزتها",
+        "",
+        `«${item.name}» — حجزك ${holder.quantity}`,
+        "",
+        link ? `اطلبها الآن:\n${link}` : "تواصل وينا لإكمال الطلب.",
+      ].join("\n");
+      await sendWhatsAppText(holder.phone, text).catch((err) =>
+        logger.warn(
+          `[CatalogIncoming] arrival notice failed to ${holder.phone}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    }
+    logger.info(`[CatalogIncoming] arrival of "${item.name}" announced to ${holders.length}`);
+  });
+
+  return { alreadyArrived: false, notified: holders.length };
 }
 
 export async function listItemReservations(itemId: string) {

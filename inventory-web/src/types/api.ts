@@ -1193,6 +1193,11 @@ export interface AppSettings {
   catalogSuggestionsEnabled?: boolean
   catalogTutorialEnabled?: boolean
   catalogOrderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
+  catalogAutoUnlockForCustomers?: boolean
+  catalogTierNudgeEnabled?: boolean
+  catalogTierNudgePercent?: number
+  catalogTierNudgeMessage?: string
+  catalogTierNudgeTemplateName?: string
   catalogAccessApprovedV2TemplateName?: string
   couponExpiryReminderTemplateName?: string
   followUpNoReplyTemplateName?: string

@@ -121,6 +121,21 @@ export interface AppSettings {
   // delivery, a percentage off, or both. Empty means the shop runs no offers
   // and the cart shows no progress bar at all.
   catalogOrderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>;
+
+  // A phone already in the shop's customer list gets wholesale prices the
+  // moment it signs into the storefront, without asking. On by default: these
+  // are people the shop quotes in person anyway, and making them file a
+  // request is friction that only costs the merchant time.
+  catalogAutoUnlockForCustomers?: boolean;
+
+  // «كنت قريب» — a one-time nudge to a customer whose last order fell just
+  // short of an offer. Off by default: it is a marketing send, and no shop
+  // should start messaging its customers because of an upgrade.
+  catalogTierNudgeEnabled?: boolean;
+  /** How close counts, as a share of the rung they missed. */
+  catalogTierNudgePercent?: number;
+  catalogTierNudgeMessage?: string;
+  catalogTierNudgeTemplateName?: string;
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -433,6 +448,11 @@ export const defaultSettings: AppSettings = {
   catalogSuggestionsEnabled: true,
   catalogTutorialEnabled: true,
   catalogOrderTiers: [...DEFAULT_ORDER_TIERS],
+  catalogAutoUnlockForCustomers: true,
+  catalogTierNudgeEnabled: false,
+  catalogTierNudgePercent: 20,
+  catalogTierNudgeMessage: "",
+  catalogTierNudgeTemplateName: "",
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

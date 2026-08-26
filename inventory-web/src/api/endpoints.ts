@@ -293,6 +293,7 @@ export interface IncomingItem {
   price: number | null
   active?: boolean
   sortOrder?: number
+  arrivedAt?: string | null
   reservationCount?: number
 }
 
@@ -326,6 +327,14 @@ export async function saveIncomingItem(payload: Partial<IncomingItem> & { name: 
 
 export async function deleteIncomingItem(id: string) {
   await api.delete(`/catalog-management/incoming/${id}`)
+}
+
+/** «وصلت البضاعة» — closes the loop and tells everyone who reserved. */
+export async function markIncomingArrived(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ alreadyArrived: boolean; notified: number }>>(
+    `/catalog-management/incoming/${id}/arrived`, {},
+  )
+  return data.data!
 }
 
 export interface IncomingReservation {

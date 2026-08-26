@@ -4,6 +4,7 @@ import {
   resolveOrderTier,
   normalizeOrderTiers,
   DEFAULT_ORDER_TIERS,
+  nearMiss,
   type OrderTier,
 } from "./orderTiers";
 
@@ -132,5 +133,48 @@ describe("a tier discount alongside a coupon", () => {
       { minTotal: 1, freeDelivery: false, discountPercent: 100 },
     ]);
     assert.equal(p.discountAmount, 2 * M);
+  });
+});
+
+describe("nearMiss", () => {
+  const M = 1_000_000;
+  const tiers = DEFAULT_ORDER_TIERS;
+
+  test("just short of a rung is a near miss", () => {
+    const miss = nearMiss(1_400_000, tiers);
+    assert.equal(miss?.next.minTotal, 1_500_000);
+    assert.equal(miss?.remaining, 100_000);
+  });
+
+  test("a long way short is not", () => {
+    assert.equal(nearMiss(400_000, tiers), null);
+  });
+
+  test("an order at the top of the ladder has nothing to chase", () => {
+    assert.equal(nearMiss(3 * M, tiers), null);
+  });
+
+  test("landing exactly on a rung is not a miss", () => {
+    const miss = nearMiss(1_500_000, tiers);
+    // It reached 1.5M, so the only thing ahead is 2.5M — a full million away.
+    assert.equal(miss, null);
+  });
+
+  // The window scales with the rung, so the same shortfall means different
+  // things on different ladders.
+  test("closeness is a share of the rung, not a fixed sum", () => {
+    const wide: OrderTier[] = [{ minTotal: 10 * M, freeDelivery: true, discountPercent: 0 }];
+    const tight: OrderTier[] = [{ minTotal: 1 * M, freeDelivery: true, discountPercent: 0 }];
+    assert.ok(nearMiss(9 * M, wide));      // 1M short of 10M — 10%
+    assert.equal(nearMiss(500_000, tight), null); // 500k short of 1M — 50%
+  });
+
+  test("a tighter window rules out a wider miss", () => {
+    assert.ok(nearMiss(1_400_000, tiers, 20));
+    assert.equal(nearMiss(1_300_000, tiers, 5), null);
+  });
+
+  test("no ladder means nothing to chase", () => {
+    assert.equal(nearMiss(1_400_000, []), null);
   });
 });

@@ -83,3 +83,30 @@ export function resolveOrderTier(subtotal: number, tiers: OrderTier[]): TierProg
     discountAmount: Math.round(total * (discountPercent / 100)),
   };
 }
+
+/**
+ * Was this order close enough to the next rung to be worth a word about it?
+ *
+ * "Close" is a share of the gap, not a fixed number of dinars: on a ladder
+ * whose rungs are a million apart, 200,000 short is nearly there, while on one
+ * with rungs 300,000 apart the same figure means they were not really trying.
+ *
+ * Orders that already reached the top earn nothing to say, and an order that
+ * was never near the first rung is not a near miss — it is a small order, and
+ * telling someone they "almost" earned something they were nowhere near reads
+ * as a sales pitch rather than a favour.
+ */
+export function nearMiss(
+  subtotal: number,
+  tiers: OrderTier[],
+  withinPercent = 20,
+): { next: OrderTier; remaining: number } | null {
+  const progress = resolveOrderTier(subtotal, tiers);
+  if (!progress.next) return null;
+
+  const share = Math.min(100, Math.max(1, Number(withinPercent) || 20)) / 100;
+  const window = progress.next.minTotal * share;
+  if (progress.remaining <= 0 || progress.remaining > window) return null;
+
+  return { next: progress.next, remaining: progress.remaining };
+}

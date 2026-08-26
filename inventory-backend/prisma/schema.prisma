@@ -586,6 +586,9 @@ model Customer {
   // automatically, by explicit user decision).
   registeredNoOrderFollowUpSentAt DateTime?          @map("registered_no_order_follow_up_sent_at")
   inactiveFollowUpSentAt          DateTime?          @map("inactive_follow_up_sent_at")
+  /// «كنت قريب» — last time this customer was nudged that their order fell
+  /// just short of an offer. One marker, so the nudge cannot repeat every day.
+  tierNudgeSentAt                 DateTime?          @map("tier_nudge_sent_at")
   invoices             Invoice[]
   paymentVouchers      PaymentVoucher[]
   couponRedemptions    CouponRedemption[]
@@ -979,6 +982,14 @@ model CatalogIncomingItem {
   price       Decimal?  @db.Decimal(12, 2)
   active      Boolean   @default(true)
   sortOrder   Int       @default(0) @map("sort_order")
+  /// Set when the shipment actually lands. Also hides the item from the
+  /// storefront — a reservation list is about goods that have not arrived.
+  arrivedAt   DateTime? @map("arrived_at")
+  /// The real product this became, once it exists. Lets the arrival message
+  /// carry a link straight to it. Deliberately not a relation: the product may
+  /// be created, renamed or deleted long after, and none of that should
+  /// cascade into a historical reservation list.
+  productId   String?   @map("product_id") @db.Uuid
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 

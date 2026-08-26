@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Image as ImageIcon, Ship, Trash2, Users } from "lucide-react"
+import { Image as ImageIcon, PackageCheck, Ship, Trash2, Users } from "lucide-react"
 import {
   listIncomingItems,
   saveIncomingItem,
   deleteIncomingItem,
   listIncomingReservations,
   setIncomingReservationStatus,
+  markIncomingArrived,
   type IncomingItem,
 } from "../api/endpoints"
 import { Button } from "./ui/button"
@@ -32,6 +33,7 @@ export function CatalogIncomingTab() {
   const [form, setForm] = useState<typeof empty & { id?: string }>({ ...empty })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [openReservations, setOpenReservations] = useState<string | null>(null)
+  const [confirmArrived, setConfirmArrived] = useState<IncomingItem | null>(null)
 
   const itemsQuery = useQuery({ queryKey: ["incoming-items"], queryFn: listIncomingItems })
   const items = itemsQuery.data ?? []
@@ -49,6 +51,18 @@ export function CatalogIncomingTab() {
     }, form.id),
     onSuccess: () => { toast({ title: form.id ? "تم التعديل" : "تمت الإضافة" }); setForm({ ...empty }); refresh() },
     onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر الحفظ", variant: "destructive" }),
+  })
+
+  const arrivedMut = useMutation({
+    mutationFn: (id: string) => markIncomingArrived(id),
+    onSuccess: (r) => {
+      toast({
+        title: r.alreadyArrived ? "مؤشرة كواصلة من قبل" : "تم — البضاعة وصلت",
+        description: r.notified > 0 ? `جاري إبلاغ ${r.notified} زبون حجزوا عليها` : undefined,
+      })
+      refresh()
+    },
+    onError: () => toast({ title: "تعذر التحديث", variant: "destructive" }),
   })
 
   const deleteMut = useMutation({
@@ -165,10 +179,18 @@ export function CatalogIncomingTab() {
                 <p className="text-[11px] text-slate-400">
                   {it.expectedAt ? `يوصل ${new Date(it.expectedAt).toLocaleDateString("ar-IQ")}` : "بلا تاريخ"}
                   {it.price != null ? ` · ${it.price.toLocaleString("en-US")} د.ع` : ""}
-                  {!it.active ? " · مخفية" : ""}
+                  {it.arrivedAt ? " · وصلت" : !it.active ? " · مخفية" : ""}
                 </p>
               </div>
 
+              {!it.arrivedAt && (it.reservationCount ?? 0) >= 0 && (
+                <button onClick={() => setConfirmArrived(it)}
+                  className="shrink-0 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
+                  title="وصلت البضاعة">
+                  <PackageCheck className="ml-1 inline h-3.5 w-3.5" />
+                  وصلت
+                </button>
+              )}
               <button onClick={() => setOpenReservations(openReservations === it.id ? null : it.id)}
                 className="shrink-0 rounded-lg bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 transition hover:bg-sky-100">
                 <Users className="ml-1 inline h-3.5 w-3.5" />
@@ -197,6 +219,19 @@ export function CatalogIncomingTab() {
           {openReservations && <ReservationsList itemId={openReservations} />}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={confirmArrived !== null}
+        title="وصلت البضاعة"
+        description={
+          `راح تنشال «${confirmArrived?.name ?? ""}» من الكتلوك، ويوصل إشعار واتساب لكل زبون حاجز عليها ` +
+          "إن بضاعته وصلت. ما تنسوي طلبات ولا فواتير — الزبون يطلب بنفسه."
+        }
+        confirmLabel="أكّد الوصول"
+        loading={arrivedMut.isPending}
+        onConfirm={() => { const it = confirmArrived; setConfirmArrived(null); if (it) arrivedMut.mutate(it.id) }}
+        onCancel={() => setConfirmArrived(null)}
+      />
 
       <ConfirmDialog
         open={confirmDelete !== null}
