@@ -282,6 +282,73 @@ export async function requestCatalogPrices(token: string) {
   return data.data!
 }
 
+/* ── «احجز البضاعة القادمة الجديدة» ───────────────────────────────── */
+
+export interface IncomingItem {
+  id: string
+  name: string
+  description: string | null
+  imageUrl: string | null
+  expectedAt: string | null
+  price: number | null
+  active?: boolean
+  sortOrder?: number
+  reservationCount?: number
+}
+
+export async function getPublicIncomingItems(phone = "") {
+  const { data } = await api.get<ApiEnvelope<{ items: IncomingItem[]; mine: Record<string, number> }>>(
+    "/public/catalog/incoming", { params: phone ? { phone } : {} },
+  )
+  return data.data ?? { items: [], mine: {} }
+}
+
+export async function reserveIncomingItem(payload: {
+  itemId: string; phone: string; name?: string; quantity?: number; note?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; quantity: number }>>(
+    "/public/catalog/incoming/reserve", payload,
+  )
+  return data.data!
+}
+
+export async function listIncomingItems() {
+  const { data } = await api.get<ApiEnvelope<IncomingItem[]>>("/catalog-management/incoming")
+  return data.data ?? []
+}
+
+export async function saveIncomingItem(payload: Partial<IncomingItem> & { name: string }, id?: string) {
+  const { data } = id
+    ? await api.put<ApiEnvelope<IncomingItem>>(`/catalog-management/incoming/${id}`, payload)
+    : await api.post<ApiEnvelope<IncomingItem>>("/catalog-management/incoming", payload)
+  return data.data!
+}
+
+export async function deleteIncomingItem(id: string) {
+  await api.delete(`/catalog-management/incoming/${id}`)
+}
+
+export interface IncomingReservation {
+  id: string
+  phone: string
+  name: string | null
+  quantity: number
+  note: string | null
+  status: string
+  createdAt: string
+}
+
+export async function listIncomingReservations(itemId: string) {
+  const { data } = await api.get<ApiEnvelope<IncomingReservation[]>>(
+    `/catalog-management/incoming/${itemId}/reservations`,
+  )
+  return data.data ?? []
+}
+
+export async function setIncomingReservationStatus(id: string, status: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  await api.patch(`/catalog-management/incoming/reservations/${id}`, { status })
+}
+
 /* ── Storefront accounts, admin side ──────────────────────────────── */
 
 export interface StorefrontAccountRow {

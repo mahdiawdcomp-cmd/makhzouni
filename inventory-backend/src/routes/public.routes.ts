@@ -87,6 +87,7 @@ import {
   customerLoginSchema,
   visitorDetailsSchema,
   visitorTokenSchema,
+  reserveIncomingSchema,
   visitorTokenQuerySchema,
   visitorPhoneSchema,
 } from "../utils/schemas";
@@ -95,6 +96,8 @@ import {
   submitVisitorDetailsCtrl,
   visitorSessionCtrl,
   requestPriceAccessCtrl,
+  publicIncomingItemsCtrl,
+  reserveIncomingCtrl,
   customerAccountCtrl,
 } from "../controllers/customer-login.controller";
 import {
@@ -324,6 +327,10 @@ router.post("/catalog/signup-details", catalogLimiter, validate(visitorDetailsSc
 router.get("/catalog/visitor-session", catalogLimiter, validate(visitorTokenQuerySchema), visitorSessionCtrl);
 router.get("/catalog/visitor-products", catalogLimiter, validate(visitorTokenQuerySchema), getVisitorCatalogProducts);
 router.post("/catalog/request-prices", catalogLimiter, validate(visitorTokenSchema), requestPriceAccessCtrl);
+
+// «احجز البضاعة القادمة الجديدة» — goods bought but not yet received.
+router.get("/catalog/incoming", catalogLimiter, publicIncomingItemsCtrl);
+router.post("/catalog/incoming/reserve", catalogLimiter, validate(reserveIncomingSchema), reserveIncomingCtrl);
 // The signed-in customer's own account — same data the /client/:token portal
 // serves, reached with the catalog token instead of a second link.
 router.get("/catalog/account", catalogLimiter, validate(catalogAccessQuerySchema), customerAccountCtrl);

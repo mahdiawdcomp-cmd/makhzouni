@@ -19,6 +19,17 @@ import {
 } from "../services/storefront-credentials.service";
 import { sendInvitesToGroup } from "../services/storefront-invite.service";
 import {
+  listPublicIncomingItems,
+  reserveIncomingItem,
+  listMyReservations,
+  listIncomingItems,
+  createIncomingItem,
+  updateIncomingItem,
+  deleteIncomingItem,
+  listItemReservations,
+  setReservationStatus,
+} from "../services/catalog-incoming.service";
+import {
   saveVisitorDetails,
   resolveVisitorSession,
   requestPriceAccess,
@@ -58,6 +69,46 @@ export const visitorSessionCtrl = asyncHandler(async (req, res) => {
 export const requestPriceAccessCtrl = asyncHandler(async (req, res) => {
   const data = await requestPriceAccess(String((req.body as { token: string }).token));
   res.json({ success: true, data });
+});
+
+/* ── «احجز البضاعة القادمة الجديدة» ───────────────────────────────── */
+
+export const publicIncomingItemsCtrl = asyncHandler(async (req, res) => {
+  const [items, mine] = await Promise.all([
+    listPublicIncomingItems(),
+    listMyReservations(String(req.query.phone ?? "")),
+  ]);
+  res.json({ success: true, data: { items, mine } });
+});
+
+export const reserveIncomingCtrl = asyncHandler(async (req, res) => {
+  const data = await reserveIncomingItem(req.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const adminIncomingItemsCtrl = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listIncomingItems() });
+});
+
+export const createIncomingItemCtrl = asyncHandler(async (req, res) => {
+  res.status(201).json({ success: true, data: await createIncomingItem(req.body) });
+});
+
+export const updateIncomingItemCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await updateIncomingItem(String(req.params.id), req.body) });
+});
+
+export const deleteIncomingItemCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await deleteIncomingItem(String(req.params.id)) });
+});
+
+export const itemReservationsCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await listItemReservations(String(req.params.id)) });
+});
+
+export const reservationStatusCtrl = asyncHandler(async (req, res) => {
+  const { status } = req.body as { status: "PENDING" | "CONFIRMED" | "CANCELLED" };
+  res.json({ success: true, data: await setReservationStatus(String(req.params.id), status) });
 });
 
 /* ── Admin side of the storefront accounts screen ─────────────────── */

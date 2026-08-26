@@ -961,6 +961,52 @@ model CatalogVisitor {
 // products a specific visitor opened, not just how many total views a
 // product got. Written alongside CatalogProductStat's increment, not instead
 // of it.
+/// «البضاعة القادمة الجديدة» — goods the shop has bought but not received.
+///
+/// Curated by hand rather than read off a landed-cost batch: those batches are
+/// a costing workflow, and a customer-facing list should never depend on where
+/// the shop is in its own paperwork. No stock is touched — reserving is a
+/// promise to sell, recorded against an item that does not exist yet.
+model CatalogIncomingItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  /// Base64 data URI, same as products carry.
+  imageUrl    String?   @map("image_url")
+  /// Roughly when it lands. Null when the shop would rather not commit.
+  expectedAt  DateTime? @map("expected_at")
+  /// Optional — a shop may want reservations before it has settled a price.
+  price       Decimal?  @db.Decimal(12, 2)
+  active      Boolean   @default(true)
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  reservations CatalogIncomingReservation[]
+
+  @@index([active, sortOrder])
+  @@map("catalog_incoming_items")
+}
+
+model CatalogIncomingReservation {
+  id       String              @id @default(uuid()) @db.Uuid
+  itemId   String              @map("item_id") @db.Uuid
+  item     CatalogIncomingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  /// Who asked. Kept as a phone rather than a customer link, because a visitor
+  /// who is not on the books can reserve too.
+  phone    String
+  name     String?
+  quantity Int                 @default(1)
+  note     String?
+  /// PENDING → CONFIRMED once the shop agrees, CANCELLED if it cannot.
+  status   String              @default("PENDING")
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@unique([itemId, phone])
+  @@index([status])
+  @@map("catalog_incoming_reservations")
+}
+
 model CatalogVisitorProductView {
   id          String   @id @default(uuid()) @db.Uuid
   phone       String

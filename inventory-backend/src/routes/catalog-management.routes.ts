@@ -41,6 +41,12 @@ import {
   revokePricesCtrl,
   promoteVisitorCtrl,
   revealCredentialsCtrl,
+  adminIncomingItemsCtrl,
+  createIncomingItemCtrl,
+  updateIncomingItemCtrl,
+  deleteIncomingItemCtrl,
+  itemReservationsCtrl,
+  reservationStatusCtrl,
   credentialTargetCountsCtrl,
   applyPricesDefaultCtrl,
 } from "../controllers/customer-login.controller";
@@ -64,6 +70,10 @@ import {
   sendCredentialsToAllSchema,
   sendInvitesToAllSchema,
   visitorPhoneSchema,
+  createIncomingItemSchema,
+  updateIncomingItemSchema,
+  incomingItemIdSchema,
+  reservationStatusSchema,
   optOutPhoneSchema,
 } from "../utils/schemas";
 
@@ -135,6 +145,14 @@ router.post("/accounts/grant-prices", validate(visitorPhoneSchema), grantPricesC
 router.post("/accounts/revoke-prices", validate(visitorPhoneSchema), revokePricesCtrl);
 router.post("/accounts/promote", validate(visitorPhoneSchema), promoteVisitorCtrl);
 router.post("/accounts/reveal", validate(sendCredentialsSchema), revealCredentialsCtrl);
+
+// «البضاعة القادمة الجديدة» — the list the shop curates, and who reserved what.
+router.get("/incoming", adminIncomingItemsCtrl);
+router.post("/incoming", validate(createIncomingItemSchema), createIncomingItemCtrl);
+router.put("/incoming/:id", validate(updateIncomingItemSchema), updateIncomingItemCtrl);
+router.delete("/incoming/:id", validate(incomingItemIdSchema), deleteIncomingItemCtrl);
+router.get("/incoming/:id/reservations", validate(incomingItemIdSchema), itemReservationsCtrl);
+router.patch("/incoming/reservations/:id", validate(reservationStatusSchema), reservationStatusCtrl);
 router.post("/accounts/apply-prices-default", applyPricesDefaultCtrl);
 
 // «توقف» — numbers that asked to stop receiving marketing.

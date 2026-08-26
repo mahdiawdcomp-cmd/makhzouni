@@ -39,6 +39,9 @@ import {
   getPublicCatalogProductImage,
   getGuestCatalogProducts,
   getVisitorCatalogProducts,
+  getPublicIncomingItems,
+  reserveIncomingItem,
+  type IncomingItem,
   getGuestCatalogProductImage,
   guestCatalogEnter,
   trackCatalogProductView,
@@ -1713,6 +1716,7 @@ function CatalogShop({
         })()}
       </>
     ),
+    incoming: <IncomingRow tk={tk} phone={visitorPhone || customerPhone} customerName={customerName} />,
     featured: featuredProducts.length > 0 ? (
       <div className="px-3 pt-3">
         <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
@@ -3529,6 +3533,116 @@ function UnitPickerSheet({
  * state, which is the right lifetime for a picture the shop can replace.
  */
 const fullImageCache = new Map<string, string>()
+
+/**
+ * «احجز البضاعة القادمة الجديدة» — goods bought but not yet received.
+ *
+ * Reserving is a promise, not an order: nothing enters the cart and no stock
+ * moves, because the goods do not exist in the system yet. Pressing it again
+ * changes the quantity rather than queueing a second promise, which is what
+ * the server's one-per-person rule enforces.
+ */
+function IncomingRow({ tk, phone, customerName }: { tk: ThemeTokens; phone: string; customerName: string }) {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState<IncomingItem | null>(null)
+  const [qty, setQty] = useState(1)
+
+  const query = useQuery({
+    queryKey: ["catalog-incoming", phone],
+    queryFn: () => getPublicIncomingItems(phone),
+    staleTime: 60_000,
+  })
+  const items = query.data?.items ?? []
+  const mine = query.data?.mine ?? {}
+
+  const reserveMut = useMutation({
+    mutationFn: () => reserveIncomingItem({
+      itemId: open!.id, phone, name: customerName || undefined, quantity: qty,
+    }),
+    onSuccess: () => {
+      setOpen(null)
+      void qc.invalidateQueries({ queryKey: ["catalog-incoming"] })
+    },
+  })
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="px-3 pt-3">
+      <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+        🚢 البضاعة القادمة الجديدة
+      </p>
+      <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+        {items.map((it) => {
+          const reserved = mine[it.id]
+          return (
+            <button key={it.id}
+              onClick={() => { setQty(reserved ?? 1); setOpen(it) }}
+              className="flex w-[150px] shrink-0 flex-col gap-1.5 rounded-2xl p-2 text-right transition active:scale-95"
+              style={{ background: tk.cardBg, border: `2px solid ${reserved ? tk.accent : tk.cardBorder}` }}>
+              {it.imageUrl ? (
+                <span className="block aspect-square w-full overflow-hidden rounded-xl" style={{ background: tk.catIdle }}>
+                  <img src={it.imageUrl} alt={it.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                </span>
+              ) : (
+                <span className="flex aspect-square w-full items-center justify-center rounded-xl" style={{ background: tk.catIdle }}>
+                  <ImageIcon className="h-6 w-6" style={{ color: tk.subtext, opacity: 0.3 }} />
+                </span>
+              )}
+              <span className="truncate font-bold" style={{ color: tk.text, fontSize: tk.fs.xs }}>{it.name}</span>
+              {it.expectedAt && (
+                <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                  يوصل {new Date(it.expectedAt).toLocaleDateString("ar-IQ", { month: "short", day: "numeric" })}
+                </span>
+              )}
+              <span className="rounded-lg px-2 py-1 text-center font-bold"
+                style={{ background: reserved ? tk.accent : tk.accentLight, color: reserved ? "#fff" : tk.accent, fontSize: tk.fs.xs }}>
+                {reserved ? `محجوز ${reserved}` : "احجز"}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {open && (
+        <div className="fixed inset-0 z-[170] flex items-end justify-center bg-black/50 backdrop-blur-sm"
+          dir="rtl" onClick={() => setOpen(null)}>
+          <div className="w-full max-w-[600px] rounded-t-3xl p-5" style={{ background: tk.cardBg }}
+            onClick={(e) => e.stopPropagation()}>
+            <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>{open.name}</p>
+            {open.description && (
+              <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>{open.description}</p>
+            )}
+            <p className="mt-2" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+              الحجز يثبّت لك كمية من البضاعة قبل ما توصل. ما ينحسب طلب ولا فاتورة — نتواصل وياك أول ما تنزل.
+            </p>
+
+            <div className="mt-4 flex items-center justify-center gap-3">
+              <button onClick={() => setQty((q) => Math.max(1, q - 1))}
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-lg font-extrabold"
+                style={{ background: tk.catIdle, color: tk.text }}>−</button>
+              <span className="w-16 text-center font-extrabold" style={{ color: tk.text, fontSize: tk.fs.xl }}>{qty}</span>
+              <button onClick={() => setQty((q) => Math.min(9999, q + 1))}
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+                style={{ background: tk.accent }}><Plus className="h-4 w-4" /></button>
+            </div>
+
+            <button
+              disabled={reserveMut.isPending}
+              onClick={() => reserveMut.mutate()}
+              className="mt-4 w-full rounded-2xl py-3.5 font-extrabold text-white transition active:scale-95 disabled:opacity-50"
+              style={{ background: tk.accent, fontSize: tk.fs.md }}>
+              {reserveMut.isPending ? "جاري الحجز..." : mine[open.id] ? "عدّل الحجز" : "أكّد الحجز"}
+            </button>
+            {reserveMut.isError && (
+              <p className="mt-2 text-center" style={{ color: "#dc2626", fontSize: tk.fs.xs }}>تعذر الحجز — حاول مرة ثانية</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ProductImageViewer({
   product, thumb, accessToken, guestMode, visitorToken, tk, onClose, onOpenProduct,

@@ -70,6 +70,7 @@ import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
 import { useAuthStore } from "../store/authStore"
 import { CatalogContentTab } from "../components/CatalogContentTab"
 import { CatalogLayoutTab } from "../components/CatalogLayoutTab"
+import { CatalogIncomingTab } from "../components/CatalogIncomingTab"
 import { StorefrontAccountsTab } from "../components/StorefrontAccountsTab"
 import { CatalogSettingsTab } from "../components/CatalogSettingsTab"
 import { downscaleImage } from "../utils/downscaleImage"
@@ -1573,6 +1574,7 @@ const GROUPS = [
     icon: <FileText className="h-4 w-4" />,
     tabs: [
       { key: "content" as const, label: "محتوى المنتجات" },
+      { key: "incoming" as const, label: "البضاعة القادمة" },
       { key: "promos" as const, label: "البروموكود" },
     ],
   },
@@ -1593,7 +1595,7 @@ export function CatalogManagementPage() {
   // people-shaped screens and two settings-shaped screens side by side, so
   // finding anything meant remembering which of the eight it lived in.
   const [group, setGroup] = useState<"people" | "front" | "content" | "ops">("people")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "layout" | "content" | "accounts" | "promos" | "settings">("customers")
+  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "layout" | "content" | "incoming" | "accounts" | "promos" | "settings">("customers")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")       // debounced — sent to server
   const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
@@ -1676,6 +1678,7 @@ export function CatalogManagementPage() {
       {tab === "accounts" && <StorefrontAccountsTab />}
       {tab === "settings" && <CatalogSettingsTab />}
       {tab === "layout" && <CatalogLayoutTab />}
+      {tab === "incoming" && <CatalogIncomingTab />}
       {tab === "promos" && <PromoCodesTab />}
 
       {tab === "customers" && <>

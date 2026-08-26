@@ -742,6 +742,7 @@ export const CATALOG_SECTION_KEYS = [
   "badges",
   "banner",
   "featured",
+  "incoming",
 ] as const;
 
 export type CatalogSectionKey = (typeof CATALOG_SECTION_KEYS)[number];

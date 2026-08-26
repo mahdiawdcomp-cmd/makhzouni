@@ -277,6 +277,36 @@ export const visitorTokenQuerySchema = z.object({
   query: z.object({ token: z.string().trim().min(10).max(200) }),
 });
 
+const incomingItemBody = z.object({
+  name: z.string().trim().min(2).max(160),
+  description: z.string().trim().max(600).optional(),
+  imageUrl: z.string().max(2_000_000).optional(),
+  expectedAt: z.string().optional().nullable(),
+  price: z.coerce.number().min(0).optional().nullable(),
+  active: z.boolean().optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+
+export const createIncomingItemSchema = z.object({ body: incomingItemBody });
+export const updateIncomingItemSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: incomingItemBody,
+});
+export const incomingItemIdSchema = z.object({ params: z.object({ id: z.string().uuid() }) });
+export const reserveIncomingSchema = z.object({
+  body: z.object({
+    itemId: z.string().uuid(),
+    phone: z.string().trim().min(5).max(40),
+    name: z.string().trim().max(120).optional(),
+    quantity: z.coerce.number().int().min(1).max(9999).optional(),
+    note: z.string().trim().max(500).optional(),
+  }),
+});
+export const reservationStatusSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({ status: z.enum(["PENDING", "CONFIRMED", "CANCELLED"]) }),
+});
+
 export const visitorPhoneSchema = z.object({
   body: z.object({ phone: z.string().trim().min(5).max(40) }),
 });
