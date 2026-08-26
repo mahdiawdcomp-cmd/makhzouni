@@ -27,7 +27,7 @@ import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
-import { sortProductsByRelevance, isInStock } from "../utils/search"
+import { sortProductsByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { unitPriceFrom, unitToPieces } from "../utils/units"
 import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
 import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
@@ -1201,7 +1201,8 @@ export function POSPage() {
                   "flex flex-col items-center justify-between rounded-xl border-2 border-transparent bg-slate-50 p-2 text-center transition active:scale-95 hover:border-emerald-400 hover:bg-emerald-50 dark:bg-slate-800 dark:hover:border-emerald-600 dark:hover:bg-emerald-950/30",
                   // Sold out everywhere → red tile, and search already pushed it
                   // below every in-stock match.
-                  !isInStock(product) && "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/30",
+                  stockState(product) === "OUT" && "border-rose-300 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/30",
+                  stockState(product) === "DEPOT_ONLY" && "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30",
                 )}
                 style={{ minHeight: "84px" }}
               >
@@ -1213,9 +1214,18 @@ export function POSPage() {
                     {fmt(product.salePrice)}
                   </span>
                   {(() => {
-                    // Sales come from المحل only — show المحل stock, not the all-warehouse total.
+                    // Sales come from المحل only — but a cashier still needs to know
+                    // whether an empty shop means "gone" or "go fetch it from المخزن".
                     const shop = Number(product.shopStock ?? product.currentStock ?? 0)
-                    if (shop <= 0) return <span className="text-[9px] font-semibold text-rose-500">نفد من المحل</span>
+                    const state = stockState(product)
+                    if (state === "OUT") return <span className="text-[9px] font-semibold text-rose-500">نفذت نهائياً</span>
+                    if (state === "DEPOT_ONLY") {
+                      return (
+                        <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400">
+                          بالمخزن: {fmt(depotPiecesOf(product))} قطعة
+                        </span>
+                      )
+                    }
                     return <span className="text-[9px] text-slate-400">المحل: {fmt(shop)} قطعة</span>
                   })()}
                 </div>

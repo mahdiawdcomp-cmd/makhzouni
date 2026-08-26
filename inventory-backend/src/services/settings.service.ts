@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { syncWhatsAppSettings, generateVerifyToken } from "./whatsapp.service";
 import { DEFAULT_NORTH_GOVERNORATES, DEFAULT_FREE_SHIPPING_THRESHOLD } from "../utils/deliveryRegion";
+import { DEFAULT_ORDER_TIERS } from "../utils/orderTiers";
 
 export interface AppSettings {
   debtReminderDays: number;
@@ -115,6 +116,11 @@ export interface AppSettings {
   catalogReviewsEnabled?: boolean;
   catalogSuggestionsEnabled?: boolean;
   catalogTutorialEnabled?: boolean;
+
+  // «عروض القائمة» — thresholds on the order subtotal that grant free
+  // delivery, a percentage off, or both. Empty means the shop runs no offers
+  // and the cart shows no progress bar at all.
+  catalogOrderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>;
   catalogAccessApprovedV2TemplateName?: string;
   couponExpiryReminderTemplateName?: string;
   followUpNoReplyTemplateName?: string;
@@ -426,6 +432,7 @@ export const defaultSettings: AppSettings = {
   catalogReviewsEnabled: true,
   catalogSuggestionsEnabled: true,
   catalogTutorialEnabled: true,
+  catalogOrderTiers: [...DEFAULT_ORDER_TIERS],
   catalogAccessApprovedV2TemplateName: "",
   couponExpiryReminderTemplateName: "",
   followUpNoReplyTemplateName: "",

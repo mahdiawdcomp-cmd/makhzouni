@@ -17,6 +17,7 @@ import { sendWhatsAppText } from "./whatsapp.service";
 import { hasFeature } from "../middleware/tenant.middleware";
 import { getCatalogRankingSignals, withRanking } from "./catalog-ranking.service";
 import { buildDeliveryLine } from "../utils/deliveryRegion";
+import { normalizeOrderTiers, resolveOrderTier, DEFAULT_ORDER_TIERS } from "../utils/orderTiers";
 
 type CatalogOrderInput = {
   customerName: string;
@@ -788,6 +789,7 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     reviewsEnabled: settings.catalogReviewsEnabled !== false,
     suggestionsEnabled: settings.catalogSuggestionsEnabled !== false,
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
+    orderTiers: normalizeOrderTiers(settings.catalogOrderTiers ?? DEFAULT_ORDER_TIERS),
   };
 }
 

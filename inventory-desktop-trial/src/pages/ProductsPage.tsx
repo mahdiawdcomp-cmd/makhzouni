@@ -27,7 +27,7 @@ import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager
 import { ImageCropModal } from "../components/ImageCropModal"
 import { deliverLabel } from "../utils/download"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
-import { matchProduct } from "../utils/search"
+import { matchProduct, stockState, depotPiecesOf } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 import { useClampedTablePageIndex } from "../hooks/useClampedPageIndex"
@@ -396,6 +396,8 @@ export function ProductsPage() {
   // "cartonQrCode" fill the form field. null = scanner closed.
   const [scanTarget, setScanTarget] = useState<null | "search" | "qrCode" | "cartonQrCode">(null)
   const [lowOnly, setLowOnly] = useState(false)
+  // "خلصت من المحل بس موجودة بالمخزن" — the restock worklist.
+  const [depotOnlyFilter, setDepotOnlyFilter] = useState(false)
   const [missingFilter, setMissingFilter] = useState<"all" | "any" | "purchasePrice" | "salePrice" | "stock" | "category">("all")
   const [sortBy, setSortBy] = useState<ProductSort>("updatedDesc")
   const [sorting, setSorting] = useState<SortingState>([])
@@ -473,12 +475,13 @@ export function ProductsPage() {
         (ws) => ws.warehouseId === warehouseFilter && ws.quantityPieces > 0,
       )
     const matchesLow = !lowOnly || stockOf(product) <= product.minStock
+    const matchesDepotOnly = !depotOnlyFilter || stockState(product) === "DEPOT_ONLY"
     const missing = getMissing(product)
     const matchesMissing =
       missingFilter === "all" ? true :
       missingFilter === "any" ? missing.length > 0 :
       missing.includes(missingFilter)
-    return matchesSearch && matchesCategory && matchesWarehouse && matchesLow && matchesMissing
+    return matchesSearch && matchesCategory && matchesWarehouse && matchesLow && matchesDepotOnly && matchesMissing
   })
 
   const sortedProducts = [...filtered].sort((a, b) => {
@@ -828,6 +831,17 @@ export function ProductsPage() {
               <input type="checkbox" checked={lowOnly} onChange={(event) => setLowOnly(event.target.checked)} />
               نقص المخزون
             </label>
+            <label
+              className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300"
+              title="مواد نفدت من المحل لكنها ما زالت موجودة في المخزن — تحتاج نقل"
+            >
+              <input
+                type="checkbox"
+                checked={depotOnlyFilter}
+                onChange={(event) => setDepotOnlyFilter(event.target.checked)}
+              />
+              نفدت من المحل فقط
+            </label>
           </div>
           {/* Loading skeleton */}
           {productsQuery.isLoading && (
@@ -1003,13 +1017,19 @@ export function ProductsPage() {
                         ? "bg-white"
                         : "bg-white"
 
+                  // "نفد من المحل بس موجود بالمخزن" is its own state: the item is
+                  // NOT gone, it just needs a transfer before it can be sold.
+                  const depotOnly = !isNegative && !isOut && stockState(p) === "DEPOT_ONLY"
+
                   const badge = isNegative
                     ? <Badge variant="danger">سالب ⚠</Badge>
                     : isOut
                       ? <Badge variant="danger">نفذت الكمية</Badge>
-                      : isLow
-                        ? <Badge variant="warning">قارب النفاذ</Badge>
-                        : <Badge variant="success">متوفر</Badge>
+                      : depotOnly
+                        ? <Badge variant="warning">بالمخزن فقط: {depotPiecesOf(p)}</Badge>
+                        : isLow
+                          ? <Badge variant="warning">قارب النفاذ</Badge>
+                          : <Badge variant="success">متوفر</Badge>
 
                   return (
                     <tr key={row.id} className={`border-b border-gray-200 hover:bg-yellow-50 transition ${rowBg}`}>

@@ -1168,6 +1168,13 @@ export const updateSettingsSchema = z.object({
       catalogReviewsEnabled: nullAsUndefined(z.boolean()),
       catalogSuggestionsEnabled: nullAsUndefined(z.boolean()),
       catalogTutorialEnabled: nullAsUndefined(z.boolean()),
+      catalogOrderTiers: nullAsUndefined(
+        z.array(z.object({
+          minTotal: z.coerce.number().int().min(0),
+          freeDelivery: z.boolean(),
+          discountPercent: z.coerce.number().min(0).max(100),
+        })),
+      ),
       catalogAccessApprovedV2TemplateName: nullAsUndefined(z.string().trim()),
       couponExpiryReminderTemplateName: nullAsUndefined(z.string().trim()),
       followUpNoReplyTemplateName: nullAsUndefined(z.string().trim()),

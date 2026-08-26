@@ -35,7 +35,7 @@ import { VoiceInvoiceButton } from "../components/voice/VoiceInvoiceButton"
 import { OcrInvoiceScanner, type OcrReadyItem } from "../components/ocr/OcrInvoiceScanner"
 import { calculateInvoiceFinancials } from "../utils/financial"
 import { findProductByScan } from "../utils/barcode-scan"
-import { sortProductsByRelevance, sortCustomersByRelevance, isInStock } from "../utils/search"
+import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { UNIT_LABELS, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
@@ -2814,7 +2814,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   idx === productHighlight ? "bg-amber-100 dark:bg-amber-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-900",
                   // Sold-out rows sort to the bottom AND get a red tint + badge,
                   // so a glance is enough — no reading the stock line.
-                  !isInStock(product) && "border-r-4 border-r-rose-400 bg-rose-50/70 dark:bg-rose-950/25",
+                  stockState(product) === "OUT" && "border-r-4 border-r-rose-400 bg-rose-50/70 dark:bg-rose-950/25",
+                  stockState(product) === "DEPOT_ONLY" && "border-r-4 border-r-amber-400 bg-amber-50/60 dark:bg-amber-950/20",
                 )}
                 onMouseEnter={() => setProductHighlight(idx)}
                 onClick={() => { if (isMobile) openScanPreview(product, "PIECE"); else addProduct(product) }}
@@ -2823,9 +2824,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   <span className="flex items-center gap-2 font-medium">
                     <ProductThumb product={product} />
                     {product.name}
-                    {!isInStock(product) && (
+                    {stockState(product) === "OUT" && (
                       <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900/50 dark:text-rose-300">
                         نفذت الكمية
+                      </span>
+                    )}
+                    {stockState(product) === "DEPOT_ONLY" && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-900/50 dark:text-amber-300">
+                        بالمخزن فقط: {depotPiecesOf(product)}
                       </span>
                     )}
                   </span>
@@ -2838,9 +2844,21 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   {!isPurchase ? (() => {
                     const shop = product.shopStock ?? product.warehouseStocks?.find((ws) => ws.warehouse.name.includes("محل"))?.quantityPieces
                     if (shop === undefined) return null
+                    const state = stockState(product)
                     return (
-                      <span className={cn("text-[11px]", shop <= 0 ? "font-semibold text-rose-500" : "text-emerald-600 dark:text-emerald-400")}>
-                        {shop <= 0 ? "نفد من المحل" : `متوفر بالمحل: ${shop}`}
+                      <span
+                        className={cn(
+                          "text-[11px]",
+                          state === "IN_SHOP" && "text-emerald-600 dark:text-emerald-400",
+                          state === "DEPOT_ONLY" && "font-semibold text-amber-600 dark:text-amber-400",
+                          state === "OUT" && "font-semibold text-rose-500",
+                        )}
+                      >
+                        {state === "IN_SHOP"
+                          ? `متوفر بالمحل: ${shop}`
+                          : state === "DEPOT_ONLY"
+                            ? `نفد من المحل — بالمخزن ${depotPiecesOf(product)} قطعة (يحتاج نقل)`
+                            : "نفذت من المحل والمخزن"}
                       </span>
                     )
                   })() : null}

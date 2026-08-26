@@ -228,14 +228,22 @@ export async function listProducts(query: {
       // Arabic-aware, multi-term, relevance-ranked (exact code → prefix →
       // phrase → all tokens → some tokens → fuzzy). Benefits web/desktop AND
       // Android since they all call this endpoint.
-      // Availability is the FIRST sort key: in-stock matches come before
-      // sold-out ones (which stay listed, just grouped underneath).
+      // Availability is the FIRST sort key, in three tiers:
+      //   2 = pieces in المحل (sellable now)
+      //   1 = المحل empty but a depot still holds pieces (needs a transfer)
+      //   0 = nothing anywhere
+      // Nothing is hidden — sold-out matches just sink below the others.
+      const availabilityRank = (p: { currentStock: number; shopStock?: number | null }) => {
+        if (p.currentStock <= 0) return 0;
+        if (typeof p.shopStock === "number" && p.shopStock <= 0) return 1;
+        return 2;
+      };
       list = list
         .map((product) => ({ product, score: scoreProduct(product, query.search!) }))
         .filter((x) => x.score > 0)
         .sort(
           (a, b) =>
-            Number(b.product.currentStock > 0) - Number(a.product.currentStock > 0) ||
+            availabilityRank(b.product) - availabilityRank(a.product) ||
             b.score - a.score ||
             a.product.name.localeCompare(b.product.name, "ar")
         )

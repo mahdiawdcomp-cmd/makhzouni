@@ -16,6 +16,8 @@ type SearchableProduct = {
   cartonsAvailable?: number | null
   pcsPerCarton?: number | null
   warehouseStocks?: { quantityPieces: number }[] | null
+  /** Pieces in المحل specifically — sales are served from here. */
+  shopStock?: number | null
 }
 
 /**
@@ -30,9 +32,38 @@ export function totalPiecesOf(product: SearchableProduct): number {
   return (product.openingBalancePcs ?? 0) + (product.cartonsAvailable ?? 0) * (product.pcsPerCarton ?? 0)
 }
 
-/** True when the product has any pieces left — the primary search sort key. */
+/** True when the product has any pieces left — anywhere. */
 export function isInStock(product: SearchableProduct): boolean {
   return totalPiecesOf(product) > 0
+}
+
+/**
+ * The three states a seller actually cares about while picking a product:
+ *  IN_SHOP    — pieces in المحل, sell it now
+ *  DEPOT_ONLY — المحل is empty but a depot still holds pieces (transfer needed)
+ *  OUT        — nothing anywhere
+ * `shopStock` is optional: when the caller doesn't know it, we can't tell
+ * IN_SHOP from DEPOT_ONLY, so anything with stock counts as IN_SHOP.
+ */
+export type StockState = "IN_SHOP" | "DEPOT_ONLY" | "OUT"
+
+export function stockState(product: SearchableProduct): StockState {
+  if (totalPiecesOf(product) <= 0) return "OUT"
+  if (typeof product.shopStock === "number" && product.shopStock <= 0) return "DEPOT_ONLY"
+  return "IN_SHOP"
+}
+
+/** Sort weight: sellable now → needs a transfer → gone. */
+export function stockRank(product: SearchableProduct): number {
+  const state = stockState(product)
+  return state === "IN_SHOP" ? 2 : state === "DEPOT_ONLY" ? 1 : 0
+}
+
+/** Pieces sitting in depots (everything outside المحل). */
+export function depotPiecesOf(product: SearchableProduct): number {
+  const total = totalPiecesOf(product)
+  if (typeof product.shopStock !== "number") return total
+  return Math.max(0, total - product.shopStock)
 }
 
 type SearchableCustomer = {
@@ -117,14 +148,14 @@ export function matchProduct(product: SearchableProduct, q: string): boolean {
 export function sortProductsByRelevance<T extends SearchableProduct>(products: T[], q: string): T[] {
   if (!q.trim()) return products
   return products
-    .map((product) => ({ product, score: scoreProduct(product, q), inStock: isInStock(product) }))
+    .map((product) => ({ product, score: scoreProduct(product, q), rank: stockRank(product) }))
     .filter((x) => x.score > 0)
-    // Availability comes FIRST: a seller typing "لول لعابة" wants the items he
-    // can actually sell at the top, and the sold-out ones grouped underneath —
-    // still listed (so he can see they exist), just never above a stocked match.
+    // Availability comes FIRST: a seller typing "لول لعابة" wants what he can
+    // sell right now at the top, then what's only in a depot (a transfer away),
+    // then the sold-out ones. Nothing is hidden — only re-ordered.
     .sort(
       (a, b) =>
-        Number(b.inStock) - Number(a.inStock) ||
+        b.rank - a.rank ||
         b.score - a.score ||
         a.product.name.localeCompare(b.product.name, "ar"),
     )
