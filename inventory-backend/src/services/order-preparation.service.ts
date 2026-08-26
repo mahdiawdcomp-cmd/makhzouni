@@ -23,6 +23,8 @@ type PreparationItem = {
   quantity: number;
   unitPrice?: number;
   totalPrice?: number;
+  /** «عيّنة» — asked for to try, not to stock. */
+  isSample?: boolean;
 };
 
 const retryDelays = [3000, 8000, 15000, 30000];
@@ -67,7 +69,12 @@ function preparationPhones(settings: Awaited<ReturnType<typeof getSettings>> | n
 }
 
 function itemLines(items: PreparationItem[]) {
-  return items.map((item) => `- ${item.productName}: ${item.quantity} ${unitAr(item.unit)}`).join("\n");
+  // A sample is marked in the line itself — whoever packs the order reads
+  // this list, and one piece of something looks like a mistake without it.
+  return items
+    .map((item) =>
+      `- ${item.productName}: ${item.quantity} ${unitAr(item.unit)}${item.isSample ? " (عيّنة)" : ""}`)
+    .join("\n");
 }
 
 function scheduleTextRetry(phone: string, message: string, attempt = 0) {

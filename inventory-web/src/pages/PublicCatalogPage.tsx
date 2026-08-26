@@ -70,7 +70,11 @@ import { cn } from "../utils/cn"
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 type CatalogUnit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
-type CartLine = { id: string; product: PublicCatalogProduct; unit: CatalogUnit; quantity: number }
+type CartLine = {
+  id: string; product: PublicCatalogProduct; unit: CatalogUnit; quantity: number
+  /** «عيّنة» — one piece to try before committing to a carton. */
+  isSample?: boolean
+}
 type Theme = "clean" | "warm" | "dark" | "vibrant"
 type SortKey = "default" | "best" | "rated" | "cheap" | "expensive" | "new"
 type ViewMode = "grid" | "list"
@@ -299,7 +303,10 @@ const maxQty = (product: PublicCatalogProduct, unit: CatalogUnit) =>
 const hasFullCarton = (product: PublicCatalogProduct) =>
   product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton
 
-const key = (productId: string, unit: CatalogUnit) => `${productId}:${unit}`
+// Samples key separately from a normal piece of the same product, so asking
+// for a sample never merges into — or silently inflates — a real order line.
+const key = (productId: string, unit: CatalogUnit, isSample = false) =>
+  `${productId}:${unit}${isSample ? ":sample" : ""}`
 
 /* ══════════════════════════════════════════════════════════════════════
    ROOT
@@ -1405,12 +1412,12 @@ function CatalogShop({
             // A signed-in visitor orders through the same endpoint; the token
             // is what tells the server they are not an anonymous guest.
             ...(visitorToken ? { visitorToken } : {}),
-            items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+            items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity, isSample: l.isSample })),
           })
         : submitPublicCatalogOrder(
             {
               customerName, phone: customerPhone, notes: notes.trim() || undefined,
-              items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity })),
+              items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity, isSample: l.isSample })),
               promoCode: promoResult?.code,
             },
             accessToken,
@@ -1454,6 +1461,24 @@ function CatalogShop({
       }
       return next
     })
+  }
+
+  /**
+   * «طلب عيّنة» — one piece, on its own line.
+   *
+   * Deliberately capped at one and never merged with an existing line: a
+   * sample is a question ("is this what I think it is?"), and letting it
+   * accumulate would turn it into an order nobody meant to place.
+   */
+  function addSample(product: PublicCatalogProduct) {
+    if (maxQty(product, "PIECE") < 1) return
+    setSubmitted(null)
+    setCart((prev) => {
+      const id = key(product.id, "PIECE", true)
+      if (prev.some((l) => l.id === id)) return prev
+      return [...prev, { id, product, unit: "PIECE", quantity: 1, isSample: true }]
+    })
+    setCartOpen(true)
   }
 
   function changeQty(lineId: string, delta: number) {
@@ -2184,6 +2209,7 @@ function CatalogShop({
           lowStockCartons={design?.trust?.lowStockCartons ?? 0}
           onClose={closeProduct}
           onAdd={(p, unit) => { add(p, unit); closeProduct() }}
+          onSample={(p) => { addSample(p); closeProduct() }}
           onOpenProduct={openProduct}
         />
       )}
@@ -2464,7 +2490,7 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 }
 
 function ProductDetailSheet({
-  productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onOpenProduct,
+  productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onSample, onOpenProduct,
   reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "",
 }: {
   productId: string
@@ -2481,6 +2507,8 @@ function ProductDetailSheet({
   suggestionsEnabled?: boolean
   onClose: () => void
   onAdd: (product: PublicCatalogProduct, unit: CatalogUnit) => void
+  /** «طلب عيّنة» — undefined hides the button entirely. */
+  onSample?: (product: PublicCatalogProduct) => void
   onOpenProduct: (id: string) => void
 }) {
   const access = guestMode ? "" : accessToken
@@ -2817,17 +2845,33 @@ function ProductDetailSheet({
       {product && !outOfStock && (
         <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[600px] px-3 pb-3 pt-2"
           style={{ background: tk.bg, borderTop: `1px solid ${tk.divider}` }}>
-          <button
-            onClick={() => {
-              // The detail payload is a superset of the grid's product shape —
-              // reuse the same add() so unit logic stays in one place.
-              onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor(product as unknown as PublicCatalogProduct))
-            }}
-            className="flex w-full items-center justify-center gap-2 py-4 font-extrabold text-white transition active:scale-95"
-            style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
-            <Plus className="h-5 w-5" />
-            أضف للسلة
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                // The detail payload is a superset of the grid's product shape —
+                // reuse the same add() so unit logic stays in one place.
+                onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor(product as unknown as PublicCatalogProduct))
+              }}
+              className="flex flex-1 items-center justify-center gap-2 py-4 font-extrabold text-white transition active:scale-95"
+              style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
+              <Plus className="h-5 w-5" />
+              أضف للسلة
+            </button>
+            {onSample && (
+              <button
+                onClick={() => onSample(product as unknown as PublicCatalogProduct)}
+                className="flex shrink-0 items-center justify-center gap-1.5 px-4 py-4 font-bold transition active:scale-95"
+                style={{
+                  background: tk.cardBg,
+                  color: tk.accent,
+                  border: `2px solid ${tk.accent}`,
+                  borderRadius: tk.radiusLg,
+                  fontSize: tk.fs.sm,
+                }}>
+                🔍 عيّنة
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -4104,7 +4148,15 @@ function CartItem({
         <MiniThumb product={line.product} size="lg" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="truncate font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>{line.product.name}</p>
+            <p className="truncate font-bold" style={{ color: tk.text, fontSize: tk.fs.md }}>
+              {line.isSample && (
+                <span className="ml-1.5 rounded-full px-2 py-0.5 font-bold"
+                  style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
+                  عيّنة
+                </span>
+              )}
+              {line.product.name}
+            </p>
             <button onClick={() => onRemove(line.id)} className="shrink-0 transition hover:scale-110">
               <Trash2 className="h-4 w-4 text-red-400" />
             </button>

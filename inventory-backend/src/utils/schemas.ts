@@ -152,6 +152,9 @@ const catalogOrderItemSchema = z.object({
   productId: z.string().uuid(),
   unit: z.enum(["PIECE", "DOZEN", "BOX", "CARTON"]).default("PIECE"),
   quantity: z.coerce.number().int().min(1),
+  // «عيّنة» — a single piece asked for on approval, so whoever packs the order
+  // knows it is a try-before-you-buy and not a one-piece sale.
+  isSample: z.boolean().optional(),
 });
 
 export const sendOtpSchema = z.object({

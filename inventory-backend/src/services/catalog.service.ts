@@ -29,6 +29,7 @@ type CatalogOrderInput = {
     productId: string;
     unit: Unit;
     quantity: number;
+    isSample?: boolean;
   }>;
 };
 
@@ -1141,7 +1142,7 @@ export type GuestCatalogOrderInput = {
   phone: string;
   address?: string;
   notes?: string;
-  items: Array<{ productId: string; unit: Unit; quantity: number }>;
+  items: Array<{ productId: string; unit: Unit; quantity: number; isSample?: boolean }>;
 };
 
 export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { visitorToken?: string }) {
@@ -1200,6 +1201,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
       unitPrice,
       totalPrice: unitPrice * item.quantity,
       availableStock: available,
+      isSample: item.isSample === true,
     };
   });
 
@@ -1238,6 +1240,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
           unit: item.unit,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          isSample: item.isSample,
         })),
       },
       displayItems: normalizedItems,
@@ -1313,6 +1316,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       unitPrice,
       totalPrice: unitPrice * item.quantity,
       availableStock: available,
+      isSample: item.isSample === true,
     };
   });
 
@@ -1408,6 +1412,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
           unit: item.unit,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          isSample: item.isSample,
         })),
       },
       displayItems: normalizedItems,
@@ -1442,7 +1447,7 @@ export type TelegramCatalogOrderInput = {
   phone: string;
   notes?: string;
   address?: string;
-  items: Array<{ productId: string; unit: Unit; quantity: number }>;
+  items: Array<{ productId: string; unit: Unit; quantity: number; isSample?: boolean }>;
   couponCode?: string;
 };
 
