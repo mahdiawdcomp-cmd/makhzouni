@@ -947,6 +947,11 @@ model CatalogVisitor {
   // Wholesale prices stay hidden until the shop says otherwise — the visitor
   // asks with «اطلب عرض سعر» and an admin approves. Null = still hidden.
   pricesUnlockedAt DateTime? @map("prices_unlocked_at")
+  /// Explicitly closed for this visitor, whatever the shop-wide default says.
+  /// Together with pricesUnlockedAt this makes three states — closed, opened,
+  /// or "whatever the shop currently does" — which is what lets the merchant
+  /// open prices to everyone and still shut one person out.
+  pricesHidden     Boolean   @default(false) @map("prices_hidden")
   // Set while a price request is waiting, so the button can show its state
   // and a second request cannot pile another row onto the queue.
   priceRequestedAt DateTime? @map("price_requested_at")

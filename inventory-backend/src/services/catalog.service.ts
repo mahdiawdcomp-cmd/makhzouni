@@ -240,6 +240,17 @@ export async function listCatalogVisitors() {
 // Admin: turn a collected guest phone into a real customer. If a customer with
 // that (normalized) phone already exists, returns it untouched; otherwise
 // creates a minimal customer record. Optionally grants catalog access too.
+/**
+ * Turn a collected phone into a customer.
+ *
+ * Delegates the customer row itself to promoteVisitorToCustomer so this and
+ * «احفظ كزبون بالمحل» cannot disagree. They used to: this path created a bare
+ * customer while the other carried the visitor's login code, address and
+ * province across — so which button the merchant happened to press decided
+ * whether that person could still sign in afterwards.
+ *
+ * The optional catalog access link is kept for the legacy link flow.
+ */
 export async function convertVisitorToCustomer(
   rawPhone: string,
   opts?: { name?: string; grantAccess?: boolean; allowPrices?: boolean },
@@ -252,11 +263,15 @@ export async function convertVisitorToCustomer(
     throw new AppError(`هذا الرقم يخص زبون محذوف: «${existing.name}» — استرجعه من الزبائن المحذوفين`, 409);
   }
   const created = !existing;
-  const customer = existing ?? await createCustomer({
-    name: opts?.name?.trim() || `زبون كتلوك ${phone.slice(-4)}`,
-    phone,
-    openingBalance: 0,
-  });
+  const { promoteVisitorToCustomer } = await import("./catalog-visitor.service");
+  const promoted = await promoteVisitorToCustomer(phone).catch(() => null);
+  const customer = existing
+    ?? (promoted ? await prisma.customer.findUniqueOrThrow({ where: { id: promoted.customerId } })
+      : await createCustomer({
+          name: opts?.name?.trim() || `زبون كتلوك ${phone.slice(-4)}`,
+          phone,
+          openingBalance: 0,
+        }));
 
   let access: Awaited<ReturnType<typeof createCatalogAccessLink>> | null = null;
   if (opts?.grantAccess) {

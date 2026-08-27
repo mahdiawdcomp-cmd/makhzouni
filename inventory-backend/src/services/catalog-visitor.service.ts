@@ -4,6 +4,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { normalizePhone } from "../utils/phone";
 import { getSettings } from "./settings.service";
+import { storefrontPricesDefaultVisible } from "./customer-login.service";
 
 /* ══════════════════════════════════════════════════════════════════════
    Catalog visitors as a standing identity.
@@ -72,6 +73,27 @@ export async function issueVisitorSession(phone: string): Promise<string> {
   return token;
 }
 
+/**
+ * Whether this visitor sees wholesale prices.
+ *
+ * Three states, in this order:
+ *   1. explicitly closed  → never, whatever the shop-wide default says
+ *   2. explicitly opened   → always
+ *   3. neither             → whatever «إظهار الأسعار افتراضياً» currently is
+ *
+ * The same shape customers use (catalogPricesHidden over the global default),
+ * so one rule covers everyone and the merchant can predict the answer without
+ * remembering which screen they last touched.
+ */
+export function resolveVisitorPrices(
+  visitor: { pricesHidden?: boolean | null; pricesUnlockedAt?: Date | null },
+  shopDefaultVisible: boolean,
+): boolean {
+  if (visitor.pricesHidden) return false;
+  if (visitor.pricesUnlockedAt) return true;
+  return shopDefaultVisible;
+}
+
 export type VisitorSession = {
   phone: string;
   name: string | null;
@@ -94,7 +116,7 @@ export async function resolveVisitorSession(token: string | undefined): Promise<
     select: {
       phone: true, name: true, address: true, notes: true, province: true,
       businessType: true, detailsSubmittedAt: true, pricesUnlockedAt: true,
-      priceRequestedAt: true, customerId: true,
+      pricesHidden: true, priceRequestedAt: true, customerId: true,
     },
   });
   if (!visitor) return null;
@@ -106,7 +128,7 @@ export async function resolveVisitorSession(token: string | undefined): Promise<
     province: visitor.province,
     businessType: visitor.businessType,
     detailsSubmitted: Boolean(visitor.detailsSubmittedAt),
-    pricesUnlocked: Boolean(visitor.pricesUnlockedAt),
+    pricesUnlocked: resolveVisitorPrices(visitor, await storefrontPricesDefaultVisible()),
     priceRequestPending: Boolean(visitor.priceRequestedAt) && !visitor.pricesUnlockedAt,
     customerId: visitor.customerId,
   };
@@ -198,7 +220,7 @@ export async function grantPriceAccess(rawPhone: string) {
 
   await prisma.catalogVisitor.update({
     where: { phone: visitor.phone },
-    data: { pricesUnlockedAt: new Date(), priceRequestedAt: null },
+    data: { pricesUnlockedAt: new Date(), pricesHidden: false, priceRequestedAt: null },
   });
 
   try {
@@ -225,7 +247,9 @@ export async function revokePriceAccess(rawPhone: string) {
   if (!visitor) throw new AppError("الزائر غير موجود", 404, "VISITOR_NOT_FOUND");
   await prisma.catalogVisitor.update({
     where: { phone: visitor.phone },
-    data: { pricesUnlockedAt: null, priceRequestedAt: null },
+    // Explicitly closed, not merely "un-opened" — otherwise a shop whose
+    // default is open would hand the prices straight back.
+    data: { pricesUnlockedAt: null, pricesHidden: true, priceRequestedAt: null },
   });
   return { phone: visitor.phone };
 }
@@ -313,6 +337,7 @@ export type StorefrontAccountRow = {
 export async function listStorefrontAccountsUnified(search?: string): Promise<StorefrontAccountRow[]> {
   const term = search?.trim();
   const like = term ? { contains: term, mode: "insensitive" as const } : undefined;
+  const shopDefaultVisible = await storefrontPricesDefaultVisible();
 
   const customers = await prisma.customer.findMany({
     where: {
@@ -337,8 +362,8 @@ export async function listStorefrontAccountsUnified(search?: string): Promise<St
     where: like ? { OR: [{ name: like }, { phone: like }] } : {},
     select: {
       phone: true, name: true, address: true, province: true, lastLoginAt: true,
-      detailsSubmittedAt: true, pricesUnlockedAt: true, priceRequestedAt: true,
-      customerId: true, accessCodeHash: true, lockedUntil: true,
+      detailsSubmittedAt: true, pricesUnlockedAt: true, pricesHidden: true,
+      priceRequestedAt: true, customerId: true, accessCodeHash: true, lockedUntil: true,
     },
     orderBy: { lastSeenAt: "desc" },
     take: 500,
@@ -371,7 +396,7 @@ export async function listStorefrontAccountsUnified(search?: string): Promise<St
       province: v.province ?? null,
       lastLoginAt: v.lastLoginAt ?? null,
       detailsSubmitted: Boolean(v.detailsSubmittedAt),
-      pricesUnlocked: Boolean(v.pricesUnlockedAt),
+      pricesUnlocked: resolveVisitorPrices(v, shopDefaultVisible),
       priceRequestPending: Boolean(v.priceRequestedAt) && !v.pricesUnlockedAt,
       customerId: null,
       hasCode: Boolean(v.accessCodeHash),
