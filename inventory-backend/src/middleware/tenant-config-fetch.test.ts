@@ -150,3 +150,39 @@ test("hasFeature(): entitlements configured but missing the key returns false (r
   assert.equal(await hasFeature("catalogWholesale"), false);
   assert.equal(await hasFeature("auditLog"), true);
 });
+
+test("deleted licence: Super Admin 404 revokes the tenant into read-only, not standalone", async (t) => {
+  resetEnv();
+  process.env.TENANT_ID = "tenant-gone";
+  process.env.SUPER_ADMIN_API_URL = "https://admin-api.example.com";
+  process.env.SUPER_ADMIN_API_KEY = "test-key";
+
+  t.mock.method(globalThis, "fetch", async () =>
+    ({ ok: false, status: 404, json: async () => ({ error: "TENANT_NOT_FOUND" }) }) as any);
+
+  const { getTenantConfig, computeReadOnly, readOnlyDecision } = await freshTenantMiddleware();
+  const cfg = await getTenantConfig();
+
+  assert.notEqual(cfg, null, "a 404 must NOT look like standalone mode");
+  assert.equal(cfg?.status, "REVOKED");
+  assert.equal(cfg?.tenantId, "tenant-gone");
+  assert.equal(computeReadOnly(cfg), true);
+  assert.equal(readOnlyDecision(cfg, "POST", "/invoices"), "block");
+  assert.equal(readOnlyDecision(cfg, "GET", "/invoices"), "allow");
+});
+
+test("transient failure: Super Admin 500 still fails open (unchanged behavior)", async (t) => {
+  resetEnv();
+  process.env.TENANT_ID = "tenant-123";
+  process.env.SUPER_ADMIN_API_URL = "https://admin-api.example.com";
+  process.env.SUPER_ADMIN_API_KEY = "test-key";
+
+  t.mock.method(globalThis, "fetch", async () =>
+    ({ ok: false, status: 500, json: async () => ({}) }) as any);
+
+  const { getTenantConfig, readOnlyDecision } = await freshTenantMiddleware();
+  const cfg = await getTenantConfig();
+
+  assert.equal(cfg, null);
+  assert.equal(readOnlyDecision(cfg, "POST", "/invoices"), "allow");
+});

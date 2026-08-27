@@ -241,6 +241,33 @@ export default function TenantDetailPage() {
             disabled={tenant.status !== "SUSPENDED"}
             title={tenant.status !== "SUSPENDED" ? "أوقف المحل أولاً قبل الحذف" : "حذف نهائي — لا يمكن التراجع"}
             onClick={async () => {
+              // Deleting here removes the LICENCE record only. The shop's own
+              // Postgres and backend service live in a separate Railway project
+              // that this panel has no access to, so they keep running and keep
+              // holding the shop's data (and its customers' money) unless they
+              // are torn down by hand. Spell that out before the point of no
+              // return instead of leaving an orphaned, reachable backend behind.
+              const warned = window.confirm(
+                `حذف "${tenant.name}" من هنا يمسح سجل الترخيص فقط.
+
+` +
+                `ما يبقى شغّالاً ولازم تحذفه بيدك من Railway:
+` +
+                `• قاعدة بيانات المحل (كل الفواتير والزبائن والأرصدة)
+` +
+                `• خدمة الباكند على الرابط:
+${tenant.backendUrl}
+
+` +
+                `وأيضاً: سجل DNS الرابط الفرعي، والدومين في Vercel.
+
+` +
+                `بعد الحذف سينتقل باكند المحل إلى وضع «المشاهدة فقط» خلال 5 دقائق، لكنه يبقى قابلاً للوصول.
+
+` +
+                `هل تريد المتابعة؟`,
+              );
+              if (!warned) return;
               const typed = window.prompt(`هذا حذف نهائي لا رجعة فيه. اكتب الرابط الفرعي "${tenant.subdomain}" للتأكيد.`);
               if (typed !== tenant.subdomain) {
                 if (typed !== null) setMessage("النص المكتوب لا يطابق الرابط الفرعي — لم يتم الحذف.");
@@ -248,7 +275,11 @@ export default function TenantDetailPage() {
               }
               try {
                 await tenantsApi.remove(id);
-                navigate("/tenants");
+                navigate("/tenants", {
+                  state: {
+                    deletedNotice: `تم حذف سجل ترخيص "${tenant.name}". لم يتم حذف قاعدة بياناته ولا خدمته على ${tenant.backendUrl} — احذفهما من Railway.`,
+                  },
+                });
               } catch (error) {
                 setMessage(getErrorMessage(error));
               }

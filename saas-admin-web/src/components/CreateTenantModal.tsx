@@ -1,16 +1,17 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, X } from "lucide-react";
-import { DOMAIN_ROOT, getErrorMessage, tenantsApi, type FeatureKey, type LicenseType, type Plan } from "../api/client";
-import { LICENSE_TYPES, LICENSE_TYPE_LABELS } from "../entitlements";
+import { X } from "lucide-react";
+import { DOMAIN_ROOT, getErrorMessage, tenantsApi, type LicenseType, type Plan } from "../api/client";
+import { FEATURE_GROUPS, LICENSE_TYPES, LICENSE_TYPE_LABELS } from "../entitlements";
 
-const FEATURES: Array<{ key: FeatureKey; label: string }> = [
-  { key: "ANDROID", label: "تطبيق أندرويد" }, { key: "CATALOG", label: "كتالوج العملاء" },
-  { key: "POS", label: "نقطة البيع" }, { key: "AI", label: "المساعد الذكي" },
-  { key: "WHATSAPP", label: "إشعارات واتساب" }, { key: "MULTI_WAREHOUSE", label: "تعدد المخازن" },
-  { key: "QUOTATIONS", label: "عروض الأسعار" }, { key: "RETURNS", label: "المرتجعات" },
-  { key: "OFFLINE", label: "العمل دون إنترنت" }, { key: "AUDIT_LOG", label: "سجل التدقيق" },
-];
+// The features picked here are the TENANT-LEVEL entitlement keys — the same
+// vocabulary the License tab edits and the only one the tenant backend
+// actually gates on (`hasFeature` reads tenant.features). The old grid here
+// used the legacy uppercase Subscription feature keys (ANDROID/POS/...), which
+// no code gates on, so nothing an admin ticked at creation ever took effect
+// and every new shop was created with an empty tenant.features — which the
+// backend reads as "no entitlements configured ⇒ everything unlocked".
+const DEFAULT_FEATURES = ["pos", "salesReturns", "quotations", "auditLog"];
 
 export default function CreateTenantModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -22,12 +23,20 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
     plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY",
     maxUsers: "3", maxWarehouses: "1", maxAndroidDevices: "1",
     maxCustomers: "", notes: "",
-    features: ["POS", "RETURNS", "QUOTATIONS", "AUDIT_LOG"] as FeatureKey[],
+    features: DEFAULT_FEATURES,
     licenseType: "SAAS" as LicenseType, trialEndsAt: "", internalNotes: "",
   });
   const set = (key: string, value: unknown) => setForm((current) => ({ ...current, [key]: value }));
-  const toggleFeature = (key: FeatureKey) => set("features", form.features.includes(key)
+  const toggleFeature = (key: string) => set("features", form.features.includes(key)
     ? form.features.filter((item) => item !== key) : [...form.features, key]);
+  const setGroup = (groupKey: string, on: boolean) => {
+    const group = FEATURE_GROUPS.find((g) => g.key === groupKey);
+    if (!group) return;
+    const keys = group.items.filter((i) => !i.hidden).map((i) => i.key);
+    set("features", on
+      ? Array.from(new Set([...form.features, ...keys]))
+      : form.features.filter((f) => !keys.includes(f)));
+  };
 
   async function submit() {
     setLoading(true);
@@ -42,6 +51,8 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
         expiresAt: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
         trialEndsAt: form.trialEndsAt ? new Date(`${form.trialEndsAt}T23:59:59`).toISOString() : null,
         internalNotes: form.internalNotes || undefined,
+        // Tenant-level entitlements — this is what the tenant backend reads.
+        features: form.features,
         subscription: {
           plan: form.plan,
           expiresAt: form.expiresAt ? new Date(`${form.expiresAt}T23:59:59`).toISOString() : null,
@@ -52,7 +63,10 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
           maxAndroidDevices: form.maxAndroidDevices ? Number(form.maxAndroidDevices) : null,
           maxCustomers: form.maxCustomers ? Number(form.maxCustomers) : null,
           currency: "IQD",
-          features: form.features,
+          // Legacy Subscription.features deliberately left empty: nothing in
+          // the platform gates on it, and mirroring the tenant features into a
+          // different key vocabulary is what caused the drift in the first place.
+          features: [],
         },
       });
       await Promise.all([
@@ -97,8 +111,42 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
                 <label>عدد المخازن<input type="number" min="1" value={form.maxWarehouses} onChange={(e) => set("maxWarehouses", e.target.value)} /></label>
                 <label>أجهزة أندرويد<input type="number" min="0" value={form.maxAndroidDevices} onChange={(e) => set("maxAndroidDevices", e.target.value)} /></label>
               </div>
-              <label>المزايا</label>
-              <div className="feature-grid">{FEATURES.map((feature) => <button type="button" key={feature.key} className={form.features.includes(feature.key) ? "feature selected" : "feature"} onClick={() => toggleFeature(feature.key)}><Check size={15} />{feature.label}</button>)}</div>
+              <label>المزايا المفعّلة ({form.features.length})</label>
+              {FEATURE_GROUPS.map((group) => {
+                const items = group.items.filter((item) => !item.hidden);
+                if (items.length === 0) return null;
+                const selected = items.filter((item) => form.features.includes(item.key)).length;
+                return (
+                  <div className="feature-group open" key={group.key}>
+                    <div className="feature-group-head">
+                      <div className="feature-group-head-left">
+                        <span className="feature-group-title">{group.title}</span>
+                        <span className="feature-group-count">{selected}/{items.length}</span>
+                      </div>
+                      <div className="feature-group-actions">
+                        <button type="button" onClick={() => setGroup(group.key, true)}>تحديد الكل</button>
+                        <button type="button" onClick={() => setGroup(group.key, false)}>إلغاء الكل</button>
+                      </div>
+                    </div>
+                    <div className="feature-group-body">
+                      {items.map((item) => {
+                        const on = form.features.includes(item.key);
+                        return (
+                          <div className={`feature-row ${on ? "on" : ""}`} key={item.key} onClick={() => toggleFeature(item.key)}>
+                            <input type="checkbox" checked={on} onChange={() => toggleFeature(item.key)} onClick={(e) => e.stopPropagation()} />
+                            <div className="feature-row-text">
+                              <span className="feature-row-label">{item.label}</span>
+                              {item.description && <span className="feature-row-desc">{item.description}</span>}
+                            </div>
+                            <span className={`feature-row-badge ${on ? "on" : "off"}`}>{on ? "مفعّلة" : "متوقفة"}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {form.features.length === 0 && <div className="alert error">لا توجد أي ميزة محددة — الخادم يعتبر القائمة الفارغة «كل الميزات مفتوحة». حدّد الميزات المطلوبة صراحةً.</div>}
               <label>ملاحظات<textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} /></label>
               <label>ملاحظات داخلية (للسوبر أدمن فقط)<textarea value={form.internalNotes} onChange={(e) => set("internalNotes", e.target.value)} rows={2} /></label>
             </>

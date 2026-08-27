@@ -64,6 +64,31 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 let lastCheckedAt: number | null = null;
 let lastFetchError: string | null = null;
 
+/**
+ * The state a tenant is put in when Super Admin says its licence is gone.
+ * `status: "REVOKED"` makes computeReadOnly() return true, so the shop can
+ * still read its own data (and export it, and call support) but cannot write.
+ */
+const REVOKED_CONFIG: TenantConfig = {
+  tenantId: "",
+  plan: "REVOKED",
+  features: [],
+  maxInvoices: null,
+  maxCustomers: null,
+  expiresAt: null,
+  isExpired: true,
+  isSuspended: true,
+  status: "REVOKED",
+  licenseType: null,
+  activatedAt: null,
+  entitlementExpiresAt: null,
+  trialEndsAt: null,
+  entitlementFeatures: [],
+  limits: null,
+  platforms: null,
+  subscriptionSource: "none",
+};
+
 async function fetchTenantConfig(): Promise<TenantConfig | null> {
   const tenantId = process.env.TENANT_ID;
   const adminApiUrl = process.env.SUPER_ADMIN_API_URL;
@@ -75,6 +100,18 @@ async function fetchTenantConfig(): Promise<TenantConfig | null> {
       headers: { Authorization: `Bearer ${process.env.SUPER_ADMIN_API_KEY ?? ""}` },
       signal: AbortSignal.timeout(5000),
     });
+    // 404 is a DEFINITIVE answer, not a transient failure: Super Admin is
+    // reachable and says this tenant no longer exists (licence deleted). The
+    // shop's own Postgres and backend keep running in their own Railway
+    // project — nothing tears them down — so falling back to `null` here meant
+    // a deleted tenant became indistinguishable from standalone mode and ran
+    // fully unrestricted forever. Lock it to read-only instead. Re-checked
+    // every CACHE_TTL_MS, so re-creating the tenant restores it within 5 min.
+    if (resp.status === 404) {
+      lastFetchError = "Super Admin API returned 404 — tenant licence not found";
+      logger.error(`[tenant] ${lastFetchError} (tenantId=${tenantId}) — entering read-only mode`);
+      return { ...REVOKED_CONFIG, tenantId };
+    }
     if (!resp.ok) {
       lastFetchError = `Super Admin API returned ${resp.status}`;
       logger.warn(`[tenant] ${lastFetchError}`);
@@ -142,7 +179,7 @@ export function getTenantCheckMeta(): { lastCheckedAt: string | null; lastFetchE
 export function computeReadOnly(cfg: TenantConfig | null): boolean {
   if (!cfg) return false; // standalone — never read-only
   const now = Date.now();
-  if (cfg.status === "EXPIRED" || cfg.status === "SUSPENDED") return true;
+  if (cfg.status === "EXPIRED" || cfg.status === "SUSPENDED" || cfg.status === "REVOKED") return true;
   if (cfg.entitlementExpiresAt && new Date(cfg.entitlementExpiresAt).getTime() < now) return true;
   if (cfg.licenseType === "TRIAL" && cfg.trialEndsAt && new Date(cfg.trialEndsAt).getTime() < now) return true;
   // Batch 5.1: also honor the legacy subscription flags. requireActiveSubscription

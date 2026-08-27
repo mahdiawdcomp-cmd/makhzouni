@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Activity, Building2, CalendarClock, ChevronLeft, CircleOff, Plus, Search, Smartphone } from "lucide-react";
 import { DOMAIN_ROOT, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus, type Tenant } from "../api/client";
 import CreateTenantModal from "../components/CreateTenantModal";
@@ -36,6 +36,13 @@ function TenantCard({ tenant }: { tenant: Tenant }) {
 }
 
 export default function TenantsPage() {
+  const location = useLocation();
+  // Carried over from the tenant page after a delete: the licence row is gone,
+  // but the shop's database and backend service are not — say so where the
+  // admin lands, not only in the confirm dialog they just clicked through.
+  const [deletedNotice, setDeletedNotice] = useState<string>(
+    (location.state as { deletedNotice?: string } | null)?.deletedNotice ?? "",
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
@@ -62,6 +69,13 @@ export default function TenantsPage() {
         <div><h1>المحلات والاشتراكات</h1><p>تحكم بكل محل، رابط، باقة وجهاز من لوحة واحدة.</p></div>
         <button className="primary" onClick={() => setShowCreate(true)}><Plus size={18} /> إضافة محل</button>
       </div>
+
+      {deletedNotice && (
+        <div className="alert error" style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+          <span>{deletedNotice}</span>
+          <button className="secondary" onClick={() => setDeletedNotice("")}>إخفاء</button>
+        </div>
+      )}
 
       <section className="stats-grid">
         {cards.map(({ label, value, icon: Icon, tone }) => (
