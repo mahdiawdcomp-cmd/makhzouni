@@ -29,6 +29,7 @@ import {
   listItemReservations,
   setReservationStatus,
   markIncomingArrived,
+  listAllReservations,
 } from "../services/catalog-incoming.service";
 import {
   saveVisitorDetails,
@@ -39,6 +40,7 @@ import {
   promoteVisitorToCustomer,
   listStorefrontAccountsUnified,
   catalogDashboard,
+  storefrontPersonProfile,
 } from "../services/catalog-visitor.service";
 
 /* ── Public ──────────────────────────────────────────────────────── */
@@ -110,6 +112,14 @@ export const markArrivedCtrl = asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 });
 
+export const allReservationsCtrl = asyncHandler(async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status : undefined;
+  const data = await listAllReservations(
+    status === "PENDING" || status === "CONFIRMED" || status === "CANCELLED" ? status : undefined,
+  );
+  res.json({ success: true, data });
+});
+
 export const itemReservationsCtrl = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await listItemReservations(String(req.params.id)) });
 });
@@ -129,6 +139,11 @@ export const unifiedAccountsCtrl = asyncHandler(async (req, res) => {
   const data = await listStorefrontAccountsUnified(
     typeof req.query.search === "string" ? req.query.search : undefined,
   );
+  res.json({ success: true, data });
+});
+
+export const personProfileCtrl = asyncHandler(async (req, res) => {
+  const data = await storefrontPersonProfile(String(req.params.phone ?? ""));
   res.json({ success: true, data });
 });
 

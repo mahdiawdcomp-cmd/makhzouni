@@ -8,6 +8,7 @@ import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
 import { CATALOG_TEXT_DEFAULTS } from "../utils/catalogLayout"
+import { CatalogAnnouncementCard } from "./StorefrontInviteCard"
 
 /* ══════════════════════════════════════════════════════════════════════
    «ترتيب الواجهة» — the merchant arranging their own storefront.
@@ -185,6 +186,9 @@ export function CatalogLayoutTab() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ── The one line the shop shows everyone ── */}
+      <CatalogAnnouncementCard />
 
       {/* ── Order tiers ── */}
       <OrderTiersCard />

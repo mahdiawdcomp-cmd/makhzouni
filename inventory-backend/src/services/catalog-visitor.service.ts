@@ -443,3 +443,97 @@ export async function catalogDashboard() {
 
   return { priceRequests, reservations, customersNoCode, visitorsToday, incomingItems, pendingOrders };
 }
+
+/**
+ * Everything the shop knows about one phone, in one answer.
+ *
+ * Assembled here rather than by the screen firing five requests, so the panel
+ * cannot show a half-loaded picture — and so "who is this person" has one
+ * definition instead of one per screen.
+ */
+export async function storefrontPersonProfile(rawPhone: string) {
+  const candidates = phoneCandidates(rawPhone);
+
+  const [customer, visitor, shopDefaultVisible] = await Promise.all([
+    prisma.customer.findFirst({
+      where: { phone: { in: candidates }, deletedAt: null },
+      select: {
+        id: true, name: true, phone: true, address: true, province: true,
+        currentBalance: true, accessCodeHash: true, accessCodeSetAt: true,
+        lastLoginAt: true, lockedUntil: true, catalogPricesHidden: true,
+        createdAt: true,
+      },
+    }),
+    prisma.catalogVisitor.findFirst({
+      where: { phone: { in: candidates } },
+      select: {
+        phone: true, name: true, address: true, notes: true, province: true,
+        visits: true, totalTimeSeconds: true, firstSeenAt: true, lastSeenAt: true,
+        detailsSubmittedAt: true, pricesUnlockedAt: true, pricesHidden: true,
+        priceRequestedAt: true, customerId: true, accessCodeHash: true,
+        accessCodeSetAt: true, lastLoginAt: true, lockedUntil: true,
+      },
+    }),
+    storefrontPricesDefaultVisible(),
+  ]);
+
+  if (!customer && !visitor) throw new AppError("ما لقينا هذا الرقم", 404, "PERSON_NOT_FOUND");
+
+  const phone = customer?.phone ?? visitor?.phone ?? rawPhone;
+
+  const [orders, reservations, views] = await Promise.all([
+    customer
+      ? prisma.invoice.findMany({
+          where: { customerId: customer.id, type: "SALE", status: "ACTIVE" },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          select: { id: true, invoiceNumber: true, totalAmount: true, createdAt: true },
+        })
+      : Promise.resolve([]),
+    prisma.catalogIncomingReservation.findMany({
+      where: { phone: { in: candidates } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: { id: true, quantity: true, status: true, item: { select: { name: true } } },
+    }),
+    prisma.catalogVisitorProductView.count({ where: { phone: { in: candidates } } }),
+  ]);
+
+  const locked = (d: Date | null | undefined) => Boolean(d && d.getTime() > Date.now());
+
+  return {
+    phone,
+    name: customer?.name ?? visitor?.name ?? "",
+    kind: customer ? ("CUSTOMER" as const) : ("VISITOR" as const),
+    address: customer?.address ?? visitor?.address ?? null,
+    province: customer?.province ?? visitor?.province ?? null,
+    notes: visitor?.notes ?? null,
+    balance: customer ? Number(customer.currentBalance) : null,
+    customerId: customer?.id ?? null,
+    hasCode: Boolean(customer?.accessCodeHash ?? visitor?.accessCodeHash),
+    codeSetAt: customer?.accessCodeSetAt ?? visitor?.accessCodeSetAt ?? null,
+    lastLoginAt: customer?.lastLoginAt ?? visitor?.lastLoginAt ?? null,
+    locked: locked(customer?.lockedUntil) || locked(visitor?.lockedUntil),
+    // The one price rule, answered once here so the panel cannot disagree
+    // with the storefront.
+    pricesVisible: customer
+      ? !customer.catalogPricesHidden && shopDefaultVisible
+      : resolveVisitorPrices(visitor ?? {}, shopDefaultVisible),
+    priceRequestPending: Boolean(visitor?.priceRequestedAt) && !visitor?.pricesUnlockedAt,
+    detailsSubmitted: Boolean(visitor?.detailsSubmittedAt),
+    visits: visitor?.visits ?? 0,
+    totalTimeSeconds: visitor?.totalTimeSeconds ?? 0,
+    firstSeenAt: visitor?.firstSeenAt ?? customer?.createdAt ?? null,
+    lastSeenAt: visitor?.lastSeenAt ?? null,
+    productViews: views,
+    orders: orders.map((o) => ({
+      id: o.id,
+      invoiceNumber: o.invoiceNumber,
+      total: Number(o.totalAmount),
+      createdAt: o.createdAt,
+    })),
+    reservations: reservations.map((r) => ({
+      id: r.id, quantity: r.quantity, status: r.status, itemName: r.item.name,
+    })),
+  };
+}

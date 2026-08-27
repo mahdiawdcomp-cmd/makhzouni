@@ -354,6 +354,20 @@ export async function listIncomingReservations(itemId: string) {
   return data.data ?? []
 }
 
+export interface ReservationRow extends IncomingReservation {
+  itemId: string
+  itemName: string
+  itemArrived: boolean
+}
+
+/** Every reservation across every item — who is waiting on the merchant. */
+export async function listAllReservations(status?: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  const { data } = await api.get<ApiEnvelope<ReservationRow[]>>(
+    "/catalog-management/incoming-reservations", { params: status ? { status } : {} },
+  )
+  return data.data ?? []
+}
+
 export async function setIncomingReservationStatus(id: string, status: "PENDING" | "CONFIRMED" | "CANCELLED") {
   await api.patch(`/catalog-management/incoming/reservations/${id}`, { status })
 }
@@ -389,6 +403,39 @@ export async function listStorefrontAccountsUnified(search?: string) {
     "/catalog-management/accounts/unified", { params: search ? { search } : {} },
   )
   return data.data ?? []
+}
+
+export interface PersonProfile {
+  phone: string
+  name: string
+  kind: "CUSTOMER" | "VISITOR"
+  address: string | null
+  province: string | null
+  notes: string | null
+  balance: number | null
+  customerId: string | null
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  pricesVisible: boolean
+  priceRequestPending: boolean
+  detailsSubmitted: boolean
+  visits: number
+  totalTimeSeconds: number
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  productViews: number
+  orders: Array<{ id: string; invoiceNumber: string; total: number; createdAt: string }>
+  reservations: Array<{ id: string; quantity: number; status: string; itemName: string }>
+}
+
+/** Everything the shop knows about one phone, in one reply. */
+export async function getStorefrontPersonProfile(phone: string) {
+  const { data } = await api.get<ApiEnvelope<PersonProfile>>(
+    `/catalog-management/accounts/${encodeURIComponent(phone)}/profile`,
+  )
+  return data.data!
 }
 
 export async function grantCatalogPrices(phone: string) {

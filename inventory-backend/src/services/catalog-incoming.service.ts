@@ -251,6 +251,38 @@ export async function listItemReservations(itemId: string) {
   });
 }
 
+/**
+ * Every reservation across every item, newest first.
+ *
+ * The per-item list answers "who wants this"; this one answers "who is waiting
+ * on me", which is the question the merchant actually opens the screen with —
+ * and the only way to see it before was to open each item in turn.
+ */
+export async function listAllReservations(status?: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  const rows = await prisma.catalogIncomingReservation.findMany({
+    where: status ? { status } : {},
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    take: 300,
+    select: {
+      id: true, phone: true, name: true, quantity: true, note: true,
+      status: true, createdAt: true,
+      item: { select: { id: true, name: true, arrivedAt: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    phone: r.phone,
+    name: r.name,
+    quantity: r.quantity,
+    note: r.note,
+    status: r.status,
+    createdAt: r.createdAt,
+    itemId: r.item.id,
+    itemName: r.item.name,
+    itemArrived: Boolean(r.item.arrivedAt),
+  }));
+}
+
 export async function setReservationStatus(id: string, status: "PENDING" | "CONFIRMED" | "CANCELLED") {
   return prisma.catalogIncomingReservation.update({ where: { id }, data: { status } });
 }

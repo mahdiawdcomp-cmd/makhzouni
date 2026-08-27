@@ -37,6 +37,7 @@ import {
   sendCredentialsToAllCtrl,
   sendInvitesToAllCtrl,
   unifiedAccountsCtrl,
+  personProfileCtrl,
   catalogDashboardCtrl,
   grantPricesCtrl,
   revokePricesCtrl,
@@ -47,6 +48,7 @@ import {
   updateIncomingItemCtrl,
   deleteIncomingItemCtrl,
   itemReservationsCtrl,
+  allReservationsCtrl,
   markArrivedCtrl,
   reservationStatusCtrl,
   credentialTargetCountsCtrl,
@@ -144,6 +146,7 @@ router.post("/accounts/send-invites-all", validate(sendInvitesToAllSchema), send
 // decides about a visitor: their prices, and whether they go on the books.
 router.get("/dashboard", catalogDashboardCtrl);
 router.get("/accounts/unified", unifiedAccountsCtrl);
+router.get("/accounts/:phone/profile", personProfileCtrl);
 router.post("/accounts/grant-prices", validate(visitorPhoneSchema), grantPricesCtrl);
 router.post("/accounts/revoke-prices", validate(visitorPhoneSchema), revokePricesCtrl);
 router.post("/accounts/promote", validate(visitorPhoneSchema), promoteVisitorCtrl);
@@ -151,6 +154,7 @@ router.post("/accounts/reveal", validate(sendCredentialsSchema), revealCredentia
 
 // «البضاعة القادمة الجديدة» — the list the shop curates, and who reserved what.
 router.get("/incoming", adminIncomingItemsCtrl);
+router.get("/incoming-reservations", allReservationsCtrl);
 router.post("/incoming", validate(createIncomingItemSchema), createIncomingItemCtrl);
 router.put("/incoming/:id", validate(updateIncomingItemSchema), updateIncomingItemCtrl);
 router.delete("/incoming/:id", validate(incomingItemIdSchema), deleteIncomingItemCtrl);

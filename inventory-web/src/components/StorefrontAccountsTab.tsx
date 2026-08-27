@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Copy, KeyRound, Lock, MessageSquare, RotateCcw, Search, Send, Unlock, UserRound, Users } from "lucide-react"
+import { Copy, KeyRound, Lock, MessageSquare, Search, Send, Unlock, UserRound, Users } from "lucide-react"
 import {
-  applyPricesDefaultToAll,
   getCredentialTargetCounts,
   getSettings,
   listStorefrontAccountsUnified,
@@ -24,8 +23,7 @@ import { ConfirmDialog } from "./ui/confirm-dialog"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
-import { MarketingOptOutCard } from "./MarketingOptOutCard"
-import { CatalogAnnouncementCard, StorefrontInviteCard } from "./StorefrontInviteCard"
+import { StorefrontPersonPanel } from "./StorefrontPersonPanel"
 
 type Group = "customers" | "visitors"
 
@@ -63,6 +61,7 @@ export function StorefrontAccountsTab() {
   const [confirmBulk, setConfirmBulk] = useState(false)
   const [confirmInvite, setConfirmInvite] = useState(false)
   const [confirmPromote, setConfirmPromote] = useState<string | null>(null)
+  const [openPerson, setOpenPerson] = useState<string | null>(null)
   // Held in state only while the dialog is open — the plaintext code is never
   // written anywhere else, and closing the dialog drops it.
   const [revealed, setRevealed] = useState<{
@@ -89,9 +88,6 @@ export function StorefrontAccountsTab() {
   const [showApproved, setShowApproved] = useState(false)
   const savedApproved = settingsQuery.data?.catalogAccessApprovedTemplate ?? ""
   const approvedTemplate = approvedDraft ?? savedApproved
-  const pricesVisible = settingsQuery.data?.catalogPricesVisibleByDefault !== false
-  const requireLogin = settingsQuery.data?.catalogRequireLogin === true
-
   const settingsMut = useMutation({
     mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
     onSuccess: () => {
@@ -99,15 +95,6 @@ export function StorefrontAccountsTab() {
       void qc.invalidateQueries({ queryKey: ["settings"] })
     },
     onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
-  })
-
-  const applyDefaultMut = useMutation({
-    mutationFn: applyPricesDefaultToAll,
-    onSuccess: (r) => {
-      toast({ title: r.visible ? "الأسعار ظاهرة الآن لكل الزبائن" : "الأسعار مخفية الآن عن الجميع" })
-      refresh()
-    },
-    onError: () => toast({ title: "تعذر التطبيق", variant: "destructive" }),
   })
 
   const refresh = () => {
@@ -296,7 +283,10 @@ export function StorefrontAccountsTab() {
               <div key={r.phone} className={rowShell}>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <p className="truncate text-sm font-bold text-slate-800">{r.name || "بلا اسم"}</p>
+                    <button onClick={() => setOpenPerson(r.phone)}
+                      className="truncate text-sm font-bold text-slate-800 underline-offset-2 hover:underline">
+                      {r.name || "بلا اسم"}
+                    </button>
                     <span className={cn(
                       "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
                       r.kind === "CUSTOMER" ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600",
@@ -406,54 +396,6 @@ export function StorefrontAccountsTab() {
         </CardContent>
       </Card>
 
-      {/* Login + pricing rules for the whole shop */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Lock className="h-5 w-5 text-slate-600" />
-            قواعد الدخول والأسعار
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
-            <input type="checkbox" checked={requireLogin}
-              onChange={(e) => settingsMut.mutate({ catalogRequireLogin: e.target.checked })}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-slate-700" />
-            <span>
-              <span className="block text-sm font-bold text-slate-800">إلزام تسجيل الدخول</span>
-              <span className="block text-xs text-slate-500">
-                ما حد يتصفح المتجر بدون حساب. لما يكون مطفي، يبقى التصفح المفتوح حسب إعداد رمز التحقق.
-              </span>
-            </span>
-          </label>
-
-          <div className="rounded-xl border border-slate-200 p-3">
-            <label className="flex items-start gap-3">
-              <input type="checkbox" checked={pricesVisible}
-                onChange={(e) => settingsMut.mutate({ catalogPricesVisibleByDefault: e.target.checked })}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" />
-              <span>
-                <span className="block text-sm font-bold text-slate-800">إظهار الأسعار لكل الزبائن</span>
-                <span className="block text-xs text-slate-500">
-                  الافتراضي لكل زبون مسجّل. مفتاح «إخفاء السعر» بجنب أي زبون يتجاوز هذا الإعداد له وحده.
-                </span>
-              </span>
-            </label>
-            <Button
-              variant="outline"
-              className="mt-2 w-full"
-              disabled={applyDefaultMut.isPending}
-              onClick={() => applyDefaultMut.mutate()}
-            >
-              <RotateCcw className="ml-1 h-4 w-4" />
-              {applyDefaultMut.isPending ? "جاري التطبيق..." : "طبّق على الزبائن الحاليين الآن"}
-            </Button>
-            <p className="mt-1 text-[11px] text-slate-400">
-              بدون هذا الزر، التغيير يوصل الزبون عند تسجيل دخوله الجاي فقط.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Credentials message */}
       <Card>
@@ -511,11 +453,6 @@ export function StorefrontAccountsTab() {
         </CardContent>
       </Card>
 
-      <CatalogAnnouncementCard />
-
-      <StorefrontInviteCard />
-
-      <MarketingOptOutCard />
 
       {/* Message a newly approved customer receives */}
       <Card>
@@ -573,6 +510,10 @@ export function StorefrontAccountsTab() {
           )}
         </CardContent>
       </Card>
+
+      {openPerson && (
+        <StorefrontPersonPanel phone={openPerson} onClose={() => setOpenPerson(null)} />
+      )}
 
       <ConfirmDialog
         open={confirmReveal !== null}

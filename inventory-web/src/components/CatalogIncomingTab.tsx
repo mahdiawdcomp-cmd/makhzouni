@@ -8,6 +8,8 @@ import {
   listIncomingReservations,
   setIncomingReservationStatus,
   markIncomingArrived,
+  listAllReservations,
+  type ReservationRow,
   type IncomingItem,
 } from "../api/endpoints"
 import { Button } from "./ui/button"
@@ -151,6 +153,8 @@ export function CatalogIncomingTab() {
           </div>
         </CardContent>
       </Card>
+
+      <AllReservationsCard />
 
       <Card>
         <CardHeader className="pb-3">
@@ -297,5 +301,90 @@ function ReservationsList({ itemId }: { itemId: string }) {
         </div>
       ))}
     </div>
+  )
+}
+
+/**
+ * Every reservation in one list, pending first.
+ *
+ * The per-item list answers "who wants this"; this answers "who is waiting on
+ * me" — the question the merchant actually arrives with, and one that used to
+ * need opening each item in turn.
+ */
+function AllReservationsCard() {
+  const qc = useQueryClient()
+  const [onlyPending, setOnlyPending] = useState(true)
+
+  const query = useQuery({
+    queryKey: ["all-reservations", onlyPending],
+    queryFn: () => listAllReservations(onlyPending ? "PENDING" : undefined),
+  })
+  const rows = query.data ?? []
+
+  const statusMut = useMutation({
+    mutationFn: (v: { id: string; status: "CONFIRMED" | "CANCELLED" }) =>
+      setIncomingReservationStatus(v.id, v.status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["all-reservations"] })
+      void qc.invalidateQueries({ queryKey: ["incoming-items"] })
+      void qc.invalidateQueries({ queryKey: ["catalog-dashboard"] })
+    },
+    onError: () => toast({ title: "تعذر التحديث", variant: "destructive" }),
+  })
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-amber-600" />
+            الحجوزات ({rows.length})
+          </span>
+          <button onClick={() => setOnlyPending((v) => !v)}
+            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:bg-slate-200">
+            {onlyPending ? "أظهر الكل" : "المعلّقة فقط"}
+          </button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        {query.isLoading && <p className="py-3 text-center text-sm text-slate-400">جاري التحميل...</p>}
+        {!query.isLoading && rows.length === 0 && (
+          <p className="py-3 text-center text-sm text-slate-400">
+            {onlyPending ? "ما اكو حجوزات معلّقة" : "ما اكو حجوزات"}
+          </p>
+        )}
+
+        {rows.map((r: ReservationRow) => (
+          <div key={r.id} className="flex items-center gap-2 rounded-lg border bg-white px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-slate-800">{r.itemName}</p>
+              <p className="truncate text-[11px] text-slate-400">
+                {r.name || "بلا اسم"} · <span dir="ltr">{r.phone}</span>
+                {r.itemArrived ? " · وصلت" : ""}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-600">
+              {r.quantity}
+            </span>
+            <span className={cn(
+              "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold",
+              r.status === "CONFIRMED" ? "bg-emerald-50 text-emerald-700"
+                : r.status === "CANCELLED" ? "bg-red-50 text-red-600"
+                  : "bg-amber-50 text-amber-700",
+            )}>
+              {r.status === "CONFIRMED" ? "مؤكد" : r.status === "CANCELLED" ? "ملغى" : "معلّق"}
+            </span>
+            {r.status !== "CONFIRMED" && (
+              <button onClick={() => statusMut.mutate({ id: r.id, status: "CONFIRMED" })}
+                className="shrink-0 text-xs font-bold text-emerald-700">أكّد</button>
+            )}
+            {r.status !== "CANCELLED" && (
+              <button onClick={() => statusMut.mutate({ id: r.id, status: "CANCELLED" })}
+                className="shrink-0 text-xs font-bold text-red-600">ألغِ</button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

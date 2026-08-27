@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link2, Package, Shuffle, ShieldOff, Sliders, Truck, Gift } from "lucide-react"
-import { getSettings, updateSettings } from "../api/endpoints"
+import { Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Truck, Gift } from "lucide-react"
+import { getSettings, updateSettings, applyPricesDefaultToAll } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
+import { StorefrontInviteCard } from "./StorefrontInviteCard"
+import { MarketingOptOutCard } from "./MarketingOptOutCard"
 import { cn } from "../utils/cn"
 import { IRAQI_GOVERNORATES, DEFAULT_NORTH_GOVERNORATES } from "../utils/governorates"
 
@@ -42,6 +44,21 @@ function Row({
 export function CatalogSettingsTab() {
   const qc = useQueryClient()
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+
+  // Shop-wide defaults the per-person overrides fall back to. Named the same
+  // as on the people screen they came from, so the two read alike.
+  const requireLogin = settingsQuery.data?.catalogRequireLogin === true
+  const pricesVisible = settingsQuery.data?.catalogPricesVisibleByDefault !== false
+  const settingsMut = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
+    onSuccess: () => { toast({ title: "تم الحفظ" }); void qc.invalidateQueries({ queryKey: ["settings"] }) },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
+  const applyDefaultMut = useMutation({
+    mutationFn: applyPricesDefaultToAll,
+    onSuccess: (r) => toast({ title: r.visible ? "الأسعار ظاهرة الآن لكل الزبائن" : "الأسعار مخفية الآن عن الجميع" }),
+    onError: () => toast({ title: "تعذر التطبيق", variant: "destructive" }),
+  })
   const s = settingsQuery.data
 
   // Text fields are drafts so a background refetch never overwrites typing.
@@ -381,6 +398,61 @@ export function CatalogSettingsTab() {
           </p>
         </CardContent>
       </Card>
+    
+      {/* Shop-wide login and price rules. Per-person overrides live on the
+          people screen; this is the default they fall back to. */}
+  {/* Login + pricing rules for the whole shop */}
+  <Card>
+    <CardHeader className="pb-3">
+      <CardTitle className="flex items-center gap-2 text-base">
+        <Lock className="h-5 w-5 text-slate-600" />
+        قواعد الدخول والأسعار
+      </CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-3">
+      <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
+        <input type="checkbox" checked={requireLogin}
+          onChange={(e) => settingsMut.mutate({ catalogRequireLogin: e.target.checked })}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-slate-700" />
+        <span>
+          <span className="block text-sm font-bold text-slate-800">إلزام تسجيل الدخول</span>
+          <span className="block text-xs text-slate-500">
+            ما حد يتصفح المتجر بدون حساب. لما يكون مطفي، يبقى التصفح المفتوح حسب إعداد رمز التحقق.
+          </span>
+        </span>
+      </label>
+
+      <div className="rounded-xl border border-slate-200 p-3">
+        <label className="flex items-start gap-3">
+          <input type="checkbox" checked={pricesVisible}
+            onChange={(e) => settingsMut.mutate({ catalogPricesVisibleByDefault: e.target.checked })}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" />
+          <span>
+            <span className="block text-sm font-bold text-slate-800">إظهار الأسعار لكل الزبائن</span>
+            <span className="block text-xs text-slate-500">
+              الافتراضي لكل زبون مسجّل. مفتاح «إخفاء السعر» بجنب أي زبون يتجاوز هذا الإعداد له وحده.
+            </span>
+          </span>
+        </label>
+        <Button
+          variant="outline"
+          className="mt-2 w-full"
+          disabled={applyDefaultMut.isPending}
+          onClick={() => applyDefaultMut.mutate()}
+        >
+          <RotateCcw className="ml-1 h-4 w-4" />
+          {applyDefaultMut.isPending ? "جاري التطبيق..." : "طبّق على الزبائن الحاليين الآن"}
+        </Button>
+        <p className="mt-1 text-[11px] text-slate-400">
+          بدون هذا الزر، التغيير يوصل الزبون عند تسجيل دخوله الجاي فقط.
+        </p>
+      </div>
+    </CardContent>
+  </Card>
+
+      <StorefrontInviteCard />
+
+      <MarketingOptOutCard />
     </div>
   )
 }
