@@ -12,6 +12,7 @@ import {
   Image,
   Info,
   LayoutDashboard,
+  MessageSquare,
   Palette,
   Phone,
   Plus,
@@ -34,6 +35,8 @@ import {
   getVisitorProductViews,
   convertCatalogVisitor,
   broadcastToCatalogVisitors,
+  getVisitorSessions,
+  type VisitSession,
   getCatalogProductStats,
   type CatalogProductStat,
   getCatalogDesign,
@@ -816,7 +819,9 @@ function VisitorsTab() {
     queryFn: getCatalogVisitors,
     staleTime: 60_000,
   })
-  const visitorsRaw = data?.visitors ?? []
+  // Memoised so the `?? []` fallback does not hand the sort a fresh array
+  // identity on every render, which would re-sort each pass.
+  const visitorsRaw = useMemo(() => data?.visitors ?? [], [data])
 
   // «شوكت دخل» first by default — the merchant asked to rank by how often
   // someone comes back, which the old priority sort (browsing time) buried.
@@ -1002,6 +1007,81 @@ function VisitorsTab() {
 }
 
 // Lazy-loaded per-visitor product view log — only fetched once its row is expanded.
+/**
+ * Every visit this phone made, newest first.
+ *
+ * The visitor row carries a running total; this is the log behind it, so
+ * «شوكت طب» is answered with a date and a duration instead of a counter.
+ * History necessarily starts when the log shipped — older visits were only
+ * ever counted, never timestamped.
+ */
+function VisitorSessionsList({ phone }: { phone: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["visitor-sessions", phone],
+    queryFn: () => getVisitorSessions(phone),
+  })
+  const sessions = data ?? []
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-bold text-slate-600">الزيارات ({sessions.length})</p>
+      {isLoading && <p className="text-xs text-slate-400">جاري التحميل...</p>}
+      {!isLoading && sessions.length === 0 && (
+        <p className="text-xs text-slate-400">
+          ما اكو زيارات مسجّلة — التسجيل التفصيلي يبدي من أول زيارة جديدة.
+        </p>
+      )}
+      <div className="space-y-1">
+        {sessions.map((sv: VisitSession) => (
+          <div key={sv.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 text-xs">
+            <span className="text-slate-700">{dayjs(sv.startedAt).format("YYYY-MM-DD HH:mm")}</span>
+            <span className="text-slate-400">{dayjs(sv.startedAt).locale("ar").fromNow()}</span>
+            <span className="font-bold text-slate-600">{formatDuration(sv.seconds)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Send to one visitor from the shop's own number.
+ *
+ * Reuses the visitor broadcast with a single recipient rather than a second
+ * send path, so one person and a hundred people go out the same way — and
+ * anything the broadcast learns about pacing applies here too.
+ */
+function SendOneVisitorModal({ phone, onClose }: { phone: string; onClose: () => void }) {
+  const [message, setMessage] = useState("")
+  const sendMut = useMutation({
+    mutationFn: () => broadcastToCatalogVisitors(message.trim(), [phone]),
+    onSuccess: () => { toast({ title: "انرسلت من رقم المحل" }); onClose() },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-base font-bold text-slate-900">رسالة من رقم المحل</h3>
+        <p className="mb-3 text-xs text-slate-500" dir="ltr">{phone}</p>
+        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5}
+          placeholder="اكتب رسالتك..."
+          className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500" />
+        <p className="mt-2 text-[11px] text-slate-400">
+          إذا الزبون ما راسلك خلال ٢٤ ساعة، ميتا ممكن تسقط الرسالة الحرة. للتواصل الفوري استخدم «من رقمي».
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>إلغاء</Button>
+          <Button size="sm" disabled={message.trim().length < 2 || sendMut.isPending}
+            onClick={() => sendMut.mutate()}>
+            {sendMut.isPending ? "جاري الإرسال..." : "إرسال"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function VisitorProductViewsList({ phone }: { phone: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["catalog-visitor-views", phone],
