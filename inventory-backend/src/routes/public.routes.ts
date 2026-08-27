@@ -314,6 +314,7 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
       // same shop look different to a customer and to a visitor.
       ...buildCatalogLayout(await getSettings()),
       guestModeEnabled,
+      guestPhoneGate: (await getSettings()).catalogGuestPhoneGate !== false,
     },
   });
 }));

@@ -1202,6 +1202,7 @@ export const updateSettingsSchema = z.object({
       catalogSuggestionsEnabled: nullAsUndefined(z.boolean()),
       catalogTutorialEnabled: nullAsUndefined(z.boolean()),
       catalogAutoUnlockForCustomers: nullAsUndefined(z.boolean()),
+      catalogGuestPhoneGate: nullAsUndefined(z.boolean()),
       catalogTierNudgeEnabled: nullAsUndefined(z.boolean()),
       catalogTierNudgePercent: nullAsUndefined(z.coerce.number().min(1).max(100)),
       catalogTierNudgeMessage: nullAsUndefined(z.string()),

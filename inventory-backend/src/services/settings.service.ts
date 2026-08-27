@@ -128,6 +128,11 @@ export interface AppSettings {
   // request is friction that only costs the merchant time.
   catalogAutoUnlockForCustomers?: boolean;
 
+  // Whether an anonymous browser is asked for a phone BEFORE seeing anything.
+  // On preserves the behaviour that shipped; off lets people look first and
+  // identify at checkout, which is what a shop trading on impulse wants.
+  catalogGuestPhoneGate?: boolean;
+
   // «كنت قريب» — a one-time nudge to a customer whose last order fell just
   // short of an offer. Off by default: it is a marketing send, and no shop
   // should start messaging its customers because of an upgrade.
@@ -449,6 +454,7 @@ export const defaultSettings: AppSettings = {
   catalogTutorialEnabled: true,
   catalogOrderTiers: [...DEFAULT_ORDER_TIERS],
   catalogAutoUnlockForCustomers: true,
+  catalogGuestPhoneGate: true,
   catalogTierNudgeEnabled: false,
   catalogTierNudgePercent: 20,
   catalogTierNudgeMessage: "",

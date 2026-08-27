@@ -410,14 +410,36 @@ export function CatalogSettingsTab() {
       </CardTitle>
     </CardHeader>
     <CardContent className="space-y-3">
+      {/* One switch for one decision. Free browsing used to be split across
+          catalogRequireLogin and catalogRequireOtp, which could disagree — so
+          the merchant flipped one and nothing appeared to happen. */}
+      <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+        <input type="checkbox"
+          checked={!requireLogin && settingsQuery.data?.catalogRequireOtp === false}
+          onChange={(e) => settingsMut.mutate(
+            e.target.checked
+              ? { catalogRequireLogin: false, catalogRequireOtp: false }
+              : { catalogRequireLogin: true },
+          )}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" />
+        <span>
+          <span className="block text-sm font-bold text-slate-800">التصفح الحر</span>
+          <span className="block text-xs text-slate-500">
+            أي واحد يتصفح بلا رمز، ويعطي بياناته وقت الطلب. الأسعار تبقى محمية بقواعدها تحت.
+          </span>
+        </span>
+      </label>
+
       <label className="flex items-start gap-3 rounded-xl border border-slate-200 p-3">
-        <input type="checkbox" checked={requireLogin}
-          onChange={(e) => settingsMut.mutate({ catalogRequireLogin: e.target.checked })}
+        <input type="checkbox"
+          checked={settingsQuery.data?.catalogGuestPhoneGate !== false}
+          onChange={(e) => settingsMut.mutate({ catalogGuestPhoneGate: e.target.checked })}
           className="mt-0.5 h-4 w-4 shrink-0 accent-slate-700" />
         <span>
-          <span className="block text-sm font-bold text-slate-800">إلزام تسجيل الدخول</span>
+          <span className="block text-sm font-bold text-slate-800">اطلب رقم الهاتف قبل التصفح</span>
           <span className="block text-xs text-slate-500">
-            ما حد يتصفح المتجر بدون حساب. لما يكون مطفي، يبقى التصفح المفتوح حسب إعداد رمز التحقق.
+            يجمعلك أرقام الزوار، بس يوقّف الي ما عنده صبر عند الباب. إطفاؤه يخليهم يتصفحون فوراً
+            ويعطون رقمهم وقت الطلب.
           </span>
         </span>
       </label>

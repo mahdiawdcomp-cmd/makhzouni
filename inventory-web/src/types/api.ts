@@ -1194,6 +1194,7 @@ export interface AppSettings {
   catalogTutorialEnabled?: boolean
   catalogOrderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
   catalogAutoUnlockForCustomers?: boolean
+  catalogGuestPhoneGate?: boolean
   catalogTierNudgeEnabled?: boolean
   catalogTierNudgePercent?: number
   catalogTierNudgeMessage?: string

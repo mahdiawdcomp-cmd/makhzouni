@@ -361,7 +361,7 @@ export function PublicCatalogPage() {
   // anonymous browsing (catalogRequireOtp off) or requires the phone/OTP gate.
   const guestConfigQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { guestModeEnabled?: boolean } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { guestModeEnabled?: boolean; guestPhoneGate?: boolean } }).data ?? {}),
     enabled: !accessToken,
     staleTime: 5 * 60_000,
   })
@@ -386,6 +386,17 @@ export function PublicCatalogPage() {
     // only while the merchant explicitly leaves it on, and the old per-customer
     // ?access= links keep working because the token is read before this point.
     if (guestConfigQuery.data?.guestModeEnabled) {
+      // With the gate off, people look first and identify at checkout — the
+      // shop trades on impulse, and asking for a phone before showing a single
+      // product turns browsers away at the door.
+      if (guestConfigQuery.data?.guestPhoneGate === false) {
+        return (
+          <CatalogShop
+            accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
+            customerId="" customerName="" customerPhone="" guestMode
+          />
+        )
+      }
       return (
         <GuestPhoneGate>
           <CatalogShop
@@ -4104,7 +4115,15 @@ function CartOverlay({
           <div className="space-y-3 px-4 py-4" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
             {guestMode && (
               <div className="space-y-2 rounded-xl p-3" style={{ background: tk.cardBg, border: `1px solid ${tk.divider}` }}>
-                <p className="text-xs font-bold" style={{ color: tk.text }}>بياناتك — لإتمام الطلب والتواصل معك</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold" style={{ color: tk.text }}>بياناتك — لإتمام الطلب والتواصل معك</p>
+                  <button
+                    onClick={() => { localStorage.removeItem(GUEST_PHONE_KEY); window.location.reload() }}
+                    className="shrink-0 font-bold underline underline-offset-2"
+                    style={{ color: tk.accent, fontSize: tk.fs.xs }}>
+                    عندك حساب؟ سجّل دخول
+                  </button>
+                </div>
                 <input value={guestName ?? ""} onChange={(e) => onGuestName?.(e.target.value)}
                   placeholder="اسمك الكامل" dir="rtl"
                   className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
