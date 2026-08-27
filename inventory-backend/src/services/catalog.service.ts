@@ -2,6 +2,7 @@ import { CatalogStockFilter, PromoCodeType, Unit } from "@prisma/client";
 import { createHash, randomBytes } from "crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { logger } from "../utils/logger";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { isVerified } from "./otp.service";
 import { totalStock } from "../utils/product-stock";
@@ -356,6 +357,9 @@ export async function recordCatalogProductView(productId: string, phone?: string
 // no-ops for an unknown phone (heartbeat fires before the gate ever completed,
 // or a bogus value) rather than creating a visitor row out of band — that
 // stays the job of recordGuestVisit/the phone gate.
+/** A gap longer than this ends the visit and the next beat starts a new one. */
+const VISIT_GAP_MS = 30 * 60 * 1000;
+
 export async function recordVisitorHeartbeat(rawPhone: string, seconds: number) {
   const phone = normalizePhone(String(rawPhone ?? ""));
   const delta = Math.max(0, Math.min(60, Math.round(Number(seconds) || 0))); // clamp: one heartbeat is never more than a minute
@@ -364,7 +368,44 @@ export async function recordVisitorHeartbeat(rawPhone: string, seconds: number) 
     where: { phone },
     data: { totalTimeSeconds: { increment: delta } },
   });
+
+  // The same beat also keeps the individual visit log. Extending the open
+  // session or starting a new one is decided by the gap since the last beat —
+  // the storefront already sends this signal, and inventing a separate
+  // "visit started" event would give two sources of truth for one fact.
+  try {
+    const open = await prisma.catalogVisitSession.findFirst({
+      where: { phone, lastBeatAt: { gte: new Date(Date.now() - VISIT_GAP_MS) } },
+      orderBy: { lastBeatAt: "desc" },
+      select: { id: true },
+    });
+    if (open) {
+      await prisma.catalogVisitSession.update({
+        where: { id: open.id },
+        data: { seconds: { increment: delta }, lastBeatAt: new Date() },
+      });
+    } else {
+      await prisma.catalogVisitSession.create({ data: { phone, seconds: delta } });
+    }
+  } catch (err) {
+    // The running total is the number the shop actually bills attention on;
+    // a failure to log the individual visit must not lose it.
+    logger.warn(`[Catalog] visit session log failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   return { ok: result.count > 0 };
+}
+
+/** The individual visits behind one phone's running total, newest first. */
+export async function listVisitorSessions(rawPhone: string, limit = 40) {
+  const phone = normalizePhone(String(rawPhone ?? ""));
+  if (!phone) return [];
+  return prisma.catalogVisitSession.findMany({
+    where: { phone },
+    orderBy: { startedAt: "desc" },
+    take: limit,
+    select: { id: true, startedAt: true, lastBeatAt: true, seconds: true },
+  });
 }
 
 // Admin: what a specific visitor actually opened, most recent first — the

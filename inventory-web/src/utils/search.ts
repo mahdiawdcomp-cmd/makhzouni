@@ -114,6 +114,9 @@ function isSubsequence(needle: string, haystack: string): boolean {
  * word ("قلم ازرق" → "قلم احمر") match. Substring matching within a word still
  * works via the phrase/all-words tiers, so partial typing is unaffected.
  */
+/** Scores at or above this mean "the user typed this exact product". */
+const IDENTITY_MATCH = 5
+
 export function scoreProduct(product: SearchableProduct, q: string): number {
   const full = normalizeArabic(q)
   if (!full) return 1
@@ -168,8 +171,13 @@ export function sortProductsByRelevance<T extends SearchableProduct>(
     // Availability comes FIRST: a seller typing "لول لعابة" wants what he can
     // sell right now at the top, then what's only in a depot (a transfer away),
     // then the sold-out ones. Nothing is hidden — only re-ordered.
+    // An IDENTITY match (exact barcode/item number, or the name typed in full or
+    // as a prefix) means the user named the thing itself — availability must not
+    // demote it. A product created seconds ago has 0 stock, and letting stock
+    // outrank the name pushed it past the dropdown's cut-off: "أضفتها وما ألگاها".
     .sort(
       (a, b) =>
+        (b.score >= IDENTITY_MATCH ? b.score : 0) - (a.score >= IDENTITY_MATCH ? a.score : 0) ||
         (availabilityFirst ? b.rank - a.rank : 0) ||
         b.score - a.score ||
         a.product.name.localeCompare(b.product.name, "ar"),

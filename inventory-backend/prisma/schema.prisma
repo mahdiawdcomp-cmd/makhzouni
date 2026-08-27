@@ -1023,6 +1023,26 @@ model CatalogIncomingReservation {
   @@map("catalog_incoming_reservations")
 }
 
+/// One browsing visit. The visitor row keeps a running total; this keeps the
+/// individual sessions behind it, so «شوكت طب» can be answered with a date and
+/// a duration instead of just a counter.
+///
+/// Rows are opened and extended by the heartbeat rather than by an explicit
+/// "visit started" event: the storefront already sends one while the tab is
+/// visible, and inventing a second signal would give two sources of truth for
+/// the same fact.
+model CatalogVisitSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  phone      String
+  startedAt  DateTime @default(now()) @map("started_at")
+  /// Last heartbeat received; the visit is considered over once these stop.
+  lastBeatAt DateTime @default(now()) @map("last_beat_at")
+  seconds    Int      @default(0)
+
+  @@index([phone, startedAt])
+  @@map("catalog_visit_sessions")
+}
+
 model CatalogVisitorProductView {
   id          String   @id @default(uuid()) @db.Uuid
   phone       String

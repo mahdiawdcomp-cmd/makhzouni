@@ -816,7 +816,23 @@ function VisitorsTab() {
     queryFn: getCatalogVisitors,
     staleTime: 60_000,
   })
-  const visitors = data?.visitors ?? []
+  const visitorsRaw = data?.visitors ?? []
+
+  // «شوكت دخل» first by default — the merchant asked to rank by how often
+  // someone comes back, which the old priority sort (browsing time) buried.
+  const [sortKey, setSortKey] = useState<"visits" | "time" | "recent" | "views">("visits")
+  const [sendTo, setSendTo] = useState<{ phone: string } | null>(null)
+
+  const visitors = useMemo(() => {
+    const rows = [...visitorsRaw]
+    rows.sort((a, b) => {
+      if (sortKey === "visits") return b.visits - a.visits
+      if (sortKey === "time") return b.totalTimeSeconds - a.totalTimeSeconds
+      if (sortKey === "views") return (b.viewCount ?? 0) - (a.viewCount ?? 0)
+      return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+    })
+    return rows
+  }, [visitorsRaw, sortKey])
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null)
 
@@ -868,9 +884,22 @@ function VisitorsTab() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Users className="h-4 w-4" /> الأرقام التي دخلت الكتلوك
           </CardTitle>
-          <p className="text-xs text-slate-500">
-            بند ١٠ — مرتّبة أولوية اتصال: غير المسجّلين أولاً، والأعلى وقت تصفح ومشاهدات فوق.
-          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {([
+              { key: "visits", label: "الأكثر دخولاً" },
+              { key: "time", label: "الأطول تصفحاً" },
+              { key: "recent", label: "آخر زيارة" },
+              { key: "views", label: "الأكثر مشاهدة" },
+            ] as const).map(({ key, label }) => (
+              <button key={key} onClick={() => setSortKey(key)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-bold transition",
+                  sortKey === key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                )}>
+                {label}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -924,10 +953,19 @@ function VisitorsTab() {
                         )}
                       </td>
                       <td className="p-2">
-                        <a href={waLink(v.phone)} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
-                          <Phone className="h-3 w-3" /> واتساب
-                        </a>
+                        <div className="flex flex-wrap gap-1">
+                          {/* From the shop number — sent by the server, logged
+                              in the chat thread like any other shop message. */}
+                          <button onClick={() => setSendTo({ phone: v.phone })}
+                            className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+                            <MessageSquare className="h-3 w-3" /> من المحل
+                          </button>
+                          {/* From whichever WhatsApp the admin is signed into. */}
+                          <a href={waLink(v.phone)} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
+                            <Phone className="h-3 w-3" /> من رقمي
+                          </a>
+                        </div>
                       </td>
                       <td className="p-2">
                         <button
@@ -941,7 +979,10 @@ function VisitorsTab() {
                     {expandedPhone === v.phone && (
                       <tr className="border-b bg-slate-50/60 last:border-0">
                         <td className="p-3" colSpan={9}>
-                          <VisitorProductViewsList phone={v.phone} />
+                          <VisitorSessionsList phone={v.phone} />
+                          <div className="mt-3 border-t pt-3">
+                            <VisitorProductViewsList phone={v.phone} />
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -955,6 +996,7 @@ function VisitorsTab() {
       </Card>
 
       {broadcastOpen && <BroadcastVisitorsModal count={data?.uniquePhones ?? 0} onClose={() => setBroadcastOpen(false)} />}
+      {sendTo && <SendOneVisitorModal phone={sendTo.phone} onClose={() => setSendTo(null)} />}
     </div>
   )
 }

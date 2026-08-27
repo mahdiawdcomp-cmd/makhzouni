@@ -2364,6 +2364,21 @@ export async function convertCatalogVisitor(phone: string, opts?: { name?: strin
   return data.data!
 }
 
+export interface VisitSession {
+  id: string
+  startedAt: string
+  lastBeatAt: string
+  seconds: number
+}
+
+/** The individual visits behind one phone's running total. */
+export async function getVisitorSessions(phone: string) {
+  const { data } = await api.get<ApiEnvelope<VisitSession[]>>(
+    `/catalog-management/visitors/${encodeURIComponent(phone)}/sessions`,
+  )
+  return data.data ?? []
+}
+
 export async function broadcastToCatalogVisitors(message: string, phones?: string[]) {
   const { data } = await api.post<ApiEnvelope<{ started: boolean; total: number }>>("/catalog-management/visitors/broadcast", { message, phones })
   return data.data!

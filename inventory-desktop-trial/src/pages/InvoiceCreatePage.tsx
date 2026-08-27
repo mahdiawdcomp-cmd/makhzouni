@@ -6,7 +6,7 @@ import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, Sca
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
@@ -462,6 +462,16 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const { productsQuery, createMutation: createProductMutation } = useProducts()
   const createMutation = useCreateInvoice()
   const queryClient = useQueryClient()
+  // Purchases need the FULL warehouse list, not just the warehouses a product
+  // already holds stock in — a brand-new product holds stock nowhere, so the old
+  // per-line picker had nothing to offer and the stock landed wherever the
+  // default fell.
+  const warehousesQuery = useQuery({
+    queryKey: ["branches", "active"],
+    queryFn: () => getBranches({ isActive: true }),
+    staleTime: 5 * 60_000,
+  })
+  const warehouses = useMemo(() => warehousesQuery.data ?? [], [warehousesQuery.data])
   const setFocusMode = useUiStore((s) => s.setFocusMode)
 
   // ---- header state ----
@@ -487,6 +497,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const [quickAddProductName, setQuickAddProductName] = useState("")
   const [quickAddProductSalePrice, setQuickAddProductSalePrice] = useState("")
   const [quickAddProductPurchasePrice, setQuickAddProductPurchasePrice] = useState("")
+  // The rest of what a product actually needs — the quick form used to send only
+  // name + two prices, so every item created from an invoice came out half-empty
+  // and had to be fixed later from the inventory page.
+  const [quickAddProductItemNumber, setQuickAddProductItemNumber] = useState("")
+  const [quickAddProductBarcode, setQuickAddProductBarcode] = useState("")
+  const [quickAddProductCategory, setQuickAddProductCategory] = useState("")
+  const [quickAddProductPcsPerCarton, setQuickAddProductPcsPerCarton] = useState("")
+  const [quickAddProductMinStock, setQuickAddProductMinStock] = useState("")
   // Alert shown when a sale product has 0 stock in المحل
   const [shopStockAlert, setShopStockAlert] = useState<Product | null>(null)
   const [shopStockAlertUnit, setShopStockAlertUnit] = useState<Unit>("PIECE")
@@ -528,6 +546,19 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const [preview, setPreview] = useState(false)
   const [savedInvoiceId, setSavedInvoiceId] = useState<string | null>(null)
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null)
+  // Autosave stays parked until the stored draft has been read back (see below).
+  const [draftLoaded, setDraftLoaded] = useState(false)
+  // PURCHASES: where the goods land. Every new line inherits this, and each line
+  // can still be redirected on its own. Remembered between invoices because a
+  // shop almost always receives into the same place.
+  const PURCHASE_WAREHOUSE_KEY = "purchase_default_warehouse"
+  const [purchaseWarehouseId, setPurchaseWarehouseId] = useState<string>(() => {
+    try { return localStorage.getItem(PURCHASE_WAREHOUSE_KEY) ?? "" } catch { return "" }
+  })
+  function pickPurchaseWarehouse(id: string) {
+    setPurchaseWarehouseId(id)
+    try { localStorage.setItem(PURCHASE_WAREHOUSE_KEY, id) } catch { /* ignore */ }
+  }
   const [whatsappPromptId, setWhatsappPromptId] = useState<string | null>(null)
   const [whatsappSending, setWhatsappSending] = useState(false)
   // Channel picker step after "نعم، أرسل" — official / personal / wa.me web.
@@ -656,6 +687,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const customerSuggestions = useMemo(
     () => sortCustomersByRelevance(customers, customerQuery).slice(0, 8),
     [customers, customerQuery],
+  )
+  // Categories already in use — offered as suggestions in the quick-add form so
+  // new products don't drift into near-duplicate category names.
+  const existingCategories = useMemo(
+    () => [...new Set(products.map((p) => (p.category ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ar")),
+    [products],
   )
   const productSuggestions = useMemo(
     // Cap the dropdown so a broad query shows the top matches only, not a wall
@@ -872,11 +909,22 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }, [isEdit, invoiceQuery.data, productsQuery.isSuccess, customersQuery.isSuccess, customers, products])
 
   // ----- LOAD DRAFT on mount -----
+  // GUARDS (a refresh used to WIPE the invoice in progress):
+  // this effect rebuilds every line by looking its product up in `products`.
+  // On a fresh page load that list is still empty, so every lookup failed, the
+  // draft restored as ZERO lines — and the 3s autosave below then wrote that
+  // empty draft over the real one. So: wait for both lists to actually load,
+  // and restore exactly once per draft key.
+  const draftRestoredForKey = useRef<string | null>(null)
   useEffect(() => {
     if (isEdit) return
     if (savedInvoiceId) return
-    // Skip draft when coming from an order preparation (prefill effect handles it)
-    if (fromPrepId) return
+    // Skip draft when coming from an order preparation (prefill effect handles it),
+    // but still release the autosave — that invoice must persist like any other.
+    if (fromPrepId) { setDraftLoaded(true); return }
+    if (!productsQuery.isSuccess || !customersQuery.isSuccess) return
+    if (draftRestoredForKey.current === draftKey) return
+    draftRestoredForKey.current = draftKey
     try {
       const raw = localStorage.getItem(draftKey)
       if (!raw) return
@@ -894,16 +942,29 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         setCustomerQuery(cust.name)
       }
       const restoredItems: DraftItem[] = []
+      let dropped = 0
       for (const it of draft.items) {
         const p = products.find((x) => x.id === it.productId)
         if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes })
+        else dropped += 1
       }
       setItems(restoredItems)
+      // A line can only vanish now if its product was really deleted — say so
+      // instead of letting the row disappear without a word.
+      if (dropped > 0) {
+        toast({
+          title: "استُرجعت الفاتورة ناقصة",
+          description: `${dropped} سطر لم يُسترجع لأن مادته لم تعد موجودة.`,
+          variant: "destructive",
+        })
+      }
     } catch {
       // ignore corrupt draft
+    } finally {
+      setDraftLoaded(true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customers, products, draftKey])
+  }, [customers, products, draftKey, productsQuery.isSuccess, customersQuery.isSuccess])
 
   // ----- PREFILL from an order preparation (?fromPrep=<id>) -----
   useEffect(() => {
@@ -1019,6 +1080,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   useEffect(() => {
     if (isEdit) return
     if (savedInvoiceId) return
+    // Never write before the stored draft has been read back: an autosave tick
+    // that lands while the page is still loading would persist the page's empty
+    // starting state on top of a real invoice.
+    if (!draftLoaded) return
     const id = window.setInterval(() => {
       // invoiceSavedRef flips synchronously on save success; the state-based
       // guard above only kicks in after the next render, so a pending tick
@@ -1066,7 +1131,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     }, 3000)
     return () => window.clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit])
+  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit, draftLoaded])
 
   function clearDraft() {
     try { localStorage.removeItem(draftKey) } catch {}
@@ -1201,6 +1266,8 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     // Sales always come out of المحل (enforced server-side) — never auto-pick the
     // largest warehouse for a sale line.
     if (!isPurchase) return undefined
+    // The user's explicit choice for this invoice wins over any guess.
+    if (purchaseWarehouseId) return purchaseWarehouseId
     const stocks = product.warehouseStocks ?? []
     if (stocks.length === 1) return stocks[0].warehouseId
     // For purchases (adding stock) default to the warehouse that already has most.
@@ -1239,7 +1306,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       quantity: Math.max(1, qty),
       unitPrice: unitPriceFor(product, unit),
       warehouseId: overrideWarehouseId ?? defaultWarehouseId(product),
-      warehouseName: overrideWarehouseName,
+      // Keep the name in step with the id — the draft persists both, and a line
+      // restored with an id but no name showed a blank warehouse after a reload.
+      warehouseName:
+        overrideWarehouseName
+        ?? warehouses.find((w) => w.id === (overrideWarehouseId ?? defaultWarehouseId(product)))?.name,
     }
     setItems((current) => [...current, newItem])
     setProductModal(false)
@@ -1374,6 +1445,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     setQuickAddProductName(name)
     setQuickAddProductSalePrice("")
     setQuickAddProductPurchasePrice("")
+    setQuickAddProductItemNumber("")
+    setQuickAddProductBarcode("")
+    setQuickAddProductCategory("")
+    setQuickAddProductPcsPerCarton("")
+    setQuickAddProductMinStock("")
     setQuickAddProductOpen(true)
   }
 
@@ -1385,8 +1461,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         name,
         salePrice: Number(quickAddProductSalePrice) || 0,
         purchasePrice: Number(quickAddProductPurchasePrice) || 0,
-        pcsPerCarton: 1,
-        minStock: 0,
+        // Left blank, the server generates the item number / QR itself — so send
+        // these only when the user actually typed something.
+        ...(quickAddProductItemNumber.trim() ? { itemNumber: quickAddProductItemNumber.trim() } : {}),
+        ...(quickAddProductBarcode.trim() ? { qrCode: quickAddProductBarcode.trim() } : {}),
+        ...(quickAddProductCategory.trim() ? { category: quickAddProductCategory.trim() } : {}),
+        pcsPerCarton: Math.max(1, Number(quickAddProductPcsPerCarton) || 1),
+        minStock: Number(quickAddProductMinStock) || 0,
       },
       {
         onSuccess: (response) => {
@@ -1854,6 +1935,19 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }
 
   function save() {
+    // A purchase line with no warehouse would silently land in whatever the
+    // server picks as default — refuse instead of guessing on the user's behalf.
+    if (isPurchase && warehouses.length > 0) {
+      const missing = items.filter((it) => !it.warehouseId)
+      if (missing.length > 0) {
+        toast({
+          title: "حدد المخزن أولاً",
+          description: `${missing.length} مادة بدون مخزن: ${missing.slice(0, 3).map((it) => it.product.name).join("، ")}`,
+          variant: "destructive",
+        })
+        return
+      }
+    }
     persistInvoice(true).catch((err) => {
       toast({ title: apiErrorMessage(err, "تعذر حفظ الفاتورة"), variant: "destructive" })
     })
@@ -2251,6 +2345,36 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             {" "}الأصناف
           </span>
         </div>
+        {/* PURCHASES: the receiving warehouse, chosen once for the whole invoice.
+            Each line still carries its own and can be redirected individually. */}
+        {isPurchase && warehouses.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b bg-sky-50/60 px-3 py-2 text-sm dark:border-slate-700 dark:bg-sky-950/20">
+            <span className="font-semibold text-sky-800 dark:text-sky-300">مخزن الاستلام:</span>
+            <select
+              className="h-8 rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              value={purchaseWarehouseId}
+              onChange={(e) => pickPurchaseWarehouse(e.target.value)}
+            >
+              <option value="">— اختر —</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+            {purchaseWarehouseId && items.some((it) => it.warehouseId !== purchaseWarehouseId) && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const name = warehouses.find((w) => w.id === purchaseWarehouseId)?.name
+                  setItems((prev) => prev.map((it) => ({ ...it, warehouseId: purchaseWarehouseId, warehouseName: name })))
+                }}
+              >
+                طبّقه على كل الأصناف
+              </Button>
+            )}
+            <span className="text-xs text-slate-500">كل مادة تنضاف تروح لهذا المخزن، وتگدر تغيّرها بعمود «المخزن».</span>
+          </div>
+        )}
         {/* Rows size per the density picker in the sticky bar above — "compact" by default.
             `invoice-rows` reserves scroll space for the two sticky bars — see the
             rule in index.css. Adding a line focuses its quantity input, and the
@@ -2420,8 +2544,31 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         </div>
                       </TD>
                       <TD>
-                        {/* warehouse selector — shown only when product has stocks in multiple warehouses */}
-                        {(item.product.warehouseStocks ?? []).length > 1 ? (
+                        {/* Purchases: always offer every warehouse — a new product has
+                            no stock rows yet, so "warehouses it already holds stock in"
+                            would be an empty list. Sales keep the stock-based list. */}
+                        {isPurchase ? (
+                          <select
+                            className={cn(
+                              dz.h, dz.text,
+                              "w-32 rounded-md border bg-white px-2 dark:border-slate-700 dark:bg-slate-950",
+                              !item.warehouseId && "border-amber-400 bg-amber-50 dark:bg-amber-950/30",
+                            )}
+                            value={item.warehouseId ?? ""}
+                            onChange={(e) => {
+                              const wsId = e.target.value || undefined
+                              updateItem(index, {
+                                warehouseId: wsId,
+                                warehouseName: warehouses.find((w) => w.id === wsId)?.name,
+                              })
+                            }}
+                          >
+                            <option value="">— اختر المخزن —</option>
+                            {warehouses.map((w) => (
+                              <option key={w.id} value={w.id}>{w.name}</option>
+                            ))}
+                          </select>
+                        ) : (item.product.warehouseStocks ?? []).length > 1 ? (
                           <select
                             className={cn(dz.h, dz.text, "w-28 rounded-md border bg-white px-2 dark:border-slate-700 dark:bg-slate-950")}
                             value={item.warehouseId ?? ""}
@@ -3124,7 +3271,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
           <DialogHeader><DialogTitle>إضافة مادة جديدة</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              لإضافة مادة بكل تفاصيلها (الباركود، الفئة، الكارتون، المخزون...) افتح صفحة المخزن في تبويب جديد، أضف المادة، ثم ارجع هنا وابحث عنها.
+              للتفاصيل الكاملة (الصورة، الوحدات المخفية، سعر المفرد، توزيع المخازن) افتح صفحة المخزن بتبويب جديد. الحقول تحت تكفي لفاتورة الشراء.
             </p>
             <a
               href="/inventory"
@@ -3170,7 +3317,60 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   placeholder="0"
                 />
               </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">رقم المادة</label>
+                <Input
+                  value={quickAddProductItemNumber}
+                  onChange={(e) => setQuickAddProductItemNumber(e.target.value)}
+                  placeholder="تلقائي"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">الباركود</label>
+                <Input
+                  value={quickAddProductBarcode}
+                  onChange={(e) => setQuickAddProductBarcode(e.target.value)}
+                  placeholder="تلقائي"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">الفئة</label>
+                <Input
+                  list="quick-add-categories"
+                  value={quickAddProductCategory}
+                  onChange={(e) => setQuickAddProductCategory(e.target.value)}
+                  placeholder="بدون"
+                />
+                <datalist id="quick-add-categories">
+                  {existingCategories.map((c) => <option key={c} value={c} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">القطع بالكرتون</label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={quickAddProductPcsPerCarton}
+                  onChange={(e) => setQuickAddProductPcsPerCarton(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="1"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">حد التنبيه</label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={quickAddProductMinStock}
+                  onChange={(e) => setQuickAddProductMinStock(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="0"
+                />
+              </div>
             </div>
+            {isPurchase && (
+              <p className="rounded-md bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/30 dark:text-sky-300">
+                الكمية والمخزن يتحددان من سطر الفاتورة بعد الإضافة — المادة تُنشأ برصيد صفر.
+              </p>
+            )}
             <div className="flex gap-2">
               <Button
                 className="flex-1"

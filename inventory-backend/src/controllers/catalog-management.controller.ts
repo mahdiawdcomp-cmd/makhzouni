@@ -14,6 +14,7 @@ import {
   listCatalogVisitors,
   listVisitorProductViews,
   convertVisitorToCustomer,
+  listVisitorSessions,
   broadcastToVisitors,
   listCatalogProductStats,
 } from "../services/catalog.service";
@@ -26,6 +27,11 @@ export const getCatalogCustomers = asyncHandler(async (req, res) => {
   const offset = req.query.offset ? Math.max(0, Number(req.query.offset)) : 0;
   const result = await listCustomersWithCatalogStatus({ search, limit, offset });
   res.json({ success: true, data: result.rows, total: result.total, limit, offset });
+});
+
+export const visitorSessionsCtrl = asyncHandler(async (req, res) => {
+  const data = await listVisitorSessions(String(req.params.phone ?? ""));
+  res.json({ success: true, data });
 });
 
 export const getCatalogVisitorsCtrl = asyncHandler(async (_req, res) => {
