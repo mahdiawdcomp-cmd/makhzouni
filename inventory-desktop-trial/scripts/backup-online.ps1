@@ -19,6 +19,12 @@
     -AppDataDir      App-data folder. Default %APPDATA%\com.mazbwoni.mahdi
     -RetentionCount  How many daily ZIPs to keep. Default 10.
     -TimeoutSec      HTTP timeout in seconds. Default 120.
+    -SecretEnvVar    Name of the env var holding the secret. Default
+                     MAKHZOUNI_BACKUP_SECRET. Every shop is a separate database
+                     behind a separate backend with its own BACKUP_SECRET, so
+                     backing up a second shop means pointing -ApiUrl at that
+                     shop AND reading a different secret. Without this the
+                     script could only ever back up one shop.
 #>
 
 [CmdletBinding()]
@@ -26,7 +32,8 @@ param(
   [string]$ApiUrl = 'https://api.mazbwoni.com/api/settings/backup/download',
   [string]$AppDataDir = (Join-Path $env:APPDATA 'com.mazbwoni.mahdi'),
   [int]$RetentionCount = 10,
-  [int]$TimeoutSec = 1800
+  [int]$TimeoutSec = 1800,
+  [string]$SecretEnvVar = 'MAKHZOUNI_BACKUP_SECRET'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,9 +108,9 @@ Write-Log "Source:     $ApiUrl"
 Write-Log "BackupDir:  $BackupDir"
 
 # ── 1. Secret from environment (never from disk/script) ────────────────────
-$secret = $env:MAKHZOUNI_BACKUP_SECRET
+$secret = [Environment]::GetEnvironmentVariable($SecretEnvVar)
 if ([string]::IsNullOrWhiteSpace($secret)) {
-  Fail-Backup "Environment variable MAKHZOUNI_BACKUP_SECRET is not set. Refusing to run."
+  Fail-Backup "Environment variable $SecretEnvVar is not set. Refusing to run."
 }
 
 # ── 2. Download to staging (read-only GET, timed out) ──────────────────────

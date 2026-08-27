@@ -182,12 +182,24 @@ export function computeReadOnly(cfg: TenantConfig | null): boolean {
   if (cfg.status === "EXPIRED" || cfg.status === "SUSPENDED" || cfg.status === "REVOKED") return true;
   if (cfg.entitlementExpiresAt && new Date(cfg.entitlementExpiresAt).getTime() < now) return true;
   if (cfg.licenseType === "TRIAL" && cfg.trialEndsAt && new Date(cfg.trialEndsAt).getTime() < now) return true;
-  // Batch 5.1: also honor the legacy subscription flags. requireActiveSubscription
-  // used to FULL-block (403, even GET) on these; that block is now removed and
-  // enforceReadOnlyMiddleware handles them as read-only instead. Including them
-  // here guarantees every previously-full-blocked tenant still gets locked down
+  // Batch 5.1: also honor the legacy subscription flags, so a tenant that was
+  // previously FULL-blocked by requireActiveSubscription still gets locked down
   // (read-only) rather than falling fully open.
-  if (cfg.isExpired || cfg.isSuspended) return true;
+  //
+  // `isSuspended` mirrors the tenant status already checked above, so only the
+  // legacy expiry adds anything — and it must not outrank an explicit
+  // tenant-level expiry. Super Admin's License tab writes `tenant.expiresAt`;
+  // the old `Subscription.expiresAt` is a separate field it never touches.
+  // Honoring the stale legacy date unconditionally meant renewing a shop set it
+  // ACTIVE with a future expiry and left it locked in read-only anyway, with no
+  // way to unlock it from the UI — a paid-up customer unable to sell.
+  //
+  // So: an explicit `entitlementExpiresAt` is the authority and was already
+  // judged above (past ⇒ locked, future ⇒ open). The legacy expiry only decides
+  // for tenants that have no tenant-level expiry of their own, which keeps
+  // every genuinely-lapsed legacy tenant locked exactly as before.
+  if (cfg.isSuspended) return true;
+  if (!cfg.entitlementExpiresAt && cfg.isExpired) return true;
   return false;
 }
 

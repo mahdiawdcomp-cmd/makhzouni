@@ -209,3 +209,36 @@ test("READ_ONLY_RESPONSE has the documented JSON shape", () => {
   assert.equal(READ_ONLY_RESPONSE.readOnly, true);
   assert.equal(typeof READ_ONLY_RESPONSE.message, "string");
 });
+
+// ── Renewal trap: Super Admin's License tab writes tenant.expiresAt, but the
+// legacy Subscription.expiresAt it never touches stays in the past. Honoring
+// that stale date left a renewed, paid-up shop locked in read-only forever.
+
+test("renewed tenant: future entitlement expiry beats a stale legacy expiry", () => {
+  const renewed = saasConfig({
+    status: "ACTIVE",
+    isExpired: true, // legacy Subscription.expiresAt still in the past
+    entitlementExpiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+  });
+  assert.equal(computeReadOnly(renewed), false);
+  assert.equal(readOnlyDecision(renewed, "POST", "/invoices"), "allow");
+});
+
+test("renewal does not unlock a tenant whose own expiry is also past", () => {
+  const stillExpired = saasConfig({
+    status: "ACTIVE",
+    isExpired: true,
+    entitlementExpiresAt: new Date(Date.now() - 86400000).toISOString(),
+  });
+  assert.equal(computeReadOnly(stillExpired), true);
+  assert.equal(readOnlyDecision(stillExpired, "POST", "/invoices"), "block");
+});
+
+test("renewal does not unlock a SUSPENDED tenant", () => {
+  const suspendedButRenewed = saasConfig({
+    status: "SUSPENDED",
+    isSuspended: true,
+    entitlementExpiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+  });
+  assert.equal(computeReadOnly(suspendedButRenewed), true);
+});

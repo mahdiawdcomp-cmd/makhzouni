@@ -54,7 +54,10 @@
       "Bash(psql --version)",
       "Read(//d//**)",
       "mcp__serena__get_symbols_overview",
-      "Bash(git -C \"D:\\\\fullstak app new\" log --oneline --all --grep=\"telegram\" -i)"
+      "Bash(git -C \"D:\\\\fullstak app new\" log --oneline --all --grep=\"telegram\" -i)",
+      "Bash(curl -s -o /dev/null -w \"health=%{http_code}\\\\n\" https://admin-api.mazbwoni.com/health)",
+      "Bash(curl -s -o /dev/null -w \"totp-status=%{http_code}\\\\n\" https://admin-api.mazbwoni.com/api/auth/totp/status)",
+      "Bash(curl -s -o /dev/null -w \"login-log=%{http_code}\\\\n\" https://admin-api.mazbwoni.com/api/auth/login-log)"
     ]
   }
 }

@@ -12,16 +12,30 @@
     powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-online-backup-task.ps1
 
   Parameters:
-    -Time        Daily start time, default "03:00".
-    -TaskName    Scheduled task name, default "MakhzouniOnlineBackup".
-    -AppDataDir  App-data folder. Default %APPDATA%\com.mazbwoni.mahdi.
+    -Time          Daily start time, default "03:00".
+    -TaskName      Scheduled task name, default "MakhzouniOnlineBackup".
+    -AppDataDir    App-data folder. Default %APPDATA%\com.mazbwoni.mahdi.
+    -ApiUrl        Backup endpoint of the shop to back up. Defaults to the
+                   main shop. Each shop is a separate database behind its own
+                   backend, so a second shop needs its own task with its own
+                   -ApiUrl, -TaskName, -AppDataDir and -SecretEnvVar.
+    -SecretEnvVar  Name of the User-scope env var holding that shop's secret.
+    -NoElevation   Register a task that runs only while this user is logged on,
+                   instead of the S4U "run whether logged on or not" task.
+                   Registering the S4U variant requires an elevated shell; this
+                   switch lets the backup be scheduled from a normal one. The
+                   backup then only runs when the user is signed in, so prefer
+                   the elevated install when you can get it.
 #>
 
 [CmdletBinding()]
 param(
   [string]$Time = '03:00',
   [string]$TaskName = 'MakhzouniOnlineBackup',
-  [string]$AppDataDir = (Join-Path $env:APPDATA 'com.mazbwoni.mahdi')
+  [string]$AppDataDir = (Join-Path $env:APPDATA 'com.mazbwoni.mahdi'),
+  [string]$ApiUrl = 'https://api.mazbwoni.com/api/settings/backup/download',
+  [string]$SecretEnvVar = 'MAKHZOUNI_BACKUP_SECRET',
+  [switch]$NoElevation
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,14 +48,16 @@ if (-not (Test-Path $ScriptPath)) {
 Write-Host "Installing scheduled task '$TaskName'..." -ForegroundColor Cyan
 Write-Host "  Backup script : $ScriptPath"
 Write-Host "  App data dir  : $AppDataDir"
+Write-Host "  Api url       : $ApiUrl"
+Write-Host "  Secret env    : $SecretEnvVar"
 Write-Host "  Daily time    : $Time"
-if ([string]::IsNullOrWhiteSpace($env:MAKHZOUNI_BACKUP_SECRET)) {
-  Write-Host "  WARNING: MAKHZOUNI_BACKUP_SECRET is not set in this session." -ForegroundColor Yellow
-  Write-Host "           Set it (User scope) so the task can authenticate:" -ForegroundColor Yellow
-  Write-Host '           setx MAKHZOUNI_BACKUP_SECRET "your-strong-secret"' -ForegroundColor Yellow
+if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($SecretEnvVar, 'User'))) {
+  Write-Host "  WARNING: $SecretEnvVar is not set at User scope." -ForegroundColor Yellow
+  Write-Host "           Set it so the task can authenticate:" -ForegroundColor Yellow
+  Write-Host "           setx $SecretEnvVar `"your-strong-secret`"" -ForegroundColor Yellow
 }
 
-$arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -AppDataDir "{1}"' -f $ScriptPath, $AppDataDir
+$arguments = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -AppDataDir "{1}" -ApiUrl "{2}" -SecretEnvVar "{3}"' -f $ScriptPath, $AppDataDir, $ApiUrl, $SecretEnvVar
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments
 
 $trigger = New-ScheduledTaskTrigger -Daily -At $Time
@@ -58,7 +74,12 @@ $settings = New-ScheduledTaskSettingsSet `
 # NOTE: with S4U, environment variables resolve from the user's profile, so
 # MAKHZOUNI_BACKUP_SECRET must be set at User scope (setx ...), not just session.
 $currentUser = "$env:USERDOMAIN\$env:USERNAME"
-$principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType S4U -RunLevel Highest
+if ($NoElevation) {
+  # Interactive + Limited is registrable without administrator rights.
+  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
+} else {
+  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType S4U -RunLevel Highest
+}
 
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
   Write-Host "  Task already exists -> updating it." -ForegroundColor Yellow
@@ -70,4 +91,8 @@ Register-ScheduledTask -TaskName $TaskName `
   -Description 'Daily ONLINE backup download for makhzouni desktop (Phase 2, local storage only).' | Out-Null
 
 Write-Host "Done. Task '$TaskName' will run daily at $Time." -ForegroundColor Green
+if ($NoElevation) {
+  Write-Host "  NOTE: registered WITHOUT elevation - it runs only while $currentUser is logged on." -ForegroundColor Yellow
+  Write-Host "        Re-run this script from an elevated shell (without -NoElevation) to upgrade it." -ForegroundColor Yellow
+}
 Write-Host "Test it now with:  Start-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Green
