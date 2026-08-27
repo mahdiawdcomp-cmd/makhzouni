@@ -2,34 +2,26 @@ import {Fragment, useState, useMemo, useRef} from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BarChart3,
-  BookOpen,
   Check,
-  Copy,
   Download,
   Eye,
-  EyeOff,
   ChevronUp,
   ChevronDown,
   Upload,
   FileText,
-  Globe,
   Image,
   Info,
-  Lock,
-  MessageCircle,
+  LayoutDashboard,
   Palette,
   Phone,
   Plus,
   Search,
   ShieldCheck,
-  ShieldOff,
   Sliders,
   Send,
-  Tag,
   Ticket,
   Users,
   Trash2,
-  Unlock,
   UserPlus,
   X,
 } from "lucide-react"
@@ -37,8 +29,6 @@ import dayjs from "dayjs"
 import relativeTime from "dayjs/plugin/relativeTime"
 import "dayjs/locale/ar"
 import {
-  broadcastCatalogLink,
-  deleteCustomer,
   getCatalogCustomers,
   getCatalogVisitors,
   getVisitorProductViews,
@@ -53,12 +43,6 @@ import {
   createAdminPromoCode,
   deleteAdminPromoCode,
   toggleAdminPromoCode,
-  getCustomerTags,
-  getCustomersPaged,
-  grantCatalogAccess,
-  patchCatalogAccess,
-  revokeCatalogAccess,
-  sendCatalogLinkToCustomer,
   type CatalogDesign,
   type CatalogFooter,
   type CatalogTrust,
@@ -66,11 +50,10 @@ import {
   EMPTY_CATALOG_TRUST,
   type PromoCode,
 } from "../api/endpoints"
-import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
-import { useAuthStore } from "../store/authStore"
 import { CatalogContentTab } from "../components/CatalogContentTab"
 import { CatalogLayoutTab } from "../components/CatalogLayoutTab"
 import { CatalogIncomingTab } from "../components/CatalogIncomingTab"
+import { CatalogHomeTab } from "../components/CatalogHomeTab"
 import { StorefrontAccountsTab } from "../components/StorefrontAccountsTab"
 import { CatalogSettingsTab } from "../components/CatalogSettingsTab"
 import { downscaleImage } from "../utils/downscaleImage"
@@ -81,477 +64,18 @@ import { Input } from "../components/ui/input"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
-import { useFeatureEnabled } from "../hooks/useTenantConfig"
 
 dayjs.extend(relativeTime)
 dayjs.locale("ar")
 
-const CATALOG_BASE = window.location.origin + "/catalog?access="
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    return false
-  }
-}
+/* The old «صلاحيات الزبائن» screen and its parts lived here: StatusBadge,
+   ToggleChip, GrantDialog, CustomerRow, BulkCatalogSend. It managed the
+   legacy access-link system and listed the same people the accounts screen
+   lists, with different buttons — so one customer appeared twice with
+   different levers, which is what made this section unusable. Links already
+   handed out keep working; no new ones are granted. */
 
-function StatusBadge({ customer }: { customer: CatalogCustomer }) {
-  if (!customer.hasAccess)
-    return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500"><Lock className="h-3 w-3" />بدون صلاحية</span>
-  return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700"><Unlock className="h-3 w-3" />نشط</span>
-}
-
-function ToggleChip({
-  on,
-  labelOn,
-  labelOff,
-  iconOn,
-  iconOff,
-  onClick,
-  disabled,
-}: {
-  on: boolean
-  labelOn: string
-  labelOff: string
-  iconOn: React.ReactNode
-  iconOff: React.ReactNode
-  onClick: () => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-all",
-        on
-          ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-          : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
-        disabled && "cursor-not-allowed opacity-40",
-      )}
-    >
-      {on ? iconOn : iconOff}
-      {on ? labelOn : labelOff}
-    </button>
-  )
-}
-
-function GrantDialog({
-  customer,
-  onClose,
-}: {
-  customer: CatalogCustomer
-  onClose: () => void
-}) {
-  const [allowPrices, setAllowPrices] = useState(false)
-  const [showStock, setShowStock] = useState(true)
-  const [stockFilter, setStockFilter] = useState<CatalogStockFilter>("FULL_CARTON_ONLY")
-  const qc = useQueryClient()
-  const showHidePriceEnabled = useFeatureEnabled("catalogShowHidePrice")
-  const showHideStockEnabled = useFeatureEnabled("catalogShowHideStock")
-  const fullCartonFilterEnabled = useFeatureEnabled("catalogFullCartonFilter")
-
-  const mutation = useMutation({
-    mutationFn: () => grantCatalogAccess(customer.id, { allowPrices, showStock, stockFilter }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["catalog-customers"] })
-      onClose()
-    },
-  })
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-bold">منح صلاحية الكاتلوك</h3>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-slate-100"><X className="h-4 w-4" /></button>
-        </div>
-
-        <div className="mb-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
-          <p className="font-semibold">{customer.name}</p>
-          <p className="text-slate-500">{customer.phone}</p>
-        </div>
-
-        <div className="space-y-3 text-sm">
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border p-3 transition hover:bg-slate-50">
-            <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-blue-600" />
-              <span>إظهار الأسعار للزبون</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={allowPrices}
-              disabled={!showHidePriceEnabled}
-              onChange={(e) => setAllowPrices(e.target.checked)}
-              className="h-4 w-4 accent-blue-600"
-            />
-          </label>
-          {!showHidePriceEnabled && (
-            <p className="text-[11px] text-amber-600">ميزة التحكم بالسعر غير مفعّلة في خطتك.</p>
-          )}
-
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border p-3 transition hover:bg-slate-50">
-            <div className="flex items-center gap-2">
-              <Eye className="h-4 w-4 text-emerald-600" />
-              <span>إظهار الكمية المتوفرة</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={showStock}
-              disabled={!showHideStockEnabled}
-              onChange={(e) => setShowStock(e.target.checked)}
-              className="h-4 w-4 accent-emerald-600"
-            />
-          </label>
-          {!showHideStockEnabled && (
-            <p className="text-[11px] text-amber-600">ميزة التحكم بالمخزون غير مفعّلة في خطتك.</p>
-          )}
-
-          <div className="rounded-lg border p-3">
-            <p className="mb-2 flex items-center gap-2 font-medium">
-              <BookOpen className="h-4 w-4 text-violet-600" />
-              المواد المعروضة
-            </p>
-            <select
-              value={stockFilter}
-              disabled={!fullCartonFilterEnabled}
-              onChange={(e) => setStockFilter(e.target.value as CatalogStockFilter)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
-            >
-              <option value="FULL_CARTON_ONLY">كارتون كامل فقط (الافتراضي)</option>
-              <option value="ALL_PRODUCTS">كل المواد المتوفرة حتى لو أقل من كارتون</option>
-            </select>
-            <p className="mt-1.5 text-[11px] text-slate-400">هذا الخيار يتحكم بعرض المواد فقط، والبيع متاح بكل الوحدات (قطعة/علبة/درزن/كارتون).</p>
-            {!fullCartonFilterEnabled && (
-              <p className="mt-1 text-[11px] text-amber-600">ميزة فلتر الكرتون الكامل غير مفعّلة في خطتك.</p>
-            )}
-          </div>
-        </div>
-
-        {mutation.isError && (
-          <p className="mt-3 rounded-md bg-rose-50 p-2 text-xs text-rose-600">تعذر منح الصلاحية. حاول مرة أخرى.</p>
-        )}
-
-        <div className="mt-5 flex gap-2">
-          <Button className="flex-1" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            {mutation.isPending ? "جاري المنح..." : "منح الصلاحية"}
-          </Button>
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin: boolean }) {
-  const [grantOpen, setGrantOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [promo, setPromo] = useState("")
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const qc = useQueryClient()
-  const showHidePriceEnabled = useFeatureEnabled("catalogShowHidePrice")
-  const showHideStockEnabled = useFeatureEnabled("catalogShowHideStock")
-  const fullCartonFilterEnabled = useFeatureEnabled("catalogFullCartonFilter")
-
-  const deleteMut = useMutation({
-    mutationFn: () => deleteCustomer(customer.id),
-    onSuccess: () => {
-      setConfirmDelete(false)
-      void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
-      void qc.invalidateQueries({ queryKey: ["customers"] })
-      toast({ title: `تم حذف الزبون ${customer.name}` })
-    },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحذف"), variant: "destructive" }),
-  })
-
-  const sendLinkMut = useMutation({
-    mutationFn: () => sendCatalogLinkToCustomer(customer.id, promo.trim() || undefined),
-    onSuccess: (res) => { toast({ title: res.message ?? "تم إرسال رابط الكتلوج" }); setPromo("") },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
-  })
-
-  const patchMut = useMutation({
-    mutationFn: (patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter }) =>
-      patchCatalogAccess(customer.id, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog-customers"] }),
-  })
-
-  const revokeMut = useMutation({
-    mutationFn: () => revokeCatalogAccess(customer.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog-customers"] }),
-  })
-
-  async function handleCopy() {
-    if (!customer.token) return
-    const link = CATALOG_BASE + customer.token
-    const ok = await copyText(link)
-    if (ok) {
-      toast({ title: "تم نسخ رابط الكتالوج" })
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } else {
-      toast({ title: "تعذر النسخ، انسخ الرابط يدوياً", description: link, variant: "destructive" })
-    }
-  }
-
-  const isLoading = patchMut.isPending || revokeMut.isPending
-
-  return (
-    <>
-      {grantOpen && <GrantDialog customer={customer} onClose={() => setGrantOpen(false)} />}
-      <ConfirmDialog
-        open={confirmDelete}
-        title={`حذف ${customer.name} نهائياً؟`}
-        description="سيُحذف الزبون وكل بياناته بشكل دائم. لا يمكن التراجع."
-        confirmLabel="حذف نهائي"
-        destructive
-        loading={deleteMut.isPending}
-        onConfirm={() => deleteMut.mutate()}
-        onCancel={() => setConfirmDelete(false)}
-      />
-
-      <tr className="border-b last:border-0 hover:bg-slate-50/60 transition-colors">
-        {/* الزبون */}
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div>
-              <p className="font-semibold text-slate-800">{customer.name}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{customer.phone}</p>
-            </div>
-            {isAdmin && (
-              <button
-                type="button"
-                title="حذف الزبون"
-                onClick={() => setConfirmDelete(true)}
-                className="mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 text-rose-500 hover:bg-rose-50 transition-colors"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </td>
-
-        {/* الحالة */}
-        <td className="px-4 py-3">
-          <StatusBadge customer={customer} />
-        </td>
-
-        {/* الأسعار toggle */}
-        <td className="px-4 py-3">
-          <ToggleChip
-            on={customer.hasAccess && customer.allowPrices}
-            labelOn="ظاهرة"
-            labelOff="مخفية"
-            iconOn={<Tag className="h-3 w-3" />}
-            iconOff={<Tag className="h-3 w-3 opacity-40" />}
-            disabled={!customer.hasAccess || isLoading || !showHidePriceEnabled}
-            onClick={() => patchMut.mutate({ allowPrices: !customer.allowPrices })}
-          />
-        </td>
-
-        {/* الكمية toggle */}
-        <td className="px-4 py-3">
-          <ToggleChip
-            on={customer.hasAccess && customer.showStock}
-            labelOn="ظاهرة"
-            labelOff="مخفية"
-            iconOn={<Eye className="h-3 w-3" />}
-            iconOff={<EyeOff className="h-3 w-3" />}
-            disabled={!customer.hasAccess || isLoading || !showHideStockEnabled}
-            onClick={() => patchMut.mutate({ showStock: !customer.showStock })}
-          />
-        </td>
-
-        {/* فلتر العرض: كل المواد / كارتون كامل فقط */}
-        <td className="px-4 py-3">
-          <ToggleChip
-            on={customer.hasAccess && customer.stockFilter === "ALL_PRODUCTS"}
-            labelOn="كل المواد"
-            labelOff="كارتون كامل"
-            iconOn={<BookOpen className="h-3 w-3" />}
-            iconOff={<BookOpen className="h-3 w-3 opacity-40" />}
-            disabled={!customer.hasAccess || isLoading || !fullCartonFilterEnabled}
-            onClick={() =>
-              patchMut.mutate({
-                stockFilter: customer.stockFilter === "ALL_PRODUCTS" ? "FULL_CARTON_ONLY" : "ALL_PRODUCTS",
-              })
-            }
-          />
-        </td>
-
-        {/* آخر زيارة */}
-        <td className="px-4 py-3 text-xs text-slate-500">
-          {customer.lastViewedAt ? (
-            <div className="flex flex-col gap-0.5">
-              <span>{dayjs(customer.lastViewedAt).fromNow()}</span>
-              {(customer.viewCount ?? 0) > 0 && (
-                <span className="text-[11px] text-slate-400">{customer.viewCount} فتحة</span>
-              )}
-            </div>
-          ) : customer.hasAccess ? (
-            "لم يُفتح بعد"
-          ) : (
-            "—"
-          )}
-        </td>
-
-        {/* إرسال رابط الكتلوج بالواتساب + بروموكود */}
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-1.5">
-            <Input
-              value={promo}
-              onChange={(e) => setPromo(e.target.value)}
-              placeholder="بروموكود (اختياري)"
-              className="h-8 w-28 text-xs"
-            />
-            <button
-              type="button"
-              title="إرسال رابط الكتلوج بالواتساب"
-              disabled={sendLinkMut.isPending}
-              onClick={() => sendLinkMut.mutate()}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-              {sendLinkMut.isPending ? "..." : "إرسال"}
-            </button>
-          </div>
-          {customer.catalogLinkSentAt && (
-            <p className={cn("mt-1 text-[10px]", isSentNotOpened(customer) ? "text-amber-600" : "text-emerald-600")}>
-              {isSentNotOpened(customer) ? "أُرسل · لم يُفتح بعد" : "أُرسل · وفتحه ✓"}
-            </p>
-          )}
-        </td>
-
-        {/* إجراءات */}
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
-            {customer.hasAccess ? (
-              <>
-                <button
-                  title="نسخ رابط الكاتلوك"
-                  onClick={handleCopy}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs hover:bg-slate-50"
-                >
-                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copied ? "تم النسخ" : "نسخ الرابط"}
-                </button>
-                <button
-                  title="سحب الصلاحية"
-                  disabled={revokeMut.isPending}
-                  onClick={() => revokeMut.mutate()}
-                  className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1.5 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                >
-                  <ShieldOff className="h-3.5 w-3.5" />
-                  سحب
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setGrantOpen(true)}
-                className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-              >
-                <Globe className="h-3.5 w-3.5" />
-                منح صلاحية
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
-    </>
-  )
-}
-
-// Bulk-send the catalog link to everyone carrying a chosen tag (fire-and-forget).
-function BulkCatalogSend() {
-  const tagsQuery = useQuery({ queryKey: ["customer-tags"], queryFn: getCustomerTags })
-  const tags = tagsQuery.data ?? []
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [promo, setPromo] = useState("")
-  const qc = useQueryClient()
-
-  const recipientsQuery = useQuery({
-    queryKey: ["customers-by-tags-count", selectedTags],
-    queryFn: () => getCustomersPaged({ tags: selectedTags, limit: 1 }),
-    enabled: selectedTags.length > 0,
-  })
-  const recipientCount = recipientsQuery.data?.pagination?.total ?? 0
-
-  const sendMut = useMutation({
-    mutationFn: () => broadcastCatalogLink({ tags: selectedTags, promoCode: promo.trim() || undefined }),
-    onSuccess: (res) => {
-      toast({ title: res.message ?? `جارٍ الإرسال إلى ${recipientCount} زبون` })
-      setSelectedTags([]); setPromo("")
-      void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
-    },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
-  })
-
-  function toggleTag(tag: string) {
-    setSelectedTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]))
-  }
-
-  return (
-    <Card className="border-emerald-200 bg-emerald-50/40">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageCircle className="h-5 w-5 text-emerald-600" /> إرسال جماعي لرابط الكتلوج (حسب التاك)
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {tags.length === 0 ? (
-          <p className="text-sm text-slate-500">لا يوجد تاكات بعد. أضف تاكات للزبائن من صفحة الزبائن أولاً.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-sm font-medium transition",
-                  selectedTags.includes(tag) ? "bg-emerald-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50",
-                )}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        )}
-        {selectedTags.length > 0 && (
-          <p className="text-sm text-emerald-700">
-            {recipientsQuery.isLoading ? "جاري الحساب..." : <>سيُرسل رابط الكتلوج إلى <b>{recipientCount}</b> زبون.</>}
-          </p>
-        )}
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            value={promo}
-            onChange={(e) => setPromo(e.target.value)}
-            placeholder="بروموكود للجميع (اختياري)"
-            className="sm:max-w-xs"
-          />
-          <Button
-            disabled={selectedTags.length === 0 || recipientCount === 0 || sendMut.isPending}
-            onClick={() => sendMut.mutate()}
-          >
-            <MessageCircle className="h-4 w-4" /> {sendMut.isPending ? "جارٍ الإرسال..." : "إرسال للجميع"}
-          </Button>
-        </div>
-        <p className="text-[11px] text-slate-400">يُرسل تلقائياً بالخلفية مع تمهّل بسيط بين كل رسالة. على WhatsApp Cloud API قد لا تصل خارج نافذة ٢٤ ساعة.</p>
-      </CardContent>
-    </Card>
-  )
-}
-
-// "Sent but not opened": the catalog link was sent and the customer hasn't
-// opened the catalog since (no view, or last view predates the send).
-function isSentNotOpened(c: CatalogCustomer) {
-  if (!c.catalogLinkSentAt) return false
-  if (!c.lastViewedAt) return true
-  return new Date(c.lastViewedAt).getTime() < new Date(c.catalogLinkSentAt).getTime()
-}
 
 /* ══════════════════════════════════════════════════════════════════════
    CATALOG DESIGN TAB
@@ -1277,12 +801,6 @@ function PromoCodesTab() {
 
 /* ─── Catalog OTP re-verification toggle ──────────────────────────────── */
 /* ─── Global carton-only display toggle ─────────────────────────────── */
-const PAGE_SIZE = 50
-
-/* ── Reshuffle interval setting ──────────────────────────────────────── */
-/* ── Guest visitors (phone-gate leads) ──────────────────────────────── */
-// "125" -> "دقيقتين"-style would need a full Arabic pluralizer; keep it simple
-// and numeric (still far more useful than nothing) — د for minutes, ث for seconds.
 function formatDuration(totalSeconds: number) {
   if (!totalSeconds) return "—"
   const minutes = Math.floor(totalSeconds / 60)
@@ -1550,13 +1068,17 @@ function AnalyticsTab() {
    storefront, manage what is on it, and run the machinery behind it. */
 const GROUPS = [
   {
+    key: "home" as const,
+    label: "الرئيسية",
+    icon: <LayoutDashboard className="h-4 w-4" />,
+    tabs: [{ key: "home" as const, label: "نظرة عامة" }],
+  },
+  {
     key: "people" as const,
     label: "الناس",
     icon: <Users className="h-4 w-4" />,
     tabs: [
-      { key: "customers" as const, label: "صلاحيات الزبائن" },
-      { key: "accounts" as const, label: "حسابات الدخول" },
-      { key: "visitors" as const, label: "الزوار الجدد" },
+      { key: "accounts" as const, label: "الحسابات والصلاحيات" },
     ],
   },
   {
@@ -1585,53 +1107,20 @@ const GROUPS = [
     tabs: [
       { key: "settings" as const, label: "الإعدادات" },
       { key: "analytics" as const, label: "التحليلات" },
+      { key: "visitors" as const, label: "الزوار" },
     ],
   },
 ]
 
 export function CatalogManagementPage() {
-  const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  // Four groups, each with its own sub-tabs. Eight flat tabs put three
-  // people-shaped screens and two settings-shaped screens side by side, so
-  // finding anything meant remembering which of the eight it lived in.
-  const [group, setGroup] = useState<"people" | "front" | "content" | "ops">("people")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "layout" | "content" | "incoming" | "accounts" | "promos" | "settings">("customers")
-  const [searchInput, setSearchInput] = useState("")
-  const [search, setSearch] = useState("")       // debounced — sent to server
-  const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
-  const [page, setPage] = useState(0)
-
-  // Debounce search so we don't hit the server on every keystroke
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
-  function handleSearchChange(v: string) {
-    setSearchInput(v)
-    if (searchTimeout.current) clearTimeout(searchTimeout.current)
-    searchTimeout.current = setTimeout(() => { setSearch(v); setPage(0) }, 350)
-  }
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["catalog-customers", search, page],
-    queryFn: () => getCatalogCustomers({ search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
-    staleTime: 3 * 60_000,
-    placeholderData: (prev) => prev,
-  })
-
-  // Memoised so the `?? []` fallback does not hand `filtered` a brand-new
-  // array identity on every render, which would re-run the filter each pass.
-  const customers = useMemo(() => data?.rows ?? [], [data])
-  const total = data?.total ?? 0
-
-  // Client-side filter for has/no access (fast, only within the current page)
-  const filtered = useMemo(() => {
-    return customers.filter((c) => {
-      if (filter === "active") return c.hasAccess
-      if (filter === "inactive") return !c.hasAccess
-      if (filter === "sentNotOpened") return isSentNotOpened(c)
-      return true
-    })
-  }, [customers, filter])
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  // Five groups with a home screen in front of them. Ten flat tabs put three
+  // people-shaped screens beside two settings-shaped ones, so finding anything
+  // meant remembering which of the ten it lived in. The customer list, its
+  // search and paging went with the retired «صلاحيات الزبائن» screen.
+  const [group, setGroup] = useState<"home" | "people" | "front" | "content" | "ops">("home")
+  const [tab, setTab] = useState<
+    "visitors" | "analytics" | "design" | "layout" | "content" | "incoming" | "accounts" | "promos" | "settings" | "home"
+  >("home")
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
@@ -1677,150 +1166,26 @@ export function CatalogManagementPage() {
       {tab === "content" && <CatalogContentTab />}
       {tab === "accounts" && <StorefrontAccountsTab />}
       {tab === "settings" && <CatalogSettingsTab />}
+      {tab === "home" && <CatalogHomeTab onGo={(g, tb) => { setGroup(g as typeof group); setTab(tb as typeof tab) }} />}
       {tab === "layout" && <CatalogLayoutTab />}
       {tab === "incoming" && <CatalogIncomingTab />}
       {tab === "promos" && <PromoCodesTab />}
 
-      {tab === "customers" && <>
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="إجمالي الزبائن" value={total} color="slate" />
-        <StatCard label="لديهم صلاحية" value={customers.filter(c => c.hasAccess).length} color="emerald" />
-        <StatCard label="بدون صلاحية" value={customers.filter(c => !c.hasAccess).length} color="rose" />
-      </div>
-
-      {/* Info Card */}
-      <Card className="border-blue-200 bg-blue-50">
-        <CardContent className="py-3 px-4">
-          <div className="flex items-start gap-3 text-sm text-blue-800">
-            <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-            <div>
-              <p className="font-semibold mb-1">كيف يعمل الكاتلوك؟</p>
-              <ul className="space-y-0.5 text-blue-700 text-xs list-disc list-inside">
-                <li>الزبون يفتح رابط <strong>{window.location.origin}/catalog</strong> ويكتب اسمه ورقمه ← يرسل طلب موافقة يظهر في صفحة الموافقات</li>
-                <li>أو من هنا مباشرة: اختار الزبون واضغط "منح صلاحية" وحدد الإعدادات ← انسخ الرابط وأرسله للزبون</li>
-                <li>الزبون يفتح الرابط ← يشوف المنتجات المتوفرة ويرسل طلب شراء يظهر في الموافقات</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Bulk catalog-link send by tag */}
-      <BulkCatalogSend />
-
-      {/* Search + Filter */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Globe className="h-5 w-5 text-blue-600" />
-            صلاحيات الزبائن
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="pr-9"
-                placeholder="ابحث باسم الزبون أو الهاتف"
-                value={searchInput}
-                onChange={(e) => handleSearchChange(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(["all", "active", "inactive"] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => { setFilter(f); setPage(0) }}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                    filter === f ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                  )}
-                >
-                  {f === "all" ? "الكل" : f === "active" ? "لديهم صلاحية" : "بدون صلاحية"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-right">الزبون</th>
-                  <th className="px-4 py-3 text-right">الحالة</th>
-                  <th className="px-4 py-3 text-right">الأسعار</th>
-                  <th className="px-4 py-3 text-right">الكمية</th>
-                  <th className="px-4 py-3 text-right">العرض</th>
-                  <th className="px-4 py-3 text-right">آخر زيارة</th>
-                  <th className="px-4 py-3 text-right">رابط الكتلوج (واتساب)</th>
-                  <th className="px-4 py-3 text-right">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">لا توجد نتائج</td>
-                  </tr>
-                ) : (
-                  filtered.map((customer) => (
-                    <CustomerRow key={customer.id} customer={customer} isAdmin={!!isAdmin} />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">
-                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} من {total} زبون
-              </span>
-              <div className="flex gap-2">
-                <button
-                  disabled={page === 0}
-                  onClick={() => setPage(p => p - 1)}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 hover:bg-slate-50"
-                >
-                  السابق
-                </button>
-                <span className="flex items-center px-2 text-xs text-slate-500">
-                  {page + 1} / {totalPages}
-                </span>
-                <button
-                  disabled={page >= totalPages - 1}
-                  onClick={() => setPage(p => p + 1)}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 hover:bg-slate-50"
-                >
-                  التالي
-                </button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      </>}
     </div>
   )
 }
 
+/** Small labelled number, shared by the visitors and analytics screens. */
 function StatCard({ label, value, color }: { label: string; value: number; color: "slate" | "emerald" | "rose" }) {
-  const colors = {
-    slate: "border-slate-200 bg-slate-50 text-slate-700",
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    rose: "border-rose-200 bg-rose-50 text-rose-700",
+  const tones = {
+    slate: "bg-slate-50 text-slate-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    rose: "bg-rose-50 text-rose-700",
   }
   return (
-    <div className={cn("rounded-xl border p-4", colors[color])}>
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="mt-0.5 text-xs font-medium opacity-80">{label}</p>
+    <div className={`rounded-2xl p-4 ${tones[color]}`}>
+      <p className="text-2xl font-extrabold">{value}</p>
+      <p className="mt-1 text-xs font-semibold opacity-80">{label}</p>
     </div>
   )
 }

@@ -37,6 +37,7 @@ import {
   sendCredentialsToAllCtrl,
   sendInvitesToAllCtrl,
   unifiedAccountsCtrl,
+  catalogDashboardCtrl,
   grantPricesCtrl,
   revokePricesCtrl,
   promoteVisitorCtrl,
@@ -141,6 +142,7 @@ router.post("/accounts/send-credentials-all", validate(sendCredentialsToAllSchem
 router.post("/accounts/send-invites-all", validate(sendInvitesToAllSchema), sendInvitesToAllCtrl);
 // One labelled list of everyone who can sign in, plus the two things the shop
 // decides about a visitor: their prices, and whether they go on the books.
+router.get("/dashboard", catalogDashboardCtrl);
 router.get("/accounts/unified", unifiedAccountsCtrl);
 router.post("/accounts/grant-prices", validate(visitorPhoneSchema), grantPricesCtrl);
 router.post("/accounts/revoke-prices", validate(visitorPhoneSchema), revokePricesCtrl);

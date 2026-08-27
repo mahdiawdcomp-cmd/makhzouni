@@ -38,6 +38,7 @@ import {
   revokePriceAccess,
   promoteVisitorToCustomer,
   listStorefrontAccountsUnified,
+  catalogDashboard,
 } from "../services/catalog-visitor.service";
 
 /* ── Public ──────────────────────────────────────────────────────── */
@@ -119,6 +120,10 @@ export const reservationStatusCtrl = asyncHandler(async (req, res) => {
 });
 
 /* ── Admin side of the storefront accounts screen ─────────────────── */
+
+export const catalogDashboardCtrl = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await catalogDashboard() });
+});
 
 export const unifiedAccountsCtrl = asyncHandler(async (req, res) => {
   const data = await listStorefrontAccountsUnified(

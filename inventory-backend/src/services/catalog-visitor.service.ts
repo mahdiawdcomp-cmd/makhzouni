@@ -412,3 +412,34 @@ export async function listStorefrontAccountsUnified(search?: string): Promise<St
   );
   return rows;
 }
+
+/* ── The catalog home screen ───────────────────────────────────────── */
+
+/**
+ * What is waiting for the merchant right now.
+ *
+ * Every number here is something a person is waiting on, not a vanity stat:
+ * opening this screen should answer "what do I have to do today", which is
+ * exactly what nine tabs of settings could not.
+ */
+export async function catalogDashboard() {
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [
+    priceRequests,
+    reservations,
+    customersNoCode,
+    visitorsToday,
+    incomingItems,
+    pendingOrders,
+  ] = await Promise.all([
+    prisma.catalogVisitor.count({ where: { priceRequestedAt: { not: null }, pricesUnlockedAt: null } }),
+    prisma.catalogIncomingReservation.count({ where: { status: "PENDING" } }),
+    prisma.customer.count({ where: { deletedAt: null, accessCodeHash: null } }),
+    prisma.catalogVisitor.count({ where: { lastSeenAt: { gte: dayAgo } } }),
+    prisma.catalogIncomingItem.count({ where: { active: true, arrivedAt: null } }),
+    prisma.pendingApproval.count({ where: { requestType: "CATALOG_ORDER", status: "PENDING" } }),
+  ]);
+
+  return { priceRequests, reservations, customersNoCode, visitorsToday, incomingItems, pendingOrders };
+}

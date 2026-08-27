@@ -375,6 +375,15 @@ export interface StorefrontAccountRow {
   locked: boolean
 }
 
+/** What is waiting for the merchant right now — the catalog home screen. */
+export async function getCatalogDashboard() {
+  const { data } = await api.get<ApiEnvelope<{
+    priceRequests: number; reservations: number; customersNoCode: number
+    visitorsToday: number; incomingItems: number; pendingOrders: number
+  }>>("/catalog-management/dashboard")
+  return data.data!
+}
+
 export async function listStorefrontAccountsUnified(search?: string) {
   const { data } = await api.get<ApiEnvelope<StorefrontAccountRow[]>>(
     "/catalog-management/accounts/unified", { params: search ? { search } : {} },
