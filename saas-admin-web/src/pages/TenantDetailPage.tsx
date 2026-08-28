@@ -10,14 +10,8 @@ import {
   DOMAIN_ROOT, getErrorMessage, publicApi, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus,
   type DoctorResult, type FeatureKey, type InstallerArtifacts, type LicenseType, type Plan, type SerialType,
 } from "../api/client";
-import { BASE_VERSION_ITEMS, FEATURE_GROUPS, LICENSE_TYPES, LICENSE_TYPE_LABELS, PLATFORM_TOGGLES } from "../entitlements";
+import { BASE_VERSION_ITEMS, FEATURE_GROUPS, isFeatureEnforced, LICENSE_TYPES, LICENSE_TYPE_LABELS, PLATFORM_TOGGLES } from "../entitlements";
 
-const FEATURES: Array<{ key: FeatureKey; label: string }> = [
-  { key: "ANDROID", label: "أندرويد" }, { key: "CATALOG", label: "الكتالوج" }, { key: "POS", label: "نقطة البيع" },
-  { key: "AI", label: "المساعد الذكي" }, { key: "WHATSAPP", label: "واتساب" }, { key: "MULTI_WAREHOUSE", label: "تعدد المخازن" },
-  { key: "QUOTATIONS", label: "عروض الأسعار" }, { key: "RETURNS", label: "المرتجعات" }, { key: "OFFLINE", label: "دون إنترنت" },
-  { key: "AUDIT_LOG", label: "سجل التدقيق" },
-];
 const ACTIONS: Record<string, string> = {
   TENANT_CREATED: "إنشاء المحل", TENANT_UPDATED: "تعديل بيانات المحل", SUBSCRIPTION_UPDATED: "تعديل الاشتراك",
   SERIAL_CREATED: "إنشاء سيريال", SERIAL_ENABLED: "تفعيل سيريال", SERIAL_DISABLED: "تعطيل سيريال",
@@ -59,13 +53,19 @@ export default function TenantDetailPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [tab, setTab] = useState<"overview" | "license" | "installer" | "subscription" | "devices" | "doctor" | "audit">("overview");
-  const [message, setMessage] = useState("");
+  // A message now carries its own tone. Everything used to render as `alert
+  // info`, so a failure looked exactly like a success — same calm green box.
+  const [message, setMessage] = useState<{ text: string; tone: "ok" | "fail" } | null>(null);
+  const say = (text: string) => setMessage({ text, tone: "ok" });
+  const fail = (text: string) => setMessage({ text, tone: "fail" });
   const [serial, setSerial] = useState({ type: "ANDROID" as SerialType, label: "" });
   const query = useQuery({ queryKey: ["tenant", id], queryFn: () => tenantsApi.get(id).then((r) => r.data), enabled: !!id });
   const tenant = query.data;
   const subscription = tenant?.subscriptions.find((item) => item.isActive);
-  const [details, setDetails] = useState({ name: "", ownerName: "", phone: "", email: "", subdomain: "", backendUrl: "", notes: "" });
-  const [sub, setSub] = useState({ plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY", maxUsers: "", maxWarehouses: "", maxAndroidDevices: "", maxCustomers: "", features: [] as FeatureKey[] });
+  const emptyDetails = { name: "", ownerName: "", phone: "", email: "", subdomain: "", backendUrl: "", notes: "" };
+  const emptySub = { plan: "BASIC" as Plan, expiresAt: "", price: "", billingCycle: "MONTHLY", maxUsers: "", maxWarehouses: "", maxAndroidDevices: "", maxCustomers: "", features: [] as FeatureKey[] };
+  const [details, setDetails] = useState(emptyDetails);
+  const [sub, setSub] = useState(emptySub);
   // ── license / entitlements local state ──
   const emptyLic: LicState = {
     licenseType: "SAAS", activatedAt: "", expiresAt: "", trialEndsAt: "", internalNotes: "",
@@ -81,10 +81,33 @@ export default function TenantDetailPage() {
   const [doctorState, setDoctorState] = useState<{ loading: boolean; result: DoctorResult | null; error: string | null }>({ loading: false, result: null, error: null });
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
 
+  // Clear the banner after a few seconds. It used to persist across tab
+  // switches, so an old "تم الحفظ" read as confirmation of whatever you were
+  // looking at next.
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(null), 6000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  // Baselines for "did anything actually change" — mirrored from the loaded
+  // tenant alongside each form's own state, and refreshed after a save.
+  const [lastSavedDetails, setLastSavedDetails] = useState(emptyDetails);
+  const [lastSavedSub, setLastSavedSub] = useState(emptySub);
+
   useEffect(() => {
     if (!tenant) return;
-    setDetails({ name: tenant.name, ownerName: tenant.ownerName ?? "", phone: tenant.phone ?? "", email: tenant.email ?? "", subdomain: tenant.subdomain, backendUrl: tenant.backendUrl, notes: tenant.notes ?? "" });
+    const nextDetails = { name: tenant.name, ownerName: tenant.ownerName ?? "", phone: tenant.phone ?? "", email: tenant.email ?? "", subdomain: tenant.subdomain, backendUrl: tenant.backendUrl, notes: tenant.notes ?? "" };
+    setDetails(nextDetails);
+    setLastSavedDetails(nextDetails);
     setSub({
+      plan: subscription?.plan ?? "BASIC", expiresAt: subscription?.expiresAt?.slice(0, 10) ?? "",
+      price: subscription?.price?.toString() ?? "", billingCycle: subscription?.billingCycle ?? "MONTHLY",
+      maxUsers: subscription?.maxUsers?.toString() ?? "", maxWarehouses: subscription?.maxWarehouses?.toString() ?? "",
+      maxAndroidDevices: subscription?.maxAndroidDevices?.toString() ?? "",
+      maxCustomers: subscription?.maxCustomers?.toString() ?? "", features: subscription?.features ?? [],
+    });
+    setLastSavedSub({
       plan: subscription?.plan ?? "BASIC", expiresAt: subscription?.expiresAt?.slice(0, 10) ?? "",
       price: subscription?.price?.toString() ?? "", billingCycle: subscription?.billingCycle ?? "MONTHLY",
       maxUsers: subscription?.maxUsers?.toString() ?? "", maxWarehouses: subscription?.maxWarehouses?.toString() ?? "",
@@ -106,12 +129,32 @@ export default function TenantDetailPage() {
   const refresh = async () => {
     await Promise.all([qc.invalidateQueries({ queryKey: ["tenant", id] }), qc.invalidateQueries({ queryKey: ["tenants"] }), qc.invalidateQueries({ queryKey: ["tenant-summary"] })]);
   };
-  const run = async (task: () => Promise<unknown>, success: string) => {
-    setMessage("");
-    try { await task(); await refresh(); setMessage(success); } catch (error) { setMessage(getErrorMessage(error)); }
+  /**
+   * `changed` lets a caller say whether the form it is saving actually differs
+   * from what is stored. Without it every save reported "تم الحفظ" on any 2xx,
+   * so saving an untouched form was indistinguishable from a real change — the
+   * single biggest reason the panel felt like it was doing more than it was.
+   */
+  const run = async (task: () => Promise<unknown>, success: string, changed = true) => {
+    setMessage(null);
+    if (!changed) { say("لا يوجد أي تغيير لحفظه."); return; }
+    try { await task(); await refresh(); say(success); } catch (error) { fail(getErrorMessage(error)); }
   };
-  const check = useMutation({ mutationFn: () => tenantsApi.checkBackend(id), onSuccess: (r) => { setMessage(`الاتصال سليم، الاستجابة ${r.data.latencyMs}ms`); refresh(); }, onError: (e) => setMessage(getErrorMessage(e)) });
-  const copy = (value: string, label: string) => { navigator.clipboard.writeText(value); setMessage(`تم نسخ ${label}`); };
+  const check = useMutation({
+    mutationFn: () => tenantsApi.checkBackend(id),
+    // latencyMs is optional in the response; printing it blindly rendered
+    // "الاستجابة undefinedms".
+    onSuccess: (r) => { say(typeof r.data.latencyMs === "number" ? `الاتصال سليم، الاستجابة ${r.data.latencyMs}ms` : "الاتصال سليم"); refresh(); },
+    onError: (e) => fail(getErrorMessage(e)),
+  });
+  const copy = (value: string, label: string) => {
+    if (!value) { fail(`لا يوجد ${label} لنسخه.`); return; }
+    navigator.clipboard.writeText(value);
+    say(`تم نسخ ${label}`);
+  };
+
+  /** Shallow-stable deep compare, enough for these flat forms and string arrays. */
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
   const number = (value: string) => value ? Number(value) : null;
   const toIso = (value: string, end = false) => value ? new Date(`${value}T${end ? "23:59:59" : "00:00:00"}`).toISOString() : null;
@@ -138,12 +181,14 @@ export default function TenantDetailPage() {
     features: lic.features,
     limits: { maxAndroidDevices: number(lic.maxAndroidDevices), whatsappLimitEnabled: lic.whatsappLimitEnabled, whatsappMonthlyLimit: lic.whatsappLimitEnabled ? number(lic.whatsappMonthlyLimit) : null },
     platforms: { webEnabled: lic.webEnabled, androidEnabled: lic.androidEnabled, desktopEnabled: lic.desktopEnabled, desktopWhiteLabelEnabled: lic.desktopWhiteLabelEnabled, offlineLifetimeEnabled: lic.offlineLifetimeEnabled },
-  }), "تم حفظ إعدادات النسخة والميزات").then(() => setLastSavedLic(lic));
+  }), "تم حفظ إعدادات النسخة والميزات", !same(lic, lastSavedLic)).then(() => setLastSavedLic(lic));
 
   const saveCurrentTab = () => {
-    if (tab === "overview") run(() => tenantsApi.update(id, details), "تم حفظ بيانات المحل");
+    if (tab === "overview") run(() => tenantsApi.update(id, details), "تم حفظ بيانات المحل", !same(details, lastSavedDetails)).then(() => setLastSavedDetails(details));
     else if (tab === "license") saveLicense();
-    else if (tab === "subscription") run(() => tenantsApi.updateSubscription(id, { ...sub, expiresAt: sub.expiresAt ? new Date(`${sub.expiresAt}T23:59:59`).toISOString() : null, price: number(sub.price), maxUsers: number(sub.maxUsers), maxWarehouses: number(sub.maxWarehouses), maxAndroidDevices: number(sub.maxAndroidDevices), maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك والمزايا");
+    // The legacy tab no longer sends expiry, android devices, users, warehouses
+    // or its own feature list — see the tab body for why each was removed.
+    else if (tab === "subscription") run(() => tenantsApi.updateSubscription(id, { plan: sub.plan, price: number(sub.price), billingCycle: sub.billingCycle as "MONTHLY" | "YEARLY" | "CUSTOM", maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك", !same(sub, lastSavedSub)).then(() => setLastSavedSub(sub));
   };
   const canSaveTab = tab === "overview" || tab === "license" || tab === "subscription";
 
@@ -270,7 +315,7 @@ ${tenant.backendUrl}
               if (!warned) return;
               const typed = window.prompt(`هذا حذف نهائي لا رجعة فيه. اكتب الرابط الفرعي "${tenant.subdomain}" للتأكيد.`);
               if (typed !== tenant.subdomain) {
-                if (typed !== null) setMessage("النص المكتوب لا يطابق الرابط الفرعي — لم يتم الحذف.");
+                if (typed !== null) fail("النص المكتوب لا يطابق الرابط الفرعي — لم يتم الحذف.");
                 return;
               }
               try {
@@ -281,7 +326,7 @@ ${tenant.backendUrl}
                   },
                 });
               } catch (error) {
-                setMessage(getErrorMessage(error));
+                fail(getErrorMessage(error));
               }
             }}
           ><Trash2 size={17} /> حذف نهائي</button>
@@ -309,9 +354,9 @@ ${tenant.backendUrl}
         </div>
       </div>
 
-      {message && <div className="alert info">{message}</div>}
+      {message && <div className={message.tone === "fail" ? "alert error" : "alert info"}>{message.text}</div>}
       <div className="tabs">
-        {[["overview", "بيانات المحل"], ["license", "النسخة والميزات"], ["installer", "ملفات التنصيب"], ["subscription", "الاشتراك والمزايا"], ["devices", "الأجهزة والسيريالات"], ["doctor", "فحص الجاهزية"], ["audit", "سجل التغييرات"]].map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key as typeof tab)}>{label}</button>)}
+        {[["overview", "بيانات المحل"], ["license", "النسخة والميزات"], ["installer", "ملفات التنصيب"], ["subscription", "الفوترة"], ["devices", "الأجهزة والسيريالات"], ["doctor", "فحص الجاهزية"], ["audit", "سجل التغييرات"]].map(([key, label]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key as typeof tab)}>{label}</button>)}
       </div>
 
       {tab === "overview" && <section className="panel">
@@ -341,9 +386,12 @@ ${tenant.backendUrl}
 
         <div className="section-heading" style={{ marginTop: 4 }}><div><h2>الحدود</h2></div></div>
         <div className="form-grid">
-          <label>أقصى عدد أجهزة أندرويد<input type="number" min="0" value={lic.maxAndroidDevices} onChange={(e) => setLic({ ...lic, maxAndroidDevices: e.target.value })} placeholder="غير محدود" /></label>
+          {/* Read only by POST /tenants/:id/serials in this panel — it caps how
+              many serials can be issued here. The shop backend never checks it,
+              so an already-activated device is unaffected. */}
+          <label>أقصى عدد أجهزة أندرويد<input type="number" min="0" value={lic.maxAndroidDevices} onChange={(e) => setLic({ ...lic, maxAndroidDevices: e.target.value })} placeholder="غير محدود" /><small className="field-note">يحدّ إنشاء السيريالات من هنا فقط — لا يفصل جهازاً يعمل أصلاً.</small></label>
           <label style={{ flexDirection: "row", alignItems: "center", gap: 8 }}><input type="checkbox" checked={lic.whatsappLimitEnabled} onChange={(e) => setLic({ ...lic, whatsappLimitEnabled: e.target.checked })} /> تفعيل حد واتساب الشهري</label>
-          <label>حد واتساب الشهري<input type="number" min="0" value={lic.whatsappMonthlyLimit} disabled={!lic.whatsappLimitEnabled} onChange={(e) => setLic({ ...lic, whatsappMonthlyLimit: e.target.value })} placeholder="عدد الرسائل" /></label>
+          <label>حد واتساب الشهري<input type="number" min="0" value={lic.whatsappMonthlyLimit} disabled={!lic.whatsappLimitEnabled} onChange={(e) => setLic({ ...lic, whatsappMonthlyLimit: e.target.value })} placeholder="عدد الرسائل" /><small className="field-note">يُحفظ فقط — لا يوجد عدّاد ولا منع في خادم المحل بعد.</small></label>
         </div>
 
         <div className="section-heading" style={{ marginTop: 18 }}><div><h2>المنصّات</h2></div></div>
@@ -352,7 +400,10 @@ ${tenant.backendUrl}
           return (
             <div className="platform-row" key={p.key}>
               <div className="platform-row-text">
-                <span className="platform-row-title">{p.label}</span>
+                <span className="platform-row-title">
+                  {p.label}
+                  {p.inert && <span className="platform-inert" title="لا يقرأها خادم المحل إطلاقاً">بلا أثر</span>}
+                </span>
                 {p.description && <span className="platform-row-desc">{p.description}</span>}
                 {p.note && <span className="platform-row-note"><AlertTriangle size={11} /> {p.note}</span>}
               </div>
@@ -387,11 +438,18 @@ ${tenant.backendUrl}
               {!collapsed && <div className="feature-group-body">
                 {visibleItems.map((item) => {
                   const on = lic.features.includes(item.key);
+                  const enforced = isFeatureEnforced(item.key);
                   return (
                     <div className={`feature-row ${on ? "on" : ""}`} key={item.key} onClick={() => toggleLicFeature(item.key)}>
                       <input type="checkbox" checked={on} onChange={() => toggleLicFeature(item.key)} onClick={(e) => e.stopPropagation()} />
                       <div className="feature-row-text">
-                        <span className="feature-row-label">{item.label}</span>
+                        <span className="feature-row-label">
+                          {item.label}
+                          {/* The shop backend has no gate for this key, so
+                              ticking it saves fine and changes nothing there.
+                              Saying so beats a switch that quietly does nothing. */}
+                          {!enforced && <span className="feature-inert" title="لا يوجد لها منع في خادم المحل — تُحفظ ولا تغيّر شيئاً">بلا أثر</span>}
+                        </span>
                         {item.description && <span className="feature-row-desc">{item.description}</span>}
                         <span className="feature-row-key">{item.key}</span>
                       </div>
@@ -444,16 +502,24 @@ ${tenant.backendUrl}
       </section>}
 
       {tab === "subscription" && <section className="panel">
-        <div className="section-heading"><div><h2>الباقة والحدود (قديم)</h2><p>أي ميزة تطفئها تتوقف لهذا المحل بعد تحديث حالة الاشتراك.</p></div></div>
+        <div className="section-heading"><div><h2>الفوترة</h2><p>ما تتقاضاه من هذا المحل. الترخيص والمزايا وتاريخ الانتهاء كلها في تبويب «النسخة والميزات».</p></div></div>
+        {/* This tab used to duplicate four controls that live in the License
+            tab — expiry, android-device cap, and a second feature list in a
+            different (uppercase, ungated) vocabulary — plus maxUsers and
+            maxWarehouses, which no code in any project reads. Two fields for
+            one concept is what let a renewal be entered here and silently not
+            take effect. Only the genuinely-billing fields remain; the stored
+            values of the removed ones are left untouched. */}
         <div className="form-grid">
           <label>الباقة<select value={sub.plan} onChange={(e) => setSub({ ...sub, plan: e.target.value as Plan })}><option value="TRIAL">تجريبية</option><option value="BASIC">أساسية</option><option value="PRO">احترافية</option><option value="FULL">كاملة</option></select></label>
-          <label>تاريخ الانتهاء<input type="date" value={sub.expiresAt} onChange={(e) => setSub({ ...sub, expiresAt: e.target.value })} /></label>
           <label>السعر<input type="number" value={sub.price} onChange={(e) => setSub({ ...sub, price: e.target.value })} /></label>
           <label>الدفع<select value={sub.billingCycle} onChange={(e) => setSub({ ...sub, billingCycle: e.target.value })}><option value="MONTHLY">شهري</option><option value="YEARLY">سنوي</option><option value="CUSTOM">مخصص</option></select></label>
-          {[["maxUsers", "عدد المستخدمين"], ["maxWarehouses", "عدد المخازن"], ["maxAndroidDevices", "أجهزة أندرويد"], ["maxCustomers", "حد الزبائن"]] .map(([key, label]) => <label key={key}>{label}<input type="number" min="1" value={sub[key as keyof typeof sub] as string} onChange={(e) => setSub({ ...sub, [key]: e.target.value })} placeholder="غير محدود" /></label>)}
+          <label>حد الزبائن<input type="number" min="1" value={sub.maxCustomers} onChange={(e) => setSub({ ...sub, maxCustomers: e.target.value })} placeholder="غير محدود" /><small className="field-note">يُطبَّق فعلاً عند إضافة زبون في المحل.</small></label>
         </div>
-        <div className="feature-grid">{FEATURES.map((feature) => <button className={sub.features.includes(feature.key) ? "feature selected" : "feature"} key={feature.key} onClick={() => setSub({ ...sub, features: sub.features.includes(feature.key) ? sub.features.filter((item) => item !== feature.key) : [...sub.features, feature.key] })}><Check size={15} />{feature.label}</button>)}</div>
-        <div className="panel-actions"><button className="primary" onClick={() => run(() => tenantsApi.updateSubscription(id, { ...sub, expiresAt: sub.expiresAt ? new Date(`${sub.expiresAt}T23:59:59`).toISOString() : null, price: number(sub.price), maxUsers: number(sub.maxUsers), maxWarehouses: number(sub.maxWarehouses), maxAndroidDevices: number(sub.maxAndroidDevices), maxCustomers: number(sub.maxCustomers), currency: "IQD", isActive: true }), "تم حفظ الاشتراك والمزايا")}><Save size={17} /> حفظ الاشتراك</button></div>
+        <div className="alert info" style={{ marginTop: 14 }}>
+          تاريخ الانتهاء والمزايا وحد أجهزة الأندرويد انتقلت إلى تبويب «النسخة والميزات» — هي المكان الوحيد الذي يقرؤه خادم المحل.
+        </div>
+        <div className="panel-actions"><button className="primary" onClick={saveCurrentTab}><Save size={17} /> حفظ الفوترة</button></div>
       </section>}
 
       {tab === "devices" && <section className="panel">

@@ -170,11 +170,19 @@ function checkMode(tenant: Tenant, liveTenantInfo: LiveTenantInfo | null): Docto
       details: { expected: "standalone (or absent)", actual: liveTenantInfo.mode ?? null },
     };
   }
+  // A standalone shop is not a yellow "worth reviewing" note — it means this
+  // shop's backend has no TENANT_ID and therefore never asks Super Admin
+  // anything. Suspending it, expiring it, or toggling its features changes
+  // nothing at all. Reported as a WARNING it sat among ordinary warnings and
+  // was read past; a real customer ran that way for months. It is the single
+  // most consequential misconfiguration this report can find, so it fails.
   const isStandalone = liveTenantInfo.mode === "standalone";
   return {
     key: "mode_check", label: "تطابق وضع التشغيل (mode)",
-    status: isStandalone ? "WARNING" : "PASS",
-    message: isStandalone ? "الخادم يعمل بوضع standalone بينما يفترض أن يكون SaaS" : "وضع التشغيل مطابق للمتوقع (SaaS)",
+    status: isStandalone ? "FAIL" : "PASS",
+    message: isStandalone
+      ? "الخادم يعمل مستقلاً تماماً عن لوحة الإدارة — الإيقاف وتاريخ الانتهاء والمزايا لا تصل إليه إطلاقاً"
+      : "وضع التشغيل مطابق للمتوقع (SaaS)",
     details: { expected: "saas/multi-tenant (not standalone)", actual: liveTenantInfo.mode ?? null },
   };
 }
@@ -307,7 +315,13 @@ function buildRecommendedActions(checks: DoctorCheck[]): string[] {
         actions.push("تأكد من أن نقطة /api/tenant-info متاحة وتعمل على خادم المحل");
         break;
       case "mode_check":
-        actions.push("راجع إعداد وضع التشغيل (standalone/SaaS) على خادم المحل مقارنة بنوع النسخة");
+        // Name the actual fix. "راجع إعداد وضع التشغيل" told an admin to go
+        // look at something without saying what to set or where.
+        actions.push(
+          check.status === "FAIL"
+            ? "أضف المتغيّرات TENANT_ID و SUPER_ADMIN_API_URL و SUPER_ADMIN_API_KEY إلى خدمة خادم المحل ثم أعد نشرها — بدونها لا يصل أي إعداد من هذه اللوحة. اضبط تاريخ انتهاء صحيحاً قبل الربط وإلا انقفل المحل فور اتصاله."
+            : "راجع إعداد وضع التشغيل (standalone/SaaS) على خادم المحل مقارنة بنوع النسخة",
+        );
         break;
       case "readonly_check":
         actions.push("راجع حالة الاشتراك وتاريخ الانتهاء");
@@ -359,11 +373,16 @@ export async function buildDoctorReport(tenant: TenantWithSerials): Promise<Doct
   const totalScore = checks.reduce((sum, c) => sum + scoreFor(c.status), 0);
   const score = Math.round((totalScore / checks.length) * 100);
 
-  const summary = overallStatus === "READY"
-    ? "المتجر جاهز ويعمل بشكل طبيعي"
-    : overallStatus === "WARNING"
-      ? "توجد بعض التنبيهات تحتاج مراجعة"
-      : "توجد مشاكل حرجة تمنع عمل المتجر بشكل صحيح";
+  // The disconnection outranks every other failure in the summary line: any
+  // other FAIL still leaves the panel in charge, this one does not.
+  const isDisconnected = checks.some((c) => c.key === "mode_check" && c.status === "FAIL");
+  const summary = isDisconnected
+    ? "هذا المحل غير موصول بلوحة الإدارة — لا شيء تضغطه هنا يصل إليه"
+    : overallStatus === "READY"
+      ? "المتجر جاهز ويعمل بشكل طبيعي"
+      : overallStatus === "WARNING"
+        ? "توجد بعض التنبيهات تحتاج مراجعة"
+        : "توجد مشاكل حرجة تمنع عمل المتجر بشكل صحيح";
 
   return {
     tenantId: tenant.id,

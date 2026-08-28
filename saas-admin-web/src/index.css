@@ -248,3 +248,9 @@ label { display: flex; flex-direction: column; gap: 6px; color: #445168; font-si
   .platform-row { flex-wrap: wrap; }
   .installer-actions button { flex: 1 1 auto; }
 }
+
+/* A feature the shop backend has no gate for: it saves, and changes nothing
+   there. Marked rather than hidden so the list still matches what was sold. */
+.feature-inert { margin-inline-start: 6px; font-size: 10px; font-weight: 700; color: #8a6116; background: #f9efd9; border: 1px solid #e8d3a4; border-radius: 8px; padding: 1px 6px; vertical-align: middle; }
+.platform-inert { margin-inline-start: 6px; font-size: 10px; font-weight: 700; color: #8a6116; background: #f9efd9; border: 1px solid #e8d3a4; border-radius: 8px; padding: 1px 6px; }
+.field-note { display: block; margin-top: 4px; font-size: 10.5px; line-height: 1.5; color: #8a6116; font-weight: 600; }

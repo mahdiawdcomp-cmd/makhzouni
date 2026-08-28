@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { DOMAIN_ROOT, getErrorMessage, tenantsApi, type LicenseType, type Plan } from "../api/client";
-import { FEATURE_GROUPS, LICENSE_TYPES, LICENSE_TYPE_LABELS } from "../entitlements";
+import { FEATURE_GROUPS, isFeatureEnforced, LICENSE_TYPES, LICENSE_TYPE_LABELS } from "../entitlements";
 
 // The features picked here are the TENANT-LEVEL entitlement keys — the same
 // vocabulary the License tab edits and the only one the tenant backend
@@ -135,7 +135,10 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
                           <div className={`feature-row ${on ? "on" : ""}`} key={item.key} onClick={() => toggleFeature(item.key)}>
                             <input type="checkbox" checked={on} onChange={() => toggleFeature(item.key)} onClick={(e) => e.stopPropagation()} />
                             <div className="feature-row-text">
-                              <span className="feature-row-label">{item.label}</span>
+                              <span className="feature-row-label">
+                                {item.label}
+                                {!isFeatureEnforced(item.key) && <span className="feature-inert" title="لا يوجد لها منع في خادم المحل — تُحفظ ولا تغيّر شيئاً">بلا أثر</span>}
+                              </span>
                               {item.description && <span className="feature-row-desc">{item.description}</span>}
                             </div>
                             <span className={`feature-row-badge ${on ? "on" : "off"}`}>{on ? "مفعّلة" : "متوقفة"}</span>

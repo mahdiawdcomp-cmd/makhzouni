@@ -143,12 +143,53 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
 
 export const FEATURE_KEYS: string[] = FEATURE_GROUPS.flatMap((g) => g.items.map((i) => i.key));
 
-export const PLATFORM_TOGGLES: Array<FeatureItem & { note?: string }> = [
+/**
+ * Feature keys the shop backend actually enforces today. Everything else in
+ * FEATURE_GROUPS can be ticked here, saves successfully, and changes nothing at
+ * the shop — which made the panel read as if it were in control when it was not.
+ * The UI now labels the difference instead of hiding it.
+ *
+ * SOURCE OF TRUTH is inventory-backend, not this file:
+ *   - the 13 route-gated keys come from ROUTE_FEATURE_MAP in
+ *     `inventory-backend/src/middleware/tenant.middleware.ts` (403 FEATURE_NOT_ENABLED)
+ *   - `catalogShowHidePrice` / `catalogShowHideStock` are enforced inside
+ *     `services/catalog.service.ts`, which degrades to a safe default rather
+ *     than blocking, but still genuinely changes behavior.
+ *
+ * `scripts/check-entitlements-sync.js` re-derives both lists from that backend
+ * and fails if this set drifts, so adding a gate there without updating here
+ * (or vice versa) is caught instead of silently mislabeling the UI.
+ *
+ * Deliberately NOT listed: `whatsappBot`. The bot service computes the check and
+ * then never branches on it, so ticking it changes nothing.
+ */
+export const ENFORCED_FEATURE_KEYS: ReadonlySet<string> = new Set([
+  "aiErrorAnalysis", "auditLog", "catalogWholesale", "dailyClosing", "quotations",
+  "retailCoupons", "retailShop", "salesReturns", "stocktake", "transfers",
+  "whatsappCampaigns", "whatsappInbox", "whatsappInvoices",
+  "catalogShowHidePrice", "catalogShowHideStock",
+]);
+
+/** True when ticking this key actually changes something at the shop. */
+export function isFeatureEnforced(key: string): boolean {
+  return ENFORCED_FEATURE_KEYS.has(key);
+}
+
+/**
+ * `inert: true` marks a toggle the shop backend never reads. `isPlatformEnabled`
+ * in inventory-backend only ever builds the keys web/android/desktop + "Enabled",
+ * so the last two below are unreachable no matter what is stored here.
+ *
+ * The three that ARE read are still only advisory: the check trusts a
+ * client-sent `X-Client-Platform` header and passes when it is absent or
+ * unrecognised. Phase 3 closes that; until then the UI should not imply more.
+ */
+export const PLATFORM_TOGGLES: Array<FeatureItem & { note?: string; inert?: boolean }> = [
   { key: "webEnabled", label: "تفعيل الويب", description: "الوصول عبر رابط المحل على الويب" },
   { key: "androidEnabled", label: "تفعيل أندرويد", description: "السماح بتفعيل سيريالات أندرويد لهذا المحل", note: "APK عام واحد بالسيريال" },
   { key: "desktopEnabled", label: "تفعيل الديسكتوب", description: "السماح بتشغيل نسخة الديسكتوب لهذا المحل", note: "يحتاج installer خاص لاحقاً" },
-  { key: "desktopWhiteLabelEnabled", label: "ديسكتوب باسم المحل", description: "تفعيل نسخة ديسكتوب بشعار واسم المحل" },
-  { key: "offlineLifetimeEnabled", label: "أوفلاين مدى الحياة", description: "تفعيل العمل دون إنترنت مدى الحياة", note: "يعمل بعد تفعيل السيريال مرة واحدة" },
+  { key: "desktopWhiteLabelEnabled", label: "ديسكتوب باسم المحل", description: "تفعيل نسخة ديسكتوب بشعار واسم المحل", inert: true },
+  { key: "offlineLifetimeEnabled", label: "أوفلاين مدى الحياة", description: "تفعيل العمل دون إنترنت مدى الحياة", note: "يعمل بعد تفعيل السيريال مرة واحدة", inert: true },
 ];
 
 /** Static, always-on base features. Display-only — never checkboxes, never removable. */
