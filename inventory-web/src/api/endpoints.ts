@@ -2339,6 +2339,13 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
 export type CatalogVisitor = {
   id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string
   customerId: string | null; customerName: string | null; totalTimeSeconds: number
+  /** What the visitor typed about themselves on the storefront's details step.
+   *  The server has returned these all along; the type simply never named
+   *  them, so the screen could only ever draw a phone number. */
+  name?: string | null
+  address?: string | null
+  province?: string | null
+  notes?: string | null
   /** بند ١٠ — عدد مشاهدات المنتجات، تستخدم لترتيب أولوية الاتصال. */
   viewCount: number
   /** بند ١٠ — طلب رمز دخول بس لسه ما صار زبون (قريب من التسجيل). */

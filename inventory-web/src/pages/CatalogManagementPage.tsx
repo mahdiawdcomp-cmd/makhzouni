@@ -854,8 +854,11 @@ function VisitorsTab() {
   })
 
   function exportCsv() {
-    const header = ["الرقم", "عدد الزيارات", "أول زيارة", "آخر زيارة", "زبون"]
+    const header = ["الاسم", "المحافظة", "العنوان", "الرقم", "عدد الزيارات", "أول زيارة", "آخر زيارة", "زبون"]
     const rows = visitors.map((v) => [
+      v.customerName || v.name || "",
+      v.province || "",
+      v.address || "",
       v.phone, String(v.visits),
       dayjs(v.firstSeenAt).format("YYYY-MM-DD"),
       dayjs(v.lastSeenAt).format("YYYY-MM-DD HH:mm"),
@@ -916,6 +919,7 @@ function VisitorsTab() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-right text-xs text-slate-500">
+                    <th className="p-2 font-medium">الاسم</th>
                     <th className="p-2 font-medium">الرقم</th>
                     <th className="p-2 font-medium">عدد الزيارات</th>
                     <th className="p-2 font-medium">آخر زيارة</th>
@@ -931,6 +935,20 @@ function VisitorsTab() {
                   {visitors.map((v) => (
                     <Fragment key={v.id}>
                     <tr className="border-b last:border-0">
+                      {/* A shop customer answers with the name on the books;
+                          anyone else answers with the name they typed
+                          themselves. Only a guest who never got that far is
+                          left as a bare number. */}
+                      <td className="p-2">
+                        <p className="font-bold text-slate-800">
+                          {v.customerName || v.name || "بلا اسم"}
+                        </p>
+                        {(v.address || v.province) && (
+                          <p className="text-[11px] text-slate-400">
+                            {[v.province, v.address].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </td>
                       <td className="p-2 font-mono" dir="ltr">{v.phone}</td>
                       <td className="p-2">{v.visits}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).locale("ar").fromNow()}</td>
@@ -983,7 +1001,12 @@ function VisitorsTab() {
                     </tr>
                     {expandedPhone === v.phone && (
                       <tr className="border-b bg-slate-50/60 last:border-0">
-                        <td className="p-3" colSpan={9}>
+                        <td className="p-3" colSpan={10}>
+                          {v.notes && (
+                            <p className="mb-3 rounded-lg bg-white px-3 py-2 text-xs text-slate-600">
+                              <span className="font-bold">ملاحظاته: </span>{v.notes}
+                            </p>
+                          )}
                           <VisitorSessionsList phone={v.phone} />
                           <div className="mt-3 border-t pt-3">
                             <VisitorProductViewsList phone={v.phone} />

@@ -269,10 +269,31 @@ export async function listAllReservations(status?: "PENDING" | "CONFIRMED" | "CA
       item: { select: { id: true, name: true, arrivedAt: true } },
     },
   });
+  // Resolve who these phones actually are. The name stored on a reservation is
+  // whatever they typed at the time; a shop customer should show under the name
+  // on the books, and a returning visitor under the one they gave the
+  // storefront — a bare number tells the merchant nothing.
+  const phones = [...new Set(rows.map((r) => r.phone))];
+  const [customers, visitors] = phones.length
+    ? await Promise.all([
+        prisma.customer.findMany({
+          where: { phone: { in: phones }, deletedAt: null },
+          select: { phone: true, name: true },
+        }),
+        prisma.catalogVisitor.findMany({
+          where: { phone: { in: phones } },
+          select: { phone: true, name: true },
+        }),
+      ])
+    : [[], []];
+  const nameByPhone = new Map<string, string>();
+  for (const v of visitors) if (v.name) nameByPhone.set(v.phone, v.name);
+  for (const c of customers) nameByPhone.set(c.phone, c.name); // a customer wins
+
   return rows.map((r) => ({
     id: r.id,
     phone: r.phone,
-    name: r.name,
+    name: nameByPhone.get(r.phone) ?? r.name,
     quantity: r.quantity,
     note: r.note,
     status: r.status,
