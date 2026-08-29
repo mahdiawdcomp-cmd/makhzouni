@@ -171,6 +171,54 @@ export function isSafeOutboundUrl(raw: string): boolean {
   return true;
 }
 
+/**
+ * Which shops is this panel actually in control of?
+ *
+ * A shop backend only obeys Super Admin when it is started with TENANT_ID; the
+ * ones without it run standalone and ignore every suspend, expiry and feature
+ * flag stored here. Nothing in the panel used to show that, so a shop could sit
+ * outside the control plane indefinitely and still look green in the list — one
+ * real customer did, for months.
+ *
+ * Read-only: a single GET to each shop's own /api/tenant-info, in parallel, no
+ * database writes. Unreachable or slow shops come back as "unknown" rather than
+ * failing the whole response, because a console that shows nothing when one shop
+ * is down is worse than one that shows the rest.
+ */
+router.get("/connectivity", async (_req: Request, res: Response) => {
+  const tenants = await prisma.tenant.findMany({
+    select: { id: true, backendUrl: true },
+  });
+
+  const results = await Promise.all(tenants.map(async (tenant) => {
+    if (!tenant.backendUrl || !isSafeOutboundUrl(tenant.backendUrl)) {
+      return { tenantId: tenant.id, state: "unknown" as const, reason: "رابط الباكند غير صالح" };
+    }
+    try {
+      const response = await fetch(`${tenant.backendUrl.replace(/\/+$/, "")}/api/tenant-info`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!response.ok) {
+        return { tenantId: tenant.id, state: "unknown" as const, reason: `HTTP ${response.status}` };
+      }
+      const info = await response.json() as { mode?: string; readOnly?: boolean };
+      return {
+        tenantId: tenant.id,
+        state: info.mode === "standalone" ? ("disconnected" as const) : ("connected" as const),
+        readOnly: !!info.readOnly,
+      };
+    } catch (error) {
+      return {
+        tenantId: tenant.id,
+        state: "unknown" as const,
+        reason: error instanceof Error ? error.message : "تعذر الاتصال",
+      };
+    }
+  }));
+
+  res.json(results);
+});
+
 router.get("/summary", async (_req: Request, res: Response) => {
   const [total, active, suspended, tenants, devices] = await Promise.all([
     prisma.tenant.count(),

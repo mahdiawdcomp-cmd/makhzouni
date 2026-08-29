@@ -85,6 +85,15 @@
 
 ## E) Verification / Doctor Checklist
 
+> **بوابتان لا يُسلَّم المحل قبلهما.** كلاهما كان مكتوباً في هذا الدليل ومع ذلك
+> سُلِّم محل زبون حقيقي بدونهما وبقي شهوراً هكذا — لأن لا شيء كان يمنع التسليم.
+>
+> 1. **الارتباط:** بطاقة المحل في لوحة الإدارة تقول «موصول»، وفحص الجاهزية أخضر.
+>    إذا قالت «غير موصول» فالمحل خارج سيطرتك تماماً: الإيقاف وتاريخ الانتهاء
+>    والمزايا لا تصل إليه إطلاقاً. هذا فشل أحمر في الفحص، وليس تحذيراً.
+> 2. **النسخ الاحتياطي:** نسخة واحدة على الأقل نزلت فعلاً ونجحت (القسم F).
+>    بدونها، ضياع قاعدة الزبون ضياع نهائي.
+
 نفّذها بالترتيب قبل تسليم الزبون:
 
 - [ ] `https://admin-api.mazbwoni.com/api/tenant-config?subdomain=<sub>` يرجع الـ tenant الصحيح (الاسم، backendUrl، status=ACTIVE).
@@ -98,6 +107,33 @@
 - [ ] لا رسائل WhatsApp ولا OTP حقيقية أُرسلت أثناء الفحص.
 - [ ] تأكد أن `mahdi` و`makhzouni-qa` لم يتأثرا (فتح سريع لكل واحد).
 - [ ] احذف/عطّل أي بيانات smoke test قبل التسليم.
+
+## F) النسخ الاحتياطي للزبون — خطوة إلزامية
+
+كل محل قاعدة بيانات منفصلة، فلكل محل سرّه ومهمّته الخاصة.
+
+1. ولّد سراً قوياً وضعه على خدمة الباكند في Railway باسم `BACKUP_SECRET`،
+   ثم أعد نشر الخدمة كي تلتقطه.
+2. خزّن نفس السر على جهازك بمتغيّر بيئة **خاص بهذا المحل** (لا تعِد استخدام سر محل آخر):
+
+   ```
+   setx MAKHZOUNI_BACKUP_SECRET_<SUB> "<السر>"
+   ```
+
+3. جرّب سحب نسخة واحدة يدوياً وتأكد أنها نجحت قبل جدولتها:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File inventory-desktop-trial/scripts/backup-online.ps1 -ApiUrl "https://<backend>/api/settings/backup/download" -AppDataDir "%APPDATA%\com.mazbwoni.<sub>" -SecretEnvVar "MAKHZOUNI_BACKUP_SECRET_<SUB>"
+   ```
+
+4. ثبّت المهمة اليومية (من PowerShell **كمسؤول** ليعمل حتى بدون تسجيل دخول؛
+   بدون صلاحية المسؤول أضف `-NoElevation` وستعمل فقط أثناء تسجيل دخولك):
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -File inventory-desktop-trial/scripts/install-online-backup-task.ps1 -Time "03:20" -TaskName "MakhzouniOnlineBackup-<Sub>" -AppDataDir "%APPDATA%\com.mazbwoni.<sub>" -ApiUrl "https://<backend>/api/settings/backup/download" -SecretEnvVar "MAKHZOUNI_BACKUP_SECRET_<SUB>"
+   ```
+
+5. شغّل المهمة مرة يدوياً وتأكد من ظهور ملف ZIP جديد قبل أن تعتبرها منجزة.
 
 ## ملحق: التسلسل العملي المجرّب (دفعة 22C — نجح فعلياً على makhzouni-dryrun)
 

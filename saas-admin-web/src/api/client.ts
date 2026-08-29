@@ -201,6 +201,14 @@ export const totpApi = {
   disable: (password: string) => api.post<{ enabled: boolean }>("/auth/totp/disable", { password }),
 };
 
+export interface TenantConnectivity {
+  tenantId: string;
+  /** connected = the shop reads its licence from us; disconnected = it ignores us. */
+  state: "connected" | "disconnected" | "unknown";
+  readOnly?: boolean;
+  reason?: string;
+}
+
 export const tenantsApi = {
   list: (params?: { q?: string; status?: string }) => api.get<Tenant[]>("/tenants", { params }),
   summary: () => api.get<Summary>("/tenants/summary"),
@@ -215,6 +223,8 @@ export const tenantsApi = {
     api.patch<SerialNumber>(`/tenants/${tenantId}/serials/${serialId}`, { isActive }),
   checkBackend: (id: string) => api.post<{ ok: boolean; latencyMs?: number }>(`/tenants/${id}/check-backend`),
   doctor: (id: string) => api.get<DoctorResult>(`/tenants/${id}/doctor`),
+  /** Which shops actually obey this panel — see GET /tenants/connectivity. */
+  connectivity: () => api.get<TenantConnectivity[]>("/tenants/connectivity"),
   remove: (id: string) => api.delete<void>(`/tenants/${id}`),
 };
 

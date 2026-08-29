@@ -2,12 +2,18 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Activity, Building2, CalendarClock, ChevronLeft, CircleOff, Plus, Search, Smartphone } from "lucide-react";
-import { DOMAIN_ROOT, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus, type Tenant } from "../api/client";
+import { DOMAIN_ROOT, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus, type Tenant, type TenantConnectivity } from "../api/client";
 import CreateTenantModal from "../components/CreateTenantModal";
 
 const planText: Record<string, string> = { TRIAL: "تجريبي", BASIC: "أساسي", PRO: "احترافي", FULL: "كامل" };
 
-function TenantCard({ tenant }: { tenant: Tenant }) {
+const CONNECTIVITY_LABEL: Record<TenantConnectivity["state"], string> = {
+  connected: "موصول",
+  disconnected: "غير موصول",
+  unknown: "تعذر الفحص",
+};
+
+function TenantCard({ tenant, link }: { tenant: Tenant; link?: TenantConnectivity }) {
   const navigate = useNavigate();
   const subscription = tenant.subscriptions.find((item) => item.isActive);
   const status = effectiveTenantStatus(tenant);
@@ -21,6 +27,14 @@ function TenantCard({ tenant }: { tenant: Tenant }) {
           <span>{tenant.ownerName || "لم يحدد اسم المالك"}</span>
         </div>
         <span className={`status ${status.toLowerCase()}`}>{TENANT_STATUS_LABELS[status]}</span>
+      </div>
+      {/* Whether this shop obeys the panel at all. A "نشط" badge above says
+          nothing about that: a disconnected shop keeps selling no matter what
+          the status here says. */}
+      <div className={`wire wire-${link?.state ?? "loading"}`}>
+        {link
+          ? <>{CONNECTIVITY_LABEL[link.state]}{link.state === "disconnected" ? " — لا يصلها أي إعداد من هنا" : ""}{link.reason ? ` (${link.reason})` : ""}</>
+          : "جارِ فحص الارتباط…"}
       </div>
       <div className="tenant-domain">{tenant.subdomain}.{DOMAIN_ROOT}</div>
       <div className="tenant-meta">
@@ -47,6 +61,18 @@ export default function TenantsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
   const tenants = useQuery({ queryKey: ["tenants"], queryFn: () => tenantsApi.list().then((r) => r.data) });
+  // Probes every shop's own backend, so it is slower and allowed to fail
+  // independently — the list must still render when a shop is unreachable.
+  const connectivity = useQuery({
+    queryKey: ["tenant-connectivity"],
+    queryFn: () => tenantsApi.connectivity().then((r) => r.data),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const linkByTenant = useMemo(
+    () => new Map((connectivity.data ?? []).map((row) => [row.tenantId, row])),
+    [connectivity.data],
+  );
   const summary = useQuery({ queryKey: ["tenant-summary"], queryFn: () => tenantsApi.summary().then((r) => r.data) });
 
   const filtered = useMemo(() => (tenants.data ?? []).filter((tenant) => {
@@ -95,7 +121,7 @@ export default function TenantsPage() {
       {!tenants.isLoading && filtered.length === 0 && (
         <div className="empty-state"><CircleOff size={36} /><b>لا توجد نتائج</b><span>غيّر البحث أو أضف أول محل.</span></div>
       )}
-      <section className="tenant-grid">{filtered.map((tenant) => <TenantCard key={tenant.id} tenant={tenant} />)}</section>
+      <section className="tenant-grid">{filtered.map((tenant) => <TenantCard key={tenant.id} tenant={tenant} link={linkByTenant.get(tenant.id)} />)}</section>
       {showCreate && <CreateTenantModal onClose={() => setShowCreate(false)} />}
     </>
   );
