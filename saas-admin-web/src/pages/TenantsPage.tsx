@@ -13,7 +13,7 @@ const CONNECTIVITY_LABEL: Record<TenantConnectivity["state"], string> = {
   unknown: "تعذر الفحص",
 };
 
-function TenantCard({ tenant, link }: { tenant: Tenant; link?: TenantConnectivity }) {
+function TenantCard({ tenant, link, linkFailed }: { tenant: Tenant; link?: TenantConnectivity; linkFailed?: boolean }) {
   const navigate = useNavigate();
   const subscription = tenant.subscriptions.find((item) => item.isActive);
   const status = effectiveTenantStatus(tenant);
@@ -31,10 +31,12 @@ function TenantCard({ tenant, link }: { tenant: Tenant; link?: TenantConnectivit
       {/* Whether this shop obeys the panel at all. A "نشط" badge above says
           nothing about that: a disconnected shop keeps selling no matter what
           the status here says. */}
-      <div className={`wire wire-${link?.state ?? "loading"}`}>
+      <div className={`wire wire-${link?.state ?? (linkFailed ? "unknown" : "loading")}`}>
         {link
           ? <>{CONNECTIVITY_LABEL[link.state]}{link.state === "disconnected" ? " — لا يصلها أي إعداد من هنا" : ""}{link.reason ? ` (${link.reason})` : ""}</>
-          : "جارِ فحص الارتباط…"}
+          : linkFailed
+            ? "تعذر فحص الارتباط"
+            : "جارِ فحص الارتباط…"}
       </div>
       <div className="tenant-domain">{tenant.subdomain}.{DOMAIN_ROOT}</div>
       <div className="tenant-meta">
@@ -121,7 +123,7 @@ export default function TenantsPage() {
       {!tenants.isLoading && filtered.length === 0 && (
         <div className="empty-state"><CircleOff size={36} /><b>لا توجد نتائج</b><span>غيّر البحث أو أضف أول محل.</span></div>
       )}
-      <section className="tenant-grid">{filtered.map((tenant) => <TenantCard key={tenant.id} tenant={tenant} link={linkByTenant.get(tenant.id)} />)}</section>
+      <section className="tenant-grid">{filtered.map((tenant) => <TenantCard key={tenant.id} tenant={tenant} link={linkByTenant.get(tenant.id)} linkFailed={connectivity.isError} />)}</section>
       {showCreate && <CreateTenantModal onClose={() => setShowCreate(false)} />}
     </>
   );
