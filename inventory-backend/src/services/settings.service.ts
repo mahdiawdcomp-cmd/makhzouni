@@ -301,6 +301,9 @@ export interface AppSettings {
   // sheet, so hiding them is a cleaner front page, not a wall the shopper
   // cannot see past. Defaults to false — nothing disappears until opted in.
   catalogHideNoImage?: boolean;
+  // How many days a product counts as «وصلت هسه» on the storefront, measured
+  // from when it was added. 0 turns the button off entirely.
+  catalogNewArrivalDays?: number;
   // Wholesale catalog product-order rotation. "hourly" reshuffles the order for
   // all shoppers every hour, "daily" every day, "off" keeps the fixed
   // category/name order. Defaults to "hourly".
@@ -478,6 +481,7 @@ export const defaultSettings: AppSettings = {
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,
   catalogHideNoImage: false,
+  catalogNewArrivalDays: 10,
   catalogShuffleMode: "hourly",
   catalogNorthGovernorates: [...DEFAULT_NORTH_GOVERNORATES],
   catalogFreeShippingThreshold: DEFAULT_FREE_SHIPPING_THRESHOLD,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ImageOff, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Truck, Gift } from "lucide-react"
+import { ImageOff, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Sparkles, Truck, Gift } from "lucide-react"
 import { getSettings, updateSettings, applyPricesDefaultToAll } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -70,6 +70,7 @@ export function CatalogSettingsTab() {
   const [publicUrl, setPublicUrl] = useState<string | null>(null)
   const [adminPhone, setAdminPhone] = useState<string | null>(null)
   const [freeShipping, setFreeShipping] = useState<string | null>(null)
+  const [arrivalDays, setArrivalDays] = useState<string | null>(null)
   const [northDraft, setNorthDraft] = useState<string[] | null>(null)
   const [couponPercent, setCouponPercent] = useState<string | null>(null)
   const [couponDays, setCouponDays] = useState<string | null>(null)
@@ -105,6 +106,7 @@ export function CatalogSettingsTab() {
   const urlValue = publicUrl ?? s?.catalogPublicUrl ?? ""
   const phoneValue = adminPhone ?? s?.catalogAdminWhatsappNumber ?? ""
   const freeShippingValue = freeShipping ?? String(s?.catalogFreeShippingThreshold ?? 1_500_000)
+  const arrivalDaysValue = arrivalDays ?? String(s?.catalogNewArrivalDays ?? 10)
   const northValue = northDraft ?? (s?.catalogNorthGovernorates as string[] | undefined) ?? DEFAULT_NORTH_GOVERNORATES
   const couponPercentValue = couponPercent ?? String(s?.firstOrderCouponPercent ?? 5)
   const couponDaysValue = couponDays ?? String(s?.firstOrderCouponDurationDays ?? 7)
@@ -241,6 +243,31 @@ export function CatalogSettingsTab() {
               onChange={(e) => saveMut.mutate({ catalogHideNoImage: e.target.checked })}
               className="h-4 w-4 accent-emerald-600"
             />
+          </Row>
+
+          <Row
+            icon={<Sparkles className="h-4 w-4 text-slate-500" />}
+            title="مدة «وصلت هسه» بالأيام"
+            description="زر بالمتجر يعرض بس البضاعة المضافة بهذي المدة. صفر يطفي الزر. الزر ما يظهر أصلاً إذا ما اكو بضاعة جديدة."
+          >
+            <div className="flex shrink-0 gap-2">
+              <Input
+                type="number"
+                min={0}
+                max={365}
+                value={arrivalDaysValue}
+                onChange={(e) => setArrivalDays(e.target.value)}
+                dir="ltr"
+                className="w-20 text-sm"
+              />
+              <Button
+                onClick={() => saveMut.mutate({ catalogNewArrivalDays: Math.max(0, Math.min(365, Number(arrivalDaysValue) || 0)) })}
+                disabled={saveMut.isPending || arrivalDays === null}
+                className="shrink-0"
+              >
+                حفظ
+              </Button>
+            </div>
           </Row>
 
           <Row

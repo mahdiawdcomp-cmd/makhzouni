@@ -25,6 +25,7 @@ import {
   MessageCircle,
   ShoppingBag,
   ImageOff,
+  Sparkles,
   SlidersHorizontal,
   ShoppingCart,
   LogOut,
@@ -1052,6 +1053,10 @@ function CatalogShop({
   // which is exactly the mess this replaced — so they get their own view and
   // the shopper always knows which of the two they are looking at.
   const [noImageMode, setNoImageMode] = useState(false)
+  // «وصلت هسه» — the newest goods, by when they were added to the shop. A
+  // filter and not a page: it is a slice of the same grid, so the sort, the
+  // category tabs and the search all keep meaning what they mean.
+  const [justArrivedOnly, setJustArrivedOnly] = useState(false)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -1276,6 +1281,24 @@ function CatalogShop({
     return [...typeSet].sort()
   }, [category, catalogCatsList, products])
 
+  // «آخر ١٠ أيام» counts back from when this product list was fetched, not from
+  // a clock read mid-render. Reading the clock during render is impure — the
+  // same render would answer differently each time — and the fetch timestamp is
+  // the more honest anchor anyway: the window moves when the data does, not
+  // under a shopper who is still looking at the page.
+  const arrivalCutoff = useMemo(() => {
+    const days = design?.newArrivalDays ?? 10
+    if (!days || days <= 0 || !productsQuery.dataUpdatedAt) return null
+    return productsQuery.dataUpdatedAt - days * 86_400_000
+  }, [design?.newArrivalDays, productsQuery.dataUpdatedAt])
+  const isJustArrived = (p: PublicCatalogProduct) =>
+    arrivalCutoff != null && p.createdAt != null && new Date(p.createdAt).getTime() >= arrivalCutoff
+  const justArrivedCount = useMemo(() => {
+    if (arrivalCutoff == null) return 0
+    return products.filter((p) => isJustArrived(p) && canDisplay(p)).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, arrivalCutoff, hideNoImage, noImageMode, guestMode, stockFilter])
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
     const min = Number(filters.minPrice.replace(/[^\d.]/g, ""))
@@ -1285,6 +1308,7 @@ function CatalogShop({
 
     let result = products.filter((p) => {
       if (!canDisplay(p)) return false
+      if (justArrivedOnly && !isJustArrived(p)) return false
       if (category !== "all") {
         const tags = p.categoryTags ?? []
         const inCat = tags.length > 0 ? tags.includes(category) : p.category === category
@@ -1322,7 +1346,7 @@ function CatalogShop({
     }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode])
+  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode, justArrivedOnly, arrivalCutoff])
 
   // ── Paging ──
   // `visible` above is the WHOLE catalog after search, filters and sorting —
@@ -2033,6 +2057,25 @@ function CatalogShop({
             )}
           </button>
 
+          {/* «وصلت هسه» — hidden outright when nothing is new, so it is never a
+              button that answers with an empty grid. */}
+          {justArrivedCount > 0 && (
+            <button onClick={() => { setJustArrivedOnly(v => !v); setPage(0) }}
+              className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1 font-semibold transition active:scale-95"
+              style={justArrivedOnly
+                ? { background: "#ffffff", color: tk.accent, fontSize: tk.fs.xs }
+                : { background: "rgba(255,255,255,0.2)", color: "#ffffff", fontSize: tk.fs.xs }}>
+              <Sparkles className="h-3 w-3" />
+              وصلت هسه
+              <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 font-extrabold"
+                style={justArrivedOnly
+                  ? { background: tk.accent, color: "#fff", fontSize: "9px" }
+                  : { background: "rgba(255,255,255,0.28)", color: "#fff", fontSize: "9px" }}>
+                {justArrivedCount}
+              </span>
+            </button>
+          )}
+
           {/* Sort */}
           <div className="flex flex-1 gap-1 overflow-x-auto scrollbar-hide">
             {(Object.keys(SORT_LABELS) as SortKey[]).map(sk => (
@@ -2081,6 +2124,20 @@ function CatalogShop({
 
       {/* ── Main content ── */}
       <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-6 pt-4 overflow-hidden" style={{ background: tk.bg }}>
+
+        {justArrivedOnly && (
+          <div className="mb-3 flex items-center gap-2 p-3" style={{ background: tk.accentLight, borderRadius: tk.radiusMd }}>
+            <Sparkles className="h-4 w-4 shrink-0" style={{ color: tk.accent }} />
+            <p className="min-w-0 flex-1 font-bold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>
+              تعرض بس البضاعة الي وصلت بآخر {design?.newArrivalDays ?? 10} يوم
+            </p>
+            <button onClick={() => { setJustArrivedOnly(false); setPage(0) }}
+              className="shrink-0 px-3 py-1.5 font-bold text-white transition active:scale-95"
+              style={{ background: tk.accent, borderRadius: tk.radiusSm, fontSize: tk.fs.xs }}>
+              اعرض الكل
+            </button>
+          </div>
+        )}
 
         {/* ── «مواد بدون صور» — its own page, never mixed into the grid ── */}
         {noImageMode && (

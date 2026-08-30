@@ -848,6 +848,7 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     suggestionsEnabled: settings.catalogSuggestionsEnabled !== false,
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
     hideNoImage: settings.catalogHideNoImage === true,
+    newArrivalDays: Math.max(0, Math.min(365, Math.round(Number(settings.catalogNewArrivalDays ?? 10)) || 0)),
     orderTiers: normalizeOrderTiers(settings.catalogOrderTiers ?? DEFAULT_ORDER_TIERS),
   };
 }

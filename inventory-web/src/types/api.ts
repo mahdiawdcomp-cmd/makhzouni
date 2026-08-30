@@ -1214,6 +1214,7 @@ export interface AppSettings {
   catalogRequireOtp?: boolean
   catalogFullCartonOnly?: boolean
   catalogHideNoImage?: boolean
+  catalogNewArrivalDays?: number
   /** Storefront login: close anonymous browsing entirely. */
   catalogRequireLogin?: boolean
   /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */

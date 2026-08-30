@@ -21,6 +21,8 @@ export interface CatalogLayout {
   tutorialEnabled: boolean
   /** The shop's default for pictureless products. The shopper may override it. */
   hideNoImage: boolean
+  /** How recently a product must have been added to count as «وصلت هسه». 0 = off. */
+  newArrivalDays: number
   /** «عروض القائمة» — thresholds that grant free delivery and/or a discount. */
   orderTiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }
