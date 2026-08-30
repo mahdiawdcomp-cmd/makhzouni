@@ -6,6 +6,7 @@ import { generateSerialCode } from "../services/serial.service";
 import { FEATURE_KEYS } from "../entitlements";
 import { buildDoctorReport } from "../services/tenant-doctor";
 import prisma from "../prisma";
+import { getFleetSnapshot, sweepFleet } from "../services/fleet-watch.service";
 
 const router = Router();
 router.use(requireAdminAuth);
@@ -185,38 +186,17 @@ export function isSafeOutboundUrl(raw: string): boolean {
  * failing the whole response, because a console that shows nothing when one shop
  * is down is worse than one that shows the rest.
  */
-router.get("/connectivity", async (_req: Request, res: Response) => {
-  const tenants = await prisma.tenant.findMany({
-    select: { id: true, backendUrl: true },
-  });
-
-  const results = await Promise.all(tenants.map(async (tenant) => {
-    if (!tenant.backendUrl || !isSafeOutboundUrl(tenant.backendUrl)) {
-      return { tenantId: tenant.id, state: "unknown" as const, reason: "رابط الباكند غير صالح" };
-    }
-    try {
-      const response = await fetch(`${tenant.backendUrl.replace(/\/+$/, "")}/api/tenant-info`, {
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!response.ok) {
-        return { tenantId: tenant.id, state: "unknown" as const, reason: `HTTP ${response.status}` };
-      }
-      const info = await response.json() as { mode?: string; readOnly?: boolean };
-      return {
-        tenantId: tenant.id,
-        state: info.mode === "standalone" ? ("disconnected" as const) : ("connected" as const),
-        readOnly: !!info.readOnly,
-      };
-    } catch (error) {
-      return {
-        tenantId: tenant.id,
-        state: "unknown" as const,
-        reason: error instanceof Error ? error.message : "تعذر الاتصال",
-      };
-    }
-  }));
-
-  res.json(results);
+// Serves the background sweep's last result rather than probing on every page
+// load: opening the list should not fan out to every shop and wait on the
+// slowest one. `?refresh=1` forces a fresh sweep for when an admin has just
+// changed something and wants to see it now. `checkedAt` is null until the
+// first sweep lands after a restart, which the UI reports as such rather than
+// pretending it knows.
+router.get("/connectivity", async (req: Request, res: Response) => {
+  const snapshot = String(req.query.refresh ?? "") === "1"
+    ? await sweepFleet()
+    : getFleetSnapshot();
+  res.json(snapshot);
 });
 
 router.get("/summary", async (_req: Request, res: Response) => {

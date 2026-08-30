@@ -262,3 +262,4 @@ label { display: flex; flex-direction: column; gap: 6px; color: #445168; font-si
 .wire-disconnected { color: #9e2632; background: #fff0f1; border: 1px solid #f2c5ca; }
 .wire-unknown { color: #8a6116; background: #f9efd9; border: 1px solid #e8d3a4; }
 .wire-loading { color: var(--muted); background: #eef2f7; border: 1px solid #e2e8f0; }
+.fleet-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 14px; }

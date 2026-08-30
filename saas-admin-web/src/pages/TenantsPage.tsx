@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Activity, Building2, CalendarClock, ChevronLeft, CircleOff, Plus, Search, Smartphone } from "lucide-react";
 import { DOMAIN_ROOT, tenantsApi, TENANT_STATUS_LABELS, effectiveTenantStatus, type Tenant, type TenantConnectivity } from "../api/client";
@@ -62,6 +62,7 @@ export default function TenantsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("ALL");
+  const qc = useQueryClient();
   const tenants = useQuery({ queryKey: ["tenants"], queryFn: () => tenantsApi.list().then((r) => r.data) });
   // Probes every shop's own backend, so it is slower and allowed to fail
   // independently — the list must still render when a shop is unreachable.
@@ -72,9 +73,25 @@ export default function TenantsPage() {
     retry: false,
   });
   const linkByTenant = useMemo(
-    () => new Map((connectivity.data ?? []).map((row) => [row.tenantId, row])),
+    () => new Map((connectivity.data?.rows ?? []).map((row) => [row.tenantId, row])),
     [connectivity.data],
   );
+  const checkedAt = connectivity.data?.checkedAt ?? null;
+  // The plain query reads the background sweep's cached result. This button is
+  // for "I just changed something, look again now", so it asks for a fresh
+  // sweep and writes the answer straight into the same cache.
+  const [refreshing, setRefreshing] = useState(false);
+  const resweep = async () => {
+    setRefreshing(true);
+    try {
+      const { data } = await tenantsApi.connectivity(true);
+      qc.setQueryData(["tenant-connectivity"], data);
+    } catch {
+      await connectivity.refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const summary = useQuery({ queryKey: ["tenant-summary"], queryFn: () => tenantsApi.summary().then((r) => r.data) });
 
   const filtered = useMemo(() => (tenants.data ?? []).filter((tenant) => {
@@ -104,6 +121,19 @@ export default function TenantsPage() {
           <button className="secondary" onClick={() => setDeletedNotice("")}>إخفاء</button>
         </div>
       )}
+
+      <div className="fleet-line">
+        {connectivity.isError
+          ? "تعذر فحص ارتباط المحلات"
+          : checkedAt
+            ? `آخر فحص لارتباط المحلات: ${new Date(checkedAt).toLocaleString("ar-IQ")}`
+            : "لم يكتمل أول فحص لارتباط المحلات بعد"}
+        <button
+          className="secondary small"
+          disabled={refreshing || connectivity.isFetching}
+          onClick={() => { void resweep(); }}
+        >{refreshing || connectivity.isFetching ? "جارِ الفحص…" : "افحص الآن"}</button>
+      </div>
 
       <section className="stats-grid">
         {cards.map(({ label, value, icon: Icon, tone }) => (

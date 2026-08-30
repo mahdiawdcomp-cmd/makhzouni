@@ -207,6 +207,14 @@ export interface TenantConnectivity {
   state: "connected" | "disconnected" | "unknown";
   readOnly?: boolean;
   reason?: string;
+  /** Negative once the licence has already expired. */
+  daysToExpiry?: number | null;
+}
+
+export interface FleetSnapshot {
+  /** null until the first background sweep lands after a restart. */
+  checkedAt: string | null;
+  rows: TenantConnectivity[];
 }
 
 export const tenantsApi = {
@@ -224,7 +232,8 @@ export const tenantsApi = {
   checkBackend: (id: string) => api.post<{ ok: boolean; latencyMs?: number }>(`/tenants/${id}/check-backend`),
   doctor: (id: string) => api.get<DoctorResult>(`/tenants/${id}/doctor`),
   /** Which shops actually obey this panel — see GET /tenants/connectivity. */
-  connectivity: () => api.get<TenantConnectivity[]>("/tenants/connectivity"),
+  connectivity: (refresh = false) =>
+    api.get<FleetSnapshot>("/tenants/connectivity", { params: refresh ? { refresh: 1 } : undefined }),
   remove: (id: string) => api.delete<void>(`/tenants/${id}`),
 };
 

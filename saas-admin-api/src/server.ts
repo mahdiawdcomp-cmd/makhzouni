@@ -32,6 +32,7 @@ import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import routes from "./routes";
+import { startFleetWatch } from "./services/fleet-watch.service";
 
 const app = express();
 const port = Number(process.env.PORT ?? 4000);
@@ -121,4 +122,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`[saas-admin-api] running on port ${port}`);
+  // Nothing in this service ever ran on its own before: every check happened
+  // only when an admin clicked something. That is how a shop sat outside the
+  // control plane unnoticed for months.
+  startFleetWatch();
 });
