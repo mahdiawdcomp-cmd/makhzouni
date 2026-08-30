@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   MessageCircle,
   ShoppingBag,
+  ImageOff,
   SlidersHorizontal,
   ShoppingCart,
   LogOut,
@@ -98,7 +99,6 @@ const VISITOR_TOKEN_KEY = "catalog_visitor_token"
 const themeKey = "catalog_theme"
 const accentKey = "catalog_accent"
 const fontScaleKey = "catalog_font_scale"
-const noImageKey = "catalog_show_no_image"
 const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", BOX: "علبة", CARTON: "كارتون" }
 const UNIT_DESC: Record<CatalogUnit, (pcsInUnit: number) => string> = {
   PIECE: () => "قطعة واحدة",
@@ -924,15 +924,38 @@ function CatalogShop({
   priceRequestPending?: boolean
   onPricesRequested?: () => void
 }) {
+  // Three different doors lead into the storefront — a customer link, a visitor
+  // code, and the guest phone gate. Whichever they came through, they are
+  // signed in as somebody, and signing out has to clear all three or the next
+  // visit silently walks back in as the previous person.
+  const signedInName = customerName.trim()
+  const signedInPhone = customerPhone.trim()
+  // An account is a customer link or a visitor code. The guest gate is not one
+  // — the phone was left at the door, not signed in with — but it is still
+  // something to walk back out of, so it earns the sign-out and not the name.
+  const hasAccount = Boolean(accessToken || visitorToken)
+  const isSignedIn = hasAccount || Boolean(localStorage.getItem(GUEST_PHONE_KEY))
+  function signOut() {
+    localStorage.removeItem(storageKey)
+    localStorage.removeItem(VISITOR_TOKEN_KEY)
+    localStorage.removeItem(GUEST_PHONE_KEY)
+    localStorage.removeItem(SIGNUP_PHONE_KEY)
+    window.location.href = "/catalog"
+  }
+
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
   // Ordering is still carton-only either way. Guests are always carton-only.
+  const inStock = (p: PublicCatalogProduct) =>
+    guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
   const canDisplay = (p: PublicCatalogProduct) => {
-    // A pictureless product is hidden, never dropped: the shopper can bring it
-    // back for themselves from «تخصيص المظهر», so this only ever changes what
-    // the grid draws — search, cart and stock all still know about it.
-    if (!showNoImage && !(p.hasImage ?? Boolean(p.thumbnailUrl))) return false
-    return guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
+    if (!inStock(p)) return false
+    const pictured = p.hasImage ?? Boolean(p.thumbnailUrl)
+    // The pictureless view is the exact complement of the normal grid: every
+    // product belongs to one side or the other, never to both and never to
+    // neither. Nothing is filtered out of search, cart or stock either way.
+    if (noImageMode) return !pictured
+    return pictured || !hideNoImage
   }
   const productsQuery = useQuery({
     queryKey: visitorToken
@@ -1024,14 +1047,11 @@ function CatalogShop({
     const v = localStorage.getItem(fontScaleKey)
     return v && v in FONT_SCALES ? (v as FontScale) : "md"
   })
-  // Pictureless products: null = follow whatever the shop decided, true/false =
-  // the shopper overrode it for themselves. Same three-state shape as the theme
-  // prefs above, so a shop that flips its own switch still moves everyone who
-  // never expressed an opinion.
-  const [showNoImagePref, setShowNoImagePref] = useState<boolean | null>(() => {
-    const v = localStorage.getItem(noImageKey)
-    return v === "1" ? true : v === "0" ? false : null
-  })
+  // «مواد بدون صور» is a place you go, not a switch you leave on. Mixing the
+  // pictureless back into the grid put one with a photo next to one without,
+  // which is exactly the mess this replaced — so they get their own view and
+  // the shopper always knows which of the two they are looking at.
+  const [noImageMode, setNoImageMode] = useState(false)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -1111,10 +1131,9 @@ function CatalogShop({
   })
   const design = designQuery.data
 
-  // The shopper's own choice wins; otherwise the shop's switch decides. While
-  // the design is still loading nothing is hidden, so a slow network can never
-  // make the grid look emptier than it is.
-  const showNoImage = showNoImagePref ?? design?.hideNoImage !== true
+  // Until the design loads nothing is hidden, so a slow network can never make
+  // the grid look emptier than it really is.
+  const hideNoImage = design?.hideNoImage === true
 
   // The admin's design is the *default* look, not a lock: it only applies to
   // preferences the shopper hasn't set for themselves.
@@ -1145,15 +1164,20 @@ function CatalogShop({
     setFontScale(f)
     localStorage.setItem(fontScaleKey, f)
   }
-  function applyShowNoImage(v: boolean) {
-    setShowNoImagePref(v)
-    localStorage.setItem(noImageKey, v ? "1" : "0")
+  function openNoImageMode() {
+    setNoImageMode(true)
+    setPage(0)
+    window.scrollTo({ top: 0 })
+  }
+  function closeNoImageMode() {
+    setNoImageMode(false)
+    setPage(0)
+    window.scrollTo({ top: 0 })
   }
   function resetAppearance() {
     setThemePref(null); localStorage.removeItem(themeKey)
     setAccentPref(null); localStorage.removeItem(accentKey)
     setFontScale("md"); localStorage.removeItem(fontScaleKey)
-    setShowNoImagePref(null); localStorage.removeItem(noImageKey)
   }
 
   // Close the "more" menu on outside click
@@ -1298,7 +1322,7 @@ function CatalogShop({
     }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, showNoImage])
+  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode])
 
   // ── Paging ──
   // `visible` above is the WHOLE catalog after search, filters and sorting —
@@ -1308,12 +1332,10 @@ function CatalogShop({
   // shopper so a shorter grid is never a mystery — and so the way back is one
   // tap, not a support call.
   const hiddenNoImageCount = useMemo(() => {
-    if (showNoImage) return 0
-    return products.filter((p) =>
-      !(p.hasImage ?? Boolean(p.thumbnailUrl)) &&
-      (guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)),
-    ).length
-  }, [products, showNoImage, guestMode, stockFilter])
+    if (!hideNoImage || noImageMode) return 0
+    return products.filter((p) => !(p.hasImage ?? Boolean(p.thumbnailUrl)) && inStock(p)).length
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, hideNoImage, noImageMode, guestMode, stockFilter])
 
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount - 1)
@@ -1422,11 +1444,11 @@ function CatalogShop({
   // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
   // once any filter is on — otherwise they'd show products the shopper just
   // filtered out, right above the filtered grid.
-  const showSections = category === "all" && typeFilter === "all" && !search.trim() && activeFilterCount === 0
+  const showSections = !noImageMode && category === "all" && typeFilter === "all" && !search.trim() && activeFilterCount === 0
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter, showNoImage])
+  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter, hideNoImage, noImageMode])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const offers = useMemo(() => products.filter(p => p.isOffer && canDisplay(p)).slice(0, 12), [products, stockFilter, showNoImage])
+  const offers = useMemo(() => products.filter(p => p.isOffer && canDisplay(p)).slice(0, 12), [products, stockFilter, hideNoImage, noImageMode])
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
@@ -1900,20 +1922,23 @@ function CatalogShop({
                       label: productsQuery.isFetching ? "جاري التحديث..." : "تحديث المنتجات",
                       onClick: () => { setMoreOpen(false); void productsQuery.refetch() },
                     },
-                    // Account + sign out only exist for a signed-in customer;
-                    // a guest has no account to open and nothing to sign out of.
-                    ...(guestMode ? [] : [
-                      {
-                        icon: <UserRound className="h-4 w-4" style={{ color: tk.accent }} />,
-                        label: "حسابي وفواتيري",
-                        onClick: () => { setMoreOpen(false); setAccountOpen(true) },
-                      },
-                      {
-                        icon: <LogOut className="h-4 w-4" style={{ color: tk.accent }} />,
-                        label: "تسجيل الخروج",
-                        onClick: () => { localStorage.removeItem(storageKey); window.location.href = "/catalog" },
-                      },
-                    ]),
+                    ...(hiddenNoImageCount > 0 ? [{
+                      icon: <ImageOff className="h-4 w-4" style={{ color: tk.accent }} />,
+                      label: `مواد بدون صور (${money(hiddenNoImageCount)})`,
+                      onClick: () => { setMoreOpen(false); openNoImageMode() },
+                    }] : []),
+                    // Invoices belong to a customer on the shop's books; a
+                    // visitor has an account but nothing filed under it yet.
+                    ...(guestMode ? [] : [{
+                      icon: <UserRound className="h-4 w-4" style={{ color: tk.accent }} />,
+                      label: "حسابي وفواتيري",
+                      onClick: () => { setMoreOpen(false); setAccountOpen(true) },
+                    }]),
+                    ...(isSignedIn ? [{
+                      icon: <LogOut className="h-4 w-4" style={{ color: tk.accent }} />,
+                      label: "تسجيل الخروج",
+                      onClick: signOut,
+                    }] : []),
                   ].map((item, i) => (
                     <button key={i} onClick={item.onClick}
                       className="flex w-full items-center gap-2.5 px-3.5 py-3 text-right transition active:opacity-70"
@@ -1940,6 +1965,20 @@ function CatalogShop({
               )}
             </button>
           </div>
+
+          {/* Whose account this is. A shopper who cannot see their own name has
+              no way to tell a signed-in catalog from a public one. */}
+          {hasAccount && (
+            <div className="mt-2 flex items-center gap-1.5 px-0.5">
+              <UserRound className="h-3.5 w-3.5 shrink-0 text-white/70" />
+              <p className="min-w-0 truncate font-bold text-white/90" style={{ fontSize: tk.fs.xs }}>
+                {signedInName ? `أهلاً ${signedInName}` : "داخل بحسابك"}
+              </p>
+              {signedInPhone && (
+                <span className="shrink-0 text-white/60" style={{ fontSize: tk.fs.xs }} dir="ltr">{signedInPhone}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Row 2: Category tabs */}
@@ -2036,12 +2075,30 @@ function CatalogShop({
       </header>
 
       {/* ── Arranged blocks, in the shop's own order ── */}
-      {layoutSections.map(({ key, enabled }) => (
+      {!noImageMode && layoutSections.map(({ key, enabled }) => (
         enabled ? <React.Fragment key={key}>{sectionNodes[key]}</React.Fragment> : null
       ))}
 
       {/* ── Main content ── */}
       <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-6 pt-4 overflow-hidden" style={{ background: tk.bg }}>
+
+        {/* ── «مواد بدون صور» — its own page, never mixed into the grid ── */}
+        {noImageMode && (
+          <div className="mb-3 flex items-center gap-2 p-3" style={{ background: tk.catIdle, borderRadius: tk.radiusMd }}>
+            <ImageOff className="h-4 w-4 shrink-0" style={{ color: tk.accent }} />
+            <div className="min-w-0 flex-1">
+              <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.sm }}>مواد بدون صور</p>
+              <p className="truncate" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                هذي كل البضاعة الي ما عدنا إلها صورة. تنطلب مثل الباقي.
+              </p>
+            </div>
+            <button onClick={closeNoImageMode}
+              className="shrink-0 px-3 py-2 font-bold text-white transition active:scale-95"
+              style={{ background: tk.accent, borderRadius: tk.radiusSm, fontSize: tk.fs.xs }}>
+              رجوع للمعروض
+            </button>
+          </div>
+        )}
 
         {/* Loading skeleton */}
         {productsQuery.isLoading && viewMode === "grid" && (
@@ -2079,10 +2136,11 @@ function CatalogShop({
         )}
 
         {hiddenNoImageCount > 0 && (
-          <button onClick={() => applyShowNoImage(true)}
-            className="mt-2 w-full py-2 text-center font-bold transition active:scale-95"
+          <button onClick={openNoImageMode}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 py-2.5 font-bold transition active:scale-95"
             style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.xs }}>
-            مخفي {money(hiddenNoImageCount)} مادة بدون صورة — اضغط لإظهارها
+            <ImageOff className="h-3.5 w-3.5" />
+            عدنا {money(hiddenNoImageCount)} مادة بدون صورة — افتح صفحتها
           </button>
         )}
 
@@ -2168,10 +2226,11 @@ function CatalogShop({
         )}
 
         {hiddenNoImageCount > 0 && (
-          <button onClick={() => applyShowNoImage(true)}
-            className="mt-2 w-full py-2 text-center font-bold transition active:scale-95"
+          <button onClick={openNoImageMode}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 py-2.5 font-bold transition active:scale-95"
             style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.xs }}>
-            مخفي {money(hiddenNoImageCount)} مادة بدون صورة — اضغط لإظهارها
+            <ImageOff className="h-3.5 w-3.5" />
+            عدنا {money(hiddenNoImageCount)} مادة بدون صورة — افتح صفحتها
           </button>
         )}
       </main>
@@ -2285,9 +2344,7 @@ function CatalogShop({
         <AppearanceSheet
           tk={tk}
           theme={theme} accent={accentPref} fontScale={fontScale}
-          showNoImage={showNoImage}
           onTheme={applyTheme} onAccent={applyAccent} onFontScale={applyFontScale}
-          onShowNoImage={applyShowNoImage}
           onReset={resetAppearance}
           onClose={() => setAppearanceOpen(false)}
         />
@@ -3253,18 +3310,15 @@ function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFoot
    APPEARANCE SHEET — the shopper's own control over how the shop looks
 ══════════════════════════════════════════════════════════════════════ */
 function AppearanceSheet({
-  tk, theme, accent, fontScale, showNoImage,
-  onTheme, onAccent, onFontScale, onShowNoImage, onReset, onClose,
+  tk, theme, accent, fontScale, onTheme, onAccent, onFontScale, onReset, onClose,
 }: {
   tk: ThemeTokens
   theme: Theme
   accent: AccentKey | null
   fontScale: FontScale
-  showNoImage: boolean
   onTheme: (t: Theme) => void
   onAccent: (a: AccentKey) => void
   onFontScale: (f: FontScale) => void
-  onShowNoImage: (v: boolean) => void
   onReset: () => void
   onClose: () => void
 }) {
@@ -3383,34 +3437,6 @@ function AppearanceSheet({
                       </span>
                       <span className="block truncate" style={{ color: s.subtext, fontSize: tk.fs.xs }}>{s.desc}</span>
                     </span>
-                  </button>
-                )
-              })}
-            </div>
-          </section>
-
-          {/* ── Pictureless products ── */}
-          <section>
-            <p className="mb-2.5 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>المواد بدون صور</p>
-            <div className="grid grid-cols-2 gap-2.5">
-              {[
-                { on: false, title: "أخفيها", desc: "واجهة أنظف، صور بس" },
-                { on: true, title: "أظهرها", desc: "كل البضاعة الموجودة" },
-              ].map((o) => {
-                const active = showNoImage === o.on
-                return (
-                  <button key={String(o.on)} onClick={() => onShowNoImage(o.on)}
-                    className="p-3 text-right transition active:scale-95"
-                    style={{
-                      background: active ? tk.accentLight : tk.catIdle,
-                      border: `2px solid ${active ? tk.accent : "transparent"}`,
-                      borderRadius: tk.radiusMd,
-                    }}>
-                    <span className="flex items-center gap-1 font-extrabold" style={{ color: active ? tk.accent : tk.catIdleText, fontSize: tk.fs.sm }}>
-                      {o.title}
-                      {active && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
-                    </span>
-                    <span className="block truncate" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{o.desc}</span>
                   </button>
                 )
               })}
