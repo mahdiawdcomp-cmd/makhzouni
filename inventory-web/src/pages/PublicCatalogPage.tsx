@@ -1,4 +1,5 @@
 import { catalogText, resolveCartTier, type CatalogLayout } from "../utils/catalogLayout"
+import { IRAQI_GOVERNORATES } from "../utils/governorates"
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
@@ -598,6 +599,7 @@ function VisitorDetailsGate({
   const texts = textsQuery.data?.texts
   const [name, setName] = useState("")
   const [address, setAddress] = useState("")
+  const [province, setProvince] = useState("")
   const [notes, setNotes] = useState("")
   const [msg, setMsg] = useState("")
 
@@ -606,6 +608,7 @@ function VisitorDetailsGate({
       token,
       customerName: name.trim(),
       address: address.trim() || undefined,
+      province: province || undefined,
       notes: notes.trim() || undefined,
     }),
     onSuccess: () => { setMsg(""); onDone() },
@@ -625,10 +628,11 @@ function VisitorDetailsGate({
         <p className="mb-3 text-center text-xs text-emerald-600">✓ تم الدخول برقم {phone}</p>
         <div className="space-y-3">
           <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
+          <ProvinceField value={province} onChange={setProvince} required />
           <Field icon="📍" placeholder="العنوان" value={address} onChange={setAddress} />
           <Field icon="📝" placeholder="نوع عملك أو ملاحظات (اختياري)" value={notes} onChange={setNotes} />
           <button
-            disabled={name.trim().length < 2 || saveMut.isPending}
+            disabled={name.trim().length < 2 || province === "" || saveMut.isPending}
             onClick={() => saveMut.mutate()}
             className="mt-1 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -756,20 +760,57 @@ function Field({ icon, placeholder, value, onChange, type = "text" }: { icon: st
   )
 }
 
+/**
+ * A shared province picker.
+ *
+ * Typed provinces never matched: «كربلاء» and «كربلاء المقدسة» are the same
+ * place to a person and two different strings to the delivery rules, which
+ * decide free shipping by exact name. A closed list is the only version of
+ * this field that the rest of the system can actually read.
+ */
+function ProvinceField({ value, onChange, required }: {
+  value: string; onChange: (v: string) => void; required?: boolean
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 focus-within:border-emerald-400 focus-within:bg-white transition">
+      <span className="text-base">🏙️</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="flex-1 bg-transparent text-sm outline-none" dir="rtl"
+        style={{ color: value ? undefined : "#9ca3af" }}>
+        <option value="">{required ? "اختر المحافظة" : "المحافظة (اختياري)"}</option>
+        {IRAQI_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
+      </select>
+    </div>
+  )
+}
+
 /* ══════════════════════════════════════════════════════════════════════
-   GUEST PHONE GATE (guest mode only — asked once per device)
-   A visitor must enter their phone number before browsing. The number is
-   recorded server-side (with a visit counter) so the merchant can follow up.
+   GUEST DETAILS GATE (free browsing only — asked once per device)
+
+   Free browsing means anyone may look without a code, so the shop learns
+   nothing about who is looking unless it asks. A phone alone gave the
+   merchant a list of bare numbers to follow up — this asks for the name and
+   the province too, which is the difference between a lead and a digit
+   string. Answered once and remembered on the device.
 ══════════════════════════════════════════════════════════════════════ */
 const GUEST_PHONE_KEY = "catalog_guest_phone"
 
 function GuestPhoneGate({ children }: { children: React.ReactNode }) {
   const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
+  const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
+  const [province, setProvince] = useState("")
   const [err, setErr] = useState("")
 
+  const textsQuery = useQuery({
+    queryKey: ["catalog-design-public"],
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { texts?: Record<string, string> } }).data ?? {}),
+    staleTime: 5 * 60_000,
+  })
+  const texts = textsQuery.data?.texts
+
   const enterMut = useMutation({
-    mutationFn: () => guestCatalogEnter(phone.trim()),
+    mutationFn: () => guestCatalogEnter(phone.trim(), { name: name.trim(), province }),
     onSuccess: () => {
       localStorage.setItem(GUEST_PHONE_KEY, phone.trim())
       setErr("")
@@ -781,36 +822,45 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
   if (entered) return <>{children}</>
 
   const digits = phone.replace(/\D/g, "")
-  const valid = digits.length >= 10
+  const valid = digits.length >= 10 && name.trim().length >= 2 && province !== ""
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4" dir="rtl">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-lg">
-        <div className="mb-5 flex flex-col items-center gap-2 text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50">
-            <ShoppingBag className="h-7 w-7 text-indigo-600" />
-          </div>
-          <h1 className="text-lg font-bold text-gray-900">أهلاً بك في الكتلوك</h1>
-          <p className="text-sm text-gray-500">فضلاً أدخل رقم هاتفك للدخول وتصفح البضاعة</p>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8" dir="rtl">
+      <div className="mb-6 flex flex-col items-center gap-2 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 shadow-lg shadow-emerald-200">
+          <ShoppingBag className="h-8 w-8 text-white" />
         </div>
-        <input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && valid && !enterMut.isPending) enterMut.mutate() }}
-          inputMode="tel"
-          placeholder="07XXXXXXXXX"
-          className="w-full rounded-xl border border-gray-300 px-4 py-3 text-center text-base tracking-wide outline-none focus:border-indigo-500"
-          dir="ltr"
-          autoFocus
-        />
-        {err && <p className="mt-2 text-center text-xs text-red-600">{err}</p>}
-        <button
-          disabled={!valid || enterMut.isPending}
-          onClick={() => enterMut.mutate()}
-          className="mt-4 w-full rounded-xl bg-indigo-600 py-3 text-sm font-bold text-white transition hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {enterMut.isPending ? "جاري الدخول..." : "دخول"}
-        </button>
+        <h1 className="text-xl font-extrabold text-gray-900">{catalogText(texts, "detailsTitle")}</h1>
+        <p className="text-sm text-gray-500">{catalogText(texts, "detailsSubtitle")}</p>
+      </div>
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl shadow-gray-100 ring-1 ring-gray-100">
+        <div className="space-y-3">
+          <Field icon="👤" placeholder="الاسم الكامل" value={name} onChange={setName} />
+          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 focus-within:border-emerald-400 focus-within:bg-white transition">
+            <span className="text-base">📱</span>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && valid && !enterMut.isPending) enterMut.mutate() }}
+              inputMode="tel"
+              placeholder="07XXXXXXXXX"
+              className="flex-1 bg-transparent text-sm tracking-wide outline-none placeholder:text-gray-400"
+              dir="ltr"
+            />
+          </div>
+          <ProvinceField value={province} onChange={setProvince} required />
+          <button
+            disabled={!valid || enterMut.isPending}
+            onClick={() => enterMut.mutate()}
+            className="mt-1 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {enterMut.isPending ? "جاري الدخول..." : "ادخل وتصفح"}
+          </button>
+        </div>
+        {err && <p className="mt-3 text-center text-xs text-red-600">{err}</p>}
+        <p className="mt-3 text-center text-[11px] text-gray-400">
+          بياناتك تبقى عند المحل حتى نتواصل وياك بطلبك — ما ننشرها ولا نرسلها لأحد.
+        </p>
       </div>
     </div>
   )

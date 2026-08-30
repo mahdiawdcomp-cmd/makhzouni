@@ -477,10 +477,10 @@ export function CatalogSettingsTab() {
           onChange={(e) => settingsMut.mutate({ catalogGuestPhoneGate: e.target.checked })}
           className="mt-0.5 h-4 w-4 shrink-0 accent-slate-700" />
         <span>
-          <span className="block text-sm font-bold text-slate-800">اطلب رقم الهاتف قبل التصفح</span>
+          <span className="block text-sm font-bold text-slate-800">اطلب بياناته قبل التصفح</span>
           <span className="block text-xs text-slate-500">
-            يجمعلك أرقام الزوار، بس يوقّف الي ما عنده صبر عند الباب. إطفاؤه يخليهم يتصفحون فوراً
-            ويعطون رقمهم وقت الطلب.
+            نافذة تسأل الاسم والرقم والمحافظة قبل ما يشوف البضاعة — تجمعلك زبائن بأسماء مو أرقام،
+            بس توقّف الي ما عنده صبر عند الباب. إطفاؤه يخليهم يتصفحون فوراً ويعطون بياناتهم وقت الطلب.
           </span>
         </span>
       </label>

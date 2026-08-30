@@ -160,13 +160,18 @@ function allowLeadNotification(now = Date.now()): boolean {
   return true;
 }
 
-export async function recordGuestVisit(rawPhone: string) {
+export async function recordGuestVisit(
+  rawPhone: string,
+  details?: { name?: string; province?: string },
+) {
   await assertGuestCatalogEnabled();
   const phone = normalizePhone(String(rawPhone ?? ""));
   if (phone.length < 10) throw new AppError("رقم هاتف غير صالح", 400);
+  const name = details?.name?.trim() || null;
+  const province = details?.province?.trim() || null;
   const existing = await prisma.catalogVisitor.findUnique({ where: { phone } });
   if (!existing) {
-    await prisma.catalogVisitor.create({ data: { phone } });
+    await prisma.catalogVisitor.create({ data: { phone, name, province } });
     // Fire-and-forget — a slow/failed notification must never block the shopper.
     //
     // Capped: this endpoint is unauthenticated at 60 req/min/IP, and every
@@ -181,7 +186,15 @@ export async function recordGuestVisit(rawPhone: string) {
   } else {
     await prisma.catalogVisitor.update({
       where: { phone },
-      data: { visits: { increment: 1 }, lastSeenAt: new Date() },
+      data: {
+        visits: { increment: 1 },
+        lastSeenAt: new Date(),
+        // Only ever fills a blank. A returning visitor's stored name is what
+        // the shop has been calling them, and a fresh gate answer must not
+        // quietly overwrite it — least of all with nothing.
+        ...(name && !existing.name ? { name } : {}),
+        ...(province && !existing.province ? { province } : {}),
+      },
     });
   }
   return { ok: true };

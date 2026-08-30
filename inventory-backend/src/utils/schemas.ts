@@ -1516,6 +1516,10 @@ export const retailAiChatSchema = z.object({
 export const guestCatalogEnterSchema = z.object({
   body: z.object({
     phone: z.string().trim().min(10).max(40),
+    // Optional at the wire so an older client, or a shop asking for the phone
+    // alone, keeps working exactly as before.
+    name: z.string().trim().max(120).optional(),
+    province: z.string().trim().max(60).optional(),
   }),
 });
 

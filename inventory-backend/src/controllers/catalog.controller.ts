@@ -17,7 +17,8 @@ import {
 import { asyncHandler } from "../utils/async-handler";
 
 export const guestCatalogEnter = asyncHandler(async (req, res) => {
-  const result = await recordGuestVisit(String((req.body as { phone?: string })?.phone ?? ""));
+  const body = (req.body ?? {}) as { phone?: string; name?: string; province?: string };
+  const result = await recordGuestVisit(String(body.phone ?? ""), { name: body.name, province: body.province });
   res.json({ success: true, data: result });
 });
 
