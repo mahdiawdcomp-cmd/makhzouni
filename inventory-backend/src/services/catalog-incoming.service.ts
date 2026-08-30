@@ -24,6 +24,10 @@ export type IncomingItemInput = {
   price?: number | null;
   active?: boolean;
   sortOrder?: number;
+  /** In pieces. Lets the storefront say how much is actually on the way. */
+  quantityPieces?: number | null;
+  pcsPerCarton?: number | null;
+  category?: string | null;
 };
 
 /* ── Public ────────────────────────────────────────────────────────── */
@@ -43,6 +47,7 @@ export async function listPublicIncomingItems() {
     select: {
       id: true, name: true, description: true, imageUrl: true,
       expectedAt: true, price: true,
+      quantityPieces: true, pcsPerCarton: true, category: true,
     },
     take: 60,
   });
@@ -140,6 +145,11 @@ export async function listIncomingItems() {
     active: r.active,
     sortOrder: r.sortOrder,
     arrivedAt: r.arrivedAt,
+    quantityPieces: r.quantityPieces,
+    pcsPerCarton: r.pcsPerCarton,
+    category: r.category,
+    sourceBatchId: r.sourceBatchId,
+    sourceBatchItemId: r.sourceBatchItemId,
     reservationCount: r._count.reservations,
   }));
 }
@@ -163,7 +173,58 @@ async function itemData(input: IncomingItemInput) {
     price: input.price == null || Number.isNaN(Number(input.price)) ? null : Number(input.price),
     active: input.active !== false,
     sortOrder: Math.round(Number(input.sortOrder) || 0),
+    quantityPieces: intOrNull(input.quantityPieces),
+    pcsPerCarton: intOrNull(input.pcsPerCarton),
+    category: input.category?.trim() || null,
   };
+}
+
+function intOrNull(v: unknown): number | null {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Raise the storefront rows for a China order that has been priced and
+ * reviewed but has not landed.
+ *
+ * Thumbnails are made out here rather than inside the caller's transaction:
+ * a full container is hundreds of rows, and shrinking that many images while
+ * holding a write transaction open is how a confirm times out at the exact
+ * moment it must not.
+ */
+export async function buildIncomingRowsFromBatch(
+  rows: Array<{
+    itemId: string;
+    name: string;
+    imageUrl?: string | null;
+    category?: string | null;
+    quantityPieces: number;
+    pcsPerCarton?: number | null;
+    price?: number | null;
+  }>,
+  batchId: string,
+  expectedAt: Date | null,
+) {
+  const out = [];
+  for (const [index, r] of rows.entries()) {
+    const raw = r.imageUrl?.trim() || null;
+    out.push({
+      name: r.name.trim() || "بدون اسم",
+      description: null,
+      imageUrl: raw ? (await makeThumbnail(raw).catch(() => null)) ?? raw : null,
+      expectedAt,
+      price: r.price == null || !Number.isFinite(Number(r.price)) ? null : Number(r.price),
+      active: true,
+      sortOrder: index,
+      quantityPieces: intOrNull(r.quantityPieces),
+      pcsPerCarton: intOrNull(r.pcsPerCarton),
+      category: r.category?.trim() || null,
+      sourceBatchId: batchId,
+      sourceBatchItemId: r.itemId,
+    });
+  }
+  return out;
 }
 
 export async function createIncomingItem(input: IncomingItemInput) {

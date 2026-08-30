@@ -239,6 +239,10 @@ enum OrderPreparationStatus {
 enum LandedCostBatchStatus {
   DRAFT_PRICED
   REVIEWING_ITEMS
+  /// Priced and reviewed, but the shipment is still on its way. Nothing is on
+  /// the books yet — no purchase invoice, no stock — and the rows are showing
+  /// on the storefront as «البضاعة القادمة» for customers to reserve.
+  AWAITING_ARRIVAL
   PURCHASE_INVOICE_CREATED
   CANCELLED
 }
@@ -990,6 +994,18 @@ model CatalogIncomingItem {
   /// Set when the shipment actually lands. Also hides the item from the
   /// storefront — a reservation list is about goods that have not arrived.
   arrivedAt   DateTime? @map("arrived_at")
+  /// How much is on the way and how many to a carton, so the storefront can
+  /// say «راح يوصل ٥٠ كارتون» instead of leaving the shopper to guess whether
+  /// the shipment even covers what they want to reserve.
+  quantityPieces Int?    @map("quantity_pieces")
+  pcsPerCarton   Int?    @map("pcs_per_carton")
+  category       String?
+  /// Set when this row was raised automatically from a China order that has
+  /// not landed. Deliberately plain ids, not relations: a batch may be
+  /// cancelled or pruned long after, and none of that should cascade into a
+  /// list customers have already reserved against.
+  sourceBatchId     String? @map("source_batch_id") @db.Uuid
+  sourceBatchItemId String? @map("source_batch_item_id") @db.Uuid
   /// The real product this became, once it exists. Lets the arrival message
   /// carry a link straight to it. Deliberately not a relation: the product may
   /// be created, renamed or deleted long after, and none of that should
@@ -1001,6 +1017,7 @@ model CatalogIncomingItem {
   reservations CatalogIncomingReservation[]
 
   @@index([active, sortOrder])
+  @@index([sourceBatchId])
   @@map("catalog_incoming_items")
 }
 
@@ -1952,6 +1969,14 @@ model LandedCostImportBatch {
   usdToIqd          Decimal?                   @map("usd_to_iqd") @db.Decimal(12, 4)
   purchaseInvoiceId String?                    @map("purchase_invoice_id") @db.Uuid
   purchaseInvoice   Invoice?                   @relation(fields: [purchaseInvoiceId], references: [id])
+  // Held for arrival: what the admin already decided when they said the goods
+  // had not landed. Replayed unchanged when they press «وصلت», so the answer
+  // to «على منو الفاتورة» is given once, not twice.
+  expectedArrivalAt  DateTime?    @map("expected_arrival_at")
+  arrivalSupplierId  String?      @map("arrival_supplier_id") @db.Uuid
+  arrivalWarehouseId String?      @map("arrival_warehouse_id") @db.Uuid
+  arrivalPaymentType PaymentType? @map("arrival_payment_type")
+  arrivalPaidAmount  Decimal?     @map("arrival_paid_amount") @db.Decimal(12, 2)
   createdBy         String                     @map("created_by") @db.Uuid
   creator           User                       @relation("LandedCostBatchCreatedBy", fields: [createdBy], references: [id])
   appliedBy         String?                    @map("applied_by") @db.Uuid
@@ -1999,6 +2024,11 @@ model LandedCostImportItem {
   // captured only when action=CREATE_NEW. Free-form JSON to avoid a wide,
   // mostly-empty column set.
   newProductDraft     Json?                 @map("new_product_draft")
+  /// Set once this row has become real stock — its product exists and its
+  /// line is on a purchase invoice. A shipment can land in parts, so this is
+  /// per row and not per batch, and it is also the concurrency claim: two
+  /// confirms racing on the same row, only one wins the UPDATE.
+  appliedAt           DateTime?             @map("applied_at")
   createdAt           DateTime              @default(now()) @map("created_at")
 
   @@index([batchId])

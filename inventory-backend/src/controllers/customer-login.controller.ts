@@ -108,6 +108,22 @@ export const deleteIncomingItemCtrl = asyncHandler(async (req, res) => {
 
 export const markArrivedCtrl = asyncHandler(async (req, res) => {
   const { productId } = (req.body ?? {}) as { productId?: string };
+  // A row raised from a China order carries a purchase invoice and a stock
+  // injection behind it. This screen is gated on MANAGE_CUSTOMERS, which is
+  // not enough to do either, so it refuses rather than quietly half-arriving
+  // the shipment — the button that CAN do it lives on the import screen.
+  const { default: prisma } = await import("../config/database");
+  const row = await prisma.catalogIncomingItem.findUnique({
+    where: { id: String(req.params.id) },
+    select: { sourceBatchId: true },
+  });
+  if (row?.sourceBatchId) {
+    throw new AppError(
+      "هذي المادة من أوردر صين — سجّل وصولها من صفحة «استيراد كلفة» حتى تنكتب فاتورة الشراء ويدخل المخزون",
+      400,
+      "BATCH_BACKED_ITEM",
+    );
+  }
   const data = await markIncomingArrived(String(req.params.id), { productId });
   res.json({ success: true, data });
 });

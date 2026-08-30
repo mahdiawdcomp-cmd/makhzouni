@@ -8,6 +8,7 @@ import {
   listIncomingReservations,
   setIncomingReservationStatus,
   markIncomingArrived,
+  markIncomingItemArrived,
   listAllReservations,
   type ReservationRow,
   type IncomingItem,
@@ -65,6 +66,22 @@ export function CatalogIncomingTab() {
       refresh()
     },
     onError: () => toast({ title: "تعذر التحديث", variant: "destructive" }),
+  })
+
+  // A row raised from a China order carries a purchase invoice and a stock
+  // injection behind it, so it goes through the import service rather than the
+  // plain "mark it landed" path — otherwise the goods would be announced to
+  // customers while the warehouse still shows nothing.
+  const batchArrivedMut = useMutation({
+    mutationFn: (id: string) => markIncomingItemArrived(id),
+    onSuccess: (r) => {
+      toast({
+        title: "وصلت ودخلت المخزن",
+        description: `فاتورة شراء ${r.invoiceNumber} · ${r.totalStockAdded} قطعة${r.batchComplete === false ? " · باقي مواد من نفس الشحنة" : ""}`,
+      })
+      refresh()
+    },
+    onError: (e) => toast({ title: e instanceof Error ? e.message : "تعذر تسجيل الوصول", variant: "destructive" }),
   })
 
   const deleteMut = useMutation({
@@ -183,11 +200,22 @@ export function CatalogIncomingTab() {
                 <p className="text-[11px] text-slate-400">
                   {it.expectedAt ? `يوصل ${new Date(it.expectedAt).toLocaleDateString("ar-IQ")}` : "بلا تاريخ"}
                   {it.price != null ? ` · ${it.price.toLocaleString("en-US")} د.ع` : ""}
+                  {it.category ? ` · ${it.category}` : ""}
+                  {it.quantityPieces
+                    ? ` · ${it.pcsPerCarton && it.pcsPerCarton > 0
+                        ? `${Math.floor(it.quantityPieces / it.pcsPerCarton).toLocaleString("en-US")} كارتون`
+                        : `${it.quantityPieces.toLocaleString("en-US")} قطعة`}`
+                    : ""}
                   {it.arrivedAt ? " · وصلت" : !it.active ? " · مخفية" : ""}
                 </p>
+                {it.sourceBatchId && !it.arrivedAt && (
+                  <p className="mt-0.5 text-[11px] font-bold text-sky-600">
+                    من أوردر صين — «وصلت» تفتح فاتورة الشراء وتدخّل المخزون
+                  </p>
+                )}
               </div>
 
-              {!it.arrivedAt && (it.reservationCount ?? 0) >= 0 && (
+              {!it.arrivedAt && (
                 <button onClick={() => setConfirmArrived(it)}
                   className="shrink-0 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100"
                   title="وصلت البضاعة">
@@ -228,12 +256,23 @@ export function CatalogIncomingTab() {
         open={confirmArrived !== null}
         title="وصلت البضاعة"
         description={
-          `راح تنشال «${confirmArrived?.name ?? ""}» من الكتلوك، ويوصل إشعار واتساب لكل زبون حاجز عليها ` +
-          "إن بضاعته وصلت. ما تنسوي طلبات ولا فواتير — الزبون يطلب بنفسه."
+          confirmArrived?.sourceBatchId
+            ? `«${confirmArrived.name}» من أوردر صين. راح تنفتح فاتورة شراء بكميتها ويدخل مخزونها للمخزن، ` +
+              "تنشال من الكتلوك، ويوصل إشعار واتساب لكل زبون حاجز عليها."
+            : `راح تنشال «${confirmArrived?.name ?? ""}» من الكتلوك، ويوصل إشعار واتساب لكل زبون حاجز عليها ` +
+              "إن بضاعته وصلت. ما تنسوي طلبات ولا فواتير — الزبون يطلب بنفسه."
         }
         confirmLabel="أكّد الوصول"
-        loading={arrivedMut.isPending}
-        onConfirm={() => { const it = confirmArrived; setConfirmArrived(null); if (it) arrivedMut.mutate(it.id) }}
+        loading={arrivedMut.isPending || batchArrivedMut.isPending}
+        onConfirm={() => {
+          const it = confirmArrived
+          setConfirmArrived(null)
+          if (!it) return
+          // Two different arrivals behind one button: a manual row just leaves
+          // the storefront, a China-order row also becomes real stock.
+          if (it.sourceBatchId) batchArrivedMut.mutate(it.id)
+          else arrivedMut.mutate(it.id)
+        }}
         onCancel={() => setConfirmArrived(null)}
       />
 

@@ -295,6 +295,13 @@ export interface IncomingItem {
   sortOrder?: number
   arrivedAt?: string | null
   reservationCount?: number
+  /** In pieces, with how many go in a carton — the storefront shows cartons. */
+  quantityPieces?: number | null
+  pcsPerCarton?: number | null
+  category?: string | null
+  /** Set when the row was raised from a China order that has not landed. */
+  sourceBatchId?: string | null
+  sourceBatchItemId?: string | null
 }
 
 export async function getPublicIncomingItems(phone = "") {
@@ -2756,7 +2763,7 @@ export function getImportTemplateUrl() {
 export type LandedCostAllocationMethod = "BY_QUANTITY" | "BY_VALUE" | "BY_CARTON"
 export type LandedCostMatchStatus = "MATCHED" | "NOT_FOUND" | "AMBIGUOUS"
 export type LandedCostItemAction = "PENDING" | "LINK_EXISTING" | "CREATE_NEW" | "SKIP"
-export type LandedCostBatchStatus = "DRAFT_PRICED" | "REVIEWING_ITEMS" | "PURCHASE_INVOICE_CREATED" | "CANCELLED"
+export type LandedCostBatchStatus = "DRAFT_PRICED" | "REVIEWING_ITEMS" | "AWAITING_ARRIVAL" | "PURCHASE_INVOICE_CREATED" | "CANCELLED"
 
 export interface LandedCostManualExtraCosts {
   freight?: number
@@ -2819,6 +2826,8 @@ export interface LandedCostBatch {
   purchaseInvoice: { id: string; invoiceNumber: string } | null
   createdAt: string
   appliedAt: string | null
+  /** Set while the batch is held: roughly when the container lands. */
+  expectedArrivalAt?: string | null
   items: LandedCostItem[]
 }
 
@@ -2880,10 +2889,37 @@ export interface LandedCostConfirmSummary {
   skippedCount: number
   totalStockAdded: number
   warnings: string[]
+  /** False when part of the shipment is still on its way. */
+  batchComplete?: boolean
 }
 
 export async function confirmLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number }) {
   const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/confirm`, payload)
+  return data.data!
+}
+
+/**
+ * «ما وصلت بعد» — nothing goes on the books; the rows show up on the
+ * storefront as «البضاعة القادمة» for customers to reserve against instead.
+ */
+export async function holdLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number; expectedAt?: string | null }) {
+  const { data } = await api.post<ApiEnvelope<{ incomingCount: number; skippedCount: number; expectedAt: string | null }>>(
+    `/landed-cost/batches/${id}/hold`, payload,
+  )
+  return data.data!
+}
+
+/** «وصلت الشحنة» — the whole held batch lands at once. */
+export async function markLandedCostBatchArrived(id: string) {
+  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/arrived`, {})
+  return data.data!
+}
+
+/** «وصلت» on one incoming card, for a shipment landing in parts. */
+export async function markIncomingItemArrived(incomingItemId: string) {
+  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(
+    `/landed-cost/incoming/${incomingItemId}/arrived`, {},
+  )
   return data.data!
 }
 

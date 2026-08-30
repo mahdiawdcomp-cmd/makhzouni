@@ -196,10 +196,37 @@ const tx: any = {
       return { ...b };
     },
   },
+  // Rows are claimed one by one now, because a shipment can land in parts.
+  // The fake models appliedAt for real: a second confirm must find the rows
+  // already stamped and come back short, which is what makes the idempotency
+  // test mean anything.
+  landedCostImportItem: {
+    updateMany: async ({ where, data }: any) => {
+      const all = batches.flatMap((b: any) => b.items ?? []);
+      const match = all.filter((it: any) => {
+        if (where.id?.in && !where.id.in.includes(it.id)) return false;
+        if (where.batchId && !batches.some((b: any) => b.id === where.batchId && (b.items ?? []).includes(it))) return false;
+        if (where.action && it.action !== where.action) return false;
+        if (where.appliedAt === null && it.appliedAt != null) return false;
+        return true;
+      });
+      match.forEach((it: any) => Object.assign(it, data));
+      return { count: match.length };
+    },
+    count: async ({ where }: any) => {
+      const b = batches.find((x: any) => x.id === where.batchId);
+      if (!b) return 0;
+      return (b.items ?? []).filter((it: any) => (where.appliedAt === null ? it.appliedAt == null : true)).length;
+    },
+  },
+  catalogIncomingItem: {
+    findMany: async () => [],
+    createMany: async () => ({ count: 0 }),
+  },
 };
 
 function makeBatch(overrides: Partial<{ id: string; status: string; items: any[] }>) {
-  const b = { id: overrides.id ?? `batch-${batches.length + 1}`, status: overrides.status ?? LandedCostBatchStatus.REVIEWING_ITEMS, invoiceNumber: null, items: overrides.items ?? [] };
+  const b = { id: overrides.id ?? `batch-${batches.length + 1}`, status: overrides.status ?? LandedCostBatchStatus.REVIEWING_ITEMS, invoiceNumber: null, purchaseInvoiceId: null, items: overrides.items ?? [] };
   batches.push(b);
   return b;
 }
@@ -211,7 +238,7 @@ function baseItem(overrides: Partial<any>) {
     purchasePrice: 100, allocatedExtraCost: 0, landedCostPerUnit: 100, landedCostPerCarton: null,
     suggestedSalePrice: null, confirmedSalePrice: null, expectedProfit: null,
     matchStatus: LandedCostMatchStatus.MATCHED, action: LandedCostItemAction.LINK_EXISTING,
-    productId: null, newProductDraft: null,
+    productId: null, newProductDraft: null, appliedAt: null,
     ...overrides,
   };
 }
@@ -343,5 +370,64 @@ describe("finalConfirmBatch — real createProduct/createInvoice against a fake 
     assert.equal(Number(line.unitPrice), H);
     // …and the product's cost is overwritten to exactly H (not WAC-blended).
     assert.equal(Number(existingProduct.costPrice), H);
+  });
+});
+
+describe("a shipment that lands in parts", () => {
+  before(async () => {
+    ({ finalConfirmBatch } = await import("./landed-cost-import.service"));
+  });
+
+  it("applies only the rows named, leaves the rest waiting, and never applies a row twice", async () => {
+    stock.set(skey(existingProduct.id, SHOP), 0);
+    const first = baseItem({ productId: existingProduct.id, quantity: 5, purchasePrice: 100, landedCostPerUnit: 100 });
+    const second = baseItem({ productId: existingProduct.id, quantity: 7, purchasePrice: 100, landedCostPerUnit: 100 });
+    const batch = makeBatch({ status: LandedCostBatchStatus.AWAITING_ARRIVAL, items: [first, second] });
+
+    const partial = await finalConfirmBatch(
+      batch.id, { supplierCustomerId: CUST, warehouseId: SHOP, paidAmount: 0 }, "user-1", "Admin", tx, [first.id],
+    );
+
+    // Only the first row's goods are on the shelf, and the batch stays open
+    // for the rest — the whole point of a part-landed container.
+    assert.equal(partial.totalStockAdded, 5);
+    assert.equal(stockOf(existingProduct.id, SHOP), 5);
+    assert.equal(partial.batchComplete, false);
+    assert.equal(batch.status, LandedCostBatchStatus.AWAITING_ARRIVAL);
+    assert.ok(first.appliedAt, "the landed row is stamped");
+    assert.equal(second.appliedAt, null, "the row still at sea is untouched");
+
+    // Pressing «وصلت» again on the same row must not invoice the same goods
+    // a second time.
+    await assert.rejects(
+      () => finalConfirmBatch(batch.id, { supplierCustomerId: CUST, warehouseId: SHOP, paidAmount: 0 }, "user-1", "Admin", tx, [first.id]),
+      /ALREADY_APPLIED|بانتظار/,
+    );
+    assert.equal(stockOf(existingProduct.id, SHOP), 5, "no stock added by the refused repeat");
+
+    // The rest lands and closes the batch.
+    const rest = await finalConfirmBatch(
+      batch.id, { supplierCustomerId: CUST, warehouseId: SHOP, paidAmount: 0 }, "user-1", "Admin", tx,
+    );
+    assert.equal(rest.totalStockAdded, 7);
+    assert.equal(rest.batchComplete, true);
+    assert.equal(batch.status, LandedCostBatchStatus.PURCHASE_INVOICE_CREATED);
+    assert.equal(stockOf(existingProduct.id, SHOP), 12);
+  });
+
+  it("keeps the first invoice on the batch when a later part lands", async () => {
+    stock.set(skey(existingProduct.id, SHOP), 0);
+    const a = baseItem({ productId: existingProduct.id, quantity: 3, purchasePrice: 100, landedCostPerUnit: 100 });
+    const b = baseItem({ productId: existingProduct.id, quantity: 4, purchasePrice: 100, landedCostPerUnit: 100 });
+    const batch = makeBatch({ status: LandedCostBatchStatus.AWAITING_ARRIVAL, items: [a, b] });
+
+    const one = await finalConfirmBatch(batch.id, { supplierCustomerId: CUST, warehouseId: SHOP, paidAmount: 0 }, "user-1", "Admin", tx, [a.id]);
+    const two = await finalConfirmBatch(batch.id, { supplierCustomerId: CUST, warehouseId: SHOP, paidAmount: 0 }, "user-1", "Admin", tx, [b.id]);
+
+    // Two arrivals, two real purchase invoices — goods received separately
+    // were received separately, and the books say so.
+    assert.notEqual(one.purchaseInvoiceId, two.purchaseInvoiceId);
+    // The batch keeps the first, rather than losing it to the last writer.
+    assert.equal(batch.purchaseInvoiceId, one.purchaseInvoiceId);
   });
 });

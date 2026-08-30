@@ -371,6 +371,14 @@ export interface FinalConfirmInput {
 export interface FinalConfirmSummary {
   purchaseInvoiceId: string;
   invoiceNumber: string;
+  /** False when part of the shipment is still at sea. */
+  batchComplete?: boolean;
+  /**
+   * Storefront «البضاعة القادمة» rows this arrival closes. The caller announces
+   * them once the transaction has committed; a caller that owns its own
+   * transaction is responsible for doing that itself.
+   */
+  arrivedIncomingIds?: string[];
   linkedCount: number;
   createdCount: number;
   skippedCount: number;
@@ -378,36 +386,15 @@ export interface FinalConfirmSummary {
   warnings: string[];
 }
 
-export async function finalConfirmBatch(
-  batchId: string,
-  opts: FinalConfirmInput,
-  userId: string,
-  userName?: string,
-  db?: Prisma.TransactionClient,
-): Promise<FinalConfirmSummary> {
-  if (db) return finalConfirmBatchInTransaction(db, batchId, opts, userId, userName);
-  // A 25 MB China-order sheet is hundreds of rows, each running createProduct
-  // before the purchase invoice is built. Prisma's 5s default aborts that with
-  // an opaque P2028 and rolls back the batch claim, so the admin sees a 500 and
-  // no invoice. Mirrors INVOICE_TX_OPTIONS on the invoice path.
-  return prisma.$transaction(
-    (tx) => finalConfirmBatchInTransaction(tx, batchId, opts, userId, userName),
-    { maxWait: 10_000, timeout: 60_000 },
-  );
-}
-
-async function finalConfirmBatchInTransaction(
-  tx: Prisma.TransactionClient,
-  batchId: string,
-  opts: FinalConfirmInput,
-  userId: string,
-  userName?: string,
-): Promise<FinalConfirmSummary> {
-  const batch = await tx.landedCostImportBatch.findUnique({
-    where: { id: batchId },
-    include: { items: true },
-  });
-  if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
+/**
+ * Everything both exits from the review step insist on.
+ *
+ * A batch leaves review either straight onto the books («وصلت») or into the
+ * incoming list («ما وصلت بعد»). The checks are identical — a row with no
+ * decision or a zero quantity is just as broken on a shipment still at sea —
+ * so they live here rather than being written twice and drifting.
+ */
+function assertBatchReady(batch: { status: LandedCostBatchStatus; items: Array<{ action: LandedCostItemAction; quantity: number; productName: string; itemCode: string }> }) {
   if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED) {
     throw new AppError("تم بالفعل إنشاء فاتورة شراء من هذه الدفعة", 409, "ALREADY_APPLIED");
   }
@@ -415,9 +402,7 @@ async function finalConfirmBatchInTransaction(
     throw new AppError("هذه الدفعة ملغاة", 409, "BATCH_CANCELLED");
   }
 
-  const pendingBlocking = batch.items.filter(
-    (it) => it.action === LandedCostItemAction.PENDING
-  );
+  const pendingBlocking = batch.items.filter((it) => it.action === LandedCostItemAction.PENDING);
   if (pendingBlocking.length > 0) {
     const names = pendingBlocking
       .slice(0, 10)
@@ -435,23 +420,83 @@ async function finalConfirmBatchInTransaction(
   if (zeroQty) {
     throw new AppError(`الصنف "${zeroQty.productName}" له كمية صفر أو غير صحيحة — تخطّه أو صحّح الكمية قبل التأكيد`, 400, "INVALID_QUANTITY");
   }
+}
 
-  // Atomically claim the batch by flipping its status now that every
-  // validation above has passed, still inside this same transaction. Postgres
-  // holds a row lock on this UPDATE for the rest of the transaction, so a
-  // second concurrent confirm (double-click, or two admins confirming the
-  // same batch at once) blocks until this one commits/rolls back, then sees
-  // status already PURCHASE_INVOICE_CREATED and gets count 0 — preventing two
-  // purchase invoices ever being created from one batch. If anything below
-  // throws, the whole transaction (including this claim) rolls back, so a
-  // failed confirm never leaves the batch falsely "applied".
-  const claim = await tx.landedCostImportBatch.updateMany({
-    where: { id: batchId, status: { notIn: [LandedCostBatchStatus.PURCHASE_INVOICE_CREATED, LandedCostBatchStatus.CANCELLED] } },
-    data: { status: LandedCostBatchStatus.PURCHASE_INVOICE_CREATED },
+export async function finalConfirmBatch(
+  batchId: string,
+  opts: FinalConfirmInput,
+  userId: string,
+  userName?: string,
+  db?: Prisma.TransactionClient,
+  onlyItemIds?: string[],
+): Promise<FinalConfirmSummary> {
+  // A caller that brought its own transaction also owns announcing the
+  // arrival — we cannot know when their transaction commits.
+  if (db) return finalConfirmBatchInTransaction(db, batchId, opts, userId, userName, onlyItemIds);
+  // A 25 MB China-order sheet is hundreds of rows, each running createProduct
+  // before the purchase invoice is built. Prisma's 5s default aborts that with
+  // an opaque P2028 and rolls back the batch claim, so the admin sees a 500 and
+  // no invoice. Mirrors INVOICE_TX_OPTIONS on the invoice path.
+  const summary = await prisma.$transaction(
+    (tx) => finalConfirmBatchInTransaction(tx, batchId, opts, userId, userName, onlyItemIds),
+    { maxWait: 10_000, timeout: 60_000 },
+  );
+
+  // Committed. Now, and only now, the people holding reservations hear that
+  // their goods have landed.
+  const ids = summary.arrivedIncomingIds ?? [];
+  if (ids.length > 0) {
+    const { markIncomingArrived } = await import("./catalog-incoming.service");
+    setImmediate(() => {
+      void (async () => {
+        for (const id of ids) await markIncomingArrived(id).catch(() => undefined);
+      })();
+    });
+  }
+  return summary;
+}
+
+async function finalConfirmBatchInTransaction(
+  tx: Prisma.TransactionClient,
+  batchId: string,
+  opts: FinalConfirmInput,
+  userId: string,
+  userName?: string,
+  onlyItemIds?: string[],
+): Promise<FinalConfirmSummary> {
+  const batch = await tx.landedCostImportBatch.findUnique({
+    where: { id: batchId },
+    include: { items: true },
   });
-  if (claim.count === 0) {
+  if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
+  assertBatchReady(batch);
+
+  // A shipment can land in parts, so what gets applied is a set of ROWS, not
+  // the whole batch. Rows already applied by an earlier partial arrival are
+  // skipped rather than double-counted.
+  const todo = batch.items.filter(
+    (it) => it.appliedAt == null && (!onlyItemIds || onlyItemIds.includes(it.id)),
+  );
+  if (todo.length === 0) {
+    throw new AppError("لا يوجد أي صنف بانتظار الإدخال في هذه الدفعة", 409, "ALREADY_APPLIED");
+  }
+
+  // Atomically claim those rows now that every validation above has passed,
+  // still inside this same transaction. Postgres holds a row lock on this
+  // UPDATE for the rest of the transaction, so a second concurrent confirm
+  // (double-click, or two admins at once) blocks until this one commits or
+  // rolls back, then finds the rows already stamped and gets a short count —
+  // preventing the same goods ever being invoiced twice. If anything below
+  // throws, the whole transaction including this claim rolls back, so a
+  // failed confirm never leaves rows falsely "applied".
+  const claimedAt = new Date();
+  const claim = await tx.landedCostImportItem.updateMany({
+    where: { id: { in: todo.map((it) => it.id) }, appliedAt: null },
+    data: { appliedAt: claimedAt },
+  });
+  if (claim.count !== todo.length) {
     // Lost a race against a concurrent confirm that landed between our read and this claim.
-    throw new AppError("تم بالفعل إنشاء فاتورة شراء من هذه الدفعة", 409, "ALREADY_APPLIED");
+    throw new AppError("تم بالفعل إدخال هذه الأصناف", 409, "ALREADY_APPLIED");
   }
 
   {
@@ -464,7 +509,7 @@ async function finalConfirmBatchInTransaction(
     const invoiceItems: { productId: string; unit: Unit; quantity: number; unitPrice: number }[] = [];
     const costOverwrites: { productId: string; costPrice: number; purchasePrice: number }[] = [];
 
-    for (const item of batch.items) {
+    for (const item of todo) {
       if (item.action === LandedCostItemAction.SKIP) {
         skippedCount++;
         continue;
@@ -553,14 +598,34 @@ async function finalConfirmBatchInTransaction(
       });
     }
 
+    // The batch is finished only when no row is still waiting. A part-landed
+    // shipment stays AWAITING_ARRIVAL so the rest of it keeps its «وصلت»
+    // button and stays on the storefront for customers to reserve.
+    const stillWaiting = await tx.landedCostImportItem.count({
+      where: { batchId, appliedAt: null },
+    });
     await tx.landedCostImportBatch.update({
       where: { id: batchId },
       data: {
-        status: LandedCostBatchStatus.PURCHASE_INVOICE_CREATED,
-        purchaseInvoiceId: (invoice as { id: string }).id,
+        status: stillWaiting > 0
+          ? LandedCostBatchStatus.AWAITING_ARRIVAL
+          : LandedCostBatchStatus.PURCHASE_INVOICE_CREATED,
+        // First invoice wins the slot: a batch that lands in parts has several,
+        // and overwriting would lose the earlier ones. The audit log below
+        // records every one of them.
+        ...(batch.purchaseInvoiceId ? {} : { purchaseInvoiceId: (invoice as { id: string }).id }),
         appliedBy: userId,
         appliedAt: new Date(),
       },
+    });
+
+    // Which storefront rows this arrival closes. Only collected here — the
+    // announcement itself is fired by the caller AFTER the transaction
+    // commits, because telling customers their goods are in and then rolling
+    // back is a message that cannot be taken back.
+    const incoming = await tx.catalogIncomingItem.findMany({
+      where: { sourceBatchItemId: { in: todo.map((it) => it.id) }, arrivedAt: null },
+      select: { id: true },
     });
 
     await tx.auditLog.create({
@@ -582,6 +647,8 @@ async function finalConfirmBatchInTransaction(
     return {
       purchaseInvoiceId: (invoice as { id: string; invoiceNumber: string }).id,
       invoiceNumber: (invoice as { id: string; invoiceNumber: string }).invoiceNumber,
+      batchComplete: stillWaiting === 0,
+      arrivedIncomingIds: incoming.map((r) => r.id),
       linkedCount,
       createdCount,
       skippedCount,
@@ -589,4 +656,196 @@ async function finalConfirmBatchInTransaction(
       warnings,
     };
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Shipments that have not landed yet
+
+   A China order is priced and reviewed weeks before the container arrives.
+   Confirming it as if the goods were on the shelf put stock in the warehouse
+   that nobody could pick and let the catalog sell it, so the review step asks
+   first. Answer «ما وصلت بعد» and nothing goes on the books: no purchase
+   invoice, no stock, no supplier debt. The rows go to the storefront as
+   «البضاعة القادمة» instead, where customers reserve against them, and the
+   whole thing is replayed for real on the day it lands.
+══════════════════════════════════════════════════════════════════════ */
+
+export interface HoldForArrivalInput extends FinalConfirmInput {
+  /** Roughly when it lands. Shown to customers; null when the shop won't commit. */
+  expectedAt?: string | null;
+}
+
+export async function holdBatchForArrival(
+  batchId: string,
+  opts: HoldForArrivalInput,
+  userId: string,
+): Promise<{ incomingCount: number; skippedCount: number; expectedAt: Date | null }> {
+  const batch = await prisma.landedCostImportBatch.findUnique({
+    where: { id: batchId },
+    include: { items: { include: { product: { select: { imageUrl: true, thumbnailUrl: true, category: true, pcsPerCarton: true } } } } },
+  });
+  if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
+  if (batch.status === LandedCostBatchStatus.AWAITING_ARRIVAL) {
+    throw new AppError("هذه الدفعة محجوزة بالفعل بانتظار الوصول", 409, "ALREADY_HELD");
+  }
+  assertBatchReady(batch);
+
+  const live = batch.items.filter((it) => it.action !== LandedCostItemAction.SKIP);
+  const skippedCount = batch.items.length - live.length;
+  if (live.length === 0) {
+    throw new AppError("لا يوجد أي صنف صالح (الكل تم تخطيه)", 400, "NOTHING_TO_APPLY");
+  }
+  // The sale price is what the customer sees on the incoming card, and it is
+  // required at arrival anyway — asking for it now rather than on the day the
+  // container lands is the whole point of reviewing early.
+  const noPrice = live.find(
+    (it) => it.action === LandedCostItemAction.CREATE_NEW && it.confirmedSalePrice == null,
+  );
+  if (noPrice) {
+    throw new AppError(`سعر البيع مطلوب للمادة "${noPrice.productName}"`, 400, "SALE_PRICE_REQUIRED");
+  }
+
+  const expectedAt = opts.expectedAt ? new Date(opts.expectedAt) : null;
+  if (expectedAt && Number.isNaN(expectedAt.getTime())) {
+    throw new AppError("تاريخ الوصول المتوقع غير صحيح", 400, "INVALID_DATE");
+  }
+
+  const { buildIncomingRowsFromBatch } = await import("./catalog-incoming.service");
+  const rows = await buildIncomingRowsFromBatch(
+    live.map((it) => {
+      const draft = (it.newProductDraft as { name?: string; category?: string; pcsPerCarton?: number; imageUrl?: string } | null) ?? {};
+      return {
+        itemId: it.id,
+        name: draft.name || it.productName,
+        // A linked product already has a picture; a brand-new one has whatever
+        // the review step attached. Either way the customer sees the goods.
+        imageUrl: draft.imageUrl || it.product?.imageUrl || it.product?.thumbnailUrl || null,
+        category: draft.category || it.product?.category || null,
+        quantityPieces: it.quantity,
+        pcsPerCarton:
+          draft.pcsPerCarton ||
+          it.piecesPerCarton ||
+          it.product?.pcsPerCarton ||
+          (it.cartonCount && it.cartonCount > 0 ? Math.round(it.quantity / it.cartonCount) : null),
+        price: it.confirmedSalePrice != null ? Number(it.confirmedSalePrice) : it.suggestedSalePrice != null ? Number(it.suggestedSalePrice) : null,
+      };
+    }),
+    batchId,
+    expectedAt,
+  );
+
+  return prisma.$transaction(async (tx) => {
+    // Same claim discipline as the confirm path: whoever flips the status
+    // first owns the hold, and a second click finds nothing to flip.
+    const claim = await tx.landedCostImportBatch.updateMany({
+      where: {
+        id: batchId,
+        status: { notIn: [LandedCostBatchStatus.PURCHASE_INVOICE_CREATED, LandedCostBatchStatus.CANCELLED, LandedCostBatchStatus.AWAITING_ARRIVAL] },
+      },
+      data: {
+        status: LandedCostBatchStatus.AWAITING_ARRIVAL,
+        expectedArrivalAt: expectedAt,
+        arrivalSupplierId: opts.supplierCustomerId,
+        arrivalWarehouseId: opts.warehouseId ?? null,
+        arrivalPaymentType: opts.paymentType ?? PaymentType.CREDIT,
+        arrivalPaidAmount: opts.paidAmount ?? 0,
+      },
+    });
+    if (claim.count === 0) {
+      throw new AppError("تم التصرف بهذه الدفعة بالفعل", 409, "ALREADY_APPLIED");
+    }
+
+    // Skipped rows never land, so they are stamped now and can never hold the
+    // batch open waiting for goods nobody ordered.
+    await tx.landedCostImportItem.updateMany({
+      where: { batchId, action: LandedCostItemAction.SKIP, appliedAt: null },
+      data: { appliedAt: new Date() },
+    });
+
+    await tx.catalogIncomingItem.createMany({ data: rows });
+
+    await tx.auditLog.create({
+      data: {
+        userId,
+        action: "LANDED_COST_HELD_FOR_ARRIVAL",
+        entity: "LandedCostImportBatch",
+        recordId: batchId,
+        metadata: { incomingCount: rows.length, skippedCount, expectedAt: expectedAt?.toISOString() ?? null } as Prisma.InputJsonValue,
+      },
+    });
+
+    return { incomingCount: rows.length, skippedCount, expectedAt };
+  }, { maxWait: 10_000, timeout: 60_000 });
+}
+
+/** What the admin already answered when they held the batch. */
+async function arrivalOptsFor(batchId: string): Promise<FinalConfirmInput> {
+  const batch = await prisma.landedCostImportBatch.findUnique({
+    where: { id: batchId },
+    select: {
+      status: true,
+      arrivalSupplierId: true,
+      arrivalWarehouseId: true,
+      arrivalPaymentType: true,
+      arrivalPaidAmount: true,
+    },
+  });
+  if (!batch) throw new AppError("الدفعة غير موجودة", 404, "BATCH_NOT_FOUND");
+  if (batch.status !== LandedCostBatchStatus.AWAITING_ARRIVAL) {
+    throw new AppError("هذه الدفعة ليست بانتظار الوصول", 409, "NOT_AWAITING_ARRIVAL");
+  }
+  if (!batch.arrivalSupplierId) {
+    throw new AppError("المورّد غير محفوظ لهذه الدفعة — أعد التأكيد من صفحة المراجعة", 400, "SUPPLIER_REQUIRED");
+  }
+  return {
+    supplierCustomerId: batch.arrivalSupplierId,
+    warehouseId: batch.arrivalWarehouseId ?? undefined,
+    paymentType: batch.arrivalPaymentType ?? PaymentType.CREDIT,
+    paidAmount: batch.arrivalPaidAmount == null ? 0 : Number(batch.arrivalPaidAmount),
+  };
+}
+
+/**
+ * «وصلت الشحنة» — the whole container at once.
+ *
+ * Replays the confirm the admin already set up, so the invoice, the stock and
+ * the costs land exactly as they would have on the day they answered.
+ */
+export async function markShipmentArrived(
+  batchId: string,
+  userId: string,
+  userName?: string,
+): Promise<FinalConfirmSummary> {
+  return finalConfirmBatch(batchId, await arrivalOptsFor(batchId), userId, userName);
+}
+
+/**
+ * «وصلت» on a single incoming card — for a shipment that lands in parts.
+ *
+ * That row gets its own purchase invoice for its own line, which is the
+ * honest record: goods that arrived separately were received separately. The
+ * rest of the batch stays on the storefront until it follows.
+ */
+export async function markIncomingItemArrived(
+  incomingItemId: string,
+  userId: string,
+  userName?: string,
+): Promise<FinalConfirmSummary> {
+  const row = await prisma.catalogIncomingItem.findUnique({
+    where: { id: incomingItemId },
+    select: { sourceBatchId: true, sourceBatchItemId: true, arrivedAt: true },
+  });
+  if (!row) throw new AppError("المادة غير موجودة", 404, "INCOMING_ITEM_NOT_FOUND");
+  if (row.arrivedAt) throw new AppError("هذه المادة وصلت بالفعل", 409, "ALREADY_ARRIVED");
+  if (!row.sourceBatchId || !row.sourceBatchItemId) {
+    throw new AppError("هذه المادة مضافة يدوياً — استخدم زر «وصلت» العادي", 400, "NOT_FROM_BATCH");
+  }
+  return finalConfirmBatch(
+    row.sourceBatchId,
+    await arrivalOptsFor(row.sourceBatchId),
+    userId,
+    userName,
+    undefined,
+    [row.sourceBatchItemId],
+  );
 }

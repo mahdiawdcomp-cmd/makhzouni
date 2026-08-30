@@ -7,6 +7,9 @@ import {
   computeLandedCostPreview,
   createBatchFromPreview,
   finalConfirmBatch,
+  holdBatchForArrival,
+  markIncomingItemArrived,
+  markShipmentArrived,
   getBatch,
   listBatches,
   parseLandedCostExcel,
@@ -165,4 +168,48 @@ export const confirmBatchCtrl = asyncHandler(async (req, res) => {
     req.user!.name
   );
   res.json({ success: true, data: summary });
+});
+
+/**
+ * «ما وصلت بعد» — the other answer to the arrival question.
+ *
+ * Puts nothing on the books and raises the storefront's «البضاعة القادمة»
+ * rows instead. The supplier and warehouse are collected now and replayed on
+ * arrival, so the question is answered once.
+ */
+export const holdBatchCtrl = asyncHandler(async (req, res) => {
+  const { supplierCustomerId, warehouseId, paymentType, paidAmount, expectedAt } = req.body as {
+    supplierCustomerId?: string;
+    warehouseId?: string;
+    paymentType?: string;
+    paidAmount?: number;
+    expectedAt?: string | null;
+  };
+  if (!supplierCustomerId) {
+    throw new AppError("اختر المورّد (كزبون) — تنكتب عليه الفاتورة يوم الوصول", 400, "SUPPLIER_REQUIRED");
+  }
+  const data = await holdBatchForArrival(
+    String(req.params.id),
+    {
+      supplierCustomerId,
+      warehouseId,
+      paymentType: paymentType && paymentType in PaymentType ? (paymentType as PaymentType) : undefined,
+      paidAmount,
+      expectedAt: expectedAt ?? null,
+    },
+    req.user!.id,
+  );
+  res.json({ success: true, data });
+});
+
+/** «وصلت الشحنة» — the whole held batch lands at once. */
+export const batchArrivedCtrl = asyncHandler(async (req, res) => {
+  const data = await markShipmentArrived(String(req.params.id), req.user!.id, req.user!.name);
+  res.json({ success: true, data });
+});
+
+/** «وصلت» on one incoming card, for a shipment that lands in parts. */
+export const incomingArrivedCtrl = asyncHandler(async (req, res) => {
+  const data = await markIncomingItemArrived(String(req.params.id), req.user!.id, req.user!.name);
+  res.json({ success: true, data });
 });

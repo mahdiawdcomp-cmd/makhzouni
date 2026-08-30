@@ -2,8 +2,11 @@ import { Router } from "express";
 import multer from "multer";
 import {
   cancelBatchCtrl,
+  batchArrivedCtrl,
   confirmBatchCtrl,
   createBatch,
+  holdBatchCtrl,
+  incomingArrivedCtrl,
   downloadLandedCostTemplate,
   getBatchCtrl,
   listBatchesCtrl,
@@ -71,5 +74,11 @@ router.patch("/batches/:id/items/:itemId", setItemDecisionCtrl);
 // VIEW_PURCHASE_PRICE inject stock and rewrite product costs.
 router.post("/batches/:id/cancel", requirePermission("MANAGE_PRODUCTS"), cancelBatchCtrl);
 router.post("/batches/:id/confirm", requirePermission("MANAGE_PRODUCTS"), confirmBatchCtrl);
+// Holding a batch for arrival writes nothing to the books, but arriving one
+// creates a purchase invoice and injects stock — so both live behind the same
+// gate as confirm, and NOT behind the catalog screen's MANAGE_CUSTOMERS.
+router.post("/batches/:id/hold", requirePermission("MANAGE_PRODUCTS"), holdBatchCtrl);
+router.post("/batches/:id/arrived", requirePermission("MANAGE_PRODUCTS"), batchArrivedCtrl);
+router.post("/incoming/:id/arrived", requirePermission("MANAGE_PRODUCTS"), incomingArrivedCtrl);
 
 export default router;

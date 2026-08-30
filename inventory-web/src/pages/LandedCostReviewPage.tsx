@@ -8,11 +8,14 @@ import { Label } from "../components/ui/label"
 import { Badge } from "../components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
+import { cn } from "../utils/cn"
 import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import {
   cancelLandedCostBatch,
   confirmLandedCostBatch,
+  holdLandedCostBatch,
+  markLandedCostBatchArrived,
   getBranches,
   getLandedCostBatch,
   getProducts,
@@ -190,11 +193,16 @@ export function LandedCostReviewPage() {
   const branchesQuery = useQuery({ queryKey: ["branches-active"], queryFn: () => getBranches({ isActive: true }) })
   const { customersQuery } = useCustomers(true)
 
+  const queryClient = useQueryClient()
   const [supplierCustomerId, setSupplierCustomerId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
   const [paymentType, setPaymentType] = useState<"CASH" | "CREDIT" | "PARTIAL">("CREDIT")
   const [paidAmount, setPaidAmount] = useState(0)
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof confirmLandedCostBatch>> | null>(null)
+  // Default «وصلت»: that is what every confirm before this one meant, so an
+  // admin who does not read the new question gets exactly the old behaviour.
+  const [arrived, setArrived] = useState(true)
+  const [expectedAt, setExpectedAt] = useState("")
 
   const confirmMutation = useMutation({
     mutationFn: () => confirmLandedCostBatch(batchId, { supplierCustomerId, warehouseId: warehouseId || undefined, paymentType, paidAmount }),
@@ -203,6 +211,30 @@ export function LandedCostReviewPage() {
       toast({ title: "تم إنشاء فاتورة الشراء", description: `رقم الفاتورة: ${result.invoiceNumber}` })
     },
     onError: (err: unknown) => toast({ title: "تعذّر إنشاء فاتورة الشراء", description: apiErrorMessage(err), variant: "destructive" }),
+  })
+
+  const holdMutation = useMutation({
+    mutationFn: () => holdLandedCostBatch(batchId, {
+      supplierCustomerId, warehouseId: warehouseId || undefined, paymentType, paidAmount,
+      expectedAt: expectedAt || null,
+    }),
+    onSuccess: (result) => {
+      toast({
+        title: "انحفظت كبضاعة قادمة",
+        description: `${result.incomingCount} مادة صارت تنعرض للزبائن للحجز. ما انكتبت فاتورة ولا دخل مخزون.`,
+      })
+      void queryClient.invalidateQueries({ queryKey: ["landed-cost-batch", batchId] })
+    },
+    onError: (err: unknown) => toast({ title: "تعذّر الحفظ", description: apiErrorMessage(err), variant: "destructive" }),
+  })
+
+  const arrivedMutation = useMutation({
+    mutationFn: () => markLandedCostBatchArrived(batchId),
+    onSuccess: (result) => {
+      setSummary(result)
+      toast({ title: "وصلت الشحنة", description: `رقم فاتورة الشراء: ${result.invoiceNumber}` })
+    },
+    onError: (err: unknown) => toast({ title: "تعذّر تسجيل الوصول", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
   const [confirmCancel, setConfirmCancel] = useState(false)
@@ -230,6 +262,9 @@ export function LandedCostReviewPage() {
     })
   }
   const locked = batch?.status === "PURCHASE_INVOICE_CREATED" || batch?.status === "CANCELLED"
+  // Held for arrival: the decisions are made and stored, so what is left is
+  // one button on the day the container lands — not the whole form again.
+  const awaiting = batch?.status === "AWAITING_ARRIVAL"
 
   if (batchQuery.isLoading) return <div className="p-6">جاري التحميل...</div>
   if (!batch) return <div className="p-6">الدفعة غير موجودة</div>
@@ -291,7 +326,31 @@ export function LandedCostReviewPage() {
         </CardContent>
       </Card>
 
-      {!locked && (
+      {awaiting && (
+        <Card>
+          <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-sky-800">🚢 هذي الشحنة بالطريق</p>
+              <p className="mt-1 text-sm text-slate-600">
+                ما انكتبت فاتورة ولا دخل مخزون. موادها تنعرض للزبائن بـ«البضاعة القادمة» ويقدرون يحجزون عليها.
+                {batch?.expectedArrivalAt && ` متوقع توصل ${new Date(batch.expectedArrivalAt).toLocaleDateString("ar-IQ")}.`}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                إذا وصلت مجزّأة، تكدر تسجّل كل مادة لحالها من صفحة الكتلوك ← البضاعة القادمة.
+              </p>
+            </div>
+            <Button
+              className="shrink-0"
+              disabled={arrivedMutation.isPending}
+              onClick={() => arrivedMutation.mutate()}
+            >
+              {arrivedMutation.isPending ? "جاري الإدخال..." : "وصلت الشحنة كلها"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {!locked && !awaiting && (
         <Card>
           <CardHeader><span className="font-semibold">إنشاء فاتورة شراء من هذا الأوردر</span></CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-4">
@@ -333,12 +392,51 @@ export function LandedCostReviewPage() {
               <Input type="number" value={paidAmount} onChange={(e) => setPaidAmount(Number(e.target.value) || 0)} />
             </div>
             <div className="sm:col-span-4">
+              {/* The question that has to come before the invoice. Confirming a
+                  container still at sea used to put stock on the shelf nobody
+                  could pick, and let the catalog sell it. */}
+              <Label>البضاعة وصلت؟</Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-2 sm:max-w-md">
+                {([
+                  { v: true, title: "وصلت", desc: "تنكتب فاتورة الشراء ويدخل المخزون هسه" },
+                  { v: false, title: "ما وصلت بعد", desc: "ولا شي ينكتب — تروح للبضاعة القادمة" },
+                ] as const).map((o) => (
+                  <button key={String(o.v)} type="button" onClick={() => setArrived(o.v)}
+                    className={cn(
+                      "rounded-xl border-2 p-3 text-right transition",
+                      arrived === o.v ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300",
+                    )}>
+                    <p className={cn("text-sm font-bold", arrived === o.v ? "text-blue-700" : "text-slate-700")}>{o.title}</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{o.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {!arrived && (
+              <div className="sm:col-span-2">
+                <Label>متوقع يوصل (اختياري)</Label>
+                <Input type="date" value={expectedAt} onChange={(e) => setExpectedAt(e.target.value)} dir="ltr" />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  يظهر للزبون على بطاقة البضاعة القادمة. اتركه فارغ إذا ما تريد تلتزم بتاريخ.
+                </p>
+              </div>
+            )}
+
+            <div className="sm:col-span-4">
               <Button
-                disabled={!supplierCustomerId || unresolvedCount > 0 || confirmMutation.isPending}
-                onClick={() => confirmMutation.mutate()}
+                disabled={!supplierCustomerId || unresolvedCount > 0 || confirmMutation.isPending || holdMutation.isPending}
+                onClick={() => (arrived ? confirmMutation : holdMutation).mutate()}
               >
-                {confirmMutation.isPending ? "جاري الإنشاء..." : "إنشاء فاتورة شراء من هذا الأوردر"}
+                {arrived
+                  ? (confirmMutation.isPending ? "جاري الإنشاء..." : "إنشاء فاتورة شراء من هذا الأوردر")
+                  : (holdMutation.isPending ? "جاري الحفظ..." : "احفظها كبضاعة قادمة")}
               </Button>
+              {!arrived && (
+                <p className="mt-2 text-xs text-slate-500">
+                  ما تنكتب فاتورة ولا يدخل مخزون. يوم توصل تضغط «وصلت» ويصير كل شي دفعة وحدة.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -23,6 +23,7 @@ import {
 const STATUS_LABELS: Record<LandedCostBatch["status"], { label: string; variant: "secondary" | "info" | "success" | "danger" }> = {
   DRAFT_PRICED: { label: "تم التسعير", variant: "info" },
   REVIEWING_ITEMS: { label: "قيد المراجعة", variant: "secondary" },
+  AWAITING_ARRIVAL: { label: "بالطريق — بضاعة قادمة", variant: "info" },
   PURCHASE_INVOICE_CREATED: { label: "تم إنشاء فاتورة شراء", variant: "success" },
   CANCELLED: { label: "ملغاة", variant: "danger" },
 }

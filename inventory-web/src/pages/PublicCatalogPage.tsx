@@ -1808,7 +1808,7 @@ function CatalogShop({
         })()}
       </>
     ),
-    incoming: <IncomingRow tk={tk} phone={visitorPhone || customerPhone} customerName={customerName} />,
+    incoming: <IncomingRow tk={tk} phone={visitorPhone || customerPhone} customerName={customerName} allowPrices={allowPrices} />,
     featured: featuredProducts.length > 0 ? (
       <div className="px-3 pt-3">
         <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
@@ -3720,10 +3720,29 @@ const fullImageCache = new Map<string, string>()
  * changes the quantity rather than queueing a second promise, which is what
  * the server's one-per-person rule enforces.
  */
-function IncomingRow({ tk, phone, customerName }: { tk: ThemeTokens; phone: string; customerName: string }) {
+function IncomingRow({ tk, phone, customerName, allowPrices }: {
+  tk: ThemeTokens; phone: string; customerName: string; allowPrices: boolean
+}) {
   const qc = useQueryClient()
   const [open, setOpen] = useState<IncomingItem | null>(null)
   const [qty, setQty] = useState(1)
+
+  // What is actually on the way, in the unit a wholesaler thinks in. A shopper
+  // who cannot see this has no way to know whether the shipment even covers
+  // what they are about to reserve.
+  const cartonsOf = (it: IncomingItem) =>
+    it.quantityPieces && it.pcsPerCarton && it.pcsPerCarton > 0
+      ? Math.floor(it.quantityPieces / it.pcsPerCarton)
+      : null
+  const incomingLabel = (it: IncomingItem) => {
+    const cartons = cartonsOf(it)
+    if (cartons && cartons > 0) return `جاي ${money(cartons)} كارتون`
+    if (it.quantityPieces) return `جاي ${money(it.quantityPieces)} قطعة`
+    return null
+  }
+  // Reserving more than is coming is a promise the shop cannot keep, so the
+  // counter stops at the shipment. Unknown quantity keeps the old open ceiling.
+  const maxReserve = (it: IncomingItem) => cartonsOf(it) || it.quantityPieces || 9999
 
   const query = useQuery({
     queryKey: ["catalog-incoming", phone],
@@ -3771,6 +3790,17 @@ function IncomingRow({ tk, phone, customerName }: { tk: ThemeTokens; phone: stri
                 </span>
               )}
               <span className="truncate font-bold" style={{ color: tk.text, fontSize: tk.fs.xs }}>{it.name}</span>
+              {it.category && (
+                <span className="truncate" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{it.category}</span>
+              )}
+              {allowPrices && it.price != null && (
+                <span className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>
+                  {money(it.price)} د.ع
+                </span>
+              )}
+              {incomingLabel(it) && (
+                <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{incomingLabel(it)}</span>
+              )}
               {it.expectedAt && (
                 <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
                   يوصل {new Date(it.expectedAt).toLocaleDateString("ar-IQ", { month: "short", day: "numeric" })}
@@ -3794,6 +3824,28 @@ function IncomingRow({ tk, phone, customerName }: { tk: ThemeTokens; phone: stri
             {open.description && (
               <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>{open.description}</p>
             )}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {open.category && (
+                <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.catIdle, color: tk.catIdleText, fontSize: tk.fs.xs }}>
+                  {open.category}
+                </span>
+              )}
+              {allowPrices && open.price != null && (
+                <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>
+                  {money(open.price)} د.ع
+                </span>
+              )}
+              {incomingLabel(open) && (
+                <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.catIdle, color: tk.catIdleText, fontSize: tk.fs.xs }}>
+                  {incomingLabel(open)}
+                </span>
+              )}
+              {open.expectedAt && (
+                <span className="rounded-full px-2 py-0.5 font-bold" style={{ background: tk.catIdle, color: tk.catIdleText, fontSize: tk.fs.xs }}>
+                  متوقع {new Date(open.expectedAt).toLocaleDateString("ar-IQ", { month: "short", day: "numeric" })}
+                </span>
+              )}
+            </div>
             <p className="mt-2" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
               الحجز يثبّت لك كمية من البضاعة قبل ما توصل. ما ينحسب طلب ولا فاتورة — نتواصل وياك أول ما تنزل.
             </p>
@@ -3803,10 +3855,16 @@ function IncomingRow({ tk, phone, customerName }: { tk: ThemeTokens; phone: stri
                 className="flex h-11 w-11 items-center justify-center rounded-xl text-lg font-extrabold"
                 style={{ background: tk.catIdle, color: tk.text }}>−</button>
               <span className="w-16 text-center font-extrabold" style={{ color: tk.text, fontSize: tk.fs.xl }}>{qty}</span>
-              <button onClick={() => setQty((q) => Math.min(9999, q + 1))}
-                className="flex h-11 w-11 items-center justify-center rounded-xl text-white"
+              <button onClick={() => setQty((q) => Math.min(maxReserve(open), q + 1))}
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-white disabled:opacity-40"
+                disabled={qty >= maxReserve(open)}
                 style={{ background: tk.accent }}><Plus className="h-4 w-4" /></button>
             </div>
+            {qty >= maxReserve(open) && incomingLabel(open) && (
+              <p className="mt-1.5 text-center" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                هذي كل الكمية القادمة
+              </p>
+            )}
 
             <button
               disabled={reserveMut.isPending}
