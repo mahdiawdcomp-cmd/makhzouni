@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Truck, Gift } from "lucide-react"
+import { ImageOff, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Truck, Gift } from "lucide-react"
 import { getSettings, updateSettings, applyPricesDefaultToAll } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -225,6 +225,20 @@ export function CatalogSettingsTab() {
               checked={s?.catalogFullCartonOnly === true}
               disabled={saveMut.isPending}
               onChange={(e) => saveMut.mutate({ catalogFullCartonOnly: e.target.checked })}
+              className="h-4 w-4 accent-emerald-600"
+            />
+          </Row>
+
+          <Row
+            icon={<ImageOff className="h-4 w-4 text-slate-500" />}
+            title="خفِّ المواد الي بلا صورة"
+            description="واجهة أنظف: المادة بلا صورة ما تظهر بالعرض. مو حذف — الزبون يقدر يظهرها لنفسه من «تخصيص المظهر» داخل المتجر."
+          >
+            <input
+              type="checkbox"
+              checked={s?.catalogHideNoImage === true}
+              disabled={saveMut.isPending}
+              onChange={(e) => saveMut.mutate({ catalogHideNoImage: e.target.checked })}
               className="h-4 w-4 accent-emerald-600"
             />
           </Row>

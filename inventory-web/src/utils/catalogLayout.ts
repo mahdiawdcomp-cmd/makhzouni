@@ -19,6 +19,8 @@ export interface CatalogLayout {
   reviewsEnabled: boolean
   suggestionsEnabled: boolean
   tutorialEnabled: boolean
+  /** The shop's default for pictureless products. The shopper may override it. */
+  hideNoImage: boolean
   /** «عروض القائمة» — thresholds that grant free delivery and/or a discount. */
   orderTiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }

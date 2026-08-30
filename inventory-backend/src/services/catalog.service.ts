@@ -847,6 +847,7 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     reviewsEnabled: settings.catalogReviewsEnabled !== false,
     suggestionsEnabled: settings.catalogSuggestionsEnabled !== false,
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
+    hideNoImage: settings.catalogHideNoImage === true,
     orderTiers: normalizeOrderTiers(settings.catalogOrderTiers ?? DEFAULT_ORDER_TIERS),
   };
 }

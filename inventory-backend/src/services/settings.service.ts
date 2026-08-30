@@ -296,6 +296,11 @@ export interface AppSettings {
   // with at least one full carton in stock. Defaults to false so existing
   // per-customer stockFilter configuration is unaffected until opted in.
   catalogFullCartonOnly?: boolean;
+  // Hide products that have no picture. The merchant's shop-wide default;
+  // a shopper can override it for themselves from the storefront's appearance
+  // sheet, so hiding them is a cleaner front page, not a wall the shopper
+  // cannot see past. Defaults to false — nothing disappears until opted in.
+  catalogHideNoImage?: boolean;
   // Wholesale catalog product-order rotation. "hourly" reshuffles the order for
   // all shoppers every hour, "daily" every day, "off" keeps the fixed
   // category/name order. Defaults to "hourly".
@@ -472,6 +477,7 @@ export const defaultSettings: AppSettings = {
   catalogAdminWhatsappNumber: "",
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,
+  catalogHideNoImage: false,
   catalogShuffleMode: "hourly",
   catalogNorthGovernorates: [...DEFAULT_NORTH_GOVERNORATES],
   catalogFreeShippingThreshold: DEFAULT_FREE_SHIPPING_THRESHOLD,

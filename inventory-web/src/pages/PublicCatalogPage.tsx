@@ -98,6 +98,7 @@ const VISITOR_TOKEN_KEY = "catalog_visitor_token"
 const themeKey = "catalog_theme"
 const accentKey = "catalog_accent"
 const fontScaleKey = "catalog_font_scale"
+const noImageKey = "catalog_show_no_image"
 const UNIT_LABELS: Record<CatalogUnit, string> = { PIECE: "قطعة", DOZEN: "درزن", BOX: "علبة", CARTON: "كارتون" }
 const UNIT_DESC: Record<CatalogUnit, (pcsInUnit: number) => string> = {
   PIECE: () => "قطعة واحدة",
@@ -926,8 +927,13 @@ function CatalogShop({
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
   // Ordering is still carton-only either way. Guests are always carton-only.
-  const canDisplay = (p: PublicCatalogProduct) =>
-    guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
+  const canDisplay = (p: PublicCatalogProduct) => {
+    // A pictureless product is hidden, never dropped: the shopper can bring it
+    // back for themselves from «تخصيص المظهر», so this only ever changes what
+    // the grid draws — search, cart and stock all still know about it.
+    if (!showNoImage && !(p.hasImage ?? Boolean(p.thumbnailUrl))) return false
+    return guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
+  }
   const productsQuery = useQuery({
     queryKey: visitorToken
       ? ["visitor-catalog-products", visitorToken]
@@ -1018,6 +1024,14 @@ function CatalogShop({
     const v = localStorage.getItem(fontScaleKey)
     return v && v in FONT_SCALES ? (v as FontScale) : "md"
   })
+  // Pictureless products: null = follow whatever the shop decided, true/false =
+  // the shopper overrode it for themselves. Same three-state shape as the theme
+  // prefs above, so a shop that flips its own switch still moves everyone who
+  // never expressed an opinion.
+  const [showNoImagePref, setShowNoImagePref] = useState<boolean | null>(() => {
+    const v = localStorage.getItem(noImageKey)
+    return v === "1" ? true : v === "0" ? false : null
+  })
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -1097,6 +1111,11 @@ function CatalogShop({
   })
   const design = designQuery.data
 
+  // The shopper's own choice wins; otherwise the shop's switch decides. While
+  // the design is still loading nothing is hidden, so a slow network can never
+  // make the grid look emptier than it is.
+  const showNoImage = showNoImagePref ?? design?.hideNoImage !== true
+
   // The admin's design is the *default* look, not a lock: it only applies to
   // preferences the shopper hasn't set for themselves.
   const theme: Theme = themePref ?? (design?.defaultTheme && design.defaultTheme in SURFACES ? design.defaultTheme : "clean")
@@ -1126,10 +1145,15 @@ function CatalogShop({
     setFontScale(f)
     localStorage.setItem(fontScaleKey, f)
   }
+  function applyShowNoImage(v: boolean) {
+    setShowNoImagePref(v)
+    localStorage.setItem(noImageKey, v ? "1" : "0")
+  }
   function resetAppearance() {
     setThemePref(null); localStorage.removeItem(themeKey)
     setAccentPref(null); localStorage.removeItem(accentKey)
     setFontScale("md"); localStorage.removeItem(fontScaleKey)
+    setShowNoImagePref(null); localStorage.removeItem(noImageKey)
   }
 
   // Close the "more" menu on outside click
@@ -1274,12 +1298,23 @@ function CatalogShop({
     }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices])
+  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, showNoImage])
 
   // ── Paging ──
   // `visible` above is the WHOLE catalog after search, filters and sorting —
   // paging only decides how much of that result is on screen. Filtering a
   // page instead of the catalog would make search useless past product 40.
+  // How many products the picture rule is holding back right now. Shown to the
+  // shopper so a shorter grid is never a mystery — and so the way back is one
+  // tap, not a support call.
+  const hiddenNoImageCount = useMemo(() => {
+    if (showNoImage) return 0
+    return products.filter((p) =>
+      !(p.hasImage ?? Boolean(p.thumbnailUrl)) &&
+      (guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)),
+    ).length
+  }, [products, showNoImage, guestMode, stockFilter])
+
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const safePage = Math.min(page, pageCount - 1)
   const pageItems = useMemo(
@@ -1389,9 +1424,9 @@ function CatalogShop({
   // filtered out, right above the filtered grid.
   const showSections = category === "all" && typeFilter === "all" && !search.trim() && activeFilterCount === 0
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter])
+  const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter, showNoImage])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const offers = useMemo(() => products.filter(p => p.isOffer && canDisplay(p)).slice(0, 12), [products, stockFilter])
+  const offers = useMemo(() => products.filter(p => p.isOffer && canDisplay(p)).slice(0, 12), [products, stockFilter, showNoImage])
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
@@ -2043,6 +2078,14 @@ function CatalogShop({
           </div>
         )}
 
+        {hiddenNoImageCount > 0 && (
+          <button onClick={() => applyShowNoImage(true)}
+            className="mt-2 w-full py-2 text-center font-bold transition active:scale-95"
+            style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.xs }}>
+            مخفي {money(hiddenNoImageCount)} مادة بدون صورة — اضغط لإظهارها
+          </button>
+        )}
+
         {/* Special rows: عروض + جديد */}
         {!productsQuery.isLoading && showSections && (offers.length > 0 || newArrivals.length > 0) && (
           <div className="mb-5 space-y-5">
@@ -2122,6 +2165,14 @@ function CatalogShop({
               عرض {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, visible.length)} من {money(visible.length)} منتج
             </p>
           </div>
+        )}
+
+        {hiddenNoImageCount > 0 && (
+          <button onClick={() => applyShowNoImage(true)}
+            className="mt-2 w-full py-2 text-center font-bold transition active:scale-95"
+            style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.xs }}>
+            مخفي {money(hiddenNoImageCount)} مادة بدون صورة — اضغط لإظهارها
+          </button>
         )}
       </main>
 
@@ -2234,7 +2285,9 @@ function CatalogShop({
         <AppearanceSheet
           tk={tk}
           theme={theme} accent={accentPref} fontScale={fontScale}
+          showNoImage={showNoImage}
           onTheme={applyTheme} onAccent={applyAccent} onFontScale={applyFontScale}
+          onShowNoImage={applyShowNoImage}
           onReset={resetAppearance}
           onClose={() => setAppearanceOpen(false)}
         />
@@ -3200,15 +3253,18 @@ function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFoot
    APPEARANCE SHEET — the shopper's own control over how the shop looks
 ══════════════════════════════════════════════════════════════════════ */
 function AppearanceSheet({
-  tk, theme, accent, fontScale, onTheme, onAccent, onFontScale, onReset, onClose,
+  tk, theme, accent, fontScale, showNoImage,
+  onTheme, onAccent, onFontScale, onShowNoImage, onReset, onClose,
 }: {
   tk: ThemeTokens
   theme: Theme
   accent: AccentKey | null
   fontScale: FontScale
+  showNoImage: boolean
   onTheme: (t: Theme) => void
   onAccent: (a: AccentKey) => void
   onFontScale: (f: FontScale) => void
+  onShowNoImage: (v: boolean) => void
   onReset: () => void
   onClose: () => void
 }) {
@@ -3327,6 +3383,34 @@ function AppearanceSheet({
                       </span>
                       <span className="block truncate" style={{ color: s.subtext, fontSize: tk.fs.xs }}>{s.desc}</span>
                     </span>
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* ── Pictureless products ── */}
+          <section>
+            <p className="mb-2.5 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>المواد بدون صور</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              {[
+                { on: false, title: "أخفيها", desc: "واجهة أنظف، صور بس" },
+                { on: true, title: "أظهرها", desc: "كل البضاعة الموجودة" },
+              ].map((o) => {
+                const active = showNoImage === o.on
+                return (
+                  <button key={String(o.on)} onClick={() => onShowNoImage(o.on)}
+                    className="p-3 text-right transition active:scale-95"
+                    style={{
+                      background: active ? tk.accentLight : tk.catIdle,
+                      border: `2px solid ${active ? tk.accent : "transparent"}`,
+                      borderRadius: tk.radiusMd,
+                    }}>
+                    <span className="flex items-center gap-1 font-extrabold" style={{ color: active ? tk.accent : tk.catIdleText, fontSize: tk.fs.sm }}>
+                      {o.title}
+                      {active && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+                    </span>
+                    <span className="block truncate" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{o.desc}</span>
                   </button>
                 )
               })}

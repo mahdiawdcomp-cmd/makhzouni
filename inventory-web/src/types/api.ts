@@ -1213,6 +1213,7 @@ export interface AppSettings {
   catalogAdminWhatsappNumber?: string
   catalogRequireOtp?: boolean
   catalogFullCartonOnly?: boolean
+  catalogHideNoImage?: boolean
   /** Storefront login: close anonymous browsing entirely. */
   catalogRequireLogin?: boolean
   /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */
