@@ -417,6 +417,9 @@ ${tenant.backendUrl}
           <ul>{warnings.map((w) => <li key={w}>{w}</li>)}</ul>
         </div>}
 
+        {lic.features.length === 0 && <div className="alert error" style={{ marginTop: 12 }}>
+          لا توجد أي ميزة محددة لهذا المحل. القائمة الفارغة لا تعني «كل شيء مفتوح»: إذا كان المحل موصولاً، تُمنع الميزات المحكومة بالمسارات برمز 403 ويصل الزبون إلى شاشات معطّلة. حدّد الميزات صراحةً قبل الوصل.
+        </div>}
         {FEATURE_GROUPS.map((group) => {
           const visibleItems = group.items.filter((i) => !i.hidden);
           if (visibleItems.length === 0) return null;

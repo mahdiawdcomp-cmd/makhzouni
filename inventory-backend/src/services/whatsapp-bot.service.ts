@@ -88,9 +88,16 @@ export async function routeIncomingMessage(
   // entitlements configured yet always resolve to true (see hasFeature()),
   // so this only actually blocks a tenant whose Super Admin explicitly
   // disabled the whatsappBot feature.
+  //
+  // This used to compute the answer, log a "skipped" line, and then fall
+  // straight through into the bot rules anyway — so a shop whose whatsappBot
+  // entitlement was turned off still received every automated reply, while the
+  // log claimed it had been skipped. Returning is what the check always meant.
+  // The inbound message is still logged above, so the inbox is unaffected.
   const botEntitled = await hasFeature("whatsappBot");
-  if (settings.whatsappBotEnabled && !botEntitled) {
-    logger.info("[whatsapp-bot] skipped: feature disabled");
+  if (!botEntitled) {
+    logger.info("[whatsapp-bot] skipped: feature not enabled for this tenant");
+    return;
   }
 
   // 0) «توقف» outranks everything, including a pending rating request: the

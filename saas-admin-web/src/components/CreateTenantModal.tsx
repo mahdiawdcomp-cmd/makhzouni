@@ -149,7 +149,7 @@ export default function CreateTenantModal({ onClose }: { onClose: () => void }) 
                   </div>
                 );
               })}
-              {form.features.length === 0 && <div className="alert error">لا توجد أي ميزة محددة — الخادم يعتبر القائمة الفارغة «كل الميزات مفتوحة». حدّد الميزات المطلوبة صراحةً.</div>}
+              {form.features.length === 0 && <div className="alert error">لا توجد أي ميزة محددة. القائمة الفارغة لا تعني «كل شيء مفتوح»: على محل موصول تُمنع الميزات المحكومة بالمسارات (عروض الأسعار، التحويلات، سجل التدقيق، الجرد، الكتالوج، المرتجعات، واتساب) برمز 403. حدّد الميزات صراحةً.</div>}
               <label>ملاحظات<textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} /></label>
               <label>ملاحظات داخلية (للسوبر أدمن فقط)<textarea value={form.internalNotes} onChange={(e) => set("internalNotes", e.target.value)} rows={2} /></label>
             </>
