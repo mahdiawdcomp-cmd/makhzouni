@@ -848,7 +848,12 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     suggestionsEnabled: settings.catalogSuggestionsEnabled !== false,
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
     hideNoImage: settings.catalogHideNoImage === true,
-    newArrivalDays: Math.max(0, Math.min(365, Math.round(Number(settings.catalogNewArrivalDays ?? 10)) || 0)),
+    // A corrupted value must not silently turn the button off — only a real
+    // zero from the merchant means "off".
+    newArrivalDays: (() => {
+      const raw = Math.round(Number(settings.catalogNewArrivalDays));
+      return Number.isFinite(raw) ? Math.max(0, Math.min(365, raw)) : 10;
+    })(),
     orderTiers: normalizeOrderTiers(settings.catalogOrderTiers ?? DEFAULT_ORDER_TIERS),
   };
 }
