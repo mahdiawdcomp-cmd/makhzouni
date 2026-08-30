@@ -23,6 +23,8 @@ export interface CatalogLayout {
   hideNoImage: boolean
   /** How recently a product must have been added to count as «وصلت هسه». 0 = off. */
   newArrivalDays: number
+  /** Whether someone with no account at all sees prices. */
+  guestPricesVisible: boolean
   /** «عروض القائمة» — thresholds that grant free delivery and/or a discount. */
   orderTiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }

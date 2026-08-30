@@ -267,6 +267,11 @@ export interface AppSettings {
   // Storefront login: whether a signed-in customer sees prices by default.
   // Per-customer exceptions live on Customer.catalogPricesHidden.
   catalogPricesVisibleByDefault?: boolean;
+  // Whether a visitor with NO account sees prices. Separate from the switch
+  // above on purpose: that one is the default for people the shop has on its
+  // books, this one hands the wholesale price list to anyone holding the link.
+  // Defaults to false — the behaviour every shop already had.
+  catalogGuestPricesVisible?: boolean;
   // When true the catalog cannot be browsed without signing in at all.
   catalogRequireLogin?: boolean;
   // WhatsApp text sent to a customer with their storefront username + code.
@@ -480,6 +485,7 @@ export const defaultSettings: AppSettings = {
   catalogAdminWhatsappNumber: "",
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,
+  catalogGuestPricesVisible: false,
   catalogHideNoImage: false,
   catalogNewArrivalDays: 10,
   catalogShuffleMode: "hourly",

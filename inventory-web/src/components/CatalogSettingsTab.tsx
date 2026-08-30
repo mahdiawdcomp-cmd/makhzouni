@@ -49,6 +49,7 @@ export function CatalogSettingsTab() {
   // as on the people screen they came from, so the two read alike.
   const requireLogin = settingsQuery.data?.catalogRequireLogin === true
   const pricesVisible = settingsQuery.data?.catalogPricesVisibleByDefault !== false
+  const guestPrices = settingsQuery.data?.catalogGuestPricesVisible === true
   const settingsMut = useMutation({
     mutationFn: (patch: Record<string, unknown>) => updateSettings(patch),
     onSuccess: () => { toast({ title: "تم الحفظ" }); void qc.invalidateQueries({ queryKey: ["settings"] }) },
@@ -491,9 +492,10 @@ export function CatalogSettingsTab() {
             onChange={(e) => settingsMut.mutate({ catalogPricesVisibleByDefault: e.target.checked })}
             className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-600" />
           <span>
-            <span className="block text-sm font-bold text-slate-800">إظهار الأسعار لكل الزبائن</span>
+            <span className="block text-sm font-bold text-slate-800">إظهار الأسعار لأصحاب الحسابات</span>
             <span className="block text-xs text-slate-500">
-              الافتراضي لكل زبون مسجّل. مفتاح «إخفاء السعر» بجنب أي زبون يتجاوز هذا الإعداد له وحده.
+              الافتراضي لكل زبون أو زائر داخل بحسابه. مفتاح «إخفاء السعر» بجنب أي زبون يتجاوز هذا الإعداد له وحده.
+              الزائر بلا حساب ما يشمله هذا المفتاح — إله مفتاحه تحت.
             </span>
           </span>
         </label>
@@ -509,6 +511,19 @@ export function CatalogSettingsTab() {
         <p className="mt-1 text-[11px] text-slate-400">
           بدون هذا الزر، التغيير يوصل الزبون عند تسجيل دخوله الجاي فقط.
         </p>
+
+        <label className="mt-3 flex items-start gap-3 border-t border-slate-200 pt-3">
+          <input type="checkbox" checked={guestPrices}
+            onChange={(e) => settingsMut.mutate({ catalogGuestPricesVisible: e.target.checked })}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-amber-600" />
+          <span>
+            <span className="block text-sm font-bold text-slate-800">إظهار الأسعار للزائر بلا حساب</span>
+            <span className="block text-xs text-slate-500">
+              يشتغل بس إذا «التصفح الحر» مشغّل. أي واحد يفتح الرابط يشوف أسعارك — زبون، ومنافس، وأي شخص
+              ينوصله الرابط. شغّله إذا أسعارك معلنة أصلاً، وخلّه مطفي إذا أسعار الجملة مالتك خاصة.
+            </span>
+          </span>
+        </label>
       </div>
     </CardContent>
   </Card>

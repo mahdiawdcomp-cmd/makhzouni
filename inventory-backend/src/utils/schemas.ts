@@ -1259,6 +1259,7 @@ export const updateSettingsSchema = z.object({
       catalogDesignTrust3Text: nullAsUndefined(z.string().trim().max(60)),
       catalogDesignLowStockCartons: nullAsUndefined(z.coerce.number().int().min(0).max(1000)),
       catalogPricesVisibleByDefault: nullAsUndefined(z.boolean()),
+      catalogGuestPricesVisible: nullAsUndefined(z.boolean()),
       catalogRequireLogin: nullAsUndefined(z.boolean()),
       storefrontCredentialsTemplate: nullAsUndefined(z.string().max(2000)),
       catalogAccessApprovedTemplate: nullAsUndefined(z.string().max(2000)),

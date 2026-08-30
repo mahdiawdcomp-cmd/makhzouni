@@ -1219,6 +1219,7 @@ export interface AppSettings {
   catalogRequireLogin?: boolean
   /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */
   catalogPricesVisibleByDefault?: boolean
+  catalogGuestPricesVisible?: boolean
   /** WhatsApp text carrying username + code + link. Empty = built-in default. */
   storefrontCredentialsTemplate?: string
   /** Message a newly approved customer gets: link + their login code. */

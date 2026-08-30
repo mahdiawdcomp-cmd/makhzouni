@@ -364,7 +364,7 @@ export function PublicCatalogPage() {
   // anonymous browsing (catalogRequireOtp off) or requires the phone/OTP gate.
   const guestConfigQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { guestModeEnabled?: boolean; guestPhoneGate?: boolean } }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { guestModeEnabled?: boolean; guestPhoneGate?: boolean; guestPricesVisible?: boolean } }).data ?? {}),
     enabled: !accessToken,
     staleTime: 5 * 60_000,
   })
@@ -392,10 +392,14 @@ export function PublicCatalogPage() {
       // With the gate off, people look first and identify at checkout — the
       // shop trades on impulse, and asking for a phone before showing a single
       // product turns browsers away at the door.
+      // Anonymous browsing used to hardcode "no prices", so the shop-wide
+      // price switch could never reach anyone without an account no matter
+      // what it was set to. It is its own switch now, and this reads it.
+      const guestPrices = guestConfigQuery.data?.guestPricesVisible === true
       if (guestConfigQuery.data?.guestPhoneGate === false) {
         return (
           <CatalogShop
-            accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
+            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
             customerId="" customerName="" customerPhone="" guestMode
           />
         )
@@ -403,7 +407,7 @@ export function PublicCatalogPage() {
       return (
         <GuestPhoneGate>
           <CatalogShop
-            accessToken="" allowPrices={false} showStock stockFilter="FULL_CARTON_ONLY"
+            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
             customerId="" customerName="" customerPhone="" guestMode
           />
         </GuestPhoneGate>

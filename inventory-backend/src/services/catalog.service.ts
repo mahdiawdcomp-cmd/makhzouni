@@ -861,6 +861,7 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     suggestionsEnabled: settings.catalogSuggestionsEnabled !== false,
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
     hideNoImage: settings.catalogHideNoImage === true,
+    guestPricesVisible: settings.catalogGuestPricesVisible === true,
     // A corrupted value must not silently turn the button off — only a real
     // zero from the merchant means "off".
     newArrivalDays: (() => {
@@ -1192,9 +1193,15 @@ async function assertOpenOrVisitor(visitorToken?: string) {
   return null;
 }
 
+/** Prices for someone with no account at all — off unless the shop says so. */
+export async function guestPricesVisible() {
+  const settings = await getSettings();
+  return settings.catalogGuestPricesVisible === true;
+}
+
 export async function listGuestCatalogProducts() {
   await assertGuestCatalogEnabled();
-  return listOpenCatalogProducts({ withPrices: false });
+  return listOpenCatalogProducts({ withPrices: await guestPricesVisible() });
 }
 
 /**

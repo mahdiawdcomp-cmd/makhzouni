@@ -170,10 +170,13 @@ export async function getPublicProductDetail(token: string, productId: string) {
 
 export async function getGuestProductDetail(productId: string, visitorToken?: string) {
   const visitor = await assertVisitorOrGuest(visitorToken);
-  // A guest never sees prices; a visitor sees them once the shop unlocked
-  // them for that phone — the same rule the grid follows.
+  // A visitor sees prices once the shop unlocked them for that phone; someone
+  // with no account at all sees them only if the shop opened prices to the
+  // public. Same rule the grid follows — a product page that disagreed with
+  // the grid would be a way around whichever of the two was stricter.
+  const { guestPricesVisible } = await import("./catalog.service");
   return buildProductDetail(productId, {
-    allowPrices: Boolean(visitor?.pricesUnlocked),
+    allowPrices: visitor ? Boolean(visitor.pricesUnlocked) : await guestPricesVisible(),
     showStock: true,
   });
 }
