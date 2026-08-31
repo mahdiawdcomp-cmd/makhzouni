@@ -121,3 +121,18 @@ export const deleteReviewCtrl = asyncHandler(async (req, res) => {
   await deleteCatalogReview(String(req.params.id));
   res.json({ success: true, message: "تم حذف التقييم" });
 });
+
+/** The two storefront rows as one list, instead of one product form at a time. */
+export const merchandisedProductsCtrl = asyncHandler(async (_req, res) => {
+  const { listMerchandisedProducts } = await import("../services/catalog-product-page.service");
+  res.json({ success: true, data: await listMerchandisedProducts() });
+});
+
+export const setMerchandisingCtrl = asyncHandler(async (req, res) => {
+  const { setProductMerchandising } = await import("../services/catalog-product-page.service");
+  const body = (req.body ?? {}) as {
+    isOffer?: boolean; isNewArrival?: boolean; oldPrice?: number | null; offerEndsAt?: string | null;
+  };
+  const data = await setProductMerchandising(String(req.params.id), body, req.user!.id);
+  res.json({ success: true, data });
+});

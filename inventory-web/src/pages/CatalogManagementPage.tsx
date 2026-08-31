@@ -54,6 +54,7 @@ import {
   type PromoCode,
 } from "../api/endpoints"
 import { CatalogContentTab } from "../components/CatalogContentTab"
+import { CatalogMerchandisingTab } from "../components/CatalogMerchandisingTab"
 import { CatalogLayoutTab } from "../components/CatalogLayoutTab"
 import { CatalogIncomingTab } from "../components/CatalogIncomingTab"
 import { CatalogHomeTab } from "../components/CatalogHomeTab"
@@ -1241,6 +1242,7 @@ const GROUPS = [
     icon: <FileText className="h-4 w-4" />,
     tabs: [
       { key: "content" as const, label: "محتوى المنتجات" },
+      { key: "merchandising" as const, label: "العروض ووصل حديثاً" },
       { key: "incoming" as const, label: "البضاعة القادمة" },
       { key: "promos" as const, label: "البروموكود" },
     ],
@@ -1264,7 +1266,7 @@ export function CatalogManagementPage() {
   // search and paging went with the retired «صلاحيات الزبائن» screen.
   const [group, setGroup] = useState<"home" | "people" | "front" | "content" | "ops">("home")
   const [tab, setTab] = useState<
-    "visitors" | "analytics" | "design" | "layout" | "content" | "incoming" | "accounts" | "promos" | "settings" | "home"
+    "visitors" | "analytics" | "design" | "layout" | "content" | "merchandising" | "incoming" | "accounts" | "promos" | "settings" | "home"
   >("home")
 
   return (
@@ -1309,6 +1311,7 @@ export function CatalogManagementPage() {
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "design" && <CatalogDesignTab />}
       {tab === "content" && <CatalogContentTab />}
+      {tab === "merchandising" && <CatalogMerchandisingTab />}
       {tab === "accounts" && <StorefrontAccountsTab />}
       {tab === "settings" && <CatalogSettingsTab />}
       {tab === "home" && <CatalogHomeTab onGo={(g, tb) => { setGroup(g as typeof group); setTab(tb as typeof tab) }} />}

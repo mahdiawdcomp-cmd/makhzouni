@@ -1655,3 +1655,13 @@ export const stocktakeArchiveSchema = z.object({
     force: z.coerce.boolean().optional(),
   }).optional(),
 });
+
+export const setMerchandisingSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: z.object({
+    isOffer: z.boolean().optional(),
+    isNewArrival: z.boolean().optional(),
+    oldPrice: z.coerce.number().nonnegative().nullable().optional(),
+    offerEndsAt: z.string().trim().max(40).nullable().optional(),
+  }),
+});

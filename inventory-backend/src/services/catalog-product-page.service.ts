@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { totalStock } from "../utils/product-stock";
@@ -411,4 +412,94 @@ export async function getCatalogThumbnails(
   const out: Record<string, string | null> = {};
   for (const row of rows) out[row.id] = row.thumbnailUrl;
   return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   «العروض» و«وصل حديثاً» — the two storefront rows, as one list
+
+   The flags behind these rows lived on the product form, one product at a
+   time, so answering "what is in my offers row right now" meant opening every
+   product in the shop. This is that answer, plus the fields that only matter
+   while a product is in a row: the struck-through old price and the deadline
+   the countdown reads.
+══════════════════════════════════════════════════════════════════════ */
+
+export async function listMerchandisedProducts() {
+  const rows = await prisma.product.findMany({
+    where: { deletedAt: null, OR: [{ isOffer: true }, { isNewArrival: true }] },
+    select: {
+      id: true, name: true, itemNumber: true, thumbnailUrl: true,
+      salePrice: true, oldPrice: true, offerEndsAt: true,
+      isOffer: true, isNewArrival: true,
+    },
+    orderBy: { name: "asc" },
+  });
+  return rows.map((r) => ({
+    ...r,
+    salePrice: Number(r.salePrice),
+    oldPrice: r.oldPrice == null ? null : Number(r.oldPrice),
+    offerEndsAt: r.offerEndsAt ? r.offerEndsAt.toISOString() : null,
+  }));
+}
+
+export interface MerchandisingPatch {
+  isOffer?: boolean;
+  isNewArrival?: boolean;
+  oldPrice?: number | null;
+  offerEndsAt?: string | null;
+}
+
+/**
+ * The patch, as columns.
+ *
+ * Pure on purpose: the one rule here that deletes data — clearing the old
+ * price and the countdown when a product leaves the offers row — is worth
+ * being able to test without a database behind it.
+ */
+export function buildMerchandisingData(patch: MerchandisingPatch): Prisma.ProductUpdateInput {
+  const data: Prisma.ProductUpdateInput = {};
+  if (patch.isOffer !== undefined) data.isOffer = patch.isOffer;
+  if (patch.isNewArrival !== undefined) data.isNewArrival = patch.isNewArrival;
+  if (patch.oldPrice !== undefined) data.oldPrice = patch.oldPrice;
+  if (patch.offerEndsAt !== undefined) {
+    if (!patch.offerEndsAt) data.offerEndsAt = null;
+    else {
+      const when = new Date(patch.offerEndsAt);
+      if (Number.isNaN(when.getTime())) throw new AppError("تاريخ نهاية العرض غير صحيح", 400, "INVALID_DATE");
+      data.offerEndsAt = when;
+    }
+  }
+  // Taking a product out of the offers row leaves its struck-through price and
+  // its countdown behind, so putting it back weeks later would resurrect a
+  // stale "was 12,000" and a deadline that has already passed. Clearing them
+  // with the flag keeps the row honest without asking the merchant to
+  // remember two more fields.
+  if (patch.isOffer === false) {
+    data.oldPrice = null;
+    data.offerEndsAt = null;
+  }
+  return data;
+}
+
+export async function setProductMerchandising(productId: string, patch: MerchandisingPatch, userId: string) {
+  const product = await prisma.product.findFirst({
+    where: { id: productId, deletedAt: null },
+    select: { id: true, name: true, isOffer: true, isNewArrival: true },
+  });
+  if (!product) throw new AppError("المادة غير موجودة", 404, "PRODUCT_NOT_FOUND");
+
+  const data = buildMerchandisingData(patch);
+  if (Object.keys(data).length === 0) return { ok: true };
+
+  await prisma.product.update({ where: { id: productId }, data });
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "PRODUCT_MERCHANDISING_UPDATED",
+      entity: "Product",
+      recordId: productId,
+      metadata: { ...patch, name: product.name } as Prisma.InputJsonValue,
+    },
+  });
+  return { ok: true };
 }

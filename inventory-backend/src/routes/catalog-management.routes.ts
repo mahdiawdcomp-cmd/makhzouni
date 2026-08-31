@@ -22,6 +22,8 @@ import {
 } from "../controllers/catalog-management.controller";
 import {
   getProductContentCtrl,
+  merchandisedProductsCtrl,
+  setMerchandisingCtrl,
   updateProductContentCtrl,
   addProductImageCtrl,
   deleteProductImageCtrl,
@@ -64,6 +66,7 @@ import { validate } from "../middleware/validate";
 import {
   catalogProductIdSchema,
   updateProductContentSchema,
+  setMerchandisingSchema,
   addProductImageSchema,
   deleteProductImageSchema,
   setReviewStatusSchema,
@@ -126,6 +129,11 @@ router.put("/design", updateCatalogDesignCtrl);
 // Two-segment paths, so none of these collide with the "/:id" customer routes.
 router.get("/products/:id/content", validate(catalogProductIdSchema), getProductContentCtrl);
 router.put("/products/:id/content", validate(updateProductContentSchema), updateProductContentCtrl);
+// «العروض» و«وصل حديثاً» — these write to the Product row, including the
+// struck-through price a customer sees, so the write needs product rights on
+// top of the router's own customer-facing gate. Reading is just a list.
+router.get("/merchandising", merchandisedProductsCtrl);
+router.patch("/merchandising/:id", requirePermission("MANAGE_PRODUCTS"), validate(setMerchandisingSchema), setMerchandisingCtrl);
 router.post("/products/:id/images", validate(addProductImageSchema), addProductImageCtrl);
 router.delete("/products/:id/images/:imageId", validate(deleteProductImageSchema), deleteProductImageCtrl);
 

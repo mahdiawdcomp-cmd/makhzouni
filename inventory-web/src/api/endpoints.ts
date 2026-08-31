@@ -1022,6 +1022,33 @@ export interface AdminCatalogReview {
   customer: { id: string; name: string; phone: string }
 }
 
+export interface MerchandisedProduct {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  salePrice: number
+  oldPrice: number | null
+  offerEndsAt: string | null
+  isOffer: boolean
+  isNewArrival: boolean
+}
+
+/** Both storefront rows in one list, instead of one product form at a time. */
+export async function listMerchandisedProducts() {
+  const { data } = await api.get<ApiEnvelope<MerchandisedProduct[]>>("/catalog-management/merchandising")
+  return data.data ?? []
+}
+
+export async function setProductMerchandising(productId: string, patch: {
+  isOffer?: boolean; isNewArrival?: boolean; oldPrice?: number | null; offerEndsAt?: string | null
+}) {
+  const { data } = await api.patch<ApiEnvelope<{ ok: boolean }>>(
+    `/catalog-management/merchandising/${productId}`, patch,
+  )
+  return data.data!
+}
+
 export async function getProductCatalogContent(productId: string) {
   const { data } = await api.get<ApiEnvelope<AdminProductContent>>(
     `/catalog-management/products/${productId}/content`,
