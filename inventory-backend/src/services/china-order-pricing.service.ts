@@ -64,13 +64,36 @@ const HEADER_ALIASES: Record<keyof ChinaOrderRow, string[]> = {
 };
 
 export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
-  const wb = read(buffer, { type: "buffer" });
+  // SheetJS throws raw Errors on a corrupt, password-protected, or
+  // not-really-Excel file. Unwrapped, those surfaced to the user as a bare
+  // "Internal server error" with nothing to act on.
+  let wb: ReturnType<typeof read>;
+  try {
+    wb = read(buffer, { type: "buffer" });
+  } catch (err) {
+    throw new AppError(
+      `تعذّر فتح ملف Excel — قد يكون تالفاً أو محمياً بكلمة سر أو ليس بصيغة xlsx حقيقية (${err instanceof Error ? err.message : "سبب غير معروف"})`,
+      400,
+      "UNREADABLE_FILE"
+    );
+  }
+  if (!wb.SheetNames?.length) throw new AppError("الملف لا يحتوي على أي ورقة عمل", 400, "NO_SHEETS");
 
   // First sheet that actually contains rows.
   let grid: unknown[][] = [];
-  for (const name of wb.SheetNames) {
-    const aoa = utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "" });
-    if (aoa.some((r) => r.some((c) => clean(c) !== ""))) { grid = aoa; break; }
+  try {
+    for (const name of wb.SheetNames) {
+      const aoa = utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "" });
+      // SheetJS leaves HOLES for blank rows, so `r` can be undefined —
+      // calling .some() on it threw a TypeError that surfaced as a 500.
+      if (aoa.some((r) => Array.isArray(r) && r.some((c) => clean(c) !== ""))) { grid = aoa; break; }
+    }
+  } catch (err) {
+    throw new AppError(
+      `تعذّر قراءة صفوف الملف (${err instanceof Error ? err.message : "سبب غير معروف"}) — جرّب: افتح الملف بـ Excel، احذف الصور المدمجة، ثم «حفظ باسم» بصيغة xlsx`,
+      400,
+      "UNREADABLE_ROWS"
+    );
   }
   if (grid.length === 0) throw new AppError("الملف فارغ", 400, "EMPTY_FILE");
 
@@ -79,7 +102,7 @@ export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
   let cols: Record<keyof ChinaOrderRow, number> = { itemNumber: 0, image: 1, cartonCount: 2, piecesPerCarton: 3, unitPriceCny: 4, cartonCbm: 5 };
   let dataStart = 0;
   for (let i = 0; i < Math.min(grid.length, 10); i++) {
-    const cells = grid[i].map((c) => clean(c).toLowerCase());
+    const cells = (grid[i] ?? []).map((c) => clean(c).toLowerCase());
     const found: Partial<Record<keyof ChinaOrderRow, number>> = {};
     cells.forEach((cell, idx) => {
       for (const key of Object.keys(HEADER_ALIASES) as (keyof ChinaOrderRow)[]) {
@@ -96,6 +119,7 @@ export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
   const rows: ChinaOrderRow[] = [];
   for (let i = dataStart; i < grid.length; i++) {
     const r = grid[i];
+    if (!Array.isArray(r)) continue; // blank row hole — not a data row
     const row: ChinaOrderRow = {
       itemNumber: clean(r[cols.itemNumber]),
       image: clean(r[cols.image]),

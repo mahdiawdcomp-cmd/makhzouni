@@ -245,7 +245,9 @@ export function LandedCostImportPage() {
                 <tr key={b.id} className="border-t">
                   <td className="p-2">{new Date(b.createdAt).toLocaleDateString("en-US")}</td>
                   <td className="p-2">{b.supplier ?? "—"}</td>
-                  <td className="p-2 text-center">{b.items?.length ?? 0}</td>
+                  {/* The list endpoint sends `_count.items`, never the rows —
+                      reading `items.length` here always showed 0. */}
+                  <td className="p-2 text-center">{b._count?.items ?? b.items?.length ?? 0}</td>
                   <td className="p-2 text-center"><Badge variant={STATUS_LABELS[b.status].variant}>{STATUS_LABELS[b.status].label}</Badge></td>
                   <td className="p-2 text-center">{b.purchaseInvoice?.invoiceNumber ?? "—"}</td>
                   <td className="p-2 flex justify-center gap-2">

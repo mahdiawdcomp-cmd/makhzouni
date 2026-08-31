@@ -1,5 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
+import { AppError } from "../utils/app-error";
 import {
   cancelBatchCtrl,
   batchArrivedCtrl,
@@ -42,7 +43,9 @@ const upload = multer({
     const name = (file.originalname ?? "").toLowerCase();
     const extOk = /\.(xlsx|xlsm|xls|csv)$/.test(name);
     if (!extOk || !SPREADSHEET_MIMES.has(file.mimetype)) {
-      cb(new Error("صيغة الملف غير مدعومة — ارفع ملف Excel أو CSV فقط"));
+      // A bare Error here reached the generic handler as a 500 "Internal
+      // server error"; AppError carries the Arabic reason and a 400.
+      cb(new AppError("صيغة الملف غير مدعومة — ارفع ملف Excel أو CSV فقط", 400, "UNSUPPORTED_FILE_TYPE"));
       return;
     }
     cb(null, true);

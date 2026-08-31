@@ -2832,7 +2832,10 @@ export interface LandedCostBatch {
   appliedAt: string | null
   /** Set while the batch is held: roughly when the container lands. */
   expectedArrivalAt?: string | null
-  items: LandedCostItem[]
+  /** Full rows — present on the single-batch endpoint only. */
+  items?: LandedCostItem[]
+  /** Row count — what the LIST endpoint returns instead of the rows. */
+  _count?: { items: number }
 }
 
 export async function previewLandedCost(file: File, allocationMethod: LandedCostAllocationMethod, manualExtraCosts: LandedCostManualExtraCosts) {

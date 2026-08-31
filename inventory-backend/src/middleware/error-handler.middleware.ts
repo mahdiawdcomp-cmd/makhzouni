@@ -41,6 +41,28 @@ export function errorHandler(
     });
   }
 
+  // Multer (file uploads) rejects with its own error class, which used to fall
+  // through to the generic 500 — so "ملف أكبر من الحد" or "صيغة غير مدعومة"
+  // reached the user as a bare English "Internal server error".
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: string }).name === "MulterError"
+  ) {
+    const code = (error as { code?: string }).code;
+    const message =
+      code === "LIMIT_FILE_SIZE"
+        ? "الملف أكبر من الحد المسموح (25 ميغابايت) — احذف الصور المدمجة من ملف Excel وأعد المحاولة"
+        : code === "LIMIT_FILE_COUNT" || code === "LIMIT_UNEXPECTED_FILE"
+          ? "ارفع ملفاً واحداً فقط"
+          : (error as { message?: string }).message || "تعذّر رفع الملف";
+    return res.status(code === "LIMIT_FILE_SIZE" ? 413 : 400).json({
+      success: false,
+      message,
+      code: code ?? "UPLOAD_ERROR",
+    });
+  }
+
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2002") {
       const target = Array.isArray(error.meta?.target)
