@@ -420,6 +420,28 @@ function assertBatchReady(batch: { status: LandedCostBatchStatus; items: Array<{
   if (zeroQty) {
     throw new AppError(`الصنف "${zeroQty.productName}" له كمية صفر أو غير صحيحة — تخطّه أو صحّح الكمية قبل التأكيد`, 400, "INVALID_QUANTITY");
   }
+
+  // Two CREATE_NEW rows carrying the SAME item number cannot both become
+  // products — itemNumber is unique, so the second create dies on a Postgres
+  // constraint. Caught here, the user gets a fixable Arabic sentence at review
+  // time instead of "Duplicate value already exists: itemNumber" on the day the
+  // container lands.
+  const newCodeOwners = new Map<string, string[]>();
+  for (const it of batch.items) {
+    if (it.action !== LandedCostItemAction.CREATE_NEW) continue;
+    const code = (it.itemCode ?? "").trim();
+    if (!code) continue;
+    newCodeOwners.set(code, [...(newCodeOwners.get(code) ?? []), it.productName || code]);
+  }
+  const clash = [...newCodeOwners.entries()].find(([, owners]) => owners.length > 1);
+  if (clash) {
+    const [code, owners] = clash;
+    throw new AppError(
+      `رقم المادة "${code}" مكرر في ${owners.length} صفوف مطلوب إنشاؤها كمواد جديدة (${owners.join("، ")}) — غيّر رقم المادة في أحدها، أو اربطه بمادة موجودة، أو تخطّه`,
+      400,
+      "DUPLICATE_NEW_ITEM_CODE"
+    );
+  }
 }
 
 export async function finalConfirmBatch(
@@ -523,9 +545,27 @@ async function finalConfirmBatchInTransaction(
         if (confirmedSalePrice == null) {
           throw new AppError(`سعر البيع مطلوب لإنشاء المادة "${item.productName}"`, 400, "SALE_PRICE_REQUIRED");
         }
+        // Safety net for the case the in-batch check can't see: the item number
+        // is free in this file but already belongs to a product created since
+        // the file was priced. Postgres answers that with a raw P2002, which
+        // reached the user as an English "Duplicate value already exists".
+        const itemNumber = draft.itemCode || item.itemCode || undefined;
+        if (itemNumber) {
+          const taken = await tx.product.findFirst({
+            where: { itemNumber, deletedAt: null },
+            select: { id: true, name: true },
+          });
+          if (taken) {
+            throw new AppError(
+              `رقم المادة "${itemNumber}" مستعمل أصلاً للمادة "${taken.name}" — اربط الصنف "${item.productName}" بها بدل إنشاء مادة جديدة، أو غيّر رقم المادة`,
+              409,
+              "ITEM_NUMBER_TAKEN"
+            );
+          }
+        }
         const created = await createProduct(
           {
-            itemNumber: draft.itemCode || item.itemCode || undefined,
+            itemNumber,
             name: draft.name || item.productName,
             imageUrl: draft.imageUrl || null,
             category: draft.category,

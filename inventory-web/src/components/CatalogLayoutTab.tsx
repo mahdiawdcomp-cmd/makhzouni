@@ -25,9 +25,11 @@ const SECTION_LABELS: Record<string, { label: string; hint: string }> = {
   banner: { label: "البنر المتحرك", hint: "شريط الصور المتحرك بأعلى الصفحة" },
   featured: { label: "مختاراتنا", hint: "صف المنتجات الي تختارها بنفسك" },
   incoming: { label: "البضاعة القادمة", hint: "المواد الي اشتريتها وما وصلت — الزبون يحجز عليها" },
+  offers: { label: "العروض", hint: "صف المواد المعلّمة كعرض — تحدّدها من «محتوى المنتجات»" },
+  newArrivals: { label: "وصل حديثاً", hint: "صف المواد المعلّمة كجديدة — تحدّدها من «محتوى المنتجات»" },
 }
 
-const DEFAULT_ORDER = ["announcement", "priceBar", "badges", "banner", "featured", "incoming"]
+const DEFAULT_ORDER = ["announcement", "priceBar", "badges", "banner", "featured", "incoming", "offers", "newArrivals"]
 
 /** Mirrors SORT_LABELS on the storefront. */
 const SORT_OPTIONS = [

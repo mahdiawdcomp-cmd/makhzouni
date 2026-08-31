@@ -1892,6 +1892,33 @@ function CatalogShop({
       </>
     ),
     incoming: <IncomingRow tk={tk} phone={visitorPhone || customerPhone} customerName={customerName} allowPrices={allowPrices} />,
+    // Both rows deliberately ignore the filters — they are the shop's picks,
+    // not a slice of the current search — so they stand down entirely the
+    // moment the shopper narrows anything.
+    offers: showSections && offers.length > 0 ? (
+      <section className="px-3 pt-3">
+        <h2 className="mb-2 flex items-center gap-1.5 font-extrabold" style={{ color: "#e11d48", fontSize: tk.fs.lg }}>
+          🏷️ {catalogText(design?.texts, "offersTitle")}
+        </h2>
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+          {offers.map(p => (
+            <div key={p.id} style={{ width: "140px", flexShrink: 0 }}>{renderCard(p)}</div>
+          ))}
+        </div>
+      </section>
+    ) : null,
+    newArrivals: showSections && newArrivals.length > 0 ? (
+      <section className="px-3 pt-3">
+        <h2 className="mb-2 flex items-center gap-1.5 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.lg }}>
+          ✨ {catalogText(design?.texts, "newArrivalsTitle")}
+        </h2>
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+          {newArrivals.map(p => (
+            <div key={p.id} style={{ width: "140px", flexShrink: 0 }}>{renderCard(p)}</div>
+          ))}
+        </div>
+      </section>
+    ) : null,
     featured: featuredProducts.length > 0 ? (
       <div className="px-3 pt-3">
         <p className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>
@@ -2315,41 +2342,6 @@ function CatalogShop({
             <ImageOff className="h-3.5 w-3.5" />
             عدنا {money(hiddenNoImageCount)} مادة بدون صورة — افتح صفحتها
           </button>
-        )}
-
-        {/* Special rows: عروض + جديد */}
-        {!productsQuery.isLoading && showSections && (offers.length > 0 || newArrivals.length > 0) && (
-          <div className="mb-5 space-y-5">
-            {offers.length > 0 && (
-              <section>
-                <h2 className="mb-2 flex items-center gap-1.5 font-extrabold" style={{ color: "#e11d48", fontSize: tk.fs.lg }}>
-                  🏷️ العروض
-                </h2>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                  {offers.map(p => (
-                    <div key={p.id} style={{ width: "140px", flexShrink: 0 }}>{renderCard(p)}</div>
-                  ))}
-                </div>
-              </section>
-            )}
-            {newArrivals.length > 0 && (
-              <section>
-                <h2 className="mb-2 flex items-center gap-1.5 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.lg }}>
-                  ✨ وصل حديثاً
-                </h2>
-                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                  {newArrivals.map(p => (
-                    <div key={p.id} style={{ width: "140px", flexShrink: 0 }}>{renderCard(p)}</div>
-                  ))}
-                </div>
-              </section>
-            )}
-            <div className="flex items-center gap-2 pt-1">
-              <div className="h-px flex-1" style={{ background: tk.divider }} />
-              <span className="font-bold" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>كل المنتجات</span>
-              <div className="h-px flex-1" style={{ background: tk.divider }} />
-            </div>
-          </div>
         )}
 
         {/* Products: grid or list */}

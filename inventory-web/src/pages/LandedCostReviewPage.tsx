@@ -249,6 +249,19 @@ export function LandedCostReviewPage() {
   const batch = batchQuery.data
   const unresolvedItems = useMemo(() => (batch?.items ?? []).filter((it) => it.action === "PENDING"), [batch])
   const unresolvedCount = unresolvedItems.length
+  // itemNumber is unique, so two rows asking to CREATE the same code can never
+  // both become products. Surfacing it here — instead of letting the server
+  // fail on the day the container lands — is the whole point of this screen.
+  const duplicateNewCodes = useMemo(() => {
+    const owners = new Map<string, string[]>()
+    for (const it of batch?.items ?? []) {
+      if (it.action !== "CREATE_NEW") continue
+      const code = (it.newProductDraft?.itemCode ?? it.itemCode ?? "").trim()
+      if (!code) continue
+      owners.set(code, [...(owners.get(code) ?? []), it.productName || code])
+    }
+    return [...owners.entries()].filter(([, names]) => names.length > 1)
+  }, [batch])
   const visibleItems = useMemo(
     () => (onlyUnresolved ? unresolvedItems : (batch?.items ?? [])),
     [onlyUnresolved, unresolvedItems, batch]
@@ -297,6 +310,19 @@ export function LandedCostReviewPage() {
         {!locked && <Button variant="ghost" onClick={() => setConfirmCancel(true)}>إلغاء الدفعة</Button>}
       </div>
 
+      {duplicateNewCodes.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-md border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-950/25 dark:text-rose-300">
+          <div className="font-semibold">رقم مادة مكرر — لا يمكن إنشاء مادتين بنفس الرقم:</div>
+          {duplicateNewCodes.map(([code, names]) => (
+            <div key={code}>
+              «{code}» مطلوب لـ {names.length} أصناف: {names.join("، ")}
+            </div>
+          ))}
+          <div className="text-xs">
+            غيّر رقم المادة في أحدها، أو اربطه بمادة موجودة، أو تخطّه — وإلا سيفشل إنشاء فاتورة الشراء.
+          </div>
+        </div>
+      )}
       {unresolvedCount > 0 && (
         <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
           <div>
@@ -341,7 +367,10 @@ export function LandedCostReviewPage() {
             </div>
             <Button
               className="shrink-0"
-              disabled={arrivedMutation.isPending}
+              // A held shipment can still carry a clashing item number (the row
+              // decisions stay editable while it's in transit) — blocking here
+              // beats failing halfway through receiving the container.
+              disabled={arrivedMutation.isPending || duplicateNewCodes.length > 0 || unresolvedCount > 0}
               onClick={() => arrivedMutation.mutate()}
             >
               {arrivedMutation.isPending ? "جاري الإدخال..." : "وصلت الشحنة كلها"}
@@ -425,7 +454,7 @@ export function LandedCostReviewPage() {
 
             <div className="sm:col-span-4">
               <Button
-                disabled={!supplierCustomerId || unresolvedCount > 0 || confirmMutation.isPending || holdMutation.isPending}
+                disabled={!supplierCustomerId || unresolvedCount > 0 || duplicateNewCodes.length > 0 || confirmMutation.isPending || holdMutation.isPending}
                 onClick={() => (arrived ? confirmMutation : holdMutation).mutate()}
               >
                 {arrived

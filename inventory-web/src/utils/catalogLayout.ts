@@ -85,6 +85,8 @@ export const CATALOG_TEXT_DEFAULTS: Record<string, string> = {
   pricesPendingBar: "⏳ طلبك وصل للمحل — راح تنفتحلك الأسعار بعد الموافقة",
   requestPriceButton: "اطلب عرض سعر",
   featuredTitle: "مختاراتنا",
+  offersTitle: "العروض",
+  newArrivalsTitle: "وصل حديثاً",
   emptyResults: "لا توجد منتجات مطابقة",
 }
 

@@ -209,6 +209,18 @@ export function LandedCostReviewPage() {
 
   const batch = batchQuery.data
   const unresolvedCount = useMemo(() => (batch?.items ?? []).filter((it) => it.action === "PENDING").length, [batch])
+  // itemNumber is unique — two rows asking to CREATE the same code can never
+  // both become products, and the server would fail mid-confirm.
+  const duplicateNewCodes = useMemo(() => {
+    const owners = new Map<string, string[]>()
+    for (const it of batch?.items ?? []) {
+      if (it.action !== "CREATE_NEW") continue
+      const code = (it.newProductDraft?.itemCode ?? it.itemCode ?? "").trim()
+      if (!code) continue
+      owners.set(code, [...(owners.get(code) ?? []), it.productName || code])
+    }
+    return [...owners.entries()].filter(([, names]) => names.length > 1)
+  }, [batch])
   const locked = batch?.status === "PURCHASE_INVOICE_CREATED" || batch?.status === "CANCELLED"
 
   if (batchQuery.isLoading) return <div className="p-6">جاري التحميل...</div>
@@ -242,6 +254,15 @@ export function LandedCostReviewPage() {
         {!locked && <Button variant="ghost" onClick={() => setConfirmCancel(true)}>إلغاء الدفعة</Button>}
       </div>
 
+      {duplicateNewCodes.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-md border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-950/25 dark:text-rose-300">
+          <div className="font-semibold">رقم مادة مكرر — لا يمكن إنشاء مادتين بنفس الرقم:</div>
+          {duplicateNewCodes.map(([code, names]) => (
+            <div key={code}>«{code}» مطلوب لـ {names.length} أصناف: {names.join("، ")}</div>
+          ))}
+          <div className="text-xs">غيّر رقم المادة في أحدها، أو اربطه بمادة موجودة، أو تخطّه.</div>
+        </div>
+      )}
       {unresolvedCount > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
           يوجد {unresolvedCount} صنف بحاجة لقرار (ربط بمادة موجودة / إنشاء مادة جديدة / تخطي) قبل إنشاء فاتورة الشراء.
@@ -297,7 +318,7 @@ export function LandedCostReviewPage() {
             </div>
             <div className="sm:col-span-4">
               <Button
-                disabled={!supplierCustomerId || unresolvedCount > 0 || confirmMutation.isPending}
+                disabled={!supplierCustomerId || unresolvedCount > 0 || duplicateNewCodes.length > 0 || confirmMutation.isPending}
                 onClick={() => confirmMutation.mutate()}
               >
                 {confirmMutation.isPending ? "جاري الإنشاء..." : "إنشاء فاتورة شراء من هذا الأوردر"}
