@@ -169,6 +169,19 @@ export async function recordGuestVisit(
   if (phone.length < 10) throw new AppError("رقم هاتف غير صالح", 400);
   const name = details?.name?.trim() || null;
   const province = details?.province?.trim() || null;
+
+  // Does this number already have an account? Answered so the storefront can
+  // point them at the login instead of letting a real customer browse with
+  // their prices hidden and no idea why. Deliberately a hint and nothing
+  // more: a typed phone number is not proof of anything, and unlocking a
+  // customer's prices for whoever types their number would make the login
+  // code pointless.
+  const [knownCustomer, knownVisitor] = await Promise.all([
+    prisma.customer.findFirst({ where: { phone, deletedAt: null }, select: { id: true } }),
+    prisma.catalogVisitor.findUnique({ where: { phone }, select: { accessCodeHash: true } }),
+  ]);
+  const hasAccount = Boolean(knownCustomer) || Boolean(knownVisitor?.accessCodeHash);
+
   const existing = await prisma.catalogVisitor.findUnique({ where: { phone } });
   if (!existing) {
     await prisma.catalogVisitor.create({ data: { phone, name, province } });
@@ -197,7 +210,7 @@ export async function recordGuestVisit(
       },
     });
   }
-  return { ok: true };
+  return { ok: true, hasAccount };
 }
 
 // Admin: guest phone numbers that passed the gate, most recent first, each

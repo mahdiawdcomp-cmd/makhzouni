@@ -658,7 +658,7 @@ export async function getGuestCatalogProducts() {
 
 // Phone gate: record a guest's phone before they browse (guest mode only).
 export async function guestCatalogEnter(phone: string, details?: { name?: string; province?: string }) {
-  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>("/public/catalog/guest-enter", {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; hasAccount?: boolean }>>("/public/catalog/guest-enter", {
     phone,
     name: details?.name?.trim() || undefined,
     province: details?.province || undefined,

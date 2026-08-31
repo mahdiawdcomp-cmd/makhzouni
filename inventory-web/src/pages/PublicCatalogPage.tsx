@@ -118,15 +118,10 @@ const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
  * 104 products ended up offering the shopper one unit or two instead of four.
  * The shopper sees all four and the stock decides which are clickable.
  */
-const unitsFor = (_product: PublicCatalogProduct): CatalogUnit[] => UNITS
-// UNITS is ascending PIECE→CARTON, so the last allowed entry is the largest
-// bulk unit this product can actually be sold in — CARTON when it isn't
-// hidden, otherwise the next best thing. PIECE is never hideable, so this
-// is never empty.
-const defaultUnitFor = (product: PublicCatalogProduct): CatalogUnit => {
-  const allowed = unitsFor(product)
-  return allowed[allowed.length - 1] ?? "PIECE"
-}
+const unitsFor = (): CatalogUnit[] => UNITS
+// UNITS is ascending PIECE→CARTON, so the last entry is the largest bulk unit
+// — the carton, which is what a wholesale shopper means by "one".
+const defaultUnitFor = (): CatalogUnit => UNITS[UNITS.length - 1] ?? "PIECE"
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
 /* ─── Design system ──────────────────────────────────────────────────
@@ -394,32 +389,12 @@ export function PublicCatalogPage() {
     // Signing in is the way into the shop now. Guest browsing stays available
     // only while the merchant explicitly leaves it on, and the old per-customer
     // ?access= links keep working because the token is read before this point.
-    if (guestConfigQuery.data?.guestModeEnabled) {
-      // With the gate off, people look first and identify at checkout — the
-      // shop trades on impulse, and asking for a phone before showing a single
-      // product turns browsers away at the door.
-      // Anonymous browsing used to hardcode "no prices", so the shop-wide
-      // price switch could never reach anyone without an account no matter
-      // what it was set to. It is its own switch now, and this reads it.
-      const guestPrices = guestConfigQuery.data?.guestPricesVisible === true
-      if (guestConfigQuery.data?.guestPhoneGate === false) {
-        return (
-          <CatalogShop
-            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
-            customerId="" customerName="" customerPhone="" guestMode
-          />
-        )
-      }
-      return (
-        <GuestPhoneGate>
-          <CatalogShop
-            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
-            customerId="" customerName="" customerPhone="" guestMode
-          />
-        </GuestPhoneGate>
-      )
-    }
-    // A visitor session outranks the login form: they already proved a code.
+    // A visitor session outranks everything below it: they proved a code, so
+    // they are a known person with their own price permission, their own name
+    // and their own order history. Opening the shop to strangers used to
+    // demote them to anonymous — no prices even when the shop had opened
+    // prices FOR THEM, no name at checkout, and orders that arrived unlinked
+    // to the account they signed into.
     if (visitorToken && visitorQuery.data) {
       const visitor = visitorQuery.data
       if (!visitor.detailsSubmitted) {
@@ -450,6 +425,31 @@ export function PublicCatalogPage() {
             <p className="text-sm font-medium">جاري فتح المتجر...</p>
           </div>
         </div>
+      )
+    }
+    if (guestConfigQuery.data?.guestModeEnabled) {
+      // With the gate off, people look first and identify at checkout — the
+      // shop trades on impulse, and asking for a phone before showing a single
+      // product turns browsers away at the door.
+      // Anonymous browsing used to hardcode "no prices", so the shop-wide
+      // price switch could never reach anyone without an account no matter
+      // what it was set to. It is its own switch now, and this reads it.
+      const guestPrices = guestConfigQuery.data?.guestPricesVisible === true
+      if (guestConfigQuery.data?.guestPhoneGate === false) {
+        return (
+          <CatalogShop
+            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
+            customerId="" customerName="" customerPhone="" guestMode
+          />
+        )
+      }
+      return (
+        <GuestPhoneGate>
+          <CatalogShop
+            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
+            customerId="" customerName="" customerPhone="" guestMode
+          />
+        </GuestPhoneGate>
       )
     }
     return <LoginGate onAccess={handleAccess} onVisitor={handleVisitor} />
@@ -804,6 +804,7 @@ function ProvinceField({ value, onChange, required }: {
    string. Answered once and remembered on the device.
 ══════════════════════════════════════════════════════════════════════ */
 const GUEST_PHONE_KEY = "catalog_guest_phone"
+const GUEST_NAME_KEY = "catalog_guest_name"
 
 function GuestPhoneGate({ children }: { children: React.ReactNode }) {
   const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
@@ -811,6 +812,10 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
   const [phone, setPhone] = useState("")
   const [province, setProvince] = useState("")
   const [err, setErr] = useState("")
+  // Set when the number they typed already has an account. Browsing on as a
+  // guest works, but their own prices only come with their code — so they are
+  // offered the login rather than left wondering why prices are hidden.
+  const [hasAccount, setHasAccount] = useState(false)
 
   const textsQuery = useQuery({
     queryKey: ["catalog-design-public"],
@@ -821,15 +826,43 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
 
   const enterMut = useMutation({
     mutationFn: () => guestCatalogEnter(phone.trim(), { name: name.trim(), province }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       localStorage.setItem(GUEST_PHONE_KEY, phone.trim())
+      // The name is kept too, so checkout does not ask for it a second time.
+      if (name.trim()) localStorage.setItem(GUEST_NAME_KEY, name.trim())
       setErr("")
+      if (result?.hasAccount) { setHasAccount(true); return }
       setEntered(true)
     },
     onError: () => setErr("تعذر الحفظ. تأكد من الرقم وحاول مرة ثانية."),
   })
 
   if (entered) return <>{children}</>
+
+  if (hasAccount) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-teal-50 px-4 py-8" dir="rtl">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-xl ring-1 ring-gray-100">
+          <p className="text-lg font-extrabold text-gray-900">عندك حساب بالمحل</p>
+          <p className="mt-2 text-sm text-gray-500">
+            سجّل دخولك برمزك حتى تشوف أسعارك وحسابك وفواتيرك. أو كمّل تصفّح بدون حساب.
+          </p>
+          <button
+            onClick={() => { localStorage.removeItem(GUEST_PHONE_KEY); window.location.reload() }}
+            className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95"
+          >
+            سجّل دخول
+          </button>
+          <button
+            onClick={() => setEntered(true)}
+            className="mt-2 w-full rounded-xl bg-gray-100 py-3 text-sm font-bold text-gray-600 transition active:scale-95"
+          >
+            كمّل بدون حساب
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const digits = phone.replace(/\D/g, "")
   const valid = digits.length >= 10 && name.trim().length >= 2 && province !== ""
@@ -1000,6 +1033,7 @@ function CatalogShop({
     localStorage.removeItem(storageKey)
     localStorage.removeItem(VISITOR_TOKEN_KEY)
     localStorage.removeItem(GUEST_PHONE_KEY)
+    localStorage.removeItem(GUEST_NAME_KEY)
     localStorage.removeItem(SIGNUP_PHONE_KEY)
     window.location.href = "/catalog"
   }
@@ -1179,12 +1213,20 @@ function CatalogShop({
   const [promoResult, setPromoResult] = useState<{ code: string; type: string; value: number | null; description: string | null } | null>(null)
   const [promoError, setPromoError] = useState("")
   const [promoLoading, setPromoLoading] = useState(false)
-  const [guestName, setGuestName] = useState("")
+  // Prefilled from whoever we already know this person to be: a signed-in
+  // visitor carries their own name, and the guest gate stored the one they
+  // typed at the door. Asking again for something we just collected reads as
+  // the shop not having listened.
+  const [guestName, setGuestName] = useState(
+    () => customerName || (guestMode ? localStorage.getItem(GUEST_NAME_KEY) ?? "" : ""),
+  )
   // Prefilled from the number the shopper already gave GuestPhoneGate — still
   // editable, but they shouldn't have to retype it from scratch (retyping
   // invites a typo/different number, which desyncs the order from the phone
   // all their browsing time/views were tracked under).
-  const [guestPhone, setGuestPhone] = useState(() => (guestMode ? localStorage.getItem(GUEST_PHONE_KEY) ?? "" : ""))
+  const [guestPhone, setGuestPhone] = useState(
+    () => customerPhone || (guestMode ? localStorage.getItem(GUEST_PHONE_KEY) ?? "" : ""),
+  )
   const [guestAddress, setGuestAddress] = useState("")
   const [accessRequestOpen, setAccessRequestOpen] = useState(false)
   const [showTutorial, setShowTutorial] = useState<boolean>(() => !localStorage.getItem(TUTORIAL_SEEN_KEY))
@@ -1609,7 +1651,7 @@ function CatalogShop({
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
-  function add(product: PublicCatalogProduct, unit: CatalogUnit = defaultUnitFor(product)) {
+  function add(product: PublicCatalogProduct, unit: CatalogUnit = defaultUnitFor()) {
     const max = maxQty(product, unit)
     if (max < 1) return
     setSubmitted(null)
@@ -1776,7 +1818,7 @@ function CatalogShop({
         )}
 
         {/* ── Guest banner: prices hidden until admin grants access ── */}
-        {!visitorToken && guestMode && (
+        {!visitorToken && guestMode && !allowPrices && (
           <button
             onClick={() => setAccessRequestOpen(true)}
             className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-right transition active:opacity-80"
@@ -2322,7 +2364,25 @@ function CatalogShop({
         )}
 
         {/* Empty */}
-        {!productsQuery.isLoading && visible.length === 0 && (
+        {/* The shop can switch off open browsing while someone is mid-visit.
+            The grid then answers 403 and used to render «لا توجد منتجات» — a
+            shopper being told the shop is empty when it has simply closed its
+            door to strangers. */}
+        {productsQuery.isError && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>المتجر صار يحتاج تسجيل دخول</p>
+            <p className="mt-1" style={{ color: tk.subtext, fontSize: tk.fs.md }}>
+              سجّل دخولك برمزك حتى تكمل، أو تواصل وينا نرسلك رمز.
+            </p>
+            <button onClick={signOut}
+              className="mt-3 px-5 py-2.5 font-bold text-white transition active:scale-95"
+              style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+              سجّل دخول
+            </button>
+          </div>
+        )}
+
+        {!productsQuery.isError && !productsQuery.isLoading && visible.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="mb-4 rounded-full p-5" style={{ background: tk.catIdle }}>
               <Search className="h-8 w-8" style={{ color: tk.subtext }} />
@@ -2452,6 +2512,7 @@ function CatalogShop({
           firstOrderCoupon={firstOrderCoupon}
           guestMode={guestMode}
           guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
+          onSignIn={signOut}
           onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
         />
       )}
@@ -3146,7 +3207,7 @@ function ProductDetailSheet({
               onClick={() => {
                 // The detail payload is a superset of the grid's product shape —
                 // reuse the same add() so unit logic stays in one place.
-                onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor(product as unknown as PublicCatalogProduct))
+                onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor())
               }}
               className="flex flex-1 items-center justify-center gap-2 py-4 font-extrabold text-white transition active:scale-95"
               style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
@@ -3638,7 +3699,7 @@ function UnitPickerSheet({
   onAdd: (lines: Array<{ unit: CatalogUnit; quantity: number }>) => void
   onClose: () => void
 }) {
-  const units = unitsFor(product)
+  const units = unitsFor()
 
   // Every unit starts at zero. Opening the sheet pre-loaded with one carton
   // meant a shopper who only wanted to look at a product had already been
@@ -4374,7 +4435,7 @@ function CartOverlay({
   onClose, onSubmit, isPending, submitted, isError, tk,
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
   promoDiscount, finalTotal, hasFreeDelivery, onClearPromo, deliveryLine = null, firstOrderCoupon = null,
-  guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress,
+  guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress, onSignIn,
   orderTiers,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
@@ -4390,6 +4451,7 @@ function CartOverlay({
   firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
   guestMode?: boolean
   guestName?: string; guestPhone?: string; guestAddress?: string
+  onSignIn: () => void
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
   orderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }) {
@@ -4456,7 +4518,7 @@ function CartOverlay({
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-bold" style={{ color: tk.text }}>بياناتك — لإتمام الطلب والتواصل معك</p>
                   <button
-                    onClick={() => { localStorage.removeItem(GUEST_PHONE_KEY); window.location.reload() }}
+                    onClick={onSignIn}
                     className="shrink-0 font-bold underline underline-offset-2"
                     style={{ color: tk.accent, fontSize: tk.fs.xs }}>
                     عندك حساب؟ سجّل دخول
@@ -4661,7 +4723,7 @@ function CartItem({
       <div className="mt-2.5 flex items-center justify-between gap-2">
         {/* Unit switcher */}
         <div className="flex gap-1 flex-wrap">
-          {unitsFor(line.product).map((u) =>
+          {unitsFor().map((u) =>
             maxQty(line.product, u) > 0 ? (
               <button key={u} onClick={() => onChangeUnit(line.id, u)}
                 className="rounded-lg px-2.5 py-1 font-bold transition"
