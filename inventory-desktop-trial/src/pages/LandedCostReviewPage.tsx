@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Card, CardHeader, CardContent } from "../components/ui/card"
@@ -59,7 +59,13 @@ function ProductPicker({ onPick }: { onPick: (productId: string, name: string) =
   )
 }
 
-function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
+function ItemRow({ item, batchId, stillDuplicated, codeTakenBy }: {
+  item: LandedCostItem
+  batchId: string
+  stillDuplicated?: boolean
+  /** Name of ANOTHER row in this batch already creating a product with `code`. */
+  codeTakenBy?: (code: string, exceptItemId: string) => string | null
+}) {
   const queryClient = useQueryClient()
   const [showPicker, setShowPicker] = useState(false)
   const [showCreateForm, setShowCreateForm] = useState(item.action === "CREATE_NEW")
@@ -73,6 +79,11 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
   })
 
   const image = imgSrc(item.product?.thumbnailUrl ?? item.product?.imageUrl)
+  // Mirrors the server: the saved draft's code wins over the Excel one.
+  const effectiveCode = (item.newProductDraft?.itemCode || item.itemCode || "").trim()
+  // Checked against what the user is TYPING right now — gating on the saved
+  // code would lock the save button on exactly the rows that need fixing.
+  const typedCodeClash = codeTakenBy?.((draft.itemCode || item.itemCode || "").trim(), item.id) ?? null
 
   return (
     <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-start">
@@ -83,10 +94,18 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
       <div className="flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold">{item.productName}</span>
-          <span className="text-xs text-muted-foreground">({item.itemCode || "بدون كود"})</span>
+          {/* The EFFECTIVE code — what the product will actually be created
+              with. Showing the frozen Excel code made a fixed row still look
+              broken. */}
+          <span className="text-xs text-muted-foreground">({effectiveCode || "بدون كود"})</span>
+          {effectiveCode && effectiveCode !== item.itemCode && (
+            <span className="text-[11px] text-muted-foreground">(بالملف: {item.itemCode})</span>
+          )}
           {item.matchStatus === "MATCHED" && <Badge variant="success">مطابق</Badge>}
           {item.matchStatus === "NOT_FOUND" && <Badge variant="warning">غير موجود</Badge>}
-          {item.matchStatus === "AMBIGUOUS" && <Badge variant="danger">مكرر بالملف</Badge>}
+          {/* matchStatus is frozen at upload time — only flag the clash while it
+              is STILL a clash, or a corrected row stays red forever. */}
+          {stillDuplicated && <Badge variant="danger">رقم مكرر</Badge>}
           {item.action === "SKIP" && <Badge variant="secondary">تم التخطي</Badge>}
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
@@ -142,13 +161,20 @@ function ItemRow({ item, batchId }: { item: LandedCostItem; batchId: string }) {
               <Input type="number" value={salePrice ?? ""} onChange={(e) => setSalePrice(Number(e.target.value) || undefined)} />
             </div>
             <div className="col-span-2 flex items-end">
-              <Button
-                size="sm"
-                disabled={!draft.name || !salePrice}
-                onClick={() => decisionMutation.mutate({ action: "CREATE_NEW", newProductDraft: draft, confirmedSalePrice: salePrice })}
-              >
-                حفظ بيانات المادة الجديدة
-              </Button>
+              <div className="flex flex-col gap-1">
+                <Button
+                  size="sm"
+                  disabled={!draft.name || !salePrice || !!typedCodeClash}
+                  onClick={() => decisionMutation.mutate({ action: "CREATE_NEW", newProductDraft: draft, confirmedSalePrice: salePrice })}
+                >
+                  حفظ بيانات المادة الجديدة
+                </Button>
+                {typedCodeClash && (
+                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                    الرقم «{(draft.itemCode || item.itemCode || "").trim()}» مأخوذ من «{typedCodeClash}» بنفس الأوردر — اكتب رقماً غيره
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -221,6 +247,21 @@ export function LandedCostReviewPage() {
     }
     return [...owners.entries()].filter(([, names]) => names.length > 1)
   }, [batch])
+  const duplicateCodeSet = useMemo(() => new Set(duplicateNewCodes.map(([code]) => code)), [duplicateNewCodes])
+  const codeTakenBy = useCallback(
+    (code: string, exceptItemId: string) => {
+      const wanted = code.trim()
+      if (!wanted) return null
+      const other = (batch?.items ?? []).find(
+        (it) =>
+          it.id !== exceptItemId &&
+          it.action === "CREATE_NEW" &&
+          (it.newProductDraft?.itemCode || it.itemCode || "").trim() === wanted,
+      )
+      return other ? other.productName || wanted : null
+    },
+    [batch],
+  )
   const locked = batch?.status === "PURCHASE_INVOICE_CREATED" || batch?.status === "CANCELLED"
 
   if (batchQuery.isLoading) return <div className="p-6">جاري التحميل...</div>
@@ -271,7 +312,15 @@ export function LandedCostReviewPage() {
 
       <Card>
         <CardContent className="p-0">
-          {batch.items.map((item) => <ItemRow key={item.id} item={item} batchId={batchId} />)}
+          {batch.items.map((item) => (
+            <ItemRow
+              key={item.id}
+              item={item}
+              batchId={batchId}
+              stillDuplicated={duplicateCodeSet.has((item.newProductDraft?.itemCode || item.itemCode || "").trim())}
+              codeTakenBy={codeTakenBy}
+            />
+          ))}
         </CardContent>
       </Card>
 

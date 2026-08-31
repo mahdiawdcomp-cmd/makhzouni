@@ -394,7 +394,16 @@ export interface FinalConfirmSummary {
  * decision or a zero quantity is just as broken on a shipment still at sea —
  * so they live here rather than being written twice and drifting.
  */
-function assertBatchReady(batch: { status: LandedCostBatchStatus; items: Array<{ action: LandedCostItemAction; quantity: number; productName: string; itemCode: string }> }) {
+function assertBatchReady(batch: {
+  status: LandedCostBatchStatus;
+  items: Array<{
+    action: LandedCostItemAction;
+    quantity: number;
+    productName: string;
+    itemCode: string;
+    newProductDraft?: Prisma.JsonValue | null;
+  }>;
+}) {
   if (batch.status === LandedCostBatchStatus.PURCHASE_INVOICE_CREATED) {
     throw new AppError("تم بالفعل إنشاء فاتورة شراء من هذه الدفعة", 409, "ALREADY_APPLIED");
   }
@@ -429,7 +438,11 @@ function assertBatchReady(batch: { status: LandedCostBatchStatus; items: Array<{
   const newCodeOwners = new Map<string, string[]>();
   for (const it of batch.items) {
     if (it.action !== LandedCostItemAction.CREATE_NEW) continue;
-    const code = (it.itemCode ?? "").trim();
+    // The EFFECTIVE code — exactly what createProduct will use. Reading the
+    // Excel `itemCode` alone meant editing the number on the review screen
+    // never cleared this error, because the edit lives in the draft.
+    const draft = (it.newProductDraft as { itemCode?: string } | null) ?? {};
+    const code = (draft.itemCode || it.itemCode || "").trim();
     if (!code) continue;
     newCodeOwners.set(code, [...(newCodeOwners.get(code) ?? []), it.productName || code]);
   }
