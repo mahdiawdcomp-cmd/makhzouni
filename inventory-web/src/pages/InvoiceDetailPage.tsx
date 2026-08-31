@@ -659,7 +659,7 @@ export function InvoiceDetailPage() {
                 <th className="py-3 px-4 text-right">اسم الصنف</th>
                 <th className="py-3 px-4 text-center">الوحدة</th>
                 <th className="py-3 px-4 text-center">الكمية</th>
-                <th className="py-3 px-4 text-center">الكراتين</th>
+                {isPurchase && <th className="py-3 px-4 text-center">الكراتين</th>}
                 <th className="py-3 px-4 text-center">سعر الوحدة</th>
                 <th className="rounded-l-lg py-3 px-4 text-left">الإجمالي</th>
               </tr>
@@ -676,13 +676,15 @@ export function InvoiceDetailPage() {
                   <td className="py-3 px-4 text-center">{unitLabel(item.unit)}</td>
                   <td className="py-3 px-4 text-center font-bold">{fmt(item.quantity)}</td>
                   {/* Cartons received — what the warehouse actually counts on
-                      the floor. Derived, never stored: pieces ÷ pcsPerCarton. */}
-                  <td className="py-3 px-4 text-center font-bold text-sky-700">
-                    {cartonBreakdown(
-                      unitToPieces(item.unit, item.quantity, { pcsPerCarton: item.product?.pcsPerCarton ?? 1, boxPieces: item.product?.boxPieces }),
-                      item.product?.pcsPerCarton ?? 1,
-                    ).label}
-                  </td>
+                      the floor. PURCHASES only; a sale is counted in pieces. */}
+                  {isPurchase && (
+                    <td className="py-3 px-4 text-center font-bold text-sky-700">
+                      {cartonBreakdown(
+                        unitToPieces(item.unit, item.quantity, { pcsPerCarton: item.product?.pcsPerCarton ?? 1, boxPieces: item.product?.boxPieces }),
+                        item.product?.pcsPerCarton ?? 1,
+                      ).label}
+                    </td>
+                  )}
                   <td className="py-3 px-4 text-center">{money(item.unitPrice)} {currency}</td>
                   <td className="py-3 px-4 text-left font-bold" style={{ color: accentColor }}>{money(item.totalPrice)} {currency}</td>
                 </tr>
@@ -706,7 +708,7 @@ export function InvoiceDetailPage() {
             <h3 className="font-bold text-gray-800 border-b border-gray-200 pb-2 mb-3">تفاصيل الفاتورة الحالية</h3>
             {/* Total cartons in the shipment — the number the warehouse counts
                 against when the goods land. */}
-            {totalCartons > 0 && (
+            {isPurchase && totalCartons > 0 && (
               <SummaryRow label="مجموع الكراتين" value={`${fmt(totalCartons)} كرتون${looseTotal ? ` + ${fmt(looseTotal)} قطعة` : ""}`} />
             )}
             <SummaryRow label="قيمة الفاتورة" value={`${money(invoice.subtotal)} ${currency}`} />

@@ -351,9 +351,10 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const fs = el.fontSize || 12
   const fsSm = Math.max(fs - 2, 9)
   const hasItemNum = inv.lines.some((l) => l.itemNumber)
-  // Cartons are only worth a column when at least one line has a carton size —
-  // a shop selling loose pieces would otherwise get a column of dashes.
-  const hasCartons = inv.lines.some((l) => (l.pcsPerCarton ?? 0) > 1)
+  // Cartons belong on a PURCHASE only: receiving a container is counted in
+  // cartons, a sale is counted in pieces. And only when at least one line has a
+  // carton size, or a shop selling loose pieces gets a column of dashes.
+  const hasCartons = inv.invoiceType === "PURCHASE" && inv.lines.some((l) => (l.pcsPerCarton ?? 0) > 1)
 
   // Columns are declared with their share of the width instead of being matched
   // by position, so adding one (like الكراتين) can't silently shift every other

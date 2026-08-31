@@ -2401,7 +2401,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   <TH>المخزن</TH>
                   <TH>الوحدة</TH>
                   <TH>العدد</TH>
-                  <TH>الكراتين</TH>
+                  {isPurchase && <TH>الكراتين</TH>}
                   {!hidePrice && <TH>سعر المفرد</TH>}
                   {!hidePrice && <TH>الإجمالي</TH>}
                   <TH>الملاحظات</TH>
@@ -2636,13 +2636,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         </div>
                       </TD>
                       {/* Cartons — read-only, derived from the line's pieces.
-                          The count sheet in the warehouse is in cartons, so the
-                          invoice has to speak that language too. */}
-                      <TD>
-                        <span className={cn("font-semibold text-sky-700 dark:text-sky-400", dz.text)}>
-                          {cartonBreakdown(itemQuantityInPieces(item), item.product.pcsPerCarton).label}
-                        </span>
-                      </TD>
+                          PURCHASES only: receiving a container is counted in
+                          cartons, selling is not. */}
+                      {isPurchase && (
+                        <TD>
+                          <span className={cn("font-semibold text-sky-700 dark:text-sky-400", dz.text)}>
+                            {cartonBreakdown(itemQuantityInPieces(item), item.product.pcsPerCarton).label}
+                          </span>
+                        </TD>
+                      )}
                       {!hidePrice && (
                         <TD>
                           <NumericInput
@@ -2728,7 +2730,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             </div>
             {/* Cartons in the whole invoice — the figure the warehouse counts
                 against when the shipment lands. */}
-            {(invoiceCartons.cartons > 0 || invoiceCartons.loose > 0) && (
+            {isPurchase && (invoiceCartons.cartons > 0 || invoiceCartons.loose > 0) && (
               <div className="flex items-center justify-between rounded-md bg-sky-50 px-2 py-1 text-sm dark:bg-sky-950/30">
                 <span className="font-semibold text-sky-700 dark:text-sky-300">
                   {fmt(invoiceCartons.cartons)}{invoiceCartons.loose ? ` + ${fmt(invoiceCartons.loose)} ق` : ""}
