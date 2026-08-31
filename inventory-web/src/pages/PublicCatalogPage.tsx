@@ -109,10 +109,16 @@ const UNIT_DESC: Record<CatalogUnit, (pcsInUnit: number) => string> = {
   CARTON: (n) => `${n} قطعة`,
 }
 const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
-const unitsFor = (product: PublicCatalogProduct): CatalogUnit[] => {
-  const hidden = new Set(product.hiddenUnits ?? [])
-  return UNITS.filter((u) => u === "PIECE" || !hidden.has(u as "DOZEN" | "BOX" | "CARTON"))
-}
+/**
+ * Every unit, always. Availability is what greys one out, not a setting.
+ *
+ * This used to obey the product's «الوحدات المخفية» list — a field whose own
+ * description promises it only affects invoices. Hiding a unit to keep it off
+ * the invoice screen silently emptied it out of the catalog too, which is how
+ * 104 products ended up offering the shopper one unit or two instead of four.
+ * The shopper sees all four and the stock decides which are clickable.
+ */
+const unitsFor = (_product: PublicCatalogProduct): CatalogUnit[] => UNITS
 // UNITS is ascending PIECE→CARTON, so the last allowed entry is the largest
 // bulk unit this product can actually be sold in — CARTON when it isn't
 // hidden, otherwise the next best thing. PIECE is never hideable, so this

@@ -493,6 +493,11 @@ export async function markPrepared(
         items,
       },
       userId,
+      undefined,
+      // The customer picked these units in the catalog, which no longer asks
+      // the invoice screen's «الوحدات المخفية» for permission. Refusing the
+      // order here would leave the shop with a sale it took and cannot bill.
+      new Set(items.map((it) => `${it.productId}:${it.unit}`)),
     );
 
     invoiceId = invoice.id;

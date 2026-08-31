@@ -1610,14 +1610,20 @@ export async function getInvoiceById(id: string) {
 export async function createInvoice(
   input: CreateInvoiceInput,
   createdBy: string,
-  db?: Db
+  db?: Db,
+  // Units the caller vouches for even if the product hides them. A customer
+  // who ordered a carton from the catalog must not have their order refused
+  // at invoicing time because that unit is switched off on the invoice
+  // screen — those are two different questions and only one of them was
+  // asked when the order was placed.
+  allowedUnitPairs?: Set<string>
 ) {
   let result: Awaited<ReturnType<typeof createInvoiceInTransaction>>;
   if (db) {
-    result = await createInvoiceInTransaction(db, input, createdBy);
+    result = await createInvoiceInTransaction(db, input, createdBy, undefined, undefined, allowedUnitPairs);
   } else {
     result = await prisma.$transaction(
-      (tx) => createInvoiceInTransaction(tx, input, createdBy),
+      (tx) => createInvoiceInTransaction(tx, input, createdBy, undefined, undefined, allowedUnitPairs),
       INVOICE_TX_OPTIONS
     );
   }
