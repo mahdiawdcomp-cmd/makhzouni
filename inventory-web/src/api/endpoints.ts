@@ -1137,12 +1137,20 @@ export async function updateBranch(id: string, payload: Partial<BranchPayload>) 
   return data
 }
 
-export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean }) {
+export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean; catalogOrderMode?: "INVOICE" | "PREPARE" }) {
   const { data } = await api.put<ApiEnvelope<Approval>>(`/approvals/${id}`, {
     status,
     ...options,
   })
   return data
+}
+
+/** «أضفه كزبون» — the step before a stranger's catalog order can be billed. */
+export async function addApprovalCustomer(approvalId: string) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; name: string; created: boolean }>>(
+    `/approvals/${approvalId}/add-customer`, {},
+  )
+  return data.data!
 }
 
 export async function bulkReviewApprovals(ids: string[], status: "APPROVED" | "REJECTED") {

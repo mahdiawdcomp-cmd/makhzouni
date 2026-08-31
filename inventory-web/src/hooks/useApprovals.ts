@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { bulkReviewApprovals, getApprovals, getMyApprovals, reviewApproval } from "../api/endpoints"
+import { addApprovalCustomer, bulkReviewApprovals, getApprovals, getMyApprovals, reviewApproval } from "../api/endpoints"
 
 export function useApprovals() {
   const queryClient = useQueryClient()
@@ -14,8 +14,17 @@ export function useApprovals() {
     refetchInterval: 30_000,
   })
   const reviewMutation = useMutation({
-    mutationFn: ({ id, status, allowPrices, showStock }: { id: string; status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean }) =>
-      reviewApproval(id, status, { allowPrices, showStock }),
+    mutationFn: ({ id, status, allowPrices, showStock, catalogOrderMode }: {
+      id: string; status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean
+      catalogOrderMode?: "INVOICE" | "PREPARE"
+    }) => reviewApproval(id, status, { allowPrices, showStock, catalogOrderMode }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
+  })
+
+  // Adding the customer changes what the order row can do next, so the list
+  // is refreshed rather than left showing a stranger who is now on the books.
+  const addCustomerMutation = useMutation({
+    mutationFn: (approvalId: string) => addApprovalCustomer(approvalId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
   })
 
@@ -25,5 +34,5 @@ export function useApprovals() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
   })
 
-  return { approvalsQuery, myApprovalsQuery, reviewMutation, bulkReviewMutation }
+  return { approvalsQuery, myApprovalsQuery, reviewMutation, bulkReviewMutation, addCustomerMutation }
 }

@@ -13,6 +13,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 
 type ApprovalData = {
@@ -137,7 +138,7 @@ function approvalData(approval: Approval | null): ApprovalData {
 }
 
 export function ApprovalsPage() {
-  const { approvalsQuery, reviewMutation, bulkReviewMutation } = useApprovals()
+  const { approvalsQuery, reviewMutation, bulkReviewMutation, addCustomerMutation } = useApprovals()
   const [selected, setSelected] = useState<Approval | null>(null)
   const [allowPricesById, setAllowPricesById] = useState<Record<string, boolean>>({})
   const [showStockById, setShowStockById] = useState<Record<string, boolean>>({})
@@ -167,8 +168,20 @@ export function ApprovalsPage() {
           if (row.original.requestType === "CATALOG_ORDER") {
             return (
               <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold">{data.customerName ?? "-"}</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-semibold">{row.original.orderer?.customerName ?? data.customerName ?? "-"}</span>
+                  {/* The one thing that decides what happens next: is this
+                      someone the shop already bills, or a phone off the street. */}
+                  {row.original.orderer && (
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                      row.original.orderer.known
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+                        : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200",
+                    )}>
+                      {row.original.orderer.known ? "زبون عندك" : "رقم جديد"}
+                    </span>
+                  )}
                   {data.isFirstOrder && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                       أول طلب
@@ -271,20 +284,57 @@ export function ApprovalsPage() {
                 </label>
               </div>
             )}
-            <Button
-              disabled={reviewMutation.isPending}
-              onClick={() =>
-                reviewMutation.mutate({
-                  id: row.original.id,
-                  status: "APPROVED",
-                  allowPrices: row.original.requestType === "CATALOG_ACCESS" ? Boolean(allowPricesById[row.original.id]) : undefined,
-                  showStock: row.original.requestType === "CATALOG_ACCESS" ? (showStockById[row.original.id] !== false) : undefined,
-                })
-              }
-            >
-              <Check className="h-4 w-4" />
-              وافق
-            </Button>
+            {row.original.requestType === "CATALOG_ORDER" && row.original.orderer?.known === false && (
+              <Button
+                variant="outline"
+                disabled={addCustomerMutation.isPending}
+                title="يضيفه بالاسم والرقم والمحافظة الي كتبهم"
+                onClick={() => addCustomerMutation.mutate(row.original.id)}
+              >
+                <UserPlus className="h-4 w-4" />
+                أضفه كزبون
+              </Button>
+            )}
+            {row.original.requestType === "CATALOG_ORDER" ? (
+              <>
+                <Button
+                  disabled={reviewMutation.isPending}
+                  title="ينفتح فاتورة بيع وينزل المخزون فوراً"
+                  onClick={() => reviewMutation.mutate({
+                    id: row.original.id, status: "APPROVED", catalogOrderMode: "INVOICE",
+                  })}
+                >
+                  <Check className="h-4 w-4" />
+                  فاتورة مباشرة
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={reviewMutation.isPending}
+                  title="يروح لشاشة تجهيز الطلب، والفاتورة تنفتح لمن ينجهز"
+                  onClick={() => reviewMutation.mutate({
+                    id: row.original.id, status: "APPROVED", catalogOrderMode: "PREPARE",
+                  })}
+                >
+                  <Check className="h-4 w-4" />
+                  للتجهيز
+                </Button>
+              </>
+            ) : (
+              <Button
+                disabled={reviewMutation.isPending}
+                onClick={() =>
+                  reviewMutation.mutate({
+                    id: row.original.id,
+                    status: "APPROVED",
+                    allowPrices: row.original.requestType === "CATALOG_ACCESS" ? Boolean(allowPricesById[row.original.id]) : undefined,
+                    showStock: row.original.requestType === "CATALOG_ACCESS" ? (showStockById[row.original.id] !== false) : undefined,
+                  })
+                }
+              >
+                <Check className="h-4 w-4" />
+                وافق
+              </Button>
+            )}
             <Button
               variant="destructive"
               disabled={reviewMutation.isPending}
@@ -301,7 +351,7 @@ export function ApprovalsPage() {
         ),
       },
     ],
-    [allowPricesById, showStockById, reviewMutation],
+    [allowPricesById, showStockById, reviewMutation, addCustomerMutation],
   )
 
   const table = useReactTable({

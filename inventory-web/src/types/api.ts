@@ -86,6 +86,16 @@ export interface Approval {
     summary?: string
     details?: Array<{ label: string; value: string }>
   }
+  /** Catalog orders only: whether the phone is already on the shop's books.
+   *  Resolved fresh on every list — the stored snapshot cannot know, because
+   *  the answer changes after the order was placed. */
+  orderer?: {
+    known: boolean
+    customerId: string | null
+    customerName: string | null
+    balance: number | null
+    pastOrders: number
+  }
 }
 
 // «الديون الشخصية» — unrelated to shop customers/accounting (e.g. cash lent

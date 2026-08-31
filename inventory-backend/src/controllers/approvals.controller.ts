@@ -3,6 +3,7 @@ import {
   listMyApprovals,
   listPendingApprovals,
   reviewApproval,
+  addCustomerFromApproval,
 } from "../services/approval.service";
 import { notifyTransferReviewed } from "../services/transfer.service";
 import { hasPermission } from "../middleware/permission.middleware";
@@ -97,8 +98,11 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
     );
   }
 
-  const { status, allowPrices, showStock } = req.body as { status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean };
-  const result = await reviewApproval(id, status, req.user.id, { allowPrices, showStock });
+  const { status, allowPrices, showStock, catalogOrderMode } = req.body as {
+    status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean;
+    catalogOrderMode?: "INVOICE" | "PREPARE";
+  };
+  const result = await reviewApproval(id, status, req.user.id, { allowPrices, showStock, catalogOrderMode });
 
   // Notify the requester + admin about the transfer decision (fire-and-forget).
   if (isTransfer) {
@@ -114,4 +118,10 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
         : "Approval request rejected",
     data: result,
   });
+});
+
+/** «أضفه كزبون» — the step before a stranger's order can become an invoice. */
+export const addApprovalCustomer = asyncHandler(async (req, res) => {
+  const data = await addCustomerFromApproval(String(req.params.id), req.user!.id);
+  res.json({ success: true, data });
 });

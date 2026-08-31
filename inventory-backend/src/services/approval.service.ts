@@ -320,15 +320,70 @@ async function buildApprovalDisplay(
   }
 }
 
+/**
+ * For a catalog order, whether the phone belongs to someone the shop already
+ * has on its books — the first thing the merchant needs to know before
+ * deciding what to do with the order, and something the stored snapshot
+ * cannot answer because the answer changes after the order was placed.
+ *
+ * One query for every phone on the page, not one per row.
+ */
+async function attachOrderers<T extends { requestType: string; requestData: unknown }>(
+  approvals: T[]
+): Promise<Array<T & { orderer?: { known: boolean; customerId: string | null; customerName: string | null; balance: number | null; pastOrders: number } }>> {
+  const { normalizePhone } = await import("../utils/phone");
+  const phoneOf = (a: T) => {
+    if (a.requestType !== approvalRequestTypes.CATALOG_ORDER) return null;
+    const d = (a.requestData ?? {}) as { phone?: unknown };
+    const raw = String(d.phone ?? "").trim();
+    return raw ? normalizePhone(raw) : null;
+  };
+
+  const phones = [...new Set(approvals.map(phoneOf).filter(Boolean) as string[])];
+  if (phones.length === 0) return approvals;
+
+  const customers = await prisma.customer.findMany({
+    where: { phone: { in: phones }, deletedAt: null },
+    select: { id: true, name: true, phone: true, currentBalance: true },
+  });
+  const byPhone = new Map(customers.map((c) => [c.phone, c]));
+
+  const counts = customers.length
+    ? await prisma.invoice.groupBy({
+        by: ["customerId"],
+        where: { customerId: { in: customers.map((c) => c.id) }, type: "SALE" },
+        _count: { customerId: true },
+      })
+    : [];
+  const countById = new Map(counts.map((c) => [c.customerId, c._count.customerId]));
+
+  return approvals.map((a) => {
+    const phone = phoneOf(a);
+    if (!phone) return a;
+    const c = byPhone.get(phone);
+    return {
+      ...a,
+      orderer: {
+        known: Boolean(c),
+        customerId: c?.id ?? null,
+        customerName: c?.name ?? null,
+        balance: c ? Number(c.currentBalance) : null,
+        pastOrders: c ? countById.get(c.id) ?? 0 : 0,
+      },
+    };
+  });
+}
+
 async function attachDisplays<T extends { requestType: string; requestData: unknown }>(
   approvals: T[]
-): Promise<Array<T & { display?: ApprovalDisplay }>> {
-  return Promise.all(
+) {
+  const withDisplay = await Promise.all(
     approvals.map(async (a) => ({
       ...a,
       display: await buildApprovalDisplay(a.requestType, a.requestData),
     }))
   );
+  return attachOrderers(withDisplay);
 }
 
 export async function createPendingApproval(
@@ -835,7 +890,16 @@ export async function reviewApproval(
   approvalId: string,
   status: "APPROVED" | "REJECTED",
   reviewedBy: string,
-  options?: { allowPrices?: boolean; showStock?: boolean }
+  options?: {
+    allowPrices?: boolean;
+    showStock?: boolean;
+    /**
+     * Catalog orders only. "PREPARE" (the default, and what every approval
+     * did before) sends the order to the preparation screen and bills it when
+     * staff mark it ready. "INVOICE" bills it now.
+     */
+    catalogOrderMode?: "INVOICE" | "PREPARE";
+  }
 ) {
   const approval = await prisma.pendingApproval.findUnique({
     where: { id: approvalId },
@@ -863,7 +927,7 @@ export async function reviewApproval(
     };
   }
 
-  return prisma.$transaction(async (tx) => {
+  const reviewed = await prisma.$transaction(async (tx) => {
     const approvalUpdate = await tx.pendingApproval.updateMany({
       where: { id: approvalId, status: ApprovalStatus.PENDING },
       data: {
@@ -894,4 +958,83 @@ export async function reviewApproval(
       result,
     };
   });
+
+  // Billing runs AFTER the approval commits, deliberately: it opens its own
+  // transaction, moves stock and sends a WhatsApp, and none of that can be
+  // undone by a rollback. A failure here leaves an approved order sitting in
+  // the preparation screen — recoverable by hand — rather than an invoice
+  // for an approval that never happened.
+  if (
+    options?.catalogOrderMode === "INVOICE" &&
+    approval.requestType === approvalRequestTypes.CATALOG_ORDER
+  ) {
+    const prepId = (reviewed.result as { id?: string } | null)?.id;
+    if (prepId) {
+      const { markPrepared } = await import("./order-preparation.service");
+      const prepared = await markPrepared(prepId, reviewedBy);
+      return { ...reviewed, result: { ...(reviewed.result as object), prepared } };
+    }
+  }
+
+  return reviewed;
+}
+
+/**
+ * «أضفه كزبون» — put the person behind a catalog order on the shop's books.
+ *
+ * Goes through promoteVisitorToCustomer where it can, so the storefront login
+ * code, address and province they already gave move across with them and they
+ * keep signing in as themselves. Falls back to a plain create for a phone the
+ * storefront never saw. Idempotent: a phone that is already a customer just
+ * comes back, so a double click cannot make two customers.
+ */
+export async function addCustomerFromApproval(approvalId: string, userId: string) {
+  const approval = await prisma.pendingApproval.findUnique({ where: { id: approvalId } });
+  if (!approval) throw new AppError("Approval request not found", 404, "APPROVAL_NOT_FOUND");
+  if (approval.requestType !== approvalRequestTypes.CATALOG_ORDER) {
+    throw new AppError("هذا الطلب مو طلب كتلوك", 400, "NOT_CATALOG_ORDER");
+  }
+
+  const data = (approval.requestData ?? {}) as {
+    customerName?: string; phone?: string; address?: string; province?: string;
+  };
+  const { normalizePhone } = await import("../utils/phone");
+  const phone = normalizePhone(String(data.phone ?? "").trim());
+  if (!phone) throw new AppError("الطلب ما بيه رقم هاتف", 400, "PHONE_REQUIRED");
+
+  const existing = await prisma.customer.findFirst({ where: { phone, deletedAt: null } });
+  if (existing) return { customerId: existing.id, name: existing.name, created: false };
+
+  const promoted = await (async () => {
+    try {
+      const { promoteVisitorToCustomer } = await import("./catalog-visitor.service");
+      const result = await promoteVisitorToCustomer(phone);
+      return await prisma.customer.findUnique({ where: { id: result.customerId } });
+    } catch {
+      return null;
+    }
+  })();
+
+  const customer = promoted ?? await prisma.customer.create({
+    data: {
+      name: String(data.customerName ?? "").trim() || phone,
+      phone,
+      address: data.address?.trim() || null,
+      province: data.province?.trim() || null,
+      openingBalance: 0,
+      currentBalance: 0,
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "CUSTOMER_ADDED_FROM_CATALOG_ORDER",
+      entity: "Customer",
+      recordId: customer.id,
+      metadata: { approvalId, phone } as Prisma.InputJsonValue,
+    },
+  });
+
+  return { customerId: customer.id, name: customer.name, created: true };
 }

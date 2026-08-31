@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  addApprovalCustomer,
   bulkReviewApprovals,
   getMyApprovals,
   getPendingApprovals,
@@ -8,7 +9,7 @@ import {
 import { adminOnly } from "../middleware/admin-only.middleware";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { validate } from "../middleware/validate";
-import { reviewApprovalSchema } from "../utils/schemas";
+import { approvalIdParamSchema, reviewApprovalSchema } from "../utils/schemas";
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.get("/my-requests", getMyApprovals);
 router.get("/", adminOnly, getPendingApprovals);
 router.post("/bulk-review", adminOnly, bulkReviewApprovals);
 router.put("/:id", adminOnly, validate(reviewApprovalSchema), reviewPendingApproval);
+router.post("/:id/add-customer", adminOnly, validate(approvalIdParamSchema), addApprovalCustomer);
 
 export default router;

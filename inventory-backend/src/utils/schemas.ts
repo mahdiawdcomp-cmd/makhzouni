@@ -429,8 +429,12 @@ export const reviewApprovalSchema = z.object({
     status: z.enum(["APPROVED", "REJECTED"]),
     allowPrices: z.coerce.boolean().optional(),
     showStock: z.coerce.boolean().optional(),
+    // Catalog orders only — bill now, or send to preparation as before.
+    catalogOrderMode: z.enum(["INVOICE", "PREPARE"]).optional(),
   }),
 });
+
+export const approvalIdParamSchema = z.object({ params: uuidParam });
 
 export const listAuditLogsSchema = z.object({
   query: z.object({
