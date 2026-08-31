@@ -1111,6 +1111,10 @@ function CatalogShop({
   // filter and not a page: it is a slice of the same grid, so the sort, the
   // category tabs and the search all keep meaning what they mean.
   const [justArrivedOnly, setJustArrivedOnly] = useState(false)
+  // One-tap shortcut to a tag the shop picked — «القرطاسية» and the like.
+  // Null means no shortcut is on; the category tabs and filters are untouched
+  // by it, so it narrows whatever the shopper is already looking at.
+  const [quickTag, setQuickTag] = useState<string | null>(null)
   const [appearanceOpen, setAppearanceOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -1345,6 +1349,17 @@ function CatalogShop({
     if (!days || days <= 0 || !productsQuery.dataUpdatedAt) return null
     return productsQuery.dataUpdatedAt - days * 86_400_000
   }, [design?.newArrivalDays, productsQuery.dataUpdatedAt])
+  // A tag matches whichever field the shop actually put it in — its category
+  // tags, its type tags, or its plain category. A shop that tags one way and
+  // types the chip the other way would otherwise get a button that finds
+  // nothing, with no way to tell why.
+  const hasTag = (p: PublicCatalogProduct, tag: string) => {
+    const t = tag.trim()
+    if (!t) return false
+    return (p.categoryTags ?? []).some((x) => x.trim() === t)
+      || (p.typeTags ?? []).some((x) => x.trim() === t)
+      || (p.category ?? "").trim() === t
+  }
   const isJustArrived = (p: PublicCatalogProduct) =>
     arrivalCutoff != null && p.createdAt != null && new Date(p.createdAt).getTime() >= arrivalCutoff
   const justArrivedCount = useMemo(() => {
@@ -1363,6 +1378,7 @@ function CatalogShop({
     let result = products.filter((p) => {
       if (!canDisplay(p)) return false
       if (justArrivedOnly && !isJustArrived(p)) return false
+      if (quickTag && !hasTag(p, quickTag)) return false
       if (category !== "all") {
         const tags = p.categoryTags ?? []
         const inCat = tags.length > 0 ? tags.includes(category) : p.category === category
@@ -1400,7 +1416,7 @@ function CatalogShop({
     }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode, justArrivedOnly, arrivalCutoff])
+  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode, justArrivedOnly, arrivalCutoff, quickTag])
 
   // ── Paging ──
   // `visible` above is the WHOLE catalog after search, filters and sorting —
@@ -1409,6 +1425,19 @@ function CatalogShop({
   // How many products the picture rule is holding back right now. Shown to the
   // shopper so a shorter grid is never a mystery — and so the way back is one
   // tap, not a support call.
+  // A chip that would answer with an empty grid is not shown at all — same
+  // rule «وصلت هسه» follows, and it quietly absorbs a mistyped tag name.
+  const quickTagCounts = useMemo(() => {
+    const tags = design?.quickTags ?? []
+    const out: Array<{ tag: string; count: number }> = []
+    for (const tag of tags) {
+      const count = products.filter((p) => hasTag(p, tag) && canDisplay(p)).length
+      if (count > 0) out.push({ tag, count })
+    }
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, design?.quickTags, hideNoImage, noImageMode, guestMode, stockFilter])
+
   const hiddenNoImageCount = useMemo(() => {
     if (!hideNoImage || noImageMode) return 0
     return products.filter((p) => !(p.hasImage ?? Boolean(p.thumbnailUrl)) && inStock(p)).length
@@ -2130,6 +2159,26 @@ function CatalogShop({
             </button>
           )}
 
+          {quickTagCounts.map(({ tag, count }) => {
+            const on = quickTag === tag
+            return (
+              <button key={tag}
+                onClick={() => { setQuickTag(on ? null : tag); setPage(0) }}
+                className="flex shrink-0 items-center gap-1 rounded-full px-3 py-1 font-semibold transition active:scale-95"
+                style={on
+                  ? { background: "#ffffff", color: tk.accent, fontSize: tk.fs.xs }
+                  : { background: "rgba(255,255,255,0.2)", color: "#ffffff", fontSize: tk.fs.xs }}>
+                {tag}
+                <span className="flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 font-extrabold"
+                  style={on
+                    ? { background: tk.accent, color: "#fff", fontSize: "9px" }
+                    : { background: "rgba(255,255,255,0.28)", color: "#fff", fontSize: "9px" }}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+
           {/* Sort */}
           <div className="flex flex-1 gap-1 overflow-x-auto scrollbar-hide">
             {(Object.keys(SORT_LABELS) as SortKey[]).map(sk => (
@@ -2178,6 +2227,19 @@ function CatalogShop({
 
       {/* ── Main content ── */}
       <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-6 pt-4 overflow-hidden" style={{ background: tk.bg }}>
+
+        {quickTag && (
+          <div className="mb-3 flex items-center gap-2 p-3" style={{ background: tk.accentLight, borderRadius: tk.radiusMd }}>
+            <p className="min-w-0 flex-1 font-bold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>
+              تعرض بس «{quickTag}»
+            </p>
+            <button onClick={() => { setQuickTag(null); setPage(0) }}
+              className="shrink-0 px-3 py-1.5 font-bold text-white transition active:scale-95"
+              style={{ background: tk.accent, borderRadius: tk.radiusSm, fontSize: tk.fs.xs }}>
+              اعرض الكل
+            </button>
+          </div>
+        )}
 
         {justArrivedOnly && (
           <div className="mb-3 flex items-center gap-2 p-3" style={{ background: tk.accentLight, borderRadius: tk.radiusMd }}>
@@ -3580,12 +3642,11 @@ function UnitPickerSheet({
 }) {
   const units = unitsFor(product)
 
-  // The wholesale default: a carton, one of them. Opening the sheet already
-  // holding what most shoppers want turns the common case into a single tap.
-  const [qty, setQty] = useState<Record<string, number>>(() => {
-    const biggest = units[units.length - 1]
-    return biggest && maxQty(product, biggest) >= 1 ? { [biggest]: 1 } : {}
-  })
+  // Every unit starts at zero. Opening the sheet pre-loaded with one carton
+  // meant a shopper who only wanted to look at a product had already been
+  // handed one, and the ones who noticed had to take it back out. The shopper
+  // says what they want; nothing is chosen on their behalf.
+  const [qty, setQty] = useState<Record<string, number>>({})
 
   // Pieces are the shared budget: 2 cartons and 5 dozens of the same product
   // draw on one pile of stock. Checking each unit against the total on its own

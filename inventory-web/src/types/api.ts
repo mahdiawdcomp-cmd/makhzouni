@@ -1215,6 +1215,7 @@ export interface AppSettings {
   catalogFullCartonOnly?: boolean
   catalogHideNoImage?: boolean
   catalogNewArrivalDays?: number
+  catalogQuickTags?: string[]
   /** Storefront login: close anonymous browsing entirely. */
   catalogRequireLogin?: boolean
   /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */

@@ -309,6 +309,10 @@ export interface AppSettings {
   // How many days a product counts as «وصلت هسه» on the storefront, measured
   // from when it was added. 0 turns the button off entirely.
   catalogNewArrivalDays?: number;
+  // Tag names the shop wants as one-tap chips in the storefront's filter row,
+  // beside «وصلت هسه». Matched against a product's category tags, type tags
+  // or its category. Empty = no chips, which is what every shop starts with.
+  catalogQuickTags?: string[];
   // Wholesale catalog product-order rotation. "hourly" reshuffles the order for
   // all shoppers every hour, "daily" every day, "off" keeps the fixed
   // category/name order. Defaults to "hourly".
@@ -488,6 +492,7 @@ export const defaultSettings: AppSettings = {
   catalogGuestPricesVisible: false,
   catalogHideNoImage: false,
   catalogNewArrivalDays: 10,
+  catalogQuickTags: [],
   catalogShuffleMode: "hourly",
   catalogNorthGovernorates: [...DEFAULT_NORTH_GOVERNORATES],
   catalogFreeShippingThreshold: DEFAULT_FREE_SHIPPING_THRESHOLD,

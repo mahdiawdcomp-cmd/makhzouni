@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ImageOff, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Sparkles, Truck, Gift } from "lucide-react"
+import { ImageOff, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Sparkles, Tags, Truck, Gift } from "lucide-react"
 import { getSettings, updateSettings, applyPricesDefaultToAll } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -72,6 +72,7 @@ export function CatalogSettingsTab() {
   const [adminPhone, setAdminPhone] = useState<string | null>(null)
   const [freeShipping, setFreeShipping] = useState<string | null>(null)
   const [arrivalDays, setArrivalDays] = useState<string | null>(null)
+  const [quickTags, setQuickTags] = useState<string | null>(null)
   const [northDraft, setNorthDraft] = useState<string[] | null>(null)
   const [couponPercent, setCouponPercent] = useState<string | null>(null)
   const [couponDays, setCouponDays] = useState<string | null>(null)
@@ -108,6 +109,7 @@ export function CatalogSettingsTab() {
   const phoneValue = adminPhone ?? s?.catalogAdminWhatsappNumber ?? ""
   const freeShippingValue = freeShipping ?? String(s?.catalogFreeShippingThreshold ?? 1_500_000)
   const arrivalDaysValue = arrivalDays ?? String(s?.catalogNewArrivalDays ?? 10)
+  const quickTagsValue = quickTags ?? (s?.catalogQuickTags ?? []).join("، ")
   const northValue = northDraft ?? (s?.catalogNorthGovernorates as string[] | undefined) ?? DEFAULT_NORTH_GOVERNORATES
   const couponPercentValue = couponPercent ?? String(s?.firstOrderCouponPercent ?? 5)
   const couponDaysValue = couponDays ?? String(s?.firstOrderCouponDurationDays ?? 7)
@@ -264,6 +266,34 @@ export function CatalogSettingsTab() {
               <Button
                 onClick={() => saveMut.mutate({ catalogNewArrivalDays: Math.max(0, Math.min(365, Number(arrivalDaysValue) || 0)) })}
                 disabled={saveMut.isPending || arrivalDays === null}
+                className="shrink-0"
+              >
+                حفظ
+              </Button>
+            </div>
+          </Row>
+
+          <Row
+            icon={<Tags className="h-4 w-4 text-slate-500" />}
+            title="أزرار تاكات سريعة"
+            description="تاكات تطلع كأزرار بشريط الفلترة جنب «وصلت هسه». اكتبها مفصولة بفاصلة — مثلاً: القرطاسية، الألعاب. الزر ما يظهر إذا ما اكو مادة بالتاك."
+          >
+            <div className="flex shrink-0 gap-2">
+              <Input
+                value={quickTagsValue}
+                onChange={(e) => setQuickTags(e.target.value)}
+                placeholder="القرطاسية، الألعاب"
+                className="w-52 text-sm"
+              />
+              <Button
+                onClick={() => saveMut.mutate({
+                  catalogQuickTags: quickTagsValue
+                    .split(/[،,]/)
+                    .map((t) => t.trim())
+                    .filter(Boolean)
+                    .slice(0, 12),
+                })}
+                disabled={saveMut.isPending || quickTags === null}
                 className="shrink-0"
               >
                 حفظ

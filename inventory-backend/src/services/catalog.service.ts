@@ -862,6 +862,10 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
     hideNoImage: settings.catalogHideNoImage === true,
     guestPricesVisible: settings.catalogGuestPricesVisible === true,
+    quickTags: (settings.catalogQuickTags ?? [])
+      .map((t) => String(t ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 12),
     // A corrupted value must not silently turn the button off — only a real
     // zero from the merchant means "off".
     newArrivalDays: (() => {

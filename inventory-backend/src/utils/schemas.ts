@@ -1124,6 +1124,7 @@ export const updateSettingsSchema = z.object({
       catalogFullCartonOnly: z.boolean().optional(),
       catalogHideNoImage: z.boolean().optional(),
       catalogNewArrivalDays: z.coerce.number().int().min(0).max(365).optional(),
+      catalogQuickTags: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
       labelPieceWidthMm: z.coerce.number().min(10).max(300).optional(),
       labelPieceHeightMm: z.coerce.number().min(10).max(300).optional(),
       labelCartonWidthMm: z.coerce.number().min(10).max(300).optional(),

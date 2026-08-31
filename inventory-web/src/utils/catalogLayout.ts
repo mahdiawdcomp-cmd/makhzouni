@@ -25,6 +25,8 @@ export interface CatalogLayout {
   newArrivalDays: number
   /** Whether someone with no account at all sees prices. */
   guestPricesVisible: boolean
+  /** Tag names the shop wants as one-tap chips beside «وصلت هسه». */
+  quickTags: string[]
   /** «عروض القائمة» — thresholds that grant free delivery and/or a discount. */
   orderTiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }
