@@ -901,6 +901,8 @@ export interface InvoiceItem {
   unitPrice: number
   totalPrice: number
   notes?: string | null
+  /** Carried by the read endpoints so the carton column can be computed. */
+  product?: { id: string; name: string; itemNumber?: string | null; pcsPerCarton: number; boxPieces?: number | null }
 }
 
 export type LossReason = "DAMAGE" | "EXPIRY" | "THEFT" | "DEFECT" | "OTHER"

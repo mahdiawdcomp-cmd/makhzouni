@@ -384,6 +384,27 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const td = (content: string, right = false, extra = "") =>
     `<td style="padding:5px 4px;border-bottom:1px solid #cbd5e1;text-align:${right ? "right" : "center"};font-size:${fs}px;line-height:1.25;vertical-align:top;${extra}">${content}</td>`
 
+  // Pieces on a line, whatever unit it was entered in — the carton column and
+  // the carton total both have to agree with what the invoice actually says.
+  const linePieces = (l: PrintLine) => {
+    const per = Math.max(1, l.pcsPerCarton || 1)
+    if (l.unit === "كرتون") return l.qty * per
+    if (l.unit === "درزن") return l.qty * 12
+    if (l.unit === "علبة") return l.qty * Math.ceil(per / 2)
+    return l.qty
+  }
+  const lineCartons = (l: PrintLine) => {
+    const per = Math.max(1, l.pcsPerCarton || 1)
+    if (per <= 1) return { cartons: 0, loose: linePieces(l), text: "—" }
+    const pieces = linePieces(l)
+    const cartons = Math.floor(pieces / per)
+    const loose = pieces % per
+    return { cartons, loose, text: cartons && loose ? `${cartons} + ${loose}` : cartons ? `${cartons}` : `0 + ${loose}` }
+  }
+
+  let totalCartons = 0
+  let totalLoose = 0
+
   const body = inv.lines.map((l, idx) => {
     const cells: string[] = [td(`${idx + 1}`, false, "vertical-align:middle")]
     if (hasItemNum) cells.push(td(`<span style="color:#6366f1;font-weight:700">${esc(l.itemNumber || "—")}</span>`, false, "vertical-align:middle"))
@@ -395,13 +416,22 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
     cells.push(td(nameHtml, true))
     cells.push(td(esc(l.unit || "—"), false, "vertical-align:middle"))
     if (el.showQty) cells.push(td(`${l.qty}`, false, "vertical-align:middle"))
+    if (hasCartons) {
+      const c = lineCartons(l)
+      totalCartons += c.cartons
+      totalLoose += c.loose
+      cells.push(td(`<b>${c.text}</b>`, false, "vertical-align:middle"))
+    }
     if (el.showPrice) cells.push(td(numFmt(l.price), false, "vertical-align:middle"))
     cells.push(td(numFmt(l.qty * l.price), false, "vertical-align:middle"))
     cells.push(td(esc(l.notes || ""), true))
     return `<tr>${cells.join("")}</tr>`
   }).join("")
-  const totalCols = cols.length
-  const curRow = `<tfoot><tr><td colspan="${totalCols}" style="padding:2px 4px;font-size:${fsSm}px;color:#94a3b8;text-align:center">الأسعار والمجاميع بـ ${cur}</td></tr></tfoot>`
+  const totalCols = colDefs.length
+  const cartonRow = hasCartons
+    ? `<tr><td colspan="${totalCols}" style="padding:4px;font-size:${fs}px;font-weight:700;text-align:center;border-top:2px solid ${accent};color:${accent}">مجموع الكراتين: ${totalCartons}${totalLoose ? ` كرتون + ${totalLoose} قطعة` : " كرتون"}</td></tr>`
+    : ""
+  const curRow = `<tfoot>${cartonRow}<tr><td colspan="${totalCols}" style="padding:2px 4px;font-size:${fsSm}px;color:#94a3b8;text-align:center">الأسعار والمجاميع بـ ${cur}</td></tr></tfoot>`
   return `<table class="invoice-items-table" style="width:100%;border-collapse:collapse;table-layout:fixed">${colgroup}${head}<tbody>${body}</tbody>${curRow}</table>`
 }
 

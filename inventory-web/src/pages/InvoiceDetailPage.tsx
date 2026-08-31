@@ -40,6 +40,7 @@ import { RecordNavigator } from "../components/RecordNavigator"
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
+import { cartonBreakdown, unitToPieces } from "../utils/units"
 
 function money(v: number | undefined) { return fmt(v) }
 
@@ -450,6 +451,16 @@ export function InvoiceDetailPage() {
 
   const isPurchase = invoice.type === "PURCHASE"
   const isReturn = invoice.type === "SALES_RETURN"
+  // Cartons across the whole invoice: summed in PIECES first, then broken down
+  // once. Summing each line's rounded carton count would lose every remainder.
+  const perLineCartons = (invoice.items ?? []).map((it) =>
+    cartonBreakdown(
+      unitToPieces(it.unit, it.quantity, { pcsPerCarton: it.product?.pcsPerCarton ?? 1, boxPieces: it.product?.boxPieces }),
+      it.product?.pcsPerCarton ?? 1,
+    ),
+  )
+  const totalCartons = perLineCartons.reduce((s, c) => s + c.cartons, 0)
+  const looseTotal = perLineCartons.reduce((s, c) => s + c.looseP, 0)
   const accentColor = isPurchase ? "#f59e0b" : isReturn ? "#dc2626" : "#4F46E5"
   const customerLabel = isPurchase ? "المورد" : "الزبون / العميل"
   const typeLabel = isPurchase ? "فاتورة شراء" : isReturn ? "فاتورة مرتجع مبيعات" : "فاتورة مبيعات"
@@ -643,6 +654,7 @@ export function InvoiceDetailPage() {
                 <th className="py-3 px-4 text-right">اسم الصنف</th>
                 <th className="py-3 px-4 text-center">الوحدة</th>
                 <th className="py-3 px-4 text-center">الكمية</th>
+                <th className="py-3 px-4 text-center">الكراتين</th>
                 <th className="py-3 px-4 text-center">سعر الوحدة</th>
                 <th className="rounded-l-lg py-3 px-4 text-left">الإجمالي</th>
               </tr>
@@ -658,6 +670,14 @@ export function InvoiceDetailPage() {
                   </td>
                   <td className="py-3 px-4 text-center">{unitLabel(item.unit)}</td>
                   <td className="py-3 px-4 text-center font-bold">{fmt(item.quantity)}</td>
+                  {/* Cartons received — what the warehouse actually counts on
+                      the floor. Derived, never stored: pieces ÷ pcsPerCarton. */}
+                  <td className="py-3 px-4 text-center font-bold text-sky-700">
+                    {cartonBreakdown(
+                      unitToPieces(item.unit, item.quantity, { pcsPerCarton: item.product?.pcsPerCarton ?? 1, boxPieces: item.product?.boxPieces }),
+                      item.product?.pcsPerCarton ?? 1,
+                    ).label}
+                  </td>
                   <td className="py-3 px-4 text-center">{money(item.unitPrice)} {currency}</td>
                   <td className="py-3 px-4 text-left font-bold" style={{ color: accentColor }}>{money(item.totalPrice)} {currency}</td>
                 </tr>
@@ -679,6 +699,11 @@ export function InvoiceDetailPage() {
           {/* Left: Invoice details */}
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 space-y-2">
             <h3 className="font-bold text-gray-800 border-b border-gray-200 pb-2 mb-3">تفاصيل الفاتورة الحالية</h3>
+            {/* Total cartons in the shipment — the number the warehouse counts
+                against when the goods land. */}
+            {totalCartons > 0 && (
+              <SummaryRow label="مجموع الكراتين" value={`${fmt(totalCartons)} كرتون${looseTotal ? ` + ${fmt(looseTotal)} قطعة` : ""}`} />
+            )}
             <SummaryRow label="قيمة الفاتورة" value={`${money(invoice.subtotal)} ${currency}`} />
             {Number(invoice.discount) > 0 ? <SummaryRow label="الخصم" value={`${money(invoice.discount)} ${currency}`} /> : null}
             <SummaryRow label="الإجمالي" value={`${money(invoice.totalAmount)} ${currency}`} strong />

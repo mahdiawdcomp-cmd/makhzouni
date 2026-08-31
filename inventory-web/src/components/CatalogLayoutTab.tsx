@@ -146,7 +146,8 @@ export function CatalogLayoutTab() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="rounded-xl bg-indigo-50 px-3 py-2 text-xs text-indigo-800">
-            هذي الأقسام الي بين رأس الصفحة وقائمة المنتجات — رتبها بالأسهم وأطفي الي ما تريده.
+            هذي الأقسام الي بين رأس الصفحة وقائمة المنتجات — رتبها بالأسهم وأطفي الي ما تريده
+            بزر العين. <b>لازم تضغط «احفظ التغييرات» تحت</b>، وإلا الإخفاء ما ينحفظ.
             البحث وقائمة المنتجات والفوتر مكانهم ثابت، وإلهم مفاتيح تشغيل بمكان ثاني.
           </p>
 
@@ -181,10 +182,15 @@ export function CatalogLayoutTab() {
             ))}
           </div>
 
+          {orderDraft !== null && (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+              ⚠️ عندك تغييرات ما انحفظت — اضغط «احفظ التغييرات» وإلا تروح لو حدّثت الصفحة.
+            </p>
+          )}
           <Button size="sm" className="w-full"
             disabled={orderDraft === null || saveMut.isPending}
             onClick={() => saveMut.mutate({ catalogSections: sections })}>
-            {saveMut.isPending ? "جاري الحفظ..." : "حفظ الترتيب"}
+            {saveMut.isPending ? "جاري الحفظ..." : orderDraft === null ? "محفوظ" : "احفظ التغييرات"}
           </Button>
         </CardContent>
       </Card>
@@ -232,6 +238,11 @@ export function CatalogLayoutTab() {
             </div>
           )}
 
+          {textDraft !== null && (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+              ⚠️ عندك نصوص ما انحفظت — اضغط «احفظ النصوص» وإلا تروح لو حدّثت الصفحة.
+            </p>
+          )}
           <Button size="sm" className="w-full"
             disabled={textDraft === null || saveMut.isPending}
             onClick={() => saveMut.mutate({
@@ -241,7 +252,7 @@ export function CatalogLayoutTab() {
                 Object.entries(texts).filter(([, v]) => String(v).trim()),
               ),
             })}>
-            {saveMut.isPending ? "جاري الحفظ..." : "حفظ النصوص"}
+            {saveMut.isPending ? "جاري الحفظ..." : textDraft === null ? "محفوظ" : "احفظ النصوص"}
           </Button>
         </CardContent>
       </Card>

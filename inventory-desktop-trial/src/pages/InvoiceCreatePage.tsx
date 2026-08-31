@@ -38,7 +38,7 @@ import { findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance, sortCustomersByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
-import { UNIT_LABELS, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
+import { UNIT_LABELS, cartonBreakdown, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
 
 type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
@@ -710,6 +710,18 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }, [productHighlight])
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0), [items])
+  // Summed as PIECES first, then broken down once — adding each line's rounded
+  // carton count would silently drop every partial carton.
+  const invoiceCartons = useMemo(() => {
+    let cartons = 0
+    let loose = 0
+    for (const item of items) {
+      const b = cartonBreakdown(unitToPieces(item.unit, item.quantity, item.product), item.product.pcsPerCarton)
+      cartons += b.cartons
+      loose += b.looseP
+    }
+    return { cartons, loose }
+  }, [items])
   // Edit mode: the customer's currentBalance ALREADY CONTAINS this invoice's
   // remaining amount — using it as-is double-counts the invoice (بيع 1,250 على
   // رصيد 15,000 كان يعرض حساب سابق 16,250 ونهائي 17,500). Subtract the
@@ -2389,6 +2401,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   <TH>المخزن</TH>
                   <TH>الوحدة</TH>
                   <TH>العدد</TH>
+                  <TH>الكراتين</TH>
                   {!hidePrice && <TH>سعر المفرد</TH>}
                   {!hidePrice && <TH>الإجمالي</TH>}
                   <TH>الملاحظات</TH>
@@ -2622,6 +2635,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                           )}
                         </div>
                       </TD>
+                      {/* Cartons — read-only, derived from the line's pieces.
+                          The count sheet in the warehouse is in cartons, so the
+                          invoice has to speak that language too. */}
+                      <TD>
+                        <span className={cn("font-semibold text-sky-700 dark:text-sky-400", dz.text)}>
+                          {cartonBreakdown(itemQuantityInPieces(item), item.product.pcsPerCarton).label}
+                        </span>
+                      </TD>
                       {!hidePrice && (
                         <TD>
                           <NumericInput
@@ -2705,6 +2726,16 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
               <span className="font-semibold">{fmt(subtotal)}</span>
               <span className="text-slate-500">المجموع</span>
             </div>
+            {/* Cartons in the whole invoice — the figure the warehouse counts
+                against when the shipment lands. */}
+            {(invoiceCartons.cartons > 0 || invoiceCartons.loose > 0) && (
+              <div className="flex items-center justify-between rounded-md bg-sky-50 px-2 py-1 text-sm dark:bg-sky-950/30">
+                <span className="font-semibold text-sky-700 dark:text-sky-300">
+                  {fmt(invoiceCartons.cartons)}{invoiceCartons.loose ? ` + ${fmt(invoiceCartons.loose)} ق` : ""}
+                </span>
+                <span className="text-sky-700 dark:text-sky-400">مجموع الكراتين</span>
+              </div>
+            )}
             <div>
               <label className="text-[11px] font-medium text-slate-500">الخصم</label>
               <NumericInput
