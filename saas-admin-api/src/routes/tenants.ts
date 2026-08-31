@@ -133,6 +133,29 @@ function param(req: Request, key: string): string {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Tells a shop to drop its cached licence so a change applies within seconds.
+ *
+ * Every entitlement change used to sit unapplied for up to the shop's
+ * five-minute cache — five minutes in which this panel said one thing and the
+ * shop did another. That is a long time when the change was "stop selling", and
+ * longer still when it was "you are paid up, start selling again".
+ *
+ * Best-effort by design: fire-and-forget, short timeout, failures swallowed. If
+ * the shop is asleep or unreachable its cache still expires on its own exactly
+ * as before, so this only ever makes propagation faster — it is never the thing
+ * that enforcement depends on.
+ */
+function notifyTenantOfChange(backendUrl: string | null | undefined): void {
+  const key = process.env.SUPER_ADMIN_API_KEY;
+  if (!backendUrl || !key || !isSafeOutboundUrl(backendUrl)) return;
+  void fetch(`${backendUrl.replace(/\/+$/, "")}/api/tenant-info/refresh`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(4000),
+  }).catch(() => { /* shop unreachable — its own cache expiry still applies */ });
+}
+
 async function audit(req: Request, tenantId: string | null, action: string, details?: Prisma.InputJsonValue) {
   await prisma.adminAuditLog.create({
     data: { tenantId, adminId: (req as any).adminId ?? null, action, details },
@@ -377,6 +400,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
       include: tenantInclude,
     });
     await audit(req, tenant.id, "TENANT_UPDATED", parsed.data as Prisma.InputJsonValue);
+    notifyTenantOfChange(tenant.backendUrl);
     res.json(tenant);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
@@ -415,6 +439,9 @@ router.delete("/:id", async (req: Request, res: Response) => {
     },
   });
   await prisma.tenant.delete({ where: { id } });
+  // The shop's own backend keeps running; nudging it means it discovers the
+  // 404 (and drops to read-only) now rather than at the end of its cache.
+  notifyTenantOfChange(tenant.backendUrl);
   res.status(204).send();
 });
 
@@ -462,6 +489,7 @@ router.patch("/:id/subscription", async (req: Request, res: Response) => {
   });
   await audit(req, id, "SUBSCRIPTION_UPDATED", data as Prisma.InputJsonValue);
   const tenant = await prisma.tenant.findUnique({ where: { id }, include: tenantInclude });
+  notifyTenantOfChange(tenant?.backendUrl);
   res.json(tenant);
 });
 

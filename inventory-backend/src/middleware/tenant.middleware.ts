@@ -166,6 +166,20 @@ export async function getTenantConfig(): Promise<TenantConfig | null> {
   return cachedConfig;
 }
 
+/**
+ * Drops the cached licence so the very next request refetches it.
+ *
+ * Super Admin calls this after changing a shop's entitlements. Without it a
+ * suspend, a renewal or a feature change sat unapplied for up to CACHE_TTL_MS
+ * — five minutes in which the panel said one thing and the shop did another,
+ * which is a long time when the change was "stop selling" or "you are paid up,
+ * start selling again".
+ */
+export function invalidateTenantConfigCache(): void {
+  cachedConfig = null;
+  cacheExpiresAt = 0;
+}
+
 /** Batch 3 bookkeeping exposed to /api/tenant-info — never throws, never blocks. */
 export function getTenantCheckMeta(): { lastCheckedAt: string | null; lastFetchError: string | null; hasCache: boolean } {
   return {
