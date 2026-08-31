@@ -351,34 +351,27 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   const fs = el.fontSize || 12
   const fsSm = Math.max(fs - 2, 9)
   const hasItemNum = inv.lines.some((l) => l.itemNumber)
-  const cols = ["#"]
-  if (hasItemNum) cols.push("رقم الايتم")
-  cols.push("الصنف", "الوحدة")
-  if (el.showQty) cols.push("الكمية")
-  if (el.showPrice) cols.push("السعر")
-  cols.push("المجموع", "الملاحظات")
-  const nameColIdx = hasItemNum ? 2 : 1
-  const colWidths = cols.map((_, i) => {
-    if (hasItemNum) {
-      if (i === 0) return "4.5%"
-      if (i === 1) return "12%"
-      if (i === nameColIdx) return "38%"
-      if (i === 3) return "8%"
-      if (i === 4) return "7%"
-      if (i === 5) return "9%"
-      if (i === 6) return "10.5%"
-      return "11%"
-    }
-    if (i === 0) return "5%"
-    if (i === nameColIdx) return "44%"
-    if (i === 2) return "9%"
-    if (i === 3) return "8%"
-    if (i === 4) return "10%"
-    if (i === 5) return "12%"
-    return "12%"
-  })
-  const colgroup = `<colgroup>${colWidths.map((w) => `<col style="width:${w}" />`).join("")}</colgroup>`
-  const head = `<thead><tr>${cols.map((c, i) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${i === nameColIdx ? "right" : "center"};font-size:${fs}px;line-height:1.25">${c}</th>`).join("")}</tr></thead>`
+  // Cartons are only worth a column when at least one line has a carton size —
+  // a shop selling loose pieces would otherwise get a column of dashes.
+  const hasCartons = inv.lines.some((l) => (l.pcsPerCarton ?? 0) > 1)
+
+  // Columns are declared with their share of the width instead of being matched
+  // by position, so adding one (like الكراتين) can't silently shift every other
+  // column's size. Shares are relative and normalised to 100% below.
+  type Col = { key: string; label: string; share: number; right?: boolean }
+  const colDefs: Col[] = [{ key: "idx", label: "#", share: 5 }]
+  if (hasItemNum) colDefs.push({ key: "itemNumber", label: "رقم الايتم", share: 12 })
+  colDefs.push({ key: "name", label: "الصنف", share: hasItemNum ? 38 : 44, right: true })
+  colDefs.push({ key: "unit", label: "الوحدة", share: 8 })
+  if (el.showQty) colDefs.push({ key: "qty", label: "الكمية", share: 7 })
+  if (hasCartons) colDefs.push({ key: "cartons", label: "الكراتين", share: 8 })
+  if (el.showPrice) colDefs.push({ key: "price", label: "السعر", share: 9 })
+  colDefs.push({ key: "total", label: "المجموع", share: 10.5 })
+  colDefs.push({ key: "notes", label: "الملاحظات", share: 11, right: true })
+
+  const shareSum = colDefs.reduce((s, c) => s + c.share, 0)
+  const colgroup = `<colgroup>${colDefs.map((c) => `<col style="width:${((c.share / shareSum) * 100).toFixed(2)}%" />`).join("")}</colgroup>`
+  const head = `<thead><tr>${colDefs.map((c) => `<th style="background:${accent}14;color:${accent};border-bottom:2px solid ${accent};padding:6px 4px;text-align:${c.key === "name" ? "right" : "center"};font-size:${fs}px;line-height:1.25">${c.label}</th>`).join("")}</tr></thead>`
 
   const numFmt = (n: number) => Math.round(n).toLocaleString("en-US")
   const td = (content: string, right = false, extra = "") =>

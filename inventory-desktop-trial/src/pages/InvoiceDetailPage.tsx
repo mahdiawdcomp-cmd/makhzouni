@@ -41,6 +41,7 @@ import { WorkerSendModal } from "../components/WorkerSendModal"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 import { cartonBreakdown, unitToPieces } from "../utils/units"
+import { InvoiceLabelsDialog } from "../components/InvoiceLabelsDialog"
 
 function money(v: number | undefined) { return fmt(v) }
 
@@ -117,6 +118,7 @@ export function InvoiceDetailPage() {
   const { productsQuery } = useProducts()
   const allProducts = productsQuery.data ?? []
   const [pdfDownloading, setPdfDownloading] = useState(false)
+  const [labelsOpen, setLabelsOpen] = useState(false)
 
   // Navigation within same type
   const listQuery = useInvoices({ limit: 1000 })
@@ -566,6 +568,9 @@ export function InvoiceDetailPage() {
           <Button variant="outline" size="sm" onClick={() => printWithDesign("80mm")}><Printer className="h-3.5 w-3.5" /> طباعة حرارية</Button>
           <Button variant="outline" size="sm" onClick={() => printWithDesign("a4")}><FileDown className="h-3.5 w-3.5" /> طباعة A4</Button>
           <Button variant="outline" size="sm" onClick={() => void downloadA4Pdf()} disabled={pdfDownloading}><FileDown className="h-3.5 w-3.5" /> {pdfDownloading ? "جاري التحميل..." : "تحميل PDF"}</Button>
+          <Button variant="outline" size="sm" onClick={() => setLabelsOpen(true)}>
+            <FileDown className="h-3.5 w-3.5 text-sky-600" /> تحميل الباركود
+          </Button>
           {invoice.status === "ACTIVE" ? (
             <>
               <Button variant="outline" size="sm" onClick={() => navigate(`/invoices/${id}/edit`)}><Pencil className="h-3.5 w-3.5" /> تعديل</Button>
@@ -1028,6 +1033,14 @@ export function InvoiceDetailPage() {
           </DialogContent>
         </Dialog>
       )}
+      <InvoiceLabelsDialog
+        open={labelsOpen}
+        onOpenChange={setLabelsOpen}
+        invoiceId={invoice.id}
+        invoiceNumber={invoice.invoiceNumber}
+        items={invoice.items ?? []}
+      />
+
       <ConfirmDialog
         open={confirmReactivate}
         title="إرجاع الفاتورة نشطة؟"

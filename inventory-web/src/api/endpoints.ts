@@ -1319,6 +1319,18 @@ export async function productCartonSheetPdf(productId: string) {
   return URL.createObjectURL(data as Blob)
 }
 
+export interface InvoiceLabelRequest {
+  productId: string
+  unit: "PIECE" | "CARTON"
+  count: number
+}
+
+/** One PDF holding every requested barcode sticker for an invoice's goods. */
+export async function downloadInvoiceLabelsPdf(invoiceId: string, items: InvoiceLabelRequest[]) {
+  const { data } = await api.post(`/invoices/${invoiceId}/labels.pdf`, { items }, { responseType: "blob" })
+  return URL.createObjectURL(data as Blob)
+}
+
 export async function productCartonLabelPngObjectUrl(productId: string) {
   const { data } = await api.get(`/products/${productId}/label/carton.png`, {
     responseType: "blob",
