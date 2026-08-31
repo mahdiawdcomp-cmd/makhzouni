@@ -69,7 +69,9 @@ export function parseChinaOrderExcel(buffer: Buffer): ChinaOrderRow[] {
   // "Internal server error" with nothing to act on.
   let wb: ReturnType<typeof read>;
   try {
-    wb = read(buffer, { type: "buffer" });
+    // Values only. Styles, formulas and workbook properties are dead weight on
+    // a 50 MB photo-laden sheet, and embedded media is never touched at all.
+    wb = read(buffer, { type: "buffer", cellStyles: false, cellFormula: false, cellHTML: false, bookProps: false, bookFiles: false });
   } catch (err) {
     throw new AppError(
       `تعذّر فتح ملف Excel — قد يكون تالفاً أو محمياً بكلمة سر أو ليس بصيغة xlsx حقيقية (${err instanceof Error ? err.message : "سبب غير معروف"})`,

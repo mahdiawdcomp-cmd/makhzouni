@@ -52,7 +52,7 @@ export function errorHandler(
     const code = (error as { code?: string }).code;
     const message =
       code === "LIMIT_FILE_SIZE"
-        ? "الملف أكبر من الحد المسموح (25 ميغابايت) — احذف الصور المدمجة من ملف Excel وأعد المحاولة"
+        ? "الملف أكبر من الحد المسموح (60 ميغابايت) — احذف الصور المدمجة من ملف Excel وأعد المحاولة"
         : code === "LIMIT_FILE_COUNT" || code === "LIMIT_UNEXPECTED_FILE"
           ? "ارفع ملفاً واحداً فقط"
           : (error as { message?: string }).message || "تعذّر رفع الملف";

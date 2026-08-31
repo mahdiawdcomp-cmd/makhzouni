@@ -36,6 +36,12 @@ function usd(n: number) {
   return n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
 
+const MAX_UPLOAD_MB = 60
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+function mb(bytes: number) {
+  return (bytes / (1024 * 1024)).toFixed(1)
+}
+
 export function LandedCostImportPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -117,6 +123,19 @@ export function LandedCostImportPage() {
             <div>
               <Label>ملف Excel (القالب الثابت)</Label>
               <Input type="file" accept=".xlsx,.xls,.csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              {/* Tell the user the file is too big BEFORE they wait out a
+                  50 MB upload that the server is going to reject anyway. */}
+              {file && file.size > MAX_UPLOAD_BYTES && (
+                <p className="mt-1 rounded-md bg-rose-50 px-2 py-1.5 text-xs text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+                  حجم الملف {mb(file.size)} ميغا — الحد {MAX_UPLOAD_MB} ميغا. السبب عادةً الصور المدمجة داخل Excel:
+                  افتح الملف، احذف الصور، ثم «حفظ باسم» بصيغة xlsx. عمود الصورة يقبل رابط الصورة كنص.
+                </p>
+              )}
+              {file && file.size > 20 * 1024 * 1024 && file.size <= MAX_UPLOAD_BYTES && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                  حجم الملف {mb(file.size)} ميغا — الرفع قد يستغرق دقيقة.
+                </p>
+              )}
             </div>
             <div>
               <Label>رقم فاتورة المورّد (اختياري)</Label>
@@ -152,7 +171,7 @@ export function LandedCostImportPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Button disabled={!file || !paramsReady || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+            <Button disabled={!file || file.size > MAX_UPLOAD_BYTES || !paramsReady || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
               {previewMutation.isPending ? "جاري التسعير..." : "تسعير الأوردر"}
             </Button>
             {!paramsReady && <span className="text-xs text-muted-foreground">أدخل سعر صرف اليوان والدولار أولاً</span>}

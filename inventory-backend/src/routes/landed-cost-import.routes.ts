@@ -23,7 +23,10 @@ import { authMiddleware } from "../middleware/auth.middleware";
 import { requirePermission, requireAnyPermission } from "../middleware/permission.middleware";
 
 const router = Router();
-// 25MB: real China-order sheets often carry embedded product photos.
+// 60MB: real China-order sheets carry one embedded product photo PER ROW, so a
+// 300-row order routinely lands between 25 and 50 MB. The parser reads cell
+// VALUES only and never touches xl/media, so the extra size costs upload time
+// rather than parsing work.
 // The parser (SheetJS) carries unpatched prototype-pollution and ReDoS
 // advisories with no npm fix available, so the boundary is kept as narrow as
 // possible: one file, a hard size cap, and an extension/MIME allowlist so
@@ -38,7 +41,7 @@ const SPREADSHEET_MIMES = new Set([
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 60 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
     const name = (file.originalname ?? "").toLowerCase();
     const extOk = /\.(xlsx|xlsm|xls|csv)$/.test(name);
