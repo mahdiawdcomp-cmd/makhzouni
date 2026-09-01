@@ -392,6 +392,10 @@ export function PublicCatalogPage() {
     visitorLoading: visitorQuery.isLoading,
     guestConfig: guestConfigQuery.data ?? null,
     guestConfigLoading: guestConfigQuery.isLoading,
+    // «سجّل دخول» has to lead somewhere even while the shop is open to
+    // everyone — otherwise every route in ends at guest browsing and a
+    // customer holding a code has no door to knock on.
+    wantsLogin: searchParams.get("login") === "1",
   })
 
   const opening = (
@@ -839,7 +843,7 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
             سجّل دخولك برمزك حتى تشوف أسعارك وحسابك وفواتيرك. أو كمّل تصفّح بدون حساب.
           </p>
           <button
-            onClick={() => { localStorage.removeItem(GUEST_PHONE_KEY); window.location.reload() }}
+            onClick={() => { localStorage.removeItem(GUEST_PHONE_KEY); window.location.href = "/catalog?login=1" }}
             className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95"
           >
             سجّل دخول
@@ -1022,6 +1026,15 @@ function CatalogShop({
   // something to walk back out of, so it earns the sign-out and not the name.
   const hasAccount = Boolean(accessToken || visitorToken)
   const isSignedIn = hasAccount || Boolean(localStorage.getItem(GUEST_PHONE_KEY))
+  function goToLogin() {
+    localStorage.removeItem(storageKey)
+    localStorage.removeItem(VISITOR_TOKEN_KEY)
+    localStorage.removeItem(GUEST_PHONE_KEY)
+    localStorage.removeItem(GUEST_NAME_KEY)
+    localStorage.removeItem(GUEST_PROVINCE_KEY)
+    localStorage.removeItem(SIGNUP_PHONE_KEY)
+    window.location.href = "/catalog?login=1"
+  }
   function signOut() {
     localStorage.removeItem(storageKey)
     localStorage.removeItem(VISITOR_TOKEN_KEY)
@@ -2514,7 +2527,7 @@ function CatalogShop({
           guestMode={guestMode}
           guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
           guestProvince={guestProvince} onGuestProvince={setGuestProvince}
-          onSignIn={signOut}
+          onSignIn={goToLogin}
           onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
         />
       )}

@@ -24,6 +24,7 @@ import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
 import { StorefrontPersonPanel } from "./StorefrontPersonPanel"
+import { UnsavedNotice } from "./ui/unsaved-notice"
 
 type Group = "customers" | "visitors"
 
@@ -429,6 +430,7 @@ export function StorefrontAccountsTab() {
                 placeholder={DEFAULT_CREDENTIALS_TEMPLATE}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-400"
               />
+              <UnsavedNotice show={templateDraft !== null} what="نص" />
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -491,6 +493,7 @@ export function StorefrontAccountsTab() {
                 placeholder={DEFAULT_APPROVED_TEMPLATE}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-amber-400"
               />
+              <UnsavedNotice show={approvedDraft !== null} what="نص" />
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => setApprovedDraft("")}>
                   استخدم النص الافتراضي

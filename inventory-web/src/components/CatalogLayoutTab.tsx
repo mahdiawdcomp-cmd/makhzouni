@@ -9,6 +9,7 @@ import { toast } from "./ui/use-toast"
 import { cn } from "../utils/cn"
 import { CATALOG_TEXT_DEFAULTS } from "../utils/catalogLayout"
 import { CatalogAnnouncementCard } from "./StorefrontInviteCard"
+import { UnsavedNotice } from "./ui/unsaved-notice"
 
 /* ══════════════════════════════════════════════════════════════════════
    «ترتيب الواجهة» — the merchant arranging their own storefront.
@@ -656,6 +657,7 @@ function OrderTiersCard() {
           + أضف مرتبة
         </button>
 
+        <UnsavedNotice show={draft !== null} what="مراتب" />
         <Button size="sm" className="w-full"
           disabled={draft === null || saveMut.isPending}
           onClick={() => saveMut.mutate(

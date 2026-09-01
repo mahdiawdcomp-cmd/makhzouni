@@ -84,6 +84,20 @@ describe("who gets which storefront", () => {
     assert.equal(on.screen === "GUEST" && on.allowPrices, true)
   })
 
+  // An open shop swallows every route in, so without this a customer holding
+  // a code has no door to knock on — they are handed guest browsing forever.
+  test("asking for the login reaches it even while the shop is open", () => {
+    assert.equal(entry({ guestConfig: openShop, wantsLogin: true }).screen, "LOGIN")
+  })
+
+  test("asking for the login does not sign out someone already signed in", () => {
+    assert.equal(
+      entry({ visitorToken: "v", visitor: signedInVisitor, guestConfig: openShop, wantsLogin: true }).screen,
+      "VISITOR",
+    )
+    assert.equal(entry({ accessToken: "t", wantsLogin: true }).screen, "CUSTOMER")
+  })
+
   test("a closed shop with no identity shows the login", () => {
     assert.equal(entry().screen, "LOGIN")
   })

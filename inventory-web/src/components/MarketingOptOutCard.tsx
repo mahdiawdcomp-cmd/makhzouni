@@ -12,6 +12,7 @@ import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
+import { UnsavedNotice } from "./ui/unsaved-notice"
 
 /** Mirrors the backend defaults so the shop sees what is in effect. */
 const DEFAULT_STOP_KEYWORDS = ["توقف", "ايقاف", "إيقاف", "الغاء", "إلغاء", "stop", "unsubscribe"]
@@ -104,6 +105,7 @@ export function MarketingOptOutCard() {
               placeholder={DEFAULT_STOP_KEYWORDS.join("، ")}
               className="text-sm"
             />
+            <UnsavedNotice show={wordsDraft !== null} what="كلمات" />
             <Button
               className="w-full"
               disabled={wordsMut.isPending || wordsDraft === null}

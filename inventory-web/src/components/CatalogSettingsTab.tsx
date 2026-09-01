@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
 import { StorefrontInviteCard } from "./StorefrontInviteCard"
+import { UnsavedNotice } from "./ui/unsaved-notice"
 import { MarketingOptOutCard } from "./MarketingOptOutCard"
 import { cn } from "../utils/cn"
 import { IRAQI_GOVERNORATES, DEFAULT_NORTH_GOVERNORATES } from "../utils/governorates"
@@ -391,6 +392,7 @@ export function CatalogSettingsTab() {
                 )
               })}
             </div>
+            <UnsavedNotice show={northDraft !== null} what="تعديلات على الخارطة" />
             <div className="flex justify-end">
               <Button
                 onClick={() => saveMut.mutate({ catalogNorthGovernorates: northValue })}

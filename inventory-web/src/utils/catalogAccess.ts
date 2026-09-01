@@ -59,8 +59,15 @@ export function resolveCatalogEntry(input: {
   visitorLoading: boolean
   guestConfig: GuestConfig | null
   guestConfigLoading: boolean
+  /**
+   * The shopper asked for the login screen. Needed because an open shop
+   * otherwise swallows it whole: every route in leads to guest browsing, so
+   * a customer holding a code had no door to knock on.
+   */
+  wantsLogin?: boolean
 }): CatalogEntry {
   if (input.accessToken) return { screen: "CUSTOMER" }
+  if (input.wantsLogin && !input.visitorToken) return { screen: "LOGIN" }
   if (input.guestConfigLoading) return { screen: "LOADING" }
 
   if (input.visitorToken) {

@@ -5,6 +5,7 @@ import { getSettings, updateSettings } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
 import { toast } from "./ui/use-toast"
+import { UnsavedNotice } from "./ui/unsaved-notice"
 
 /** Mirrors the backend defaults so the shop sees what is actually in effect. */
 const DEFAULT_INVITE_KEYWORDS = ["حسابي", "اريد حسابي", "أريد حسابي", "نعم اريد حسابي", "اريد حساب"]
@@ -168,6 +169,7 @@ export function CatalogAnnouncementCard() {
           className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-amber-500"
         />
 
+        <UnsavedNotice show={draft !== null} what="نص" />
         <Button
           size="sm"
           className="w-full"
