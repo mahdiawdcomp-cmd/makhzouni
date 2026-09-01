@@ -6,7 +6,7 @@ import { AlertTriangle, Camera, Download, ImageDown, Plus, Printer, Receipt, Sca
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { fmt } from "../utils/fmt"
 import { listTabs, upsertTab, removeTab, newTabId, tabDataKey, type DraftTabMeta } from "../utils/draftTabs"
-import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall } from "../api/endpoints"
+import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getLastSoldPrice, getLastSoldPriceOverall, getOrderPreparations, getWalkInCustomer, invoiceImageObjectUrl, sendWhatsAppInvoice, downloadInvoicePdfBlob, updateInvoice, type LastSoldPrice, type LastSoldPriceOverall, getLoyaltyBalance } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
@@ -533,6 +533,17 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   // ---- totals state ----
   const [discount, setDiscount] = useState(0)
+  // «نقاط الولاء» — points to spend on this invoice. Sent with it and deducted
+  // in its own transaction, so a balance cannot be spent twice and a failed
+  // save never leaves points gone with no invoice to show for them. The value
+  // is added to the discount server-side, from the server's own rate.
+  const [redeemPoints, setRedeemPoints] = useState(0)
+  const loyaltyQuery = useQuery({
+    queryKey: ["loyalty-balance", selectedCustomer?.id],
+    queryFn: () => getLoyaltyBalance(selectedCustomer!.id),
+    enabled: Boolean(selectedCustomer?.id) && invoiceType === "SALE" && !isEdit,
+  })
+  const loyalty = loyaltyQuery.data
   const [couponCode, setCouponCode] = useState("")
   const [couponMessage, setCouponMessage] = useState("")
   // True while the current `discount` value came from an applied coupon (not a
@@ -1851,6 +1862,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       // printed and quoted to the customer.
       couponCode: couponApplied && appliedCoupon ? couponCode.trim() || undefined : undefined,
       discount,
+      redeemPoints: invoiceType === "SALE" && !isEdit && redeemPoints > 0 ? redeemPoints : undefined,
       tax: 0,
       paidAmount: effectivePaid,
       paymentType: financials.paymentType,
@@ -2758,6 +2770,34 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                 }}
               />
             </div>
+            {/* «نقاط الولاء» — shown only when this customer actually has some
+                to spend, so it never sits there as a field with nothing behind
+                it. The dinar value comes from the server's rate, not this
+                screen's arithmetic. */}
+            {!isPurchase && !isEdit && (loyalty?.redeemable ?? 0) > 0 && (
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  استبدل نقاط <span className="text-amber-600">({loyalty!.redeemable.toLocaleString("en-US")} متاحة)</span>
+                </label>
+                <div className="mt-0.5 flex gap-1">
+                  <NumericInput
+                    className="h-8 text-sm"
+                    value={redeemPoints}
+                    onFocus={selectAllOnFocus}
+                    onValueChange={(n) => setRedeemPoints(Math.max(0, Math.min(Math.floor(n), loyalty!.redeemable)))}
+                  />
+                  <Button type="button" variant="outline" className="h-8 shrink-0 px-2 text-xs"
+                    onClick={() => setRedeemPoints(loyalty!.redeemable)}>
+                    الكل
+                  </Button>
+                </div>
+                <p className="mt-0.5 text-[11px] text-amber-700 dark:text-amber-400">
+                  {redeemPoints > 0
+                    ? `خصم ${fmt(redeemPoints * loyalty!.pointValue)} — ينضاف للخصم عند الحفظ`
+                    : `النقطة بـ${loyalty!.pointValue} دينار · الرصيد ${fmt(loyalty!.redeemableValue)}`}
+                </p>
+              </div>
+            )}
             {!isPurchase && !isEdit && (
               <div>
                 <label className="text-[11px] font-medium text-slate-500">كوبون</label>

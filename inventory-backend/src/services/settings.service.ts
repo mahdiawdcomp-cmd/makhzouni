@@ -313,6 +313,11 @@ export interface AppSettings {
   // beside «وصلت هسه». Matched against a product's category tags, type tags
   // or its category. Empty = no chips, which is what every shop starts with.
   catalogQuickTags?: string[];
+  // «نقاط الولاء» — what one point is worth in dinars when redeemed, and how
+  // long a point lives. Zero value turns redemption off without touching any
+  // balance; zero days turns expiry off.
+  loyaltyPointValue?: number;
+  loyaltyExpiryDays?: number;
   // Wholesale catalog product-order rotation. "hourly" reshuffles the order for
   // all shoppers every hour, "daily" every day, "off" keeps the fixed
   // category/name order. Defaults to "hourly".
@@ -493,6 +498,8 @@ export const defaultSettings: AppSettings = {
   catalogHideNoImage: false,
   catalogNewArrivalDays: 10,
   catalogQuickTags: [],
+  loyaltyPointValue: 5,
+  loyaltyExpiryDays: 365,
   catalogShuffleMode: "hourly",
   catalogNorthGovernorates: [...DEFAULT_NORTH_GOVERNORATES],
   catalogFreeShippingThreshold: DEFAULT_FREE_SHIPPING_THRESHOLD,

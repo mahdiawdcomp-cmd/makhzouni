@@ -103,6 +103,13 @@ export interface CreateInvoiceInput {
   paymentType?: PaymentType;
   branchId?: string;
   notes?: string;
+  /**
+   * «نقاط الولاء» — points to spend on this invoice, as a discount. Deducted
+   * inside this invoice's own transaction, so a balance cannot be spent twice
+   * and a failed save cannot leave points gone with no invoice to show for it.
+   * SALE invoices only.
+   */
+  redeemPoints?: number;
   items: InvoiceItemInput[];
 }
 
@@ -1150,13 +1157,38 @@ async function createInvoiceInTransaction(
     });
   }
 
+  // Points become discount before the coupon is added, and are refused rather
+  // than silently trimmed if they would exceed what the invoice is worth —
+  // quietly burning a customer's points against nothing is worse than saying
+  // no.
+  let redeemed = { points: 0, value: 0 };
+  const wantsRedeem = Math.floor(Number(input.redeemPoints) || 0);
+  if (wantsRedeem > 0 && !existingInvoiceId) {
+    if (invoiceType !== InvoiceType.SALE) {
+      throw new AppError("النقاط تنصرف بفواتير البيع فقط", 400, "REDEEM_SALE_ONLY");
+    }
+    const { redeemPointsInTransaction } = await import("./loyalty.service");
+    redeemed = await redeemPointsInTransaction(
+      tx, { customerId: input.customerId, points: wantsRedeem, invoiceId: invoice.id }, createdBy,
+    );
+    if (redeemed.value > subtotal) {
+      throw new AppError(
+        `قيمة النقاط ${redeemed.value} أكبر من قيمة الفاتورة ${subtotal} — قلّل النقاط`,
+        400,
+        "REDEEM_EXCEEDS_INVOICE",
+      );
+    }
+  }
+
   const coupon = await couponDiscount(tx, input.couponCode, subtotal);
   // Both discounts apply. A coupon used to REPLACE the invoice discount, which
   // silently threw away whatever else the order had earned — a catalog order
   // that reached a free-delivery/percentage tier and also carried a promo code
   // arrived with only the coupon on it, while the shopper had been shown both.
   // Clamped to the subtotal so the pair can never drive a total negative.
-  const discount = roundMoney(Math.min(subtotal, Math.max(0, coupon.discount + manualDiscount)));
+  const discount = roundMoney(
+    Math.min(subtotal, Math.max(0, coupon.discount + manualDiscount + redeemed.value)),
+  );
   const financials = calculateInvoiceFinancials({
     type: invoiceType,
     subtotal,
@@ -1886,6 +1918,12 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
         data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
       });
     }
+    // And the other direction: a cancelled invoice charges the customer
+    // nothing, so it must not cost them the points it spent either.
+    {
+      const { revertRedemptionsForInvoice } = await import("./loyalty.service");
+      await revertRedemptionsForInvoice(tx, id);
+    }
 
     const cancelled = await tx.invoice.update({
       where: { id },
@@ -2044,6 +2082,13 @@ async function hardDeleteInvoiceInTransaction(
           where: { id: invoice.customerId },
           data: { loyaltyPoints: { decrement: invoice.loyaltyPointsEarned } },
         });
+      }
+      // Same guard: an already-cancelled invoice gave its spent points back
+      // already, and revertRedemptionsForInvoice only touches rows that have
+      // not been reverted, so this cannot hand them out twice.
+      {
+        const { revertRedemptionsForInvoice } = await import("./loyalty.service");
+        await revertRedemptionsForInvoice(tx, id);
       }
       await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.CANCELLED } });
     }

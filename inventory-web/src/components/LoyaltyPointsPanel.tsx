@@ -1,11 +1,13 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, Search, Sparkles, X } from "lucide-react"
-import { getLoyaltyPointsReport } from "../api/endpoints"
+import { getLoyaltyPointsReport, getSettings, updateSettings } from "../api/endpoints"
 import { Input } from "./ui/input"
 import { Button } from "./ui/button"
 import { CustomerProfitAudit } from "./CustomerProfitAudit"
 import { apiErrorMessage } from "../utils/apiError"
+import { toast } from "./ui/use-toast"
+import { UnsavedNotice } from "./ui/unsaved-notice"
 import { cn } from "../utils/cn"
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -18,8 +20,28 @@ import { cn } from "../utils/cn"
 ══════════════════════════════════════════════════════════════════════ */
 
 export function LoyaltyPointsPanel({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient()
   const [search, setSearch] = useState("")
   const [auditing, setAuditing] = useState<string | null>(null)
+  const [valueDraft, setValueDraft] = useState<string | null>(null)
+  const [daysDraft, setDaysDraft] = useState<string | null>(null)
+
+  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
+  const pointValue = valueDraft ?? String(settingsQuery.data?.loyaltyPointValue ?? 5)
+  const expiryDays = daysDraft ?? String(settingsQuery.data?.loyaltyExpiryDays ?? 365)
+  const saveMut = useMutation({
+    mutationFn: () => updateSettings({
+      loyaltyPointValue: Math.max(0, Number(pointValue) || 0),
+      loyaltyExpiryDays: Math.max(0, Math.round(Number(expiryDays) || 0)),
+    }),
+    onSuccess: () => {
+      toast({ title: "انحفظت إعدادات النقاط" })
+      setValueDraft(null); setDaysDraft(null)
+      void qc.invalidateQueries({ queryKey: ["settings"] })
+      void qc.invalidateQueries({ queryKey: ["loyalty-balance"] })
+    },
+    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
+  })
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["loyalty-points-report"],
@@ -61,6 +83,30 @@ export function LoyaltyPointsPanel({ onClose }: { onClose: () => void }) {
               <Tile label="زبائن عندهم نقاط" value={String(data.customers.length)} />
               <Tile label="مجموع النقاط" value={data.totalPoints.toLocaleString("en-US")} />
               <Tile label="نقاطهم مشكوك بيها" value={String(suspect)} tone={suspect > 0 ? "amber" : "slate"} />
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+              <p className="mb-2 text-xs font-bold text-slate-700 dark:text-slate-200">إعدادات النقاط</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-semibold text-slate-500">قيمة النقطة (دينار)</span>
+                  <Input type="number" min={0} value={pointValue} dir="ltr" className="h-9 w-28 text-sm"
+                    onChange={(e) => setValueDraft(e.target.value)} />
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-semibold text-slate-500">تنتهي بعد (يوم)</span>
+                  <Input type="number" min={0} value={expiryDays} dir="ltr" className="h-9 w-28 text-sm"
+                    onChange={(e) => setDaysDraft(e.target.value)} />
+                </label>
+                <Button size="sm" disabled={saveMut.isPending || (valueDraft === null && daysDraft === null)}
+                  onClick={() => saveMut.mutate()}>
+                  {saveMut.isPending ? "جاري الحفظ..." : (valueDraft === null && daysDraft === null) ? "محفوظ" : "احفظ"}
+                </Button>
+              </div>
+              <UnsavedNotice show={valueDraft !== null || daysDraft !== null} what="إعدادات" />
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                صفر بقيمة النقطة يطفي الاستبدال بلا ما يمس أي رصيد. صفر بالأيام يعني ما تنتهي.
+              </p>
             </div>
 
             <div className="relative mt-4">

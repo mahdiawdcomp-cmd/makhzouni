@@ -197,6 +197,15 @@ const tx: any = {
   },
 
   couponRedemption: { deleteMany: async () => ({ count: 0 }), create: async () => ({}) },
+  // Loyalty redemptions: this journey never spends points, so the table is
+  // empty — but cancelling an invoice asks it, and a fake that cannot answer
+  // is a fake that lies about what the real code path does.
+  loyaltyRedemption: {
+    findMany: async () => [],
+    create: async () => ({}),
+    update: async () => ({}),
+    aggregate: async () => ({ _sum: { points: 0 } }),
+  },
   pendingApproval: { create: async () => ({}) },
 
   // invoice.service notifies admins on create/edit (createAppNotification/notifyAdmin,

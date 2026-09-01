@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowRight, Copy, FileText, Link2, MessageCircle, Pencil, Send, TrendingUp, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { CustomerProfitAudit } from "../components/CustomerProfitAudit"
+import { LoyaltyBalanceCard } from "../components/LoyaltyBalanceCard"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
@@ -384,6 +385,8 @@ export function CustomerDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {customer && <LoyaltyBalanceCard customerId={customer.id} />}
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
 

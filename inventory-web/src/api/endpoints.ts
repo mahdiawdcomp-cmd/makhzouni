@@ -3754,3 +3754,39 @@ export async function getLoyaltyPointsReport() {
   )
   return data.data!
 }
+
+/* ── «نقاط الولاء» — spending them ─────────────────────────────────── */
+
+export interface LoyaltyBalance {
+  lifetime: number
+  /** What can actually be spent today, after expiry and past redemptions. */
+  redeemable: number
+  expired: number
+  redeemedTotal: number
+  excluded: boolean
+  pointValue: number
+  expiryDays: number
+  redeemableValue: number
+  redemptions: Array<{
+    id: string
+    points: number
+    value: number
+    pointValue: number
+    invoiceId: string | null
+    note: string | null
+    createdAt: string
+    revertedAt: string | null
+  }>
+}
+
+export async function getLoyaltyBalance(customerId: string) {
+  const { data } = await api.get<ApiEnvelope<LoyaltyBalance>>(`/reports/loyalty-points/${customerId}`)
+  return data.data!
+}
+
+export async function setLoyaltyExclusion(customerId: string, payload: { excluded: boolean; clearPoints?: boolean }) {
+  const { data } = await api.post<ApiEnvelope<{ excluded: boolean; clearedPoints: number }>>(
+    `/reports/loyalty-points/${customerId}/exclude`, payload,
+  )
+  return data.data!
+}

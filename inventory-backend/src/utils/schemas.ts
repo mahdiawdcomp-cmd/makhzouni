@@ -822,6 +822,10 @@ export const createInvoiceSchema = z.object({
     couponCode: z.string().trim().max(60).optional(),
     clientRequestId: z.string().min(8).max(100).optional(),
     discount: z.coerce.number().nonnegative().default(0),
+    // «نقاط الولاء». validate() REPLACES req.body with the parsed result, so a
+    // field missing here never reaches the service at all — the redemption
+    // silently did nothing until this line existed.
+    redeemPoints: z.coerce.number().int().nonnegative().optional(),
     tax: z.coerce.number().nonnegative().default(0),
     paidAmount: z.coerce.number().nonnegative().default(0),
     paymentType: z.enum(["CASH", "CREDIT", "PARTIAL"]).optional(),
@@ -1131,6 +1135,8 @@ export const updateSettingsSchema = z.object({
       catalogHideNoImage: z.boolean().optional(),
       catalogNewArrivalDays: z.coerce.number().int().min(0).max(365).optional(),
       catalogQuickTags: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+      loyaltyPointValue: z.coerce.number().min(0).max(1000).optional(),
+      loyaltyExpiryDays: z.coerce.number().int().min(0).max(3650).optional(),
       labelPieceWidthMm: z.coerce.number().min(10).max(300).optional(),
       labelPieceHeightMm: z.coerce.number().min(10).max(300).optional(),
       labelCartonWidthMm: z.coerce.number().min(10).max(300).optional(),
@@ -1696,5 +1702,13 @@ export const costFixScopePreviewSchema = z.object({
   query: z.object({
     productId: z.string().uuid(),
     customerId: z.string().uuid().optional(),
+  }),
+});
+
+export const loyaltyExclusionSchema = z.object({
+  params: uuidParam,
+  body: z.object({
+    excluded: z.boolean().optional(),
+    clearPoints: z.boolean().optional(),
   }),
 });

@@ -278,3 +278,21 @@ export const loyaltyPointsReport = asyncHandler(async (_req, res) => {
   const { getLoyaltyPointsReport } = await import("../services/report.service");
   res.json({ success: true, data: await getLoyaltyPointsReport() });
 });
+
+/* ── «نقاط الولاء» — spending them ─────────────────────────────────── */
+
+export const loyaltyBalance = asyncHandler(async (req, res) => {
+  const { loyaltyBalanceFor, listRedemptions } = await import("../services/loyalty.service");
+  const id = String(req.params.id);
+  const [balance, redemptions] = await Promise.all([loyaltyBalanceFor(id), listRedemptions(id)]);
+  res.json({ success: true, data: { ...balance, redemptions } });
+});
+
+export const setLoyaltyExclusion = asyncHandler(async (req, res) => {
+  const { setLoyaltyExcluded } = await import("../services/loyalty.service");
+  const body = (req.body ?? {}) as { excluded?: boolean; clearPoints?: boolean };
+  const data = await setLoyaltyExcluded(
+    String(req.params.id), body.excluded !== false, body.clearPoints === true, req.user!.id,
+  );
+  res.json({ success: true, data });
+});

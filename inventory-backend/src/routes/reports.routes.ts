@@ -19,6 +19,8 @@ import {
   customerProfitAudit,
   costFixScopePreview,
   loyaltyPointsReport,
+  loyaltyBalance,
+  setLoyaltyExclusion,
   fixInvoiceLineCost,
   warehouseComparisonReport,
   crossSellReport,
@@ -39,6 +41,8 @@ import {
   profitReportSchema,
   customerProfitAuditSchema,
   costFixScopePreviewSchema,
+  loyaltyExclusionSchema,
+  idParamSchema,
   fixInvoiceLineCostSchema,
   warehouseComparisonReportSchema,
   crossSellReportSchema,
@@ -76,6 +80,10 @@ router.get("/profit", requireProfitReports(), validate(profitReportSchema), prof
 router.get("/customer-profit-audit", requireProfitReports(), validate(customerProfitAuditSchema), customerProfitAudit);
 // Points are the profit figure in another currency, so this is gated with it.
 router.get("/loyalty-points", requireProfitReports(), loyaltyPointsReport);
+router.get("/loyalty-points/:id", requireProfitReports(), validate(idParamSchema), loyaltyBalance);
+// Excluding an account (and clearing what it holds) is a write on customer
+// data, so it needs customer rights on top of the profit gate.
+router.post("/loyalty-points/:id/exclude", requireProfitReports(), requirePermission("MANAGE_CUSTOMERS"), validate(loyaltyExclusionSchema), setLoyaltyExclusion);
 router.get("/customer-profit-audit/fix-scope", requireProfitReports(), validate(costFixScopePreviewSchema), costFixScopePreview);
 router.post("/customer-profit-audit/fix", requireProfitReports(), requirePermission("MANAGE_PRODUCTS"), validate(fixInvoiceLineCostSchema), fixInvoiceLineCost);
 router.get("/warehouse-comparison", requireProfitReports(), validate(warehouseComparisonReportSchema), warehouseComparisonReport);

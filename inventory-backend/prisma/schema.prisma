@@ -562,6 +562,11 @@ model Customer {
   // per-invoice snapshot this running total is built from. No redemption engine
   // yet — the owner decides/announces discounts manually using this number.
   loyaltyPoints        Int                          @default(0) @map("loyalty_points")
+  /// Excluded from loyalty entirely — earns nothing and cannot redeem. For
+  /// collection accounts like «الزبون النقدي», which are a till and not a
+  /// person: points piling up there reward nobody and inflate the liability.
+  loyaltyExcluded      Boolean                      @default(false) @map("loyalty_excluded")
+  loyaltyRedemptions   LoyaltyRedemption[]
   // ── Storefront login ────────────────────────────────────────────────
   // The customer signs in with their phone plus a 6-digit code. Only the
   // bcrypt hash is stored, exactly like staff passwords — so a code can be
@@ -2246,4 +2251,34 @@ model InstagramHashtagGroup {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("instagram_hashtag_groups")
+}
+
+/// One redemption of loyalty points for invoice discount.
+///
+/// Points are deducted the moment this row is written, inside the same
+/// transaction as the invoice that consumes them — so a balance can never be
+/// spent twice, and an invoice can never carry a discount nobody paid for.
+model LoyaltyRedemption {
+  id         String   @id @default(uuid()) @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  customer   Customer @relation(fields: [customerId], references: [id])
+  /// Points taken off the customer's balance.
+  points     Int
+  /// What they were worth in dinars at the rate on the day — frozen, because
+  /// the rate is a setting and changing it must not rewrite history.
+  value      Decimal  @db.Decimal(12, 2)
+  /// The rate used, kept so an old redemption can always be explained.
+  pointValue Decimal  @map("point_value") @db.Decimal(12, 4)
+  /// The invoice this discounted. Deliberately not a relation with a cascade:
+  /// deleting an invoice must not silently erase the record of points spent.
+  invoiceId  String?  @map("invoice_id") @db.Uuid
+  note       String?
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+  /// Set when the invoice was cancelled and the points were handed back.
+  revertedAt DateTime? @map("reverted_at")
+
+  @@index([customerId, createdAt])
+  @@index([invoiceId])
+  @@map("loyalty_redemptions")
 }

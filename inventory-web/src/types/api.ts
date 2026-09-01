@@ -962,6 +962,8 @@ export interface CreateInvoicePayload {
   originalInvoiceId?: string
   couponCode?: string
   discount: number
+  /** «نقاط الولاء» — points to spend on this invoice, deducted with it. */
+  redeemPoints?: number
   tax: number
   paidAmount: number
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
@@ -1230,6 +1232,8 @@ export interface AppSettings {
   catalogHideNoImage?: boolean
   catalogNewArrivalDays?: number
   catalogQuickTags?: string[]
+  loyaltyPointValue?: number
+  loyaltyExpiryDays?: number
   /** Storefront login: close anonymous browsing entirely. */
   catalogRequireLogin?: boolean
   /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */
