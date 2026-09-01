@@ -121,6 +121,7 @@ export function CustomerProfitAudit({ customerId, onClose }: { customerId: strin
               title={`ربح أعلى من ${data.minMarginPercent}%`}
               icon={<TrendingUp className="h-4 w-4 text-amber-600" />}
               empty="ما اكو مادة فوق هذي النسبة."
+              note="كلفتها مسجّلة وصحيحة — هذي للاطلاع بس، حتى تشوف وين ربحك عالي. ما تحتاج تصليح."
               groups={data.highMargin}
               tone="amber"
               onFix={setFixing}
@@ -206,9 +207,15 @@ function Section({ title, icon, empty, note, groups, tone, onFix }: {
                   {g.costPerPiece > 0 ? `${iqd(g.costPerPiece)} / قطعة` : "بلا كلفة"}
                 </p>
               </div>
-              <Button size="sm" variant="outline" className="shrink-0" onClick={() => onFix(g)}>
-                صلّح سعر الشراء
-              </Button>
+              {g.costSource === "RECORDED" ? (
+                <span className="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                  الكلفة مسجّلة ✓
+                </span>
+              ) : (
+                <Button size="sm" variant="outline" className="shrink-0" onClick={() => onFix(g)}>
+                  صلّح سعر الشراء
+                </Button>
+              )}
             </div>
 
             <details className="mt-2">
@@ -271,7 +278,13 @@ function FixCostDialog({ group, customerId, onClose, onDone }: {
     onSuccess: (r) => {
       toast({
         title: "انصلح سعر الشراء",
-        description: `${r.linesUpdated} سطر${r.productUpdated ? " · وانحدّثت بطاقة المادة" : ""}`,
+        description: [
+          `${r.linesUpdated} سطر بـ${r.invoicesAffected} فاتورة`,
+          // Points fall when a cost is filled in — the profit they were counted
+          // against was overstated. Saying so beats the merchant noticing later.
+          r.pointsDelta !== 0 ? `النقاط ${r.pointsBefore} ← ${r.pointsAfter}` : null,
+          r.productUpdated ? "وانحدّثت بطاقة المادة" : null,
+        ].filter(Boolean).join(" · "),
       })
       onDone()
     },
@@ -339,8 +352,8 @@ function FixCostDialog({ group, customerId, onClose, onDone }: {
         </label>
 
         <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-          يملأ الأسطر الفارغة بس — أي سطر عنده سعر شراء مسجّل ما ينلمس.
-          الفواتير الملغاة ما تدخل. النقاط والفواتير والأرصدة ما تتغير، الي يتغير هو حساب ربحك.
+          يملأ الأسطر الفارغة بس — أي سطر عنده سعر شراء مسجّل ما ينلمس، والفواتير الملغاة ما تدخل.
+          الفواتير والأرصدة ما تتغير. <b>نقاط الولاء تنزل</b> — لأنها انحسبت على ربح كان أعلى من الحقيقة.
         </p>
 
         <div className="mt-4 flex gap-2">

@@ -8,7 +8,8 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table"
-import { Eye, Plus, Receipt, Trash2, Undo2 } from "lucide-react"
+import { Eye, Plus, Receipt, Sparkles, Trash2, Undo2 } from "lucide-react"
+import { LoyaltyPointsPanel } from "../components/LoyaltyPointsPanel"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCustomers } from "../hooks/useCustomers"
 import { getDeletedCustomers, restoreCustomer } from "../api/endpoints"
@@ -57,6 +58,7 @@ export function CustomersPage() {
   const [closeConfirm, setCloseConfirm] = useState(false)
   const [form, setForm] = useState<CustomerPayload>(emptyCustomer)
   const [trashOpen, setTrashOpen] = useState(false)
+  const [pointsOpen, setPointsOpen] = useState(false)
   const qc = useQueryClient()
   const deletedQuery = useQuery({ queryKey: ["customers-deleted"], queryFn: getDeletedCustomers, enabled: trashOpen })
   const restoreMutation = useMutation({
@@ -176,6 +178,9 @@ export function CustomersPage() {
           <p className="text-slate-500">كشف الحساب والأرصدة والسندات.</p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setPointsOpen(true)}>
+            <Sparkles className="h-4 w-4 text-amber-500" /> نقاط الولاء
+          </Button>
           <Button variant="outline" onClick={() => setTrashOpen(true)}>
             <Trash2 className="h-4 w-4" /> الزبائن المحذوفون
           </Button>
@@ -352,6 +357,8 @@ export function CustomersPage() {
         onConfirm={() => { setCloseConfirm(false); setForm(emptyCustomer); setOpen(false) }}
         onCancel={() => setCloseConfirm(false)}
       />
+
+      {pointsOpen && <LoyaltyPointsPanel onClose={() => setPointsOpen(false)} />}
 
       <ModalForm open={trashOpen} onOpenChange={setTrashOpen} title="الزبائن المحذوفون">
         <div className="space-y-2">

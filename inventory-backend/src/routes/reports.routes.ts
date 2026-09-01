@@ -18,6 +18,7 @@ import {
   profitReport,
   customerProfitAudit,
   costFixScopePreview,
+  loyaltyPointsReport,
   fixInvoiceLineCost,
   warehouseComparisonReport,
   crossSellReport,
@@ -73,6 +74,8 @@ router.get("/profit", requireProfitReports(), validate(profitReportSchema), prof
 // The fix WRITES a recorded cost onto historical invoice lines, which is a
 // product-data change on top of a profit read — hence both guards.
 router.get("/customer-profit-audit", requireProfitReports(), validate(customerProfitAuditSchema), customerProfitAudit);
+// Points are the profit figure in another currency, so this is gated with it.
+router.get("/loyalty-points", requireProfitReports(), loyaltyPointsReport);
 router.get("/customer-profit-audit/fix-scope", requireProfitReports(), validate(costFixScopePreviewSchema), costFixScopePreview);
 router.post("/customer-profit-audit/fix", requireProfitReports(), requirePermission("MANAGE_PRODUCTS"), validate(fixInvoiceLineCostSchema), fixInvoiceLineCost);
 router.get("/warehouse-comparison", requireProfitReports(), validate(warehouseComparisonReportSchema), warehouseComparisonReport);

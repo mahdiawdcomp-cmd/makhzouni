@@ -3719,9 +3719,14 @@ export async function fixInvoiceLineCost(payload: {
   customerId?: string
   updateProduct?: boolean
 }) {
-  const { data } = await api.post<ApiEnvelope<{ linesUpdated: number; productUpdated: boolean }>>(
-    "/reports/customer-profit-audit/fix", payload,
-  )
+  const { data } = await api.post<ApiEnvelope<{
+    linesUpdated: number
+    productUpdated: boolean
+    invoicesAffected: number
+    pointsBefore: number
+    pointsAfter: number
+    pointsDelta: number
+  }>>("/reports/customer-profit-audit/fix", payload)
   return data.data!
 }
 
@@ -3729,6 +3734,23 @@ export async function fixInvoiceLineCost(payload: {
 export async function getCostFixScope(params: { productId: string; customerId?: string }) {
   const { data } = await api.get<ApiEnvelope<{ thisCustomer: number; everywhere: number }>>(
     "/reports/customer-profit-audit/fix-scope", { params },
+  )
+  return data.data!
+}
+
+export interface LoyaltyPointsRow {
+  id: string
+  name: string
+  phone: string
+  loyaltyPoints: number
+  balance: number
+  /** Live sale lines with no cost recorded — the reason to distrust the points. */
+  zeroCostLines: number
+}
+
+export async function getLoyaltyPointsReport() {
+  const { data } = await api.get<ApiEnvelope<{ totalPoints: number; customers: LoyaltyPointsRow[] }>>(
+    "/reports/loyalty-points",
   )
   return data.data!
 }

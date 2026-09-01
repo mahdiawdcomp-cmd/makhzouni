@@ -272,3 +272,9 @@ export const costFixScopePreview = asyncHandler(async (req, res) => {
   const q = req.validatedQuery as { productId: string; customerId?: string };
   res.json({ success: true, data: await previewCostFixScope(q.productId, q.customerId) });
 });
+
+/** «نقاط الولاء» — who holds points, and how measured the profit behind them is. */
+export const loyaltyPointsReport = asyncHandler(async (_req, res) => {
+  const { getLoyaltyPointsReport } = await import("../services/report.service");
+  res.json({ success: true, data: await getLoyaltyPointsReport() });
+});

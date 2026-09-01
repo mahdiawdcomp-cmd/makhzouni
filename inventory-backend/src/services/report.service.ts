@@ -1,7 +1,7 @@
 import { InvoiceStatus, InvoiceType, Prisma, Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
-import { amountInPieces, roundMoney } from "../utils/financial";
+import { amountInPieces, calculateLoyaltyPoints, roundMoney } from "../utils/financial";
 import { totalStock } from "../utils/product-stock";
 import { assistantTimezone, dayKeyInTz, zonedDayRange } from "./daily-assistant.service";
 
@@ -2144,6 +2144,72 @@ export interface FixCostInput {
  * that cancel/delete subtracts back off verbatim — recomputing it here would
  * break that reversal and leave balances that can never be unwound.
  */
+/**
+ * Re-freeze an invoice's loyalty points after its costs were corrected.
+ *
+ * Points are 10 per 1,000 IQD of PROFIT, and a line with no cost contributed
+ * nothing to that profit — so filling the cost in does not change the points
+ * by itself. It changes them once the OTHER lines' profit is recomputed with
+ * the same rule, which is what this does.
+ *
+ * The direction is downward, always: giving a sale a real cost can only lower
+ * its profit, so points come off. That is the number being made honest, not a
+ * penalty.
+ *
+ * Invoice.loyaltyPointsEarned is the frozen figure that cancel and delete
+ * subtract back off verbatim. Updating the customer's balance without
+ * re-freezing it here would leave a reversal that can never balance — so both
+ * move together, inside one transaction, or neither does.
+ */
+async function refreezeInvoicePoints(
+  tx: Prisma.TransactionClient,
+  invoiceId: string,
+): Promise<{ before: number; after: number }> {
+  const invoice = await tx.invoice.findUnique({
+    where: { id: invoiceId },
+    select: {
+      id: true, customerId: true, type: true, status: true,
+      discount: true, loyaltyPointsEarned: true,
+      items: {
+        select: {
+          unit: true, quantity: true, costPrice: true, totalPrice: true,
+          product: { select: { pcsPerCarton: true, boxPieces: true } },
+        },
+      },
+    },
+  });
+  // Only an active sale ever held points. A cancelled one already gave them
+  // back, and re-freezing it would hand them out a second time.
+  if (!invoice || invoice.type !== InvoiceType.SALE || invoice.status !== InvoiceStatus.ACTIVE) {
+    return { before: 0, after: 0 };
+  }
+
+  // Exactly the sum createInvoiceInTransaction builds: lines with a KNOWN cost
+  // only, then the invoice discount taken off before the points are computed.
+  let profit = 0;
+  for (const it of invoice.items) {
+    const cost = toNumber(it.costPrice);
+    if (cost <= 0) continue;
+    const pieces = amountInPieces(
+      it.unit, it.quantity, it.product?.pcsPerCarton ?? 1, it.product?.boxPieces ?? null,
+    );
+    if (pieces <= 0) continue;
+    profit = roundMoney(profit + (toNumber(it.totalPrice) - roundMoney(cost * pieces)));
+  }
+  const after = calculateLoyaltyPoints(Math.max(0, roundMoney(profit - toNumber(invoice.discount))));
+  const before = invoice.loyaltyPointsEarned;
+  if (after === before) return { before, after };
+
+  await tx.invoice.update({ where: { id: invoice.id }, data: { loyaltyPointsEarned: after } });
+  await tx.customer.update({
+    where: { id: invoice.customerId },
+    // The delta, so the customer's running balance moves by exactly what this
+    // invoice's frozen figure moved by.
+    data: { loyaltyPoints: { increment: after - before } },
+  });
+  return { before, after };
+}
+
 export async function fixInvoiceLineCost(input: FixCostInput, userId: string) {
   const costPerPiece = Number(input.costPerPiece);
   if (!Number.isFinite(costPerPiece) || costPerPiece <= 0) {
@@ -2178,14 +2244,35 @@ export async function fixInvoiceLineCost(input: FixCostInput, userId: string) {
     where.invoice = { ...invoiceWhere, customerId: input.customerId };
   }
 
-  const updated = await prisma.invoiceItem.updateMany({ where, data: { costPrice: costPerPiece } });
+  // Which invoices are about to change, captured BEFORE the write so their
+  // points can be recomputed after it.
+  const affected = await prisma.invoiceItem.findMany({
+    where, select: { invoiceId: true },
+  });
+  const invoiceIds = [...new Set(affected.map((a) => a.invoiceId))];
 
-  if (input.updateProduct) {
-    await prisma.product.update({
-      where: { id: input.productId },
-      data: { costPrice: costPerPiece, purchasePrice: costPerPiece },
-    });
-  }
+  const { updated, pointsBefore, pointsAfter } = await prisma.$transaction(async (tx) => {
+    const updated = await tx.invoiceItem.updateMany({ where, data: { costPrice: costPerPiece } });
+
+    if (input.updateProduct) {
+      await tx.product.update({
+        where: { id: input.productId },
+        data: { costPrice: costPerPiece, purchasePrice: costPerPiece },
+      });
+    }
+
+    // Points are the profit figure in another currency, so a corrected cost
+    // has to move them too — otherwise the customer keeps points he earned on
+    // a profit that never existed.
+    let pointsBefore = 0;
+    let pointsAfter = 0;
+    for (const invoiceId of invoiceIds) {
+      const r = await refreezeInvoicePoints(tx, invoiceId);
+      pointsBefore += r.before;
+      pointsAfter += r.after;
+    }
+    return { updated, pointsBefore, pointsAfter };
+  }, { maxWait: 10_000, timeout: 60_000 });
 
   await prisma.auditLog.create({
     data: {
@@ -2201,11 +2288,21 @@ export async function fixInvoiceLineCost(input: FixCostInput, userId: string) {
         customerId: input.customerId ?? null,
         invoiceItemId: input.invoiceItemId ?? null,
         productUpdated: Boolean(input.updateProduct),
+        invoicesAffected: invoiceIds.length,
+        pointsBefore,
+        pointsAfter,
       } as Prisma.InputJsonValue,
     },
   });
 
-  return { linesUpdated: updated.count, productUpdated: Boolean(input.updateProduct) };
+  return {
+    linesUpdated: updated.count,
+    productUpdated: Boolean(input.updateProduct),
+    invoicesAffected: invoiceIds.length,
+    pointsBefore,
+    pointsAfter,
+    pointsDelta: pointsAfter - pointsBefore,
+  };
 }
 
 /**
@@ -2229,4 +2326,61 @@ export async function previewCostFixScope(productId: string, customerId?: string
     prisma.invoiceItem.count({ where: { productId, costPrice: 0, invoice: invoiceWhere } }),
   ]);
   return { thisCustomer, everywhere };
+}
+
+/**
+ * «نقاط الولاء» — every customer holding points, and how trustworthy the
+ * profit behind them is.
+ *
+ * Points are 10 per 1,000 IQD of profit, so a customer whose sales carry no
+ * recorded cost is holding points computed against a profit nobody measured.
+ * The zero-cost line count next to each balance is what says which ones are
+ * worth going into.
+ */
+export async function getLoyaltyPointsReport() {
+  const customers = await prisma.customer.findMany({
+    where: { deletedAt: null, loyaltyPoints: { gt: 0 } },
+    select: { id: true, name: true, phone: true, loyaltyPoints: true, currentBalance: true },
+    orderBy: { loyaltyPoints: "desc" },
+    take: 500,
+  });
+  if (customers.length === 0) return { customers: [], totalPoints: 0 };
+
+  const ids = customers.map((c) => c.id);
+  // One grouped query for every customer on the page, rather than one each.
+  const zeroCost = await prisma.invoiceItem.groupBy({
+    by: ["invoiceId"],
+    where: {
+      costPrice: 0,
+      invoice: { customerId: { in: ids }, status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE },
+    },
+    _count: { invoiceId: true },
+  });
+  const invoiceIds = zeroCost.map((z) => z.invoiceId);
+  const invoiceOwners = invoiceIds.length
+    ? await prisma.invoice.findMany({
+        where: { id: { in: invoiceIds } },
+        select: { id: true, customerId: true },
+      })
+    : [];
+  const ownerOf = new Map(invoiceOwners.map((i) => [i.id, i.customerId]));
+  const zeroByCustomer = new Map<string, number>();
+  for (const z of zeroCost) {
+    const owner = ownerOf.get(z.invoiceId);
+    if (!owner) continue;
+    zeroByCustomer.set(owner, (zeroByCustomer.get(owner) ?? 0) + z._count.invoiceId);
+  }
+
+  return {
+    totalPoints: customers.reduce((sum, c) => sum + c.loyaltyPoints, 0),
+    customers: customers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      loyaltyPoints: c.loyaltyPoints,
+      balance: toNumber(c.currentBalance),
+      /** Live sale lines of this customer with no cost recorded at sale time. */
+      zeroCostLines: zeroByCustomer.get(c.id) ?? 0,
+    })),
+  };
 }
