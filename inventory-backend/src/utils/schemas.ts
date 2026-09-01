@@ -222,6 +222,8 @@ export const createGuestCatalogOrderSchema = z.object({
     customerName: z.string().trim().min(2).max(120),
     phone: z.string().trim().min(5).max(40),
     address: z.string().trim().max(240).optional(),
+    // Where to deliver, and what the free-delivery promise is worth to them.
+    province: z.string().trim().max(60).optional(),
     notes: z.string().trim().max(500).optional(),
     items: z.array(catalogOrderItemSchema).min(1).max(200),
     // Present when a signed-in visitor is ordering; absent for a true guest.

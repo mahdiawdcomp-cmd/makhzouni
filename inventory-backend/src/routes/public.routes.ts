@@ -315,6 +315,17 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
       ...buildCatalogLayout(await getSettings()),
       guestModeEnabled,
       guestPhoneGate: (await getSettings()).catalogGuestPhoneGate !== false,
+      // What the delivery sentence is built from. A signed-in customer gets
+      // the finished sentence with their session; a guest picks their
+      // governorate at checkout, so the storefront needs the same two inputs
+      // to say the same thing rather than promising nothing.
+      delivery: await (async () => {
+        const st = await getSettings();
+        return {
+          northGovernorates: st.catalogNorthGovernorates ?? [],
+          freeShippingThreshold: st.catalogFreeShippingThreshold ?? 0,
+        };
+      })(),
     },
   });
 }));

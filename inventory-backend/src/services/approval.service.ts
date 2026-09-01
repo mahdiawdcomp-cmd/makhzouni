@@ -617,6 +617,7 @@ async function executeApprovedRequest(
         customerName?: string;
         phone?: string;
         address?: string;
+        province?: string;
         notes?: string;
         warehouseId?: string;
         items?: Parameters<typeof createInvoice>[0]["items"];
@@ -674,6 +675,7 @@ async function executeApprovedRequest(
             customerName,
             phone,
             address: body.address,
+            province: body.province,
             warehouseId: body.warehouseId,
             items: body.items,
             // The order's earned tier discount, computed from server-side

@@ -1244,6 +1244,7 @@ export type GuestCatalogOrderInput = {
   customerName: string;
   phone: string;
   address?: string;
+  province?: string;
   notes?: string;
   items: Array<{ productId: string; unit: Unit; quantity: number; isSample?: boolean }>;
 };
@@ -1258,6 +1259,17 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
   const phone = normalizePhone(input.phone);
   if (!customerName || !phone) {
     throw new AppError("الاسم ورقم الهاتف مطلوبان", 400, "GUEST_ORDER_INVALID");
+  }
+
+  // Keep the governorate on their visitor row, so it shows on the visitors
+  // screen and survives into the customer record later. Only ever fills a
+  // blank: an order is not the place to rewrite something the shop already
+  // has on file for this person.
+  const orderProvince = input.province?.trim() || null;
+  if (orderProvince) {
+    await prisma.catalogVisitor
+      .updateMany({ where: { phone, province: null }, data: { province: orderProvince } })
+      .catch(() => undefined);
   }
 
   const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
@@ -1324,6 +1336,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
       customerName,
       phone,
       address: input.address,
+      province: input.province,
       notes: input.notes,
       subtotal,
       isFreeDelivery: guestTier.freeDelivery,
@@ -1334,6 +1347,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
         customerName,
         phone,
         address: input.address,
+        province: input.province,
         notes: input.notes,
         discount: guestTier.discountAmount,
         isFreeDelivery: guestTier.freeDelivery,

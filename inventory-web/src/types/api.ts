@@ -647,6 +647,8 @@ export interface CatalogOrderPayload {
   customerName: string
   phone: string
   address?: string
+  /** Governorate — what the delivery rules read to price the shipping. */
+  province?: string
   notes?: string
   promoCode?: string
   items: Array<{

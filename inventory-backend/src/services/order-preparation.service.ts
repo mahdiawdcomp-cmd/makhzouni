@@ -388,6 +388,7 @@ type OrderData = {
   customerName: string;
   phone: string;
   address?: string;
+  province?: string;
   warehouseId?: string;
   items: Array<{ productId: string; unit: string; quantity: number; unitPrice?: number; warehouseId?: string }>;
   discount?: number;
@@ -446,6 +447,10 @@ export async function markPrepared(
           name: od.customerName ?? prep.customerName,
           phone,
           address: od.address,
+          // Carried from the order. Without it the delivery rules — which
+          // decide free shipping by governorate — have nothing to read on a
+          // customer the shop only ever met through the catalog.
+          province: od.province ?? null,
           openingBalance: 0,
           currentBalance: 0,
         },

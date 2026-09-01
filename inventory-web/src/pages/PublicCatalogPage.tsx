@@ -411,6 +411,7 @@ export function PublicCatalogPage() {
           accessToken="" visitorToken={visitorToken}
           allowPrices={visitor.pricesUnlocked} showStock stockFilter="FULL_CARTON_ONLY"
           customerId="" customerName={visitor.name ?? ""} customerPhone={visitor.phone}
+          visitorProvince={visitor.province ?? ""}
           guestMode
           priceRequestPending={visitor.priceRequestPending}
           onPricesRequested={() => visitorQuery.refetch()}
@@ -805,6 +806,7 @@ function ProvinceField({ value, onChange, required }: {
 ══════════════════════════════════════════════════════════════════════ */
 const GUEST_PHONE_KEY = "catalog_guest_phone"
 const GUEST_NAME_KEY = "catalog_guest_name"
+const GUEST_PROVINCE_KEY = "catalog_guest_province"
 
 function GuestPhoneGate({ children }: { children: React.ReactNode }) {
   const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
@@ -830,6 +832,7 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
       localStorage.setItem(GUEST_PHONE_KEY, phone.trim())
       // The name is kept too, so checkout does not ask for it a second time.
       if (name.trim()) localStorage.setItem(GUEST_NAME_KEY, name.trim())
+      if (province) localStorage.setItem(GUEST_PROVINCE_KEY, province)
       setErr("")
       if (result?.hasAccount) { setHasAccount(true); return }
       setEntered(true)
@@ -1005,7 +1008,7 @@ const TUTORIAL_SEEN_KEY = "catalog_tutorial_seen_v1"
    SHOP
 ══════════════════════════════════════════════════════════════════════ */
 function CatalogShop({
-  accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone,
+  accessToken, allowPrices, showStock, stockFilter, customerId, customerName, customerPhone, visitorProvince,
   guestMode = false, deliveryLine = null, firstOrderCoupon = null,
   visitorToken = "", priceRequestPending = false, onPricesRequested,
 }: {
@@ -1015,6 +1018,8 @@ function CatalogShop({
   firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
   /** Set for a signed-in visitor: same layout as guest browsing, own grid. */
   visitorToken?: string
+  /** A signed-in visitor's governorate, so checkout does not ask again. */
+  visitorProvince?: string
   priceRequestPending?: boolean
   onPricesRequested?: () => void
 }) {
@@ -1034,6 +1039,7 @@ function CatalogShop({
     localStorage.removeItem(VISITOR_TOKEN_KEY)
     localStorage.removeItem(GUEST_PHONE_KEY)
     localStorage.removeItem(GUEST_NAME_KEY)
+    localStorage.removeItem(GUEST_PROVINCE_KEY)
     localStorage.removeItem(SIGNUP_PHONE_KEY)
     window.location.href = "/catalog"
   }
@@ -1228,6 +1234,12 @@ function CatalogShop({
     () => customerPhone || (guestMode ? localStorage.getItem(GUEST_PHONE_KEY) ?? "" : ""),
   )
   const [guestAddress, setGuestAddress] = useState("")
+  // The governorate decides the delivery promise, so it is asked for here as
+  // well as at the door — a shop that leaves the door gate off would otherwise
+  // never learn where the order is going.
+  const [guestProvince, setGuestProvince] = useState(
+    () => visitorProvince || (guestMode ? localStorage.getItem(GUEST_PROVINCE_KEY) ?? "" : ""),
+  )
   const [accessRequestOpen, setAccessRequestOpen] = useState(false)
   const [showTutorial, setShowTutorial] = useState<boolean>(() => !localStorage.getItem(TUTORIAL_SEEN_KEY))
 
@@ -1237,7 +1249,7 @@ function CatalogShop({
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust> } & Partial<CatalogLayout> }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust>; delivery?: { northGovernorates: string[]; freeShippingThreshold: number } } & Partial<CatalogLayout> }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const design = designQuery.data
@@ -1604,6 +1616,19 @@ function CatalogShop({
   const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter, hideNoImage, noImageMode])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const offers = useMemo(() => products.filter(p => p.isOffer && canDisplay(p)).slice(0, 12), [products, stockFilter, hideNoImage, noImageMode])
+  // Same sentence the server builds for a signed-in customer, from the same
+  // two settings — so the shop cannot promise a guest one thing and a
+  // customer another. Declared here, after `design` exists: reading it from
+  // above would be a closure over a value that has not been created yet.
+  const guestDeliveryLine = (() => {
+    const province = guestProvince.trim()
+    const d = design?.delivery
+    if (!guestMode || !province || !d) return null
+    if ((d.northGovernorates ?? []).includes(province)) {
+      return "التوصيل لمنطقتك حسب البضاعة — نحسبه ونبلغك."
+    }
+    return `توصيل مجاني للطلبات فوق ${Number(d.freeShippingThreshold || 0).toLocaleString("en-US")} دينار.`
+  })()
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
@@ -1634,6 +1659,7 @@ function CatalogShop({
       guestMode
         ? submitGuestCatalogOrder({
             customerName: guestName.trim(), phone: guestPhone.trim(), address: guestAddress.trim() || undefined,
+            province: guestProvince || undefined,
             notes: notes.trim() || undefined,
             // A signed-in visitor orders through the same endpoint; the token
             // is what tells the server they are not an anonymous guest.
@@ -2508,10 +2534,11 @@ function CatalogShop({
           promoLoading={promoLoading} onApplyPromo={applyPromo}
           promoDiscount={promoDiscount} finalTotal={finalTotal} hasFreeDelivery={hasFreeDelivery}
           onClearPromo={() => { setPromoResult(null); setPromoCode(""); setPromoError("") }}
-          deliveryLine={deliveryLine}
+          deliveryLine={deliveryLine ?? guestDeliveryLine}
           firstOrderCoupon={firstOrderCoupon}
           guestMode={guestMode}
           guestName={guestName} guestPhone={guestPhone} guestAddress={guestAddress}
+          guestProvince={guestProvince} onGuestProvince={setGuestProvince}
           onSignIn={signOut}
           onGuestName={setGuestName} onGuestPhone={setGuestPhone} onGuestAddress={setGuestAddress}
         />
@@ -4435,7 +4462,8 @@ function CartOverlay({
   onClose, onSubmit, isPending, submitted, isError, tk,
   promoCode, onPromoCode, promoResult, promoError, promoLoading, onApplyPromo,
   promoDiscount, finalTotal, hasFreeDelivery, onClearPromo, deliveryLine = null, firstOrderCoupon = null,
-  guestMode, guestName, guestPhone, guestAddress, onGuestName, onGuestPhone, onGuestAddress, onSignIn,
+  guestMode, guestName, guestPhone, guestAddress, guestProvince,
+  onGuestName, onGuestPhone, onGuestAddress, onGuestProvince, onSignIn,
   orderTiers,
 }: {
   cart: CartLine[]; allowPrices: boolean; subtotal: number; notes: string
@@ -4450,12 +4478,17 @@ function CartOverlay({
   deliveryLine?: string | null
   firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
   guestMode?: boolean
-  guestName?: string; guestPhone?: string; guestAddress?: string
+  guestName?: string; guestPhone?: string; guestAddress?: string; guestProvince?: string
+  onGuestProvince?: (v: string) => void
   onSignIn: () => void
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
   orderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }) {
-  const guestDetailsMissing = Boolean(guestMode) && (!guestName?.trim() || (guestPhone?.replace(/\D/g, "").length ?? 0) < 7)
+  const guestDetailsMissing = Boolean(guestMode) && (
+    !guestName?.trim() ||
+    (guestPhone?.replace(/\D/g, "").length ?? 0) < 7 ||
+    !guestProvince?.trim()
+  )
   const tier = resolveCartTier(subtotal, orderTiers)
   return (
     <>
@@ -4532,6 +4565,13 @@ function CartOverlay({
                   placeholder="رقم هاتفك" type="tel" dir="ltr"
                   className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
                   style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+                <select value={guestProvince ?? ""} onChange={(e) => onGuestProvince?.(e.target.value)}
+                  dir="rtl"
+                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
+                  style={{ background: tk.bg, color: guestProvince ? tk.text : tk.subtext, border: `1px solid ${tk.divider}` }}>
+                  <option value="">اختر المحافظة</option>
+                  {IRAQI_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
                 <input value={guestAddress ?? ""} onChange={(e) => onGuestAddress?.(e.target.value)}
                   placeholder="العنوان (اختياري)" dir="rtl"
                   className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
