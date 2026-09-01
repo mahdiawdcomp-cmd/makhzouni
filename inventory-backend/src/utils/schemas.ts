@@ -811,6 +811,8 @@ const invoiceItemSchema = z.object({
   // «تم تجهيز». validate() REPLACES req.body with the parsed result, so a field
   // missing here never reaches the service — the tick would save as always-false.
   prepared: z.boolean().optional(),
+  // Depot pull: move whole carton(s) to المحل instead of only the pieces sold.
+  transferWholeCarton: z.boolean().optional(),
 });
 
 const invoiceTypeSchema = z.enum(["SALE", "PURCHASE", "SALES_RETURN"]);

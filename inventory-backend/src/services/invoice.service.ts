@@ -90,6 +90,10 @@ export interface InvoiceItemInput {
   allowNegativeStock?: boolean;
   // «تم تجهيز» — picker's tick. Stored as-is; affects nothing but the UI.
   prepared?: boolean;
+  // Depot pull: move a WHOLE CARTON to المحل instead of only the pieces sold.
+  // A depot is stacked in sealed cartons — taking 12 pieces out of one leaves a
+  // broken carton on the shelf that no count sheet can describe.
+  transferWholeCarton?: boolean;
 }
 
 export interface CreateInvoiceInput {
@@ -372,16 +376,27 @@ async function applyStockMovement(
     const shopId = await resolveShopWarehouseId(tx);
     const requestedId = item.warehouseId ? await resolveWarehouseId(tx, item.warehouseId) : shopId;
     if (requestedId !== shopId) {
+      // How much actually moves. By default exactly what is sold; with
+      // transferWholeCarton, the whole carton(s) that cover the sale — the
+      // surplus stays in المحل rather than leaving a broken carton in the depot.
+      const perCarton = Math.max(1, product.pcsPerCarton);
+      const wholeCartons = perCarton > 1 && item.transferWholeCarton
+        ? Math.ceil(quantityInPieces / perCarton)
+        : 0;
+      const transferPieces = wholeCartons > 0 ? wholeCartons * perCarton : quantityInPieces;
+
       if (!allowNegativeSale) {
         const depotStock = await tx.productWarehouseStock.findUnique({
           where: { productId_warehouseId: { productId: product.id, warehouseId: requestedId } },
           select: { quantityPieces: true },
         });
         const available = Number(depotStock?.quantityPieces ?? 0);
-        if (quantityInPieces > available) {
+        if (transferPieces > available) {
           const wh = await tx.branch.findUnique({ where: { id: requestedId }, select: { name: true } });
           throw new AppError(
-            `${wh?.name ?? "المخزن"} يحتوي فقط على ${available} قطعة من "${product.name}". قلّل الكمية أو أضف مخزون للمادة.`,
+            wholeCartons > 0
+              ? `${wh?.name ?? "المخزن"} يحتوي على ${available} قطعة فقط من "${product.name}" — لا يكفي لتحويل ${wholeCartons} كرتون (${transferPieces} قطعة). حوّل الكمية المطلوبة فقط.`
+              : `${wh?.name ?? "المخزن"} يحتوي فقط على ${available} قطعة من "${product.name}". قلّل الكمية أو أضف مخزون للمادة.`,
             409,
             "INSUFFICIENT_SHOP_STOCK"
           );
@@ -393,8 +408,12 @@ async function applyStockMovement(
         {
           fromBranchId: requestedId,
           toBranchId: shopId,
-          items: [{ productId: product.id, unit: item.unit, quantity: item.quantity }],
-          notes: "تحويل تلقائي للبيع",
+          items: [
+            wholeCartons > 0
+              ? { productId: product.id, unit: Unit.CARTON, quantity: wholeCartons }
+              : { productId: product.id, unit: item.unit, quantity: item.quantity },
+          ],
+          notes: wholeCartons > 0 ? "تحويل كرتون كامل للبيع" : "تحويل تلقائي للبيع",
           // Linked so reverseInvoiceItemsStock can undo it — otherwise
           // cancelling the sale leaves the depot short and المحل long forever.
           sourceInvoiceId: invoiceId,

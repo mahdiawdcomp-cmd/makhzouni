@@ -91,6 +91,8 @@ interface DraftItem {
   /** «تم تجهيز» — ticked by whoever pulled this line off the shelf. Saved with
    *  the invoice, so reopening it shows what is still outstanding. */
   prepared?: boolean
+  /** Depot pull: move a WHOLE CARTON to المحل, not just the pieces sold. */
+  transferWholeCarton?: boolean
 }
 
 function stockOf(product: Product) {
@@ -112,9 +114,20 @@ function shopWarehouseIdOf(product: Product): string | undefined {
 function effectiveAvailablePcs(item: DraftItem): number {
   const stocks = item.product.warehouseStocks ?? []
   if (!stocks.length) return stockOf(item.product)
-  if (item.warehouseId) return stocks.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
   const shopId = shopWarehouseIdOf(item.product)
+  if (item.warehouseId && item.warehouseId !== shopId) {
+    return stocks.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
+  }
   return item.product.shopStock ?? stocks.find((ws) => ws.warehouseId === shopId)?.quantityPieces ?? 0
+}
+
+// A line sells FROM المحل when it names no warehouse (the default) or names the
+// shop explicitly. Since the warehouse picker now always shows and preselects
+// the shop, "no warehouse" and "the shop" must mean the same thing everywhere —
+// otherwise merely touching the dropdown changes how stock is computed.
+function isShopLine(item: DraftItem): boolean {
+  if (!item.warehouseId) return true
+  return item.warehouseId === shopWarehouseIdOf(item.product)
 }
 
 // Composite key so per-warehouse stock warnings don't collide across lines of the
@@ -546,6 +559,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // Alert shown when a sale product has 0 stock in المحل
   const [shopStockAlert, setShopStockAlert] = useState<Product | null>(null)
   const [shopStockAlertUnit, setShopStockAlertUnit] = useState<Unit>("PIECE")
+  // The quantity the user was adding when the picker opened. Without it the
+  // picker always added ONE, silently discarding a quantity typed in the mobile
+  // preview card.
+  const [shopStockAlertQty, setShopStockAlertQty] = useState(1)
 
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
@@ -888,18 +905,18 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const key = lineStockKey(item)
       if (warned.has(key)) continue
       warned.add(key)
-      const isShopLine = !item.warehouseId
+      const fromShop = isShopLine(item)
       const stocksList = item.product.warehouseStocks ?? []
-      const baseAvailable = isShopLine
+      const baseAvailable = fromShop
         ? (item.product.shopStock ?? stockOf(item.product))
         : stocksList.find((ws) => ws.warehouseId === item.warehouseId)?.quantityPieces ?? 0
       // Credit-back (edit mode) only applies to what the ORIGINAL invoice deducted
       // from المحل — a depot-specific line never touched المحل, so it doesn't apply.
-      const available = baseAvailable + (isShopLine ? (originalInvoicePcs[item.product.id] ?? 0) : 0)
+      const available = baseAvailable + (fromShop ? (originalInvoicePcs[item.product.id] ?? 0) : 0)
       const totalPcs = consumed.get(key) ?? 0
       const after = available - totalPcs
       if (after < 0) {
-        const whLabel = isShopLine ? "المحل" : (item.warehouseName ?? "المخزن")
+        const whLabel = fromShop ? "المحل" : (item.warehouseName ?? "المخزن")
         warnings.push(`${item.product.name} (${whLabel} بيه ${fmt(available)} فقط — سيصبح ${fmt(after)})`)
         negativeAfterByProduct.set(key, after)
       }
@@ -1352,7 +1369,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     })
   }
 
-  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE", qty = 1, opts?: { undo?: boolean }) {
+  function doAddProduct(product: Product, overrideWarehouseId?: string, overrideWarehouseName?: string, unit: Unit = "PIECE", qty = 1, opts?: { undo?: boolean; transferWholeCarton?: boolean }) {
     const nextIndex = items.length
     const newItem: DraftItem = {
       product,
@@ -1365,6 +1382,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       warehouseName:
         overrideWarehouseName
         ?? warehouses.find((w) => w.id === (overrideWarehouseId ?? defaultWarehouseId(product)))?.name,
+      transferWholeCarton: opts?.transferWholeCarton,
     }
     setItems((current) => [...current, newItem])
     setProductModal(false)
@@ -1392,14 +1410,14 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const { product, unit, qty } = scanPreview
     const q = Math.max(1, qty || 1)
     setScanPreview(null)
-    if (maybePromptWarehouse(product, unit)) return
+    if (maybePromptWarehouse(product, unit, q)) return
     doAddProduct(product, undefined, undefined, unit, q)
   }
 
   // For sales: if المحل has 0 stock but other warehouses have stock, prompt the
   // user to pick a warehouse instead of silently pulling from an empty shop.
   // Returns true when it opened the picker (caller should stop).
-  function maybePromptWarehouse(product: Product, unit: Unit): boolean {
+  function maybePromptWarehouse(product: Product, unit: Unit, qty = 1): boolean {
     if (isPurchase) return false
     const shopStock = product.shopStock ?? 0
     const totalStock = product.currentStock ?? (product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton)
@@ -1407,6 +1425,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (shopStock === 0 && (totalStock > 0 || othersHaveStock)) {
       setShopStockAlert(product)
       setShopStockAlertUnit(unit)
+      setShopStockAlertQty(Math.max(1, qty))
       return true
     }
     return false
@@ -1839,6 +1858,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             warehouseId: item.warehouseId,
             notes: item.notes?.trim() || undefined,
             prepared: Boolean(item.prepared),
+            transferWholeCarton: item.transferWholeCarton || undefined,
           })),
         })
         invoiceSavedRef.current = true
@@ -1886,6 +1906,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         warehouseId: item.warehouseId,
         notes: item.notes?.trim() || undefined,
         prepared: Boolean(item.prepared),
+        transferWholeCarton: item.transferWholeCarton || undefined,
         // Authorize the deficit for any sale line that can't be fully covered — by the
         // warehouse it pulls from OR by total stock. allowNegative only *permits* going
         // below zero; it never forces it, so it's safe to set whenever a shortfall is possible.
@@ -2635,29 +2656,36 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                               <option key={w.id} value={w.id}>{w.name}</option>
                             ))}
                           </select>
-                        ) : (item.product.warehouseStocks ?? []).length > 1 ? (
+                        ) : (
+                          /* SALES: always a real picker over EVERY warehouse.
+                             It used to appear only when the product happened to
+                             own more than one stock ROW — a row exists for any
+                             warehouse the product ever touched, even at zero — so
+                             two products in the same situation behaved
+                             differently, and the read-only fallback printed
+                             warehouseStocks[0], the FIRST row rather than the one
+                             actually holding the goods. */
                           <select
-                            className={cn(dz.h, dz.text, "w-28 rounded-md border bg-white px-2 dark:border-slate-700 dark:bg-slate-950")}
-                            value={item.warehouseId ?? ""}
+                            className={cn(dz.h, dz.text, "w-32 rounded-md border bg-white px-2 dark:border-slate-700 dark:bg-slate-950")}
+                            value={item.warehouseId ?? shopWarehouseIdOf(item.product) ?? ""}
                             onChange={(e) => {
                               const wsId = e.target.value || undefined
-                              const wsName = wsId
-                                ? (item.product.warehouseStocks ?? []).find((ws) => ws.warehouseId === wsId)?.warehouse.name
-                                : undefined
-                              updateItem(index, { warehouseId: wsId, warehouseName: wsName })
+                              updateItem(index, {
+                                warehouseId: wsId,
+                                warehouseName: warehouses.find((w) => w.id === wsId)?.name,
+                              })
                             }}
                           >
-                            <option value="">— اختر —</option>
-                            {(item.product.warehouseStocks ?? []).map((ws) => (
-                              <option key={ws.warehouseId} value={ws.warehouseId}>
-                                {ws.warehouse.name} ({ws.quantityPieces}ق)
-                              </option>
-                            ))}
+                            {warehouses.length === 0 && <option value="">—</option>}
+                            {warehouses.map((w) => {
+                              const pcs = (item.product.warehouseStocks ?? []).find((ws) => ws.warehouseId === w.id)?.quantityPieces ?? 0
+                              return (
+                                <option key={w.id} value={w.id}>
+                                  {w.name} ({pcs}ق)
+                                </option>
+                              )
+                            })}
                           </select>
-                        ) : (
-                          <span className="text-xs text-slate-500">
-                            {(item.product.warehouseStocks ?? [])[0]?.warehouse.name ?? "—"}
-                          </span>
                         )}
                       </TD>
                       <TD>
@@ -3702,24 +3730,60 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             <p className="text-slate-700 dark:text-slate-300">
               <strong>{shopStockAlert?.name}</strong> — المحل فاضي.
             </p>
-            <p className="text-xs text-slate-500">اختر مخزن — تنحوّل الكمية منه إلى المحل تلقائياً ثم تنباع. يبقى أثر التحويل بالحركة:</p>
-            <div className="flex flex-col gap-2">
+            <p className="text-xs text-slate-500">اختر مخزن — تنحوّل منه إلى المحل تلقائياً ثم تنباع. يبقى أثر التحويل بالحركة:</p>
+            <div className="flex flex-col gap-3">
               {(shopStockAlert?.warehouseStocks ?? [])
                 .filter((ws) => ws.quantityPieces > 0)
-                .map((ws) => (
-                  <Button
-                    key={ws.warehouseId}
-                    className="w-full justify-between"
-                    onClick={() => {
-                      const p = shopStockAlert!
-                      setShopStockAlert(null)
-                      doAddProduct(p, ws.warehouseId, ws.warehouse.name, shopStockAlertUnit)
-                    }}
-                  >
-                    <span>🔄 تحويل من {ws.warehouse.name} ← المحل</span>
-                    <span className="opacity-70 text-xs">{ws.quantityPieces} قطعة</span>
-                  </Button>
-                ))}
+                .map((ws) => {
+                  const p = shopStockAlert!
+                  const perCarton = Math.max(1, p.pcsPerCarton)
+                  const needPcs = unitToPieces(shopStockAlertUnit, shopStockAlertQty, p)
+                  // A depot is stacked in sealed cartons: offer to move the whole
+                  // carton so nothing is left broken open on the depot shelf.
+                  const cartons = Math.ceil(needPcs / perCarton)
+                  const cartonPcs = cartons * perCarton
+                  const cartonFits = perCarton > 1 && cartonPcs > needPcs && ws.quantityPieces >= cartonPcs
+                  return (
+                    <div key={ws.warehouseId} className="rounded-lg border p-2 dark:border-slate-700">
+                      <div className="mb-1.5 flex items-center justify-between text-xs">
+                        <span className="font-semibold">{ws.warehouse.name}</span>
+                        <span className="text-slate-500">{ws.quantityPieces} قطعة</span>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Button
+                          size="sm"
+                          variant={cartonFits ? "outline" : "default"}
+                          className="w-full justify-between"
+                          onClick={() => {
+                            setShopStockAlert(null)
+                            doAddProduct(p, ws.warehouseId, ws.warehouse.name, shopStockAlertUnit, shopStockAlertQty)
+                          }}
+                        >
+                          <span>🔄 حوّل الكمية المطلوبة فقط</span>
+                          <span className="text-xs opacity-70">{needPcs} قطعة</span>
+                        </Button>
+                        {cartonFits && (
+                          <Button
+                            size="sm"
+                            className="w-full justify-between"
+                            onClick={() => {
+                              setShopStockAlert(null)
+                              doAddProduct(p, ws.warehouseId, ws.warehouse.name, shopStockAlertUnit, shopStockAlertQty, { transferWholeCarton: true })
+                            }}
+                          >
+                            <span>📦 حوّل {cartons > 1 ? `${cartons} كراتين` : "كرتون كامل"}</span>
+                            <span className="text-xs opacity-70">{cartonPcs} قطعة</span>
+                          </Button>
+                        )}
+                      </div>
+                      {cartonFits && (
+                        <p className="mt-1 text-[10px] text-slate-500">
+                          الفاتورة تسحب {needPcs} ويبقى بالمحل {cartonPcs - needPcs} قطعة.
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
               {(shopStockAlert?.warehouseStocks ?? []).filter((ws) => ws.quantityPieces > 0).length === 0 && (
                 <p className="text-rose-600 text-xs">لا يوجد مخزون في أي مخزن.</p>
               )}
@@ -3727,7 +3791,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             <Button variant="outline" className="w-full text-xs" onClick={() => {
               const p = shopStockAlert!
               setShopStockAlert(null)
-              doAddProduct(p, undefined, undefined, shopStockAlertUnit)
+              doAddProduct(p, undefined, undefined, shopStockAlertUnit, shopStockAlertQty)
             }}>
               إضافة بدون تحديد مخزن
             </Button>
