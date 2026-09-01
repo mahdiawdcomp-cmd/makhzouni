@@ -74,22 +74,39 @@ export function InvoiceLabelsDialog({
     })
   }, [items])
 
+  // WHICH barcode, chosen once and explicitly. Two always-live count columns
+  // meant a prefilled carton column rode along with a piece-only download —
+  // you asked for pieces and got a sticker for every carton too.
+  const [kind, setKind] = useState<"CARTON" | "PIECE" | "BOTH">("CARTON")
   const [rows, setRows] = useState<Row[] | null>(null)
   const effectiveRows = rows ?? initialRows
   const [busy, setBusy] = useState(false)
+
+  const showCarton = kind === "CARTON" || kind === "BOTH"
+  const showPiece = kind === "PIECE" || kind === "BOTH"
+  // Counts for a hidden column are ignored everywhere — totals, the payload and
+  // the table all read through here, so nothing can leak into the download.
+  const countsOf = (r: Row) => ({
+    carton: showCarton ? r.cartonCount : 0,
+    piece: showPiece ? r.pieceCount : 0,
+  })
 
   function setRow(productId: string, patch: Partial<Row>) {
     setRows(effectiveRows.map((r) => (r.productId === productId ? { ...r, ...patch } : r)))
   }
 
-  const total = effectiveRows.reduce((s, r) => s + r.cartonCount + r.pieceCount, 0)
+  const total = effectiveRows.reduce((s, r) => {
+    const c = countsOf(r)
+    return s + c.carton + c.piece
+  }, 0)
   const overLimit = total > MAX_LABELS
 
   async function download() {
     const payload: InvoiceLabelRequest[] = []
     for (const r of effectiveRows) {
-      if (r.cartonCount > 0) payload.push({ productId: r.productId, unit: "CARTON", count: r.cartonCount })
-      if (r.pieceCount > 0) payload.push({ productId: r.productId, unit: "PIECE", count: r.pieceCount })
+      const c = countsOf(r)
+      if (c.carton > 0) payload.push({ productId: r.productId, unit: "CARTON", count: c.carton })
+      if (c.piece > 0) payload.push({ productId: r.productId, unit: "PIECE", count: c.piece })
     }
     if (payload.length === 0) {
       toast({ title: "ما اخترت أي ملصق", description: "اكتب عدداً أكبر من صفر لمادة واحدة على الأقل", variant: "destructive" })
@@ -110,14 +127,26 @@ export function InvoiceLabelsDialog({
     }
   }
 
-  function fillAll(kind: "carton" | "piece", mode: "shipment" | "one" | "zero") {
+  function fillAll(target: "carton" | "piece", mode: "shipment" | "one" | "zero") {
     setRows(
       effectiveRows.map((r) => {
-        const value = mode === "zero" ? 0 : mode === "one" ? 1 : kind === "carton" ? r.cartons : r.pieces
-        if (kind === "carton") return { ...r, cartonCount: r.pcsPerCarton > 1 ? value : 0 }
+        const value = mode === "zero" ? 0 : mode === "one" ? 1 : target === "carton" ? r.cartons : r.pieces
+        if (target === "carton") return { ...r, cartonCount: r.pcsPerCarton > 1 ? value : 0 }
         return { ...r, pieceCount: value }
       }),
     )
+  }
+
+  /**
+   * Switching the barcode kind seeds a sensible count for the side you just
+   * turned on, so "قطعة" is one click away from a usable download instead of a
+   * table of zeros.
+   */
+  function chooseKind(next: "CARTON" | "PIECE" | "BOTH") {
+    setKind(next)
+    if ((next === "PIECE" || next === "BOTH") && effectiveRows.every((r) => r.pieceCount === 0)) {
+      fillAll("piece", "one")
+    }
   }
 
   return (
@@ -125,11 +154,40 @@ export function InvoiceLabelsDialog({
       <DialogContent className="max-w-3xl">
         <DialogHeader><DialogTitle>تحميل باركود مواد الفاتورة</DialogTitle></DialogHeader>
 
+        {/* Step 1 — which barcode. Nothing outside the chosen kind is downloaded. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold">نوع الباركود:</span>
+          {([
+            ["CARTON", "الكرتون فقط"],
+            ["PIECE", "القطعة فقط"],
+            ["BOTH", "الاثنين"],
+          ] as const).map(([value, label]) => (
+            <Button
+              key={value}
+              size="sm"
+              variant={kind === value ? "default" : "outline"}
+              onClick={() => chooseKind(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+
+        {/* Step 2 — how many, with shortcuts for the column(s) in play. */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-slate-500">تعبئة سريعة:</span>
-          <Button size="sm" variant="outline" onClick={() => fillAll("carton", "shipment")}>ملصق لكل كرتون واصل</Button>
-          <Button size="sm" variant="outline" onClick={() => fillAll("carton", "one")}>كرتون واحد لكل مادة</Button>
-          <Button size="sm" variant="outline" onClick={() => fillAll("piece", "one")}>قطعة واحدة لكل مادة</Button>
+          {showCarton && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => fillAll("carton", "shipment")}>ملصق لكل كرتون واصل</Button>
+              <Button size="sm" variant="outline" onClick={() => fillAll("carton", "one")}>كرتون واحد لكل مادة</Button>
+            </>
+          )}
+          {showPiece && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => fillAll("piece", "one")}>قطعة واحدة لكل مادة</Button>
+              <Button size="sm" variant="outline" onClick={() => fillAll("piece", "shipment")}>ملصق لكل قطعة واصلة</Button>
+            </>
+          )}
           <Button size="sm" variant="ghost" onClick={() => { fillAll("carton", "zero"); fillAll("piece", "zero") }}>تصفير الكل</Button>
         </div>
 
@@ -139,8 +197,8 @@ export function InvoiceLabelsDialog({
               <tr>
                 <th className="p-2 text-right">المادة</th>
                 <th className="p-2 text-center">الواصل</th>
-                <th className="p-2 text-center">ملصقات كرتون</th>
-                <th className="p-2 text-center">ملصقات قطعة</th>
+                {showCarton && <th className="p-2 text-center">ملصقات كرتون</th>}
+                {showPiece && <th className="p-2 text-center">ملصقات قطعة</th>}
               </tr>
             </thead>
             <tbody>
@@ -154,27 +212,31 @@ export function InvoiceLabelsDialog({
                     {r.cartons > 0 ? `${r.cartons} كرتون` : "—"}
                     <div className="text-slate-400">{r.pieces} قطعة</div>
                   </td>
-                  <td className="p-2 text-center">
-                    <Input
-                      type="number"
-                      min={0}
-                      className="mx-auto h-8 w-20 text-center"
-                      value={r.cartonCount}
-                      // A product with no carton size has no carton barcode to
-                      // print — offering the field would produce junk stickers.
-                      disabled={r.pcsPerCarton <= 1}
-                      onChange={(e) => setRow(r.productId, { cartonCount: Math.max(0, Number(e.target.value) || 0) })}
-                    />
-                  </td>
-                  <td className="p-2 text-center">
-                    <Input
-                      type="number"
-                      min={0}
-                      className="mx-auto h-8 w-20 text-center"
-                      value={r.pieceCount}
-                      onChange={(e) => setRow(r.productId, { pieceCount: Math.max(0, Number(e.target.value) || 0) })}
-                    />
-                  </td>
+                  {showCarton && (
+                    <td className="p-2 text-center">
+                      <Input
+                        type="number"
+                        min={0}
+                        className="mx-auto h-8 w-20 text-center"
+                        value={r.cartonCount}
+                        // A product with no carton size has no carton barcode to
+                        // print — offering the field would produce junk stickers.
+                        disabled={r.pcsPerCarton <= 1}
+                        onChange={(e) => setRow(r.productId, { cartonCount: Math.max(0, Number(e.target.value) || 0) })}
+                      />
+                    </td>
+                  )}
+                  {showPiece && (
+                    <td className="p-2 text-center">
+                      <Input
+                        type="number"
+                        min={0}
+                        className="mx-auto h-8 w-20 text-center"
+                        value={r.pieceCount}
+                        onChange={(e) => setRow(r.productId, { pieceCount: Math.max(0, Number(e.target.value) || 0) })}
+                      />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
