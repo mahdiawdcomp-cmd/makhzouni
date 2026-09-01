@@ -2855,7 +2855,17 @@ export interface LandedCostItem extends LandedCostComputedItem {
   id: string
   action: LandedCostItemAction
   confirmedSalePrice: number | null
-  newProductDraft: { name?: string; itemCode?: string; barcode?: string; category?: string; pcsPerCarton?: number; imageUrl?: string } | null
+  newProductDraft: {
+    name?: string
+    itemCode?: string
+    barcode?: string
+    category?: string
+    pcsPerCarton?: number
+    imageUrl?: string
+    categoryTags?: string[]
+    typeTags?: string[]
+    storageLocation?: string
+  } | null
   product?: { id: string; name: string; itemNumber: string; imageUrl: string | null; thumbnailUrl: string | null; salePrice: number; purchasePrice: number; costPrice: number } | null
   // China fixed-template fields (null on legacy generic batches)
   piecesPerCarton?: number | null

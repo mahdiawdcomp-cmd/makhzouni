@@ -5,7 +5,6 @@ import { Card, CardHeader, CardContent } from "../components/ui/card"
 import { Button } from "../components/ui/button"
 import { Input } from "../components/ui/input"
 import { Label } from "../components/ui/label"
-import { Badge } from "../components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { cn } from "../utils/cn"
@@ -18,11 +17,12 @@ import {
   markLandedCostBatchArrived,
   getBranches,
   getLandedCostBatch,
-  getProducts,
+  getCatalogCategories,
   setLandedCostItemDecision,
   type LandedCostItem,
 } from "../api/endpoints"
 import { useCustomers } from "../hooks/useCustomers"
+import { LandedCostItemPanel } from "../components/LandedCostItemPanel"
 
 function money(n: number | null | undefined) {
   if (n == null) return "—"
@@ -33,181 +33,79 @@ function imgSrc(url?: string | null) {
   return url || null
 }
 
-function ProductPicker({ onPick }: { onPick: (productId: string, name: string) => void }) {
-  const [q, setQ] = useState("")
-  const { data } = useQuery({
-    queryKey: ["product-search", q],
-    queryFn: () => getProducts({ search: q, limit: 10 }),
-    enabled: q.trim().length >= 2,
-  })
-  return (
-    <div className="relative">
-      <Input placeholder="ابحث بالاسم أو رقم المادة..." value={q} onChange={(e) => setQ(e.target.value)} />
-      {q.trim().length >= 2 && (
-        <div className="absolute z-10 mt-1 max-h-56 w-72 overflow-auto rounded-md border bg-white shadow-lg dark:bg-slate-900">
-          {(data ?? []).length === 0 && <div className="p-2 text-xs text-muted-foreground">لا توجد نتائج</div>}
-          {(data ?? []).map((p) => (
-            <button
-              key={p.id}
-              className="flex w-full items-center gap-2 p-2 text-right text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
-              onClick={() => { onPick(p.id, p.name); setQ("") }}
-            >
-              <span className="flex-1">{p.name}</span>
-              <span className="text-xs text-muted-foreground">{p.itemNumber}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ItemRow({ item, batchId, highlighted, stillDuplicated, codeTakenBy }: {
+/** One compact row in the review table. Details live in the side panel. */
+function ItemRow({ item, highlighted, stillDuplicated, onOpen }: {
   item: LandedCostItem
-  batchId: string
   highlighted?: boolean
   stillDuplicated?: boolean
-  /** Name of ANOTHER row in this batch already creating a product with `code`. */
-  codeTakenBy?: (code: string, exceptItemId: string) => string | null
+  onOpen: () => void
 }) {
-  const queryClient = useQueryClient()
-  const [showPicker, setShowPicker] = useState(false)
-  const [showCreateForm, setShowCreateForm] = useState(item.action === "CREATE_NEW")
-  const [draft, setDraft] = useState(item.newProductDraft ?? { name: item.productName, itemCode: item.itemCode, pcsPerCarton: undefined as number | undefined })
-  const [salePrice, setSalePrice] = useState(item.confirmedSalePrice ?? item.suggestedSalePrice ?? undefined)
-
-  const decisionMutation = useMutation({
-    mutationFn: (payload: Parameters<typeof setLandedCostItemDecision>[2]) => setLandedCostItemDecision(batchId, item.id, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-cost-batch", batchId] }),
-    onError: (err: unknown) => toast({ title: "تعذّر حفظ القرار", description: apiErrorMessage(err), variant: "destructive" }),
-  })
-
-  const image = imgSrc(item.product?.thumbnailUrl ?? item.product?.imageUrl)
+  const image = imgSrc(item.product?.thumbnailUrl ?? item.product?.imageUrl ?? item.newProductDraft?.imageUrl)
   // Mirrors the server: the saved draft's code wins over the Excel one.
   const effectiveCode = (item.newProductDraft?.itemCode || item.itemCode || "").trim()
-  // Checked against what the user is TYPING right now — gating on the saved
-  // code would lock the save button on exactly the rows that need fixing.
-  const typedCodeClash = codeTakenBy?.((draft.itemCode || item.itemCode || "").trim(), item.id) ?? null
+  const displayName = item.newProductDraft?.name || item.product?.name || item.productName
+  const tags = [...(item.newProductDraft?.categoryTags ?? []), ...(item.newProductDraft?.typeTags ?? [])]
+
+  const state =
+    item.action === "SKIP" ? { label: "متخطى", cls: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" }
+    : item.action === "LINK_EXISTING" ? { label: "مرتبط", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" }
+    : item.action === "CREATE_NEW" ? { label: "مادة جديدة", cls: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300" }
+    : { label: "يحتاج قرار", cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" }
 
   return (
-    <div
+    <tr
       id={`lc-item-${item.id}`}
-      className={`flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-start${
-        highlighted ? " bg-amber-50 ring-2 ring-amber-400 dark:bg-amber-900/20" : ""
-      }`}
+      onClick={onOpen}
+      className={cn(
+        "cursor-pointer border-t transition hover:bg-slate-50 dark:hover:bg-slate-800/60",
+        highlighted && "bg-amber-50 ring-2 ring-amber-400 dark:bg-amber-900/20",
+        stillDuplicated && "bg-rose-50 dark:bg-rose-950/20",
+      )}
     >
-      <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-slate-50 dark:bg-slate-800">
-        {image ? <img src={image} alt="" className="h-full w-full object-cover" /> : <span className="text-xs text-muted-foreground">لا صورة</span>}
-      </div>
-
-      <div className="flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold">{item.productName}</span>
-          {/* The EFFECTIVE code — what the product will actually be created
-              with. Showing the frozen Excel code made a fixed row still look
-              broken. */}
-          <span className="text-xs text-muted-foreground">({effectiveCode || "بدون كود"})</span>
-          {effectiveCode && effectiveCode !== item.itemCode && (
-            <span className="text-[11px] text-muted-foreground">(بالملف: {item.itemCode})</span>
-          )}
-          {item.matchStatus === "MATCHED" && <Badge variant="success">مطابق</Badge>}
-          {item.matchStatus === "NOT_FOUND" && <Badge variant="warning">غير موجود</Badge>}
-          {/* matchStatus is frozen at upload time — only flag the clash while it
-              is STILL a clash, or a corrected row stays red forever. */}
-          {stillDuplicated && <Badge variant="danger">رقم مكرر</Badge>}
-          {item.action === "SKIP" && <Badge variant="secondary">تم التخطي</Badge>}
+      <td className="p-2">
+        <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-md border bg-slate-50 dark:bg-slate-800">
+          {image ? <img src={image} alt="" className="h-full w-full object-cover" /> : <span className="text-[9px] text-muted-foreground">لا صورة</span>}
         </div>
-        <div className="mt-1 text-xs text-muted-foreground">
-          {item.cartonCount ?? "—"} كرتون × {item.piecesPerCarton ?? "—"} قطعة = <b>{item.quantity}</b> قطعة
-          {item.unitPriceCny != null && <> · سعر القطعة {item.unitPriceCny} ¥</>}
-          {item.cartonCbm != null && <> · CBM {item.cartonCbm}</>}
+      </td>
+      <td className="p-2">
+        <div className="font-semibold">{displayName || "بدون اسم"}</div>
+        <div className="flex flex-wrap items-center gap-1 text-[11px] text-muted-foreground">
+          <span>{effectiveCode || "بدون كود"}</span>
+          {effectiveCode && effectiveCode !== item.itemCode && <span>(بالملف: {item.itemCode})</span>}
+          {stillDuplicated && <span className="font-bold text-rose-600">رقم مكرر</span>}
         </div>
-        <div className="mt-1 text-sm">
-          كلفة القطعة: <b>{money(item.landedCostPerUnit)} د.ع</b>
-          {item.unitCostUsd != null && <> ({item.unitCostUsd} $)</>}
-          {item.landedCostPerCarton != null && <> · كلفة الكارتون: <b>{money(item.landedCostPerCarton)} د.ع</b></>}
-          {item.cartonCostUsd != null && <> ({item.cartonCostUsd} $)</>}
-          {item.suggestedSalePrice != null && <> · سعر بيع مقترح: <b>{money(item.suggestedSalePrice)}</b></>}
-        </div>
-
-        {item.action === "LINK_EXISTING" && item.product && (
-          <div className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">مرتبط بـ: {item.product.name} ({item.product.itemNumber})</div>
-        )}
-
-        {showPicker && (
-          <div className="mt-2">
-            <ProductPicker onPick={(productId) => {
-              setShowPicker(false)
-              decisionMutation.mutate({ action: "LINK_EXISTING", productId })
-            }} />
+        {tags.length > 0 && (
+          <div className="mt-0.5 flex flex-wrap gap-1">
+            {tags.slice(0, 4).map((t) => (
+              <span key={t} className="rounded-full bg-indigo-50 px-1.5 py-px text-[10px] text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">{t}</span>
+            ))}
           </div>
         )}
-
-        {showCreateForm && (
-          <div className="mt-2 grid grid-cols-2 gap-2 rounded-md border p-3 sm:grid-cols-4">
-            <div>
-              <Label className="text-xs">الاسم</Label>
-              <Input value={draft.name ?? ""} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
-            </div>
-            <div>
-              <Label className="text-xs">رقم المادة</Label>
-              <Input value={draft.itemCode ?? ""} onChange={(e) => setDraft((d) => ({ ...d, itemCode: e.target.value }))} />
-            </div>
-            <div>
-              <Label className="text-xs">الباركود (اختياري)</Label>
-              <Input value={draft.barcode ?? ""} onChange={(e) => setDraft((d) => ({ ...d, barcode: e.target.value }))} />
-            </div>
-            <div>
-              <Label className="text-xs">الفئة (اختياري)</Label>
-              <Input value={draft.category ?? ""} onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))} />
-            </div>
-            <div>
-              <Label className="text-xs">قطع بالكرتون (اختياري)</Label>
-              <Input type="number" value={draft.pcsPerCarton ?? ""} onChange={(e) => setDraft((d) => ({ ...d, pcsPerCarton: Number(e.target.value) || undefined }))} />
-            </div>
-            <div>
-              <Label className="text-xs">سعر البيع (مطلوب)</Label>
-              <Input type="number" value={salePrice ?? ""} onChange={(e) => setSalePrice(Number(e.target.value) || undefined)} />
-            </div>
-            <div className="col-span-2 flex items-end">
-              <div className="flex flex-col gap-1">
-                <Button
-                  size="sm"
-                  disabled={!draft.name || !salePrice || !!typedCodeClash}
-                  onClick={() => decisionMutation.mutate({ action: "CREATE_NEW", newProductDraft: draft, confirmedSalePrice: salePrice })}
-                >
-                  حفظ بيانات المادة الجديدة
-                </Button>
-                {typedCodeClash && (
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
-                    الرقم «{(draft.itemCode || item.itemCode || "").trim()}» مأخوذ من «{typedCodeClash}» بنفس الأوردر — اكتب رقماً غيره
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+      </td>
+      <td className="p-2 text-center text-xs">
+        <div className="font-semibold">{item.cartonCount ?? "—"} كرتون</div>
+        <div className="text-muted-foreground">{item.quantity} قطعة</div>
+      </td>
+      <td className="p-2 text-center text-xs">
+        <div className="font-semibold">{money(item.landedCostPerUnit)}</div>
+        <div className="text-muted-foreground">الكرتون {money(item.landedCostPerCarton)}</div>
+      </td>
+      <td className="p-2 text-center">
+        {item.confirmedSalePrice != null ? (
+          <span className="font-bold text-emerald-700 dark:text-emerald-400">{money(item.confirmedSalePrice)}</span>
+        ) : item.action === "SKIP" ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : (
+          <span className="text-xs font-semibold text-amber-600">غير مسعّر</span>
         )}
-
-        {item.action === "LINK_EXISTING" && item.productId && (
-          <div className="mt-2">
-            <Label className="text-xs">سعر البيع (للمعاينة فقط، لا يُحدَّث تلقائياً في المادة الموجودة)</Label>
-            <Input
-              type="number"
-              className="w-40"
-              value={salePrice ?? ""}
-              onChange={(e) => setSalePrice(Number(e.target.value) || undefined)}
-              onBlur={() => decisionMutation.mutate({ action: "LINK_EXISTING", confirmedSalePrice: salePrice, productId: item.productId })}
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="flex shrink-0 flex-col gap-2 sm:w-40">
-        <Button size="sm" variant="outline" onClick={() => { setShowPicker((v) => !v); setShowCreateForm(false) }}>ربط بمادة موجودة</Button>
-        <Button size="sm" variant="outline" onClick={() => { setShowCreateForm((v) => !v); setShowPicker(false) }}>إنشاء مادة جديدة</Button>
-        <Button size="sm" variant={item.action === "SKIP" ? "secondary" : "ghost"} onClick={() => decisionMutation.mutate({ action: "SKIP" })}>تخطي</Button>
-      </div>
-    </div>
+      </td>
+      <td className="p-2 text-center">
+        <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold", state.cls)}>{state.label}</span>
+      </td>
+      <td className="p-2 text-left">
+        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); onOpen() }}>تفاصيل</Button>
+      </td>
+    </tr>
   )
 }
 
@@ -267,12 +165,20 @@ export function LandedCostReviewPage() {
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [onlyUnresolved, setOnlyUnresolved] = useState(false)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [filter, setFilter] = useState<"ALL" | "PENDING" | "CREATE_NEW" | "LINK_EXISTING" | "SKIP">("ALL")
+  const [search, setSearch] = useState("")
+  const [panelItemId, setPanelItemId] = useState<string | null>(null)
+  const [bulkCategoryTags, setBulkCategoryTags] = useState<string[]>([])
+  const [bulkTypeTags, setBulkTypeTags] = useState<string[]>([])
+  const [bulkBusy, setBulkBusy] = useState(false)
   const cancelMutation = useMutation({
     mutationFn: () => cancelLandedCostBatch(batchId),
     onSuccess: () => navigate("/inventory/landed-cost"),
     onError: (err: unknown) => toast({ title: "تعذّر إلغاء الدفعة", description: apiErrorMessage(err), variant: "destructive" }),
   })
 
+  const catalogCatsQuery = useQuery({ queryKey: ["catalog-categories"], queryFn: getCatalogCategories })
+  const catalogCats = useMemo(() => catalogCatsQuery.data ?? [], [catalogCatsQuery.data])
   const batch = batchQuery.data
   const unresolvedItems = useMemo(() => (batch?.items ?? []).filter((it) => it.action === "PENDING"), [batch])
   const unresolvedCount = unresolvedItems.length
@@ -304,17 +210,86 @@ export function LandedCostReviewPage() {
     },
     [batch],
   )
-  const visibleItems = useMemo(
-    () => (onlyUnresolved ? unresolvedItems : (batch?.items ?? [])),
-    [onlyUnresolved, unresolvedItems, batch]
+  // Types offered in the bulk picker follow the chosen categories, same rule as
+  // the per-item panel and the inventory page.
+  const bulkTypes = useMemo(
+    () => [...new Set(catalogCats.filter((c) => bulkCategoryTags.includes(c.name)).flatMap((c) => c.types))].sort(),
+    [catalogCats, bulkCategoryTags],
   )
+
+  const counts = useMemo(() => {
+    const all = batch?.items ?? []
+    return {
+      all: all.length,
+      PENDING: all.filter((it) => it.action === "PENDING").length,
+      CREATE_NEW: all.filter((it) => it.action === "CREATE_NEW").length,
+      LINK_EXISTING: all.filter((it) => it.action === "LINK_EXISTING").length,
+      SKIP: all.filter((it) => it.action === "SKIP").length,
+    }
+  }, [batch])
+
+  const visibleItems = useMemo(() => {
+    let list = batch?.items ?? []
+    // `onlyUnresolved` predates the filter chips and is still driven by the
+    // banner's own toggle, so it stays as an override on top of them.
+    if (onlyUnresolved) list = list.filter((it) => it.action === "PENDING")
+    else if (filter !== "ALL") list = list.filter((it) => it.action === filter)
+    const q = search.trim().toLowerCase()
+    if (q) {
+      list = list.filter((it) => {
+        const name = (it.newProductDraft?.name || it.product?.name || it.productName || "").toLowerCase()
+        const code = (it.newProductDraft?.itemCode || it.itemCode || "").toLowerCase()
+        return name.includes(q) || code.includes(q)
+      })
+    }
+    return list
+  }, [batch, onlyUnresolved, filter, search])
 
   function goToItem(itemId: string) {
     setHighlightId(itemId)
     setOnlyUnresolved(false)
+    setFilter("ALL")
+    setSearch("")
     requestAnimationFrame(() => {
       document.getElementById(`lc-item-${itemId}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
     })
+  }
+
+  // Bulk tags: a China order is usually one family of goods, so the tags are
+  // chosen ONCE and stamped on every row you are creating as a new product.
+  async function applyTagsToAll() {
+    const targets = (batch?.items ?? []).filter((it) => it.action === "CREATE_NEW")
+    if (targets.length === 0) {
+      toast({ title: "ماكو مواد جديدة", description: "التاكات تنطبق على المواد الي راح تنشئها فقط", variant: "destructive" })
+      return
+    }
+    setBulkBusy(true)
+    let done = 0
+    try {
+      for (const it of targets) {
+        await setLandedCostItemDecision(batchId, it.id, {
+          action: "CREATE_NEW",
+          confirmedSalePrice: it.confirmedSalePrice,
+          newProductDraft: {
+            ...(it.newProductDraft ?? {}),
+            categoryTags: bulkCategoryTags,
+            typeTags: bulkTypeTags,
+            category: bulkCategoryTags[0] ?? it.newProductDraft?.category,
+          },
+        })
+        done++
+      }
+      toast({ title: "انطبقت التاكات", description: `${done} مادة` })
+    } catch (err) {
+      toast({
+        title: "توقف التطبيق",
+        description: `${apiErrorMessage(err)} — انطبقت على ${done} من ${targets.length}`,
+        variant: "destructive",
+      })
+    } finally {
+      setBulkBusy(false)
+      void queryClient.invalidateQueries({ queryKey: ["landed-cost-batch", batchId] })
+    }
   }
   const locked = batch?.status === "PURCHASE_INVOICE_CREATED" || batch?.status === "CANCELLED"
   // Held for arrival: the decisions are made and stored, so what is left is
@@ -386,20 +361,147 @@ export function LandedCostReviewPage() {
         </div>
       )}
 
+      {/* Bulk tags — chosen once, stamped on every new product in the order. */}
+      {!locked && (
+        <Card>
+          <CardHeader className="pb-0"><span className="text-sm font-semibold">تاكات لكل المواد الجديدة</span></CardHeader>
+          <CardContent className="flex flex-col gap-2 p-4">
+            {catalogCats.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                ماكو فئات معرّفة — أضفها من «إدارة الفئات» بأعلى صفحة المخزون.
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {catalogCats.map((c) => {
+                    const sel = bulkCategoryTags.includes(c.name)
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          const next = sel ? bulkCategoryTags.filter((t) => t !== c.name) : [...bulkCategoryTags, c.name]
+                          const validTypes = new Set(catalogCats.filter((x) => next.includes(x.name)).flatMap((x) => x.types))
+                          setBulkCategoryTags(next)
+                          setBulkTypeTags(bulkTypeTags.filter((t) => validTypes.has(t)))
+                        }}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                          sel
+                            ? "border-indigo-500 bg-indigo-600 text-white"
+                            : "border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-slate-900 dark:text-indigo-300",
+                        )}
+                      >
+                        {c.name}
+                      </button>
+                    )
+                  })}
+                </div>
+                {bulkTypes.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {bulkTypes.map((t) => {
+                      const sel = bulkTypeTags.includes(t)
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setBulkTypeTags(sel ? bulkTypeTags.filter((x) => x !== t) : [...bulkTypeTags, t])}
+                          className={cn(
+                            "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                            sel
+                              ? "border-violet-500 bg-violet-600 text-white"
+                              : "border-violet-200 bg-white text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:bg-slate-900 dark:text-violet-300",
+                          )}
+                        >
+                          {t}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    disabled={bulkBusy || bulkCategoryTags.length + bulkTypeTags.length === 0 || counts.CREATE_NEW === 0}
+                    onClick={() => void applyTagsToAll()}
+                  >
+                    {bulkBusy ? "جاري التطبيق..." : `طبّقها على ${counts.CREATE_NEW} مادة جديدة`}
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">تستبدل تاكات كل مادة جديدة بالمختار فوق.</span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
-        <CardContent className="p-0">
-          {visibleItems.map((item) => (
-            <ItemRow
-              key={item.id}
-              item={item}
-              batchId={batchId}
-              highlighted={highlightId === item.id}
-              stillDuplicated={duplicateCodeSet.has((item.newProductDraft?.itemCode || item.itemCode || "").trim())}
-              codeTakenBy={codeTakenBy}
+        <CardContent className="flex flex-col gap-3 p-4">
+          {/* Toolbar: what is left to do, and how to find it. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {([
+              ["ALL", `الكل (${counts.all})`],
+              ["PENDING", `يحتاج قرار (${counts.PENDING})`],
+              ["CREATE_NEW", `جديد (${counts.CREATE_NEW})`],
+              ["LINK_EXISTING", `مرتبط (${counts.LINK_EXISTING})`],
+              ["SKIP", `متخطى (${counts.SKIP})`],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={!onlyUnresolved && filter === value ? "default" : "outline"}
+                onClick={() => { setFilter(value); setOnlyUnresolved(false) }}
+              >
+                {label}
+              </Button>
+            ))}
+            <Input
+              className="ms-auto w-56"
+              placeholder="ابحث بالاسم أو رقم المادة..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
-          ))}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs text-muted-foreground dark:bg-slate-800">
+                <tr>
+                  <th className="p-2"></th>
+                  <th className="p-2 text-right">المادة</th>
+                  <th className="p-2">الكمية</th>
+                  <th className="p-2">الكلفة</th>
+                  <th className="p-2">سعر البيع</th>
+                  <th className="p-2">الحالة</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleItems.map((item) => (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    highlighted={highlightId === item.id}
+                    stillDuplicated={duplicateCodeSet.has((item.newProductDraft?.itemCode || item.itemCode || "").trim())}
+                    onOpen={() => setPanelItemId(item.id)}
+                  />
+                ))}
+                {visibleItems.length === 0 && (
+                  <tr><td colSpan={7} className="p-6 text-center text-muted-foreground">ماكو أصناف بهذا الفلتر</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
+
+      <LandedCostItemPanel
+        item={(batch.items ?? []).find((it) => it.id === panelItemId) ?? null}
+        batchId={batchId}
+        open={panelItemId !== null}
+        onOpenChange={(o) => { if (!o) setPanelItemId(null) }}
+        codeTakenBy={codeTakenBy}
+      />
 
       {awaiting && (
         <Card>

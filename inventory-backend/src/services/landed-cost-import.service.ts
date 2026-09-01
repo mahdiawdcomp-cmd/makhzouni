@@ -301,6 +301,12 @@ export interface ItemDecisionInput {
     category?: string;
     pcsPerCarton?: number;
     imageUrl?: string;
+    // Merchandising + warehouse details the review screen now collects, so a
+    // product created from an order lands complete instead of needing a second
+    // pass on the inventory page.
+    categoryTags?: string[];
+    typeTags?: string[];
+    storageLocation?: string;
   } | null;
 }
 
@@ -553,7 +559,17 @@ async function finalConfirmBatchInTransaction(
       let productId = item.productId;
 
       if (item.action === LandedCostItemAction.CREATE_NEW) {
-        const draft = (item.newProductDraft as { name?: string; itemCode?: string; barcode?: string; category?: string; pcsPerCarton?: number; imageUrl?: string } | null) ?? {};
+        const draft = (item.newProductDraft as {
+          name?: string;
+          itemCode?: string;
+          barcode?: string;
+          category?: string;
+          pcsPerCarton?: number;
+          imageUrl?: string;
+          categoryTags?: string[];
+          typeTags?: string[];
+          storageLocation?: string;
+        } | null) ?? {};
         const confirmedSalePrice = item.confirmedSalePrice != null ? Number(item.confirmedSalePrice) : null;
         if (confirmedSalePrice == null) {
           throw new AppError(`سعر البيع مطلوب لإنشاء المادة "${item.productName}"`, 400, "SALE_PRICE_REQUIRED");
@@ -582,6 +598,10 @@ async function finalConfirmBatchInTransaction(
             name: draft.name || item.productName,
             imageUrl: draft.imageUrl || null,
             category: draft.category,
+            categoryTags: Array.isArray(draft.categoryTags) ? draft.categoryTags : undefined,
+            typeTags: Array.isArray(draft.typeTags) ? draft.typeTags : undefined,
+            storageLocation: draft.storageLocation?.trim() || undefined,
+            qrCode: draft.barcode?.trim() || undefined,
             purchasePrice: Number(item.purchasePrice),
             costPrice: Number(item.landedCostPerUnit),
             salePrice: confirmedSalePrice,
