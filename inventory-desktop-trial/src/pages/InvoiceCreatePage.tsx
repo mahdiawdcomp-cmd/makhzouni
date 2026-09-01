@@ -161,10 +161,45 @@ function itemQuantityInPieces(item: DraftItem) {
 
 function ProductThumb({ product, size = "h-7 w-7" }: { product: Product; size?: string }) {
   const src = product.thumbnailUrl || product.imageUrl
-  if (src) {
-    return <img src={src} alt={product.name} loading="lazy" decoding="async" className={cn(size, "shrink-0 rounded-md object-cover ring-1 ring-slate-200")} />
+  // Hover preview: at row-thumbnail size you cannot tell two similar products
+  // apart, and opening a modal to check costs the invoice line you were on.
+  // Position is FIXED and follows the pointer, so the enlarged image is never
+  // clipped by the table's own horizontal scroll container.
+  const [preview, setPreview] = useState<{ x: number; y: number } | null>(null)
+
+  function track(e: React.MouseEvent) {
+    if (!src) return
+    // Flip to the other side / above when near a screen edge so the preview
+    // always stays fully visible.
+    const w = 260
+    const h = 260
+    const pad = 12
+    const x = Math.min(Math.max(pad, e.clientX + 16), window.innerWidth - w - pad)
+    const y = Math.min(Math.max(pad, e.clientY + 16), window.innerHeight - h - pad)
+    setPreview({ x, y })
   }
-  return <div className={cn(size, "grid shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200")}>{product.itemNumber.slice(0, 3)}</div>
+
+  const thumb = src ? (
+    <img src={src} alt={product.name} loading="lazy" decoding="async" className={cn(size, "shrink-0 rounded-md object-cover ring-1 ring-slate-200")} />
+  ) : (
+    <div className={cn(size, "grid shrink-0 place-items-center rounded-md bg-slate-100 text-[9px] font-bold text-slate-500 ring-1 ring-slate-200")}>{product.itemNumber.slice(0, 3)}</div>
+  )
+
+  if (!src) return thumb
+
+  return (
+    <span className="shrink-0" onMouseEnter={track} onMouseMove={track} onMouseLeave={() => setPreview(null)}>
+      {thumb}
+      {preview && (
+        <span
+          className="pointer-events-none fixed z-[100] block rounded-lg border border-slate-200 bg-white p-1 shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+          style={{ left: preview.x, top: preview.y, width: 260 }}
+        >
+          <img src={src} alt="" className="h-60 w-full rounded-md object-contain" />
+        </span>
+      )}
+    </span>
+  )
 }
 
 // Right-click on a line's product name → quick reference (last price for this
@@ -2465,6 +2500,19 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                         <div className={cn("flex flex-nowrap items-center whitespace-nowrap cursor-context-menu", dz.gap, dz.text)}>
                           <ProductThumb product={item.product} size={dz.thumb} />
                           <span className="font-medium">{item.product.name}</span>
+                          {/* Item number: the number people call the product by
+                              on the phone and on the shelf. It used to be on the
+                              line and its absence made rows hard to identify. */}
+                          {item.product.itemNumber ? (
+                            <span
+                              className={cn(
+                                "rounded bg-indigo-50 px-1 font-bold text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-300",
+                                dz.hint,
+                              )}
+                            >
+                              {item.product.itemNumber}
+                            </span>
+                          ) : null}
                           {(item.product.pcsPerCarton > 1 || showPurchase || showStock) ? (
                             <span className={cn("text-slate-400", dz.hint)}>
                               {[
