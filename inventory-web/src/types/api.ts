@@ -913,6 +913,8 @@ export interface InvoiceItem {
   unitPrice: number
   totalPrice: number
   notes?: string | null
+  /** «تم تجهيز» — the picker's tick on this line. */
+  prepared?: boolean
   /** Carried by the read endpoints so the carton column can be computed. */
   product?: { id: string; name: string; itemNumber?: string | null; pcsPerCarton: number; boxPieces?: number | null }
 }

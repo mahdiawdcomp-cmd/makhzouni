@@ -88,6 +88,9 @@ interface DraftItem {
   warehouseName?: string  // display name when pulling from a non-default warehouse
   allowNegativeStock?: boolean  // seller chose to sell while out of stock (records a deficit)
   notes?: string
+  /** «تم تجهيز» — ticked by whoever pulled this line off the shelf. Saved with
+   *  the invoice, so reopening it shows what is still outstanding. */
+  prepared?: boolean
 }
 
 function stockOf(product: Product) {
@@ -408,7 +411,7 @@ interface PersistedDraft {
   customerId: string | null
   date: string
   paymentMode: PaymentMode
-  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string }>
+  items: Array<{ productId: string; unit: Unit; quantity: number; unitPrice: number; warehouseId?: string; warehouseName?: string; allowNegativeStock?: boolean; notes?: string; prepared?: boolean }>
   discount: number
   paidAmount: number
   invoiceNotes?: string
@@ -546,7 +549,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   // ---- items state ----
   const [items, setItems] = useState<DraftItem[]>([])
-  const [preparedRows, setPreparedRows] = useState<Record<number, boolean>>({})
   // Right-click context menu on a line's product name — see InvoiceLineContextMenu.
   const [lineMenu, setLineMenu] = useState<{ index: number; x: number; y: number } | null>(null)
   const [productModal, setProductModal] = useState(false)
@@ -831,6 +833,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   }, [items, isPurchase])
 
   const hasBelowCost = belowCostItems.size > 0
+  const preparedCount = useMemo(() => items.filter((i) => i.prepared).length, [items])
 
   // Same product added on more than one line — usually a slip during fast entry
   // (scanned twice, added from search then again from a scan). Warning only —
@@ -941,6 +944,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         warehouseId: it.warehouseId,
         warehouseName: wsName,
         notes: it.notes ?? "",
+        // Reopening an invoice must show what was already picked, so the tick
+        // comes back from the saved line rather than resetting to unticked.
+        prepared: Boolean(it.prepared),
       }
     })
 
@@ -1003,7 +1009,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       let dropped = 0
       for (const it of draft.items) {
         const p = products.find((x) => x.id === it.productId)
-        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes })
+        if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes, prepared: it.prepared })
         else dropped += 1
       }
       setItems(restoredItems)
@@ -1161,6 +1167,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
           warehouseName: i.warehouseName,
           allowNegativeStock: i.allowNegativeStock,
           notes: i.notes,
+          prepared: i.prepared,
         })),
         discount,
         paidAmount,
@@ -1619,15 +1626,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   function removeItem(index: number) {
     setItems((current) => current.filter((_, i) => i !== index))
-    setPreparedRows((current) => {
-      const next: Record<number, boolean> = {}
-      Object.entries(current).forEach(([key, value]) => {
-        const rowIndex = Number(key)
-        if (rowIndex < index) next[rowIndex] = value
-        if (rowIndex > index) next[rowIndex - 1] = value
-      })
-      return next
-    })
   }
 
   // Insert a copy of the line right after itself — e.g. same product needed in
@@ -1638,17 +1636,6 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       if (!target) return current
       const next = [...current]
       next.splice(index + 1, 0, { ...target })
-      return next
-    })
-    // Inserting a row shifts every later row's index up by one — re-key
-    // preparedRows (تم تجهيز checkboxes) the same way removeItem does in reverse,
-    // or the checkbox states end up displayed against the wrong rows.
-    setPreparedRows((current) => {
-      const next: Record<number, boolean> = {}
-      Object.entries(current).forEach(([key, value]) => {
-        const rowIndex = Number(key)
-        next[rowIndex <= index ? rowIndex : rowIndex + 1] = value
-      })
       return next
     })
   }
@@ -1862,6 +1849,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             unitPrice: item.unitPrice,
             warehouseId: item.warehouseId,
             notes: item.notes?.trim() || undefined,
+            prepared: Boolean(item.prepared),
           })),
         })
         invoiceSavedRef.current = true
@@ -1909,6 +1897,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         unitPrice: item.unitPrice,
         warehouseId: item.warehouseId,
         notes: item.notes?.trim() || undefined,
+        prepared: Boolean(item.prepared),
         // Authorize the deficit for any sale line that can't be fully covered — by the
         // warehouse it pulls from OR by total stock. allowNegative only *permits* going
         // below zero; it never forces it, so it's safe to set whenever a shortfall is possible.
@@ -2399,7 +2388,22 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showStock ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowStock((v) => !v)}>كمية</button>
           </div>
           {/* Label on the left side */}
-          <span className="text-sm font-semibold text-[color:var(--theme-textPrimary)]">
+          <span className="flex items-center gap-2 text-sm font-semibold text-[color:var(--theme-textPrimary)]">
+            {/* Picking progress — the question this column exists to answer:
+                how much of this invoice is still on the shelf. */}
+            {items.length > 0 && (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[11px] font-bold",
+                  preparedCount === items.length
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+                )}
+                title="عدد الأصناف المجهّزة"
+              >
+                {preparedCount === items.length ? "مجهّزة كلها" : `مجهّز ${preparedCount} من ${items.length}`}
+              </span>
+            )}
             {items.length > 0 ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">{items.length}</span> : null}
             {" "}الأصناف
           </span>
@@ -2491,15 +2495,17 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                     : isPurchase ? stockOf(item.product) < 0 : lineShort
                   return (
                     <Fragment key={index}>
-                    <TR>
+                    {/* A prepared line is tinted green so a picker can see the
+                        remaining work without reading every checkbox. */}
+                    <TR className={item.prepared ? "bg-emerald-50/70 dark:bg-emerald-950/20" : undefined}>
                       <TD className="text-center">
                         <input
                           type="checkbox"
                           className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-emerald-600"
-                          checked={Boolean(preparedRows[index])}
+                          checked={Boolean(item.prepared)}
                           title="تم تجهيز المادة"
                           aria-label={`تم تجهيز ${item.product.name}`}
-                          onChange={(event) => setPreparedRows((current) => ({ ...current, [index]: event.target.checked }))}
+                          onChange={(event) => updateItem(index, { prepared: event.target.checked })}
                         />
                       </TD>
                       <TD

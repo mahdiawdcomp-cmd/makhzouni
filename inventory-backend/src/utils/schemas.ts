@@ -808,6 +808,9 @@ const invoiceItemSchema = z.object({
   // Seller explicitly chose to sell a product that is out of stock — the line is
   // allowed to push warehouse stock negative and is flagged for manager review.
   allowNegativeStock: z.boolean().optional(),
+  // «تم تجهيز». validate() REPLACES req.body with the parsed result, so a field
+  // missing here never reaches the service — the tick would save as always-false.
+  prepared: z.boolean().optional(),
 });
 
 const invoiceTypeSchema = z.enum(["SALE", "PURCHASE", "SALES_RETURN"]);

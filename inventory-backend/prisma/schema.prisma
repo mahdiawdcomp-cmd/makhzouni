@@ -1183,6 +1183,10 @@ model InvoiceItem {
   costPrice   Decimal @default(0) @map("cost_price") @db.Decimal(12, 2)
   totalPrice  Decimal @map("total_price") @db.Decimal(12, 2)
   notes       String? @db.Text
+  // «تم تجهيز» — the picker ticked this line off while pulling the goods.
+  // Purely operational: it never touches stock, money or the books, but it has
+  // to survive a save so reopening the invoice shows what is left to pick.
+  prepared    Boolean @default(false)
 
   @@index([invoiceId])
   @@index([productId])

@@ -88,6 +88,8 @@ export interface InvoiceItemInput {
   // Seller opted to sell while out of stock — allow the line to go negative and
   // flag it for manager review instead of blocking the sale.
   allowNegativeStock?: boolean;
+  // «تم تجهيز» — picker's tick. Stored as-is; affects nothing but the UI.
+  prepared?: boolean;
 }
 
 export interface CreateInvoiceInput {
@@ -1153,6 +1155,7 @@ async function createInvoiceInTransaction(
         costPrice: pricedItem.costSnapshot,
         totalPrice: pricedItem.totalPrice,
         notes: item.notes?.trim() || null,
+        prepared: Boolean(item.prepared),
       },
     });
   }
