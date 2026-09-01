@@ -4472,6 +4472,9 @@ function CartOverlay({
   onGuestName?: (v: string) => void; onGuestPhone?: (v: string) => void; onGuestAddress?: (v: string) => void
   orderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }) {
+  // The details step, opened by the submit button rather than sitting in the
+  // cart. Closing it returns to the basket with everything typed still there.
+  const [detailsStep, setDetailsStep] = useState(false)
   const guestDetailsMissing = Boolean(guestMode) && (
     !guestName?.trim() ||
     (guestPhone?.replace(/\D/g, "").length ?? 0) < 7 ||
@@ -4534,38 +4537,6 @@ function CartOverlay({
 
         {!submitted && cart.length > 0 && (
           <div className="space-y-3 px-4 py-4" style={{ borderTop: `1px solid ${tk.divider}`, background: tk.pillBg }}>
-            {guestMode && (
-              <div className="space-y-2 rounded-xl p-3" style={{ background: tk.cardBg, border: `1px solid ${tk.divider}` }}>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-bold" style={{ color: tk.text }}>بياناتك — لإتمام الطلب والتواصل معك</p>
-                  <button
-                    onClick={onSignIn}
-                    className="shrink-0 font-bold underline underline-offset-2"
-                    style={{ color: tk.accent, fontSize: tk.fs.xs }}>
-                    عندك حساب؟ سجّل دخول
-                  </button>
-                </div>
-                <input value={guestName ?? ""} onChange={(e) => onGuestName?.(e.target.value)}
-                  placeholder="اسمك الكامل" dir="rtl"
-                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
-                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
-                <input value={guestPhone ?? ""} onChange={(e) => onGuestPhone?.(e.target.value)}
-                  placeholder="رقم هاتفك" type="tel" dir="ltr"
-                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
-                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
-                <select value={guestProvince ?? ""} onChange={(e) => onGuestProvince?.(e.target.value)}
-                  dir="rtl"
-                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
-                  style={{ background: tk.bg, color: guestProvince ? tk.text : tk.subtext, border: `1px solid ${tk.divider}` }}>
-                  <option value="">اختر المحافظة</option>
-                  {IRAQI_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
-                </select>
-                <input value={guestAddress ?? ""} onChange={(e) => onGuestAddress?.(e.target.value)}
-                  placeholder="العنوان (اختياري)" dir="rtl"
-                  className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition"
-                  style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
-              </div>
-            )}
             <input value={notes} onChange={(e) => onNotes(e.target.value)}
               placeholder="ملاحظات إضافية (اختياري)"
               className="w-full rounded-xl px-4 py-2.5 text-sm outline-none transition"
@@ -4681,8 +4652,11 @@ function CartOverlay({
             )}
 
             {isError && <p className="text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
-            {guestDetailsMissing && <p className="text-xs" style={{ color: tk.subtext }}>أدخل اسمك ورقم هاتفك لإتمام الطلب</p>}
-            <button disabled={isPending || guestDetailsMissing} onClick={onSubmit}
+            {/* The cart stays a cart. Asking for a name and a phone beside the
+                basket made the shopper read a form before they had decided to
+                order at all — the details come after the decision, not before
+                it. */}
+            <button disabled={isPending} onClick={() => (guestMode ? setDetailsStep(true) : onSubmit())}
               className="w-full py-4 font-extrabold text-white transition active:scale-95 disabled:opacity-50"
               style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
               {isPending ? "جاري الإرسال..." : "إرسال الطلب للمراجعة ✓"}
@@ -4690,6 +4664,92 @@ function CartOverlay({
           </div>
         )}
       </div>
+
+      {/* ══════════════════════════════════════════════════════════════
+          «بياناتك» — the step after the decision, not before it.
+
+          These fields used to sit in the cart itself, so a shopper reading
+          their basket was reading a form at the same time. Now the submit
+          button opens this, the basket total is repeated at the top so they
+          still know what they are agreeing to, and «رجوع» returns to the cart
+          with everything they typed still in it.
+      ══════════════════════════════════════════════════════════════ */}
+      {detailsStep && !submitted && (
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center"
+          dir="rtl" onClick={() => setDetailsStep(false)}>
+          <div className="max-h-[92vh] w-full max-w-[600px] overflow-y-auto rounded-t-3xl p-5 sm:rounded-3xl"
+            style={{ background: tk.cardBg }} onClick={(e) => e.stopPropagation()}>
+
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>بياناتك</p>
+                <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>حتى نتواصل وياك ونوصّل طلبك</p>
+              </div>
+              <button onClick={() => setDetailsStep(false)} className="shrink-0 rounded-xl p-2" style={{ background: tk.catIdle }}>
+                <X className="h-5 w-5" style={{ color: tk.subtext }} />
+              </button>
+            </div>
+
+            {/* What they are agreeing to, repeated — the basket is behind this. */}
+            <div className="mt-3 flex items-center justify-between rounded-xl px-3 py-2.5" style={{ background: tk.pillBg }}>
+              <span style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{cart.length} مادة</span>
+              {allowPrices && (
+                <span className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.md }}>
+                  {money(finalTotal)} د.ع
+                </span>
+              )}
+            </div>
+
+            <button onClick={onSignIn}
+              className="mt-3 w-full text-center font-bold underline underline-offset-2"
+              style={{ color: tk.accent, fontSize: tk.fs.xs }}>
+              عندك حساب؟ سجّل دخول
+            </button>
+
+            <div className="mt-3 space-y-2">
+              <input value={guestName ?? ""} onChange={(e) => onGuestName?.(e.target.value)}
+                placeholder="اسمك الكامل" dir="rtl" autoFocus
+                className="w-full rounded-xl px-3 py-3 text-sm outline-none transition"
+                style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+              <input value={guestPhone ?? ""} onChange={(e) => onGuestPhone?.(e.target.value)}
+                placeholder="رقم هاتفك" type="tel" inputMode="tel" dir="ltr"
+                className="w-full rounded-xl px-3 py-3 text-sm outline-none transition"
+                style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+              <select value={guestProvince ?? ""} onChange={(e) => onGuestProvince?.(e.target.value)}
+                dir="rtl"
+                className="w-full rounded-xl px-3 py-3 text-sm outline-none transition"
+                style={{ background: tk.bg, color: guestProvince ? tk.text : tk.subtext, border: `1px solid ${tk.divider}` }}>
+                <option value="">اختر المحافظة</option>
+                {IRAQI_GOVERNORATES.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <input value={guestAddress ?? ""} onChange={(e) => onGuestAddress?.(e.target.value)}
+                placeholder="العنوان (اختياري)" dir="rtl"
+                className="w-full rounded-xl px-3 py-3 text-sm outline-none transition"
+                style={{ background: tk.bg, color: tk.text, border: `1px solid ${tk.divider}` }} />
+            </div>
+
+            {isError && <p className="mt-2 text-xs text-red-600">تعذر إرسال الطلب. حاول مرة أخرى.</p>}
+            {guestDetailsMissing && (
+              <p className="mt-2" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                الاسم والرقم والمحافظة مطلوبة لإتمام الطلب.
+              </p>
+            )}
+
+            <button
+              disabled={isPending || guestDetailsMissing}
+              onClick={onSubmit}
+              className="mt-3 w-full py-4 font-extrabold text-white transition active:scale-95 disabled:opacity-50"
+              style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
+              {isPending ? "جاري الإرسال..." : "أكّد وأرسل الطلب ✓"}
+            </button>
+            <button onClick={() => setDetailsStep(false)}
+              className="mt-2 w-full py-3 font-bold transition active:scale-95"
+              style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+              رجوع للسلة
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
