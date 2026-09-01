@@ -3694,6 +3694,7 @@ export interface CustomerProfitAudit {
     knownProfit: number
     revenueWithKnownCost: number
     revenueWithoutCost: number
+    returnedRevenue: number
     revenueEstimated: number
     revenueNoCost: number
     knownMarginPercent: number | null
@@ -3720,6 +3721,14 @@ export async function fixInvoiceLineCost(payload: {
 }) {
   const { data } = await api.post<ApiEnvelope<{ linesUpdated: number; productUpdated: boolean }>>(
     "/reports/customer-profit-audit/fix", payload,
+  )
+  return data.data!
+}
+
+/** How many lines a cost fix would touch, asked before it is applied. */
+export async function getCostFixScope(params: { productId: string; customerId?: string }) {
+  const { data } = await api.get<ApiEnvelope<{ thisCustomer: number; everywhere: number }>>(
+    "/reports/customer-profit-audit/fix-scope", { params },
   )
   return data.data!
 }

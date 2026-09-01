@@ -1917,22 +1917,44 @@ export async function getCustomerProfitAudit(query: CustomerProfitAuditQuery) {
   });
   if (!customer) throw new AppError("الزبون غير موجود", 404, "CUSTOMER_NOT_FOUND");
 
-  const items = await prisma.invoiceItem.findMany({
-    where: {
-      invoice: {
-        customerId: query.customerId,
-        type: InvoiceType.SALE,
-        date: dateFilter(query.from, query.to),
+  // ACTIVE only, exactly like getProfitReport. A cancelled invoice is not a
+  // sale: counting one here showed this shop 114M of "revenue" for a customer
+  // whose live sales are a fraction of that, with the same invoice numbers
+  // repeating down the screen.
+  const lineSelect = {
+    id: true, productId: true, productName: true, itemNumber: true,
+    unit: true, quantity: true, unitPrice: true, costPrice: true, totalPrice: true,
+    invoice: { select: { id: true, invoiceNumber: true, date: true } },
+    product: { select: { pcsPerCarton: true, boxPieces: true, costPrice: true, purchasePrice: true, itemNumber: true } },
+  } as const;
+
+  const [items, returnItems] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          customerId: query.customerId,
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALE,
+          date: dateFilter(query.from, query.to),
+        },
       },
-    },
-    select: {
-      id: true, productId: true, productName: true, itemNumber: true,
-      unit: true, quantity: true, unitPrice: true, costPrice: true, totalPrice: true,
-      invoice: { select: { id: true, invoiceNumber: true, date: true } },
-      product: { select: { pcsPerCarton: true, boxPieces: true, costPrice: true, purchasePrice: true, itemNumber: true } },
-    },
-    orderBy: { invoice: { date: "desc" } },
-  });
+      select: lineSelect,
+      orderBy: { invoice: { date: "desc" } },
+    }),
+    // Returns come straight back off the top. Without them a product bought
+    // and sent back still reads as revenue this customer generated.
+    prisma.invoiceItem.findMany({
+      where: {
+        invoice: {
+          customerId: query.customerId,
+          status: InvoiceStatus.ACTIVE,
+          type: InvoiceType.SALES_RETURN,
+          date: dateFilter(query.from, query.to),
+        },
+      },
+      select: lineSelect,
+    }),
+  ]);
 
   const groups = new Map<string, AuditLineGroup>();
   let totalRevenue = 0;
@@ -1957,8 +1979,14 @@ export async function getCustomerProfitAudit(query: CustomerProfitAuditQuery) {
     // The SAME fallback chain getProfitReport uses. Anything else here would
     // quote the merchant a "reported profit" he sees nowhere else.
     const effective = recorded > 0 ? recorded : productCost > 0 ? productCost : productPurchase;
+    // A carton line on a product whose carton size was never set resolves to
+    // ZERO pieces, so its cost multiplies out to zero and the sale reads as
+    // pure profit even though a cost is on file. That is the same lie by a
+    // different route, so it is called unknown rather than counted as
+    // confirmed — inventing a piece count here would be a guess presented as
+    // a fact.
     const source: "RECORDED" | "PRODUCT" | "NONE" =
-      recorded > 0 ? "RECORDED" : effective > 0 ? "PRODUCT" : "NONE";
+      pieces <= 0 ? "NONE" : recorded > 0 ? "RECORDED" : effective > 0 ? "PRODUCT" : "NONE";
 
     const costPerPiece = recorded;
     const revenue = toNumber(it.totalPrice);
@@ -2010,6 +2038,31 @@ export async function getCustomerProfitAudit(query: CustomerProfitAuditQuery) {
     groups.set(key, g);
   }
 
+  // Returns reduce what this customer actually kept — money and pieces both.
+  let returnedRevenue = 0;
+  let returnedCost = 0;
+  for (const it of returnItems) {
+    const pieces = amountInPieces(
+      it.unit, it.quantity, it.product?.pcsPerCarton ?? 1, it.product?.boxPieces ?? null,
+    );
+    const recorded = toNumber(it.costPrice);
+    const productCost = toNumber(it.product?.costPrice ?? 0);
+    const productPurchase = toNumber(it.product?.purchasePrice ?? 0);
+    const effective = recorded > 0 ? recorded : productCost > 0 ? productCost : productPurchase;
+    const revenue = toNumber(it.totalPrice);
+    returnedRevenue = roundMoney(returnedRevenue + revenue);
+    returnedCost = roundMoney(returnedCost + effective * Math.max(0, pieces));
+
+    const g = groups.get(it.productId);
+    if (g) {
+      g.pieces -= pieces;
+      g.revenue = roundMoney(g.revenue - revenue);
+      g.cost = roundMoney(g.cost - roundMoney(effective * pieces));
+    }
+  }
+  totalRevenue = roundMoney(totalRevenue - returnedRevenue);
+  totalCost = roundMoney(totalCost - returnedCost);
+
   const all = [...groups.values()].map((g) => {
     g.profit = roundMoney(g.revenue - g.cost);
     g.costPerPiece = g.pieces > 0 ? roundMoney(g.cost / g.pieces) : 0;
@@ -2042,6 +2095,7 @@ export async function getCustomerProfitAudit(query: CustomerProfitAuditQuery) {
     // knowable. The gap between them is the size of the problem.
     totals: {
       revenue: totalRevenue,
+      returnedRevenue,
       reportedProfit: roundMoney(totalRevenue - totalCost),
       knownProfit: profitOnKnownCost,
       revenueWithKnownCost,
@@ -2101,18 +2155,27 @@ export async function fixInvoiceLineCost(input: FixCostInput, userId: string) {
   });
   if (!product) throw new AppError("المادة غير موجودة", 404, "PRODUCT_NOT_FOUND");
 
+  // The same boundary the audit draws, so the number of lines reported back
+  // is the number the merchant was just looking at:
+  //  - ACTIVE only. A cancelled invoice is not a sale and no report reads it.
+  //  - Sales AND their returns, so a product's cost is the same in both
+  //    directions; costing the sale but not the credit overstates profit.
+  //  - Blanks only, enforced here rather than trusted from the client.
+  const invoiceWhere: Prisma.InvoiceWhereInput = {
+    status: InvoiceStatus.ACTIVE,
+    type: { in: [InvoiceType.SALE, InvoiceType.SALES_RETURN] },
+  };
   const where: Prisma.InvoiceItemWhereInput = {
     productId: input.productId,
-    // The blanks-only rule, enforced here rather than trusted from the client.
     costPrice: 0,
-    invoice: { type: InvoiceType.SALE },
+    invoice: invoiceWhere,
   };
   if (input.scope === "INVOICE") {
     if (!input.invoiceItemId) throw new AppError("حدد السطر المطلوب", 400, "LINE_REQUIRED");
     where.id = input.invoiceItemId;
   } else if (input.scope === "CUSTOMER") {
     if (!input.customerId) throw new AppError("حدد الزبون", 400, "CUSTOMER_REQUIRED");
-    where.invoice = { type: InvoiceType.SALE, customerId: input.customerId };
+    where.invoice = { ...invoiceWhere, customerId: input.customerId };
   }
 
   const updated = await prisma.invoiceItem.updateMany({ where, data: { costPrice: costPerPiece } });
@@ -2143,4 +2206,27 @@ export async function fixInvoiceLineCost(input: FixCostInput, userId: string) {
   });
 
   return { linesUpdated: updated.count, productUpdated: Boolean(input.updateProduct) };
+}
+
+/**
+ * How far a fix would reach, BEFORE it is applied.
+ *
+ * Scope «كل الفواتير» can touch lines across years and customers the merchant
+ * is not looking at. Showing the count first turns an irreversible bulk write
+ * into a decision he can actually make.
+ */
+export async function previewCostFixScope(productId: string, customerId?: string) {
+  const invoiceWhere: Prisma.InvoiceWhereInput = {
+    status: InvoiceStatus.ACTIVE,
+    type: { in: [InvoiceType.SALE, InvoiceType.SALES_RETURN] },
+  };
+  const [thisCustomer, everywhere] = await Promise.all([
+    customerId
+      ? prisma.invoiceItem.count({
+          where: { productId, costPrice: 0, invoice: { ...invoiceWhere, customerId } },
+        })
+      : Promise.resolve(0),
+    prisma.invoiceItem.count({ where: { productId, costPrice: 0, invoice: invoiceWhere } }),
+  ]);
+  return { thisCustomer, everywhere };
 }

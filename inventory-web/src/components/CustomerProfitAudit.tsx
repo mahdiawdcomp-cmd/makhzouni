@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, TrendingUp, X } from "lucide-react"
-import { getCustomerProfitAudit, fixInvoiceLineCost, type AuditGroup } from "../api/endpoints"
+import { getCustomerProfitAudit, fixInvoiceLineCost, getCostFixScope, type AuditGroup } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
@@ -249,6 +249,16 @@ function FixCostDialog({ group, customerId, onClose, onDone }: {
   const [invoiceItemId, setInvoiceItemId] = useState(group.lines[0]?.invoiceItemId ?? "")
   const [updateProduct, setUpdateProduct] = useState(true)
 
+  // How far each scope actually reaches. Asked before the write, because
+  // «كل الفواتير» can rewrite lines across years and customers the merchant is
+  // not looking at, and a count is the difference between a decision and a
+  // guess.
+  const scopeQuery = useQuery({
+    queryKey: ["cost-fix-scope", group.productId, customerId],
+    queryFn: () => getCostFixScope({ productId: group.productId, customerId }),
+  })
+  const reach = scopeQuery.data
+
   const mut = useMutation({
     mutationFn: () => fixInvoiceLineCost({
       productId: group.productId,
@@ -269,6 +279,7 @@ function FixCostDialog({ group, customerId, onClose, onDone }: {
   })
 
   const valid = Number(cost) > 0 && (scope !== "INVOICE" || Boolean(invoiceItemId))
+  const willTouch = scope === "INVOICE" ? 1 : scope === "CUSTOMER" ? reach?.thisCustomer : reach?.everywhere
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" dir="rtl" onClick={onClose}>
@@ -283,8 +294,16 @@ function FixCostDialog({ group, customerId, onClose, onDone }: {
         <div className="mt-1.5 space-y-1.5">
           {([
             { v: "INVOICE" as const, label: "هذي الفاتورة بس", desc: "سطر واحد تختاره" },
-            { v: "CUSTOMER" as const, label: "كل فواتير هذا الزبون", desc: "أسطر هذي المادة عنده الي بلا كلفة" },
-            { v: "ALL" as const, label: "كل الفواتير بالنظام", desc: "أسطر هذي المادة عند كل الزبائن الي بلا كلفة" },
+            {
+              v: "CUSTOMER" as const,
+              label: "كل فواتير هذا الزبون",
+              desc: reach ? `${reach.thisCustomer} سطر بلا كلفة عند هذا الزبون` : "أسطر هذي المادة عنده الي بلا كلفة",
+            },
+            {
+              v: "ALL" as const,
+              label: "كل الفواتير بالنظام",
+              desc: reach ? `${reach.everywhere} سطر بلا كلفة عند كل الزبائن` : "أسطر هذي المادة عند كل الزبائن الي بلا كلفة",
+            },
           ]).map((o) => (
             <button key={o.v} type="button" onClick={() => setScope(o.v)}
               className={cn(
@@ -321,12 +340,12 @@ function FixCostDialog({ group, customerId, onClose, onDone }: {
 
         <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-400">
           يملأ الأسطر الفارغة بس — أي سطر عنده سعر شراء مسجّل ما ينلمس.
-          النقاط والفواتير والأرصدة ما تتغير، الي يتغير هو حساب ربحك.
+          الفواتير الملغاة ما تدخل. النقاط والفواتير والأرصدة ما تتغير، الي يتغير هو حساب ربحك.
         </p>
 
         <div className="mt-4 flex gap-2">
           <Button className="flex-1" disabled={!valid || mut.isPending} onClick={() => mut.mutate()}>
-            {mut.isPending ? "جاري التصليح..." : "صلّح"}
+            {mut.isPending ? "جاري التصليح..." : willTouch != null ? `صلّح ${willTouch} سطر` : "صلّح"}
           </Button>
           <Button variant="outline" onClick={onClose}>إلغاء</Button>
         </div>

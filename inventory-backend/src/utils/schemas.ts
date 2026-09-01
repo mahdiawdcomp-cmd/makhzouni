@@ -1691,3 +1691,10 @@ export const fixInvoiceLineCostSchema = z.object({
     updateProduct: z.coerce.boolean().optional(),
   }),
 });
+
+export const costFixScopePreviewSchema = z.object({
+  query: z.object({
+    productId: z.string().uuid(),
+    customerId: z.string().uuid().optional(),
+  }),
+});

@@ -265,3 +265,10 @@ export const fixInvoiceLineCost = asyncHandler(async (req, res) => {
   const data = await fix(req.body as Parameters<typeof fix>[0], req.user!.id);
   res.json({ success: true, data });
 });
+
+/** How many lines a cost fix would touch, before it is applied. */
+export const costFixScopePreview = asyncHandler(async (req, res) => {
+  const { previewCostFixScope } = await import("../services/report.service");
+  const q = req.validatedQuery as { productId: string; customerId?: string };
+  res.json({ success: true, data: await previewCostFixScope(q.productId, q.customerId) });
+});
