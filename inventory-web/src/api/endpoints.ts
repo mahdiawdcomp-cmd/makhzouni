@@ -3652,3 +3652,74 @@ export async function getInstagramQueuePosts(queueId: string) {
   const { data } = await api.get<ApiEnvelope<InstagramPost[]>>(`/instagram/queues/${queueId}/posts`)
   return data.data ?? []
 }
+
+/* ── «تدقيق ربح الزبون» ─────────────────────────────────────────────── */
+
+export interface AuditGroup {
+  productId: string
+  productName: string
+  itemNumber: string | null
+  pieces: number
+  revenue: number
+  costPerPiece: number
+  cost: number
+  profit: number
+  /** Null means there is no cost to compare against — unknown, not 100%. */
+  marginPercent: number | null
+  /** RECORDED = frozen at sale time. PRODUCT = the report is guessing with
+   *  today's product cost. NONE = the sale reads as pure profit. */
+  costSource: "RECORDED" | "PRODUCT" | "NONE"
+  productCostPrice: number
+  productPurchasePrice: number
+  lines: Array<{
+    invoiceItemId: string
+    invoiceId: string
+    invoiceNumber: string
+    date: string
+    unit: string
+    quantity: number
+    pieces: number
+    unitPrice: number
+    revenue: number
+    costPerPiece: number
+  }>
+}
+
+export interface CustomerProfitAudit {
+  customer: { id: string; name: string; phone: string }
+  minMarginPercent: number
+  totals: {
+    revenue: number
+    reportedProfit: number
+    knownProfit: number
+    revenueWithKnownCost: number
+    revenueWithoutCost: number
+    revenueEstimated: number
+    revenueNoCost: number
+    knownMarginPercent: number | null
+  }
+  highMargin: AuditGroup[]
+  noCost: AuditGroup[]
+  estimated: AuditGroup[]
+}
+
+export async function getCustomerProfitAudit(params: {
+  customerId: string; minMarginPercent?: number; from?: string; to?: string
+}) {
+  const { data } = await api.get<ApiEnvelope<CustomerProfitAudit>>("/reports/customer-profit-audit", { params })
+  return data.data!
+}
+
+export async function fixInvoiceLineCost(payload: {
+  productId: string
+  costPerPiece: number
+  scope: "INVOICE" | "CUSTOMER" | "ALL"
+  invoiceItemId?: string
+  customerId?: string
+  updateProduct?: boolean
+}) {
+  const { data } = await api.post<ApiEnvelope<{ linesUpdated: number; productUpdated: boolean }>>(
+    "/reports/customer-profit-audit/fix", payload,
+  )
+  return data.data!
+}

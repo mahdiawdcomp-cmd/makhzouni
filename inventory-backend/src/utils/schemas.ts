@@ -1671,3 +1671,23 @@ export const setMerchandisingSchema = z.object({
     offerEndsAt: z.string().trim().max(40).nullable().optional(),
   }),
 });
+
+export const customerProfitAuditSchema = z.object({
+  query: z.object({
+    customerId: z.string().uuid(),
+    minMarginPercent: z.coerce.number().min(0).max(100).optional(),
+    from: z.string().trim().optional(),
+    to: z.string().trim().optional(),
+  }),
+});
+
+export const fixInvoiceLineCostSchema = z.object({
+  body: z.object({
+    productId: z.string().uuid(),
+    costPerPiece: z.coerce.number().positive(),
+    scope: z.enum(["INVOICE", "CUSTOMER", "ALL"]),
+    invoiceItemId: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+    updateProduct: z.coerce.boolean().optional(),
+  }),
+});

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, FileText, Link2, MessageCircle, Pencil, Send, Trash2 } from "lucide-react"
+import { ArrowRight, Copy, FileText, Link2, MessageCircle, Pencil, Send, TrendingUp, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
+import { CustomerProfitAudit } from "../components/CustomerProfitAudit"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
@@ -82,6 +83,7 @@ export function CustomerDetailPage() {
   const vouchers = details.vouchersQuery.data ?? []
   const last = details.lastTransactionQuery.data
   const settings = useSettings().data
+  const [auditOpen, setAuditOpen] = useState(false)
   const [portalEnabled, setPortalEnabled] = useState(customer?.portalLinkEnabled ?? false)
 
   useEffect(() => {
@@ -299,6 +301,9 @@ export function CustomerDetailPage() {
             <Send className={`h-4 w-4 text-sky-600 ${sendPortalLinkMutation.isPending ? "animate-pulse" : ""}`} />
             إرسال رابط العميل الإلكتروني
           </Button>
+          <Button variant="outline" onClick={() => setAuditOpen(true)}>
+            <TrendingUp className="h-4 w-4 text-amber-600" /> تدقيق الربح
+          </Button>
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>
       </div>
@@ -381,6 +386,10 @@ export function CustomerDetailPage() {
       </Card>
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
+
+      {auditOpen && customer && (
+        <CustomerProfitAudit customerId={customer.id} onClose={() => setAuditOpen(false)} />
+      )}
 
       <ModalForm
         open={pdfDialogOpen}

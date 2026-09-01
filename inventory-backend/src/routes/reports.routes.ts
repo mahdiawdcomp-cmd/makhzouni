@@ -16,6 +16,8 @@ import {
   inventoryValuationReport,
   productMovementReport,
   profitReport,
+  customerProfitAudit,
+  fixInvoiceLineCost,
   warehouseComparisonReport,
   crossSellReport,
   storeBrainReport,
@@ -25,7 +27,7 @@ import {
   topCustomersReport,
 } from "../controllers/reports.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { requireProfitReports } from "../middleware/permission.middleware";
+import { requirePermission, requireProfitReports } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   customerDebtsReportSchema,
@@ -33,6 +35,8 @@ import {
   dailyAssistantSchema,
   productMovementReportSchema,
   profitReportSchema,
+  customerProfitAuditSchema,
+  fixInvoiceLineCostSchema,
   warehouseComparisonReportSchema,
   crossSellReportSchema,
   storeBrainReportSchema,
@@ -63,6 +67,11 @@ router.get("/customers/statements-export", validate(customerStatementsExportSche
 // Profit + store-brain expose full financial margins — gated by the profit-visibility
 // capability, which (unlike every other permission) can be revoked even from an ADMIN.
 router.get("/profit", requireProfitReports(), validate(profitReportSchema), profitReport);
+// Exposes per-line cost and margin, so it sits behind the same profit gate.
+// The fix WRITES a recorded cost onto historical invoice lines, which is a
+// product-data change on top of a profit read — hence both guards.
+router.get("/customer-profit-audit", requireProfitReports(), validate(customerProfitAuditSchema), customerProfitAudit);
+router.post("/customer-profit-audit/fix", requireProfitReports(), requirePermission("MANAGE_PRODUCTS"), validate(fixInvoiceLineCostSchema), fixInvoiceLineCost);
 router.get("/warehouse-comparison", requireProfitReports(), validate(warehouseComparisonReportSchema), warehouseComparisonReport);
 // Not profit-gated — pair counts only, no revenue/margin, useful to any staff.
 router.get("/cross-sell", validate(crossSellReportSchema), crossSellReport);

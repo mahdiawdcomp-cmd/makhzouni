@@ -249,3 +249,19 @@ export const sendInactiveReminder = asyncHandler(async (req, res) => {
 
   res.json({ success: true, data: { sent, failed, errors } });
 });
+
+/** «تدقيق ربح الزبون» — which lines are inflating his profit, and by how much. */
+export const customerProfitAudit = asyncHandler(async (req, res) => {
+  const { getCustomerProfitAudit } = await import("../services/report.service");
+  const data = await getCustomerProfitAudit(
+    req.validatedQuery as Parameters<typeof getCustomerProfitAudit>[0]
+  );
+  res.json({ success: true, data });
+});
+
+/** Fill in a purchase price that was never recorded. Blanks only. */
+export const fixInvoiceLineCost = asyncHandler(async (req, res) => {
+  const { fixInvoiceLineCost: fix } = await import("../services/report.service");
+  const data = await fix(req.body as Parameters<typeof fix>[0], req.user!.id);
+  res.json({ success: true, data });
+});

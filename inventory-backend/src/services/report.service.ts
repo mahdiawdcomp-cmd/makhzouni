@@ -1848,3 +1848,299 @@ export async function getDebtAging() {
     };
   });
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   «تدقيق ربح الزبون» — where the numbers are lying, and by how much
+
+   A product sold before anyone filled in its purchase price carries a cost of
+   zero, and every profit figure downstream then reads that sale as pure
+   profit. On this shop that is 1,060 sale lines out of 10,373 — a tenth of
+   them — so the profit the merchant is pricing discounts against is
+   materially higher than what he actually made.
+
+   This does not fix anything by itself. It shows, per customer, which lines
+   are suspicious and what they are doing to his profit, so he can correct the
+   cost with the numbers in front of him.
+══════════════════════════════════════════════════════════════════════ */
+
+export interface CustomerProfitAuditQuery {
+  customerId: string;
+  /** Lines at or above this margin are flagged. Percent, 0–100. */
+  minMarginPercent?: number;
+  from?: string;
+  to?: string;
+}
+
+export interface AuditLineGroup {
+  productId: string;
+  productName: string;
+  itemNumber: string | null;
+  /** How many pieces of it this customer bought in the window. */
+  pieces: number;
+  revenue: number;
+  /** Per PIECE, as recorded on the invoice lines. 0 = never filled in. */
+  costPerPiece: number;
+  /**
+   * Where the cost the PROFIT REPORT uses actually comes from:
+   * RECORDED — frozen on the invoice line, the only trustworthy one.
+   * PRODUCT  — the line was blank, so the report falls back to the product
+   *            card's cost TODAY, which may be nothing like the cost then.
+   * NONE     — nothing anywhere, so the report reads the sale as pure profit.
+   */
+  costSource: "RECORDED" | "PRODUCT" | "NONE";
+  cost: number;
+  profit: number;
+  /** Null when there is no cost to compare against — an unknown, not 100%. */
+  marginPercent: number | null;
+  /** What the product card says now, for a merchant deciding what to enter. */
+  productCostPrice: number;
+  productPurchasePrice: number;
+  lines: Array<{
+    invoiceItemId: string;
+    invoiceId: string;
+    invoiceNumber: string;
+    date: string;
+    unit: string;
+    quantity: number;
+    pieces: number;
+    unitPrice: number;
+    revenue: number;
+    costPerPiece: number;
+  }>;
+}
+
+export async function getCustomerProfitAudit(query: CustomerProfitAuditQuery) {
+  const minMargin = Math.max(0, Math.min(100, Number(query.minMarginPercent ?? 30)));
+  const customer = await prisma.customer.findFirst({
+    where: { id: query.customerId, deletedAt: null },
+    select: { id: true, name: true, phone: true },
+  });
+  if (!customer) throw new AppError("الزبون غير موجود", 404, "CUSTOMER_NOT_FOUND");
+
+  const items = await prisma.invoiceItem.findMany({
+    where: {
+      invoice: {
+        customerId: query.customerId,
+        type: InvoiceType.SALE,
+        date: dateFilter(query.from, query.to),
+      },
+    },
+    select: {
+      id: true, productId: true, productName: true, itemNumber: true,
+      unit: true, quantity: true, unitPrice: true, costPrice: true, totalPrice: true,
+      invoice: { select: { id: true, invoiceNumber: true, date: true } },
+      product: { select: { pcsPerCarton: true, boxPieces: true, costPrice: true, purchasePrice: true, itemNumber: true } },
+    },
+    orderBy: { invoice: { date: "desc" } },
+  });
+
+  const groups = new Map<string, AuditLineGroup>();
+  let totalRevenue = 0;
+  let totalCost = 0;
+  let revenueWithKnownCost = 0;
+  let profitOnKnownCost = 0;
+  // Split, because they are different lies. Estimated revenue has roughly the
+  // right profit attached; no-cost revenue is being counted as pure profit.
+  let revenueEstimated = 0;
+  let revenueNoCost = 0;
+
+  for (const it of items) {
+    const pieces = amountInPieces(
+      it.unit,
+      it.quantity,
+      it.product?.pcsPerCarton ?? 1,
+      it.product?.boxPieces ?? null,
+    );
+    const recorded = toNumber(it.costPrice);
+    const productCost = toNumber(it.product?.costPrice ?? 0);
+    const productPurchase = toNumber(it.product?.purchasePrice ?? 0);
+    // The SAME fallback chain getProfitReport uses. Anything else here would
+    // quote the merchant a "reported profit" he sees nowhere else.
+    const effective = recorded > 0 ? recorded : productCost > 0 ? productCost : productPurchase;
+    const source: "RECORDED" | "PRODUCT" | "NONE" =
+      recorded > 0 ? "RECORDED" : effective > 0 ? "PRODUCT" : "NONE";
+
+    const costPerPiece = recorded;
+    const revenue = toNumber(it.totalPrice);
+    const cost = roundMoney(effective * pieces);
+
+    totalRevenue = roundMoney(totalRevenue + revenue);
+    totalCost = roundMoney(totalCost + cost);
+    // Only a cost frozen on the line at sale time is a fact. A product-card
+    // fallback is today's number applied to an old sale, and no cost at all is
+    // the sale reading as pure profit — neither belongs in "confirmed".
+    if (source === "RECORDED") {
+      revenueWithKnownCost = roundMoney(revenueWithKnownCost + revenue);
+      profitOnKnownCost = roundMoney(profitOnKnownCost + (revenue - cost));
+    } else if (source === "PRODUCT") {
+      revenueEstimated = roundMoney(revenueEstimated + revenue);
+    } else {
+      revenueNoCost = roundMoney(revenueNoCost + revenue);
+    }
+
+    const key = it.productId;
+    const g = groups.get(key) ?? {
+      productId: it.productId,
+      productName: it.productName,
+      itemNumber: it.itemNumber ?? it.product?.itemNumber ?? null,
+      pieces: 0, revenue: 0, costPerPiece: 0, cost: 0, profit: 0, marginPercent: null,
+      costSource: source,
+      productCostPrice: toNumber(it.product?.costPrice ?? 0),
+      productPurchasePrice: toNumber(it.product?.purchasePrice ?? 0),
+      lines: [],
+    };
+    g.pieces += pieces;
+    g.revenue = roundMoney(g.revenue + revenue);
+    g.cost = roundMoney(g.cost + cost);
+    g.lines.push({
+      invoiceItemId: it.id,
+      invoiceId: it.invoice.id,
+      invoiceNumber: it.invoice.invoiceNumber,
+      date: it.invoice.date.toISOString(),
+      unit: it.unit,
+      quantity: it.quantity,
+      pieces,
+      unitPrice: toNumber(it.unitPrice),
+      revenue,
+      costPerPiece,
+    });
+    // A group is only as trustworthy as its weakest line.
+    if (source === "NONE") g.costSource = "NONE";
+    else if (source === "PRODUCT" && g.costSource === "RECORDED") g.costSource = "PRODUCT";
+    groups.set(key, g);
+  }
+
+  const all = [...groups.values()].map((g) => {
+    g.profit = roundMoney(g.revenue - g.cost);
+    g.costPerPiece = g.pieces > 0 ? roundMoney(g.cost / g.pieces) : 0;
+    // A line with no cost has an UNKNOWN margin, not a 100% one. Reporting it
+    // as 100% is exactly the lie this screen exists to expose, so it is left
+    // null and shown in its own bucket instead.
+    g.marginPercent = g.cost > 0 && g.revenue > 0
+      ? roundMoney(((g.revenue - g.cost) / g.revenue) * 100)
+      : null;
+    return g;
+  });
+
+  // Three buckets, because they are three different problems. Lumping the
+  // guessed ones in with the unknown ones would send the merchant chasing
+  // lines whose profit is roughly right.
+  const noCost = all
+    .filter((g) => g.costSource === "NONE")
+    .sort((a, b) => b.revenue - a.revenue);
+  const estimated = all
+    .filter((g) => g.costSource === "PRODUCT")
+    .sort((a, b) => b.revenue - a.revenue);
+  const highMargin = all
+    .filter((g) => g.costSource === "RECORDED" && g.marginPercent != null && g.marginPercent >= minMargin)
+    .sort((a, b) => (b.marginPercent ?? 0) - (a.marginPercent ?? 0));
+
+  return {
+    customer,
+    minMarginPercent: minMargin,
+    // The headline pair: what the reports currently say, and what is actually
+    // knowable. The gap between them is the size of the problem.
+    totals: {
+      revenue: totalRevenue,
+      reportedProfit: roundMoney(totalRevenue - totalCost),
+      knownProfit: profitOnKnownCost,
+      revenueWithKnownCost,
+      /** Revenue whose profit is a guess or a fiction — not recorded at sale time. */
+      revenueWithoutCost: roundMoney(totalRevenue - revenueWithKnownCost),
+      /** Costed from the product card today, not from the sale. Roughly right. */
+      revenueEstimated,
+      /** No cost anywhere — the reports read this as pure profit. */
+      revenueNoCost,
+      /** Margin on the part that is actually knowable. */
+      knownMarginPercent: revenueWithKnownCost > 0
+        ? roundMoney((profitOnKnownCost / revenueWithKnownCost) * 100)
+        : null,
+    },
+    highMargin,
+    noCost,
+    estimated,
+  };
+}
+
+export interface FixCostInput {
+  productId: string;
+  /** Per PIECE, the same unit invoice lines store. */
+  costPerPiece: number;
+  /**
+   * INVOICE — one line. CUSTOMER — every zero-cost line of this product for
+   * this customer. ALL — every zero-cost line of this product, anywhere.
+   */
+  scope: "INVOICE" | "CUSTOMER" | "ALL";
+  invoiceItemId?: string;
+  customerId?: string;
+  /** Also write it onto the product card, so the next sale is right by itself. */
+  updateProduct?: boolean;
+}
+
+/**
+ * Fill in a cost that was never recorded.
+ *
+ * Only ever fills BLANKS — a line that already carries a cost is left alone
+ * even when it falls inside the chosen scope. Overwriting a real recorded cost
+ * with today's guess would destroy correct history to fix an incorrect one,
+ * and the merchant asked for precise work.
+ *
+ * Loyalty points are deliberately untouched. A zero-cost line earned zero
+ * points at the time, and Invoice.loyaltyPointsEarned is the frozen figure
+ * that cancel/delete subtracts back off verbatim — recomputing it here would
+ * break that reversal and leave balances that can never be unwound.
+ */
+export async function fixInvoiceLineCost(input: FixCostInput, userId: string) {
+  const costPerPiece = Number(input.costPerPiece);
+  if (!Number.isFinite(costPerPiece) || costPerPiece <= 0) {
+    throw new AppError("سعر الشراء لازم يكون رقم أكبر من صفر", 400, "INVALID_COST");
+  }
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, deletedAt: null },
+    select: { id: true, name: true },
+  });
+  if (!product) throw new AppError("المادة غير موجودة", 404, "PRODUCT_NOT_FOUND");
+
+  const where: Prisma.InvoiceItemWhereInput = {
+    productId: input.productId,
+    // The blanks-only rule, enforced here rather than trusted from the client.
+    costPrice: 0,
+    invoice: { type: InvoiceType.SALE },
+  };
+  if (input.scope === "INVOICE") {
+    if (!input.invoiceItemId) throw new AppError("حدد السطر المطلوب", 400, "LINE_REQUIRED");
+    where.id = input.invoiceItemId;
+  } else if (input.scope === "CUSTOMER") {
+    if (!input.customerId) throw new AppError("حدد الزبون", 400, "CUSTOMER_REQUIRED");
+    where.invoice = { type: InvoiceType.SALE, customerId: input.customerId };
+  }
+
+  const updated = await prisma.invoiceItem.updateMany({ where, data: { costPrice: costPerPiece } });
+
+  if (input.updateProduct) {
+    await prisma.product.update({
+      where: { id: input.productId },
+      data: { costPrice: costPerPiece, purchasePrice: costPerPiece },
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "INVOICE_LINE_COST_BACKFILLED",
+      entity: "Product",
+      recordId: input.productId,
+      metadata: {
+        productName: product.name,
+        costPerPiece,
+        scope: input.scope,
+        linesUpdated: updated.count,
+        customerId: input.customerId ?? null,
+        invoiceItemId: input.invoiceItemId ?? null,
+        productUpdated: Boolean(input.updateProduct),
+      } as Prisma.InputJsonValue,
+    },
+  });
+
+  return { linesUpdated: updated.count, productUpdated: Boolean(input.updateProduct) };
+}
