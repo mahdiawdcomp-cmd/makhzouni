@@ -1,5 +1,11 @@
 import { catalogText, resolveCartTier, type CatalogLayout } from "../utils/catalogLayout"
 import { IRAQI_GOVERNORATES } from "../utils/governorates"
+import {
+  deliveryLineFor,
+  hasFullCartonOf,
+  resolveCatalogEntry,
+  shouldDisplay,
+} from "../utils/catalogAccess"
 import React, { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
@@ -306,9 +312,8 @@ const maxQty = (product: PublicCatalogProduct, unit: CatalogUnit) =>
   Math.floor(product.currentStock / pcs(product, unit))
 
 // Carton-only catalog: a product is sellable only if it has at least one full
-// carton. Products with pcsPerCarton ≤ 0 (or no carton size) never qualify.
-const hasFullCarton = (product: PublicCatalogProduct) =>
-  product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton
+// carton. Lives in utils/catalogAccess so the rule can be tested on its own.
+const hasFullCarton = hasFullCartonOf
 
 // Samples key separately from a normal piece of the same product, so asking
 // for a sample never merges into — or silently inflates — a real order line.
@@ -376,84 +381,67 @@ export function PublicCatalogPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionQuery.isError])
 
-  if (!accessToken) {
-    if (guestConfigQuery.isLoading)
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
-          <div className="flex flex-col items-center gap-3 text-gray-400">
-            <ShoppingBag className="h-10 w-10 animate-pulse" />
-            <p className="text-sm font-medium">جاري فتح المتجر...</p>
-          </div>
-        </div>
-      )
-    // Signing in is the way into the shop now. Guest browsing stays available
-    // only while the merchant explicitly leaves it on, and the old per-customer
-    // ?access= links keep working because the token is read before this point.
-    // A visitor session outranks everything below it: they proved a code, so
-    // they are a known person with their own price permission, their own name
-    // and their own order history. Opening the shop to strangers used to
-    // demote them to anonymous — no prices even when the shop had opened
-    // prices FOR THEM, no name at checkout, and orders that arrived unlinked
-    // to the account they signed into.
-    if (visitorToken && visitorQuery.data) {
-      const visitor = visitorQuery.data
-      if (!visitor.detailsSubmitted) {
-        return (
-          <VisitorDetailsGate
-            token={visitorToken}
-            phone={visitor.phone}
-            onDone={() => visitorQuery.refetch()}
-          />
-        )
-      }
-      return (
-        <CatalogShop
-          accessToken="" visitorToken={visitorToken}
-          allowPrices={visitor.pricesUnlocked} showStock stockFilter="FULL_CARTON_ONLY"
-          customerId="" customerName={visitor.name ?? ""} customerPhone={visitor.phone}
-          visitorProvince={visitor.province ?? ""}
-          guestMode
-          priceRequestPending={visitor.priceRequestPending}
-          onPricesRequested={() => visitorQuery.refetch()}
-        />
-      )
-    }
-    if (visitorToken && visitorQuery.isLoading) {
-      return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
-          <div className="flex flex-col items-center gap-3 text-gray-400">
-            <ShoppingBag className="h-10 w-10 animate-pulse" />
-            <p className="text-sm font-medium">جاري فتح المتجر...</p>
-          </div>
-        </div>
-      )
-    }
-    if (guestConfigQuery.data?.guestModeEnabled) {
-      // With the gate off, people look first and identify at checkout — the
-      // shop trades on impulse, and asking for a phone before showing a single
-      // product turns browsers away at the door.
-      // Anonymous browsing used to hardcode "no prices", so the shop-wide
-      // price switch could never reach anyone without an account no matter
-      // what it was set to. It is its own switch now, and this reads it.
-      const guestPrices = guestConfigQuery.data?.guestPricesVisible === true
-      if (guestConfigQuery.data?.guestPhoneGate === false) {
-        return (
-          <CatalogShop
-            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
-            customerId="" customerName="" customerPhone="" guestMode
-          />
-        )
-      }
-      return (
-        <GuestPhoneGate>
-          <CatalogShop
-            accessToken="" allowPrices={guestPrices} showStock stockFilter="FULL_CARTON_ONLY"
-            customerId="" customerName="" customerPhone="" guestMode
-          />
-        </GuestPhoneGate>
-      )
-    }
-    return <LoginGate onAccess={handleAccess} onVisitor={handleVisitor} />
+  // One decision, made in one place and tested on its own: which storefront
+  // this person gets. The branches used to be an ordered chain of early
+  // returns here, where the order WAS the rule — which is how opening the
+  // shop to strangers came to outrank a signed-in visitor.
+  const entry = resolveCatalogEntry({
+    accessToken,
+    visitorToken,
+    visitor: visitorQuery.data ?? null,
+    visitorLoading: visitorQuery.isLoading,
+    guestConfig: guestConfigQuery.data ?? null,
+    guestConfigLoading: guestConfigQuery.isLoading,
+  })
+
+  const opening = (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50" dir="rtl">
+      <div className="flex flex-col items-center gap-3 text-gray-400">
+        <ShoppingBag className="h-10 w-10 animate-pulse" />
+        <p className="text-sm font-medium">جاري فتح المتجر...</p>
+      </div>
+    </div>
+  )
+
+  if (entry.screen === "LOADING") return opening
+  if (entry.screen === "LOGIN") return <LoginGate onAccess={handleAccess} onVisitor={handleVisitor} />
+
+  if (entry.screen === "VISITOR_DETAILS") {
+    return (
+      <VisitorDetailsGate
+        token={visitorToken}
+        phone={visitorQuery.data?.phone ?? ""}
+        onDone={() => visitorQuery.refetch()}
+      />
+    )
+  }
+
+  if (entry.screen === "VISITOR") {
+    const visitor = visitorQuery.data!
+    return (
+      <CatalogShop
+        accessToken="" visitorToken={visitorToken}
+        allowPrices={entry.allowPrices} showStock stockFilter="FULL_CARTON_ONLY"
+        customerId="" customerName={visitor.name ?? ""} customerPhone={visitor.phone}
+        visitorProvince={visitor.province ?? ""}
+        guestMode
+        priceRequestPending={visitor.priceRequestPending}
+        onPricesRequested={() => visitorQuery.refetch()}
+      />
+    )
+  }
+
+  if (entry.screen === "GUEST") {
+    const shop = (
+      <CatalogShop
+        accessToken="" allowPrices={entry.allowPrices} showStock stockFilter="FULL_CARTON_ONLY"
+        customerId="" customerName="" customerPhone="" guestMode
+      />
+    )
+    // With the gate off, people look first and identify at checkout — the shop
+    // trades on impulse, and asking for details before showing a single
+    // product turns browsers away at the door.
+    return entry.gated ? <GuestPhoneGate>{shop}</GuestPhoneGate> : shop
   }
 
   if (sessionQuery.isPending || sessionQuery.isLoading)
@@ -1049,15 +1037,10 @@ function CatalogShop({
   // Ordering is still carton-only either way. Guests are always carton-only.
   const inStock = (p: PublicCatalogProduct) =>
     guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
-  const canDisplay = (p: PublicCatalogProduct) => {
-    if (!inStock(p)) return false
-    const pictured = p.hasImage ?? Boolean(p.thumbnailUrl)
-    // The pictureless view is the exact complement of the normal grid: every
-    // product belongs to one side or the other, never to both and never to
-    // neither. Nothing is filtered out of search, cart or stock either way.
-    if (noImageMode) return !pictured
-    return pictured || !hideNoImage
-  }
+  // The rule itself lives in utils/catalogAccess, where it is tested — this
+  // only supplies the four switches it reads.
+  const canDisplay = (p: PublicCatalogProduct) =>
+    shouldDisplay(p, { guestMode, stockFilter, hideNoImage, noImageMode })
   const productsQuery = useQuery({
     queryKey: visitorToken
       ? ["visitor-catalog-products", visitorToken]
@@ -1620,15 +1603,7 @@ function CatalogShop({
   // two settings — so the shop cannot promise a guest one thing and a
   // customer another. Declared here, after `design` exists: reading it from
   // above would be a closure over a value that has not been created yet.
-  const guestDeliveryLine = (() => {
-    const province = guestProvince.trim()
-    const d = design?.delivery
-    if (!guestMode || !province || !d) return null
-    if ((d.northGovernorates ?? []).includes(province)) {
-      return "التوصيل لمنطقتك حسب البضاعة — نحسبه ونبلغك."
-    }
-    return `توصيل مجاني للطلبات فوق ${Number(d.freeShippingThreshold || 0).toLocaleString("en-US")} دينار.`
-  })()
+  const guestDeliveryLine = guestMode ? deliveryLineFor(guestProvince, design?.delivery) : null
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
