@@ -1,7 +1,7 @@
 import { catalogText, resolveCartTier, type CatalogLayout } from "../utils/catalogLayout"
 import { IRAQI_GOVERNORATES } from "../utils/governorates"
 import { StudioGallery, StudioViewer, type StudioAlbum } from "../components/catalog/StudioGallery"
-import { useBackClose } from "../hooks/useBackClose"
+import { useBackGuard } from "../hooks/useBackClose"
 import {
   deliveryLineFor,
   hasFullCartonOf,
@@ -803,6 +803,23 @@ function ProvinceField({ value, onChange, required }: {
 const GUEST_PHONE_KEY = "catalog_guest_phone"
 const GUEST_NAME_KEY = "catalog_guest_name"
 const GUEST_PROVINCE_KEY = "catalog_guest_province"
+/* ── Depth, in one place ──────────────────────────────────────────────
+   The storefront grew its z-indexes one overlay at a time and they stopped
+   agreeing: the cart sat at 50 and the gallery's opened picture at 190, so
+   from inside a photo the cart, the unit picker and the details sheet all
+   opened BEHIND it and read as dead buttons.
+
+     30   the header
+     120  a full page surface (the product page)
+     130  the gallery's opened picture — also a page, not a dialog
+     140  the cart
+     150  sheets: units, appearance, account
+     180  the access request
+     200  the checkout details step
+     210  full-screen zoom, above everything
+
+   Anything new picks a tier here rather than a number that happens to work.
+─────────────────────────────────────────────────────────────────────── */
 const STUDIO_MODE_KEY = "catalog_view_mode"
 const STUDIO_COLS_KEY = "catalog_studio_cols"
 const STUDIO_SHAPE_KEY = "catalog_studio_shape"
@@ -1741,14 +1758,18 @@ function CatalogShop({
     return () => { cancelled = true }
   }, [studioProduct, accessToken, visitorToken, guestMode])
 
-  // On a phone, back IS the close button. Without these, closing a photo
-  // walked the shopper out of the shop.
-  useBackClose(studioIndex != null, () => setStudioIndex(null))
-  useBackClose(pickerProduct != null, () => setPickerProduct(null))
-  useBackClose(imageProduct != null, () => setImageProduct(null))
-  useBackClose(cartOpen, () => setCartOpen(false))
-  useBackClose(appearanceOpen, () => setAppearanceOpen(false))
-  useBackClose(accountOpen, () => setAccountOpen(false))
+  // On a phone, back IS the close button. One guard for the page, closing
+  // whatever is on TOP — listed innermost first, because a unit picker opened
+  // from inside a photo has to close before the photo does.
+  useBackGuard(
+    pickerProduct != null ? () => setPickerProduct(null)
+      : imageProduct != null ? () => setImageProduct(null)
+        : studioIndex != null ? () => setStudioIndex(null)
+          : appearanceOpen ? () => setAppearanceOpen(false)
+            : accountOpen ? () => setAccountOpen(false)
+              : cartOpen ? () => setCartOpen(false)
+                : null,
+  )
 
   const studioPerRow = studioPerRowPref ?? studioCfg?.perRow ?? 3
   const studioShape = studioShapePref ?? studioCfg?.shape ?? "square"
@@ -4799,8 +4820,8 @@ function CartOverlay({
   const tier = resolveCartTier(subtotal, orderTiers)
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed inset-x-0 bottom-0 z-50 flex max-h-[92vh] flex-col rounded-t-3xl shadow-2xl lg:inset-y-0 lg:right-0 lg:left-auto lg:w-[420px] lg:rounded-none"
+      <div className="fixed inset-0 z-[140] bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="sheet-enter fixed inset-x-0 bottom-0 z-[145] flex max-h-[92vh] flex-col rounded-t-3xl shadow-2xl lg:inset-y-0 lg:right-0 lg:left-auto lg:w-[420px] lg:rounded-none"
         style={{ background: tk.cardBg }} dir="rtl">
         <div className="flex justify-center pt-3 pb-1 lg:hidden">
           <div className="h-1 w-10 rounded-full" style={{ background: tk.divider }} />

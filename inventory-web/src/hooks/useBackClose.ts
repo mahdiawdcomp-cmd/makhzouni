@@ -3,54 +3,64 @@ import { useEffect, useInsertionEffect, useRef } from "react"
 /* ══════════════════════════════════════════════════════════════════════
    Back closes the thing that is open, not the site.
 
-   Every overlay in the storefront — the opened picture, the unit picker, the
-   cart, the details step — used to leave the browser's history untouched. So
-   a shopper deep in a gallery pressed back to close a photo and left the shop
-   entirely, losing their basket's place and their scroll position. On a phone
-   that gesture IS the close button, and it was throwing people out.
+   On a phone, back IS the close gesture. Without this, a shopper deep in a
+   gallery pressed back to close a photo and left the shop entirely, losing
+   their basket and their place.
 
-   Opening pushes one history entry; back pops it and runs onClose instead of
-   navigating. Closing by any other route (the ✕, a tap outside) rewinds that
-   entry so the history never fills up with ghosts.
+   ONE guard for the whole page, not one per overlay. The first version gave
+   every overlay its own history entry and its own cleanup, and the cleanups
+   called history.back() — so closing a unit picker that sat on top of a photo
+   fired two pops at once and the second one walked out of the site. Adding to
+   the cart did exactly that.
+
+   So: a single entry exists while anything is open, and it is re-pushed if
+   closing one layer reveals another. The suppress flag makes the difference
+   between "the user pressed back" and "we are rewinding our own entry",
+   which is the distinction the broken version had no way to make.
 ══════════════════════════════════════════════════════════════════════ */
 
-export function useBackClose(open: boolean, onClose: () => void) {
-  // The latest onClose, so the popstate listener never calls a stale one.
-  // Written in an effect rather than during render: touching a ref while
-  // rendering breaks under concurrent React, which may render a component and
-  // then throw the work away.
-  const closeRef = useRef(onClose)
+export function useBackGuard(closeTop: (() => void) | null) {
+  // The latest closer, written in an effect: touching a ref during render
+  // breaks under concurrent React, which may render and throw the work away.
+  const closeRef = useRef(closeTop)
   useInsertionEffect(() => {
-    closeRef.current = onClose
-  }, [onClose])
+    closeRef.current = closeTop
+  }, [closeTop])
 
-  // True only while OUR entry is the one on top, so a close that came from
-  // somewhere else does not rewind an entry we never pushed.
-  const pushedRef = useRef(false)
+  /** Whether OUR entry is currently on the stack. */
+  const pushed = useRef(false)
+  /** Set while we rewind our own entry, so that pop is not read as a press. */
+  const rewinding = useRef(false)
+
+  const isOpen = closeTop != null
 
   useEffect(() => {
-    if (!open) return
+    if (isOpen && !pushed.current) {
+      pushed.current = true
+      window.history.pushState({ __overlay: true }, "")
+      return
+    }
+    if (!isOpen && pushed.current) {
+      pushed.current = false
+      rewinding.current = true
+      window.history.back()
+    }
+  }, [isOpen])
 
-    const marker = { __overlay: Date.now() }
-    window.history.pushState(marker, "")
-    pushedRef.current = true
-
-    const onPop = () => {
-      // The browser already removed our entry by the time this fires, so the
-      // cleanup below must not try to remove it a second time.
-      pushedRef.current = false
-      closeRef.current()
+  useEffect(() => {
+    function onPop() {
+      if (rewinding.current) {
+        // Our own rewind coming back. Consume it and change nothing.
+        rewinding.current = false
+        return
+      }
+      if (!pushed.current) return
+      // The browser has already dropped our entry; closing the top layer may
+      // reveal another, and the effect above pushes a fresh one for it.
+      pushed.current = false
+      closeRef.current?.()
     }
     window.addEventListener("popstate", onPop)
-
-    return () => {
-      window.removeEventListener("popstate", onPop)
-      // Closed some other way — take our entry back out, or the next press of
-      // back would do nothing at all and feel broken.
-      if (pushedRef.current) {
-        pushedRef.current = false
-        window.history.back()
-      }
-    }
-  }, [open])
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
 }

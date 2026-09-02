@@ -182,6 +182,11 @@ export function StudioGallery({
             src={pics[p.id] ?? p.thumbnailUrl ?? null}
             shape={shape}
             offerDot={offerDot}
+            // The pictures are data the browser already holds, not files it
+            // has to go and fetch — so deferring the first two screenfuls
+            // bought nothing and made the gallery look like it was stalling
+            // until you scrolled. Past that, laziness is still worth it.
+            eager={i < 24}
             tk={tk}
             onOpen={() => onOpen(i)}
           />
@@ -191,15 +196,20 @@ export function StudioGallery({
   )
 }
 
-function Tile({ product, src, shape, offerDot, tk, onOpen }: {
+function Tile({ product, src, shape, offerDot, eager, tk, onOpen }: {
   product: PublicCatalogProduct
   src: string | null
   shape: "square" | "natural"
   offerDot: boolean
+  eager: boolean
   tk: StudioTokens
   onOpen: () => void
 }) {
+  // A picture that is already decoded fires onLoad before this ever renders,
+  // so gating opacity on it left tiles blank forever. Only the deferred ones
+  // fade in, and only until they land.
   const [loaded, setLoaded] = useState(false)
+  const showing = eager || loaded
 
   return (
     <button
@@ -221,11 +231,11 @@ function Tile({ product, src, shape, offerDot, tk, onOpen }: {
         <img
           src={src}
           alt={product.name}
-          loading="lazy"
           decoding="async"
           onLoad={() => setLoaded(true)}
+          loading={eager ? "eager" : "lazy"}
           className="h-full w-full object-cover transition-opacity duration-300"
-          style={{ opacity: loaded ? 1 : 0 }}
+          style={{ opacity: showing ? 1 : 0 }}
         />
       ) : (
         <span className="flex h-full w-full items-center justify-center">
@@ -297,7 +307,13 @@ export function StudioViewer({
 
   return (
     <div
-      className="viewer-enter fixed inset-0 z-[190] flex flex-col"
+      /* z-140 is deliberate and load-bearing: the opened picture is a PAGE
+         surface, not a dialog. Above the header (30) and the store's own
+         layers, but BELOW every sheet from 150 up — the unit picker, the
+         cart, the appearance sheet. At 190 it covered them all, so adding to
+         the cart from inside a photo opened the picker behind the photo and
+         looked like a dead button. */
+      className="viewer-enter fixed inset-0 z-[130] flex flex-col"
       style={{ background: "rgba(0,0,0,0.94)", overscrollBehavior: "contain" }}
       dir="rtl"
       role="dialog"
