@@ -1522,6 +1522,12 @@ export interface BranchPayload {
 
 export interface OrderPreparation {
   id: string
+  /** «عروض القائمة» this order earned, in dinars. 0 when it earned nothing. */
+  tierDiscount: number
+  /** The percentage behind that discount — 2, 5, or whatever the shop set. */
+  tierPercent: number
+  isFreeDelivery: boolean
+  couponCode: string | null
   customerId: string | null
   invoiceId: string | null
   invoiceNumber: string | null

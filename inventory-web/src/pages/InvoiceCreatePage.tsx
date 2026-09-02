@@ -592,6 +592,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // save never leaves points gone with no invoice to show for them. The value
   // is added to the discount server-side, from the server's own rate.
   const [redeemPoints, setRedeemPoints] = useState(0)
+  // «عروض القائمة» this order earned on the storefront. Held here rather than
+  // written straight into the discount field on purpose: the staff edit
+  // quantities during preparation, so the shop decides what the corrected
+  // basket is worth — but it must never be invisible again.
+  const [orderOffer, setOrderOffer] = useState<{ discount: number; percent: number; freeDelivery: boolean } | null>(null)
   const loyaltyQuery = useQuery({
     queryKey: ["loyalty-balance", selectedCustomer?.id],
     queryFn: () => getLoyaltyBalance(selectedCustomer!.id),
@@ -1059,6 +1064,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (!prep) return                 // already prepared/cancelled or unknown id
 
     prefillAppliedRef.current = true
+    if (prep.tierDiscount > 0 || prep.isFreeDelivery) {
+      setOrderOffer({
+        discount: prep.tierDiscount,
+        percent: prep.tierPercent,
+        freeDelivery: prep.isFreeDelivery,
+      })
+    }
 
     // Match the customer by id first, then by phone (preparations store phone;
     // the id is resolved server-side and may be absent on older records).
@@ -2830,6 +2842,60 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                   {fmt(invoiceCartons.cartons)}{invoiceCartons.loose ? ` + ${fmt(invoiceCartons.loose)} ق` : ""}
                 </span>
                 <span className="text-sky-700 dark:text-sky-400">مجموع الكراتين</span>
+              </div>
+            )}
+            {/* ══ «عروض القائمة» ══
+                The storefront promised this customer a discount and possibly
+                free delivery, computed from server prices when the order was
+                placed. Building the invoice by hand used to lose it silently —
+                the shop owed 243,738 on one order and billed zero. It stays on
+                screen until the discount on this invoice covers what was
+                promised. */}
+            {orderOffer && (
+              <div className="sm:col-span-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
+                <p className="text-xs font-extrabold text-amber-900 dark:text-amber-200">
+                  ⚠️ هذا الطلب من الكتلوك
+                </p>
+                <div className="mt-1 space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
+                  {orderOffer.discount > 0 && (
+                    <p>
+                      وعدنا الزبون بخصم <b>{orderOffer.percent}%</b> ={" "}
+                      <b>{fmt(orderOffer.discount)}</b> د.ع على طلبه.
+                    </p>
+                  )}
+                  {orderOffer.freeDelivery && (
+                    <p>🚚 <b>توصيل مجاني</b> — بلّغ الزبون، ما ينحسب عليه أجور توصيل.</p>
+                  )}
+                </div>
+                {orderOffer.discount > 0 && discount < orderOffer.discount && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <button type="button"
+                      onClick={() => {
+                        setDiscount(orderOffer.discount)
+                        if (couponApplied || couponCode || couponMessage) {
+                          setCouponApplied(false); setAppliedCoupon(null)
+                          setCouponCode(""); setCouponMessage("")
+                        }
+                      }}
+                      className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white transition active:scale-95">
+                      طبّق الخصم {fmt(orderOffer.discount)}
+                    </button>
+                    <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                      الخصم الحالي {fmt(discount)} — أقل من المتفق عليه
+                    </span>
+                  </div>
+                )}
+                {orderOffer.discount > 0 && discount >= orderOffer.discount && (
+                  <p className="mt-2 text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                    ✓ الخصم مطبّق
+                  </p>
+                )}
+                {/* The order's basket is usually edited during preparation, so
+                    the promised figure is quoted against the ORIGINAL order —
+                    the shop decides whether the edited basket still earns it. */}
+                <p className="mt-1.5 text-[10px] text-amber-700 dark:text-amber-400">
+                  الرقم محسوب على الطلب الأصلي. إذا عدّلت الكميات، قرّر بنفسك.
+                </p>
               </div>
             )}
             <div>

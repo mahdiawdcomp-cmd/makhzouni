@@ -236,10 +236,24 @@ export async function listPendingPreparations() {
   const customerIdByPhone = new Map(matchedCustomers.map((c) => [c.phone, c.id]));
 
   return rows.map((row) => {
-    const od = row.orderData as { items?: PreparationItem[] } | null;
+    const od = row.orderData as {
+      items?: PreparationItem[];
+      discount?: number;
+      tierPercent?: number;
+      isFreeDelivery?: boolean;
+      couponCode?: string;
+    } | null;
     const subtotal = od?.items?.reduce((s, it) => s + (it.quantity * (it.unitPrice ?? 0)), 0) ?? 0;
     return {
       id: row.id,
+      // What «عروض القائمة» granted this order. It was computed from server
+      // prices when the order was placed and stored on the preparation — but
+      // it never left the server, so an invoice built by hand from this order
+      // simply lost it. The shop owed 243,738 on one order and billed zero.
+      tierDiscount: Math.max(0, Number(od?.discount) || 0),
+      tierPercent: Math.max(0, Number(od?.tierPercent) || 0),
+      isFreeDelivery: od?.isFreeDelivery === true,
+      couponCode: od?.couponCode ?? null,
       customerId: row.invoice?.customerId ?? customerIdByPhone.get(row.customerPhone) ?? null,
       invoiceId: row.invoiceId ?? null,
       invoiceNumber: row.invoice?.invoiceNumber ?? null,
