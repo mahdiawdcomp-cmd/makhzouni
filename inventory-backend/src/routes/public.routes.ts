@@ -104,6 +104,7 @@ import {
   getProductDetailCtrl,
   getGalleryImageCtrl,
   getThumbnailsCtrl,
+  getMediumsCtrl,
   getMyProductReviewCtrl,
   submitProductReviewCtrl,
 } from "../controllers/catalog-product-page.controller";
@@ -352,6 +353,9 @@ router.get("/catalog/account", catalogLimiter, validate(catalogAccessQuerySchema
 // the service refuses unless the shop enabled open browsing.
 router.get("/catalog/product/:id", catalogLimiter, validate(catalogProductIdSchema), getProductDetailCtrl);
 router.post("/catalog/thumbnails", catalogLimiter, validate(catalogThumbnailsSchema), getThumbnailsCtrl);
+// «المعرض» draws bigger, so it asks for the middle size — same gate, same
+// shape, and it answers with thumbnails for anything not resized yet.
+router.post("/catalog/mediums", catalogLimiter, validate(catalogThumbnailsSchema), getMediumsCtrl);
 router.get("/catalog/product/:id/image/:imageId", catalogLimiter, validate(catalogGalleryImageSchema), getGalleryImageCtrl);
 router.get("/catalog/product/:id/my-review", catalogLimiter, validate(catalogProductIdSchema), getMyProductReviewCtrl);
 router.post("/catalog/product/:id/review", catalogLimiter, validate(submitProductReviewSchema), submitProductReviewCtrl);

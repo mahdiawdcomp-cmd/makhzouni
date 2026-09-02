@@ -1,5 +1,6 @@
 import { catalogText, resolveCartTier, type CatalogLayout } from "../utils/catalogLayout"
 import { IRAQI_GOVERNORATES } from "../utils/governorates"
+import { StudioGallery, StudioViewer, type StudioAlbum } from "../components/catalog/StudioGallery"
 import {
   deliveryLineFor,
   hasFullCartonOf,
@@ -33,6 +34,8 @@ import {
   ShoppingBag,
   ImageOff,
   Sparkles,
+  Store,
+  LayoutGrid,
   SlidersHorizontal,
   ShoppingCart,
   LogOut,
@@ -799,6 +802,9 @@ function ProvinceField({ value, onChange, required }: {
 const GUEST_PHONE_KEY = "catalog_guest_phone"
 const GUEST_NAME_KEY = "catalog_guest_name"
 const GUEST_PROVINCE_KEY = "catalog_guest_province"
+const STUDIO_MODE_KEY = "catalog_view_mode"
+const STUDIO_COLS_KEY = "catalog_studio_cols"
+const STUDIO_SHAPE_KEY = "catalog_studio_shape"
 
 function GuestPhoneGate({ children }: { children: React.ReactNode }) {
   const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
@@ -1194,6 +1200,25 @@ function CatalogShop({
   // someone mid-browse.
   const [sortKey, setSortKey] = useState<SortKey>("default")
   const [viewMode, setViewMode] = useState<ViewMode>("grid")
+  // «متجر» or «معرض». The URL wins so a link can open straight into the
+  // gallery; otherwise this device's own last choice; otherwise the shop's
+  // default. Same three-step shape as the appearance preferences.
+  const [studioPref, setStudioPref] = useState<"store" | "studio" | null>(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("view")
+    if (fromUrl === "studio" || fromUrl === "store") return fromUrl
+    const saved = localStorage.getItem(STUDIO_MODE_KEY)
+    return saved === "studio" || saved === "store" ? saved : null
+  })
+  const [studioIndex, setStudioIndex] = useState<number | null>(null)
+  const [studioAlbum, setStudioAlbum] = useState("all")
+  const [studioPerRowPref, setStudioPerRowPref] = useState<number | null>(() => {
+    const v = Number(localStorage.getItem(STUDIO_COLS_KEY))
+    return v >= 1 && v <= 5 ? v : null
+  })
+  const [studioShapePref, setStudioShapePref] = useState<"square" | "natural" | null>(() => {
+    const v = localStorage.getItem(STUDIO_SHAPE_KEY)
+    return v === "square" || v === "natural" ? v : null
+  })
   const [perRow, setPerRow] = useState(2)
   const [seededDefaults, setSeededDefaults] = useState(false)
   const [search, setSearch] = useState("")
@@ -1297,6 +1322,8 @@ function CatalogShop({
     setThemePref(null); localStorage.removeItem(themeKey)
     setAccentPref(null); localStorage.removeItem(accentKey)
     setFontScale("md"); localStorage.removeItem(fontScaleKey)
+    setStudioPerRowPref(null); localStorage.removeItem(STUDIO_COLS_KEY)
+    setStudioShapePref(null); localStorage.removeItem(STUDIO_SHAPE_KEY)
   }
 
   // Close the "more" menu on outside click
@@ -1617,6 +1644,104 @@ function CatalogShop({
   // customer another. Declared here, after `design` exists: reading it from
   // above would be a closure over a value that has not been created yet.
   const guestDeliveryLine = guestMode ? deliveryLineFor(guestProvince, design?.delivery) : null
+
+  /* ── «المعرض» ─────────────────────────────────────────────────────── */
+  const studioCfg = design?.studio
+  const studioOn = studioCfg?.enabled === true
+  const isStudio = studioOn && (studioPref ?? studioCfg?.defaultView ?? "store") === "studio"
+  function switchMode(next: "store" | "studio") {
+    setStudioPref(next)
+    localStorage.setItem(STUDIO_MODE_KEY, next)
+    setStudioIndex(null)
+    // Kept in the URL so the shopper can send the link they are looking at.
+    const params = new URLSearchParams(window.location.search)
+    params.set("view", next)
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`)
+    window.scrollTo({ top: 0 })
+  }
+
+  // A gallery of blank squares is not a gallery, so a product with no picture
+  // is not in it at all — it keeps its own page in the store.
+  const studioPool = useMemo(
+    () => products.filter((p) => canDisplay(p) && (p.hasImage ?? Boolean(p.thumbnailUrl))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [products, guestMode, stockFilter, hideNoImage, noImageMode],
+  )
+
+  const studioAlbums = useMemo<StudioAlbum[]>(() => {
+    if (!studioOn) return []
+    const out: StudioAlbum[] = [{ key: "all", label: "الكل", count: studioPool.length }]
+    if (studioCfg?.offerAlbum) {
+      const n = studioPool.filter((p) => p.isOffer).length
+      if (n > 0) out.push({ key: "__offers", label: "العروض", count: n })
+    }
+    if (studioCfg?.newAlbum) {
+      const n = studioPool.filter((p) => p.isNewArrival).length
+      if (n > 0) out.push({ key: "__new", label: "وصل حديثاً", count: n })
+    }
+    for (const cat of categories) {
+      const n = studioPool.filter((p) => {
+        const tags = p.categoryTags ?? []
+        return tags.length > 0 ? tags.includes(cat) : p.category === cat
+      }).length
+      if (n > 0) out.push({ key: cat, label: cat, count: n })
+    }
+    return out
+  }, [studioOn, studioCfg?.offerAlbum, studioCfg?.newAlbum, studioPool, categories])
+
+  const studioProducts = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return studioPool.filter((p) => {
+      if (studioAlbum === "__offers" && !p.isOffer) return false
+      if (studioAlbum === "__new" && !p.isNewArrival) return false
+      if (studioAlbum !== "all" && !studioAlbum.startsWith("__")) {
+        const tags = p.categoryTags ?? []
+        const inCat = tags.length > 0 ? tags.includes(studioAlbum) : p.category === studioAlbum
+        if (!inCat) return false
+      }
+      if (!q) return true
+      return [p.name, p.itemNumber, p.category ?? ""].some((x) => x.toLowerCase().includes(q))
+    })
+  }, [studioPool, studioAlbum, search])
+
+  const studioProduct = studioIndex != null ? studioProducts[studioIndex] ?? null : null
+  // The shopper's own gallery preferences, on top of the shop's defaults —
+  // same three-state shape as the theme: null means "follow the shop".
+  // The full-resolution picture for whatever is open, reusing the cache the
+  // store's own viewer fills — reopening one costs nothing.
+  //
+  // Both values are DERIVED during render rather than pushed into state by the
+  // effect: the effect only records what it fetched, after the await. Setting
+  // state synchronously on open would re-render the viewer twice for every
+  // swipe.
+  const [studioFullById, setStudioFullById] = useState<Record<string, string>>({})
+  const studioFull = studioProduct
+    ? fullImageCache.get(studioProduct.id) ?? studioFullById[studioProduct.id] ?? null
+    : null
+  const studioFullLoading = studioProduct != null && studioFull == null
+
+  useEffect(() => {
+    if (!studioProduct || fullImageCache.has(studioProduct.id)) return
+    const id = studioProduct.id
+    let cancelled = false
+    void (async () => {
+      try {
+        const full = visitorToken || guestMode
+          ? await getGuestCatalogProductImage(id, visitorToken)
+          : await getPublicCatalogProductImage(accessToken, id)
+        if (!full) return
+        fullImageCache.set(id, full)
+        if (!cancelled) setStudioFullById((prev) => ({ ...prev, [id]: full }))
+      } catch {
+        // The medium stays on screen; a failed full-size fetch is not a
+        // reason to show the shopper an empty frame.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [studioProduct, accessToken, visitorToken, guestMode])
+
+  const studioPerRow = studioPerRowPref ?? studioCfg?.perRow ?? 3
+  const studioShape = studioShapePref ?? studioCfg?.shape ?? "square"
   const cartQty = cart.reduce((s, l) => s + l.quantity, 0)
   const subtotal = cart.reduce((s, l) => s + l.quantity * linePrice(l.product, l.unit), 0)
   const promoDiscount = useMemo(() => {
@@ -2092,6 +2217,22 @@ function CatalogShop({
               )}
             </div>
 
+            {/* ── متجر ⇄ معرض ── */}
+            {studioOn && (
+              <button
+                onClick={() => switchMode(isStudio ? "store" : "studio")}
+                className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors duration-200 active:scale-95"
+                style={{ background: isStudio ? "rgba(255,255,255,0.36)" : "rgba(255,255,255,0.2)" }}
+                title={isStudio ? "ارجع للمتجر" : "شوفه كمعرض صور"}
+                aria-label={isStudio ? "ارجع للمتجر" : "شوفه كمعرض صور"}
+                aria-pressed={isStudio}
+              >
+                {isStudio
+                  ? <Store className="h-5 w-5 text-white" />
+                  : <LayoutGrid className="h-5 w-5 text-white" />}
+              </button>
+            )}
+
             {/* "More" menu — the secondary actions (appearance, help, refresh)
                 live here so the header keeps only search + cart in reach. */}
             <div className="relative shrink-0" ref={moreRef}>
@@ -2177,8 +2318,9 @@ function CatalogShop({
           )}
         </div>
 
-        {/* Row 2: Category tabs */}
-        {categories.length > 0 && (
+        {/* Rows 2–4 belong to the store. The gallery brings its own albums
+            and search, and nothing else — that spareness is the feature. */}
+        {!isStudio && categories.length > 0 && (
           <div className="overflow-x-auto scrollbar-hide border-t border-white/20">
             <div className="flex gap-2 px-3 py-2">
               {["all", ...categories].map((cat) => (
@@ -2195,8 +2337,7 @@ function CatalogShop({
           </div>
         )}
 
-        {/* Row 3: Sub-types (when category selected) */}
-        {availableTypes.length > 0 && (
+        {!isStudio && availableTypes.length > 0 && (
           <div className="overflow-x-auto scrollbar-hide border-t border-white/15">
             <div className="flex gap-1.5 px-3 py-1.5">
               {["all", ...availableTypes].map((t) => (
@@ -2213,7 +2354,7 @@ function CatalogShop({
           </div>
         )}
 
-        {/* Row 4: Sort + View toggle */}
+        {!isStudio && (
         <div className="relative flex items-center gap-2 px-3 py-2 border-t border-white/15">
           {/* Filters — opens the sheet; badge shows how many are on */}
           <button onClick={() => setFiltersOpen(true)}
@@ -2307,14 +2448,35 @@ function CatalogShop({
             </div>
           )}
         </div>
+        )}
       </header>
 
+      {/* ── «المعرض»: pictures, and the picture opened over them ── */}
+      {isStudio && (
+        <StudioGallery
+          products={studioProducts}
+          albums={studioAlbums}
+          album={studioAlbum}
+          onAlbum={(k) => { setStudioAlbum(k); window.scrollTo({ top: 0 }) }}
+          search={search}
+          onSearch={setSearch}
+          perRow={studioPerRow}
+          shape={studioShape}
+          offerDot={studioCfg?.offerDot !== false}
+          accessToken={accessToken}
+          visitorToken={visitorToken ?? ""}
+          tk={tk}
+          onOpen={setStudioIndex}
+        />
+      )}
+
       {/* ── Arranged blocks, in the shop's own order ── */}
-      {!noImageMode && layoutSections.map(({ key, enabled }) => (
+      {!isStudio && !noImageMode && layoutSections.map(({ key, enabled }) => (
         enabled ? <React.Fragment key={key}>{sectionNodes[key]}</React.Fragment> : null
       ))}
 
       {/* ── Main content ── */}
+      {!isStudio && (
       <main className="-mt-3 flex-1 rounded-t-[28px] px-3 pb-6 pt-4 overflow-hidden" style={{ background: tk.bg }}>
 
         {quickTag && (
@@ -2479,6 +2641,7 @@ function CatalogShop({
           </button>
         )}
       </main>
+      )}
 
       {/* ── Storefront footer (hidden until an admin fills it in) ── */}
       <CatalogFooterBlock
@@ -2591,10 +2754,93 @@ function CatalogShop({
         <AppearanceSheet
           tk={tk}
           theme={theme} accent={accentPref} fontScale={fontScale}
+          studio={studioOn ? { perRow: studioPerRow, shape: studioShape } : null}
+          onStudioPerRow={(n) => { setStudioPerRowPref(n); localStorage.setItem(STUDIO_COLS_KEY, String(n)) }}
+          onStudioShape={(v) => { setStudioShapePref(v); localStorage.setItem(STUDIO_SHAPE_KEY, v) }}
           onTheme={applyTheme} onAccent={applyAccent} onFontScale={applyFontScale}
           onReset={resetAppearance}
           onClose={() => setAppearanceOpen(false)}
         />
+      )}
+
+      {/* ── The opened picture, and everything the tile withheld ── */}
+      {isStudio && studioProduct && studioIndex != null && (
+        <StudioViewer
+          products={studioProducts}
+          index={studioIndex}
+          fullSrc={studioFull}
+          fallbackSrc={withThumb(studioProduct).thumbnailUrl ?? null}
+          loading={studioFullLoading}
+          tk={tk}
+          onIndex={setStudioIndex}
+          onClose={() => setStudioIndex(null)}
+        >
+          <div className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
+                  {studioProduct.name}
+                </p>
+                <p style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                  {studioProduct.itemNumber}
+                  {studioProduct.category ? ` · ${studioProduct.category}` : ""}
+                </p>
+              </div>
+              {allowPrices && (
+                <div className="shrink-0 text-left">
+                  {studioProduct.oldPrice != null && studioProduct.oldPrice > (studioProduct.salePrice ?? 0) && (
+                    <p className="line-through" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>
+                      {money(studioProduct.oldPrice)}
+                    </p>
+                  )}
+                  <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xl }}>
+                    {money(studioProduct.salePrice)}
+                    <span className="font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}> د.ع/قطعة</span>
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {studioProduct.isOffer && (
+                <span className="rounded-full px-2.5 py-1 font-bold text-white"
+                  style={{ background: "#e11d48", fontSize: tk.fs.xs }}>عرض</span>
+              )}
+              {studioProduct.isNewArrival && (
+                <span className="rounded-full px-2.5 py-1 font-bold"
+                  style={{ background: tk.accentLight, color: tk.accent, fontSize: tk.fs.xs }}>جديد</span>
+              )}
+              {showStock && (
+                <span className="rounded-full px-2.5 py-1 font-bold"
+                  style={{ background: tk.catIdle, color: tk.catIdleText, fontSize: tk.fs.xs }}>
+                  {money(Math.floor(studioProduct.currentStock / Math.max(1, studioProduct.pcsPerCarton)))} كارتون
+                </span>
+              )}
+              {studioProduct.pcsPerCarton > 1 && (
+                <span className="rounded-full px-2.5 py-1 font-bold"
+                  style={{ background: tk.catIdle, color: tk.catIdleText, fontSize: tk.fs.xs }}>
+                  الكارتون {money(studioProduct.pcsPerCarton)} قطعة
+                </span>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPickerProduct(studioProduct)}
+                className="flex flex-1 cursor-pointer items-center justify-center gap-2 py-3.5 font-extrabold text-white transition-transform duration-200 active:scale-[0.98]"
+                style={{ background: tk.accent, borderRadius: tk.radiusMd, fontSize: tk.fs.md }}>
+                <Plus className="h-5 w-5" />
+                أضف للسلة
+              </button>
+              <button
+                onClick={() => { setStudioIndex(null); openProduct(studioProduct.id) }}
+                className="shrink-0 cursor-pointer px-4 py-3.5 font-bold transition-colors duration-200"
+                style={{ background: tk.catIdle, color: tk.catIdleText, borderRadius: tk.radiusMd, fontSize: tk.fs.sm }}>
+                التفاصيل
+              </button>
+            </div>
+          </div>
+        </StudioViewer>
       )}
 
       {/* ── Full-resolution picture ── */}
@@ -3557,15 +3803,20 @@ function CatalogFooterBlock({ footer: raw, tk, shopName }: { footer: CatalogFoot
    APPEARANCE SHEET — the shopper's own control over how the shop looks
 ══════════════════════════════════════════════════════════════════════ */
 function AppearanceSheet({
-  tk, theme, accent, fontScale, onTheme, onAccent, onFontScale, onReset, onClose,
+  tk, theme, accent, fontScale, studio,
+  onTheme, onAccent, onFontScale, onStudioPerRow, onStudioShape, onReset, onClose,
 }: {
   tk: ThemeTokens
   theme: Theme
   accent: AccentKey | null
   fontScale: FontScale
+  /** Null when the shop has no gallery — then this section is not drawn. */
+  studio: { perRow: number; shape: "square" | "natural" } | null
   onTheme: (t: Theme) => void
   onAccent: (a: AccentKey) => void
   onFontScale: (f: FontScale) => void
+  onStudioPerRow: (n: number) => void
+  onStudioShape: (v: "square" | "natural") => void
   onReset: () => void
   onClose: () => void
 }) {
@@ -3689,6 +3940,61 @@ function AppearanceSheet({
               })}
             </div>
           </section>
+
+          {/* ── «المعرض» — its own controls, nothing to do with the store grid ── */}
+          {studio && (
+            <section>
+              <p className="mb-2.5 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>المعرض</p>
+
+              <p className="mb-1.5" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>حجم الصور</p>
+              <div className="grid grid-cols-4 gap-2">
+                {[1, 2, 3, 4].map((n) => {
+                  const active = studio.perRow === n
+                  return (
+                    <button key={n} onClick={() => onStudioPerRow(n)}
+                      className="flex min-h-[44px] cursor-pointer flex-col items-center justify-center gap-1 transition-colors duration-200 active:scale-95"
+                      style={{
+                        background: active ? tk.accentLight : tk.catIdle,
+                        border: `2px solid ${active ? tk.accent : "transparent"}`,
+                        borderRadius: tk.radiusMd,
+                        color: active ? tk.accent : tk.catIdleText,
+                      }}>
+                      <span className="font-extrabold leading-none" style={{ fontSize: tk.fs.md }}>{n}</span>
+                      <span className="font-bold" style={{ fontSize: tk.fs.xs }}>
+                        {n === 1 ? "كبيرة" : n === 4 ? "صغيرة" : "بالصف"}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+
+              <p className="mb-1.5 mt-3" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>شكل الصورة</p>
+              <div className="grid grid-cols-2 gap-2.5">
+                {([
+                  { v: "square" as const, title: "مربعة", desc: "مرتبة ومتساوية" },
+                  { v: "natural" as const, title: "بطولها", desc: "شكل مجلة" },
+                ]).map((o) => {
+                  const active = studio.shape === o.v
+                  return (
+                    <button key={o.v} onClick={() => onStudioShape(o.v)}
+                      className="min-h-[44px] cursor-pointer p-3 text-right transition-colors duration-200 active:scale-95"
+                      style={{
+                        background: active ? tk.accentLight : tk.catIdle,
+                        border: `2px solid ${active ? tk.accent : "transparent"}`,
+                        borderRadius: tk.radiusMd,
+                      }}>
+                      <span className="flex items-center gap-1 font-extrabold"
+                        style={{ color: active ? tk.accent : tk.catIdleText, fontSize: tk.fs.sm }}>
+                        {o.title}
+                        {active && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+                      </span>
+                      <span className="block truncate" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>{o.desc}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          )}
 
           {/* ── Reset ── */}
           <button onClick={onReset}

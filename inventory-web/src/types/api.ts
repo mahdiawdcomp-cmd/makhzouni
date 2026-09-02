@@ -1234,6 +1234,13 @@ export interface AppSettings {
   catalogHideNoImage?: boolean
   catalogNewArrivalDays?: number
   catalogQuickTags?: string[]
+  catalogStudioEnabled?: boolean
+  catalogStudioDefault?: "store" | "studio"
+  catalogStudioPerRow?: number
+  catalogStudioShape?: "square" | "natural"
+  catalogStudioOfferAlbum?: boolean
+  catalogStudioNewAlbum?: boolean
+  catalogStudioOfferDot?: boolean
   loyaltyPointValue?: number
   loyaltyExpiryDays?: number
   /** Storefront login: close anonymous browsing entirely. */

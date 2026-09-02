@@ -313,6 +313,18 @@ export interface AppSettings {
   // beside «وصلت هسه». Matched against a product's category tags, type tags
   // or its category. Empty = no chips, which is what every shop starts with.
   catalogQuickTags?: string[];
+  // «المعرض» — the gallery view: pictures only, details on open. Its own
+  // settings on purpose, so tuning it never disturbs the store's grid.
+  catalogStudioEnabled?: boolean;
+  /** Which one opens first for a shopper who has never chosen. */
+  catalogStudioDefault?: "store" | "studio";
+  catalogStudioPerRow?: number;
+  catalogStudioShape?: "square" | "natural";
+  /** Album chips for «العروض» / «وصل حديثاً» beside the categories. */
+  catalogStudioOfferAlbum?: boolean;
+  catalogStudioNewAlbum?: boolean;
+  /** The small red dot that keeps an offer visible on a bare tile. */
+  catalogStudioOfferDot?: boolean;
   // «نقاط الولاء» — what one point is worth in dinars when redeemed, and how
   // long a point lives. Zero value turns redemption off without touching any
   // balance; zero days turns expiry off.
@@ -498,6 +510,13 @@ export const defaultSettings: AppSettings = {
   catalogHideNoImage: false,
   catalogNewArrivalDays: 10,
   catalogQuickTags: [],
+  catalogStudioEnabled: false,
+  catalogStudioDefault: "store",
+  catalogStudioPerRow: 3,
+  catalogStudioShape: "square",
+  catalogStudioOfferAlbum: true,
+  catalogStudioNewAlbum: true,
+  catalogStudioOfferDot: true,
   loyaltyPointValue: 5,
   loyaltyExpiryDays: 365,
   catalogShuffleMode: "hourly",

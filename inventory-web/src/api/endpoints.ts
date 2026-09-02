@@ -651,6 +651,15 @@ export async function getPublicCatalogProducts(access: string) {
 
 /* ── Guest catalog (no phone/OTP — only served when the merchant has
    turned off catalogRequireOtp) ────────────────────────────────────── */
+/** Gallery-sized pictures for the tiles about to be drawn. */
+export async function getCatalogMediums(ids: string[], opts?: { access?: string; visitor?: string }) {
+  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
+    "/public/catalog/mediums", { ids },
+    { params: { ...(opts?.access ? { access: opts.access } : {}), ...(opts?.visitor ? { visitor: opts.visitor } : {}) } },
+  )
+  return data.data ?? {}
+}
+
 export async function getGuestCatalogProducts() {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products")
   return data.data ?? []

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { totalStock } from "../utils/product-stock";
+import { logger } from "../utils/logger";
 import { getCatalogAccess, isGuestCatalogEnabled } from "./catalog.service";
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -502,4 +503,88 @@ export async function setProductMerchandising(productId: string, patch: Merchand
     },
   });
   return { ok: true };
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   «المعرض» — gallery-sized pictures
+
+   The 200px thumbnail is right for a product row and too soft for a photo
+   grid; the full image averages 230 KB and a screenful of those is megabytes
+   on a phone. So a middle copy sits between them — and it is made the first
+   time it is asked for rather than by a migration that walks every product.
+
+   Nothing ever waits on it. A tile with no medium yet gets its thumbnail
+   back immediately and the medium is built behind the request, so the grid
+   sharpens itself within seconds of first use and a product added next month
+   needs nobody to remember anything.
+══════════════════════════════════════════════════════════════════════ */
+
+/** Products currently being resized, so a fast scroll cannot start the same one twice. */
+const mediumInFlight = new Set<string>();
+
+/** Bounded so one scroll cannot hand the server a hundred resizes at once. */
+const MEDIUM_BATCH = 12;
+
+async function fillMissingMediums(ids: string[]) {
+  const pending = ids.filter((id) => !mediumInFlight.has(id)).slice(0, MEDIUM_BATCH);
+  if (pending.length === 0) return;
+  pending.forEach((id) => mediumInFlight.add(id));
+
+  try {
+    const rows = await prisma.product.findMany({
+      where: { id: { in: pending }, mediumUrl: null, imageUrl: { not: null } },
+      select: { id: true, imageUrl: true },
+    });
+    const { makeMedium } = await import("../utils/thumbnail");
+    for (const row of rows) {
+      const medium = await makeMedium(row.imageUrl);
+      if (!medium) continue;
+      await prisma.product
+        .update({ where: { id: row.id }, data: { mediumUrl: medium } })
+        .catch(() => undefined);
+    }
+  } catch (err) {
+    logger.warn(`[Gallery] medium generation failed: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    pending.forEach((id) => mediumInFlight.delete(id));
+  }
+}
+
+/**
+ * Pictures for the tiles about to be drawn.
+ *
+ * Returns the medium where one exists and the thumbnail where it does not, so
+ * the grid is never empty and never blocks. Anything missing is queued behind
+ * the response.
+ */
+export async function getCatalogMediums(
+  token: string,
+  productIds: string[],
+  visitorToken?: string,
+) {
+  if (token) {
+    await getCatalogAccess(token);
+  } else {
+    await assertVisitorOrGuest(visitorToken);
+  }
+
+  const ids = [...new Set(productIds)].slice(0, 60);
+  if (ids.length === 0) return {};
+
+  const rows = await prisma.product.findMany({
+    where: { id: { in: ids }, deletedAt: null },
+    select: { id: true, mediumUrl: true, thumbnailUrl: true },
+  });
+
+  const out: Record<string, string | null> = {};
+  const missing: string[] = [];
+  for (const row of rows) {
+    out[row.id] = row.mediumUrl ?? row.thumbnailUrl ?? null;
+    if (!row.mediumUrl) missing.push(row.id);
+  }
+
+  // After the answer, never before it.
+  if (missing.length > 0) setImmediate(() => void fillMissingMediums(missing));
+
+  return out;
 }

@@ -877,6 +877,15 @@ export function buildCatalogLayout(settings: Awaited<ReturnType<typeof getSettin
     tutorialEnabled: settings.catalogTutorialEnabled !== false,
     hideNoImage: settings.catalogHideNoImage === true,
     guestPricesVisible: settings.catalogGuestPricesVisible === true,
+    studio: {
+      enabled: settings.catalogStudioEnabled === true,
+      defaultView: settings.catalogStudioDefault === "studio" ? "studio" : "store",
+      perRow: Math.max(1, Math.min(5, Math.round(Number(settings.catalogStudioPerRow ?? 3)) || 3)),
+      shape: settings.catalogStudioShape === "natural" ? "natural" : "square",
+      offerAlbum: settings.catalogStudioOfferAlbum !== false,
+      newAlbum: settings.catalogStudioNewAlbum !== false,
+      offerDot: settings.catalogStudioOfferDot !== false,
+    },
     quickTags: (settings.catalogQuickTags ?? [])
       .map((t) => String(t ?? "").trim())
       .filter(Boolean)

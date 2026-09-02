@@ -27,6 +27,16 @@ export interface CatalogLayout {
   guestPricesVisible: boolean
   /** Tag names the shop wants as one-tap chips beside «وصلت هسه». */
   quickTags: string[]
+  /** «المعرض» — the gallery view and how the shop set it up. */
+  studio: {
+    enabled: boolean
+    defaultView: "store" | "studio"
+    perRow: number
+    shape: "square" | "natural"
+    offerAlbum: boolean
+    newAlbum: boolean
+    offerDot: boolean
+  }
   /** «عروض القائمة» — thresholds that grant free delivery and/or a discount. */
   orderTiers: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
 }

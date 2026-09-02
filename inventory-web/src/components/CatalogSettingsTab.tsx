@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ImageOff, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Sparkles, Tags, Truck, Gift } from "lucide-react"
+import { ImageOff, LayoutGrid, Link2, Lock, Package, RotateCcw, Shuffle, ShieldOff, Sliders, Sparkles, Tags, Truck, Gift } from "lucide-react"
 import { getSettings, updateSettings, applyPricesDefaultToAll } from "../api/endpoints"
 import { Button } from "./ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card"
@@ -273,6 +273,104 @@ export function CatalogSettingsTab() {
               </Button>
             </div>
           </Row>
+
+          <Row
+            icon={<LayoutGrid className="h-4 w-4 text-slate-500" />}
+            title="المعرض — عرض المتجر كصور"
+            description="وجه ثاني للمتجر: بلاطات صور بس، والسعر والتفاصيل تطلع لمن يفتح الصورة. الزبون يبدّل بينهم بزر بالأعلى."
+          >
+            <input
+              type="checkbox"
+              checked={s?.catalogStudioEnabled === true}
+              disabled={saveMut.isPending}
+              onChange={(e) => saveMut.mutate({ catalogStudioEnabled: e.target.checked })}
+              className="h-4 w-4 accent-emerald-600"
+            />
+          </Row>
+
+          {s?.catalogStudioEnabled === true && (
+            <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 dark:border-emerald-900 dark:bg-emerald-950/30">
+              <p className="text-xs font-bold text-emerald-800 dark:text-emerald-300">إعدادات المعرض</p>
+
+              <Row icon={<LayoutGrid className="h-4 w-4 text-slate-500" />}
+                title="شنو يفتح أول"
+                description="الافتراضي للزبون الي ما اختار شي. الي يبدّل بالزر يبقى على اختياره.">
+                <div className="flex shrink-0 gap-1 rounded-xl bg-white p-1 shadow-sm dark:bg-slate-900">
+                  {([["store", "المتجر"], ["studio", "المعرض"]] as const).map(([k, label]) => (
+                    <button key={k} disabled={saveMut.isPending}
+                      onClick={() => saveMut.mutate({ catalogStudioDefault: k })}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+                        (s?.catalogStudioDefault ?? "store") === k
+                          ? "bg-emerald-600 text-white" : "text-slate-500 hover:text-slate-700",
+                      )}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+
+              <Row icon={<LayoutGrid className="h-4 w-4 text-slate-500" />}
+                title="عدد الصور بالصف"
+                description="الافتراضي. الزبون يغيّره من «تخصيص المظهر» بجهازه.">
+                <div className="flex shrink-0 gap-1 rounded-xl bg-white p-1 shadow-sm dark:bg-slate-900">
+                  {[1, 2, 3, 4].map((n) => (
+                    <button key={n} disabled={saveMut.isPending}
+                      onClick={() => saveMut.mutate({ catalogStudioPerRow: n })}
+                      className={cn(
+                        "h-8 w-8 rounded-lg text-xs font-bold transition-all",
+                        (s?.catalogStudioPerRow ?? 3) === n
+                          ? "bg-emerald-600 text-white" : "text-slate-500 hover:text-slate-700",
+                      )}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+
+              <Row icon={<LayoutGrid className="h-4 w-4 text-slate-500" />}
+                title="شكل الصورة"
+                description="مربعة تطلع مرتبة مثل معرض التلفون. بطولها تطلع شكل مجلة.">
+                <div className="flex shrink-0 gap-1 rounded-xl bg-white p-1 shadow-sm dark:bg-slate-900">
+                  {([["square", "مربعة"], ["natural", "بطولها"]] as const).map(([k, label]) => (
+                    <button key={k} disabled={saveMut.isPending}
+                      onClick={() => saveMut.mutate({ catalogStudioShape: k })}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
+                        (s?.catalogStudioShape ?? "square") === k
+                          ? "bg-emerald-600 text-white" : "text-slate-500 hover:text-slate-700",
+                      )}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+
+              <Row icon={<Sparkles className="h-4 w-4 text-slate-500" />}
+                title="ألبوم «العروض»"
+                description="ألبوم جاهز بأعلى المعرض يجمع المواد المعلّمة كعرض.">
+                <input type="checkbox" checked={s?.catalogStudioOfferAlbum !== false} disabled={saveMut.isPending}
+                  onChange={(e) => saveMut.mutate({ catalogStudioOfferAlbum: e.target.checked })}
+                  className="h-4 w-4 accent-emerald-600" />
+              </Row>
+
+              <Row icon={<Sparkles className="h-4 w-4 text-slate-500" />}
+                title="ألبوم «وصل حديثاً»"
+                description="ألبوم جاهز يجمع المواد المعلّمة كجديدة.">
+                <input type="checkbox" checked={s?.catalogStudioNewAlbum !== false} disabled={saveMut.isPending}
+                  onChange={(e) => saveMut.mutate({ catalogStudioNewAlbum: e.target.checked })}
+                  className="h-4 w-4 accent-emerald-600" />
+              </Row>
+
+              <Row icon={<Sparkles className="h-4 w-4 text-rose-500" />}
+                title="نقطة حمراء على العروض"
+                description="البلاطة صورة نقية — النقطة هي الشي الوحيد الي يخلي العرض يبين بالمعرض.">
+                <input type="checkbox" checked={s?.catalogStudioOfferDot !== false} disabled={saveMut.isPending}
+                  onChange={(e) => saveMut.mutate({ catalogStudioOfferDot: e.target.checked })}
+                  className="h-4 w-4 accent-rose-600" />
+              </Row>
+            </div>
+          )}
 
           <Row
             icon={<Tags className="h-4 w-4 text-slate-500" />}

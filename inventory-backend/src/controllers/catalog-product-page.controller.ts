@@ -136,3 +136,12 @@ export const setMerchandisingCtrl = asyncHandler(async (req, res) => {
   const data = await setProductMerchandising(String(req.params.id), body, req.user!.id);
   res.json({ success: true, data });
 });
+
+/** Gallery-sized pictures for the tiles about to be drawn. */
+export const getMediumsCtrl = asyncHandler(async (req, res) => {
+  const { getCatalogMediums } = await import("../services/catalog-product-page.service");
+  const token = String(req.query.access ?? "");
+  const { ids } = req.body as { ids: string[] };
+  const data = await getCatalogMediums(token, ids ?? [], String(req.query.visitor ?? ""));
+  res.json({ success: true, data });
+});
