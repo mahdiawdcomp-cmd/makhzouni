@@ -159,6 +159,78 @@ button, input, select, textarea { font: inherit; }
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   STOREFRONT MOTION
+
+   Two rules the whole storefront follows, because a shop that animates
+   everything reads as a toy and a shop that animates nothing reads as a
+   spreadsheet:
+
+   - Entering eases OUT (fast then settling), leaving eases IN. Linear is
+     what makes motion feel mechanical.
+   - One or two things move per view, never the whole screen.
+
+   Everything here collapses to nothing under prefers-reduced-motion, at the
+   bottom of this block — motion sickness is not a preference to override.
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+@keyframes sheetUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes viewerIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes tileIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Sheets and dialogs rise rather than appearing — the movement is what says
+   "this came from down there" and makes the close gesture obvious. */
+.sheet-enter {
+  animation: sheetUp 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* The opened picture grows out of the grid it came from. */
+.viewer-enter {
+  animation: viewerIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Tiles settle in as their pictures arrive. Capped at a handful of steps:
+   staggering forty tiles would leave the last one waiting a full second. */
+.tile-enter {
+  animation: tileIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.tile-enter:nth-child(3n + 2) { animation-delay: 0.04s; }
+.tile-enter:nth-child(3n + 3) { animation-delay: 0.08s; }
+
+/* A press should feel like a press. Transform only — animating width or
+   margin would relayout the page sixty times a second. */
+.press {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease-out;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-enter,
+  .viewer-enter,
+  .tile-enter,
+  .page-enter {
+    animation: none !important;
+  }
+  .press {
+    transition: none;
+  }
+  .press:active {
+    transform: none;
+  }
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    PRO CARD SYSTEM
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .z-card {

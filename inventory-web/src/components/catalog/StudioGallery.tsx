@@ -114,7 +114,7 @@ export function StudioGallery({
                   type="button"
                   onClick={() => onAlbum(a.key)}
                   aria-pressed={on}
-                  className="flex min-h-[44px] shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-4 font-bold transition-colors duration-200"
+                  className="press flex min-h-[44px] shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-4 font-bold transition-colors duration-200"
                   style={{
                     background: on ? tk.accent : tk.catIdle,
                     color: on ? "#ffffff" : tk.catIdleText,
@@ -206,7 +206,7 @@ function Tile({ product, src, shape, offerDot, tk, onOpen }: {
       type="button"
       onClick={onOpen}
       aria-label={`افتح صورة ${product.name}`}
-      className="group relative block w-full cursor-pointer overflow-hidden transition-opacity duration-200 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+      className="tile-enter press group relative block w-full cursor-pointer overflow-hidden hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
       style={{
         // Square reserves its space, so nothing on the page jumps as pictures
         // arrive. Natural has to guess, and 4:5 is the common shape of a
@@ -297,7 +297,7 @@ export function StudioViewer({
 
   return (
     <div
-      className="fixed inset-0 z-[190] flex flex-col"
+      className="viewer-enter fixed inset-0 z-[190] flex flex-col"
       style={{ background: "rgba(0,0,0,0.94)", overscrollBehavior: "contain" }}
       dir="rtl"
       role="dialog"
@@ -338,8 +338,8 @@ export function StudioViewer({
             key={product.id}
             src={fullSrc ?? fallbackSrc ?? ""}
             alt={product.name}
-            className="max-h-full max-w-full object-contain transition-opacity duration-200"
-            style={{ opacity: fullSrc ? 1 : 0.6 }}
+            className="viewer-enter max-h-full max-w-full object-contain"
+            style={{ opacity: fullSrc ? 1 : 0.65, transition: "opacity 200ms ease-out" }}
             draggable={false}
           />
         )}
@@ -367,7 +367,7 @@ export function StudioViewer({
       </div>
 
       {/* Everything the tile withheld. */}
-      <div className="shrink-0 overflow-y-auto" style={{ background: tk.cardBg, maxHeight: "45vh" }}>
+      <div className="sheet-enter shrink-0 overflow-y-auto" style={{ background: tk.cardBg, maxHeight: "45vh" }}>
         {children}
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { catalogText, resolveCartTier, type CatalogLayout } from "../utils/catalogLayout"
 import { IRAQI_GOVERNORATES } from "../utils/governorates"
 import { StudioGallery, StudioViewer, type StudioAlbum } from "../components/catalog/StudioGallery"
+import { useBackClose } from "../hooks/useBackClose"
 import {
   deliveryLineFor,
   hasFullCartonOf,
@@ -1739,6 +1740,15 @@ function CatalogShop({
     })()
     return () => { cancelled = true }
   }, [studioProduct, accessToken, visitorToken, guestMode])
+
+  // On a phone, back IS the close button. Without these, closing a photo
+  // walked the shopper out of the shop.
+  useBackClose(studioIndex != null, () => setStudioIndex(null))
+  useBackClose(pickerProduct != null, () => setPickerProduct(null))
+  useBackClose(imageProduct != null, () => setImageProduct(null))
+  useBackClose(cartOpen, () => setCartOpen(false))
+  useBackClose(appearanceOpen, () => setAppearanceOpen(false))
+  useBackClose(accountOpen, () => setAccountOpen(false))
 
   const studioPerRow = studioPerRowPref ?? studioCfg?.perRow ?? 3
   const studioShape = studioShapePref ?? studioCfg?.shape ?? "square"
