@@ -597,6 +597,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // quantities during preparation, so the shop decides what the corrected
   // basket is worth — but it must never be invisible again.
   const [orderOffer, setOrderOffer] = useState<{ discount: number; percent: number; freeDelivery: boolean } | null>(null)
+  // Set when the shop deliberately withholds the offer — a customer sitting on
+  // an old balance, told to settle first. It collapses the banner to one line
+  // rather than erasing it: the promise still happened, and a dismissal made
+  // by accident has to be undoable.
+  const [offerDismissed, setOfferDismissed] = useState(false)
   const loyaltyQuery = useQuery({
     queryKey: ["loyalty-balance", selectedCustomer?.id],
     queryFn: () => getLoyaltyBalance(selectedCustomer!.id),
@@ -2851,11 +2856,31 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
                 the shop owed 243,738 on one order and billed zero. It stays on
                 screen until the discount on this invoice covers what was
                 promised. */}
-            {orderOffer && (
+            {orderOffer && offerDismissed && (
+              <div className="sm:col-span-2 flex items-center justify-between gap-2 rounded-lg bg-slate-100 px-2.5 py-1.5 dark:bg-slate-800">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                  طلب كتلوك — خصم {orderOffer.percent}% متروك عمداً
+                </span>
+                <button type="button" onClick={() => setOfferDismissed(false)}
+                  className="shrink-0 text-[11px] font-bold underline underline-offset-2 text-slate-500 hover:text-slate-700 dark:text-slate-400">
+                  رجّعه
+                </button>
+              </div>
+            )}
+            {orderOffer && !offerDismissed && (
               <div className="sm:col-span-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 dark:border-amber-700 dark:bg-amber-950">
-                <p className="text-xs font-extrabold text-amber-900 dark:text-amber-200">
-                  ⚠️ هذا الطلب من الكتلوك
-                </p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-extrabold text-amber-900 dark:text-amber-200">
+                    ⚠️ هذا الطلب من الكتلوك
+                  </p>
+                  {/* For the customer who is told to settle an old balance
+                      first. Withholding the offer is a decision, so it gets a
+                      button rather than being done by ignoring the box. */}
+                  <button type="button" onClick={() => setOfferDismissed(true)}
+                    className="shrink-0 rounded-lg px-2 py-0.5 text-[11px] font-bold text-amber-800 underline underline-offset-2 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-900">
+                    تجاهل
+                  </button>
+                </div>
                 <div className="mt-1 space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
                   {orderOffer.discount > 0 && (
                     <p>
