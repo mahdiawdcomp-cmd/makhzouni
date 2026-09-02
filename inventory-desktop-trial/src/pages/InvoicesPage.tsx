@@ -23,6 +23,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { QueryErrorBox } from "../components/ui/query-error"
 import { cn } from "../utils/cn"
 import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
+import { useUrlState } from "../hooks/useUrlState"
 
 type TypeFilter = "ALL" | InvoiceType
 type InvoiceSort = "createdDesc" | "updatedDesc" | "dateDesc" | "totalDesc" | "remainingDesc" | "paidDesc"
@@ -153,7 +154,8 @@ export function InvoicesPage() {
   const urlFrom = searchParams.get("from") ?? ""
   const urlTo = searchParams.get("to") ?? ""
 
-  const [query, setQuery] = useState("")
+  // In the URL like the other filters on this page already are.
+  const [query, setQuery] = useUrlState("q")
   const debouncedQuery = useDebounce(query, 250)
   const [draftFrom, setDraftFrom] = useState(urlFrom)
   const [draftTo, setDraftTo] = useState(urlTo)

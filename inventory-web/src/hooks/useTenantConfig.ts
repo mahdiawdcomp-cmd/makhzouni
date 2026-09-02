@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
+import { API_BASE_URL } from "../api/client";
 
 export interface TenantPlatforms {
   webEnabled?: boolean;
@@ -37,9 +38,12 @@ export interface TenantConfig {
 }
 
 async function fetchTenantConfig(): Promise<TenantConfig> {
-  // In SaaS mode the frontend hits its own backend's /api/tenant-info
-  const baseUrl = (import.meta as any).env?.VITE_API_URL ?? "";
-  const { data } = await axios.get<TenantConfig>(`${baseUrl}/api/tenant-info`);
+  // API_BASE_URL ALREADY ends in /api (from VITE_API_URL, or the "/api"
+  // same-origin default). Re-reading the env var and appending "/api" produced
+  // ".../api/api/tenant-info" — a silent 404 on every build that sets
+  // VITE_API_URL, which is every deployed build. The query fails open, so the
+  // tenant config has quietly been the fallback rather than the real answer.
+  const { data } = await axios.get<TenantConfig>(`${API_BASE_URL}/tenant-info`);
   return data;
 }
 

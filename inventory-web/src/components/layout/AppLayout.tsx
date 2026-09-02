@@ -193,22 +193,63 @@ export function AppLayout() {
   // Per-route scroll memory: remember where the user was on each route so that
   // returning to it (e.g. back from a product/invoice detail) restores the same
   // scroll position instead of always jumping to the top.
-  const scrollPositions = useRef<Record<string, number>>({})
+  // Kept in sessionStorage rather than a ref: a ref dies with the page, so a
+  // browser refresh while reading row 400 dropped the user back at the top.
+  const SCROLL_KEY = "scroll-positions"
+  const scrollPositions = useRef<Record<string, number>>(
+    (() => {
+      try {
+        return JSON.parse(sessionStorage.getItem(SCROLL_KEY) ?? "{}") as Record<string, number>
+      } catch {
+        return {}
+      }
+    })(),
+  )
+
   useEffect(() => {
     const el = mainRef.current
     if (!el) return
-    const onScroll = () => { scrollPositions.current[pathname] = el.scrollTop }
+    let writeTimer: number | undefined
+    const onScroll = () => {
+      scrollPositions.current[pathname] = el.scrollTop
+      // Throttled: writing to sessionStorage on every scroll event would be a
+      // JSON.stringify per frame.
+      window.clearTimeout(writeTimer)
+      writeTimer = window.setTimeout(() => {
+        try {
+          sessionStorage.setItem(SCROLL_KEY, JSON.stringify(scrollPositions.current))
+        } catch {
+          // private mode / quota — scroll memory is a convenience, never a must
+        }
+      }, 250)
+    }
     el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
+    return () => {
+      window.clearTimeout(writeTimer)
+      el.removeEventListener("scroll", onScroll)
+    }
   }, [pathname])
 
   useEffect(() => {
     const el = mainRef.current
     if (!el) return
     const saved = scrollPositions.current[pathname] ?? 0
-    // Wait a frame so the destination route has rendered (container has its full
-    // height) before restoring — otherwise scrollTo would clamp to a short page.
-    const raf = requestAnimationFrame(() => el.scrollTo(0, saved))
+    if (saved <= 0) return
+    // The page is SHORT until its data arrives, so a single scrollTo would be
+    // clamped to near-zero and the position lost anyway. Keep trying while the
+    // content grows, and stop as soon as it fits (or after a couple of seconds,
+    // so a genuinely short page doesn't spin).
+    let raf = 0
+    const deadline = Date.now() + 2500
+    const attempt = () => {
+      if (el.scrollHeight - el.clientHeight >= saved) {
+        el.scrollTo(0, saved)
+        return
+      }
+      if (Date.now() > deadline) return
+      raf = requestAnimationFrame(attempt)
+    }
+    raf = requestAnimationFrame(attempt)
     return () => cancelAnimationFrame(raf)
   }, [pathname])
 

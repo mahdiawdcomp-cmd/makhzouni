@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { useUrlState } from "../hooks/useUrlState"
 
 const emptyForm: BranchPayload = {
   name: "",
@@ -29,7 +30,8 @@ export function BranchesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [searchDraft, setSearchDraft] = useState("")
-  const [search, setSearch] = useState("")
+  // In the URL, so a refresh keeps the term (see useUrlState).
+  const [search, setSearch] = useUrlState("q")
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all")
   const [open, setOpen] = useState(false)
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null)

@@ -27,6 +27,7 @@ import { QueryErrorBox } from "../components/ui/query-error"
 import { apiErrorMessage } from "../utils/apiError"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
+import { useUrlState } from "../hooks/useUrlState"
 
 const emptyCustomer: CustomerPayload = {
   name: "",
@@ -51,7 +52,8 @@ export function CustomersPage() {
   const navigate = useNavigate()
   const [isSupplierTab, setIsSupplierTab] = useState(false)
   const { customersQuery, createMutation } = useCustomers(isSupplierTab)
-  const [query, setQuery] = useState("")
+  // In the URL, so a refresh keeps the term (see useUrlState).
+  const [query, setQuery] = useUrlState("q")
   const [filter, setFilter] = useState("all")
   const [sortBy, setSortBy] = useState<CustomerSort>("createdDesc")
   const [open, setOpen] = useState(false)

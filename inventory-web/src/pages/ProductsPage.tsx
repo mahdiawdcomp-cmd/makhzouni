@@ -34,6 +34,7 @@ import { matchProduct, stockState, depotPiecesOf } from "../utils/search"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { READ_ONLY_MESSAGE, useReadOnly } from "../hooks/useTenantConfig"
 import { useClampedPageIndex } from "../hooks/useClampedPageIndex"
+import { useUrlState } from "../hooks/useUrlState"
 
 // Accounting unit cost for stock valuation: WAC costPrice first, falling back
 // to purchasePrice ("last purchase price") for products never re-averaged.
@@ -432,7 +433,8 @@ export function ProductsPage() {
   const catalogCats: CatalogCategory[] = catalogCatsQuery.data ?? []
   const branchName = (branchId?: string | null) =>
     branchId ? branches.find((branch) => branch.id === branchId)?.name ?? "مخزن غير معروف" : "المخزن الرئيسي"
-  const [query, setQuery] = useState("")
+  // In the URL, so a refresh (or an accidental F5 mid-search) keeps the term.
+  const [query, setQuery] = useUrlState("q")
   const debouncedQuery = useDebounce(query, 250)
   const [category, setCategory] = useState("all")
   const [warehouseFilter, setWarehouseFilter] = useState<string>("all")
