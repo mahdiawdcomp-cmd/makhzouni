@@ -201,6 +201,42 @@ describe("«المندوب» — policy and money rules", () => {
     assert.ok(service.includes("spentPriceIds"), "the order must spend the price it used");
   });
 
+  test("the 'not his customer' filter survives a NULL rep", () => {
+    // `NOT { salesAgentId: id }` compiles to `<> id`, which is NULL — not true —
+    // for a customer with no rep at all. Written that way the warning read zero
+    // in exactly the case it exists to catch. It must stay an explicit OR.
+    const fn = admin.slice(admin.indexOf("export async function getCommission"));
+    const block = fn.slice(0, fn.indexOf("const soldTotal"));
+    assert.ok(
+      block.includes("salesAgentId: null"),
+      "the other-customers filter must match customers with no rep",
+    );
+    assert.ok(
+      !/NOT:\s*\{\s*customer:/.test(block),
+      "a negated relation filter silently drops NULL rows here",
+    );
+  });
+
+  test("a negative liability must not deadlock future handovers", () => {
+    // A receipt cancelled after its cash was handed over drives the derived
+    // figure below zero. Guarding on a negative ceiling locked the owner out of
+    // recording money the rep was physically holding.
+    const fn = admin.slice(admin.indexOf("export async function recordHandover"));
+    assert.ok(
+      /onHand > 0 && amount > onHand/.test(fn),
+      "the ceiling may only apply while the liability is non-negative",
+    );
+    assert.ok(fn.includes("HANDOVER_SANITY_CAP"), "a typo guard must still apply");
+  });
+
+  test("an approved price for a deleted product is not offered", () => {
+    const fn = service.slice(service.indexOf("export async function listUsablePrices"));
+    assert.ok(
+      fn.includes("product: { deletedAt: null }"),
+      "a price the order would refuse must not be shown as usable",
+    );
+  });
+
   test("orders and handovers are idempotent", () => {
     assert.ok(service.includes("clientRequestId"), "a re-sent cart must not create a second order");
     assert.ok(admin.includes("clientRequestId"), "a double-tapped handover must not book cash twice");

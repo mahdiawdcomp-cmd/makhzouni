@@ -38,6 +38,9 @@ function assertUuid(value: string | undefined | null, message: string) {
 }
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 
+/** Typo guard, used when the liability figure is too broken to be a ceiling. */
+const HANDOVER_SANITY_CAP = 100_000_000;
+
 /* ── who the reps are ────────────────────────────────────────────────── */
 
 async function activeAgents() {
@@ -194,11 +197,28 @@ export async function recordHandover(
 
   const liability = (await listAgentLiability()).find((l) => l.agentId === agent.id);
   const onHand = liability?.onHand ?? 0;
-  if (amount > onHand + 0.001) {
+
+  // The ceiling only applies while the liability is sane.
+  //
+  // A receipt cancelled after its cash was already handed over drives the
+  // derived figure below zero. Comparing against a negative ceiling then refused
+  // EVERY later handover — the rep kept collecting real cash and the owner was
+  // locked out of recording money they were physically holding. A bookkeeping
+  // anomaly must not become a deadlock: when the figure is already negative the
+  // amount is accepted (the screen flags the anomaly in red), and the typo guard
+  // is the sanity cap below instead.
+  if (onHand > 0 && amount > onHand + 0.001) {
     throw new AppError(
       `المبلغ أكبر من الي بذمة المندوب. الي معاه هسه: ${fmt(onHand)}`,
       400,
       "HANDOVER_EXCEEDS_LIABILITY",
+    );
+  }
+  if (amount > HANDOVER_SANITY_CAP) {
+    throw new AppError(
+      `المبلغ كبير جداً — تأكد منه. الحد ${fmt(HANDOVER_SANITY_CAP)}`,
+      400,
+      "AMOUNT_TOO_LARGE",
     );
   }
 
@@ -380,7 +400,15 @@ export async function getCommission(agentId: string, month: string, ratePercent?
       where: {
         ...receiptWindow,
         salesAgentId: agentId,
-        NOT: { customer: { salesAgentId: agentId } },
+        // Spelled as an explicit OR, not `NOT { salesAgentId: agentId }`.
+        // In SQL, `sales_agent_id <> '<id>'` is NULL — not true — for a customer
+        // with no rep, so a negated filter drops those rows from BOTH buckets
+        // and this warning read zero in exactly the case it exists to catch:
+        // money collected from a customer who belongs to nobody.
+        OR: [
+          { customer: { salesAgentId: null } },
+          { customer: { salesAgentId: { not: agentId } } },
+        ],
       },
       _sum: { amount: true },
     }),

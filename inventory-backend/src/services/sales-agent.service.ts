@@ -1157,7 +1157,16 @@ export async function listMyPriceRequests(agentId: string, limit = 50) {
 export async function listUsablePrices(agentId: string, customerId: string) {
   await assertOwnCustomer(agentId, customerId);
   const rows = await prisma.salesAgentPriceRequest.findMany({
-    where: { salesAgentId: agentId, customerId, status: "APPROVED", consumedAt: null },
+    where: {
+      salesAgentId: agentId,
+      customerId,
+      status: "APPROVED",
+      consumedAt: null,
+      // A price for a product that has since been deleted is unusable: the order
+      // would be refused at submit with "منتج غير موجود". Offering it puts a
+      // number in front of the rep that they cannot actually sell at.
+      product: { deletedAt: null },
+    },
     select: { id: true, productId: true, unit: true, requestedPrice: true },
   });
   return rows.map((r) => ({
