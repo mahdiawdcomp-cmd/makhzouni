@@ -1915,20 +1915,40 @@ async function updateInvoiceInTransaction(
     return { ...result, previousBalance: originalPreviousBalance, finalBalance: originalPreviousBalance + delta };
 }
 
+/**
+ * «إشعارات المندوب» — tell the owner and the rep that a rep's invoice changed.
+ *
+ * Fired AFTER the mutation resolves and outside any transaction: a WhatsApp
+ * send has no place inside one, and a rolled-back edit must not announce
+ * itself. Fire-and-forget — a notification failure can never be the reason an
+ * invoice edit fails.
+ *
+ * The rep is told directly, not just the owner, because an edit moves their
+ * commission and they should know today rather than at month end.
+ */
+function announceAgentInvoiceChange(invoiceId: string, changeKind: string) {
+  setImmediate(() => {
+    void import("./sales-agent-admin.service")
+      .then((m) => m.notifyInvoiceChangedForAgent(invoiceId, changeKind))
+      .catch(() => undefined);
+  });
+}
+
 export async function updateInvoice(
   id: string,
   input: CreateInvoiceInput,
   updatedBy: string,
   db?: Db
 ) {
-  if (db) {
-    return updateInvoiceInTransaction(db, id, input, updatedBy);
-  }
+  const result = db
+    ? await updateInvoiceInTransaction(db, id, input, updatedBy)
+    : await prisma.$transaction(
+        (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
+        INVOICE_TX_OPTIONS
+      );
 
-  return prisma.$transaction(
-    (tx) => updateInvoiceInTransaction(tx, id, input, updatedBy),
-    INVOICE_TX_OPTIONS
-  );
+  announceAgentInvoiceChange(id, "تعديل");
+  return result;
 }
 
 async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?: string) {
@@ -1975,14 +1995,15 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
 }
 
 export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: string) {
-  if (db) {
-    return cancelInvoiceInTransaction(db, id, returnWarehouseId);
-  }
+  const result = db
+    ? await cancelInvoiceInTransaction(db, id, returnWarehouseId)
+    : await prisma.$transaction(
+        (tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId),
+        INVOICE_TX_OPTIONS
+      );
 
-  return prisma.$transaction(
-    (tx) => cancelInvoiceInTransaction(tx, id, returnWarehouseId),
-    INVOICE_TX_OPTIONS
-  );
+  announceAgentInvoiceChange(id, "إلغاء");
+  return result;
 }
 
 async function reactivateInvoiceInTransaction(tx: Db, id: string) {
@@ -2083,11 +2104,18 @@ export async function hardDeleteInvoice(
   // When called from the approval flow we're already inside a transaction —
   // opening a second independent one could commit the delete even if the
   // approval-status update rolls back.
-  if (db) return hardDeleteInvoiceInTransaction(db, id, deletedBy, reason, returnWarehouseId);
-  return prisma.$transaction(
-    (tx) => hardDeleteInvoiceInTransaction(tx, id, deletedBy, reason, returnWarehouseId),
-    INVOICE_TX_OPTIONS
-  );
+  const result = db
+    ? await hardDeleteInvoiceInTransaction(db, id, deletedBy, reason, returnWarehouseId)
+    : await prisma.$transaction(
+        (tx) => hardDeleteInvoiceInTransaction(tx, id, deletedBy, reason, returnWarehouseId),
+        INVOICE_TX_OPTIONS
+      );
+
+  // Safe to read the invoice afterwards: this "delete" archives the row rather
+  // than removing it, so the customer name and total the message needs are
+  // still there.
+  announceAgentInvoiceChange(id, "حذف");
+  return result;
 }
 
 async function hardDeleteInvoiceInTransaction(

@@ -29,6 +29,14 @@ export interface CreateVoucherInput {
   clientRequestId?: string;
   // Only meaningful for type=EXPENSE (كهرباء/إيجار/رواتب/أخرى); ignored/null otherwise.
   category?: string;
+  /**
+   * «من استلم المبلغ» — the rep who physically took the cash, when it was not
+   * handed over the counter. Attribution ONLY: the voucher's effect on the
+   * customer's balance, its allocation across invoices, and every other rule
+   * below are untouched by it. The rep's outstanding cash is derived from these
+   * stamps minus their handovers, never stored.
+   */
+  salesAgentId?: string;
 }
 
 export interface UpdateVoucherInput {
@@ -302,6 +310,7 @@ async function createVoucherInTransaction(
       previousBalance,
       finalBalance,
       createdBy,
+      salesAgentId: input.salesAgentId ?? null,
     },
     include: {
       customer: true,

@@ -88,6 +88,59 @@ type AgentOrder = {
   lineCount: number
 }
 
+/**
+ * «معي الآن» — collected minus handed over.
+ *
+ * Computed on the server from the vouchers themselves, so it can never disagree
+ * with them. The rep is personally answerable for `onHand`, which is why it is
+ * shown as a number and not a status word.
+ */
+type CashOnHand = {
+  collected: number
+  handedOver: number
+  onHand: number
+}
+
+type AgentReceipt = {
+  id: string
+  voucherNumber: string
+  amount: number
+  date: string
+  cancelled: boolean
+  customerId: string | null
+  customerName: string
+}
+
+type AgentHandoverRow = {
+  id: string
+  amount: number
+  date: string
+  notes: string | null
+  receivedBy: string
+}
+
+/**
+ * One line of the shared statement builder — the SAME builder the owner reads.
+ * Nothing rep-specific: reusing it means the rep and the owner can never be
+ * looking at two different versions of one customer's account.
+ */
+type StatementRow = {
+  id: string
+  date: string
+  type: string
+  invoiceType: string | null
+  amount: number
+  referenceNumber: string
+  status?: string | null
+  runningBalance?: number
+  createdByName?: string | null
+}
+
+type CustomerStatement = {
+  customer: { id: string; name: string; openingBalance: number }
+  transactions: StatementRow[]
+}
+
 /* ── unit helpers ────────────────────────────────────────────────────
  * Mirrors the server's conversion exactly. The server recomputes every price
  * from the database when the order is submitted — what is shown here is a
@@ -219,7 +272,7 @@ function useThumbnails(visibleIds: string[]) {
 
 /* ── page ────────────────────────────────────────────────────────────── */
 
-type Screen = "catalog" | "customers" | "new-customer" | "orders"
+type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail"
 
 /**
  * Carts are kept PER CUSTOMER, in one map.
@@ -242,6 +295,10 @@ export function SalesAgentPage() {
   const [carts, setCarts] = useState<CartsByCustomer>({})
   const [cartOpen, setCartOpen] = useState(false)
   const [openProduct, setOpenProduct] = useState<AgentProduct | null>(null)
+  // Which customer's full statement is open. Separate from `customerId` (the
+  // one being SOLD to) on purpose: a rep often wants to read one customer's
+  // account while a half-built cart belongs to another.
+  const [detailCustomerId, setDetailCustomerId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [notes, setNotes] = useState("")
 
@@ -359,6 +416,10 @@ export function SalesAgentPage() {
               currentId={customerId}
               onPick={pickCustomer}
               onNew={() => setScreen("new-customer")}
+              onOpenStatement={(id) => {
+                setDetailCustomerId(id)
+                setScreen("customer-detail")
+              }}
             />
           )}
 
@@ -373,6 +434,29 @@ export function SalesAgentPage() {
           )}
 
           {screen === "orders" && <OrdersScreen />}
+
+          {screen === "money" && (
+            <MoneyScreen
+              customerId={customerId}
+              customerName={header.data?.name ?? null}
+              onNeedCustomer={() => setScreen("customers")}
+            />
+          )}
+
+          {screen === "customer-detail" &&
+            (detailCustomerId ? (
+              <CustomerDetailScreen
+                customerId={detailCustomerId}
+                onBack={() => setScreen("customers")}
+              />
+            ) : (
+              <EmptyState
+                title="ما اخترت زبون"
+                body="افتح زبوناً من «زبائني»."
+                actionLabel="روح لزبائني"
+                onAction={() => setScreen("customers")}
+              />
+            ))}
 
           {screen === "catalog" &&
             (customerId ? (
@@ -528,6 +612,7 @@ function AgentHeader({
           [
             ["catalog", "الكتلوك"],
             ["customers", "زبائني"],
+            ["money", "فلوسي"],
             ["orders", "طلباتي"],
           ] as Array<[Screen, string]>
         ).map(([key, label]) => (
@@ -919,10 +1004,12 @@ function CustomersScreen({
   currentId,
   onPick,
   onNew,
+  onOpenStatement,
 }: {
   currentId: string | null
   onPick: (id: string) => void
   onNew: () => void
+  onOpenStatement: (id: string) => void
 }) {
   const [search, setSearch] = useState("")
   const customers = useMyCustomers(search)
@@ -952,12 +1039,15 @@ function CustomersScreen({
       ) : (
         <ul className="space-y-2 pb-24">
           {(customers.data ?? []).map((c) => (
-            <li key={c.id}>
+            <li key={c.id} className="rounded-xl border-4 border-black">
+              {/* Two separate targets, both full-height: selling to a customer
+                  and reading their account are different intents, and a rep
+                  fumbling one for the other in the street is a real cost. */}
               <button
                 type="button"
                 onClick={() => onPick(c.id)}
                 className={cn(
-                  "w-full rounded-xl border-4 border-black p-3 text-right",
+                  "w-full rounded-t-lg p-3 text-right",
                   c.id === currentId ? "bg-black text-white" : "bg-white text-black",
                 )}
               >
@@ -967,6 +1057,13 @@ function CustomersScreen({
                   <span className="tabular-nums">الرصيد: {money(c.currentBalance)}</span>
                   {c.area ? <span>{c.area}</span> : null}
                 </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenStatement(c.id)}
+                className="h-14 w-full border-t-4 border-black text-lg font-black"
+              >
+                كشف الحساب
               </button>
             </li>
           ))}
@@ -1281,6 +1378,324 @@ function EmptyState({
         className="h-16 w-full max-w-xs rounded-xl bg-black text-xl font-black text-white"
       >
         {actionLabel}
+      </button>
+    </div>
+  )
+}
+
+/* ── money: «معي الآن», receipts, handovers ──────────────────────────── */
+
+/**
+ * The rep's money screen.
+ *
+ * «معي الآن» is the number they are personally answerable for, so it is the
+ * biggest thing on the page — collected minus what the owner has taken off
+ * them. It is derived on the server from the receipt vouchers themselves, so it
+ * cannot drift away from them.
+ *
+ * The rep records receipts here but NEVER records a handover: only the owner
+ * writes those. One-sided is simpler and safer than a two-party confirmation
+ * for a problem that has none — the owner knows when cash is in their hand.
+ */
+function MoneyScreen({
+  customerId,
+  customerName,
+  onNeedCustomer,
+}: {
+  customerId: string | null
+  customerName: string | null
+  onNeedCustomer: () => void
+}) {
+  const qc = useQueryClient()
+  const [amount, setAmount] = useState("")
+  const [notes, setNotes] = useState("")
+  // A fresh key per saved receipt, so a retry after a timeout cannot bill twice.
+  const requestId = useRef(crypto.randomUUID())
+
+  const cash = useQuery({
+    queryKey: ["sales-agent", "cash"],
+    queryFn: async () => {
+      const res = await api.get<{ data: CashOnHand }>("/sales-agent/cash-on-hand")
+      return res.data.data
+    },
+    retry: 3,
+  })
+
+  const receipts = useQuery({
+    queryKey: ["sales-agent", "receipts"],
+    queryFn: async () => {
+      const res = await api.get<{ data: AgentReceipt[] }>("/sales-agent/receipts")
+      return res.data.data ?? []
+    },
+    retry: 3,
+  })
+
+  const handovers = useQuery({
+    queryKey: ["sales-agent", "handovers"],
+    queryFn: async () => {
+      const res = await api.get<{ data: AgentHandoverRow[] }>("/sales-agent/handovers")
+      return res.data.data ?? []
+    },
+    retry: 3,
+  })
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await api.post("/sales-agent/receipts", {
+        customerId,
+        amount: Number(amount),
+        notes: notes.trim() || undefined,
+        clientRequestId: requestId.current,
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      toast({ title: "انحفظ السند ✓" })
+      setAmount("")
+      setNotes("")
+      requestId.current = crypto.randomUUID()
+      void qc.invalidateQueries({ queryKey: ["sales-agent", "cash"] })
+      void qc.invalidateQueries({ queryKey: ["sales-agent", "receipts"] })
+      // The customer just paid, so the balance in the header strip is stale.
+      void qc.invalidateQueries({ queryKey: ["sales-agent", "customer-header"] })
+      void qc.invalidateQueries({ queryKey: ["sales-agent", "customers"] })
+    },
+    onError: (err) =>
+      toast({
+        title: "ما انحفظ السند",
+        description: apiErrorMessage(err, "تحقق من المبلغ وحاول مرة أخرى"),
+        variant: "destructive",
+      }),
+  })
+
+  const numericAmount = Number(amount)
+  const canSave = Boolean(customerId) && numericAmount > 0 && !save.isPending
+
+  return (
+    <div className="p-3 pb-8">
+      <div className="rounded-xl border-4 border-black p-4">
+        <div className="text-lg font-black">معي الآن</div>
+        <div className="mt-1 text-4xl font-black tabular-nums">
+          {cash.isLoading ? "…" : money(cash.data?.onHand ?? 0)}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-5 text-base font-bold">
+          <span className="tabular-nums">تحصّلت: {money(cash.data?.collected ?? 0)}</span>
+          <span className="tabular-nums">سلّمت: {money(cash.data?.handedOver ?? 0)}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-xl border-4 border-black p-3">
+        <div className="text-lg font-black">سجّل سند قبض</div>
+
+        {customerId ? (
+          <div className="mt-1 text-base font-bold">الزبون: {customerName}</div>
+        ) : (
+          <button
+            type="button"
+            onClick={onNeedCustomer}
+            className="mt-2 h-14 w-full rounded-xl border-4 border-black text-lg font-black"
+          >
+            اختر الزبون أول
+          </button>
+        )}
+
+        <label className="mt-3 block">
+          <span className="mb-1 block text-lg font-black">المبلغ</span>
+          <input
+            value={amount}
+            inputMode="numeric"
+            onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+            className="h-16 w-full rounded-xl border-4 border-black px-3 text-2xl font-black tabular-nums focus:outline-none"
+          />
+        </label>
+
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="ملاحظة…"
+          rows={2}
+          className="mt-3 w-full rounded-xl border-4 border-black p-3 text-base font-bold placeholder:text-neutral-600 focus:outline-none"
+        />
+
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={() => save.mutate()}
+          className="mt-3 h-16 w-full rounded-xl bg-black text-xl font-black text-white disabled:bg-neutral-400"
+        >
+          {save.isPending ? "جاري الحفظ…" : "احفظ السند"}
+        </button>
+      </div>
+
+      <Section title="سنداتي">
+        {(receipts.data ?? []).length === 0 ? (
+          <div className="py-6 text-center text-base font-black">ما اكو سندات</div>
+        ) : (
+          <ul className="space-y-2">
+            {(receipts.data ?? []).map((r) => (
+              <li
+                key={r.id}
+                className={cn(
+                  "rounded-xl border-4 border-black p-3",
+                  r.cancelled && "bg-neutral-200",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-base font-black">{r.customerName}</span>
+                  <span className="text-lg font-black tabular-nums">{money(r.amount)}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-4 text-sm font-bold">
+                  <span>{r.voucherNumber}</span>
+                  <span className="tabular-nums">
+                    {new Date(r.date).toLocaleDateString("en-GB")}
+                  </span>
+                  {r.cancelled && <span>ملغي</span>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section title="تسليماتي">
+        {(handovers.data ?? []).length === 0 ? (
+          <div className="py-6 text-center text-base font-black">ما سلّمت شي بعد</div>
+        ) : (
+          <ul className="space-y-2">
+            {(handovers.data ?? []).map((h) => (
+              <li key={h.id} className="rounded-xl border-4 border-black p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-base font-black">استلمه: {h.receivedBy}</span>
+                  <span className="text-lg font-black tabular-nums">{money(h.amount)}</span>
+                </div>
+                <div className="mt-1 text-sm font-bold tabular-nums">
+                  {new Date(h.date).toLocaleDateString("en-GB")}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mt-5">
+      <div className="mb-2 text-lg font-black">{title}</div>
+      {children}
+    </div>
+  )
+}
+
+/* ── customer detail ─────────────────────────────────────────────────── */
+
+const TX_LABEL: Record<string, string> = {
+  INVOICE: "فاتورة",
+  INVOICE_PAYMENT: "دفعة على فاتورة",
+  RECEIPT: "سند قبض",
+  PAYMENT: "سند دفع",
+  OPENING_BALANCE: "رصيد افتتاحي",
+}
+
+/**
+ * «زبائني» — the full account of one customer.
+ *
+ * The requirement was explicit: these customers are the rep's responsibility
+ * and they must see all of it — invoices, receipts, movements, the complete
+ * statement. So this renders the shop's real statement rather than a
+ * rep-flavoured summary of it, which also means the rep and the owner can never
+ * be arguing from two different versions of one account.
+ */
+function CustomerDetailScreen({
+  customerId,
+  onBack,
+}: {
+  customerId: string
+  onBack: () => void
+}) {
+  const statement = useQuery({
+    queryKey: ["sales-agent", "customer-detail", customerId],
+    queryFn: async () => {
+      const res = await api.get<{ data: CustomerStatement }>(
+        `/sales-agent/customers/${customerId}/detail`,
+      )
+      return res.data.data
+    },
+    retry: 3,
+  })
+
+  if (statement.isLoading) {
+    return <div className="py-16 text-center text-xl font-black">جاري التحميل…</div>
+  }
+  if (statement.isError) {
+    return (
+      <EmptyState
+        title="ما وصل الكشف"
+        body="تحقق من الاتصال."
+        actionLabel="حاول مرة أخرى"
+        onAction={() => void statement.refetch()}
+      />
+    )
+  }
+
+  const rows = statement.data?.transactions ?? []
+  const last = rows.length > 0 ? rows[rows.length - 1] : null
+
+  return (
+    <div className="p-3 pb-8">
+      <div className="rounded-xl border-4 border-black p-4">
+        <div className="text-xl font-black">{statement.data?.customer.name}</div>
+        <div className="mt-1 text-base font-bold tabular-nums">
+          الرصيد الافتتاحي: {money(statement.data?.customer.openingBalance ?? 0)}
+        </div>
+        {last?.runningBalance != null && (
+          <div className="mt-1 text-2xl font-black tabular-nums">
+            الرصيد الحالي: {money(last.runningBalance)}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {rows.length === 0 ? (
+          <div className="py-10 text-center text-lg font-black">ما اكو حركات</div>
+        ) : (
+          // Newest first: the rep is standing in front of the shopkeeper and the
+          // argument is always about the last few movements, not the first.
+          [...rows].reverse().map((row) => (
+            <div
+              key={`${row.id}:${row.type}`}
+              className={cn(
+                "rounded-xl border-4 border-black p-3",
+                row.status === "CANCELLED" && "bg-neutral-200",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-base font-black">{TX_LABEL[row.type] ?? row.type}</span>
+                <span className="text-lg font-black tabular-nums">{money(row.amount)}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-4 text-sm font-bold">
+                <span>{row.referenceNumber}</span>
+                <span className="tabular-nums">
+                  {new Date(row.date).toLocaleDateString("en-GB")}
+                </span>
+                {row.runningBalance != null && (
+                  <span className="tabular-nums">الرصيد: {money(row.runningBalance)}</span>
+                )}
+                {row.status === "CANCELLED" && <span>ملغية</span>}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-4 h-16 w-full rounded-xl border-4 border-black text-xl font-black"
+      >
+        رجوع لزبائني
       </button>
     </div>
   )

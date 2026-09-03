@@ -608,3 +608,147 @@ export async function listMyOrders(agentId: string, limit = 40) {
     };
   });
 }
+
+/* ── receipts and the rep's cash ─────────────────────────────────────── */
+
+/**
+ * «سند قبض» recorded by the rep.
+ *
+ * Goes through `createVoucher` unchanged — the same transaction, the same
+ * balance freeze, the same allocation the shop has always used. The ONLY
+ * difference is the `salesAgentId` stamp saying who physically holds the money.
+ * Nothing new was written for how a payment lands on a customer's account, on
+ * purpose: that logic is correct and load-bearing, and a second copy of it would
+ * be a second thing to keep right.
+ */
+export async function createAgentReceipt(
+  agentId: string,
+  agentName: string,
+  input: { customerId: string; amount: number; notes?: string; clientRequestId?: string },
+) {
+  const customer = await assertOwnCustomer(agentId, input.customerId);
+
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new AppError("المبلغ لازم يكون أكبر من صفر", 400, "AMOUNT_INVALID");
+  }
+
+  const { createVoucher } = await import("./voucher.service");
+  const voucher = await createVoucher(
+    {
+      customerId: customer.id,
+      amount,
+      type: "RECEIPT",
+      notes: input.notes,
+      clientRequestId: input.clientRequestId,
+      salesAgentId: agentId,
+    },
+    // createdBy is the rep: they are the one who took the money and typed it.
+    agentId,
+  );
+
+  notifySalesAgentEvent("receipt", {
+    agentName,
+    customerName: customer.name,
+    phone: customer.phone,
+    customerId: customer.id,
+    total: amount,
+  }).catch((err) => logger.warn(`[SalesAgent] receipt notify failed: ${String(err)}`));
+
+  return voucher;
+}
+
+/**
+ * «معي الآن» — cash the rep has collected and not yet handed over.
+ *
+ * DERIVED, never stored: receipts stamped with this rep, minus their handovers.
+ * A stored running total would be one more number that can drift away from the
+ * vouchers it is supposed to summarise; this one cannot, because it is the
+ * vouchers.
+ *
+ * Cancelled and archived vouchers are excluded for the same reason they are
+ * excluded from the customer's balance — they are audit artefacts, not money.
+ */
+export async function getAgentCashOnHand(agentId: string) {
+  const [collected, handed] = await Promise.all([
+    prisma.paymentVoucher.aggregate({
+      where: {
+        salesAgentId: agentId,
+        type: "RECEIPT",
+        cancelledAt: null,
+        archivedAt: null,
+      },
+      _sum: { amount: true },
+    }),
+    prisma.salesAgentHandover.aggregate({
+      where: { salesAgentId: agentId },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const collectedTotal = toNumber(collected._sum.amount);
+  const handedTotal = toNumber(handed._sum.amount);
+
+  return {
+    collected: collectedTotal,
+    handedOver: handedTotal,
+    onHand: Math.round((collectedTotal - handedTotal) * 100) / 100,
+  };
+}
+
+/**
+ * The full picture of one of the rep's customers.
+ *
+ * Reuses `getCustomerTransactions` — the shop's real statement builder — rather
+ * than assembling a rep-flavoured imitation, so what the rep reads is the same
+ * statement the owner reads. Safe to hand over: that builder maps invoice lines
+ * into an explicit shape carrying no cost field, unlike the raw rows it reads.
+ */
+export async function getAgentCustomerDetail(agentId: string, customerId: string) {
+  await assertOwnCustomer(agentId, customerId);
+  const { getCustomerTransactions } = await import("./customer.service");
+  return getCustomerTransactions(customerId, { all: true } as Parameters<typeof getCustomerTransactions>[1]);
+}
+
+/** The rep's own receipts, newest first — what they collected and when. */
+export async function listMyReceipts(agentId: string, limit = 40) {
+  const rows = await prisma.paymentVoucher.findMany({
+    where: { salesAgentId: agentId, type: "RECEIPT", archivedAt: null },
+    orderBy: { date: "desc" },
+    take: Math.min(limit, 100),
+    select: {
+      id: true,
+      voucherNumber: true,
+      amount: true,
+      date: true,
+      cancelledAt: true,
+      customer: { select: { id: true, name: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    voucherNumber: r.voucherNumber,
+    amount: toNumber(r.amount),
+    date: r.date,
+    cancelled: Boolean(r.cancelledAt),
+    customerId: r.customer?.id ?? null,
+    customerName: r.customer?.name ?? "",
+  }));
+}
+
+/** The rep's handover history — what the owner has taken off their hands. */
+export async function listMyHandovers(agentId: string, limit = 40) {
+  const rows = await prisma.salesAgentHandover.findMany({
+    where: { salesAgentId: agentId },
+    orderBy: { date: "desc" },
+    take: Math.min(limit, 100),
+    select: { id: true, amount: true, date: true, notes: true, receiver: { select: { name: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    amount: toNumber(r.amount),
+    date: r.date,
+    notes: r.notes,
+    receivedBy: r.receiver.name,
+  }));
+}

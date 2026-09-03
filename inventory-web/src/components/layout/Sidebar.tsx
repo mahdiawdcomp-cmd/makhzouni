@@ -14,6 +14,7 @@ import {
   FileText,
   Globe,
   HandCoins,
+  Bike,
   Home,
   KeyRound,
   Megaphone,
@@ -171,6 +172,7 @@ const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
   { to: "/error-logs", label: "صحة النظام والأخطاء", Icon: AlertTriangle },
   { to: "/personal-debts", label: "الديون الشخصية", Icon: HandCoins },
+  { to: "/sales-agents", label: "المندوبون", Icon: Bike },
   // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
   // Sidebar link removed so the tool can't be reached from the menu.
   ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),

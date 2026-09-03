@@ -40,6 +40,7 @@ const PublicCatalogPage = lazyPage(() => import("./pages/PublicCatalogPage"), "P
 const QuotationsPage = lazyPage(() => import("./pages/QuotationsPage"), "QuotationsPage")
 const POSPage = lazyPage(() => import("./pages/PosPage"), "POSPage")
 const SalesAgentPage = lazyPage(() => import("./pages/SalesAgentPage"), "SalesAgentPage")
+const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage"), "SalesAgentAdminPage")
 const ProductsPage = lazyPage(() => import("./pages/ProductsPage"), "ProductsPage")
 const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
@@ -171,6 +172,9 @@ const router = createBrowserRouter([
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
               { path: "coupons", element: f("retailCoupons", "كوبونات المفرد", <CouponsPage />) },
               { path: "super-admin", element: s(<SuperAdminPage />) },
+              // «المندوب» — owner side. Under AdminRoute because commission and
+              // another rep's liability are figures a rep must never reach.
+              { path: "sales-agents", element: s(<SalesAgentAdminPage />) },
               // TEMPORARY OLD ACCOUNTING IMPORT TOOL - DISABLED AFTER SUCCESSFUL MIGRATION.
               { path: "balance-migration", element: <BalanceMigrationDisabled /> },
             ],

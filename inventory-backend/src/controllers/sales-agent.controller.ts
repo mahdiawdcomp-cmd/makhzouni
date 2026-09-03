@@ -11,6 +11,11 @@ import { AppError } from "../utils/app-error";
 import {
   claimCustomer,
   createAgentCustomer,
+  createAgentReceipt,
+  getAgentCashOnHand,
+  getAgentCustomerDetail,
+  listMyHandovers,
+  listMyReceipts,
   getAgentProductImage,
   getAgentProductThumbnails,
   getCustomerHeader,
@@ -131,4 +136,50 @@ export const postAgentOrder = asyncHandler(async (req, res) => {
 export const getMyOrders = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   res.json({ success: true, data: await listMyOrders(agent.id) });
+});
+
+/* ── money ───────────────────────────────────────────────────────────── */
+
+export const getCashOnHand = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await getAgentCashOnHand(agent.id) });
+});
+
+export const postAgentReceipt = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as {
+    customerId?: string;
+    amount?: number;
+    notes?: string;
+    clientRequestId?: string;
+  };
+  if (!body.customerId) throw new AppError("الزبون مطلوب", 400, "CUSTOMER_REQUIRED");
+
+  const voucher = await createAgentReceipt(agent.id, agent.name, {
+    customerId: String(body.customerId),
+    amount: Number(body.amount),
+    notes: body.notes,
+    // Carried straight through to the voucher service, which already treats it
+    // as an idempotency key — a double-tap on a bad connection returns the
+    // voucher that was created rather than creating a second one.
+    clientRequestId: body.clientRequestId,
+  });
+
+  res.status(201).json({ success: true, message: "انحفظ السند", data: voucher });
+});
+
+export const getMyReceipts = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await listMyReceipts(agent.id) });
+});
+
+export const getMyHandovers = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await listMyHandovers(agent.id) });
+});
+
+/** The full account of one of the rep's customers — the same statement the owner reads. */
+export const getCustomerDetailCtrl = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await getAgentCustomerDetail(agent.id, String(req.params.id)) });
 });

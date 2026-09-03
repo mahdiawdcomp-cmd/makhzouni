@@ -355,6 +355,8 @@ model User {
   assignedCustomers         Customer[]              @relation("CustomerSalesAgent")
   salesAgentInvoices        Invoice[]               @relation("InvoiceSalesAgent")
   salesAgentVouchers        PaymentVoucher[]        @relation("PaymentVoucherSalesAgent")
+  salesAgentHandovers       SalesAgentHandover[]    @relation("HandoverAgent")
+  handoversReceived         SalesAgentHandover[]    @relation("HandoverReceivedBy")
 
   @@map("users")
 }
@@ -1419,6 +1421,39 @@ model Notification {
 // `Notification` model above (which is a customer WhatsApp/marketing log — do not
 // merge). Additive only; not yet written to by any producer (invoice/whatsapp/
 // transfer) — wiring comes in later batches (23D+).
+/// «تسليم المندوب» — the rep handing collected cash over to the owner.
+///
+/// Deliberately NOT an accounting entry. The receipt voucher already credited
+/// the customer and is the only place the money touches the books; what is
+/// missing is merely WHERE the cash physically sits between collection and
+/// handover. Modelling that as a second set of entries would mean a suspense
+/// account, double-entry pairs, and a balance that can drift out of agreement
+/// with the vouchers it was derived from.
+///
+/// So the rep's outstanding cash is DERIVED, never stored:
+///   sum(RECEIPT vouchers stamped with this rep) − sum(handovers from this rep)
+/// It cannot disagree with the vouchers because it is computed from them.
+///
+/// Only the owner writes these rows. A rep confirming their own handover would
+/// need the owner to confirm it back, which is a two-party protocol for a
+/// problem that has none: the owner knows when cash is in their hand.
+model SalesAgentHandover {
+  id           String   @id @default(uuid()) @db.Uuid
+  salesAgentId String   @map("sales_agent_id") @db.Uuid
+  salesAgent   User     @relation("HandoverAgent", fields: [salesAgentId], references: [id])
+  amount       Decimal  @db.Decimal(12, 2)
+  date         DateTime @default(now())
+  notes        String?
+  /// The owner who took the cash and recorded it.
+  receivedBy   String   @map("received_by") @db.Uuid
+  receiver     User     @relation("HandoverReceivedBy", fields: [receivedBy], references: [id])
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([salesAgentId])
+  @@index([date])
+  @@map("sales_agent_handovers")
+}
+
 model AppNotification {
   id              String    @id @default(uuid()) @db.Uuid
   type            String

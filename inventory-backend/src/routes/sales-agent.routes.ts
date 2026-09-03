@@ -17,11 +17,16 @@ import {
   getAgentImage,
   getAgentMe,
   getAgentProducts,
+  getCashOnHand,
+  getCustomerDetailCtrl,
   getCustomerHeaderCtrl,
   getMyCustomers,
+  getMyHandovers,
+  getMyReceipts,
   getMyOrders,
   postAgentCustomer,
   postAgentOrder,
+  postAgentReceipt,
   postAgentThumbnails,
   postClaimCustomer,
   postPhoneLookup,
@@ -36,6 +41,7 @@ router.get("/areas", getAgentAreas);
 
 router.get("/customers", getMyCustomers);
 router.get("/customers/:id/header", getCustomerHeaderCtrl);
+router.get("/customers/:id/detail", getCustomerDetailCtrl);
 router.post("/customers/lookup", postPhoneLookup);
 router.post("/customers/claim", postClaimCustomer);
 router.post("/customers", postAgentCustomer);
@@ -46,5 +52,10 @@ router.get("/products/:id/image", getAgentImage);
 
 router.post("/orders", postAgentOrder);
 router.get("/orders", getMyOrders);
+
+router.get("/cash-on-hand", getCashOnHand);
+router.post("/receipts", postAgentReceipt);
+router.get("/receipts", getMyReceipts);
+router.get("/handovers", getMyHandovers);
 
 export default router;
