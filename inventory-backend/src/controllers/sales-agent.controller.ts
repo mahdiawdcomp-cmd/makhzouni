@@ -38,13 +38,6 @@ function requireAgent(reqUser: Express.User | undefined) {
   return { id: reqUser.id, name: reqUser.name ?? "المندوب" };
 }
 
-/** Whether the signed-in user should see the rep layer at all. */
-export const getAgentMe = asyncHandler(async (req, res) => {
-  const agent = requireAgent(req.user);
-  const areas = await listSalesAgentAreas();
-  res.json({ success: true, data: { id: agent.id, name: agent.name, areas } });
-});
-
 export const getAgentAreas = asyncHandler(async (_req, res) => {
   res.json({ success: true, data: await listSalesAgentAreas() });
 });

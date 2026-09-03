@@ -10,9 +10,7 @@ import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import {
-  getAgents,
   getIssueReportsCtrl,
-  getIssuesCtrl,
   getCommissionCtrl,
   getHandovers,
   getLiability,
@@ -23,13 +21,11 @@ const router = Router();
 
 router.use(authMiddleware, adminOnly);
 
-router.get("/agents", getAgents);
 router.get("/liability", getLiability);
 router.get("/handovers", getHandovers);
 router.post("/handovers", postHandover);
 router.get("/commission", getCommissionCtrl);
 
 router.get("/issue-reports", getIssueReportsCtrl);
-router.get("/issues", getIssuesCtrl);
 
 export default router;

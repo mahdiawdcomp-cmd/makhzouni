@@ -64,6 +64,23 @@ function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number, boxP
  */
 export const SALES_AGENT_TAG = "زبون مندوب";
 
+/**
+ * Reject a malformed id BEFORE it reaches Prisma.
+ *
+ * Ids here arrive as URL segments, so any of them can be any string. A uuid
+ * column handed a non-uuid makes Prisma throw a validation error, which reaches
+ * the client as a bare 500 — the shape of a broken server rather than of a bad
+ * request, and noise in the error log for what is just a bad link.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertUuid(value: string | undefined | null, message: string) {
+  if (!value || !UUID_RE.test(value)) {
+    throw new AppError(message, 400, "ID_INVALID");
+  }
+  return value;
+}
+
 /* ── areas («المنطقة») ───────────────────────────────────────────────────
  * Areas are neighbourhoods inside one city, so they are per-tenant data, not a
  * constant: the shop types its own list once in Settings. Shipping a hardcoded
@@ -74,17 +91,6 @@ export async function listSalesAgentAreas(): Promise<string[]> {
   const raw = settings?.salesAgentAreas;
   if (!Array.isArray(raw)) return [];
   return raw.map((a) => String(a).trim()).filter(Boolean);
-}
-
-/* ── who is a rep ────────────────────────────────────────────────────── */
-
-export async function listSalesAgents() {
-  const users = await prisma.user.findMany({
-    where: { isActive: true, permissions: { has: "SALES_AGENT" } },
-    select: { id: true, name: true, username: true, phone: true },
-    orderBy: { name: "asc" },
-  });
-  return users;
 }
 
 /* ── customers ───────────────────────────────────────────────────────── */
@@ -98,6 +104,7 @@ export async function listSalesAgents() {
  * should not be able to harvest.
  */
 export async function assertOwnCustomer(agentId: string, customerId: string) {
+  assertUuid(customerId, "الزبون غير صحيح");
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, deletedAt: null, salesAgentId: agentId },
   });
@@ -252,6 +259,7 @@ export async function lookupPhone(agentId: string, rawPhone: string) {
  * still be visible to the owner a month later.
  */
 export async function claimCustomer(agentId: string, agentName: string, customerId: string) {
+  assertUuid(customerId, "الزبون غير صحيح");
   const customer = await prisma.customer.findFirst({
     where: { id: customerId, deletedAt: null },
     select: { id: true, name: true, phone: true, salesAgentId: true, tags: true },
@@ -427,15 +435,19 @@ export async function listAgentCatalogProducts() {
 }
 
 export async function getAgentProductThumbnails(ids: string[]) {
-  if (ids.length === 0) return {};
+  // Silently drop malformed ids rather than failing the batch: one bad entry
+  // must not blank out a whole screenful of thumbnails.
+  const clean = ids.filter((id) => UUID_RE.test(id));
+  if (clean.length === 0) return {};
   const rows = await prisma.product.findMany({
-    where: { id: { in: ids.slice(0, 80) }, deletedAt: null },
+    where: { id: { in: clean.slice(0, 80) }, deletedAt: null },
     select: { id: true, thumbnailUrl: true },
   });
   return Object.fromEntries(rows.map((r) => [r.id, r.thumbnailUrl ?? null]));
 }
 
 export async function getAgentProductImage(productId: string) {
+  assertUuid(productId, "المادة غير صحيحة");
   const product = await prisma.product.findFirst({
     where: { id: productId, deletedAt: null },
     select: { imageUrl: true, thumbnailUrl: true },
@@ -476,6 +488,8 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   }
 
   const uniqueProductIds = [...new Set(input.items.map((i) => i.productId))];
+  for (const id of uniqueProductIds) assertUuid(id, "مادة غير صحيحة بالطلب");
+
   const products = await prisma.product.findMany({
     where: { id: { in: uniqueProductIds }, deletedAt: null },
     select: {
@@ -844,6 +858,7 @@ export async function createAgentIssue(
   }
 
   if (input.productId) {
+    assertUuid(input.productId, "المادة غير صحيحة");
     const product = await prisma.product.findFirst({
       where: { id: input.productId, deletedAt: null },
       select: { id: true },
@@ -910,6 +925,7 @@ export async function requestSpecialPrice(
   input: { customerId: string; productId: string; unit: Unit; requestedPrice: number; reason?: string },
 ) {
   const customer = await assertOwnCustomer(agentId, input.customerId);
+  assertUuid(input.productId, "المادة غير صحيحة");
 
   const product = await prisma.product.findFirst({
     where: { id: input.productId, deletedAt: null },

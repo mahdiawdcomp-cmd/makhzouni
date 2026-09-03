@@ -15,7 +15,6 @@ import { requireSalesAgent } from "../middleware/permission.middleware";
 import {
   getAgentAreas,
   getAgentImage,
-  getAgentMe,
   getAgentProducts,
   getCashOnHand,
   getCustomerDetailCtrl,
@@ -42,7 +41,6 @@ const router = Router();
 
 router.use(authMiddleware, requireSalesAgent());
 
-router.get("/me", getAgentMe);
 router.get("/areas", getAgentAreas);
 
 router.get("/customers", getMyCustomers);

@@ -19,6 +19,23 @@ function toNumber(value: unknown) {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Reject a malformed id BEFORE it reaches Prisma.
+ *
+ * A uuid column handed a non-uuid string makes Prisma throw a validation error,
+ * which surfaces as a bare 500 "Internal server error" — the shape of a broken
+ * server rather than of a bad request. Every id here arrives from a query string
+ * or a request body, so any of them can be anything.
+ */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertUuid(value: string | undefined | null, message: string) {
+  if (!value || !UUID_RE.test(value)) {
+    throw new AppError(message, 400, "ID_INVALID");
+  }
+  return value;
+}
 const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 
 /* ── who the reps are ────────────────────────────────────────────────── */
@@ -95,6 +112,8 @@ export async function recordHandover(
   input: { agentId: string; amount: number; notes?: string; date?: string },
   receivedBy: string,
 ) {
+  assertUuid(input.agentId, "المندوب غير صحيح");
+
   const agent = await prisma.user.findFirst({
     where: { id: input.agentId, permissions: { has: "SALES_AGENT" } },
     select: { id: true, name: true },
@@ -169,6 +188,7 @@ export async function recordHandover(
 }
 
 export async function listHandovers(agentId?: string, limit = 60) {
+  if (agentId) assertUuid(agentId, "المندوب غير صحيح");
   const rows = await prisma.salesAgentHandover.findMany({
     where: agentId ? { salesAgentId: agentId } : {},
     orderBy: { date: "desc" },
@@ -229,6 +249,8 @@ function monthRange(month: string) {
  * margin figure has to exist anywhere near this screen.
  */
 export async function getCommission(agentId: string, month: string, ratePercent?: number) {
+  assertUuid(agentId, "المندوب غير صحيح");
+
   const agent = await prisma.user.findFirst({
     where: { id: agentId, permissions: { has: "SALES_AGENT" } },
     select: { id: true, name: true },
@@ -277,11 +299,6 @@ export async function getCommission(agentId: string, month: string, ratePercent?
     onSold: rate == null ? null : round2((soldTotal * rate) / 100),
     onCollected: rate == null ? null : round2((collectedTotal * rate) / 100),
   };
-}
-
-/** The rep list for the owner's dropdowns. */
-export async function listAgentsForAdmin() {
-  return activeAgents();
 }
 
 /**
@@ -347,6 +364,7 @@ function issueWindow(from?: string, to?: string) {
  *   competitors   — أسعار المنافسين المجمّعة
  */
 export async function getIssueReports(opts: { from?: string; to?: string; agentId?: string } = {}) {
+  if (opts.agentId) assertUuid(opts.agentId, "المندوب غير صحيح");
   const createdAt = issueWindow(opts.from, opts.to);
   const base = {
     ...(createdAt ? { createdAt } : {}),
@@ -448,41 +466,4 @@ export async function getIssueReports(opts: { from?: string; to?: string; agentI
       createdAt: r.createdAt,
     })),
   };
-}
-
-/** The raw log behind the reports, for when the owner wants to read them one by one. */
-export async function listIssues(opts: { from?: string; to?: string; agentId?: string; reason?: string } = {}) {
-  const createdAt = issueWindow(opts.from, opts.to);
-  const rows = await prisma.salesAgentIssue.findMany({
-    where: {
-      ...(createdAt ? { createdAt } : {}),
-      ...(opts.agentId ? { salesAgentId: opts.agentId } : {}),
-      ...(opts.reason ? { reason: opts.reason } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take: 300,
-    select: {
-      id: true,
-      reason: true,
-      note: true,
-      competitorInfo: true,
-      createdAt: true,
-      salesAgent: { select: { name: true } },
-      customer: { select: { name: true, area: true } },
-      product: { select: { name: true } },
-    },
-  });
-
-  return rows.map((r) => ({
-    id: r.id,
-    reason: r.reason,
-    reasonLabel: issueReasonLabel(r.reason),
-    note: r.note,
-    competitorInfo: r.competitorInfo,
-    createdAt: r.createdAt,
-    agentName: r.salesAgent.name,
-    customerName: r.customer.name,
-    area: r.customer.area,
-    productName: r.product?.name ?? null,
-  }));
 }

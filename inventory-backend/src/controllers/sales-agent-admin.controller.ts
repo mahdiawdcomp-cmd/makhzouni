@@ -10,16 +10,10 @@ import { AppError } from "../utils/app-error";
 import {
   getCommission,
   getIssueReports,
-  listIssues,
   listAgentLiability,
-  listAgentsForAdmin,
   listHandovers,
   recordHandover,
 } from "../services/sales-agent-admin.service";
-
-export const getAgents = asyncHandler(async (_req, res) => {
-  res.json({ success: true, data: await listAgentsForAdmin() });
-});
 
 export const getLiability = asyncHandler(async (_req, res) => {
   res.json({ success: true, data: await listAgentLiability() });
@@ -73,9 +67,4 @@ function dateWindow(req: { query: Record<string, unknown> }) {
 
 export const getIssueReportsCtrl = asyncHandler(async (req, res) => {
   res.json({ success: true, data: await getIssueReports(dateWindow(req)) });
-});
-
-export const getIssuesCtrl = asyncHandler(async (req, res) => {
-  const reason = typeof req.query.reason === "string" ? req.query.reason : undefined;
-  res.json({ success: true, data: await listIssues({ ...dateWindow(req), reason }) });
 });
