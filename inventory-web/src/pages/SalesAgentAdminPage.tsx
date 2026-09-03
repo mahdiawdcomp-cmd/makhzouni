@@ -9,7 +9,7 @@
  *   - take cash off a rep and write it down
  *   - work out what to pay them at the end of a month
  */
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../api/client"
 import { toast } from "../components/ui/use-toast"
@@ -23,9 +23,12 @@ type Liability = {
   name: string
   username: string
   phone: string | null
+  isActive: boolean
   collected: number
   handedOver: number
   onHand: number
+  /** A receipt was cancelled after its cash had already been handed over. */
+  overHanded: boolean
 }
 
 type Handover = {
@@ -42,12 +45,19 @@ type Commission = {
   agentId: string
   agentName: string
   month: string
+  dateBasis: string
   invoiceCount: number
   sold: number
-  collected: number
+  /** What the rep physically took — includes old debt and the shop's own sales. */
+  collectedInHand: number
+  /** Receipts from this rep's customers, whoever collected them. */
+  collectedFromOwnCustomers: number
+  /** The part of collectedInHand that came from customers who are not his. */
+  collectedFromOtherCustomers: number
   ratePercent: number | null
   onSold: number | null
-  onCollected: number | null
+  onCollectedInHand: number | null
+  onCollectedFromOwn: number | null
 }
 
 const money = (n: number) => Math.round(n).toLocaleString("en-US")
@@ -132,6 +142,9 @@ function HandoverPanel({
   const [pickedId, setPickedId] = useState("")
   const [amount, setAmount] = useState("")
   const [notes, setNotes] = useState("")
+  // One key per attempt: a double tap sends the same key and gets the first
+  // handover back instead of taking the cash off the rep twice.
+  const requestId = useRef(crypto.randomUUID())
 
   // Fall back to the first rep rather than requiring a pick. With a single rep
   // — which is the situation today — an unselected panel means the owner types
@@ -145,6 +158,7 @@ function HandoverPanel({
         agentId,
         amount: Number(amount),
         notes: notes.trim() || undefined,
+        clientRequestId: requestId.current,
       })
       return res.data
     },
@@ -152,6 +166,7 @@ function HandoverPanel({
       toast({ title: "تم تسجيل الاستلام ✓", description: "وصل إشعار للمندوب" })
       setAmount("")
       setNotes("")
+      requestId.current = crypto.randomUUID()
       onSaved()
     },
     onError: (err) =>
@@ -188,13 +203,29 @@ function HandoverPanel({
                     : "border-slate-200 dark:border-slate-700"
                 }`}
               >
-                <div className="font-semibold">{a.name}</div>
-                <div className="mt-1 text-2xl font-bold tabular-nums">{money(a.onHand)}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">{a.name}</span>
+                  {!a.isActive && (
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                      حساب معطّل
+                    </span>
+                  )}
+                </div>
+                <div
+                  className={`mt-1 text-2xl font-bold tabular-nums ${a.overHanded ? "text-rose-600" : ""}`}
+                >
+                  {money(a.onHand)}
+                </div>
                 <div className="mt-1 text-xs text-slate-500">
                   <span className="tabular-nums">تحصّل {money(a.collected)}</span>
                   {" · "}
                   <span className="tabular-nums">سلّم {money(a.handedOver)}</span>
                 </div>
+                {a.overHanded && (
+                  <div className="mt-1 text-xs font-semibold text-rose-600">
+                    سلّم أكثر مما بذمته — على الأغلب انلغى سند بعد التسليم. راجعه.
+                  </div>
+                )}
               </button>
             ))}
           </div>
@@ -311,13 +342,33 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
   })
 
   const data = commission.data
+  // Three bases, not two. "How much did he collect" has three honest answers and
+  // paying a person on the wrong one is a dispute, so each is named for exactly
+  // what it counts rather than one of them being labelled «المُحصَّل فعلياً».
   const rows = useMemo(
     () => [
-      { label: "قيمة المبيعات", value: data?.sold ?? 0, result: data?.onSold ?? null },
-      { label: "المُحصَّل فعلياً", value: data?.collected ?? 0, result: data?.onCollected ?? null },
+      {
+        label: "قيمة مبيعاته",
+        hint: "فواتيره الفعّالة بهذا الشهر، على تاريخ الفوترة",
+        value: data?.sold ?? 0,
+        result: data?.onSold ?? null,
+      },
+      {
+        label: "تحصيل من زبائنه",
+        hint: "سندات زبائنه بهذا الشهر، مهما كان من قبضها",
+        value: data?.collectedFromOwnCustomers ?? 0,
+        result: data?.onCollectedFromOwn ?? null,
+      },
+      {
+        label: "الي قبضه بيده",
+        hint: "كل ما قبضه — يشمل ديوناً قديمة وزبائن مو زبائنه",
+        value: data?.collectedInHand ?? 0,
+        result: data?.onCollectedInHand ?? null,
+      },
     ],
     [data],
   )
+  const foreignShare = data?.collectedFromOtherCustomers ?? 0
 
   return (
     <Card>
@@ -362,6 +413,8 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
           <>
             <div className="text-sm text-slate-500">
               عدد الفواتير هذا الشهر: <span className="tabular-nums">{data?.invoiceCount ?? 0}</span>
+              {" · "}
+              الشهر محسوب على تاريخ الفوترة (يوم موافقتك)، لا يوم إرسال الطلب
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -375,7 +428,10 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.label} className="border-b last:border-0">
-                      <td className="p-2">{r.label}</td>
+                      <td className="p-2">
+                        <span className="font-medium">{r.label}</span>
+                        <span className="block text-xs text-slate-500">{r.hint}</span>
+                      </td>
                       <td className="p-2 tabular-nums">{money(r.value)}</td>
                       <td className="p-2 text-lg font-bold tabular-nums">
                         {r.result == null ? "— اكتب النسبة" : money(r.result)}
@@ -385,9 +441,19 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
                 </tbody>
               </table>
             </div>
+
+            {foreignShare > 0 && (
+              <p className="text-sm font-medium text-amber-700 dark:text-amber-500">
+                انتبه: <span className="tabular-nums">{money(foreignShare)}</span> مما قبضه هذا
+                الشهر جاء من زبائن مو زبائنه — ما يخص بيعه هو.
+              </p>
+            )}
+
             <p className="text-xs text-slate-500">
               العمولة على قيمة البيع لا على الربح — السعر مثبّت والمندوب ما يكدر يخصّم، فما اكو
-              سبب يخليه يبيع أرخص. القرار على أي رقم تحاسبه يبقى إلك.
+              سبب يخليه يبيع أرخص. النظام ما يوزّع السندات على فواتير بعينها، فما اكو رقم
+              «تحصيل مقابل فواتيره هو» — الرقمان أعلاه هما أقرب جواب صادق موجود. القرار على أي
+              رقم تحاسبه يبقى إلك.
             </p>
           </>
         )}

@@ -30,6 +30,12 @@ type ApprovalData = {
   // on a rep order is who took it, so it is a badge on the row, not a detail
   // buried in the expanded view.
   salesAgentName?: string
+  /**
+   * Lines the rep sold that the shop is short of. A shortage never blocks the
+   * sale, so the owner has to be able to see it here — otherwise the first sign
+   * is stock going negative after approval.
+   */
+  shortages?: Array<{ productName: string; requested: number; available: number; short: number }>
   // AGENT_PRICE_REQUEST
   productName?: string
   unit?: string
@@ -207,10 +213,22 @@ export function ApprovalsPage() {
                       مندوب: {data.salesAgentName}
                     </span>
                   )}
+                  {(data.shortages?.length ?? 0) > 0 && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                      نقص مخزون: {data.shortages!.length}
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-slate-500">
                   {data.phone ?? "-"} — {money(data.subtotal)} د.ع
                 </div>
+                {(data.shortages?.length ?? 0) > 0 && (
+                  <div className="text-xs font-medium text-amber-700 dark:text-amber-500">
+                    {data.shortages!
+                      .map((s) => `${s.productName}: ناقص ${s.short}`)
+                      .join(" · ")}
+                  </div>
+                )}
               </div>
             )
           }

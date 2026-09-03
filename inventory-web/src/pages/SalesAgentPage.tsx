@@ -331,6 +331,10 @@ export function SalesAgentPage() {
   // The two sheets that open ON TOP of the product sheet. Each carries the unit
   // the rep was looking at, because a price or a refusal is about a carton or a
   // piece, never about the product in the abstract.
+  // One key per cart attempt. A rep on a bad connection taps «أرسل الطلب», sees
+  // nothing, and taps again — this shop has been bitten by duplicate invoices
+  // that way. The retry carries the same key and gets the first order back.
+  const orderKey = useRef(crypto.randomUUID())
   const [issueFor, setIssueFor] = useState<{ product: AgentProduct | null; unit: Unit | null } | null>(null)
   const [priceFor, setPriceFor] = useState<{ product: AgentProduct; unit: Unit } | null>(null)
   const [search, setSearch] = useState("")
@@ -419,12 +423,23 @@ export function SalesAgentPage() {
       const res = await api.post("/sales-agent/orders", {
         customerId,
         notes: notes.trim() || undefined,
+        clientRequestId: orderKey.current,
         items: cart,
       })
-      return res.data
+      return res.data as { data?: { shortages?: Array<{ productName: string; short: number }> } }
     },
-    onSuccess: () => {
-      toast({ title: "انرسل الطلب ✓", description: "راح يوصلك إشعار بعد الموافقة" })
+    onSuccess: (res) => {
+      const short = res?.data?.shortages ?? []
+      toast({
+        title: "انرسل الطلب ✓",
+        // A shortage does not block the sale, but the rep should know the shop
+        // is short before the customer asks when it arrives.
+        description:
+          short.length > 0
+            ? `انتبه: ${short.map((x) => x.productName).join("، ")} — الكمية ناقصة بالمخزن`
+            : "راح يوصلك إشعار بعد الموافقة",
+      })
+      orderKey.current = crypto.randomUUID()
       if (customerId) setCarts((prev) => ({ ...prev, [customerId]: [] }))
       setNotes("")
       setCartOpen(false)
@@ -843,7 +858,7 @@ function CatalogScreen({
                   {money(product.salePrice)}
                 </div>
                 <div className="text-sm font-bold tabular-nums">
-                  المتوفر: {product.currentStock}
+                  {product.currentStock > 0 ? `المتوفر: ${product.currentStock}` : "ما بقى بالمخزن"}
                 </div>
               </div>
             </button>
@@ -950,9 +965,7 @@ function ProductSheet({
         </div>
 
         <div className="mt-4">
-          <div className="mb-2 text-lg font-black">
-            الكمية {max > 0 ? `(الأقصى ${max})` : ""}
-          </div>
+          <div className="mb-2 text-lg font-black">الكمية</div>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -997,17 +1010,20 @@ function ProductSheet({
           مشكلة» sits BESIDE add-to-cart, not buried in a menu: the moment the
           shopkeeper says no is the only moment the real reason is known. */}
       <div className="shrink-0 space-y-2 border-t-4 border-black p-3">
+        {/* A shortage WARNS, it does not block. The shop's standing policy is
+            that a shortage never stops a sale, and the rep is standing in front
+            of a customer who wants the goods. */}
+        {qty > max && (
+          <div className="rounded-xl border-4 border-black bg-neutral-200 p-2 text-center text-base font-black">
+            المخزن ناقص {qty - max} {UNIT_LABEL[unit]} — تكدر تبيع وتنكتب بالطلب
+          </div>
+        )}
         <button
           type="button"
-          disabled={max <= 0 || qty > max}
           onClick={() => onAdd(unit, qty)}
-          className="h-16 w-full rounded-xl bg-black text-xl font-black text-white disabled:bg-neutral-400"
+          className="h-16 w-full rounded-xl bg-black text-xl font-black text-white"
         >
-          {max <= 0
-            ? "الكمية ما تكفي"
-            : qty > max
-              ? `الأقصى ${max}`
-              : "أضف للطلب"}
+          أضف للطلب
         </button>
         <div className="flex gap-2">
           <button

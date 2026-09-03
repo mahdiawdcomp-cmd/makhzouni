@@ -116,6 +116,29 @@ export function scopeCustomerParamToSalesAgent() {
   };
 }
 
+/**
+ * Keep a rep out of the ordinary customer write routes.
+ *
+ * A rep is a STAFF user, so those routes accepted them and turned each attempt
+ * into a pending approval — a create, an edit, even a delete request, sitting in
+ * the owner's queue looking like any other staff request. The rep has purpose-
+ * built endpoints for the one thing they should do (add their own customer,
+ * where the area list and the rep stamp are applied), so the generic ones are
+ * simply closed to them rather than left as a source of requests to rubber-stamp.
+ *
+ * Reads stay open — `scopeCustomerParamToSalesAgent` already confines those.
+ */
+export function blockSalesAgentWrites() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (isSalesAgent(req.user) && req.method !== "GET" && req.method !== "HEAD") {
+      return next(
+        new AppError("المندوب يضيف زبائنه من شاشته، مو من هنا", 403, "SALES_AGENT_WRITE_BLOCKED"),
+      );
+    }
+    return next();
+  };
+}
+
 export function requirePermission(permission: string) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {

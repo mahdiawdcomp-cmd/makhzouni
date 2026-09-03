@@ -26,7 +26,7 @@ import {
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { enforcePlanLimit } from "../middleware/tenant.middleware";
-import { requirePermission, scopeCustomerParamToSalesAgent } from "../middleware/permission.middleware";
+import { blockSalesAgentWrites, requirePermission, scopeCustomerParamToSalesAgent } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   createPortalLink,
@@ -58,6 +58,10 @@ router.use(authMiddleware);
 // Registered as a param handler rather than per-route so a new endpoint added
 // later is covered without anyone having to remember to add the check.
 router.param("id", scopeCustomerParamToSalesAgent());
+
+// A rep reads their own customers here but never writes: their own screen has
+// the create path that applies the area list and the rep stamp.
+router.use(blockSalesAgentWrites());
 
 router.get("/", validate(listCustomersSchema), getCustomers);
 router.get("/debts", getDebts);

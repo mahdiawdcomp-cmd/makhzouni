@@ -65,6 +65,44 @@ function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number, boxP
 export const SALES_AGENT_TAG = "زبون مندوب";
 
 /**
+ * Typo guard on a receipt, not a business rule.
+ *
+ * A customer paying more than they owe is normal and stays allowed. This only
+ * catches the extra zeros — an amount no real shop hands a rep in cash.
+ */
+const RECEIPT_SANITY_CAP = 100_000_000;
+
+/**
+ * Keep the display tag in step with the authoritative column.
+ *
+ * The tag is free text: a user editing a customer can drop it, and nothing put
+ * it back. That left customers linked-but-untagged, so the ordinary customers
+ * screen disagreed with the server about who belongs to whom. This is called
+ * wherever the link is set, and by the customer-update path, so the two cannot
+ * drift apart.
+ */
+export async function syncAgentTag(customerId: string) {
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { tags: true, salesAgentId: true },
+  });
+  if (!customer) return;
+
+  const has = customer.tags.includes(SALES_AGENT_TAG);
+  const should = customer.salesAgentId != null;
+  if (has === should) return;
+
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: {
+      tags: should
+        ? [...customer.tags, SALES_AGENT_TAG]
+        : customer.tags.filter((t) => t !== SALES_AGENT_TAG),
+    },
+  });
+}
+
+/**
  * Reject a malformed id BEFORE it reaches Prisma.
  *
  * Ids here arrive as URL segments, so any of them can be any string. A uuid
@@ -430,8 +468,11 @@ export async function listAgentCatalogProducts() {
       // data, in the street, that is the whole experience.
       hasImage: Boolean(product.thumbnailUrl),
       currentStock: totalStock(product),
-    }))
-    .filter((p) => p.currentStock > 0);
+    }));
+  // NOT filtered by stock. A product at zero is still sellable — the shop's
+  // standing policy is that a shortage never blocks a sale — and hiding it
+  // would leave the rep unable to even quote something the customer is asking
+  // for. The real number is shown on the card; the decision is the rep's.
 }
 
 export async function getAgentProductThumbnails(ids: string[]) {
@@ -461,6 +502,15 @@ export type AgentOrderInput = {
   customerId: string;
   notes?: string;
   items: Array<{ productId: string; unit: Unit; quantity: number }>;
+  /**
+   * Client-generated key for one attempt at sending a cart.
+   *
+   * A rep taps «أرسل الطلب» on a bad connection, sees nothing happen, and taps
+   * again — this shop has already been bitten by duplicate invoices that way.
+   * The retry carries the same key and gets the first approval back instead of
+   * creating a second one.
+   */
+  clientRequestId?: string;
 };
 
 /**
@@ -482,6 +532,31 @@ export type AgentOrderInput = {
  */
 export async function submitAgentOrder(agentId: string, agentName: string, input: AgentOrderInput) {
   const customer = await assertOwnCustomer(agentId, input.customerId);
+
+  // Idempotency first, before any work: a repeat of the same attempt returns the
+  // approval the first one created. Matched on the rep too, so one rep's key can
+  // never hand back another rep's order.
+  const key = input.clientRequestId?.trim();
+  if (key) {
+    const prior = await prisma.pendingApproval.findFirst({
+      where: {
+        requestedBy: agentId,
+        requestType: approvalRequestTypes.CATALOG_ORDER,
+        requestData: { path: ["clientRequestId"], equals: key },
+      },
+      select: { id: true, requestData: true },
+    });
+    if (prior) {
+      const d = (prior.requestData ?? {}) as { subtotal?: number; displayItems?: unknown[] };
+      return {
+        approvalId: prior.id,
+        subtotal: Number(d.subtotal ?? 0),
+        lineCount: Array.isArray(d.displayItems) ? d.displayItems.length : 0,
+        shortages: [] as Array<{ productId: string; productName: string; requested: number; available: number; short: number }>,
+        duplicate: true,
+      };
+    }
+  }
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
     throw new AppError("الطلب فارغ", 400, "ORDER_EMPTY");
@@ -517,11 +592,23 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     requestedPiecesByProduct.set(product.id, (requestedPiecesByProduct.get(product.id) ?? 0) + pieces);
   }
 
-  for (const product of products) {
-    if ((requestedPiecesByProduct.get(product.id) ?? 0) > totalStock(product)) {
-      throw new AppError(`الكمية المتوفرة ما تكفي: «${product.name}»`, 400, "STOCK_NOT_ENOUGH");
-    }
-  }
+  // A shortage NEVER blocks the sale — the shop's standing policy, and the same
+  // rule the invoice screen follows. The rep is standing in front of a customer
+  // who wants the goods; refusing the order there loses a real sale to fix a
+  // number that the shop settles when stock arrives.
+  //
+  // It is recorded instead of refused: the owner sees the shortfall on the
+  // approval, and decides with the full picture rather than the rep being
+  // stopped at the door.
+  const shortages = products
+    .map((product) => {
+      const requested = requestedPiecesByProduct.get(product.id) ?? 0;
+      const available = totalStock(product);
+      return requested > available
+        ? { productId: product.id, productName: product.name, requested, available, short: requested - available }
+        : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
 
   // «اطلب سعراً خاصاً» — approved, unspent prices for THIS customer.
   //
@@ -571,6 +658,7 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       source: "SALES_AGENT",
       salesAgentId: agentId,
       salesAgentName: agentName,
+      clientRequestId: key,
       customerName: customer.name,
       phone: customer.phone,
       customerId: customer.id,
@@ -579,6 +667,10 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       notes: input.notes,
       subtotal,
       finalTotal: subtotal,
+      // Empty on a normal order; present when the rep sold something the shop is
+      // short of, so the approvals row can say so instead of the owner finding
+      // out when stock goes negative.
+      shortages,
       body: {
         customerName: customer.name,
         phone: customer.phone,
@@ -623,7 +715,7 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     })),
   }).catch((err) => logger.warn(`[SalesAgent] order notify failed: ${String(err)}`));
 
-  return { approvalId: approval.id, subtotal, lineCount: normalizedItems.length };
+  return { approvalId: approval.id, subtotal, lineCount: normalizedItems.length, shortages, duplicate: false };
 }
 
 /**
@@ -681,6 +773,16 @@ export async function createAgentReceipt(
   const amount = Number(input.amount);
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new AppError("المبلغ لازم يكون أكبر من صفر", 400, "AMOUNT_INVALID");
+  }
+  // Overpaying is legitimate (it leaves the customer in credit), so the customer's
+  // balance is NOT a ceiling. But an amount this large is always a slipped
+  // finger, and an unnoticed one lands straight on the rep's cash liability.
+  if (amount > RECEIPT_SANITY_CAP) {
+    throw new AppError(
+      `المبلغ كبير جداً — تأكد منه. الحد ${RECEIPT_SANITY_CAP.toLocaleString("en-US")}`,
+      400,
+      "AMOUNT_TOO_LARGE",
+    );
   }
 
   const { createVoucher } = await import("./voucher.service");

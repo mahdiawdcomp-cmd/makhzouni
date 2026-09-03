@@ -739,6 +739,8 @@ export interface Customer {
   loyaltyPoints?: number
   province?: string | null
   businessType?: CustomerBusinessType | null
+  /** «المنطقة» — the area inside the city, distinct from the governorate. */
+  area?: string | null
 }
 
 export type CustomerBusinessType = "STATIONERY" | "TOYS" | "MIXED"
@@ -755,6 +757,7 @@ export interface CustomerPayload {
   isBoth?: boolean
   province?: string
   businessType?: CustomerBusinessType
+  area?: string | null
 }
 
 export interface CustomerBroadcastPayload {

@@ -105,6 +105,7 @@ export const postAgentOrder = asyncHandler(async (req, res) => {
   const body = (req.body ?? {}) as {
     customerId?: string;
     notes?: string;
+    clientRequestId?: string;
     items?: Array<{ productId?: string; unit?: string; quantity?: number }>;
   };
 
@@ -126,6 +127,7 @@ export const postAgentOrder = asyncHandler(async (req, res) => {
   const result = await submitAgentOrder(agent.id, agent.name, {
     customerId: String(body.customerId),
     notes: body.notes,
+    clientRequestId: body.clientRequestId,
     items,
   });
 

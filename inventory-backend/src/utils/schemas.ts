@@ -540,6 +540,10 @@ export const updateCustomerSchema = z.object({
       isBoth: z.coerce.boolean().optional(),
       province: z.enum(IRAQI_GOVERNORATES).nullable().optional(),
       businessType: z.enum(CUSTOMER_BUSINESS_TYPES).nullable().optional(),
+      // «المنطقة» — free string here rather than an enum: the allowed list is
+      // per-tenant settings data, and validating it against that list belongs in
+      // the service, not in a schema that would need a deploy to change.
+      area: z.string().trim().max(60).nullable().optional(),
     })
     .refine((body) => Object.keys(body).length > 0, {
       message: "At least one field is required",

@@ -66,6 +66,12 @@ export interface UpdateCustomerInput {
   isBoth?: boolean;
   province?: string | null;
   businessType?: CustomerBusinessType | null;
+  /**
+   * «المنطقة» — the in-city area. Editable after creation on purpose: a rep
+   * types it standing in the street and the owner has to be able to correct it,
+   * which was impossible while this field existed only on the create path.
+   */
+  area?: string | null;
 }
 
 /**
@@ -460,11 +466,24 @@ export async function updateCustomer(
   if (input.isBoth !== undefined) data.isBoth = input.isBoth;
   if (input.province !== undefined) data.province = input.province;
   if (input.businessType !== undefined) data.businessType = input.businessType;
+  if (input.area !== undefined) data.area = input.area;
 
   await db.customer.update({
     where: { id },
     data,
   });
+
+  // The rep-link display tag is free text, so an edit that rewrites `tags` can
+  // silently drop it and leave the customers screen disagreeing with the server
+  // about who this customer belongs to. Re-assert it from the authoritative
+  // column. Best-effort: the customer row is already saved, and a tag hiccup
+  // must not turn a successful update into a 500.
+  if (input.tags !== undefined) {
+    const { syncAgentTag } = await import("./sales-agent.service");
+    await syncAgentTag(id).catch((err) =>
+      logger.warn(`[Customer] agent-tag sync failed for ${id}: ${String(err)}`),
+    );
+  }
 
   if (input.province || input.businessType) {
     await applyCustomerAutoTags(db, id, input.province, input.businessType).catch((err) =>
@@ -507,7 +526,21 @@ export async function restoreCustomer(id: string) {
 
 const customerStatementInvoiceInclude = {
   creator: { select: { id: true, name: true, username: true, role: true } },
-  items: true,
+  // Explicit field list, not `items: true`. InvoiceItem carries `costPrice`, and
+  // this statement is served to sales reps (who must never see cost) as well as
+  // to the owner. With `true` the cost was read out of the database on every
+  // statement and only dropped later by the mapper below — one added line there
+  // and it would ship. These are exactly the fields the mapper uses.
+  items: {
+    select: {
+      productName: true,
+      itemNumber: true,
+      unit: true,
+      quantity: true,
+      unitPrice: true,
+      totalPrice: true,
+    },
+  },
 } satisfies Prisma.InvoiceInclude;
 type StatementInvoice = Prisma.InvoiceGetPayload<{ include: typeof customerStatementInvoiceInclude }>;
 

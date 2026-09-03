@@ -43,9 +43,48 @@ const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 async function activeAgents() {
   return prisma.user.findMany({
     where: { isActive: true, permissions: { has: "SALES_AGENT" } },
-    select: { id: true, name: true, username: true, phone: true },
+    select: { id: true, name: true, username: true, phone: true, isActive: true },
     orderBy: { name: "asc" },
   });
+}
+
+/**
+ * Reps to show on the liability screen: the active ones, PLUS any deactivated
+ * account that still holds shop money.
+ *
+ * Filtering on `isActive` alone made a rep's outstanding cash vanish from the
+ * owner's screen the moment the account was switched off — which is exactly
+ * when the owner most needs to see it. Money owed does not stop being owed
+ * because a login was disabled.
+ */
+async function agentsForLiability() {
+  const active = await activeAgents();
+  const activeIds = new Set(active.map((a) => a.id));
+
+  const [collectors, handers] = await Promise.all([
+    prisma.paymentVoucher.findMany({
+      where: { salesAgentId: { not: null }, type: "RECEIPT", cancelledAt: null, archivedAt: null },
+      select: { salesAgentId: true },
+      distinct: ["salesAgentId"],
+    }),
+    prisma.salesAgentHandover.findMany({
+      select: { salesAgentId: true },
+      distinct: ["salesAgentId"],
+    }),
+  ]);
+
+  const seen = new Set<string>([
+    ...collectors.map((c) => c.salesAgentId as string),
+    ...handers.map((h) => h.salesAgentId),
+  ]);
+  const missing = [...seen].filter((id) => !activeIds.has(id));
+  if (missing.length === 0) return active;
+
+  const inactive = await prisma.user.findMany({
+    where: { id: { in: missing } },
+    select: { id: true, name: true, username: true, phone: true, isActive: true },
+  });
+  return [...active, ...inactive];
 }
 
 /**
@@ -56,7 +95,7 @@ async function activeAgents() {
  * anyone having to come back and fix an N+1.
  */
 export async function listAgentLiability() {
-  const agents = await activeAgents();
+  const agents = await agentsForLiability();
   if (agents.length === 0) return [];
 
   const ids = agents.map((a) => a.id);
@@ -85,14 +124,21 @@ export async function listAgentLiability() {
   return agents.map((a) => {
     const c = collectedBy.get(a.id) ?? 0;
     const h = handedBy.get(a.id) ?? 0;
+    const onHand = round2(c - h);
     return {
       agentId: a.id,
       name: a.name,
       username: a.username,
       phone: a.phone,
+      isActive: a.isActive,
       collected: c,
       handedOver: h,
-      onHand: round2(c - h),
+      onHand,
+      // A rep cannot hand over more than they hold, so the only way this goes
+      // negative is a receipt CANCELLED after its cash was already handed over.
+      // That is a real bookkeeping problem, not a display quirk, so it is
+      // flagged rather than clamped to zero and hidden.
+      overHanded: onHand < 0,
     };
   });
 }
@@ -109,10 +155,31 @@ export async function listAgentLiability() {
  * would quietly corrupt every later reading of that number.
  */
 export async function recordHandover(
-  input: { agentId: string; amount: number; notes?: string; date?: string },
+  input: { agentId: string; amount: number; notes?: string; date?: string; clientRequestId?: string },
   receivedBy: string,
 ) {
   assertUuid(input.agentId, "المندوب غير صحيح");
+
+  // A double tap used to book the cash twice. The retry returns the handover the
+  // first press created rather than taking the money off the rep again.
+  const key = input.clientRequestId?.trim();
+  if (key) {
+    const prior = await prisma.salesAgentHandover.findFirst({
+      where: { clientRequestId: key },
+      include: { receiver: { select: { name: true } } },
+    });
+    if (prior) {
+      return {
+        id: prior.id,
+        amount: toNumber(prior.amount),
+        date: prior.date,
+        notes: prior.notes,
+        receivedBy: prior.receiver.name,
+        remaining: (await listAgentLiability()).find((l) => l.agentId === prior.salesAgentId)?.onHand ?? 0,
+        duplicate: true,
+      };
+    }
+  }
 
   const agent = await prisma.user.findFirst({
     where: { id: input.agentId, permissions: { has: "SALES_AGENT" } },
@@ -142,6 +209,7 @@ export async function recordHandover(
       notes: input.notes?.trim() || null,
       date: input.date ? new Date(input.date) : new Date(),
       receivedBy,
+      clientRequestId: key ?? null,
     },
     include: { receiver: { select: { name: true } } },
   });
@@ -184,6 +252,7 @@ export async function recordHandover(
     notes: handover.notes,
     receivedBy: handover.receiver.name,
     remaining: round2(onHand - amount),
+    duplicate: false,
   };
 }
 
@@ -237,11 +306,30 @@ function monthRange(month: string) {
  * The commission calculator: a READER, not a ledger.
  *
  * It stores nothing — no accrual, no pending balance, no automatic deduction.
- * It answers two questions from rows that already exist, and the owner types the
- * rate each time because the rate is whatever they agreed that month.
+ * The owner types the rate each time, because the rate is whatever they agreed
+ * that month.
  *
- *   sold      — ACTIVE sale invoices credited to this rep in the month
- *   collected — receipts this rep collected in the month
+ * THREE figures, deliberately, because "how much did he collect" has three
+ * different honest answers and paying a person on the wrong one is a dispute:
+ *
+ *   sold                — ACTIVE sale invoices credited to this rep, by INVOICE
+ *                         DATE (the day it was billed, i.e. the day you approved
+ *                         it — not the day the rep sent the order). Same basis
+ *                         every other report in this system uses.
+ *   collectedInHand     — receipts this rep physically took. Includes money paid
+ *                         against OLD debt that predates the rep, and against
+ *                         invoices the shop sold directly. This is the number
+ *                         that drives his cash liability, NOT a measure of his
+ *                         selling.
+ *   collectedFromOwn    — receipts from customers assigned to this rep, whoever
+ *                         collected them. The closest honest answer to "collected
+ *                         against what he sold" that exists without inventing a
+ *                         payment-allocation engine.
+ *
+ * There is deliberately no fourth figure "payments matched to his invoices":
+ * this system does not allocate vouchers onto invoices at all — a receipt moves
+ * the customer's balance and nothing else — so any such number would be invented
+ * here rather than read, and inventing it was explicitly ruled out.
  *
  * Commission is computed on SALE VALUE, never on profit. The usual objection to
  * paying on sales — that a rep discounts to sell more — cannot happen here: the
@@ -267,37 +355,59 @@ export async function getCommission(agentId: string, month: string, ratePercent?
     date: { gte: from, lt: to },
   };
 
-  const [sold, collected, invoiceCount] = await Promise.all([
+  const receiptWindow = {
+    type: "RECEIPT" as const,
+    cancelledAt: null,
+    archivedAt: null,
+    date: { gte: from, lt: to },
+  };
+
+  const [sold, inHand, fromOwn, invoiceCount, oldDebtShare] = await Promise.all([
     prisma.invoice.aggregate({ where: soldWhere, _sum: { totalAmount: true } }),
     prisma.paymentVoucher.aggregate({
-      where: {
-        salesAgentId: agentId,
-        type: "RECEIPT",
-        cancelledAt: null,
-        archivedAt: null,
-        date: { gte: from, lt: to },
-      },
+      where: { ...receiptWindow, salesAgentId: agentId },
+      _sum: { amount: true },
+    }),
+    prisma.paymentVoucher.aggregate({
+      where: { ...receiptWindow, customer: { salesAgentId: agentId } },
       _sum: { amount: true },
     }),
     prisma.invoice.count({ where: soldWhere }),
+    // How much of what he collected came from customers who are NOT his — money
+    // that has nothing to do with his selling. Shown so the owner can see the
+    // gap rather than having to trust that there isn't one.
+    prisma.paymentVoucher.aggregate({
+      where: {
+        ...receiptWindow,
+        salesAgentId: agentId,
+        NOT: { customer: { salesAgentId: agentId } },
+      },
+      _sum: { amount: true },
+    }),
   ]);
 
   const soldTotal = toNumber(sold._sum.totalAmount);
-  const collectedTotal = toNumber(collected._sum.amount);
+  const inHandTotal = toNumber(inHand._sum.amount);
+  const fromOwnTotal = toNumber(fromOwn._sum.amount);
   const rate = Number.isFinite(Number(ratePercent)) ? Number(ratePercent) : null;
+  const pct = (base: number) => (rate == null ? null : round2((base * rate) / 100));
 
   return {
     agentId: agent.id,
     agentName: agent.name,
     month,
+    // Names the basis on the screen, so nobody has to guess which date a month
+    // boundary follows when an order is sent on the 30th and approved on the 1st.
+    dateBasis: "INVOICE_DATE" as const,
     invoiceCount,
     sold: soldTotal,
-    collected: collectedTotal,
+    collectedInHand: inHandTotal,
+    collectedFromOwnCustomers: fromOwnTotal,
+    collectedFromOtherCustomers: toNumber(oldDebtShare._sum.amount),
     ratePercent: rate,
-    // Both are shown side by side: the owner decides which one to pay on, and
-    // that decision is theirs to make each month rather than the software's.
-    onSold: rate == null ? null : round2((soldTotal * rate) / 100),
-    onCollected: rate == null ? null : round2((collectedTotal * rate) / 100),
+    onSold: pct(soldTotal),
+    onCollectedInHand: pct(inHandTotal),
+    onCollectedFromOwn: pct(fromOwnTotal),
   };
 }
 

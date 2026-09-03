@@ -21,7 +21,9 @@ export const getLiability = asyncHandler(async (_req, res) => {
 
 export const postHandover = asyncHandler(async (req, res) => {
   if (!req.user) throw new AppError("Authentication is required", 401, "AUTH_REQUIRED");
-  const body = (req.body ?? {}) as { agentId?: string; amount?: number; notes?: string; date?: string };
+  const body = (req.body ?? {}) as {
+    agentId?: string; amount?: number; notes?: string; date?: string; clientRequestId?: string;
+  };
   if (!body.agentId) throw new AppError("المندوب مطلوب", 400, "AGENT_REQUIRED");
 
   const result = await recordHandover(
@@ -30,6 +32,7 @@ export const postHandover = asyncHandler(async (req, res) => {
       amount: Number(body.amount),
       notes: body.notes,
       date: body.date,
+      clientRequestId: body.clientRequestId,
     },
     req.user.id,
   );

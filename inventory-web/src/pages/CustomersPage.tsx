@@ -286,6 +286,19 @@ export function CustomersPage() {
             <span className="text-xs font-medium text-slate-500">التاكات</span>
             <TagPicker value={form.tags ?? []} onChange={(tags) => setForm({ ...form, tags })} />
           </div>
+          <div className="space-y-1">
+            {/* «المنطقة» — the area inside the city. A rep types this standing in
+                the street, so the owner has to be able to correct it here; it
+                used to exist only on the rep's create form and was then frozen
+                for good. Free text, because the allowed list is per-shop
+                settings data rather than something this form should own. */}
+            <span className="text-xs font-medium text-slate-500">المنطقة (اختياري)</span>
+            <Input
+              placeholder="المنطقة داخل المدينة"
+              value={form.area ?? ""}
+              onChange={(event) => setForm({ ...form, area: event.target.value || null })}
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <span className="text-xs font-medium text-slate-500">المحافظة (اختياري)</span>

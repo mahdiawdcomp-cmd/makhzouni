@@ -655,6 +655,7 @@ function EditCustomerModal({
     openingBalance: String(customer.openingBalance ?? 0),
     province: customer.province ?? "",
     businessType: customer.businessType ?? "",
+    area: customer.area ?? "",
   })
 
   // Reset form to latest customer data every time the modal opens
@@ -673,6 +674,7 @@ function EditCustomerModal({
         openingBalance: String(customer.openingBalance ?? 0),
         province: customer.province ?? "",
         businessType: customer.businessType ?? "",
+        area: customer.area ?? "",
       })
     }
   }, [open, customer])
@@ -701,6 +703,8 @@ function EditCustomerModal({
       // يبعث null بلا داعي. غير فاضي دايماً يعني القيمة الجديدة.
       province: (provinceInput || (customer.province ? null : undefined)) as CustomerPayload["province"],
       businessType: (businessTypeInput || (customer.businessType ? null : undefined)) as CustomerBusinessType | undefined,
+      // Same empty-means-clear convention as province above.
+      area: form.area.trim() || (customer.area ? null : undefined),
     })
   }
 
@@ -750,6 +754,19 @@ function EditCustomerModal({
         <div className="space-y-1">
           <Label>التاكات (اختر بالضغط أو أضف جديد)</Label>
           <TagPicker value={form.tags} onChange={(tags) => set("tags", tags)} />
+        </div>
+
+        <div className="space-y-1">
+          {/* «المنطقة» — the area inside the city, separate from the governorate
+              above. The rep fills it standing in the street; this is where the
+              owner corrects it. It was previously write-once on the rep's create
+              form and could never be fixed afterwards. */}
+          <Label>المنطقة (اختياري)</Label>
+          <Input
+            value={form.area}
+            onChange={(e) => set("area", e.target.value)}
+            placeholder="المنطقة داخل المدينة"
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
