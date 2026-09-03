@@ -341,6 +341,8 @@ async function applyStockMovement(
   invoiceType: InvoiceType,
   branchId?: string | null,
   createdBy = "system",
+  // Kept in the signature: callers still pass it, and the audit/notification
+  // block below distinguishes an edit from a fresh sale.
   isEdit = false
 ) {
   const product = await tx.product.findUnique({
@@ -360,7 +362,19 @@ async function applyStockMovement(
   // is an EDIT to an existing sale (by product decision edits never require the
   // opt-in — see the audit-log/notification block below), skip the block and let
   // the line go negative — the deficit is settled automatically when stock next arrives.
-  const allowNegativeSale = isSale && (Boolean(item.allowNegativeStock) || isEdit);
+  // SALES NEVER BLOCK ON STOCK. A shop that has already handed the goods over
+  // must be able to write the invoice; refusing it produces delivered goods with
+  // no record, which is strictly worse than a ledger that reads short.
+  //
+  // This used to depend on the CLIENT sending allowNegativeStock, so whether a
+  // sale went through came down to which screen it was written on — the invoice
+  // page authorized it, the catalog/prepared-order and retail paths did not, and
+  // a warehouse row that had drifted negative refused them all with a raw
+  // "Insufficient warehouse stock. Available: -240".
+  //
+  // The deficit is still recorded on the line, still shown on screen before
+  // saving, and still raises the «بيع يسبب مخزون سالب» notification.
+  const allowNegativeSale = isSale;
 
   // Sales always come out of المحل. If the line names a different warehouse (the
   // seller pulled from a depot), AUTO-TRANSFER that quantity من المخزن → المحل

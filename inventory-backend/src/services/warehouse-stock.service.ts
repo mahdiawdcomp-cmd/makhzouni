@@ -117,7 +117,7 @@ export async function syncProductTotalStock(db: WarehouseDb, productId: string) 
     }),
   ]);
 
-  if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+  if (!product) throw new AppError("المادة غير موجودة", 404, "PRODUCT_NOT_FOUND");
   const totalPieces = aggregate._sum.quantityPieces ?? 0;
   const normalized = normalizeProductStock(totalPieces, product.pcsPerCarton);
   await db.product.update({ where: { id: productId }, data: normalized });
@@ -148,9 +148,23 @@ export async function adjustWarehouseStock(
   const balanceBefore = rows[0]?.quantity_pieces ?? 0;
   const balanceAfter = balanceBefore + input.deltaPieces;
 
-  if (!input.allowNegative && balanceAfter < 0) {
+  // An INFLOW can never make a balance worse. Refusing "+100 into a row sitting
+  // at -240" blocked the one operation that fixes a negative warehouse — you
+  // could not receive a purchase into it until someone corrected the number by
+  // hand. Only a withdrawal is ever worth guarding.
+  const isWithdrawal = input.deltaPieces < 0;
+  if (isWithdrawal && !input.allowNegative && balanceAfter < 0) {
+    // Named, in Arabic, and with the numbers that matter. The old English
+    // "Insufficient warehouse stock. Available: -240" named neither the product
+    // nor the warehouse, so there was nothing to act on.
+    const [prod, wh] = await Promise.all([
+      db.product.findUnique({ where: { id: input.productId }, select: { name: true } }),
+      db.branch.findUnique({ where: { id: input.warehouseId }, select: { name: true } }),
+    ]);
+    const whName = wh?.name ?? "المخزن";
     throw new AppError(
-      `Insufficient warehouse stock. Available: ${balanceBefore}`,
+      `"${prod?.name ?? "المادة"}": ${whName} فيه ${balanceBefore} قطعة` +
+        `${balanceBefore < 0 ? " (رصيد سالب)" : ""} والمطلوب ${Math.abs(input.deltaPieces)} — الرصيد سيصبح ${balanceAfter}.`,
       409,
       "INSUFFICIENT_WAREHOUSE_STOCK"
     );
