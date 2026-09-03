@@ -509,17 +509,43 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     }
   }
 
+  // «اطلب سعراً خاصاً» — approved, unspent prices for THIS customer.
+  //
+  // Re-read here rather than trusted from the request body: the client shows
+  // them on the cart line as a courtesy, but what gets billed is resolved from
+  // the database at the moment the order is priced. A price the rep sent could
+  // be any number they liked.
+  const approvedPrices = await prisma.salesAgentPriceRequest.findMany({
+    where: {
+      salesAgentId: agentId,
+      customerId: customer.id,
+      status: "APPROVED",
+      consumedAt: null,
+      productId: { in: uniqueProductIds },
+    },
+    select: { id: true, productId: true, unit: true, requestedPrice: true },
+  });
+  const priceByKey = new Map(
+    approvedPrices.map((p) => [`${p.productId}:${p.unit}`, { id: p.id, price: toNumber(p.requestedPrice) }]),
+  );
+  const spentPriceIds: string[] = [];
+
   const normalizedItems = input.items.map((item) => {
     const product = productById.get(item.productId)!;
-    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+    const catalogPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+    const special = priceByKey.get(`${product.id}:${item.unit}`);
+    if (special) spentPriceIds.push(special.id);
     return {
       productId: product.id,
       productName: product.name,
       unit: item.unit,
       quantity: item.quantity,
-      unitPrice,
-      totalPrice: unitPrice * item.quantity,
+      unitPrice: special ? special.price : catalogPrice,
+      totalPrice: (special ? special.price : catalogPrice) * item.quantity,
       availableStock: totalStock(product),
+      // Surfaced on the approval so the owner sees WHY a line is below the
+      // shelf price, instead of wondering whether something is broken.
+      specialPrice: special ? { catalogPrice } : undefined,
     };
   });
 
@@ -558,6 +584,16 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     // a placeholder user — here it carries the real answer.
     agentId,
   );
+
+  // Spend the approved prices now that they are frozen into the approval
+  // snapshot. If the owner later rejects the whole order the price is spent and
+  // the rep asks again — the honest outcome, rather than a negotiated price
+  // quietly held open against a customer indefinitely.
+  if (spentPriceIds.length > 0) {
+    await prisma.salesAgentPriceRequest
+      .updateMany({ where: { id: { in: spentPriceIds } }, data: { consumedAt: new Date() } })
+      .catch((err) => logger.warn(`[SalesAgent] price consume failed: ${String(err)}`));
+  }
 
   notifySalesAgentEvent("newOrder", {
     agentName,
@@ -750,5 +786,266 @@ export async function listMyHandovers(agentId: string, limit = 40) {
     date: r.date,
     notes: r.notes,
     receivedBy: r.receiver.name,
+  }));
+}
+
+/* ── «أكو مشكلة» ─────────────────────────────────────────────────────── */
+
+/**
+ * The refusal reasons, as the rep taps them.
+ *
+ * A fixed list, because free text is unreportable: "غالي" typed nine different
+ * ways answers no question at all. Held in code rather than the database
+ * because these are the reasons a shopkeeper refuses anywhere, not a per-tenant
+ * setting — and the `reason` column is a plain string, so adding one later
+ * needs no migration.
+ */
+export const ISSUE_REASONS: Array<{ code: string; label: string; aboutProduct: boolean }> = [
+  { code: "PRICE", label: "غالي", aboutProduct: true },
+  { code: "HAS_STOCK", label: "عنده كمية", aboutProduct: true },
+  { code: "CHEAPER_ELSEWHERE", label: "يشتريه أرخص من غيرنا", aboutProduct: true },
+  { code: "NOT_INTERESTED", label: "ما يريد هذا النوع", aboutProduct: true },
+  { code: "QUALITY", label: "مشكلة بالجودة أو التلف", aboutProduct: true },
+  { code: "PACKAGING", label: "الحجم أو التعبئة ما تناسبه", aboutProduct: true },
+  // These three are about the VISIT, not any product — hence productId is
+  // nullable and the UI can offer them without one selected.
+  { code: "OWNER_ABSENT", label: "صاحب المحل مو موجود", aboutProduct: false },
+  { code: "SHOP_CLOSED", label: "المحل مغلق", aboutProduct: false },
+  { code: "PAST_ISSUE", label: "مشكلة سابقة", aboutProduct: false },
+];
+
+const ISSUE_REASON_CODES = new Set(ISSUE_REASONS.map((r) => r.code));
+
+export function issueReasonLabel(code: string) {
+  return ISSUE_REASONS.find((r) => r.code === code)?.label ?? code;
+}
+
+/**
+ * Record a refusal.
+ *
+ * No WhatsApp, by explicit decision: these arrive all day, none is urgent, and
+ * a message per refusal would train the owner to ignore the channel that also
+ * carries orders. They pile up in a screen the owner opens when they want to.
+ */
+export async function createAgentIssue(
+  agentId: string,
+  input: {
+    customerId: string;
+    productId?: string;
+    reason: string;
+    note?: string;
+    competitorInfo?: string;
+  },
+) {
+  await assertOwnCustomer(agentId, input.customerId);
+
+  if (!ISSUE_REASON_CODES.has(input.reason)) {
+    throw new AppError("سبب غير معروف", 400, "REASON_INVALID");
+  }
+
+  if (input.productId) {
+    const product = await prisma.product.findFirst({
+      where: { id: input.productId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!product) throw new AppError("منتج غير موجود", 404, "PRODUCT_NOT_FOUND");
+  }
+
+  const issue = await prisma.salesAgentIssue.create({
+    data: {
+      salesAgentId: agentId,
+      customerId: input.customerId,
+      productId: input.productId ?? null,
+      reason: input.reason,
+      note: input.note?.trim() || null,
+      competitorInfo: input.competitorInfo?.trim() || null,
+    },
+    select: { id: true, createdAt: true },
+  });
+
+  return { id: issue.id, createdAt: issue.createdAt };
+}
+
+/** The rep's own refusals — scoped to them, so no extra ownership check needed. */
+export async function listMyIssues(agentId: string, limit = 50) {
+  const rows = await prisma.salesAgentIssue.findMany({
+    where: { salesAgentId: agentId },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(limit, 200),
+    select: {
+      id: true,
+      reason: true,
+      note: true,
+      competitorInfo: true,
+      createdAt: true,
+      customer: { select: { name: true } },
+      product: { select: { name: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    reason: r.reason,
+    reasonLabel: issueReasonLabel(r.reason),
+    note: r.note,
+    competitorInfo: r.competitorInfo,
+    createdAt: r.createdAt,
+    customerName: r.customer.name,
+    productName: r.product?.name ?? null,
+  }));
+}
+
+/* ── «اطلب سعراً خاصاً» ──────────────────────────────────────────────── */
+
+/**
+ * Ask for a one-off price on a product for one customer.
+ *
+ * The rep cannot discount at all, so this is the only route to a different
+ * price, and it goes through the SAME approvals screen as everything else. The
+ * catalog price is frozen onto the request so the owner can still see the gap
+ * they approved months later, after the shelf price has moved.
+ */
+export async function requestSpecialPrice(
+  agentId: string,
+  agentName: string,
+  input: { customerId: string; productId: string; unit: Unit; requestedPrice: number; reason?: string },
+) {
+  const customer = await assertOwnCustomer(agentId, input.customerId);
+
+  const product = await prisma.product.findFirst({
+    where: { id: input.productId, deletedAt: null },
+    select: { id: true, name: true, salePrice: true, pcsPerCarton: true, boxPieces: true },
+  });
+  if (!product) throw new AppError("منتج غير موجود", 404, "PRODUCT_NOT_FOUND");
+
+  const requestedPrice = Number(input.requestedPrice);
+  if (!Number.isFinite(requestedPrice) || requestedPrice <= 0) {
+    throw new AppError("السعر لازم يكون أكبر من صفر", 400, "PRICE_INVALID");
+  }
+
+  const currentPrice = salePriceFor(input.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+
+  // One live request per customer+product+unit. Without this a rep could queue
+  // five requests for the same line and the owner would approve the same
+  // negotiation repeatedly without realising.
+  const existing = await prisma.salesAgentPriceRequest.findFirst({
+    where: {
+      customerId: customer.id,
+      productId: product.id,
+      unit: input.unit,
+      status: { in: ["PENDING", "APPROVED"] },
+      consumedAt: null,
+    },
+    select: { id: true, status: true },
+  });
+  if (existing) {
+    throw new AppError(
+      existing.status === "PENDING"
+        ? "اكو طلب سعر لهذي المادة بانتظار الموافقة"
+        : "اكو سعر موافق عليه لهذي المادة، استعمله بالطلب",
+      409,
+      "PRICE_REQUEST_EXISTS",
+    );
+  }
+
+  const approval = await createPendingApproval(
+    approvalRequestTypes.AGENT_PRICE_REQUEST,
+    {
+      source: "SALES_AGENT",
+      salesAgentId: agentId,
+      salesAgentName: agentName,
+      customerId: customer.id,
+      customerName: customer.name,
+      phone: customer.phone,
+      productId: product.id,
+      productName: product.name,
+      unit: input.unit,
+      currentPrice,
+      requestedPrice,
+      reason: input.reason,
+    },
+    agentId,
+  );
+
+  const request = await prisma.salesAgentPriceRequest.create({
+    data: {
+      salesAgentId: agentId,
+      customerId: customer.id,
+      productId: product.id,
+      unit: input.unit,
+      currentPrice,
+      requestedPrice,
+      reason: input.reason?.trim() || null,
+      approvalId: approval.id,
+    },
+    select: { id: true, status: true },
+  });
+
+  notifySalesAgentEvent("priceRequest", {
+    agentName,
+    customerName: customer.name,
+    customerId: customer.id,
+    productName: product.name,
+    currentPrice,
+    requestedPrice,
+    reason: input.reason,
+  }).catch((err) => logger.warn(`[SalesAgent] price-request notify failed: ${String(err)}`));
+
+  return { id: request.id, approvalId: approval.id, status: request.status, currentPrice, requestedPrice };
+}
+
+/** The rep's price requests and where each one stands. */
+export async function listMyPriceRequests(agentId: string, limit = 50) {
+  const rows = await prisma.salesAgentPriceRequest.findMany({
+    where: { salesAgentId: agentId },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(limit, 200),
+    select: {
+      id: true,
+      unit: true,
+      currentPrice: true,
+      requestedPrice: true,
+      reason: true,
+      status: true,
+      consumedAt: true,
+      createdAt: true,
+      customer: { select: { id: true, name: true } },
+      product: { select: { id: true, name: true } },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    unit: r.unit,
+    currentPrice: toNumber(r.currentPrice),
+    requestedPrice: toNumber(r.requestedPrice),
+    reason: r.reason,
+    status: r.status,
+    used: r.consumedAt != null,
+    createdAt: r.createdAt,
+    customerId: r.customer.id,
+    customerName: r.customer.name,
+    productId: r.product.id,
+    productName: r.product.name,
+  }));
+}
+
+/**
+ * Approved, unspent prices this rep can use for one customer right now.
+ *
+ * The rep's cart reads this to show "سعر خاص موافق عليه" on the affected line.
+ * It is advisory in the UI — `submitAgentOrder` re-resolves the same rows when
+ * the order is actually priced, so what the client shows can never become what
+ * gets billed.
+ */
+export async function listUsablePrices(agentId: string, customerId: string) {
+  await assertOwnCustomer(agentId, customerId);
+  const rows = await prisma.salesAgentPriceRequest.findMany({
+    where: { salesAgentId: agentId, customerId, status: "APPROVED", consumedAt: null },
+    select: { id: true, productId: true, unit: true, requestedPrice: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    productId: r.productId,
+    unit: r.unit,
+    price: toNumber(r.requestedPrice),
   }));
 }

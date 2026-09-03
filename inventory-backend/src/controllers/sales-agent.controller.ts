@@ -9,8 +9,14 @@ import { Unit } from "@prisma/client";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
+  ISSUE_REASONS,
   claimCustomer,
   createAgentCustomer,
+  createAgentIssue,
+  listMyIssues,
+  listMyPriceRequests,
+  listUsablePrices,
+  requestSpecialPrice,
   createAgentReceipt,
   getAgentCashOnHand,
   getAgentCustomerDetail,
@@ -182,4 +188,76 @@ export const getMyHandovers = asyncHandler(async (req, res) => {
 export const getCustomerDetailCtrl = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   res.json({ success: true, data: await getAgentCustomerDetail(agent.id, String(req.params.id)) });
+});
+
+/* ── «أكو مشكلة» ─────────────────────────────────────────────────────── */
+
+export const getIssueReasons = asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: ISSUE_REASONS });
+});
+
+export const postAgentIssue = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as {
+    customerId?: string;
+    productId?: string;
+    reason?: string;
+    note?: string;
+    competitorInfo?: string;
+  };
+  if (!body.customerId) throw new AppError("الزبون مطلوب", 400, "CUSTOMER_REQUIRED");
+  if (!body.reason) throw new AppError("السبب مطلوب", 400, "REASON_REQUIRED");
+
+  const issue = await createAgentIssue(agent.id, {
+    customerId: String(body.customerId),
+    productId: body.productId ? String(body.productId) : undefined,
+    reason: String(body.reason),
+    note: body.note,
+    competitorInfo: body.competitorInfo,
+  });
+
+  res.status(201).json({ success: true, message: "انسجلت المشكلة", data: issue });
+});
+
+export const getMyIssues = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await listMyIssues(agent.id) });
+});
+
+/* ── «اطلب سعراً خاصاً» ──────────────────────────────────────────────── */
+
+export const postPriceRequest = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  const body = (req.body ?? {}) as {
+    customerId?: string;
+    productId?: string;
+    unit?: string;
+    requestedPrice?: number;
+    reason?: string;
+  };
+  if (!body.customerId) throw new AppError("الزبون مطلوب", 400, "CUSTOMER_REQUIRED");
+  if (!body.productId) throw new AppError("المادة مطلوبة", 400, "PRODUCT_REQUIRED");
+  const unit = String(body.unit ?? "");
+  if (!UNITS.has(unit)) throw new AppError("وحدة غير معروفة", 400, "UNIT_INVALID");
+
+  const result = await requestSpecialPrice(agent.id, agent.name, {
+    customerId: String(body.customerId),
+    productId: String(body.productId),
+    unit: unit as Unit,
+    requestedPrice: Number(body.requestedPrice),
+    reason: body.reason,
+  });
+
+  res.status(201).json({ success: true, message: "انرسل طلب السعر", data: result });
+});
+
+export const getMyPriceRequests = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await listMyPriceRequests(agent.id) });
+});
+
+/** Approved, unspent prices the rep can use for one customer right now. */
+export const getUsablePrices = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await listUsablePrices(agent.id, String(req.params.id)) });
 });

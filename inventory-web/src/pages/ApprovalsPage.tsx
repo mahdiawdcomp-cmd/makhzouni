@@ -30,6 +30,12 @@ type ApprovalData = {
   // on a rep order is who took it, so it is a badge on the row, not a detail
   // buried in the expanded view.
   salesAgentName?: string
+  // AGENT_PRICE_REQUEST
+  productName?: string
+  unit?: string
+  currentPrice?: number
+  requestedPrice?: number
+  reason?: string
   displayItems?: Array<{
     productId: string
     productName: string
@@ -71,6 +77,10 @@ type ApprovalData = {
 const APPROVAL_SECTIONS: Array<{ key: string; title: string; types: string[] }> = [
   { key: "negative", title: "بضاعة سالبة (نواقص المخزون)", types: ["NEGATIVE_STOCK_SALE"] },
   { key: "wholesale", title: "كتلوك الجملة", types: ["CATALOG_ACCESS", "CATALOG_ORDER"] },
+  // «المندوب» — a price request is a different decision from an order, so it
+  // gets its own section rather than sitting among catalog orders where it
+  // would be read as one.
+  { key: "agent", title: "طلبات المندوب", types: ["AGENT_PRICE_REQUEST"] },
   { key: "retail", title: "كتلوك المفرد", types: ["RETAIL_ORDER", "RETAIL_ACCESS"] },
   {
     key: "documents",
@@ -112,6 +122,7 @@ function unitLabel(unit: string) {
 function requestTypeLabel(type: string) {
   const labels: Record<string, string> = {
     CATALOG_ORDER: "طلب كتالوج",
+    AGENT_PRICE_REQUEST: "طلب سعر خاص من مندوب",
     CREATE_USER: "إضافة مستخدم",
     UPDATE_USER: "تعديل مستخدم",
     DEACTIVATE_USER: "تعطيل مستخدم",
@@ -200,6 +211,24 @@ export function ApprovalsPage() {
                 <div className="text-xs text-slate-500">
                   {data.phone ?? "-"} — {money(data.subtotal)} د.ع
                 </div>
+              </div>
+            )
+          }
+          if (row.original.requestType === "AGENT_PRICE_REQUEST") {
+            return (
+              <div className="space-y-0.5">
+                <div className="font-semibold">{data.productName ?? "-"}</div>
+                <div className="text-xs">
+                  <span className="text-slate-500">{data.customerName ?? "-"}</span>
+                  {data.salesAgentName ? ` — مندوب: ${data.salesAgentName}` : ""}
+                </div>
+                <div className="text-xs font-semibold">
+                  {money(data.currentPrice)} ← {money(data.requestedPrice)}
+                  {data.unit ? ` / ${unitLabel(data.unit)}` : ""}
+                </div>
+                {data.reason ? (
+                  <div className="text-xs text-slate-500">السبب: {data.reason}</div>
+                ) : null}
               </div>
             )
           }

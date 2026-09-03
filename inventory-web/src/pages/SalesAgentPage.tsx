@@ -111,6 +111,35 @@ type AgentReceipt = {
   customerName: string
 }
 
+type AgentIssue = {
+  id: string
+  reason: string
+  reasonLabel: string
+  note: string | null
+  competitorInfo: string | null
+  createdAt: string
+  customerName: string
+  productName: string | null
+}
+
+type AgentPriceRequest = {
+  id: string
+  unit: Unit
+  currentPrice: number
+  requestedPrice: number
+  reason: string | null
+  status: string
+  used: boolean
+  createdAt: string
+  customerId: string
+  customerName: string
+  productId: string
+  productName: string
+}
+
+/** An approved, unspent price the rep may use on their next order. */
+type UsablePrice = { id: string; productId: string; unit: Unit; price: number }
+
 type AgentHandoverRow = {
   id: string
   amount: number
@@ -272,7 +301,7 @@ function useThumbnails(visibleIds: string[]) {
 
 /* ── page ────────────────────────────────────────────────────────────── */
 
-type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail"
+type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail" | "issues"
 
 /**
  * Carts are kept PER CUSTOMER, in one map.
@@ -299,6 +328,11 @@ export function SalesAgentPage() {
   // one being SOLD to) on purpose: a rep often wants to read one customer's
   // account while a half-built cart belongs to another.
   const [detailCustomerId, setDetailCustomerId] = useState<string | null>(null)
+  // The two sheets that open ON TOP of the product sheet. Each carries the unit
+  // the rep was looking at, because a price or a refusal is about a carton or a
+  // piece, never about the product in the abstract.
+  const [issueFor, setIssueFor] = useState<{ product: AgentProduct | null; unit: Unit | null } | null>(null)
+  const [priceFor, setPriceFor] = useState<{ product: AgentProduct; unit: Unit } | null>(null)
   const [search, setSearch] = useState("")
   const [notes, setNotes] = useState("")
 
@@ -309,6 +343,26 @@ export function SalesAgentPage() {
 
   const products = useAgentProducts()
   const header = useCustomerHeader(customerId)
+
+  // Approved, unspent special prices for the customer being sold to. Advisory
+  // here — the server re-resolves them when the order is priced.
+  const usablePrices = useQuery({
+    queryKey: ["sales-agent", "usable-prices", customerId],
+    enabled: Boolean(customerId),
+    queryFn: async () => {
+      const res = await api.get<{ data: UsablePrice[] }>(
+        `/sales-agent/customers/${customerId}/usable-prices`,
+      )
+      return res.data.data ?? []
+    },
+    retry: 3,
+  })
+
+  const specialPriceFor = useCallback(
+    (productId: string, unit: Unit) =>
+      (usablePrices.data ?? []).find((p) => p.productId === productId && p.unit === unit)?.price ?? null,
+    [usablePrices.data],
+  )
 
   // A customer that was un-assigned (or removed) since the id was cached must
   // not leave the rep selling into a ghost. Bounce them back to the picker.
@@ -337,9 +391,11 @@ export function SalesAgentPage() {
     () =>
       cart.reduce((sum, line) => {
         const product = productById.get(line.productId)
-        return product ? sum + unitPrice(product, line.unit) * line.quantity : sum
+        if (!product) return sum
+        const special = specialPriceFor(line.productId, line.unit)
+        return sum + (special ?? unitPrice(product, line.unit)) * line.quantity
       }, 0),
-    [cart, productById],
+    [cart, productById, specialPriceFor],
   )
 
   const addToCart = useCallback(
@@ -373,6 +429,10 @@ export function SalesAgentPage() {
       setNotes("")
       setCartOpen(false)
       void qc.invalidateQueries({ queryKey: ["sales-agent", "orders"] })
+      // Approved prices are spent by the order that used them, so the cached
+      // list would otherwise keep offering a price that no longer exists.
+      void qc.invalidateQueries({ queryKey: ["sales-agent", "usable-prices"] })
+      void qc.invalidateQueries({ queryKey: ["sales-agent", "price-requests"] })
     },
     onError: (err) =>
       toast({
@@ -435,6 +495,8 @@ export function SalesAgentPage() {
 
           {screen === "orders" && <OrdersScreen />}
 
+          {screen === "issues" && <MyIssuesScreen />}
+
           {screen === "money" && (
             <MoneyScreen
               customerId={customerId}
@@ -492,6 +554,7 @@ export function SalesAgentPage() {
               onChange={setCart}
               onSubmit={() => submit.mutate()}
               submitting={submit.isPending}
+              specialPrice={specialPriceFor}
             />
           </aside>
         )}
@@ -534,6 +597,7 @@ export function SalesAgentPage() {
             onChange={setCart}
             onSubmit={() => submit.mutate()}
             submitting={submit.isPending}
+            specialPrice={specialPriceFor}
           />
         </div>
       )}
@@ -545,6 +609,36 @@ export function SalesAgentPage() {
           onAdd={(unit, qty) => {
             addToCart(openProduct, unit, qty)
             setOpenProduct(null)
+          }}
+          onIssue={(unit) => setIssueFor({ product: openProduct, unit })}
+          onAskPrice={(unit) => setPriceFor({ product: openProduct, unit })}
+          specialPrice={(unit) => specialPriceFor(openProduct.id, unit)}
+        />
+      )}
+
+      {issueFor && customerId && (
+        <IssueSheet
+          product={issueFor.product}
+          unit={issueFor.unit}
+          customerId={customerId}
+          customerName={header.data?.name ?? ""}
+          onClose={() => {
+            setIssueFor(null)
+            void qc.invalidateQueries({ queryKey: ["sales-agent", "issues"] })
+          }}
+        />
+      )}
+
+      {priceFor && customerId && (
+        <PriceRequestSheet
+          product={priceFor.product}
+          unit={priceFor.unit}
+          customerId={customerId}
+          customerName={header.data?.name ?? ""}
+          onClose={() => {
+            setPriceFor(null)
+            void qc.invalidateQueries({ queryKey: ["sales-agent", "price-requests"] })
+            void qc.invalidateQueries({ queryKey: ["sales-agent", "usable-prices"] })
           }}
         />
       )}
@@ -613,6 +707,7 @@ function AgentHeader({
             ["catalog", "الكتلوك"],
             ["customers", "زبائني"],
             ["money", "فلوسي"],
+            ["issues", "المشاكل"],
             ["orders", "طلباتي"],
           ] as Array<[Screen, string]>
         ).map(([key, label]) => (
@@ -771,10 +866,17 @@ function ProductSheet({
   product,
   onClose,
   onAdd,
+  onIssue,
+  onAskPrice,
+  specialPrice,
 }: {
   product: AgentProduct
   onClose: () => void
   onAdd: (unit: Unit, quantity: number) => void
+  onIssue: (unit: Unit) => void
+  onAskPrice: (unit: Unit) => void
+  /** An approved, unspent price for this product+unit, if the owner granted one. */
+  specialPrice: (unit: Unit) => number | null
 }) {
   const units = availableUnits(product)
   const [unit, setUnit] = useState<Unit>(units[0])
@@ -796,7 +898,11 @@ function ProductSheet({
   }, [product.id, product.hasImage])
 
   const max = Math.max(0, maxQty(product, unit))
-  const line = unitPrice(product, unit) * qty
+  const approved = specialPrice(unit)
+  // Preview only. `submitAgentOrder` re-resolves the approved price from the
+  // database when the order is actually priced, so what is shown here can never
+  // become what gets billed.
+  const line = (approved ?? unitPrice(product, unit)) * qty
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-white" dir="rtl">
@@ -874,10 +980,23 @@ function ProductSheet({
           </div>
         </div>
 
+        {approved != null && (
+          <div className="mt-4 rounded-xl border-4 border-black p-3">
+            <div className="text-lg font-black">سعر خاص موافق عليه</div>
+            <div className="mt-1 text-2xl font-black tabular-nums">{money(approved)}</div>
+            <div className="mt-1 text-sm font-bold">
+              ينطبق على هذا الطلب فقط، ويُستهلك أول ما ترسل الطلب.
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 text-2xl font-black tabular-nums">المجموع: {money(line)}</div>
       </div>
 
-      <div className="shrink-0 border-t-4 border-black p-3">
+      {/* Three actions, all in the bottom third where a thumb reaches. «أكو
+          مشكلة» sits BESIDE add-to-cart, not buried in a menu: the moment the
+          shopkeeper says no is the only moment the real reason is known. */}
+      <div className="shrink-0 space-y-2 border-t-4 border-black p-3">
         <button
           type="button"
           disabled={max <= 0 || qty > max}
@@ -890,6 +1009,22 @@ function ProductSheet({
               ? `الأقصى ${max}`
               : "أضف للطلب"}
         </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onIssue(unit)}
+            className="h-14 flex-1 rounded-xl border-4 border-black text-lg font-black"
+          >
+            أكو مشكلة
+          </button>
+          <button
+            type="button"
+            onClick={() => onAskPrice(unit)}
+            className="h-14 flex-1 rounded-xl border-4 border-black text-lg font-black"
+          >
+            اطلب سعر
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -906,6 +1041,7 @@ function CartPanel({
   onChange,
   onSubmit,
   submitting,
+  specialPrice,
 }: {
   cart: CartLine[]
   productById: Map<string, AgentProduct>
@@ -915,6 +1051,7 @@ function CartPanel({
   onChange: (updater: (prev: CartLine[]) => CartLine[]) => void
   onSubmit: () => void
   submitting: boolean
+  specialPrice: (productId: string, unit: Unit) => number | null
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -926,10 +1063,14 @@ function CartPanel({
             {cart.map((line, idx) => {
               const product = productById.get(line.productId)
               if (!product) return null
-              const lineTotal = unitPrice(product, line.unit) * line.quantity
+              const special = specialPrice(line.productId, line.unit)
+              const lineTotal = (special ?? unitPrice(product, line.unit)) * line.quantity
               return (
                 <li key={`${line.productId}:${line.unit}`} className="rounded-xl border-4 border-black p-2">
                   <div className="text-base font-black leading-tight">{product.name}</div>
+                  {special != null && (
+                    <div className="mt-0.5 text-sm font-black">سعر خاص موافق عليه</div>
+                  )}
                   <div className="mt-1 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <button
@@ -1697,6 +1838,340 @@ function CustomerDetailScreen({
       >
         رجوع لزبائني
       </button>
+    </div>
+  )
+}
+
+/* ── «أكو مشكلة» ─────────────────────────────────────────────────────── */
+
+type IssueReason = { code: string; label: string; aboutProduct: boolean }
+
+/**
+ * Why the shopkeeper said no.
+ *
+ * One tap on a fixed reason and the rep is done — free text alone would be
+ * unreportable, because "غالي" typed nine ways answers no question. The two
+ * optional fields carry the value: a note, and «من من يشتريه وبأي سعر؟», which
+ * turns a lost sale into competitor pricing collected daily.
+ *
+ * No WhatsApp fires for these, by design: they arrive all day and none is
+ * urgent.
+ */
+function IssueSheet({
+  product,
+  unit,
+  customerId,
+  customerName,
+  onClose,
+}: {
+  product: AgentProduct | null
+  unit: Unit | null
+  customerId: string
+  customerName: string
+  onClose: () => void
+}) {
+  const [reason, setReason] = useState<string | null>(null)
+  const [note, setNote] = useState("")
+  const [competitorInfo, setCompetitorInfo] = useState("")
+
+  const reasons = useQuery({
+    queryKey: ["sales-agent", "issue-reasons"],
+    queryFn: async () => {
+      const res = await api.get<{ data: IssueReason[] }>("/sales-agent/issue-reasons")
+      return res.data.data ?? []
+    },
+    staleTime: 60 * 60 * 1000,
+  })
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await api.post("/sales-agent/issues", {
+        customerId,
+        productId: product?.id,
+        reason,
+        note: note.trim() || undefined,
+        competitorInfo: competitorInfo.trim() || undefined,
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      toast({ title: "انسجلت المشكلة ✓" })
+      onClose()
+    },
+    onError: (err) =>
+      toast({
+        title: "ما انسجلت",
+        description: apiErrorMessage(err, "حاول مرة أخرى"),
+        variant: "destructive",
+      }),
+  })
+
+  // A refusal about the visit itself (shop closed, owner away) is not about any
+  // product, so those reasons stay offered even with a product open.
+  const list = reasons.data ?? []
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-white" dir="rtl">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b-4 border-black px-4">
+        <span className="truncate text-xl font-black">أكو مشكلة</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-12 shrink-0 rounded-xl border-4 border-black px-5 text-lg font-black"
+        >
+          رجوع
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="text-base font-bold">
+          الزبون: {customerName}
+          {product ? ` — ${product.name}` : ""}
+          {unit ? ` (${UNIT_LABEL[unit]})` : ""}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          {list.map((r) => (
+            <button
+              key={r.code}
+              type="button"
+              onClick={() => setReason(r.code)}
+              className={cn(
+                "h-14 rounded-xl border-4 border-black px-4 text-right text-lg font-black",
+                reason === r.code ? "bg-black text-white" : "bg-white text-black",
+              )}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="ملاحظة (اختياري)…"
+          rows={2}
+          className="mt-4 w-full rounded-xl border-4 border-black p-3 text-base font-bold placeholder:text-neutral-600 focus:outline-none"
+        />
+
+        <label className="mt-3 block">
+          <span className="mb-1 block text-lg font-black">من من يشتريه وبأي سعر؟</span>
+          <textarea
+            value={competitorInfo}
+            onChange={(e) => setCompetitorInfo(e.target.value)}
+            placeholder="اسم المجهز والسعر…"
+            rows={2}
+            className="w-full rounded-xl border-4 border-black p-3 text-base font-bold placeholder:text-neutral-600 focus:outline-none"
+          />
+        </label>
+      </div>
+
+      <div className="shrink-0 border-t-4 border-black p-3">
+        <button
+          type="button"
+          disabled={!reason || save.isPending}
+          onClick={() => save.mutate()}
+          className="h-16 w-full rounded-xl bg-black text-xl font-black text-white disabled:bg-neutral-400"
+        >
+          {save.isPending ? "جاري الحفظ…" : "احفظ"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── «اطلب سعراً خاصاً» ──────────────────────────────────────────────── */
+
+/**
+ * The rep cannot discount, so this is the only route to a different price.
+ *
+ * It goes to the same approvals screen as everything else, and an approved
+ * price is spent on one order — it never becomes the customer's standing price.
+ */
+function PriceRequestSheet({
+  product,
+  unit,
+  customerId,
+  customerName,
+  onClose,
+}: {
+  product: AgentProduct
+  unit: Unit
+  customerId: string
+  customerName: string
+  onClose: () => void
+}) {
+  const [price, setPrice] = useState("")
+  const [reason, setReason] = useState("")
+  const current = unitPrice(product, unit)
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const res = await api.post("/sales-agent/price-requests", {
+        customerId,
+        productId: product.id,
+        unit,
+        requestedPrice: Number(price),
+        reason: reason.trim() || undefined,
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      toast({ title: "انرسل طلب السعر ✓", description: "راح يوصلك جواب بعد الموافقة" })
+      onClose()
+    },
+    onError: (err) =>
+      toast({
+        title: "ما انرسل",
+        description: apiErrorMessage(err, "حاول مرة أخرى"),
+        variant: "destructive",
+      }),
+  })
+
+  const numeric = Number(price)
+  const canSend = numeric > 0 && !save.isPending
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-white" dir="rtl">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b-4 border-black px-4">
+        <span className="truncate text-xl font-black">اطلب سعراً خاصاً</span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-12 shrink-0 rounded-xl border-4 border-black px-5 text-lg font-black"
+        >
+          رجوع
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="text-base font-bold">
+          {customerName} — {product.name} ({UNIT_LABEL[unit]})
+        </div>
+
+        <div className="mt-3 text-xl font-black tabular-nums">
+          السعر الحالي: {money(current)}
+        </div>
+
+        <label className="mt-4 block">
+          <span className="mb-1 block text-lg font-black">السعر المطلوب</span>
+          <input
+            value={price}
+            inputMode="numeric"
+            onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))}
+            className="h-16 w-full rounded-xl border-4 border-black px-3 text-2xl font-black tabular-nums focus:outline-none"
+          />
+        </label>
+
+        <label className="mt-3 block">
+          <span className="mb-1 block text-lg font-black">السبب</span>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="ليش يستاهل سعر خاص؟"
+            rows={3}
+            className="w-full rounded-xl border-4 border-black p-3 text-base font-bold placeholder:text-neutral-600 focus:outline-none"
+          />
+        </label>
+
+        <div className="mt-3 text-base font-bold">
+          إذا انوافق، ينطبق على هذا الطلب فقط — ما يصير سعر دائم للزبون.
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t-4 border-black p-3">
+        <button
+          type="button"
+          disabled={!canSend}
+          onClick={() => save.mutate()}
+          className="h-16 w-full rounded-xl bg-black text-xl font-black text-white disabled:bg-neutral-400"
+        >
+          {save.isPending ? "جاري الإرسال…" : "أرسل الطلب"}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── the rep's own issues + price requests ───────────────────────────── */
+
+const PRICE_STATUS_LABEL: Record<string, string> = {
+  PENDING: "بانتظار الموافقة",
+  APPROVED: "موافق عليه",
+  REJECTED: "مرفوض",
+}
+
+function MyIssuesScreen() {
+  const issues = useQuery({
+    queryKey: ["sales-agent", "issues"],
+    queryFn: async () => {
+      const res = await api.get<{ data: AgentIssue[] }>("/sales-agent/issues")
+      return res.data.data ?? []
+    },
+    retry: 3,
+  })
+
+  const prices = useQuery({
+    queryKey: ["sales-agent", "price-requests"],
+    queryFn: async () => {
+      const res = await api.get<{ data: AgentPriceRequest[] }>("/sales-agent/price-requests")
+      return res.data.data ?? []
+    },
+    retry: 3,
+  })
+
+  return (
+    <div className="p-3 pb-8">
+      <Section title="طلبات الأسعار">
+        {(prices.data ?? []).length === 0 ? (
+          <div className="py-6 text-center text-base font-black">ما طلبت أسعار</div>
+        ) : (
+          <ul className="space-y-2">
+            {(prices.data ?? []).map((p) => (
+              <li key={p.id} className="rounded-xl border-4 border-black p-3">
+                <div className="text-base font-black">{p.productName}</div>
+                <div className="mt-1 flex flex-wrap gap-x-4 text-base font-bold">
+                  <span>{p.customerName}</span>
+                  <span className="tabular-nums">
+                    {money(p.currentPrice)} ← {money(p.requestedPrice)}
+                  </span>
+                </div>
+                <div className="mt-1 text-base font-black">
+                  {PRICE_STATUS_LABEL[p.status] ?? p.status}
+                  {p.used ? " — انستعمل" : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <Section title="المشاكل الي سجّلتها">
+        {issues.isLoading ? (
+          <div className="py-6 text-center text-base font-black">جاري التحميل…</div>
+        ) : (issues.data ?? []).length === 0 ? (
+          <div className="py-6 text-center text-base font-black">ما سجّلت مشاكل</div>
+        ) : (
+          <ul className="space-y-2">
+            {(issues.data ?? []).map((i) => (
+              <li key={i.id} className="rounded-xl border-4 border-black p-3">
+                <div className="text-base font-black">{i.reasonLabel}</div>
+                <div className="mt-1 flex flex-wrap gap-x-4 text-base font-bold">
+                  <span>{i.customerName}</span>
+                  {i.productName && <span>{i.productName}</span>}
+                  <span className="tabular-nums">
+                    {new Date(i.createdAt).toLocaleDateString("en-GB")}
+                  </span>
+                </div>
+                {i.note && <div className="mt-1 text-sm font-bold">{i.note}</div>}
+                {i.competitorInfo && (
+                  <div className="mt-1 text-sm font-bold">المنافس: {i.competitorInfo}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
     </div>
   )
 }

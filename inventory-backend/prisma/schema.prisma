@@ -313,50 +313,52 @@ model StockLossItem {
 }
 
 model User {
-  id                        String                  @id @default(uuid()) @db.Uuid
+  id                        String                   @id @default(uuid()) @db.Uuid
   name                      String
-  username                  String                  @unique
-  passwordHash              String                  @map("password_hash")
+  username                  String                   @unique
+  passwordHash              String                   @map("password_hash")
   // Bumped on password change and on explicit logout. Every issued JWT carries
   // the value it was signed with; authMiddleware rejects a token whose version
   // is stale, so changing the password actually revokes existing sessions.
-  tokenVersion              Int                     @default(0) @map("token_version")
-  role                      UserRole                @default(STAFF)
+  tokenVersion              Int                      @default(0) @map("token_version")
+  role                      UserRole                 @default(STAFF)
   // Free-form capability strings (see frontend UserPermission union). Also carries
   // DENY markers such as "HIDE_PROFIT_REPORTS" which revoke a capability even from an
   // ADMIN — see canViewProfitReports() in permission.middleware.ts. No migration is
   // needed to introduce new markers; this is intentionally an open String[].
-  permissions               String[]                @default([])
+  permissions               String[]                 @default([])
   phone                     String?
-  isActive                  Boolean                 @default(true) @map("is_active")
-  createdAt                 DateTime                @default(now()) @map("created_at")
-  updatedAt                 DateTime                @updatedAt @map("updated_at")
-  products                  Product[]               @relation("ProductCreatedBy")
-  invoices                  Invoice[]               @relation("InvoiceCreatedBy")
-  paymentVouchers           PaymentVoucher[]        @relation("PaymentVoucherCreatedBy")
-  coupons                   Coupon[]                @relation("CouponCreatedBy")
-  quotations                Quotation[]             @relation("QuotationCreatedBy")
-  requestedApprovals        PendingApproval[]       @relation("ApprovalRequestedBy")
-  reviewedApprovals         PendingApproval[]       @relation("ApprovalReviewedBy")
+  isActive                  Boolean                  @default(true) @map("is_active")
+  createdAt                 DateTime                 @default(now()) @map("created_at")
+  updatedAt                 DateTime                 @updatedAt @map("updated_at")
+  products                  Product[]                @relation("ProductCreatedBy")
+  invoices                  Invoice[]                @relation("InvoiceCreatedBy")
+  paymentVouchers           PaymentVoucher[]         @relation("PaymentVoucherCreatedBy")
+  coupons                   Coupon[]                 @relation("CouponCreatedBy")
+  quotations                Quotation[]              @relation("QuotationCreatedBy")
+  requestedApprovals        PendingApproval[]        @relation("ApprovalRequestedBy")
+  reviewedApprovals         PendingApproval[]        @relation("ApprovalReviewedBy")
   auditLogs                 AuditLog[]
   branches                  Branch[]
-  createdTransfers          InventoryTransfer[]     @relation("TransferCreatedBy")
-  preparedOrders            OrderPreparation[]      @relation("PreparedByUser")
+  createdTransfers          InventoryTransfer[]      @relation("TransferCreatedBy")
+  preparedOrders            OrderPreparation[]       @relation("PreparedByUser")
   stocktakeSessions         StocktakeSession[]
-  stockLosses               StockLoss[]             @relation("StockLossCreatedBy")
-  landedCostBatchesCreated  LandedCostImportBatch[] @relation("LandedCostBatchCreatedBy")
-  landedCostBatchesApplied  LandedCostImportBatch[] @relation("LandedCostBatchAppliedBy")
-  cycleCountSessionsCreated CycleCountSession[]     @relation("CycleCountSessionCreatedBy")
-  cycleCountItemsApproved   CycleCountItem[]        @relation("CycleCountItemApprovedBy")
+  stockLosses               StockLoss[]              @relation("StockLossCreatedBy")
+  landedCostBatchesCreated  LandedCostImportBatch[]  @relation("LandedCostBatchCreatedBy")
+  landedCostBatchesApplied  LandedCostImportBatch[]  @relation("LandedCostBatchAppliedBy")
+  cycleCountSessionsCreated CycleCountSession[]      @relation("CycleCountSessionCreatedBy")
+  cycleCountItemsApproved   CycleCountItem[]         @relation("CycleCountItemApprovedBy")
   personalDebtsCreated      PersonalDebt[]
   // «المندوب» — customers assigned to this rep, and the sales/receipts credited
   // to them. Stamped from day one even while a single rep exists: adding an
   // identity to historical rows later is painful, leaving it in costs nothing.
-  assignedCustomers         Customer[]              @relation("CustomerSalesAgent")
-  salesAgentInvoices        Invoice[]               @relation("InvoiceSalesAgent")
-  salesAgentVouchers        PaymentVoucher[]        @relation("PaymentVoucherSalesAgent")
-  salesAgentHandovers       SalesAgentHandover[]    @relation("HandoverAgent")
-  handoversReceived         SalesAgentHandover[]    @relation("HandoverReceivedBy")
+  assignedCustomers         Customer[]               @relation("CustomerSalesAgent")
+  salesAgentInvoices        Invoice[]                @relation("InvoiceSalesAgent")
+  salesAgentVouchers        PaymentVoucher[]         @relation("PaymentVoucherSalesAgent")
+  salesAgentHandovers       SalesAgentHandover[]     @relation("HandoverAgent")
+  salesAgentIssues          SalesAgentIssue[]        @relation("IssueAgent")
+  salesAgentPriceRequests   SalesAgentPriceRequest[] @relation("PriceRequestAgent")
+  handoversReceived         SalesAgentHandover[]     @relation("HandoverReceivedBy")
 
   @@map("users")
 }
@@ -390,47 +392,49 @@ model Branch {
 }
 
 model Product {
-  id                    String                       @id @default(uuid()) @db.Uuid
-  itemNumber            String                       @unique @map("item_number")
-  name                  String
-  qrCode                String                       @unique @map("qr_code")
-  cartonQrCode          String?                      @unique @map("carton_qr_code")
-  imageUrl              String?                      @map("image_url") @db.Text
-  thumbnailUrl          String?                      @map("thumbnail_url") @db.Text
+  id                      String                       @id @default(uuid()) @db.Uuid
+  itemNumber              String                       @unique @map("item_number")
+  name                    String
+  qrCode                  String                       @unique @map("qr_code")
+  cartonQrCode            String?                      @unique @map("carton_qr_code")
+  imageUrl                String?                      @map("image_url") @db.Text
+  thumbnailUrl            String?                      @map("thumbnail_url") @db.Text
   /// Gallery-sized copy (~500px). Generated lazily the first time «المعرض»
   /// asks for it, so no migration has to walk every product and a product
   /// added later needs nobody to remember anything.
-  mediumUrl             String?                      @map("medium_url") @db.Text
-  category              String?
-  openingBalancePcs     Int                          @default(0) @map("opening_balance_pcs")
-  cartonsAvailable      Int                          @default(0) @map("cartons_available")
-  pcsPerCarton          Int                          @default(1) @map("pcs_per_carton")
-  purchasePrice         Decimal                      @default(0) @map("purchase_price") @db.Decimal(12, 2)
-  salePrice             Decimal                      @default(0) @map("sale_price") @db.Decimal(12, 2)
-  retailPrice           Decimal                      @default(0) @map("retail_price") @db.Decimal(12, 2)
-  costPrice             Decimal                      @default(0) @map("cost_price") @db.Decimal(12, 2)
-  expiryDate            DateTime?                    @map("expiry_date")
-  minStock              Int                          @default(0) @map("min_stock")
-  currentStock          Int                          @map("current_stock") @ignore
-  storageLocation       String?                      @map("storage_location")
-  branchId              String?                      @map("branch_id") @db.Uuid
-  branch                Branch?                      @relation(fields: [branchId], references: [id])
-  createdBy             String                       @map("created_by") @db.Uuid
-  creator               User                         @relation("ProductCreatedBy", fields: [createdBy], references: [id])
-  invoiceItems          InvoiceItem[]
-  quotationItems        QuotationItem[]
-  stockMovements        StockMovement[]
-  transferItems         TransferItem[]
-  stocktakeItems        StocktakeItem[]
-  cycleCountItems       CycleCountItem[]
-  warehouseStocks       ProductWarehouseStock[]
-  retailItems           RetailCatalogItem[]          @relation("RetailItemProduct")
-  stockLossItems        StockLossItem[]              @relation("StockLossItems")
-  arrivalSubscriptions  ProductArrivalSubscription[]
-  landedCostImportItems LandedCostImportItem[]
-  createdAt             DateTime                     @default(now()) @map("created_at")
-  updatedAt             DateTime                     @updatedAt @map("updated_at")
-  deletedAt             DateTime?                    @map("deleted_at")
+  mediumUrl               String?                      @map("medium_url") @db.Text
+  category                String?
+  openingBalancePcs       Int                          @default(0) @map("opening_balance_pcs")
+  cartonsAvailable        Int                          @default(0) @map("cartons_available")
+  pcsPerCarton            Int                          @default(1) @map("pcs_per_carton")
+  purchasePrice           Decimal                      @default(0) @map("purchase_price") @db.Decimal(12, 2)
+  salePrice               Decimal                      @default(0) @map("sale_price") @db.Decimal(12, 2)
+  retailPrice             Decimal                      @default(0) @map("retail_price") @db.Decimal(12, 2)
+  costPrice               Decimal                      @default(0) @map("cost_price") @db.Decimal(12, 2)
+  expiryDate              DateTime?                    @map("expiry_date")
+  minStock                Int                          @default(0) @map("min_stock")
+  currentStock            Int                          @map("current_stock") @ignore
+  storageLocation         String?                      @map("storage_location")
+  branchId                String?                      @map("branch_id") @db.Uuid
+  branch                  Branch?                      @relation(fields: [branchId], references: [id])
+  createdBy               String                       @map("created_by") @db.Uuid
+  creator                 User                         @relation("ProductCreatedBy", fields: [createdBy], references: [id])
+  invoiceItems            InvoiceItem[]
+  quotationItems          QuotationItem[]
+  stockMovements          StockMovement[]
+  transferItems           TransferItem[]
+  stocktakeItems          StocktakeItem[]
+  cycleCountItems         CycleCountItem[]
+  warehouseStocks         ProductWarehouseStock[]
+  salesAgentIssues        SalesAgentIssue[]
+  salesAgentPriceRequests SalesAgentPriceRequest[]
+  retailItems             RetailCatalogItem[]          @relation("RetailItemProduct")
+  stockLossItems          StockLossItem[]              @relation("StockLossItems")
+  arrivalSubscriptions    ProductArrivalSubscription[]
+  landedCostImportItems   LandedCostImportItem[]
+  createdAt               DateTime                     @default(now()) @map("created_at")
+  updatedAt               DateTime                     @updatedAt @map("updated_at")
+  deletedAt               DateTime?                    @map("deleted_at")
 
   // Multi-category & type tags (stored as PostgreSQL text arrays)
   categoryTags String[] @default([]) @map("category_tags")
@@ -621,6 +625,8 @@ model Customer {
   promoCodes                      PromoCode[]
   productReviews                  ProductReview[]
   catalogReviews                  CatalogProductReview[]
+  salesAgentIssues                SalesAgentIssue[]
+  salesAgentPriceRequests         SalesAgentPriceRequest[]
   // ── «المندوب» ────────────────────────────────────────────────────────
   // The rep this customer belongs to. This column — NOT a tag — is what the
   // server filters on: tags are free text any user with customer-edit rights
@@ -1437,6 +1443,81 @@ model Notification {
 /// Only the owner writes these rows. A rep confirming their own handover would
 /// need the owner to confirm it back, which is a two-party protocol for a
 /// problem that has none: the owner knows when cash is in their hand.
+/// «أكو مشكلة» — why a shopkeeper said no.
+///
+/// Recorded from the product page the moment the customer refuses, right next to
+/// the add-to-cart button, because a reason captured later is a reason invented
+/// later. Deliberately NOT notified over WhatsApp: these arrive all day, none of
+/// them is urgent, and a message per refusal would train the owner to ignore the
+/// channel that also carries orders.
+///
+/// `competitorInfo` is the commercially valuable half — the rep is standing in a
+/// shop that is buying the same goods from someone else, and asking who and for
+/// how much turns a lost sale into market intelligence collected daily.
+model SalesAgentIssue {
+  id             String   @id @default(uuid()) @db.Uuid
+  salesAgentId   String   @map("sales_agent_id") @db.Uuid
+  salesAgent     User     @relation("IssueAgent", fields: [salesAgentId], references: [id])
+  customerId     String   @map("customer_id") @db.Uuid
+  customer       Customer @relation(fields: [customerId], references: [id])
+  /// Nullable: a refusal can be about the visit itself (shop closed, owner away)
+  /// rather than about any particular product.
+  productId      String?  @map("product_id") @db.Uuid
+  product        Product? @relation(fields: [productId], references: [id])
+  /// Free string, not an enum, matching how this codebase already handles
+  /// reason codes elsewhere — a new reason must not need a migration.
+  reason         String
+  note           String?
+  /// «من من يشتريه وبأي سعر؟»
+  competitorInfo String?  @map("competitor_info")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([salesAgentId])
+  @@index([customerId])
+  @@index([productId])
+  @@index([reason])
+  @@index([createdAt])
+  @@map("sales_agent_issues")
+}
+
+/// «اطلب سعراً خاصاً» — the rep cannot discount, so they ask instead.
+///
+/// An approved price applies to ONE order and then is spent (`consumedAt`), so
+/// it never silently becomes that customer's standing price. Consumption happens
+/// when the order is SUBMITTED, because that is when the price is frozen into
+/// the approval snapshot — if the owner then rejects the whole order, the rep
+/// asks again, which is the honest outcome rather than a price quietly held open.
+model SalesAgentPriceRequest {
+  id             String    @id @default(uuid()) @db.Uuid
+  salesAgentId   String    @map("sales_agent_id") @db.Uuid
+  salesAgent     User      @relation("PriceRequestAgent", fields: [salesAgentId], references: [id])
+  customerId     String    @map("customer_id") @db.Uuid
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  productId      String    @map("product_id") @db.Uuid
+  product        Product   @relation(fields: [productId], references: [id])
+  /// The unit the price was negotiated in. A price for a carton means nothing
+  /// applied to a piece, so matching at order time is on product AND unit.
+  unit           Unit
+  /// What the catalog charges for that unit right now — frozen so the owner can
+  /// see the gap they are being asked to approve, months later.
+  currentPrice   Decimal   @map("current_price") @db.Decimal(12, 2)
+  requestedPrice Decimal   @map("requested_price") @db.Decimal(12, 2)
+  reason         String?
+  /// PENDING | APPROVED | REJECTED — mirrors the approval it is attached to.
+  status         String    @default("PENDING")
+  /// The PendingApproval this request was raised through, so the owner acts on
+  /// it in the one screen they already use for everything else.
+  approvalId     String?   @map("approval_id") @db.Uuid
+  reviewedAt     DateTime? @map("reviewed_at")
+  consumedAt     DateTime? @map("consumed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([salesAgentId])
+  @@index([customerId, productId, status])
+  @@index([approvalId])
+  @@map("sales_agent_price_requests")
+}
+
 model SalesAgentHandover {
   id           String   @id @default(uuid()) @db.Uuid
   salesAgentId String   @map("sales_agent_id") @db.Uuid

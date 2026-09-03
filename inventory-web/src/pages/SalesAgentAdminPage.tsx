@@ -110,6 +110,7 @@ export function SalesAgentAdminPage() {
             }}
           />
           <CommissionPanel agents={agents} />
+          <IssueReportsPanel />
           <HandoverHistory rows={handovers.data ?? []} loading={handovers.isLoading} />
         </>
       )}
@@ -392,5 +393,175 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
         )}
       </CardContent>
     </Card>
+  )
+}
+
+/* ── «المشاكل المسجّلة» — the four reports ───────────────────────────── */
+
+type IssueReports = {
+  total: number
+  byReason: Array<{ reason: string; label: string; count: number }>
+  priceRefusals: Array<{ productId: string; productName: string; salePrice: number | null; count: number }>
+  byCustomer: Array<{ customerId: string; customerName: string; area: string | null; count: number }>
+  competitors: Array<{
+    id: string
+    info: string
+    reasonLabel: string
+    productName: string | null
+    ourPrice: number | null
+    customerName: string
+    area: string | null
+    createdAt: string
+  }>
+}
+
+/**
+ * What the reps are hearing in the market.
+ *
+ * Four reports over one date window, fetched together because the whole point
+ * is comparing them: the reasons, the products losing on price, the customers
+ * who refuse everything, and — the commercially useful one — what competitors
+ * are charging, collected a refusal at a time.
+ */
+function IssueReportsPanel() {
+  const [from, setFrom] = useState("")
+  const [to, setTo] = useState("")
+
+  const reports = useQuery({
+    queryKey: ["sales-agent-admin", "issue-reports", from, to],
+    queryFn: async () => {
+      const res = await api.get<{ data: IssueReports }>("/sales-agent-admin/issue-reports", {
+        params: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      })
+      return res.data.data
+    },
+    retry: 3,
+  })
+
+  const d = reports.data
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="font-semibold">المشاكل المسجّلة</h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">من</label>
+              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">إلى</label>
+              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            </div>
+          </div>
+        </div>
+
+        {reports.isLoading ? (
+          <div className="text-sm text-slate-500">جاري التحميل…</div>
+        ) : reports.isError ? (
+          <div className="text-sm text-rose-600">ما وصلت التقارير. تحقق من الاتصال.</div>
+        ) : (d?.total ?? 0) === 0 ? (
+          <div className="text-sm text-slate-500">
+            ما اكو مشاكل مسجّلة بهذي الفترة. المندوب يسجّلها من زر «أكو مشكلة» بصفحة المادة.
+          </div>
+        ) : (
+          <>
+            <div className="text-sm text-slate-500">
+              مجموع المشاكل: <span className="tabular-nums">{d?.total ?? 0}</span>
+            </div>
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <ReportTable
+                title="أكثر أسباب الرفض"
+                head={["السبب", "العدد"]}
+                rows={(d?.byReason ?? []).map((r) => [r.label, String(r.count)])}
+                empty="ما اكو"
+              />
+
+              <ReportTable
+                title="مواد مرفوضة بسبب السعر"
+                head={["المادة", "سعرنا", "مرات الرفض"]}
+                rows={(d?.priceRefusals ?? []).map((r) => [
+                  r.productName,
+                  r.salePrice == null ? "—" : money(r.salePrice),
+                  String(r.count),
+                ])}
+                empty="ما اكو رفض بسبب السعر"
+              />
+
+              <ReportTable
+                title="أكثر الزبائن رفضاً"
+                head={["الزبون", "المنطقة", "العدد"]}
+                rows={(d?.byCustomer ?? []).map((r) => [
+                  r.customerName,
+                  r.area ?? "—",
+                  String(r.count),
+                ])}
+                empty="ما اكو"
+              />
+
+              <ReportTable
+                title="أسعار المنافسين"
+                head={["المادة", "سعرنا", "المنافس", "الزبون"]}
+                rows={(d?.competitors ?? []).map((r) => [
+                  r.productName ?? "—",
+                  r.ourPrice == null ? "—" : money(r.ourPrice),
+                  r.info,
+                  r.customerName,
+                ])}
+                empty="ما جمع المندوب أسعار منافسين بعد"
+              />
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ReportTable({
+  title,
+  head,
+  rows,
+  empty,
+}: {
+  title: string
+  head: string[]
+  rows: string[][]
+  empty: string
+}) {
+  return (
+    <div>
+      <div className="mb-2 text-sm font-semibold text-slate-600">{title}</div>
+      {rows.length === 0 ? (
+        <div className="text-sm text-slate-500">{empty}</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-right text-slate-500">
+                {head.map((h) => (
+                  <th key={h} className="p-2 font-medium">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 15).map((r, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  {r.map((cell, j) => (
+                    <td key={j} className={j === 0 ? "p-2" : "p-2 tabular-nums"}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }

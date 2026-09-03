@@ -19,14 +19,20 @@ import {
   getAgentProducts,
   getCashOnHand,
   getCustomerDetailCtrl,
+  getIssueReasons,
+  getMyIssues,
+  getMyPriceRequests,
+  getUsablePrices,
   getCustomerHeaderCtrl,
   getMyCustomers,
   getMyHandovers,
   getMyReceipts,
   getMyOrders,
   postAgentCustomer,
+  postAgentIssue,
   postAgentOrder,
   postAgentReceipt,
+  postPriceRequest,
   postAgentThumbnails,
   postClaimCustomer,
   postPhoneLookup,
@@ -57,5 +63,13 @@ router.get("/cash-on-hand", getCashOnHand);
 router.post("/receipts", postAgentReceipt);
 router.get("/receipts", getMyReceipts);
 router.get("/handovers", getMyHandovers);
+
+router.get("/issue-reasons", getIssueReasons);
+router.post("/issues", postAgentIssue);
+router.get("/issues", getMyIssues);
+
+router.post("/price-requests", postPriceRequest);
+router.get("/price-requests", getMyPriceRequests);
+router.get("/customers/:id/usable-prices", getUsablePrices);
 
 export default router;

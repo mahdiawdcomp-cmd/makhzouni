@@ -9,6 +9,8 @@ import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import {
   getCommission,
+  getIssueReports,
+  listIssues,
   listAgentLiability,
   listAgentsForAdmin,
   listHandovers,
@@ -60,4 +62,20 @@ export const getCommissionCtrl = asyncHandler(async (req, res) => {
   }
 
   res.json({ success: true, data: await getCommission(agentId, month, ratePercent) });
+});
+
+/* ── «المشاكل المسجّلة» ──────────────────────────────────────────────── */
+
+function dateWindow(req: { query: Record<string, unknown> }) {
+  const str = (k: string) => (typeof req.query[k] === "string" ? (req.query[k] as string) : undefined);
+  return { from: str("from"), to: str("to"), agentId: str("agentId") };
+}
+
+export const getIssueReportsCtrl = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await getIssueReports(dateWindow(req)) });
+});
+
+export const getIssuesCtrl = asyncHandler(async (req, res) => {
+  const reason = typeof req.query.reason === "string" ? req.query.reason : undefined;
+  res.json({ success: true, data: await listIssues({ ...dateWindow(req), reason }) });
 });

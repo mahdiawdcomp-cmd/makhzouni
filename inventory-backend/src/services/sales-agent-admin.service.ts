@@ -12,6 +12,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { notifySalesAgentEvent, salesAgentPhone } from "./sales-agent-notify.service";
 import { sendWhatsAppText } from "./whatsapp.service";
+import { issueReasonLabel } from "./sales-agent.service";
 
 function toNumber(value: unknown) {
   return value == null ? 0 : Number(value);
@@ -315,4 +316,173 @@ export async function notifyInvoiceChangedForAgent(invoiceId: string, changeKind
   } catch (err) {
     logger.warn(`[SalesAgent] invoice-change notify failed: ${String(err)}`);
   }
+}
+
+/* ── «المشاكل المسجّلة» — the owner's reports ────────────────────────── */
+
+function issueWindow(from?: string, to?: string) {
+  const where: { gte?: Date; lt?: Date } = {};
+  if (from) where.gte = new Date(from);
+  if (to) {
+    // `to` is an inclusive day from a date picker, so push to the start of the
+    // next day — otherwise everything logged after midnight on the last day is
+    // silently dropped from the report.
+    const end = new Date(to);
+    end.setDate(end.getDate() + 1);
+    where.lt = end;
+  }
+  return Object.keys(where).length > 0 ? where : undefined;
+}
+
+/**
+ * The four reports the owner asked for, from one pass over the issues.
+ *
+ * Built as four groupBy queries rather than four screens' worth of round trips:
+ * they share a date window and are always read together, and the whole point of
+ * the screen is comparing them.
+ *
+ *   byReason      — أكثر أسباب الرفض تكراراً
+ *   priceRefusals — المنتجات المرفوضة بسبب السعر
+ *   byCustomer    — الزبائن الرافضون لكل شيء
+ *   competitors   — أسعار المنافسين المجمّعة
+ */
+export async function getIssueReports(opts: { from?: string; to?: string; agentId?: string } = {}) {
+  const createdAt = issueWindow(opts.from, opts.to);
+  const base = {
+    ...(createdAt ? { createdAt } : {}),
+    ...(opts.agentId ? { salesAgentId: opts.agentId } : {}),
+  };
+
+  const [byReasonRaw, priceRaw, byCustomerRaw, competitorRows, total] = await Promise.all([
+    prisma.salesAgentIssue.groupBy({
+      by: ["reason"],
+      where: base,
+      _count: { reason: true },
+    }),
+    // "Refused on price" is both the plain price complaint and the sharper
+    // version of it — the shopkeeper already buys it cheaper elsewhere. Counting
+    // only the first would understate the problem the report exists to find.
+    prisma.salesAgentIssue.groupBy({
+      by: ["productId"],
+      where: { ...base, reason: { in: ["PRICE", "CHEAPER_ELSEWHERE"] }, productId: { not: null } },
+      _count: { productId: true },
+    }),
+    prisma.salesAgentIssue.groupBy({
+      by: ["customerId"],
+      where: base,
+      _count: { customerId: true },
+    }),
+    prisma.salesAgentIssue.findMany({
+      where: { ...base, competitorInfo: { not: null } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        competitorInfo: true,
+        createdAt: true,
+        reason: true,
+        product: { select: { name: true, salePrice: true } },
+        customer: { select: { name: true, area: true } },
+      },
+    }),
+    prisma.salesAgentIssue.count({ where: base }),
+  ]);
+
+  // Resolve names in two batched lookups rather than per row.
+  const productIds = priceRaw.map((r) => r.productId).filter(Boolean) as string[];
+  const customerIds = byCustomerRaw.map((r) => r.customerId);
+
+  const [products, customers] = await Promise.all([
+    productIds.length
+      ? prisma.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, name: true, salePrice: true },
+        })
+      : [],
+    customerIds.length
+      ? prisma.customer.findMany({
+          where: { id: { in: customerIds } },
+          select: { id: true, name: true, area: true },
+        })
+      : [],
+  ]);
+  const productById = new Map(products.map((p) => [p.id, p]));
+  const customerById = new Map(customers.map((c) => [c.id, c]));
+
+  return {
+    total,
+    byReason: byReasonRaw
+      .map((r) => ({ reason: r.reason, label: issueReasonLabel(r.reason), count: r._count.reason }))
+      .sort((a, b) => b.count - a.count),
+    priceRefusals: priceRaw
+      .map((r) => {
+        const p = productById.get(r.productId as string);
+        return {
+          productId: r.productId as string,
+          productName: p?.name ?? "—",
+          salePrice: p ? Number(p.salePrice) : null,
+          count: r._count.productId,
+        };
+      })
+      .sort((a, b) => b.count - a.count),
+    byCustomer: byCustomerRaw
+      .map((r) => {
+        const c = customerById.get(r.customerId);
+        return {
+          customerId: r.customerId,
+          customerName: c?.name ?? "—",
+          area: c?.area ?? null,
+          count: r._count.customerId,
+        };
+      })
+      .sort((a, b) => b.count - a.count),
+    competitors: competitorRows.map((r) => ({
+      id: r.id,
+      info: r.competitorInfo as string,
+      reason: r.reason,
+      reasonLabel: issueReasonLabel(r.reason),
+      productName: r.product?.name ?? null,
+      ourPrice: r.product ? Number(r.product.salePrice) : null,
+      customerName: r.customer.name,
+      area: r.customer.area,
+      createdAt: r.createdAt,
+    })),
+  };
+}
+
+/** The raw log behind the reports, for when the owner wants to read them one by one. */
+export async function listIssues(opts: { from?: string; to?: string; agentId?: string; reason?: string } = {}) {
+  const createdAt = issueWindow(opts.from, opts.to);
+  const rows = await prisma.salesAgentIssue.findMany({
+    where: {
+      ...(createdAt ? { createdAt } : {}),
+      ...(opts.agentId ? { salesAgentId: opts.agentId } : {}),
+      ...(opts.reason ? { reason: opts.reason } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+    select: {
+      id: true,
+      reason: true,
+      note: true,
+      competitorInfo: true,
+      createdAt: true,
+      salesAgent: { select: { name: true } },
+      customer: { select: { name: true, area: true } },
+      product: { select: { name: true } },
+    },
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    reason: r.reason,
+    reasonLabel: issueReasonLabel(r.reason),
+    note: r.note,
+    competitorInfo: r.competitorInfo,
+    createdAt: r.createdAt,
+    agentName: r.salesAgent.name,
+    customerName: r.customer.name,
+    area: r.customer.area,
+    productName: r.product?.name ?? null,
+  }));
 }

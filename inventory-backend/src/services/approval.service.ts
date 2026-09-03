@@ -94,6 +94,9 @@ export const approvalRequestTypes = {
   DELETE_VOUCHER: "DELETE_VOUCHER",
   CREATE_TRANSFER: "CREATE_TRANSFER",
   NEGATIVE_STOCK_SALE: "NEGATIVE_STOCK_SALE",
+  // «اطلب سعراً خاصاً» — the rep cannot discount, so they ask through the same
+  // approvals screen everything else uses.
+  AGENT_PRICE_REQUEST: "AGENT_PRICE_REQUEST",
 } as const;
 
 export type ApprovalRequestType =
@@ -129,6 +132,7 @@ const approvalTypeLabels: Record<string, string> = {
   CATALOG_ORDER: "طلب كتالوج",
   CREATE_TRANSFER: "تحويل بين المخازن",
   NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة (عجز مخزون)",
+  AGENT_PRICE_REQUEST: "طلب سعر خاص من مندوب",
 };
 
 // ── Human-readable display for the approvals page ──────────────────────────
@@ -486,7 +490,10 @@ async function executeApprovedRequest(
   requestData: unknown,
   reviewerId: string,
   tx: Db,
-  options?: { allowPrices?: boolean; showStock?: boolean }
+  options?: { allowPrices?: boolean; showStock?: boolean },
+  // The approval's own id. Only AGENT_PRICE_REQUEST needs it — the row it has
+  // to flip is joined to the approval, not carried inside requestData.
+  approvalId?: string
 ) {
   const data = requestData as Record<string, unknown>;
 
@@ -883,6 +890,16 @@ async function executeApprovedRequest(
           : body;
       return executeTransferWithin(tx, execBody, reviewerId, true);
     }
+    case approvalRequestTypes.AGENT_PRICE_REQUEST: {
+      // Flip the request to APPROVED so the rep's next order can spend it. The
+      // price itself lives on the request row, not here — this approval is the
+      // owner's yes, not a second copy of the number.
+      await tx.salesAgentPriceRequest.updateMany({
+        where: { approvalId, status: "PENDING" },
+        data: { status: "APPROVED", reviewedAt: new Date() },
+      });
+      return { priceApproved: true };
+    }
     case approvalRequestTypes.NEGATIVE_STOCK_SALE:
       // Acknowledgment only: the sale already completed and stock already moved.
       // Approving simply marks the shortage as reviewed by the manager; the deficit
@@ -921,17 +938,26 @@ export async function reviewApproval(
   }
 
   if (status === "REJECTED") {
-    return {
-      approval: await prisma.pendingApproval.update({
-        where: { id: approvalId },
-        data: {
-          status: ApprovalStatus.REJECTED,
-          reviewedBy,
-          reviewedAt: new Date(),
-        },
-      }),
-      result: null,
-    };
+    const rejected = await prisma.pendingApproval.update({
+      where: { id: approvalId },
+      data: {
+        status: ApprovalStatus.REJECTED,
+        reviewedBy,
+        reviewedAt: new Date(),
+      },
+    });
+
+    // A rejected price request must be closed too. Left PENDING it would block
+    // the rep from ever asking about that product again — the duplicate guard
+    // treats a live request as one already in flight.
+    if (approval.requestType === approvalRequestTypes.AGENT_PRICE_REQUEST) {
+      await prisma.salesAgentPriceRequest.updateMany({
+        where: { approvalId, status: "PENDING" },
+        data: { status: "REJECTED", reviewedAt: new Date() },
+      });
+    }
+
+    return { approval: rejected, result: null };
   }
 
   const reviewed = await prisma.$transaction(async (tx) => {
@@ -957,7 +983,8 @@ export async function reviewApproval(
       approval.requestData,
       reviewedBy,
       tx,
-      options
+      options,
+      approvalId
     );
 
     return {
