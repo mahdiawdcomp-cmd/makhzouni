@@ -503,6 +503,12 @@ export async function markPrepared(
       quantity: it.quantity,
       unitPrice: it.unitPrice,
       warehouseId: it.warehouseId,
+      // The merchant ALREADY approved this order and the goods are being handed
+      // over. Refusing to bill it because the shop ledger reads short leaves a
+      // delivered order with no invoice — the worst of both worlds. The line is
+      // still recorded as a deficit and still raises the «بيع يسبب مخزون سالب»
+      // notification, so nothing becomes invisible; it just stops blocking.
+      allowNegativeStock: true,
     }));
 
     const invoice = await createInvoice(

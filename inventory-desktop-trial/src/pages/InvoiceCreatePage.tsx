@@ -1907,15 +1907,17 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         notes: item.notes?.trim() || undefined,
         prepared: Boolean(item.prepared),
         transferWholeCarton: item.transferWholeCarton || undefined,
-        // Authorize the deficit for any sale line that can't be fully covered — by the
-        // warehouse it pulls from OR by total stock. allowNegative only *permits* going
-        // below zero; it never forces it, so it's safe to set whenever a shortfall is possible.
-        allowNegativeStock:
-          (item.allowNegativeStock
-            || (invoiceType === "SALE"
-              && (itemQuantityInPieces(item) > effectiveAvailablePcs(item)
-                || itemQuantityInPieces(item) > stockOf(item.product))))
-          || undefined,
+        // Every SALE line is authorized to go below zero. allowNegative only
+        // *permits* a deficit, it never creates one, and the shortage is still
+        // shown on screen before saving and still raises the «بيع يسبب مخزون
+        // سالب» notification afterwards.
+        //
+        // It used to be set only when THIS page could see a shortfall, which
+        // depends on cached product stock. A ledger that had drifted negative
+        // since the page loaded — or a warehouse whose cached figure looked
+        // healthy — refused the save with a raw "يحتوي فقط على -240 قطعة", and
+        // an order the shop had already accepted could not be billed at all.
+        allowNegativeStock: invoiceType === "SALE" ? true : (item.allowNegativeStock || undefined),
       })),
     })
       const id = response.data?.id ?? null
