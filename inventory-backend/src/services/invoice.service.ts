@@ -173,7 +173,7 @@ async function couponDiscount(
   const [locked] = await tx.$queryRaw<{ id: string }[]>`
     SELECT "id" FROM "coupons" WHERE "code" = ${normalizedCode} FOR UPDATE
   `;
-  if (!locked) throw new AppError("Coupon is not active", 400, "COUPON_INACTIVE");
+  if (!locked) throw new AppError("كود الخصم غير مفعّل", 400, "COUPON_INACTIVE");
 
   const coupon = await tx.coupon.findUnique({
     where: { id: locked.id },
@@ -190,16 +190,16 @@ async function couponDiscount(
 
   const now = new Date();
   if (!coupon || !coupon.isActive) {
-    throw new AppError("Coupon is not active", 400, "COUPON_INACTIVE");
+    throw new AppError("كود الخصم غير مفعّل", 400, "COUPON_INACTIVE");
   }
   if (coupon.startsAt && coupon.startsAt > now) {
-    throw new AppError("Coupon has not started yet", 400, "COUPON_NOT_STARTED");
+    throw new AppError("كود الخصم لم يبدأ بعد", 400, "COUPON_NOT_STARTED");
   }
   if (coupon.endsAt && coupon.endsAt < now) {
-    throw new AppError("Coupon has expired", 400, "COUPON_EXPIRED");
+    throw new AppError("كود الخصم منتهي الصلاحية", 400, "COUPON_EXPIRED");
   }
   if (coupon.maxUses !== null && coupon._count.redemptions >= coupon.maxUses) {
-    throw new AppError("Coupon usage limit reached", 400, "COUPON_LIMIT_REACHED");
+    throw new AppError("كود الخصم وصل الحد الأقصى للاستعمال", 400, "COUPON_LIMIT_REACHED");
   }
 
   const raw =
@@ -233,7 +233,7 @@ async function generateInvoiceNumber(tx: Db, date: Date) {
     if (!exists) return candidate;
   }
 
-  throw new AppError("Could not generate a unique invoice number", 409, "INVOICE_NUMBER_CONFLICT");
+  throw new AppError("تعذّر توليد رقم فاتورة فريد — أعد المحاولة", 409, "INVOICE_NUMBER_CONFLICT");
 }
 
 function getDateFilter(from?: string, to?: string) {
@@ -259,7 +259,7 @@ async function getCustomerBalance(tx: Db, customerId: string) {
   });
 
   if (!customer) {
-    throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
+    throw new AppError("الزبون غير موجود", 404, "CUSTOMER_NOT_FOUND");
   }
 
   return {
@@ -276,7 +276,7 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
   });
 
   if (!customer) {
-    throw new AppError("Customer not found", 404, "CUSTOMER_NOT_FOUND");
+    throw new AppError("الزبون غير موجود", 404, "CUSTOMER_NOT_FOUND");
   }
 
   const [saleTotals, creditInvoiceTotals, receiptTotals, paymentTotals, lastInvoice, lastVoucher] = await Promise.all([
@@ -349,7 +349,7 @@ async function applyStockMovement(
   });
 
   if (!product || product.deletedAt) {
-    throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
   }
 
   await ensureLegacyWarehouseStock(tx, product);
@@ -442,8 +442,21 @@ async function applyStockMovement(
     if (quantityInPieces > available) {
       const wh = await tx.branch.findUnique({ where: { id: warehouseId }, select: { name: true } });
       const whName = wh?.name ?? "المخزن";
+      // The shortage is on ONE warehouse row, while the products screen shows
+      // the TOTAL across all of them — so "المحل عنده -240" while the product
+      // reads healthy is not a contradiction, it just needs a transfer. Say so,
+      // or the message reads like a lie.
+      const rows = await tx.productWarehouseStock.findMany({
+        where: { productId: product.id },
+        select: { quantityPieces: true },
+      });
+      const totalPieces = rows.reduce((sum, r) => sum + Number(r.quantityPieces), 0);
+      const elsewhere = totalPieces - available;
       throw new AppError(
-        `${whName} يحتوي فقط على ${available} قطعة من "${product.name}". قلّل الكمية أو أضف مخزون للمادة.`,
+        `"${product.name}": ${whName} فيه ${available} قطعة${available < 0 ? " (رصيد سالب)" : ""} والمطلوب ${quantityInPieces}.` +
+          (elsewhere > 0
+            ? ` يوجد ${elsewhere} قطعة في مخازن أخرى — حوّلها إلى ${whName} أو اختر المخزن من عمود المخزن بسطر الفاتورة.`
+            : ` لا يوجد رصيد في أي مخزن آخر — قلّل الكمية أو أضف مخزون.`),
         409,
         "INSUFFICIENT_SHOP_STOCK"
       );
@@ -651,7 +664,7 @@ async function reverseInvoiceItemsStock(tx: Db, invoiceId: string, returnWarehou
   });
 
   if (!invoice) {
-    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
   }
 
   // Sales always come out of المحل, so reverse them straight back INTO المحل —
@@ -773,7 +786,7 @@ async function applyInvoiceItemsStock(tx: Db, invoiceId: string) {
   });
 
   if (!invoice) {
-    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
   }
 
   await tx.stockMovement.deleteMany({ where: { invoiceId } });
@@ -809,7 +822,7 @@ async function recalculateInvoiceBalances(tx: Db, invoiceId: string) {
   const invoice = await tx.invoice.findUnique({ where: { id: invoiceId } });
 
   if (!invoice) {
-    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
   }
 
   const { previousBalance } = await getCustomerBalance(tx, invoice.customerId);
@@ -1655,7 +1668,7 @@ export async function getInvoiceById(id: string) {
   });
 
   if (!invoice) {
-    throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
   }
 
   return serializeInvoice(invoice);
@@ -1808,11 +1821,11 @@ async function updateInvoiceInTransaction(
     });
 
     if (!invoice) {
-      throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+      throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
     }
 
     if (invoice.status !== InvoiceStatus.ACTIVE) {
-      throw new AppError("Only active invoices can be updated", 400, "INVOICE_CLOSED");
+      throw new AppError("لا يمكن تعديل فاتورة ملغاة أو مؤرشفة", 400, "INVOICE_CLOSED");
     }
 
     await lockCustomer(tx, invoice.customerId);
@@ -1922,11 +1935,11 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
     const invoice = await tx.invoice.findUnique({ where: { id } });
 
     if (!invoice) {
-      throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+      throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
     }
 
     if (invoice.status === InvoiceStatus.CANCELLED) {
-      throw new AppError("Invoice is already cancelled", 400, "INVOICE_CANCELLED");
+      throw new AppError("الفاتورة ملغاة أصلاً", 400, "INVOICE_CANCELLED");
     }
 
     await lockCustomer(tx, invoice.customerId);
@@ -1979,11 +1992,11 @@ async function reactivateInvoiceInTransaction(tx: Db, id: string) {
     });
 
     if (!invoice) {
-      throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+      throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
     }
 
     if (invoice.status === InvoiceStatus.ACTIVE) {
-      throw new AppError("Invoice is already active", 400, "INVOICE_ACTIVE");
+      throw new AppError("الفاتورة مفعّلة أصلاً", 400, "INVOICE_ACTIVE");
     }
 
     if (invoice.archivedAt) {
@@ -2035,7 +2048,7 @@ export async function listRecentlyDeletedInvoices() {
 export async function restoreArchivedInvoice(id: string) {
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUnique({ where: { id }, include: { items: true } });
-    if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    if (!invoice) throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
     if (!invoice.archivedAt) throw new AppError("الفاتورة غير محذوفة", 400, "INVOICE_NOT_ARCHIVED");
 
     const cutoff = new Date(Date.now() - RESTORE_WINDOW_MS);
@@ -2086,7 +2099,7 @@ async function hardDeleteInvoiceInTransaction(
 ) {
   {
     const invoice = await tx.invoice.findUnique({ where: { id } });
-    if (!invoice) throw new AppError("Invoice not found", 404, "INVOICE_NOT_FOUND");
+    if (!invoice) throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
     if (invoice.archivedAt) return { id, invoiceNumber: invoice.invoiceNumber }; // idempotent
 
     const wasActive = invoice.status === InvoiceStatus.ACTIVE;

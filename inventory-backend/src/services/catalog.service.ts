@@ -1292,7 +1292,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
   for (const item of input.items) {
     const product = productById.get(item.productId);
     if (!product) {
-      throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+      throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
     }
     const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(
@@ -1302,19 +1302,36 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
   }
 
   for (const product of products) {
-    if ((requestedPiecesByProduct.get(product.id) ?? 0) > totalStock(product)) {
-      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+    const wanted = requestedPiecesByProduct.get(product.id) ?? 0;
+    const have = totalStock(product);
+    if (wanted > have) {
+      // Named and in Arabic: "Product stock is not enough" told the shopkeeper
+      // nothing — not which product, not how short, not in a language the
+      // people using this screen read.
+      throw new AppError(
+        have < 0
+          ? `رصيد المادة "${product.name}" سالب (${have} قطعة) — صحّح المخزون أو اكتب الفاتورة يدوياً.`
+          : `الكمية المطلوبة من "${product.name}" (${wanted} قطعة) أكبر من المتوفر (${have} قطعة).`,
+        400,
+        "CATALOG_STOCK_NOT_ENOUGH"
+      );
     }
   }
 
   const normalizedItems = input.items.map((item) => {
     const product = productById.get(item.productId);
     if (!product) {
-      throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+      throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
     }
     const available = totalStock(product);
     if (available <= 0) {
-      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+      throw new AppError(
+        available < 0
+          ? `رصيد المادة "${product.name}" سالب (${available} قطعة) — صحّح المخزون أولاً.`
+          : `المادة "${product.name}" نفدت من المخزون.`,
+        400,
+        "CATALOG_STOCK_NOT_ENOUGH"
+      );
     }
     const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
     return {
@@ -1407,7 +1424,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
   for (const item of input.items) {
     const product = productById.get(item.productId);
     if (!product) {
-      throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+      throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
     }
     const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(
@@ -1417,20 +1434,37 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
   }
 
   for (const product of products) {
-    if ((requestedPiecesByProduct.get(product.id) ?? 0) > totalStock(product)) {
-      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+    const wanted = requestedPiecesByProduct.get(product.id) ?? 0;
+    const have = totalStock(product);
+    if (wanted > have) {
+      // Named and in Arabic: "Product stock is not enough" told the shopkeeper
+      // nothing — not which product, not how short, not in a language the
+      // people using this screen read.
+      throw new AppError(
+        have < 0
+          ? `رصيد المادة "${product.name}" سالب (${have} قطعة) — صحّح المخزون أو اكتب الفاتورة يدوياً.`
+          : `الكمية المطلوبة من "${product.name}" (${wanted} قطعة) أكبر من المتوفر (${have} قطعة).`,
+        400,
+        "CATALOG_STOCK_NOT_ENOUGH"
+      );
     }
   }
 
   const normalizedItems = input.items.map((item) => {
     const product = productById.get(item.productId);
     if (!product) {
-      throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+      throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
     }
 
     const available = totalStock(product);
     if (available <= 0) {
-      throw new AppError("Product stock is not enough", 400, "CATALOG_STOCK_NOT_ENOUGH");
+      throw new AppError(
+        available < 0
+          ? `رصيد المادة "${product.name}" سالب (${available} قطعة) — صحّح المخزون أولاً.`
+          : `المادة "${product.name}" نفدت من المخزون.`,
+        400,
+        "CATALOG_STOCK_NOT_ENOUGH"
+      );
     }
 
     const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
@@ -1601,7 +1635,7 @@ export async function submitTelegramCatalogOrder(input: TelegramCatalogOrderInpu
 
   for (const item of input.items) {
     const product = productById.get(item.productId);
-    if (!product) throw new AppError("Product not found", 404, "PRODUCT_NOT_FOUND");
+    if (!product) throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
     const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(
       product.id,
