@@ -32,7 +32,7 @@ import {
 import { generateCustomerStatementPdf } from "../services/statement-export.service";
 import { sendPdfWithTemplateFallback } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
-import { hasPermission } from "../middleware/permission.middleware";
+import { hasPermission, salesAgentScopeFor } from "../middleware/permission.middleware";
 import { logger } from "../utils/logger";
 
 function requireUser(reqUser: Express.User | undefined) {
@@ -65,9 +65,13 @@ async function queueStaffApproval(
 }
 
 export const getCustomers = asyncHandler(async (req, res) => {
-  const result = await listCustomers(
-    req.validatedQuery as Parameters<typeof listCustomers>[0]
-  );
+  const result = await listCustomers({
+    ...(req.validatedQuery as Parameters<typeof listCustomers>[0]),
+    // «المندوب» — the scope comes from the token, so it cannot be widened by
+    // editing the query string. Null for everyone else, which leaves the list
+    // exactly as it was.
+    salesAgentId: salesAgentScopeFor(req.user),
+  });
 
   res.json({
     success: true,

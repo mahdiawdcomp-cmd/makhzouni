@@ -160,6 +160,21 @@ export interface AppSettings {
   // Dedicated number that receives staff approval requests (delete/cancel).
   // Falls back to storePhone when empty.
   adminApprovalWhatsappNumber?: string;
+  // ── «إشعارات المندوب» — the fourth notification box ────────────────────
+  // One nominated number for everything the sales rep does, kept separate from
+  // the three above so rep traffic can be routed (or muted) on its own. Each
+  // event has its own switch: muting one must not cost the others. Undefined
+  // means ON — a shop that never opens this screen still gets the alerts.
+  salesAgentWhatsappNumber?: string;
+  salesAgentNotifyNewOrder?: boolean;
+  salesAgentNotifyNewCustomer?: boolean;
+  salesAgentNotifyReceipt?: boolean;
+  salesAgentNotifyPriceRequest?: boolean;
+  salesAgentNotifyInvoiceChanged?: boolean;
+  // «المنطقة» — the in-city areas a rep picks from when registering a customer.
+  // Per-tenant data: each shop types its own, because these are neighbourhoods
+  // of whichever city that shop works, and shared code must not assume one.
+  salesAgentAreas?: string[];
   // Daily summary
   autoSendDailySummary: boolean;
   dailySummaryWhatsappNumber?: string;
@@ -538,6 +553,13 @@ export const defaultSettings: AppSettings = {
   campaignGlobalDailyCap: 100,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
+  salesAgentWhatsappNumber: "",
+  salesAgentNotifyNewOrder: true,
+  salesAgentNotifyNewCustomer: true,
+  salesAgentNotifyReceipt: true,
+  salesAgentNotifyPriceRequest: true,
+  salesAgentNotifyInvoiceChanged: true,
+  salesAgentAreas: [],
   autoSendDailySummary: false,
   dailySummaryWhatsappNumber: "",
   dailySummaryHour: 21,

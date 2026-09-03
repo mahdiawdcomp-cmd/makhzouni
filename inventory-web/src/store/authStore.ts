@@ -14,6 +14,7 @@ interface AuthState {
   canViewProfitReports: () => boolean
   isPosOnly: () => boolean
   isWorkerOnly: () => boolean
+  isSalesAgent: () => boolean
 }
 
 function readUser() {
@@ -68,6 +69,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const perms = user.permissions ?? []
     // POS-only: staff with zero permissions or whose only permission is ACCESS_POS
     return perms.length === 0 || perms.every((p) => p === "ACCESS_POS")
+  },
+  // «المندوب» — a restriction, not a power, so an ADMIN does NOT pass by
+  // default the way it does for ordinary capabilities. Only an account the
+  // owner explicitly marked as a rep is confined to the rep screen.
+  isSalesAgent: () => {
+    const user = get().user
+    return Boolean(user?.permissions?.includes("SALES_AGENT"))
   },
   isWorkerOnly: () => {
     const user = get().user

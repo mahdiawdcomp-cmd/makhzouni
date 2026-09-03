@@ -23,6 +23,10 @@ export type UserPermission =
   | "ACCESS_WHATSAPP_CHAT"
   | "MANAGE_INSTAGRAM"
   | "PUBLISH_INSTAGRAM"
+  // «المندوب». Both a power and a RESTRICTION: it opens the rep screen and, on
+  // the server, confines the account to its own customers. Never give it to an
+  // owner account.
+  | "SALES_AGENT"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -1282,6 +1286,13 @@ export interface AppSettings {
   campaignGlobalDailyCap?: number
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
+  salesAgentWhatsappNumber?: string
+  salesAgentNotifyNewOrder?: boolean
+  salesAgentNotifyNewCustomer?: boolean
+  salesAgentNotifyReceipt?: boolean
+  salesAgentNotifyPriceRequest?: boolean
+  salesAgentNotifyInvoiceChanged?: boolean
+  salesAgentAreas?: string[]
   autoSendDailySummary?: boolean
   dailySummaryWhatsappNumber?: string
   dailySummaryHour?: number

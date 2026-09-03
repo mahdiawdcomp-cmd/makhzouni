@@ -28,6 +28,12 @@ export interface ListCustomersQuery {
   customerIds?: string[];
   /** When true, includes soft-deleted customers (used by account lookup) */
   includeDeleted?: boolean;
+  /**
+   * «المندوب» — hard scope to one rep's customers. Set by the controller from
+   * the authenticated user, NEVER from the query string: a client-supplied
+   * value would let a rep widen their own scope by editing a URL.
+   */
+  salesAgentId?: string | null;
   page: number;
   limit: number;
 }
@@ -308,6 +314,8 @@ export async function listCustomers(query: ListCustomersQuery) {
     // includeDeleted=true → show all (including archived); default → active only
     ...(query.includeDeleted ? {} : { deletedAt: null }),
     ...(query.branchId ? { branchId: query.branchId } : {}),
+    // A rep sees only their own customers, everywhere this list is used.
+    ...(query.salesAgentId ? { salesAgentId: query.salesAgentId } : {}),
     // isBoth customers appear in both customer list and supplier list
     ...(query.isSupplier !== undefined
       ? query.isSupplier

@@ -42,9 +42,17 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   // Instagram auto-publish
   { id: "MANAGE_INSTAGRAM",    label: "تجهيز منشورات انستغرام", hint: "يجهز المنشورات ويحفظها كمسودات فقط بدون نشر", group: "instagram" },
   { id: "PUBLISH_INSTAGRAM",   label: "نشر انستغرام",       hint: "ينشر فعلياً على انستغرام ويدير الطوابير المجدولة (مدير)", group: "instagram" },
+  // «المندوب» — يفتح شاشة المندوب ويحصر الحساب بزبائنه هو.
+  { id: "SALES_AGENT",         label: "مندوب",              hint: "يفتح شاشة المندوب ويبيع لزبائنه فقط، بدون كلفة ولا أرباح", group: "agent" },
 ]
 
-const fullPermissions = allPermissions.map((permission) => permission.id)
+// "Grant everything" must never hand out SALES_AGENT: it is a RESTRICTION as
+// much as a capability — it locks the account into the rep screen and confines
+// it to that rep's own customers. Ticking "all permissions" on an owner account
+// and silently confining them is the opposite of what the button says.
+const fullPermissions = allPermissions
+  .filter((permission) => permission.id !== "SALES_AGENT")
+  .map((permission) => permission.id)
 
 // DENY marker (not a normal grant, so intentionally NOT in allPermissions): when
 // present it hides profit & financial reports even from a full ADMIN. The toggle below
@@ -423,8 +431,31 @@ export function UsersPage() {
                 )
               })}
             </div>
+            <div className="my-3 border-t border-slate-200 dark:border-slate-700" />
+            <div className="mb-2 text-sm font-semibold text-slate-600">المندوب</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {allPermissions.filter((p) => p.group === "agent").map((permission) => {
+                // NOT auto-checked for ADMIN, unlike every block above: this one
+                // CONFINES an account (rep screen only, own customers only), so
+                // showing it ticked on an owner would be a lie.
+                const checked = (form.permissions ?? []).includes(permission.id)
+                return (
+                  <label key={permission.id} className="flex gap-3 rounded-md border border-violet-200 bg-violet-50/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+                    <input type="checkbox" checked={checked} onChange={() => togglePermission(permission.id)} />
+                    <span>
+                      <span className="block font-medium">{permission.label}</span>
+                      <span className="block text-xs text-slate-500">{permission.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              انتبه: هذي الصلاحية تحصر الحساب بشاشة المندوب وبزبائنه فقط. لا تعطيها لحسابك أنت.
+            </div>
+
             {form.role === "ADMIN" ? (
-              <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح أدناه.</div>
+              <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح أدناه وصلاحية المندوب.</div>
             ) : null}
 
             <div className="my-3 border-t border-slate-200 dark:border-slate-700" />

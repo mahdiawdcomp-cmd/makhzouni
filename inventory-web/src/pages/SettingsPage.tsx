@@ -1108,6 +1108,92 @@ export function SettingsPage() {
             />
           </CardContent>
         </Card>
+
+        {/* «إشعارات المندوب» — the fourth notification box. Deliberately its own
+            card and its own save button: it is a separate destination with a
+            separate on/off switch per event, and folding it into the block above
+            would make muting one rep alert look like muting catalog orders. */}
+        <Card>
+          <CardContent className="space-y-4 p-5">
+            <SectionTitle>إشعارات المندوب</SectionTitle>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <Field label="رقم إشعارات المندوب (واتساب)">
+                  <Input
+                    value={settings.salesAgentWhatsappNumber ?? ""}
+                    onChange={(e) => upd("salesAgentWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  كل حركة يسويها المندوب توصل لهذا الرقم. إذا تركته فارغ يُرسل لرقم الكتلوك ثم رقم المتجر.
+                </p>
+              </div>
+
+              <Toggle
+                label="فاتورة جديدة من مندوب"
+                checked={settings.salesAgentNotifyNewOrder !== false}
+                onChange={(v) => upd("salesAgentNotifyNewOrder", v)}
+              />
+              <Toggle
+                label="زبون جديد أنشأه مندوب"
+                checked={settings.salesAgentNotifyNewCustomer !== false}
+                onChange={(v) => upd("salesAgentNotifyNewCustomer", v)}
+              />
+              <Toggle
+                label="سند قبض سجّله مندوب"
+                checked={settings.salesAgentNotifyReceipt !== false}
+                onChange={(v) => upd("salesAgentNotifyReceipt", v)}
+              />
+              <Toggle
+                label="طلب تغيير سعر"
+                checked={settings.salesAgentNotifyPriceRequest !== false}
+                onChange={(v) => upd("salesAgentNotifyPriceRequest", v)}
+              />
+              <Toggle
+                label="تعديل أو حذف فاتورة تخص مندوباً"
+                checked={settings.salesAgentNotifyInvoiceChanged !== false}
+                onChange={(v) => upd("salesAgentNotifyInvoiceChanged", v)}
+              />
+
+              <div className="md:col-span-2">
+                <Field label="مناطق المندوب">
+                  <textarea
+                    className="min-h-24 w-full rounded-md border bg-white p-2 text-sm outline-none focus:ring-2 dark:border-slate-700 dark:bg-slate-950"
+                    value={(settings.salesAgentAreas ?? []).join("\n")}
+                    onChange={(e) =>
+                      upd(
+                        "salesAgentAreas",
+                        e.target.value
+                          .split(/\r?\n/)
+                          .map((a) => a.trim())
+                          .filter(Boolean),
+                      )
+                    }
+                    placeholder={"اسم المنطقة\nاسم المنطقة"}
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  اكتب كل منطقة بسطر. المندوب يختار منها عند تسجيل زبون جديد — قائمة محددة حتى ما تتكرر نفس المنطقة بعدة كتابات.
+                </p>
+              </div>
+            </div>
+            <SaveRow
+              onSave={() => saveSettings.mutate({
+                salesAgentWhatsappNumber: settings.salesAgentWhatsappNumber,
+                salesAgentNotifyNewOrder: settings.salesAgentNotifyNewOrder !== false,
+                salesAgentNotifyNewCustomer: settings.salesAgentNotifyNewCustomer !== false,
+                salesAgentNotifyReceipt: settings.salesAgentNotifyReceipt !== false,
+                salesAgentNotifyPriceRequest: settings.salesAgentNotifyPriceRequest !== false,
+                salesAgentNotifyInvoiceChanged: settings.salesAgentNotifyInvoiceChanged !== false,
+                salesAgentAreas: settings.salesAgentAreas ?? [],
+              })}
+              isPending={saveSettings.isPending}
+              saved={saved}
+            />
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-5">
             <details className="group space-y-4">

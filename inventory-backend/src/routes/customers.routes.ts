@@ -26,7 +26,7 @@ import {
 } from "../controllers/customers.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { enforcePlanLimit } from "../middleware/tenant.middleware";
-import { requirePermission } from "../middleware/permission.middleware";
+import { requirePermission, scopeCustomerParamToSalesAgent } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
   createPortalLink,
@@ -53,6 +53,11 @@ import {
 const router = Router();
 
 router.use(authMiddleware);
+
+// «المندوب» — every `:id` route below is confined to the rep's own customers.
+// Registered as a param handler rather than per-route so a new endpoint added
+// later is covered without anyone having to remember to add the check.
+router.param("id", scopeCustomerParamToSalesAgent());
 
 router.get("/", validate(listCustomersSchema), getCustomers);
 router.get("/debts", getDebts);

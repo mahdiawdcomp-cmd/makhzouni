@@ -26,6 +26,10 @@ type ApprovalData = {
   customerId?: string
   isFirstOrder?: boolean
   isExistingCustomer?: boolean
+  // «المندوب» — present only on orders a rep took. The owner's first question
+  // on a rep order is who took it, so it is a badge on the row, not a detail
+  // buried in the expanded view.
+  salesAgentName?: string
   displayItems?: Array<{
     productId: string
     productName: string
@@ -185,6 +189,11 @@ export function ApprovalsPage() {
                   {data.isFirstOrder && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                       أول طلب
+                    </span>
+                  )}
+                  {data.salesAgentName && (
+                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-900 dark:text-violet-300">
+                      مندوب: {data.salesAgentName}
                     </span>
                   )}
                 </div>

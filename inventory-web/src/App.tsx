@@ -39,6 +39,7 @@ const ProductDetailPage = lazyPage(() => import("./pages/ProductDetailPage"), "P
 const PublicCatalogPage = lazyPage(() => import("./pages/PublicCatalogPage"), "PublicCatalogPage")
 const QuotationsPage = lazyPage(() => import("./pages/QuotationsPage"), "QuotationsPage")
 const POSPage = lazyPage(() => import("./pages/PosPage"), "POSPage")
+const SalesAgentPage = lazyPage(() => import("./pages/SalesAgentPage"), "SalesAgentPage")
 const ProductsPage = lazyPage(() => import("./pages/ProductsPage"), "ProductsPage")
 const ReportsPage = lazyPage(() => import("./pages/ReportsPage"), "ReportsPage")
 const SalesReturnsPage = lazyPage(() => import("./pages/SalesReturnsPage"), "SalesReturnsPage")
@@ -182,6 +183,11 @@ const router = createBrowserRouter([
         element: <PosLayout />,
         children: [{ path: "pos", element: f("pos", "نقطة البيع", <POSPage />) }],
       },
+
+      // «المندوب»: fullscreen too, but for the opposite reason to POS — this one
+      // is used one-handed in the street, so a sidebar would eat the width the
+      // product grid needs and put controls out of thumb reach.
+      { path: "sales-agent", element: s(<SalesAgentPage />) },
     ],
   },
 

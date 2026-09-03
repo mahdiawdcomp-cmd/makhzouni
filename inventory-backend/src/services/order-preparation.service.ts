@@ -410,6 +410,12 @@ type OrderData = {
   paidAmount?: number;
   paymentType?: string;
   couponCode?: string;
+  /**
+   * «المندوب» — set only on orders a sales rep took. Carried through from the
+   * approval body and stamped onto the invoice below, so the sale is credited
+   * to the rep even though the invoice is CREATED by whoever approved it.
+   */
+  salesAgentId?: string;
 };
 
 export async function markPrepared(
@@ -525,6 +531,16 @@ export async function markPrepared(
 
     if (prep.source) {
       await prisma.invoice.update({ where: { id: invoice.id }, data: { source: prep.source } }).catch(() => undefined);
+    }
+
+    // Credit the sale to the rep who took it. Best-effort on purpose: the
+    // invoice and its stock movements are already committed, and losing the
+    // attribution stamp must not undo a real sale. A missed stamp is fixable;
+    // a rolled-back invoice with moved stock is not.
+    if (od.salesAgentId) {
+      await prisma.invoice
+        .update({ where: { id: invoice.id }, data: { salesAgentId: od.salesAgentId } })
+        .catch((err) => logger.warn(`[SalesAgent] invoice stamp failed for ${invoice.id}: ${String(err)}`));
     }
   }
 

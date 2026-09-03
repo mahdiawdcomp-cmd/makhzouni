@@ -623,6 +623,7 @@ async function executeApprovedRequest(
         items?: Parameters<typeof createInvoice>[0]["items"];
         couponCode?: string;
         discount?: number;
+        salesAgentId?: string;
       };
       const phone = String(body.phone ?? "").trim();
       const customerName = String(body.customerName ?? "").trim();
@@ -686,6 +687,10 @@ async function executeApprovedRequest(
             paidAmount: 0,
             paymentType: "CREDIT",
             couponCode: body.couponCode,
+            // «المندوب» — present only on orders a rep took. markPrepared reads
+            // it back to credit the sale to them; absent on shopper orders,
+            // which is why it is optional the whole way down.
+            salesAgentId: body.salesAgentId,
           } as unknown as import("@prisma/client").Prisma.InputJsonValue,
           status: "PENDING",
           source: (data.source as string | undefined) ?? null,

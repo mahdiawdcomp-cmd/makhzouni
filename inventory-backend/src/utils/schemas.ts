@@ -1103,6 +1103,16 @@ export const updateSettingsSchema = z.object({
       catalogAdminWhatsappNumber: z.string().trim().optional(),
       orderPreparationWhatsappNumbers: z.string().trim().optional(),
       adminApprovalWhatsappNumber: z.string().trim().optional(),
+      // «إشعارات المندوب». Plain z.boolean(), never z.coerce.boolean(): coerce
+      // turns the string "false" into true, which is exactly how a toggle ends
+      // up impossible to switch off.
+      salesAgentWhatsappNumber: z.string().trim().optional(),
+      salesAgentNotifyNewOrder: z.boolean().optional(),
+      salesAgentNotifyNewCustomer: z.boolean().optional(),
+      salesAgentNotifyReceipt: z.boolean().optional(),
+      salesAgentNotifyPriceRequest: z.boolean().optional(),
+      salesAgentNotifyInvoiceChanged: z.boolean().optional(),
+      salesAgentAreas: z.array(z.string().trim().min(1)).optional(),
       autoSendDailySummary: z.boolean().optional(),
       dailySummaryWhatsappNumber: z.string().trim().optional(),
       dailySummaryHour: z.coerce.number().int().min(0).max(23).optional(),

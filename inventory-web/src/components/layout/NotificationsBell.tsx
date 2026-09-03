@@ -85,6 +85,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   STOCK: "مخزون",
   CUSTOMERS_DEBT: "زبائن وديون",
   WHATSAPP: "واتساب",
+  SALES_AGENT: "المندوب",
   SYSTEM: "نظام",
 }
 
@@ -97,6 +98,7 @@ const PANEL_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "STOCK", label: "مخزون" },
   { key: "CUSTOMERS_DEBT", label: "زبائن وديون" },
   { key: "WHATSAPP", label: "واتساب" },
+  { key: "SALES_AGENT", label: "المندوب" },
   { key: "SYSTEM", label: "نظام" },
 ]
 

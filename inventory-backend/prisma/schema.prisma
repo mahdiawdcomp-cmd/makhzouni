@@ -267,24 +267,24 @@ enum LandedCostItemAction {
 }
 
 model StockLoss {
-  id             String          @id @default(uuid()) @db.Uuid
-  lossNumber     String          @unique @map("loss_number")
-  date           DateTime
-  warehouseId    String          @map("warehouse_id") @db.Uuid
-  warehouse      Branch          @relation("StockLossWarehouse", fields: [warehouseId], references: [id])
-  reason         LossReason      @default(DAMAGE)
-  direction      StockLossDirection @default(LOSS)
-  source         StockLossSource    @default(MANUAL)
-  notes          String?         @db.Text
-  cancelledAt    DateTime?       @map("cancelled_at")
-  createdBy      String          @map("created_by") @db.Uuid
-  creator        User            @relation("StockLossCreatedBy", fields: [createdBy], references: [id])
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
-  items          StockLossItem[]
-  stockMovements StockMovement[]
-  cycleCountItems CycleCountItem[] @relation("CycleCountItemLoss")
-  stocktakeItems  StocktakeItem[]  @relation("StocktakeItemLoss")
+  id              String             @id @default(uuid()) @db.Uuid
+  lossNumber      String             @unique @map("loss_number")
+  date            DateTime
+  warehouseId     String             @map("warehouse_id") @db.Uuid
+  warehouse       Branch             @relation("StockLossWarehouse", fields: [warehouseId], references: [id])
+  reason          LossReason         @default(DAMAGE)
+  direction       StockLossDirection @default(LOSS)
+  source          StockLossSource    @default(MANUAL)
+  notes           String?            @db.Text
+  cancelledAt     DateTime?          @map("cancelled_at")
+  createdBy       String             @map("created_by") @db.Uuid
+  creator         User               @relation("StockLossCreatedBy", fields: [createdBy], references: [id])
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  items           StockLossItem[]
+  stockMovements  StockMovement[]
+  cycleCountItems CycleCountItem[]   @relation("CycleCountItemLoss")
+  stocktakeItems  StocktakeItem[]    @relation("StocktakeItemLoss")
 
   @@index([date])
   @@index([warehouseId])
@@ -349,6 +349,12 @@ model User {
   cycleCountSessionsCreated CycleCountSession[]     @relation("CycleCountSessionCreatedBy")
   cycleCountItemsApproved   CycleCountItem[]        @relation("CycleCountItemApprovedBy")
   personalDebtsCreated      PersonalDebt[]
+  // «المندوب» — customers assigned to this rep, and the sales/receipts credited
+  // to them. Stamped from day one even while a single rep exists: adding an
+  // identity to historical rows later is painful, leaving it in costs nothing.
+  assignedCustomers         Customer[]              @relation("CustomerSalesAgent")
+  salesAgentInvoices        Invoice[]               @relation("InvoiceSalesAgent")
+  salesAgentVouchers        PaymentVoucher[]        @relation("PaymentVoucherSalesAgent")
 
   @@map("users")
 }
@@ -430,9 +436,9 @@ model Product {
 
   // Wholesale catalog merchandising flags (mirror the retail catalog):
   // "new arrival" + "on offer" with an optional pre-offer price to strike through.
-  isNewArrival Boolean  @default(false) @map("is_new_arrival")
-  isOffer      Boolean  @default(false) @map("is_offer")
-  oldPrice     Decimal? @map("old_price") @db.Decimal(12, 2)
+  isNewArrival Boolean   @default(false) @map("is_new_arrival")
+  isOffer      Boolean   @default(false) @map("is_offer")
+  oldPrice     Decimal?  @map("old_price") @db.Decimal(12, 2)
   // Optional deadline for isOffer. Drives the storefront countdown; null
   // means the offer simply has no end date, not that it has expired.
   offerEndsAt  DateTime? @map("offer_ends_at")
@@ -448,9 +454,9 @@ model Product {
   // Storefront content for the wholesale catalog's product page. Kept apart
   // from the operational fields above: this is marketing copy the shop writes
   // for shoppers, and it is optional everywhere.
-  catalogDescription String? @map("catalog_description") @db.Text
+  catalogDescription String?                @map("catalog_description") @db.Text
   // [{ label, value }] — free-form spec rows rendered as a table.
-  catalogSpecs       Json?   @map("catalog_specs")
+  catalogSpecs       Json?                  @map("catalog_specs")
   catalogImages      ProductCatalogImage[]
   catalogReviews     CatalogProductReview[]
 
@@ -546,79 +552,93 @@ model Counter {
 }
 
 model Customer {
-  id                   String                       @id @default(uuid()) @db.Uuid
-  name                 String
-  phone                String                       @unique
-  address              String?
-  notes                String?
-  isSupplier           Boolean                      @default(false) @map("is_supplier")
-  isBoth               Boolean                      @default(false) @map("is_both")
-  tags                 String[]                     @default([])
-  catalogLinkSentAt    DateTime?                    @map("catalog_link_sent_at")
-  openingBalance       Decimal                      @default(0) @map("opening_balance") @db.Decimal(12, 2)
-  currentBalance       Decimal                      @default(0) @map("current_balance") @db.Decimal(12, 2)
-  creditLimit          Decimal?                     @map("credit_limit") @db.Decimal(12, 2)
-  lastTransactionAt    DateTime?                    @map("last_transaction_at")
-  branchId             String?                      @map("branch_id") @db.Uuid
-  branch               Branch?                      @relation(fields: [branchId], references: [id])
+  id                              String                       @id @default(uuid()) @db.Uuid
+  name                            String
+  phone                           String                       @unique
+  address                         String?
+  notes                           String?
+  isSupplier                      Boolean                      @default(false) @map("is_supplier")
+  isBoth                          Boolean                      @default(false) @map("is_both")
+  tags                            String[]                     @default([])
+  catalogLinkSentAt               DateTime?                    @map("catalog_link_sent_at")
+  openingBalance                  Decimal                      @default(0) @map("opening_balance") @db.Decimal(12, 2)
+  currentBalance                  Decimal                      @default(0) @map("current_balance") @db.Decimal(12, 2)
+  creditLimit                     Decimal?                     @map("credit_limit") @db.Decimal(12, 2)
+  lastTransactionAt               DateTime?                    @map("last_transaction_at")
+  branchId                        String?                      @map("branch_id") @db.Uuid
+  branch                          Branch?                      @relation(fields: [branchId], references: [id])
   // Earn-only loyalty balance: 10 points per 1,000 IQD of PROFIT (not invoice
   // total) on each ACTIVE sale invoice — see Invoice.loyaltyPointsEarned for the
   // per-invoice snapshot this running total is built from. No redemption engine
   // yet — the owner decides/announces discounts manually using this number.
-  loyaltyPoints        Int                          @default(0) @map("loyalty_points")
+  loyaltyPoints                   Int                          @default(0) @map("loyalty_points")
   /// Excluded from loyalty entirely — earns nothing and cannot redeem. For
   /// collection accounts like «الزبون النقدي», which are a till and not a
   /// person: points piling up there reward nobody and inflate the liability.
-  loyaltyExcluded      Boolean                      @default(false) @map("loyalty_excluded")
-  loyaltyRedemptions   LoyaltyRedemption[]
+  loyaltyExcluded                 Boolean                      @default(false) @map("loyalty_excluded")
+  loyaltyRedemptions              LoyaltyRedemption[]
   // ── Storefront login ────────────────────────────────────────────────
   // The customer signs in with their phone plus a 6-digit code. Only the
   // bcrypt hash is stored, exactly like staff passwords — so a code can be
   // re-sent only by generating a fresh one, never by reading the old one back.
-  accessCodeHash       String?                      @map("access_code_hash")
-  accessCodeSetAt      DateTime?                    @map("access_code_set_at")
-  lastLoginAt          DateTime?                    @map("last_login_at")
+  accessCodeHash                  String?                      @map("access_code_hash")
+  accessCodeSetAt                 DateTime?                    @map("access_code_set_at")
+  lastLoginAt                     DateTime?                    @map("last_login_at")
   // A 6-digit code is a small keyspace, so throttling is what actually keeps
   // it safe: 5 failures locks the account for 15 minutes.
-  failedLoginCount     Int                          @default(0) @map("failed_login_count")
-  lockedUntil          DateTime?                    @map("locked_until")
+  failedLoginCount                Int                          @default(0) @map("failed_login_count")
+  lockedUntil                     DateTime?                    @map("locked_until")
   // Per-customer override of the shop-wide "show prices" default.
-  catalogPricesHidden  Boolean                      @default(false) @map("catalog_prices_hidden")
+  catalogPricesHidden             Boolean                      @default(false) @map("catalog_prices_hidden")
   // ── WhatsApp funnel: auto-tags + region-based delivery message ─────────
   // Free-form governorate name (fixed dropdown list on the frontend). Drives
   // the automatic "محافظات"/province tags and the delivery line shown on the
   // storefront and in WhatsApp messages. Optional — many existing customers
   // won't have it, and it's never required to create a customer.
-  province             String?
+  province                        String?
   // STATIONERY / TOYS / MIXED — optional, admin-entered for now until the
   // WhatsApp registration conversation (بند ٥) can ask for it directly.
-  businessType         String?                      @map("business_type")
+  businessType                    String?                      @map("business_type")
   // بند ٨ — two independent automatic follow-ups, each fired at most once
   // ever per customer. Deliberately separate from inactiveCustomerDays /
   // autoSendInactiveMessage above (those stay alert-only; these two send
   // automatically, by explicit user decision).
-  registeredNoOrderFollowUpSentAt DateTime?          @map("registered_no_order_follow_up_sent_at")
-  inactiveFollowUpSentAt          DateTime?          @map("inactive_follow_up_sent_at")
+  registeredNoOrderFollowUpSentAt DateTime?                    @map("registered_no_order_follow_up_sent_at")
+  inactiveFollowUpSentAt          DateTime?                    @map("inactive_follow_up_sent_at")
   /// «كنت قريب» — last time this customer was nudged that their order fell
   /// just short of an offer. One marker, so the nudge cannot repeat every day.
-  tierNudgeSentAt                 DateTime?          @map("tier_nudge_sent_at")
-  invoices             Invoice[]
-  paymentVouchers      PaymentVoucher[]
-  couponRedemptions    CouponRedemption[]
-  quotations           Quotation[]
-  notifications        Notification[]
-  portalLinks          CustomerPortalLink[]
-  catalogAccessLinks   CatalogAccessLink[]
-  arrivalSubscriptions ProductArrivalSubscription[]
-  promoCodes           PromoCode[]
-  productReviews       ProductReview[]
-  catalogReviews       CatalogProductReview[]
-  createdAt            DateTime                     @default(now()) @map("created_at")
-  updatedAt            DateTime                     @updatedAt @map("updated_at")
-  deletedAt            DateTime?                    @map("deleted_at")
+  tierNudgeSentAt                 DateTime?                    @map("tier_nudge_sent_at")
+  invoices                        Invoice[]
+  paymentVouchers                 PaymentVoucher[]
+  couponRedemptions               CouponRedemption[]
+  quotations                      Quotation[]
+  notifications                   Notification[]
+  portalLinks                     CustomerPortalLink[]
+  catalogAccessLinks              CatalogAccessLink[]
+  arrivalSubscriptions            ProductArrivalSubscription[]
+  promoCodes                      PromoCode[]
+  productReviews                  ProductReview[]
+  catalogReviews                  CatalogProductReview[]
+  // ── «المندوب» ────────────────────────────────────────────────────────
+  // The rep this customer belongs to. This column — NOT a tag — is what the
+  // server filters on: tags are free text any user with customer-edit rights
+  // can retype, and a typo there would open or close a customer's full account
+  // statement by accident. A display tag is kept in sync alongside it purely so
+  // the owner can see the link in the ordinary customers screen.
+  salesAgentId                    String?                      @map("sales_agent_id") @db.Uuid
+  salesAgent                      User?                        @relation("CustomerSalesAgent", fields: [salesAgentId], references: [id])
+  // Area/neighbourhood INSIDE the city — distinct from `province` above, which
+  // is the governorate. The rep works one city, so the governorate never varies
+  // and the area is what actually identifies where a shop sits. Picked from a
+  // per-tenant list held in settings (salesAgentAreas), never free text.
+  area                            String?
+  createdAt                       DateTime                     @default(now()) @map("created_at")
+  updatedAt                       DateTime                     @updatedAt @map("updated_at")
+  deletedAt                       DateTime?                    @map("deleted_at")
 
   @@index([branchId])
   @@index([lastTransactionAt])
+  @@index([salesAgentId])
   @@map("customers")
 }
 
@@ -626,22 +646,22 @@ model Customer {
 // WhatsApp screenshots. Kept COMPLETELY SEPARATE from real shop customers — a
 // prospect only becomes a Customer when the owner taps "convert" (after a sale).
 model Prospect {
-  id                  String         @id @default(uuid()) @db.Uuid
-  name                String
-  phone               String         @unique
-  address             String?
-  source              String? // e.g. "vcf", "screenshot", "paste"
-  status              ProspectStatus @default(NEW)
-  convertedCustomerId String?        @map("converted_customer_id") @db.Uuid
-  lastSentAt          DateTime?      @map("last_sent_at")
+  id                    String         @id @default(uuid()) @db.Uuid
+  name                  String
+  phone                 String         @unique
+  address               String?
+  source                String? // e.g. "vcf", "screenshot", "paste"
+  status                ProspectStatus @default(NEW)
+  convertedCustomerId   String?        @map("converted_customer_id") @db.Uuid
+  lastSentAt            DateTime?      @map("last_sent_at")
   // Set once the auto-reply sent them the WhatsApp group invite link, so we
   // never spam the same prospect with the link twice.
-  groupLinkSentAt     DateTime?      @map("group_link_sent_at")
+  groupLinkSentAt       DateTime?      @map("group_link_sent_at")
   // بند ٨ — "ما ردّ" follow-up. Once-ever, regardless of how many campaigns
   // later re-target this prospect.
-  noReplyFollowUpSentAt DateTime?    @map("no_reply_follow_up_sent_at")
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
+  noReplyFollowUpSentAt DateTime?      @map("no_reply_follow_up_sent_at")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
 
   @@index([status])
   @@map("prospects")
@@ -750,44 +770,44 @@ model WhatsappMessage {
 // human behaviour and avoid WhatsApp bans. Recipients are typically new
 // customers (tag "new") imported from screenshots.
 model Campaign {
-  id                 String              @id @default(uuid()) @db.Uuid
-  name               String
-  status             CampaignStatus      @default(DRAFT)
+  id                       String              @id @default(uuid()) @db.Uuid
+  name                     String
+  status                   CampaignStatus      @default(DRAFT)
   // One of these is picked at random for each message sent.
-  messages           String[]            @default([])
+  messages                 String[]            @default([])
   // Optional product images to attach (first message carries them + catalog link).
-  productIds         String[]            @default([]) @map("product_ids")
-  includeCatalogLink Boolean             @default(true) @map("include_catalog_link")
+  productIds               String[]            @default([]) @map("product_ids")
+  includeCatalogLink       Boolean             @default(true) @map("include_catalog_link")
   // Cloud API pre-approved template (required for cold/first-contact sends —
   // Meta rejects free-text business-initiated messages outside the 24h session).
-  useTemplate        Boolean             @default(false) @map("use_template")
-  templateName       String?             @map("template_name")
-  templateLanguage   String?             @default("ar") @map("template_language")
+  useTemplate              Boolean             @default(false) @map("use_template")
+  templateName             String?             @map("template_name")
+  templateLanguage         String?             @default("ar") @map("template_language")
   // Static {{1}}..{{n}} values for the template body, same for every recipient
   // (e.g. an offer name/date) — a template send with unfilled variables is
   // rejected outright by Meta, so this must be set whenever the template has any.
-  templateBodyParams String[]            @default([]) @map("template_body_params")
+  templateBodyParams       String[]            @default([]) @map("template_body_params")
   // بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body (non-template
   // sends only; a template's buttons are configured in Meta, not here).
   // Off by default so campaigns unrelated to the registration funnel are
   // never silently changed.
-  offerRegistrationChoices Boolean        @default(false) @map("offer_registration_choices")
+  offerRegistrationChoices Boolean             @default(false) @map("offer_registration_choices")
   // Randomization windows.
-  minDelaySec        Int                 @default(90) @map("min_delay_sec")
-  maxDelaySec        Int                 @default(240) @map("max_delay_sec")
-  dailyMin           Int                 @default(20) @map("daily_min")
-  dailyMax           Int                 @default(50) @map("daily_max")
-  activeStartHour    Int                 @default(9) @map("active_start_hour")
-  activeEndHour      Int                 @default(21) @map("active_end_hour")
+  minDelaySec              Int                 @default(90) @map("min_delay_sec")
+  maxDelaySec              Int                 @default(240) @map("max_delay_sec")
+  dailyMin                 Int                 @default(20) @map("daily_min")
+  dailyMax                 Int                 @default(50) @map("daily_max")
+  activeStartHour          Int                 @default(9) @map("active_start_hour")
+  activeEndHour            Int                 @default(21) @map("active_end_hour")
   // Worker bookkeeping (randomized per day).
-  dailyCapToday      Int                 @default(0) @map("daily_cap_today")
-  sentToday          Int                 @default(0) @map("sent_today")
-  dayAnchor          DateTime?           @map("day_anchor")
-  lastSentAt         DateTime?           @map("last_sent_at")
-  nextSendAt         DateTime?           @map("next_send_at")
-  recipients         CampaignRecipient[]
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
+  dailyCapToday            Int                 @default(0) @map("daily_cap_today")
+  sentToday                Int                 @default(0) @map("sent_today")
+  dayAnchor                DateTime?           @map("day_anchor")
+  lastSentAt               DateTime?           @map("last_sent_at")
+  nextSendAt               DateTime?           @map("next_send_at")
+  recipients               CampaignRecipient[]
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
 
   @@map("campaigns")
 }
@@ -917,14 +937,14 @@ model CatalogAccessLink {
 // number once (per device) before browsing. Each phone is stored once and its
 // visit counter increments on repeat entries so the merchant can follow up.
 model CatalogVisitor {
-  id          String   @id @default(uuid()) @db.Uuid
-  phone       String   @unique
-  visits      Int      @default(1)
-  firstSeenAt DateTime @default(now()) @map("first_seen_at")
-  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  id               String   @id @default(uuid()) @db.Uuid
+  phone            String   @unique
+  visits           Int      @default(1)
+  firstSeenAt      DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt       DateTime @default(now()) @map("last_seen_at")
   // Accumulated across all visits, via a client heartbeat while the catalog
   // tab is visible — see catalog.service.ts recordVisitorHeartbeat().
-  totalTimeSeconds Int @default(0) @map("total_time_seconds")
+  totalTimeSeconds Int      @default(0) @map("total_time_seconds")
 
   // ── Storefront login for someone who is not a customer yet ──────────
   // A visitor gets the same phone + 6-digit code as a real customer, so the
@@ -989,39 +1009,39 @@ model CatalogVisitor {
 /// the shop is in its own paperwork. No stock is touched — reserving is a
 /// promise to sell, recorded against an item that does not exist yet.
 model CatalogIncomingItem {
-  id          String    @id @default(uuid()) @db.Uuid
-  name        String
-  description String?
+  id                String    @id @default(uuid()) @db.Uuid
+  name              String
+  description       String?
   /// Base64 data URI, same as products carry.
-  imageUrl    String?   @map("image_url")
+  imageUrl          String?   @map("image_url")
   /// Roughly when it lands. Null when the shop would rather not commit.
-  expectedAt  DateTime? @map("expected_at")
+  expectedAt        DateTime? @map("expected_at")
   /// Optional — a shop may want reservations before it has settled a price.
-  price       Decimal?  @db.Decimal(12, 2)
-  active      Boolean   @default(true)
-  sortOrder   Int       @default(0) @map("sort_order")
+  price             Decimal?  @db.Decimal(12, 2)
+  active            Boolean   @default(true)
+  sortOrder         Int       @default(0) @map("sort_order")
   /// Set when the shipment actually lands. Also hides the item from the
   /// storefront — a reservation list is about goods that have not arrived.
-  arrivedAt   DateTime? @map("arrived_at")
+  arrivedAt         DateTime? @map("arrived_at")
   /// How much is on the way and how many to a carton, so the storefront can
   /// say «راح يوصل ٥٠ كارتون» instead of leaving the shopper to guess whether
   /// the shipment even covers what they want to reserve.
-  quantityPieces Int?    @map("quantity_pieces")
-  pcsPerCarton   Int?    @map("pcs_per_carton")
-  category       String?
+  quantityPieces    Int?      @map("quantity_pieces")
+  pcsPerCarton      Int?      @map("pcs_per_carton")
+  category          String?
   /// Set when this row was raised automatically from a China order that has
   /// not landed. Deliberately plain ids, not relations: a batch may be
   /// cancelled or pruned long after, and none of that should cascade into a
   /// list customers have already reserved against.
-  sourceBatchId     String? @map("source_batch_id") @db.Uuid
-  sourceBatchItemId String? @map("source_batch_item_id") @db.Uuid
+  sourceBatchId     String?   @map("source_batch_id") @db.Uuid
+  sourceBatchItemId String?   @map("source_batch_item_id") @db.Uuid
   /// The real product this became, once it exists. Lets the arrival message
   /// carry a link straight to it. Deliberately not a relation: the product may
   /// be created, renamed or deleted long after, and none of that should
   /// cascade into a historical reservation list.
-  productId   String?   @map("product_id") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  productId         String?   @map("product_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   reservations CatalogIncomingReservation[]
 
@@ -1031,18 +1051,18 @@ model CatalogIncomingItem {
 }
 
 model CatalogIncomingReservation {
-  id       String              @id @default(uuid()) @db.Uuid
-  itemId   String              @map("item_id") @db.Uuid
-  item     CatalogIncomingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  id        String              @id @default(uuid()) @db.Uuid
+  itemId    String              @map("item_id") @db.Uuid
+  item      CatalogIncomingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
   /// Who asked. Kept as a phone rather than a customer link, because a visitor
   /// who is not on the books can reserve too.
-  phone    String
-  name     String?
-  quantity Int                 @default(1)
-  note     String?
+  phone     String
+  name      String?
+  quantity  Int                 @default(1)
+  note      String?
   /// PENDING → CONFIRMED once the shop agrees, CANCELLED if it cannot.
-  status   String              @default("PENDING")
-  createdAt DateTime           @default(now()) @map("created_at")
+  status    String              @default("PENDING")
+  createdAt DateTime            @default(now()) @map("created_at")
 
   @@unique([itemId, phone])
   @@index([status])
@@ -1094,63 +1114,69 @@ model CatalogProductStat {
 }
 
 model Invoice {
-  id                String                  @id @default(uuid()) @db.Uuid
-  invoiceNumber     String                  @unique @map("invoice_number")
-  type              InvoiceType             @default(SALE)
-  customerId        String                  @map("customer_id") @db.Uuid
-  customer          Customer                @relation(fields: [customerId], references: [id])
-  branchId          String?                 @map("branch_id") @db.Uuid
-  branch            Branch?                 @relation(fields: [branchId], references: [id])
-  date              DateTime                @default(now())
-  subtotal          Decimal                 @db.Decimal(12, 2)
-  discount          Decimal                 @default(0) @db.Decimal(12, 2)
-  tax               Decimal                 @default(0) @db.Decimal(12, 2)
-  totalAmount       Decimal                 @map("total_amount") @db.Decimal(12, 2)
-  paidAmount        Decimal                 @default(0) @map("paid_amount") @db.Decimal(12, 2)
-  remainingAmount   Decimal                 @default(0) @map("remaining_amount") @db.Decimal(12, 2)
-  previousBalance   Decimal                 @default(0) @map("previous_balance") @db.Decimal(12, 2)
-  finalBalance      Decimal                 @default(0) @map("final_balance") @db.Decimal(12, 2)
-  paymentType       PaymentType             @map("payment_type")
-  status            InvoiceStatus           @default(ACTIVE)
-  clientRequestId   String?                 @unique @map("client_request_id")
-  couponId          String?                 @map("coupon_id") @db.Uuid
-  coupon            Coupon?                 @relation(fields: [couponId], references: [id])
-  originalInvoiceId String?                 @map("original_invoice_id") @db.Uuid
-  originalInvoice   Invoice?                @relation("InvoiceReturns", fields: [originalInvoiceId], references: [id])
-  returnInvoices    Invoice[]               @relation("InvoiceReturns")
-  sourceQuotationId String?                 @unique @map("source_quotation_id") @db.Uuid
-  sourceQuotation   Quotation?              @relation("QuotationInvoice", fields: [sourceQuotationId], references: [id])
-  createdBy         String                  @map("created_by") @db.Uuid
-  creator           User                    @relation("InvoiceCreatedBy", fields: [createdBy], references: [id])
-  items             InvoiceItem[]
-  stockMovements    StockMovement[]
-  couponRedemptions CouponRedemption[]
-  preparation       OrderPreparation?
-  landedCostBatches LandedCostImportBatch[]
-  notes             String?                 @db.Text
-  createdAt         DateTime                @default(now()) @map("created_at")
+  id                  String                  @id @default(uuid()) @db.Uuid
+  invoiceNumber       String                  @unique @map("invoice_number")
+  type                InvoiceType             @default(SALE)
+  customerId          String                  @map("customer_id") @db.Uuid
+  customer            Customer                @relation(fields: [customerId], references: [id])
+  branchId            String?                 @map("branch_id") @db.Uuid
+  branch              Branch?                 @relation(fields: [branchId], references: [id])
+  date                DateTime                @default(now())
+  subtotal            Decimal                 @db.Decimal(12, 2)
+  discount            Decimal                 @default(0) @db.Decimal(12, 2)
+  tax                 Decimal                 @default(0) @db.Decimal(12, 2)
+  totalAmount         Decimal                 @map("total_amount") @db.Decimal(12, 2)
+  paidAmount          Decimal                 @default(0) @map("paid_amount") @db.Decimal(12, 2)
+  remainingAmount     Decimal                 @default(0) @map("remaining_amount") @db.Decimal(12, 2)
+  previousBalance     Decimal                 @default(0) @map("previous_balance") @db.Decimal(12, 2)
+  finalBalance        Decimal                 @default(0) @map("final_balance") @db.Decimal(12, 2)
+  paymentType         PaymentType             @map("payment_type")
+  status              InvoiceStatus           @default(ACTIVE)
+  clientRequestId     String?                 @unique @map("client_request_id")
+  couponId            String?                 @map("coupon_id") @db.Uuid
+  coupon              Coupon?                 @relation(fields: [couponId], references: [id])
+  originalInvoiceId   String?                 @map("original_invoice_id") @db.Uuid
+  originalInvoice     Invoice?                @relation("InvoiceReturns", fields: [originalInvoiceId], references: [id])
+  returnInvoices      Invoice[]               @relation("InvoiceReturns")
+  sourceQuotationId   String?                 @unique @map("source_quotation_id") @db.Uuid
+  sourceQuotation     Quotation?              @relation("QuotationInvoice", fields: [sourceQuotationId], references: [id])
+  createdBy           String                  @map("created_by") @db.Uuid
+  creator             User                    @relation("InvoiceCreatedBy", fields: [createdBy], references: [id])
+  items               InvoiceItem[]
+  stockMovements      StockMovement[]
+  couponRedemptions   CouponRedemption[]
+  preparation         OrderPreparation?
+  landedCostBatches   LandedCostImportBatch[]
+  notes               String?                 @db.Text
+  createdAt           DateTime                @default(now()) @map("created_at")
   // Bumped on every edit — /backup/changes selects on this. With createdAt
   // alone, edits to invoices older than the last full backup never reached
   // the incremental backup chain.
-  updatedAt         DateTime                @default(now()) @updatedAt @map("updated_at")
+  updatedAt           DateTime                @default(now()) @updatedAt @map("updated_at")
   // Accounting-safe deletion: rows are never physically removed. Archived
   // invoices are hidden from lists/reports but retained for audit.
-  archivedAt        DateTime?               @map("archived_at")
-  deletedBy         String?                 @map("deleted_by") @db.Uuid
-  deleteReason      String?                 @map("delete_reason")
+  archivedAt          DateTime?               @map("archived_at")
+  deletedBy           String?                 @map("deleted_by") @db.Uuid
+  deleteReason        String?                 @map("delete_reason")
   // Origin channel ("TELEGRAM_BOT" | "WHATSAPP" | "PUBLIC_CATALOG" | ... ) —
   // free string, not an enum, matching how approval.service.ts already tags
   // requests. Null on legacy rows created before this column existed.
-  source            String?
+  source              String?
   // Loyalty points this SALE invoice earned at creation time (0 for
   // PURCHASE/SALES_RETURN). A frozen snapshot — not recomputed on edit — so
   // cancel/hardDelete can subtract exactly this back off Customer.loyaltyPoints
   // and reactivate/restore can add it back, without re-deriving profit.
-  loyaltyPointsEarned Int      @default(0) @map("loyalty_points_earned")
+  loyaltyPointsEarned Int                     @default(0) @map("loyalty_points_earned")
   // Set once the "قيّم مشترياتك" WhatsApp follow-up has been sent (2 days after
   // an ACTIVE sale) — guards the reminder cron against re-sending.
-  ratingRequestedAt DateTime? @map("rating_requested_at")
-  productReview     ProductReview?
+  ratingRequestedAt   DateTime?               @map("rating_requested_at")
+  productReview       ProductReview?
+  // «المندوب» — the rep this sale is credited to. Distinct from createdBy: the
+  // invoice is created by whoever approves the catalog order (the owner), while
+  // the sale belongs to the rep who took it in the market. The commission
+  // screen reads this column and nothing else.
+  salesAgentId        String?                 @map("sales_agent_id") @db.Uuid
+  salesAgent          User?                   @relation("InvoiceSalesAgent", fields: [salesAgentId], references: [id])
 
   @@index([customerId])
   @@index([date])
@@ -1163,6 +1189,7 @@ model Invoice {
   @@index([originalInvoiceId])
   @@index([archivedAt])
   @@index([updatedAt])
+  @@index([salesAgentId])
   // Report/dashboard queries repeatedly filter status+type+date together
   // (getDashboardReport, getDailySummaryData, getProfitReport, StoreBrain).
   @@index([status, type, date])
@@ -1199,44 +1226,51 @@ model InvoiceItem {
 }
 
 model PaymentVoucher {
-  id            String      @id @default(uuid()) @db.Uuid
-  voucherNumber String      @unique @map("voucher_number")
+  id              String      @id @default(uuid()) @db.Uuid
+  voucherNumber   String      @unique @map("voucher_number")
   // Client idempotency key: retries/double-submits of the same form return the
   // already-created voucher instead of creating a duplicate.
-  clientRequestId String?   @unique @map("client_request_id")
+  clientRequestId String?     @unique @map("client_request_id")
   // Nullable: EXPENSE vouchers have no customer (e.g. generator fuel)
-  customerId    String?     @map("customer_id") @db.Uuid
-  customer      Customer?   @relation(fields: [customerId], references: [id])
-  description   String? // free-text label, mainly for EXPENSE vouchers
+  customerId      String?     @map("customer_id") @db.Uuid
+  customer        Customer?   @relation(fields: [customerId], references: [id])
+  description     String? // free-text label, mainly for EXPENSE vouchers
   // Free string (not an enum) so the owner can type a new category without a
   // migration — UI offers a fixed suggested set (كهرباء/إيجار/رواتب/أخرى).
   // Only meaningful for type=EXPENSE; null on RECEIPT/PAYMENT vouchers.
-  category      String?
-  branchId      String?     @map("branch_id") @db.Uuid
-  branch        Branch?     @relation(fields: [branchId], references: [id])
-  amount        Decimal     @db.Decimal(12, 2)
+  category        String?
+  branchId        String?     @map("branch_id") @db.Uuid
+  branch          Branch?     @relation(fields: [branchId], references: [id])
+  amount          Decimal     @db.Decimal(12, 2)
   // Customer balance immediately BEFORE and AFTER this voucher, frozen at
   // creation exactly like Invoice.previousBalance/finalBalance. The WhatsApp
   // receipt used to re-derive these from the live balance, which was wrong for
   // any voucher that was not the customer's latest transaction.
   // NULL on vouchers created before this column existed.
-  previousBalance Decimal?  @map("previous_balance") @db.Decimal(12, 2)
-  finalBalance    Decimal?  @map("final_balance") @db.Decimal(12, 2)
-  type          VoucherType
-  date          DateTime    @default(now())
-  notes         String?
-  createdBy     String      @map("created_by") @db.Uuid
-  creator       User        @relation("PaymentVoucherCreatedBy", fields: [createdBy], references: [id])
-  createdAt     DateTime    @default(now()) @map("created_at")
+  previousBalance Decimal?    @map("previous_balance") @db.Decimal(12, 2)
+  finalBalance    Decimal?    @map("final_balance") @db.Decimal(12, 2)
+  type            VoucherType
+  date            DateTime    @default(now())
+  notes           String?
+  createdBy       String      @map("created_by") @db.Uuid
+  creator         User        @relation("PaymentVoucherCreatedBy", fields: [createdBy], references: [id])
+  createdAt       DateTime    @default(now()) @map("created_at")
   // Same purpose as Invoice.updatedAt: cancellations/archives of old vouchers
   // must reach /backup/changes.
-  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at")
-  cancelledAt   DateTime?   @map("cancelled_at")
+  updatedAt       DateTime    @default(now()) @updatedAt @map("updated_at")
+  cancelledAt     DateTime?   @map("cancelled_at")
   // Accounting-safe deletion: archived vouchers are retained for audit but
   // excluded from lists, reports, and balance calculations.
-  archivedAt    DateTime?   @map("archived_at")
-  deletedBy     String?     @map("deleted_by") @db.Uuid
-  deleteReason  String?     @map("delete_reason")
+  archivedAt      DateTime?   @map("archived_at")
+  deletedBy       String?     @map("deleted_by") @db.Uuid
+  deleteReason    String?     @map("delete_reason")
+  // «من استلم المبلغ» — the rep who physically took the cash, when it was not
+  // handed over the counter. Purely an attribution stamp: the voucher still
+  // credits the customer exactly as it always did, and nothing about the
+  // existing accounting changes. The rep's outstanding cash is DERIVED from
+  // these rows minus their handovers — never stored as a balance.
+  salesAgentId    String?     @map("sales_agent_id") @db.Uuid
+  salesAgent      User?       @relation("PaymentVoucherSalesAgent", fields: [salesAgentId], references: [id])
 
   @@index([customerId])
   @@index([date])
@@ -1245,6 +1279,7 @@ model PaymentVoucher {
   @@index([branchId])
   @@index([archivedAt])
   @@index([updatedAt])
+  @@index([salesAgentId])
   @@map("payment_vouchers")
 }
 
@@ -1620,26 +1655,26 @@ model AuditLog {
 }
 
 model InventoryTransfer {
-  id             String          @id @default(uuid()) @db.Uuid
-  transferNumber String          @unique @map("transfer_number")
-  fromBranchId   String          @map("from_branch_id") @db.Uuid
-  fromBranch     Branch          @relation("TransfersOut", fields: [fromBranchId], references: [id])
-  toBranchId     String          @map("to_branch_id") @db.Uuid
-  toBranch       Branch          @relation("TransfersIn", fields: [toBranchId], references: [id])
-  status         TransferStatus  @default(COMPLETED)
-  date           DateTime        @default(now())
-  notes          String?
+  id              String          @id @default(uuid()) @db.Uuid
+  transferNumber  String          @unique @map("transfer_number")
+  fromBranchId    String          @map("from_branch_id") @db.Uuid
+  fromBranch      Branch          @relation("TransfersOut", fields: [fromBranchId], references: [id])
+  toBranchId      String          @map("to_branch_id") @db.Uuid
+  toBranch        Branch          @relation("TransfersIn", fields: [toBranchId], references: [id])
+  status          TransferStatus  @default(COMPLETED)
+  date            DateTime        @default(now())
+  notes           String?
   // Set only on the automatic depot→المحل transfer a depot sale generates.
   // Cancelling or hard-deleting that invoice reverses this transfer too;
   // without the link the total stock stayed correct but the depot was left
   // permanently short and المحل long, with nothing explaining why.
-  sourceInvoiceId String?        @map("source_invoice_id") @db.Uuid
-  createdBy      String          @map("created_by") @db.Uuid
-  creator        User            @relation("TransferCreatedBy", fields: [createdBy], references: [id])
-  items          TransferItem[]
-  stockMovements StockMovement[] @relation("TransferStockMovements")
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
+  sourceInvoiceId String?         @map("source_invoice_id") @db.Uuid
+  createdBy       String          @map("created_by") @db.Uuid
+  creator         User            @relation("TransferCreatedBy", fields: [createdBy], references: [id])
+  items           TransferItem[]
+  stockMovements  StockMovement[] @relation("TransferStockMovements")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
 
   @@index([fromBranchId])
   @@index([toBranchId])
@@ -1960,43 +1995,43 @@ model CycleCountItem {
 // is the only thing that ever writes stock. This model never touches
 // ProductWarehouseStock/StockMovement directly.
 model LandedCostImportBatch {
-  id                String                     @id @default(uuid()) @db.Uuid
-  invoiceNumber     String?                    @map("invoice_number")
-  supplier          String?
-  allocationMethod  LandedCostAllocationMethod @default(BY_VALUE) @map("allocation_method")
-  totalExtraCost    Decimal                    @default(0) @map("total_extra_cost") @db.Decimal(12, 2)
-  freight           Decimal                    @default(0) @db.Decimal(12, 2)
-  customs           Decimal                    @default(0) @db.Decimal(12, 2)
-  localTransport    Decimal                    @default(0) @map("local_transport") @db.Decimal(12, 2)
-  unloading         Decimal                    @default(0) @db.Decimal(12, 2)
-  commission        Decimal                    @default(0) @db.Decimal(12, 2)
-  otherCosts        Decimal                    @default(0) @map("other_costs") @db.Decimal(12, 2)
-  note              String?
-  status            LandedCostBatchStatus      @default(DRAFT_PRICED)
-  originalFileName  String?                    @map("original_file_name")
+  id                 String                     @id @default(uuid()) @db.Uuid
+  invoiceNumber      String?                    @map("invoice_number")
+  supplier           String?
+  allocationMethod   LandedCostAllocationMethod @default(BY_VALUE) @map("allocation_method")
+  totalExtraCost     Decimal                    @default(0) @map("total_extra_cost") @db.Decimal(12, 2)
+  freight            Decimal                    @default(0) @db.Decimal(12, 2)
+  customs            Decimal                    @default(0) @db.Decimal(12, 2)
+  localTransport     Decimal                    @default(0) @map("local_transport") @db.Decimal(12, 2)
+  unloading          Decimal                    @default(0) @db.Decimal(12, 2)
+  commission         Decimal                    @default(0) @db.Decimal(12, 2)
+  otherCosts         Decimal                    @default(0) @map("other_costs") @db.Decimal(12, 2)
+  note               String?
+  status             LandedCostBatchStatus      @default(DRAFT_PRICED)
+  originalFileName   String?                    @map("original_file_name")
   // China order pricing inputs (fixed-template flow). Local to this batch —
   // deliberately NOT a general currency/exchange-rate system.
-  cbmPriceUsd       Decimal?                   @map("cbm_price_usd") @db.Decimal(12, 4)
-  officePercent     Decimal?                   @map("office_percent") @db.Decimal(6, 3)
-  cnyPerUsd         Decimal?                   @map("cny_per_usd") @db.Decimal(12, 4)
-  usdToIqd          Decimal?                   @map("usd_to_iqd") @db.Decimal(12, 4)
-  purchaseInvoiceId String?                    @map("purchase_invoice_id") @db.Uuid
-  purchaseInvoice   Invoice?                   @relation(fields: [purchaseInvoiceId], references: [id])
+  cbmPriceUsd        Decimal?                   @map("cbm_price_usd") @db.Decimal(12, 4)
+  officePercent      Decimal?                   @map("office_percent") @db.Decimal(6, 3)
+  cnyPerUsd          Decimal?                   @map("cny_per_usd") @db.Decimal(12, 4)
+  usdToIqd           Decimal?                   @map("usd_to_iqd") @db.Decimal(12, 4)
+  purchaseInvoiceId  String?                    @map("purchase_invoice_id") @db.Uuid
+  purchaseInvoice    Invoice?                   @relation(fields: [purchaseInvoiceId], references: [id])
   // Held for arrival: what the admin already decided when they said the goods
   // had not landed. Replayed unchanged when they press «وصلت», so the answer
   // to «على منو الفاتورة» is given once, not twice.
-  expectedArrivalAt  DateTime?    @map("expected_arrival_at")
-  arrivalSupplierId  String?      @map("arrival_supplier_id") @db.Uuid
-  arrivalWarehouseId String?      @map("arrival_warehouse_id") @db.Uuid
-  arrivalPaymentType PaymentType? @map("arrival_payment_type")
-  arrivalPaidAmount  Decimal?     @map("arrival_paid_amount") @db.Decimal(12, 2)
-  createdBy         String                     @map("created_by") @db.Uuid
-  creator           User                       @relation("LandedCostBatchCreatedBy", fields: [createdBy], references: [id])
-  appliedBy         String?                    @map("applied_by") @db.Uuid
-  applier           User?                      @relation("LandedCostBatchAppliedBy", fields: [appliedBy], references: [id])
-  createdAt         DateTime                   @default(now()) @map("created_at")
-  appliedAt         DateTime?                  @map("applied_at")
-  items             LandedCostImportItem[]
+  expectedArrivalAt  DateTime?                  @map("expected_arrival_at")
+  arrivalSupplierId  String?                    @map("arrival_supplier_id") @db.Uuid
+  arrivalWarehouseId String?                    @map("arrival_warehouse_id") @db.Uuid
+  arrivalPaymentType PaymentType?               @map("arrival_payment_type")
+  arrivalPaidAmount  Decimal?                   @map("arrival_paid_amount") @db.Decimal(12, 2)
+  createdBy          String                     @map("created_by") @db.Uuid
+  creator            User                       @relation("LandedCostBatchCreatedBy", fields: [createdBy], references: [id])
+  appliedBy          String?                    @map("applied_by") @db.Uuid
+  applier            User?                      @relation("LandedCostBatchAppliedBy", fields: [appliedBy], references: [id])
+  createdAt          DateTime                   @default(now()) @map("created_at")
+  appliedAt          DateTime?                  @map("applied_at")
+  items              LandedCostImportItem[]
 
   @@index([createdBy])
   @@index([status])
@@ -2083,26 +2118,26 @@ model ClientPayment {
 }
 
 model PromoCode {
-  id          String        @id @default(uuid()) @db.Uuid
-  code        String        @unique
-  type        PromoCodeType
-  value       Decimal?      @db.Decimal(12, 2)
-  customerId  String?       @map("customer_id") @db.Uuid
-  customer    Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  expiresAt   DateTime?     @map("expires_at")
-  usageLimit  Int?          @map("usage_limit")
-  usedCount   Int           @default(0) @map("used_count")
-  active      Boolean       @default(true)
-  description String?
+  id             String        @id @default(uuid()) @db.Uuid
+  code           String        @unique
+  type           PromoCodeType
+  value          Decimal?      @db.Decimal(12, 2)
+  customerId     String?       @map("customer_id") @db.Uuid
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  expiresAt      DateTime?     @map("expires_at")
+  usageLimit     Int?          @map("usage_limit")
+  usedCount      Int           @default(0) @map("used_count")
+  active         Boolean       @default(true)
+  description    String?
   // بند ٧ — distinguishes an auto-issued first-order welcome coupon from any
   // other manually-created promo code, so the report can filter cleanly.
   // Null for every code created before this field existed / created manually.
-  source      String?
+  source         String?
   // "تذكير قبل الانتهاء بيوم" dedupe — set once the reminder sends so the
   // daily cron never re-sends it on a later run.
-  reminderSentAt DateTime?  @map("reminder_sent_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  reminderSentAt DateTime?     @map("reminder_sent_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
   @@index([customerId])
   @@map("promo_codes")
@@ -2267,22 +2302,22 @@ model InstagramHashtagGroup {
 /// transaction as the invoice that consumes them — so a balance can never be
 /// spent twice, and an invoice can never carry a discount nobody paid for.
 model LoyaltyRedemption {
-  id         String   @id @default(uuid()) @db.Uuid
-  customerId String   @map("customer_id") @db.Uuid
-  customer   Customer @relation(fields: [customerId], references: [id])
+  id         String    @id @default(uuid()) @db.Uuid
+  customerId String    @map("customer_id") @db.Uuid
+  customer   Customer  @relation(fields: [customerId], references: [id])
   /// Points taken off the customer's balance.
   points     Int
   /// What they were worth in dinars at the rate on the day — frozen, because
   /// the rate is a setting and changing it must not rewrite history.
-  value      Decimal  @db.Decimal(12, 2)
+  value      Decimal   @db.Decimal(12, 2)
   /// The rate used, kept so an old redemption can always be explained.
-  pointValue Decimal  @map("point_value") @db.Decimal(12, 4)
+  pointValue Decimal   @map("point_value") @db.Decimal(12, 4)
   /// The invoice this discounted. Deliberately not a relation with a cascade:
   /// deleting an invoice must not silently erase the record of points spent.
-  invoiceId  String?  @map("invoice_id") @db.Uuid
+  invoiceId  String?   @map("invoice_id") @db.Uuid
   note       String?
-  createdBy  String   @map("created_by") @db.Uuid
-  createdAt  DateTime @default(now()) @map("created_at")
+  createdBy  String    @map("created_by") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at")
   /// Set when the invoice was cancelled and the points were handed back.
   revertedAt DateTime? @map("reverted_at")
 
