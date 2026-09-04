@@ -39,6 +39,14 @@ type Layer = {
   route?: { path: string; methods: Record<string, boolean>; stack: unknown[] };
 };
 
+/** The deny markers the middleware enforces, mirrored so the test can assert on them. */
+const AGENT_DENY_MARKERS = {
+  NEW_CUSTOMER: "AGENT_NO_NEW_CUSTOMER",
+  RECEIPT: "AGENT_NO_RECEIPT",
+  PRICE_REQUEST: "AGENT_NO_PRICE_REQUEST",
+  ISSUE: "AGENT_NO_ISSUE",
+} as const;
+
 function layersOf(router: unknown): Layer[] {
   return (router as { stack: Layer[] }).stack;
 }
@@ -259,6 +267,30 @@ describe("«المندوب» — policy and money rules", () => {
       read.includes("salesAgentSettlement.findUnique"),
       "the commission read must surface the frozen agreement beside the live figures",
     );
+  });
+
+  test("every rep permission is actually grantable through the API", () => {
+    // `User.permissions` is an open String[] in the database, but the create /
+    // update user endpoint validates against a CLOSED enum. A capability the
+    // middleware understands but that enum does not cannot be granted at all —
+    // which is how SALES_AGENT shipped unassignable, blocking the very first
+    // setup step. Checking the column was not the same as checking the gate.
+    const schemas = code(read("utils/schemas.ts"));
+    const enumStart = schemas.indexOf('"MANAGE_USERS"');
+    const enumBlock = schemas.slice(enumStart, schemas.indexOf("]);", enumStart));
+
+    const mw = code(read("middleware/permission.middleware.ts"));
+    const required = ["SALES_AGENT", ...Object.values(AGENT_DENY_MARKERS)];
+    for (const perm of required) {
+      assert.ok(
+        mw.includes(perm),
+        `${perm} should be defined in the permission middleware`,
+      );
+      assert.ok(
+        enumBlock.includes(`"${perm}"`),
+        `${perm} is enforced but missing from the user-permission enum, so it can never be granted`,
+      );
+    }
   });
 
   test("each rep ability is a DENY marker, so absence means allowed", () => {

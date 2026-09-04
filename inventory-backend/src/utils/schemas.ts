@@ -40,6 +40,18 @@ const userPermissionSchema = z.enum([
   "ACCESS_WHATSAPP_CHAT",
   "MANAGE_INSTAGRAM",
   "PUBLISH_INSTAGRAM",
+  // «المندوب» — opens the rep screen AND confines the account to its own
+  // customers. `User.permissions` is an open String[] in the database, but this
+  // enum is what the create/update user API actually accepts, so a capability
+  // missing here cannot be granted at all no matter what the column allows.
+  "SALES_AGENT",
+  // Per-rep DENY markers layered on SALES_AGENT, same shape as
+  // HIDE_PROFIT_REPORTS above: absence means allowed, so a rep created before
+  // these existed keeps every ability they had.
+  "AGENT_NO_NEW_CUSTOMER",
+  "AGENT_NO_RECEIPT",
+  "AGENT_NO_PRICE_REQUEST",
+  "AGENT_NO_ISSUE",
 ]);
 
 const auditEntitySchema = z.enum([
