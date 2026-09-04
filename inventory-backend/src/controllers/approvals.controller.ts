@@ -98,11 +98,18 @@ export const reviewPendingApproval = asyncHandler(async (req, res) => {
     );
   }
 
-  const { status, allowPrices, showStock, catalogOrderMode } = req.body as {
+  const { status, allowPrices, showStock, catalogOrderMode, reviewNote } = req.body as {
     status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean;
     catalogOrderMode?: "INVOICE" | "PREPARE";
+    // Only meaningful on a rejection — the reason the requester will read.
+    reviewNote?: string;
   };
-  const result = await reviewApproval(id, status, req.user.id, { allowPrices, showStock, catalogOrderMode });
+  const result = await reviewApproval(id, status, req.user.id, {
+    allowPrices,
+    showStock,
+    catalogOrderMode,
+    reviewNote,
+  });
 
   // Notify the requester + admin about the transfer decision (fire-and-forget).
   if (isTransfer) {

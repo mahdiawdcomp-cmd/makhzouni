@@ -395,9 +395,16 @@ export function ApprovalsPage() {
               variant="destructive"
               disabled={reviewMutation.isPending}
               onClick={() => {
-                if (confirm("هل أنت متأكد من رفض الطلب؟")) {
-                  reviewMutation.mutate({ id: row.original.id, status: "REJECTED" })
-                }
+                // Asked for, not required: a blank reason still rejects, but the
+                // requester sees "مرفوض" with nothing to act on, so the prompt
+                // makes writing one the path of least resistance.
+                const reason = window.prompt("ليش ترفضه؟ (يوصل لصاحب الطلب)")
+                if (reason === null) return
+                reviewMutation.mutate({
+                  id: row.original.id,
+                  status: "REJECTED",
+                  reviewNote: reason.trim() || undefined,
+                })
               }}
             >
               <X className="h-4 w-4" />

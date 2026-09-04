@@ -10,11 +10,16 @@ import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { adminOnly } from "../middleware/admin-only.middleware";
 import {
-  getIssueReportsCtrl,
+  deleteSettlement,
   getCommissionCtrl,
   getHandovers,
+  getHealth,
+  getIssueReportsCtrl,
+  getIssuesCtrl,
   getLiability,
+  getSettlements,
   postHandover,
+  postSettlement,
 } from "../controllers/sales-agent-admin.controller";
 
 const router = Router();
@@ -27,5 +32,11 @@ router.post("/handovers", postHandover);
 router.get("/commission", getCommissionCtrl);
 
 router.get("/issue-reports", getIssueReportsCtrl);
+router.get("/issues", getIssuesCtrl);
+router.get("/health", getHealth);
+
+router.get("/settlements", getSettlements);
+router.post("/settlements", postSettlement);
+router.delete("/settlements", deleteSettlement);
 
 export default router;

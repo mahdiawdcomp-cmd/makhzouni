@@ -58,7 +58,28 @@ type Commission = {
   onSold: number | null
   onCollectedInHand: number | null
   onCollectedFromOwn: number | null
+  /** Present once the month is frozen — the agreement, not the live figures. */
+  settled: Settlement | null
 }
+
+type Settlement = {
+  sold: number
+  collectedInHand: number
+  collectedFromOwnCustomers: number
+  basis: string
+  basisLabel: string
+  ratePercent: number
+  amount: number
+  notes: string | null
+  settledAt: string
+  settledBy: string
+}
+
+const BASES = [
+  { key: "SOLD", label: "قيمة مبيعاته" },
+  { key: "COLLECTED_FROM_OWN", label: "تحصيل من زبائنه" },
+  { key: "COLLECTED_IN_HAND", label: "الي قبضه بيده" },
+] as const
 
 const money = (n: number) => Math.round(n).toLocaleString("en-US")
 
@@ -120,7 +141,9 @@ export function SalesAgentAdminPage() {
             }}
           />
           <CommissionPanel agents={agents} />
+          <LiabilityHealthPanel />
           <IssueReportsPanel />
+          <RawIssueLog />
           <HandoverHistory rows={handovers.data ?? []} loading={handovers.isLoading} />
         </>
       )}
@@ -318,9 +341,12 @@ function HandoverHistory({ rows, loading }: { rows: Handover[]; loading: boolean
  * forever, to answer a question that is re-asked from scratch every month.
  */
 function CommissionPanel({ agents }: { agents: Liability[] }) {
+  const qc = useQueryClient()
   const [agentId, setAgentId] = useState(agents[0]?.agentId ?? "")
   const [month, setMonth] = useState(currentMonth())
   const [rate, setRate] = useState("")
+  const [basis, setBasis] = useState<string>("SOLD")
+  const [settleNotes, setSettleNotes] = useState("")
 
   const effectiveAgentId = agentId || agents[0]?.agentId || ""
   const rateNumber = rate.trim() === "" ? undefined : Number(rate)
@@ -342,6 +368,51 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
   })
 
   const data = commission.data
+  const settled = data?.settled ?? null
+
+  const refreshCommission = () => {
+    void qc.invalidateQueries({ queryKey: ["sales-agent-admin", "commission"] })
+    void qc.invalidateQueries({ queryKey: ["sales-agent-admin", "settlements"] })
+  }
+
+  const settle = useMutation({
+    mutationFn: async () => {
+      const res = await api.post("/sales-agent-admin/settlements", {
+        agentId: effectiveAgentId,
+        month,
+        basis,
+        ratePercent: Number(rate),
+        notes: settleNotes.trim() || undefined,
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      toast({ title: "تم تثبيت الشهر ✓", description: "الرقم محفوظ ولا يتغيّر بعد اليوم" })
+      setSettleNotes("")
+      refreshCommission()
+    },
+    onError: (err) =>
+      toast({
+        title: "ما انثبّت",
+        description: apiErrorMessage(err, "حاول مرة أخرى"),
+        variant: "destructive",
+      }),
+  })
+
+  const reopen = useMutation({
+    mutationFn: async () => {
+      const res = await api.delete("/sales-agent-admin/settlements", {
+        params: { agentId: effectiveAgentId, month },
+      })
+      return res.data
+    },
+    onSuccess: () => {
+      toast({ title: "انفتح الشهر", description: "الأرقام رجعت تُقرأ حيّة" })
+      refreshCommission()
+    },
+    onError: (err) =>
+      toast({ title: "ما انفتح", description: apiErrorMessage(err), variant: "destructive" }),
+  })
   // Three bases, not two. "How much did he collect" has three honest answers and
   // paying a person on the wrong one is a dispute, so each is named for exactly
   // what it counts rather than one of them being labelled «المُحصَّل فعلياً».
@@ -441,6 +512,87 @@ function CommissionPanel({ agents }: { agents: Liability[] }) {
                 </tbody>
               </table>
             </div>
+
+            {/* «تثبيت الشهر» — the agreement, kept as it stood.
+                Once settled, the frozen figures lead and the live ones sit
+                beside them, so the owner can SEE the books have moved without
+                the agreed payout moving with them. */}
+            {settled ? (
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50/60 p-4 dark:border-emerald-800 dark:bg-emerald-900/20">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-semibold">الشهر مثبّت</span>
+                  <span className="text-xs text-slate-500">
+                    {settled.settledBy} — {new Date(settled.settledAt).toLocaleDateString("en-GB")}
+                  </span>
+                </div>
+                <div className="mt-2 text-3xl font-bold tabular-nums">{money(settled.amount)}</div>
+                <div className="mt-1 text-sm">
+                  {settled.basisLabel} × {settled.ratePercent}%
+                </div>
+                {settled.notes && (
+                  <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">{settled.notes}</div>
+                )}
+
+                {/* The point of freezing: show the drift instead of hiding it. */}
+                {(settled.sold !== (data?.sold ?? 0) ||
+                  settled.collectedFromOwnCustomers !== (data?.collectedFromOwnCustomers ?? 0) ||
+                  settled.collectedInHand !== (data?.collectedInHand ?? 0)) && (
+                  <div className="mt-3 rounded-md bg-amber-100 p-2 text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                    الدفاتر تغيّرت بعد التثبيت — مبيعات{" "}
+                    <span className="tabular-nums">{money(settled.sold)}</span> صارت{" "}
+                    <span className="tabular-nums">{money(data?.sold ?? 0)}</span>. الرقم المثبّت ما
+                    يتأثر.
+                  </div>
+                )}
+
+                <Button
+                  variant="outline"
+                  className="mt-3"
+                  disabled={reopen.isPending}
+                  onClick={() => reopen.mutate()}
+                >
+                  {reopen.isPending ? "جاري الفتح…" : "افتح الشهر من جديد"}
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <div className="font-semibold">ثبّت الشهر</div>
+                <p className="mt-1 text-xs text-slate-500">
+                  بعد ما تتفق على رقم مع المندوب، ثبّته. الأرقام أعلاه تُقرأ حيّة، فأي فاتورة
+                  تنلغي أو زبون ينتقل بعدها يغيّر الأساس الي حاسبته عليه.
+                </p>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">تحاسبه على</label>
+                    <select
+                      value={basis}
+                      onChange={(e) => setBasis(e.target.value)}
+                      className="h-10 w-full rounded-md border bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      {BASES.map((b) => (
+                        <option key={b.key} value={b.key}>
+                          {b.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="mb-1 block text-sm font-medium">ملاحظة (اختياري)</label>
+                    <Input value={settleNotes} onChange={(e) => setSettleNotes(e.target.value)} />
+                  </div>
+                </div>
+                <Button
+                  className="mt-3"
+                  disabled={!(Number(rate) > 0) || settle.isPending}
+                  onClick={() => settle.mutate()}
+                >
+                  {settle.isPending ? "جاري التثبيت…" : "ثبّت الشهر"}
+                </Button>
+                {!(Number(rate) > 0) && (
+                  <span className="mr-3 text-xs text-slate-500">اكتب النسبة أولاً</span>
+                )}
+              </div>
+            )}
 
             {foreignShare > 0 && (
               <p className="text-sm font-medium text-amber-700 dark:text-amber-500">
@@ -633,5 +785,263 @@ function ReportTable({
         </div>
       )}
     </div>
+  )
+}
+
+/* ── «صحة الذمة» — everything wrong, in one glance ───────────────────── */
+
+type Health = {
+  negativeLiability: Array<{ agentId: string; name: string; onHand: number }>
+  inactiveWithMoney: Array<{ agentId: string; name: string; onHand: number }>
+  cancelledReceipts: Array<{
+    id: string; voucherNumber: string; amount: number; cancelledAt: string
+    agentName: string; customerName: string
+  }>
+  staleApprovedPrices: Array<{
+    id: string; productName: string; customerName: string; agentName: string
+    currentPrice: number; requestedPrice: number; approvedAt: string
+  }>
+  collectionsFromOthersCustomers: Array<{
+    id: string; voucherNumber: string; amount: number; date: string
+    agentName: string; customerName: string
+  }>
+}
+
+/**
+ * The states that go wrong quietly.
+ *
+ * Each of these is individually recoverable and individually invisible — nothing
+ * surfaces them unless somebody happens to open the right screen on the right
+ * day. Gathered here so a weekly glance is enough, and shown as a clean "no
+ * problems" line when there are none, rather than five empty tables.
+ */
+function LiabilityHealthPanel() {
+  const health = useQuery({
+    queryKey: ["sales-agent-admin", "health"],
+    queryFn: async () => {
+      const res = await api.get<{ data: Health }>("/sales-agent-admin/health")
+      return res.data.data
+    },
+    retry: 3,
+  })
+
+  const d = health.data
+  const count =
+    (d?.negativeLiability.length ?? 0) +
+    (d?.inactiveWithMoney.length ?? 0) +
+    (d?.cancelledReceipts.length ?? 0) +
+    (d?.staleApprovedPrices.length ?? 0) +
+    (d?.collectionsFromOthersCustomers.length ?? 0)
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">صحة ذمم المندوبين</h2>
+          {d && (
+            <span
+              className={`rounded-full px-3 py-1 text-xs font-bold ${
+                count === 0
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+                  : "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300"
+              }`}
+            >
+              {count === 0 ? "ما اكو مشاكل" : `${count} تحتاج نظرة`}
+            </span>
+          )}
+        </div>
+
+        {health.isLoading ? (
+          <div className="text-sm text-slate-500">جاري الفحص…</div>
+        ) : health.isError ? (
+          <div className="text-sm text-rose-600">ما وصل الفحص. تحقق من الاتصال.</div>
+        ) : count === 0 ? (
+          <p className="text-sm text-slate-500">
+            كل الذمم سليمة: ما اكو رصيد سالب، ولا مندوب معطّل عليه فلوس، ولا سعر موافق عليه
+            منسي.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            <HealthBlock
+              title="ذمة سالبة"
+              why="انلغى سند بعد ما تسلّمت نقده. راجع السند أو سجّل تسوية."
+              rows={(d?.negativeLiability ?? []).map((a) => [a.name, money(a.onHand)])}
+              head={["المندوب", "الرصيد"]}
+            />
+            <HealthBlock
+              title="مندوب معطّل وعليه فلوس"
+              why="الحساب مقفول لكن الذمة مفتوحة."
+              rows={(d?.inactiveWithMoney ?? []).map((a) => [a.name, money(a.onHand)])}
+              head={["المندوب", "الباقي"]}
+            />
+            <HealthBlock
+              title="سندات ملغاة كان المندوب قبضها"
+              why="كل واحد منها ينقص من ذمته بأثر رجعي."
+              rows={(d?.cancelledReceipts ?? []).map((r) => [
+                r.voucherNumber,
+                r.agentName,
+                r.customerName,
+                money(r.amount),
+              ])}
+              head={["السند", "المندوب", "الزبون", "المبلغ"]}
+            />
+            <HealthBlock
+              title="أسعار خاصة موافق عليها وما انستعملت"
+              why="وافقت على سعر من أكثر من أسبوعين وما انباع بيه شي."
+              rows={(d?.staleApprovedPrices ?? []).map((r) => [
+                r.productName,
+                r.customerName,
+                `${money(r.currentPrice)} ← ${money(r.requestedPrice)}`,
+                new Date(r.approvedAt).toLocaleDateString("en-GB"),
+              ])}
+              head={["المادة", "الزبون", "السعر", "منذ"]}
+            />
+            <HealthBlock
+              title="قبض من زبائن مو زبائنه"
+              why="غالباً الزبون انتقل لمندوب ثاني بعد القبض — يأثر على حساب العمولة."
+              rows={(d?.collectionsFromOthersCustomers ?? []).map((r) => [
+                r.voucherNumber,
+                r.agentName,
+                r.customerName,
+                money(r.amount),
+              ])}
+              head={["السند", "المندوب", "الزبون", "المبلغ"]}
+            />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function HealthBlock({
+  title,
+  why,
+  head,
+  rows,
+}: {
+  title: string
+  why: string
+  head: string[]
+  rows: string[][]
+}) {
+  // A block with nothing wrong is not rendered at all: five empty tables read as
+  // "this screen is broken", one populated table reads as "look here".
+  if (rows.length === 0) return null
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900 dark:bg-amber-900/10">
+      <div className="text-sm font-semibold">
+        {title} <span className="tabular-nums text-slate-500">({rows.length})</span>
+      </div>
+      <p className="mb-2 text-xs text-slate-600 dark:text-slate-400">{why}</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-right text-slate-500">
+              {head.map((h) => (
+                <th key={h} className="p-1.5 text-xs font-medium">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.slice(0, 12).map((r, i) => (
+              <tr key={i} className="border-b last:border-0">
+                {r.map((cell, j) => (
+                  <td key={j} className={j === 0 ? "p-1.5" : "p-1.5 tabular-nums"}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/* ── the raw refusal log ─────────────────────────────────────────────── */
+
+type RawIssue = {
+  id: string
+  reasonLabel: string
+  note: string | null
+  competitorInfo: string | null
+  createdAt: string
+  agentName: string
+  customerName: string
+  area: string | null
+  productName: string | null
+}
+
+/**
+ * The refusals one by one.
+ *
+ * The four reports answer "what is going wrong overall"; this answers "what
+ * exactly did he hear in that shop". A single competitor quote is often worth
+ * more than the count it disappears into.
+ */
+function RawIssueLog() {
+  const [open, setOpen] = useState(false)
+  const issues = useQuery({
+    queryKey: ["sales-agent-admin", "issues-raw"],
+    enabled: open,
+    queryFn: async () => {
+      const res = await api.get<{ data: RawIssue[] }>("/sales-agent-admin/issues")
+      return res.data.data ?? []
+    },
+    retry: 3,
+  })
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-semibold">سجل المشاكل واحدة واحدة</h2>
+          <Button variant="outline" onClick={() => setOpen((v) => !v)}>
+            {open ? "إخفاء" : "اعرض"}
+          </Button>
+        </div>
+
+        {open &&
+          (issues.isLoading ? (
+            <div className="text-sm text-slate-500">جاري التحميل…</div>
+          ) : (issues.data ?? []).length === 0 ? (
+            <div className="text-sm text-slate-500">ما اكو مشاكل مسجّلة.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-right text-slate-500">
+                    <th className="p-2 font-medium">التاريخ</th>
+                    <th className="p-2 font-medium">الزبون</th>
+                    <th className="p-2 font-medium">المادة</th>
+                    <th className="p-2 font-medium">السبب</th>
+                    <th className="p-2 font-medium">الملاحظة</th>
+                    <th className="p-2 font-medium">المنافس</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(issues.data ?? []).map((r) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="p-2 tabular-nums">
+                        {new Date(r.createdAt).toLocaleDateString("en-GB")}
+                      </td>
+                      <td className="p-2">
+                        {r.customerName}
+                        {r.area ? <span className="block text-xs text-slate-500">{r.area}</span> : null}
+                      </td>
+                      <td className="p-2">{r.productName ?? "—"}</td>
+                      <td className="p-2">{r.reasonLabel}</td>
+                      <td className="p-2 text-slate-600 dark:text-slate-400">{r.note ?? "—"}</td>
+                      <td className="p-2 text-slate-600 dark:text-slate-400">
+                        {r.competitorInfo ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+      </CardContent>
+    </Card>
   )
 }

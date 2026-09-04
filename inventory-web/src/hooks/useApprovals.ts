@@ -14,10 +14,13 @@ export function useApprovals() {
     refetchInterval: 30_000,
   })
   const reviewMutation = useMutation({
-    mutationFn: ({ id, status, allowPrices, showStock, catalogOrderMode }: {
+    mutationFn: ({ id, status, allowPrices, showStock, catalogOrderMode, reviewNote }: {
       id: string; status: "APPROVED" | "REJECTED"; allowPrices?: boolean; showStock?: boolean
       catalogOrderMode?: "INVOICE" | "PREPARE"
-    }) => reviewApproval(id, status, { allowPrices, showStock, catalogOrderMode }),
+      // Only sent on a rejection — the reason the requester reads instead of
+      // telephoning to ask what to fix.
+      reviewNote?: string
+    }) => reviewApproval(id, status, { allowPrices, showStock, catalogOrderMode, reviewNote }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["approvals"] }),
   })
 

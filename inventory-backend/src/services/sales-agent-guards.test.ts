@@ -43,6 +43,21 @@ function layersOf(router: unknown): Layer[] {
   return (router as { stack: Layer[] }).stack;
 }
 
+/**
+ * The body of one exported function, found by name.
+ *
+ * Slicing between two known function names is brittle — moving a function makes
+ * the test fail for a reason that has nothing to do with what it checks. This
+ * takes the named function up to the next top-level export instead, so the file
+ * can be reordered freely.
+ */
+function fnBody(src: string, name: string): string {
+  const start = src.indexOf(`export async function ${name}`);
+  assert.ok(start >= 0, `function ${name} not found`);
+  const after = src.indexOf("\nexport ", start + 1);
+  return src.slice(start, after === -1 ? undefined : after);
+}
+
 /** Router-level middleware (router.use) sits in the stack without a `route`. */
 function routerLevelMiddlewareCount(router: unknown): number {
   return layersOf(router).filter((l) => !l.route).length;
@@ -103,17 +118,11 @@ describe("«المندوب» — isolation between reps", () => {
   test("every rep-facing customer read is scoped by the rep's own id", () => {
     // assertOwnCustomer is the single funnel. If it ever stops filtering on
     // salesAgentId, one rep can read another's full account statement.
-    const fn = service.slice(
-      service.indexOf("export async function assertOwnCustomer"),
-      service.indexOf("export async function listMyCustomers"),
-    );
+    const fn = fnBody(service, "assertOwnCustomer");
     assert.ok(fn.includes("salesAgentId: agentId"), "assertOwnCustomer must filter on the rep");
     assert.ok(fn.includes("deletedAt: null"), "assertOwnCustomer must exclude deleted customers");
 
-    const list = service.slice(
-      service.indexOf("export async function listMyCustomers"),
-      service.indexOf("export async function getCustomerHeader"),
-    );
+    const list = fnBody(service, "listMyCustomers");
     assert.ok(list.includes("salesAgentId: agentId"), "listMyCustomers must filter on the rep");
   });
 
@@ -185,9 +194,11 @@ describe("«المندوب» — policy and money rules", () => {
   });
 
   test("commission stores nothing and names its date basis", () => {
-    const fn = admin.slice(admin.indexOf("export async function getCommission"));
-    assert.ok(!fn.includes("prisma.") || !/\.(create|update|upsert|delete)\(/.test(fn.slice(0, 2600)),
-      "the commission screen must be a reader, never a writer");
+    const fn = fnBody(admin, "getCommission");
+    assert.ok(
+      !/\.(create|update|upsert|delete)\(/.test(fn),
+      "the commission screen must be a reader, never a writer",
+    );
     assert.ok(fn.includes("dateBasis"), "the month boundary basis must be stated to the owner");
     assert.ok(fn.includes("collectedInHand"), "what the rep pocketed must be labelled as such");
     assert.ok(
@@ -205,8 +216,7 @@ describe("«المندوب» — policy and money rules", () => {
     // `NOT { salesAgentId: id }` compiles to `<> id`, which is NULL — not true —
     // for a customer with no rep at all. Written that way the warning read zero
     // in exactly the case it exists to catch. It must stay an explicit OR.
-    const fn = admin.slice(admin.indexOf("export async function getCommission"));
-    const block = fn.slice(0, fn.indexOf("const soldTotal"));
+    const block = fnBody(admin, "getCommission");
     assert.ok(
       block.includes("salesAgentId: null"),
       "the other-customers filter must match customers with no rep",
@@ -221,7 +231,7 @@ describe("«المندوب» — policy and money rules", () => {
     // A receipt cancelled after its cash was handed over drives the derived
     // figure below zero. Guarding on a negative ceiling locked the owner out of
     // recording money the rep was physically holding.
-    const fn = admin.slice(admin.indexOf("export async function recordHandover"));
+    const fn = fnBody(admin, "recordHandover");
     assert.ok(
       /onHand > 0 && amount > onHand/.test(fn),
       "the ceiling may only apply while the liability is non-negative",
@@ -230,11 +240,47 @@ describe("«المندوب» — policy and money rules", () => {
   });
 
   test("an approved price for a deleted product is not offered", () => {
-    const fn = service.slice(service.indexOf("export async function listUsablePrices"));
+    const fn = fnBody(service, "listUsablePrices");
     assert.ok(
       fn.includes("product: { deletedAt: null }"),
       "a price the order would refuse must not be shown as usable",
     );
+  });
+
+  test("a settled month is frozen, not recomputed", () => {
+    // The whole point: once a number is agreed with a person, a cancelled
+    // invoice or a reassigned customer must not rewrite what was paid on.
+    const fn = fnBody(admin, "settleMonth");
+    assert.ok(fn.includes("amount,"), "the agreed payout must be STORED, not derived on read");
+    assert.ok(fn.includes("ALREADY_SETTLED"), "settling twice must be refused");
+
+    const read = fnBody(admin, "getCommission");
+    assert.ok(
+      read.includes("salesAgentSettlement.findUnique"),
+      "the commission read must surface the frozen agreement beside the live figures",
+    );
+  });
+
+  test("each rep ability is a DENY marker, so absence means allowed", () => {
+    // Default-off would have silently disabled every existing rep on deploy.
+    const mw = code(read("middleware/permission.middleware.ts"));
+    assert.ok(mw.includes("AGENT_NO_RECEIPT"), "the switches must be deny-shaped");
+    const fn = mw.slice(mw.indexOf("export function agentCan"), mw.indexOf("export function requireAgentCapability"));
+    assert.ok(fn.includes("!user?.permissions.includes"), "agentCan must read absence as allowed");
+  });
+
+  test("unit maths lives in exactly one place", () => {
+    // A rep's carton must mean what a shopper's carton means. Two copies of the
+    // rule is one edit away from it not.
+    const catalog = code(read("services/catalog.service.ts"));
+    for (const src of [service, catalog]) {
+      assert.ok(
+        !/function piecesFor\s*\(/.test(src),
+        "unit conversion must be imported from utils/catalog-units, not redefined",
+      );
+    }
+    assert.ok(service.includes("piecesForUnit"), "the rep service must use the shared converter");
+    assert.ok(catalog.includes("piecesForUnit"), "the catalog must use the shared converter");
   });
 
   test("orders and handovers are idempotent", () => {

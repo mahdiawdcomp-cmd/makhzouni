@@ -59,6 +59,28 @@ type AgentCustomer = {
   province: string | null
   currentBalance: number
   lastTransactionAt: string | null
+  lastSaleAt: string | null
+  /** null = never bought anything, which reads differently from "quiet 40 days". */
+  daysSinceLastSale: number | null
+}
+
+type CustomerPage = {
+  total: number
+  page: number
+  limit: number
+  hasMore: boolean
+  customers: AgentCustomer[]
+}
+
+/** «يومي» — the rep's own day. Contains no figure the owner keeps private. */
+type AgentToday = {
+  orders: number
+  orderValue: number
+  receipts: number
+  collected: number
+  issues: number
+  newCustomers: number
+  customersVisited: number
 }
 
 type CustomerHeader = AgentCustomer & {
@@ -83,6 +105,8 @@ type AgentOrder = {
   status: string
   createdAt: string
   reviewedAt: string | null
+  /** Why it was refused, so the rep can fix it instead of telephoning. */
+  reviewNote: string | null
   customerName: string
   total: number
   lineCount: number
@@ -230,15 +254,18 @@ function useAgentProducts() {
   })
 }
 
-function useMyCustomers(search: string) {
+function useMyCustomers(search: string, page: number) {
   return useQuery({
-    queryKey: ["sales-agent", "customers", search],
+    queryKey: ["sales-agent", "customers", search, page],
     queryFn: async () => {
-      const res = await api.get<{ data: AgentCustomer[] }>("/sales-agent/customers", {
-        params: search ? { search } : undefined,
+      const res = await api.get<{ data: CustomerPage }>("/sales-agent/customers", {
+        params: { page, limit: 200, ...(search ? { search } : {}) },
       })
-      return res.data.data ?? []
+      return res.data.data
     },
+    // Keeps the previous page on screen while the next one loads, instead of
+    // blanking the list a rep is reading in the street.
+    placeholderData: (prev) => prev,
     retry: 3,
   })
 }
@@ -313,6 +340,8 @@ type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "c
  */
 type CartsByCustomer = Record<string, CartLine[]>
 
+const CARTS_KEY = "sales_agent_carts"
+
 export function SalesAgentPage() {
   const user = useAuthStore((s) => s.user)
   const qc = useQueryClient()
@@ -321,7 +350,33 @@ export function SalesAgentPage() {
   const [customerId, setCustomerId] = useState<string | null>(
     () => localStorage.getItem("sales_agent_customer") || null,
   )
-  const [carts, setCarts] = useState<CartsByCustomer>({})
+  // Carts survive a closed browser, a dropped connection, a phone that slept
+  // until the tab was evicted. A rep who has walked three shops and loses the
+  // lot has to redo the whole round, so this is stored rather than held in
+  // memory. Per-viewer and per-device by nature, which is exactly right: a cart
+  // is a half-finished thought, not shop data.
+  const [carts, setCarts] = useState<CartsByCustomer>(() => {
+    try {
+      const raw = localStorage.getItem(CARTS_KEY)
+      const parsed = raw ? (JSON.parse(raw) as CartsByCustomer) : {}
+      return parsed && typeof parsed === "object" ? parsed : {}
+    } catch {
+      // A private window, cleared site data, or a browser that blocks storage —
+      // an empty cart is the right answer, never a crashed screen.
+      return {}
+    }
+  })
+
+  useEffect(() => {
+    try {
+      // Drop emptied carts rather than accumulating one key per customer the rep
+      // has ever opened.
+      const kept = Object.fromEntries(Object.entries(carts).filter(([, lines]) => lines.length > 0))
+      localStorage.setItem(CARTS_KEY, JSON.stringify(kept))
+    } catch {
+      /* storage unavailable — the cart still works for this session */
+    }
+  }, [carts])
   const [cartOpen, setCartOpen] = useState(false)
   const [openProduct, setOpenProduct] = useState<AgentProduct | null>(null)
   // Which customer's full statement is open. Separate from `customerId` (the
@@ -1169,13 +1224,17 @@ function CustomersScreen({
   onOpenStatement: (id: string) => void
 }) {
   const [search, setSearch] = useState("")
-  const customers = useMyCustomers(search)
+  const [page, setPage] = useState(1)
+  const customers = useMyCustomers(search, page)
 
   return (
     <div className="flex min-h-full flex-col p-3">
       <input
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        onChange={(e) => {
+          setSearch(e.target.value)
+          setPage(1)
+        }}
         placeholder="دور بالاسم أو الرقم…"
         className="mb-3 h-14 w-full rounded-xl border-4 border-black px-4 text-lg font-bold placeholder:text-neutral-600 focus:outline-none"
       />
@@ -1189,13 +1248,13 @@ function CustomersScreen({
           actionLabel="حاول مرة أخرى"
           onAction={() => void customers.refetch()}
         />
-      ) : (customers.data ?? []).length === 0 ? (
+      ) : (customers.data?.customers ?? []).length === 0 ? (
         <div className="py-12 text-center text-lg font-black">
           ما عندك زبائن بعد. أضف زبون جديد من الزر تحت.
         </div>
       ) : (
         <ul className="space-y-2 pb-24">
-          {(customers.data ?? []).map((c) => (
+          {(customers.data?.customers ?? []).map((c) => (
             <li key={c.id} className="rounded-xl border-4 border-black">
               {/* Two separate targets, both full-height: selling to a customer
                   and reading their account are different intents, and a rep
@@ -1214,6 +1273,15 @@ function CustomersScreen({
                   <span className="tabular-nums">الرصيد: {money(c.currentBalance)}</span>
                   {c.area ? <span>{c.area}</span> : null}
                 </div>
+                {/* Quiet customers are the ones worth a visit, so they say so on
+                    the row rather than hiding in a report the rep never opens. */}
+                {c.daysSinceLastSale === null ? (
+                  <div className="mt-1 text-sm font-black">ما اشترى ولا مرة</div>
+                ) : c.daysSinceLastSale >= 30 ? (
+                  <div className="mt-1 text-sm font-black">
+                    ما اشترى من {c.daysSinceLastSale} يوم
+                  </div>
+                ) : null}
               </button>
               <button
                 type="button"
@@ -1225,6 +1293,30 @@ function CustomersScreen({
             </li>
           ))}
         </ul>
+      )}
+
+      {(page > 1 || customers.data?.hasMore) && (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="h-14 flex-1 rounded-xl border-4 border-black text-lg font-black disabled:opacity-40"
+          >
+            السابق
+          </button>
+          <span className="text-base font-black tabular-nums">
+            {page} / {Math.max(1, Math.ceil((customers.data?.total ?? 0) / (customers.data?.limit || 200)))}
+          </span>
+          <button
+            type="button"
+            disabled={!customers.data?.hasMore}
+            onClick={() => setPage((p) => p + 1)}
+            className="h-14 flex-1 rounded-xl border-4 border-black text-lg font-black disabled:opacity-40"
+          >
+            التالي
+          </button>
+        </div>
       )}
 
       {/* Sticky at the bottom, where the thumb is. */}
@@ -1464,6 +1556,49 @@ const STATUS_LABEL: Record<string, string> = {
   REJECTED: "مرفوض",
 }
 
+function TodayStrip() {
+  const today = useQuery({
+    queryKey: ["sales-agent", "today"],
+    queryFn: async () => {
+      const res = await api.get<{ data: AgentToday }>("/sales-agent/today")
+      return res.data.data
+    },
+    retry: 3,
+  })
+
+  const d = today.data
+  if (!d) return null
+
+  // Three numbers, and deliberately not a fourth: nothing here is a figure the
+  // owner keeps private, so the rep can read their own day without the
+  // commission ever appearing on their phone.
+  return (
+    <div className="mb-3 rounded-xl border-4 border-black p-3">
+      <div className="text-lg font-black">يومي</div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <div className="text-2xl font-black tabular-nums">{d.customersVisited}</div>
+          <div className="text-sm font-bold">زبون</div>
+        </div>
+        <div>
+          <div className="text-2xl font-black tabular-nums">{money(d.orderValue)}</div>
+          <div className="text-sm font-bold">باع</div>
+        </div>
+        <div>
+          <div className="text-2xl font-black tabular-nums">{money(d.collected)}</div>
+          <div className="text-sm font-bold">قبض</div>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap justify-center gap-x-4 text-sm font-bold">
+        <span className="tabular-nums">{d.orders} طلب</span>
+        <span className="tabular-nums">{d.receipts} سند</span>
+        <span className="tabular-nums">{d.issues} مشكلة</span>
+        {d.newCustomers > 0 && <span className="tabular-nums">{d.newCustomers} زبون جديد</span>}
+      </div>
+    </div>
+  )
+}
+
 function OrdersScreen() {
   const orders = useQuery({
     queryKey: ["sales-agent", "orders"],
@@ -1492,7 +1627,9 @@ function OrdersScreen() {
   }
 
   return (
-    <ul className="space-y-2 p-3">
+    <div className="p-3">
+      <TodayStrip />
+      <ul className="space-y-2">
       {(orders.data ?? []).map((o) => (
         <li key={o.id} className="rounded-xl border-4 border-black p-3">
           <div className="flex items-center justify-between gap-2">
@@ -1506,9 +1643,17 @@ function OrdersScreen() {
               {new Date(o.createdAt).toLocaleDateString("en-GB")}
             </span>
           </div>
+          {/* The reason it was refused. Without it the rep sees a bare «مرفوض»
+              and has to telephone to find out what to change. */}
+          {o.reviewNote && (
+            <div className="mt-1 rounded-lg border-4 border-black bg-neutral-200 p-2 text-sm font-black">
+              السبب: {o.reviewNote}
+            </div>
+          )}
         </li>
       ))}
-    </ul>
+      </ul>
+    </div>
   )
 }
 

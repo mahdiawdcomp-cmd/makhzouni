@@ -433,6 +433,9 @@ export const reviewApprovalSchema = z.object({
     showStock: z.coerce.boolean().optional(),
     // Catalog orders only — bill now, or send to preparation as before.
     catalogOrderMode: z.enum(["INVOICE", "PREPARE"]).optional(),
+    // The rejection reason. validate() replaces req.body, so a field missing
+    // from here is silently dropped no matter what the client sent.
+    reviewNote: z.string().trim().max(500).optional(),
   }),
 });
 

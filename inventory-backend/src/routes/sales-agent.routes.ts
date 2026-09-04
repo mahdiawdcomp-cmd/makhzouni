@@ -11,7 +11,7 @@
  */
 import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
-import { requireSalesAgent } from "../middleware/permission.middleware";
+import { requireAgentCapability, requireSalesAgent } from "../middleware/permission.middleware";
 import {
   getAgentAreas,
   getAgentImage,
@@ -26,6 +26,7 @@ import {
   getMyCustomers,
   getMyHandovers,
   getMyReceipts,
+  getToday,
   getMyOrders,
   postAgentCustomer,
   postAgentIssue,
@@ -43,12 +44,13 @@ router.use(authMiddleware, requireSalesAgent());
 
 router.get("/areas", getAgentAreas);
 
+router.get("/today", getToday);
 router.get("/customers", getMyCustomers);
 router.get("/customers/:id/header", getCustomerHeaderCtrl);
 router.get("/customers/:id/detail", getCustomerDetailCtrl);
 router.post("/customers/lookup", postPhoneLookup);
 router.post("/customers/claim", postClaimCustomer);
-router.post("/customers", postAgentCustomer);
+router.post("/customers", requireAgentCapability("NEW_CUSTOMER"), postAgentCustomer);
 
 router.get("/products", getAgentProducts);
 router.post("/products/thumbnails", postAgentThumbnails);
@@ -58,15 +60,15 @@ router.post("/orders", postAgentOrder);
 router.get("/orders", getMyOrders);
 
 router.get("/cash-on-hand", getCashOnHand);
-router.post("/receipts", postAgentReceipt);
+router.post("/receipts", requireAgentCapability("RECEIPT"), postAgentReceipt);
 router.get("/receipts", getMyReceipts);
 router.get("/handovers", getMyHandovers);
 
 router.get("/issue-reasons", getIssueReasons);
-router.post("/issues", postAgentIssue);
+router.post("/issues", requireAgentCapability("ISSUE"), postAgentIssue);
 router.get("/issues", getMyIssues);
 
-router.post("/price-requests", postPriceRequest);
+router.post("/price-requests", requireAgentCapability("PRICE_REQUEST"), postPriceRequest);
 router.get("/price-requests", getMyPriceRequests);
 router.get("/customers/:id/usable-prices", getUsablePrices);
 

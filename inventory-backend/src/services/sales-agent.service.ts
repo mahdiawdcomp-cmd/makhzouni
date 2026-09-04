@@ -22,7 +22,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { totalStock } from "../utils/product-stock";
-import { effectiveBoxPieces } from "../utils/financial";
+import { piecesForUnit, priceForUnit } from "../utils/catalog-units";
 import { normalizePhone } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { createCustomer } from "./customer.service";
@@ -37,22 +37,12 @@ function toNumber(value: unknown) {
   return value == null ? 0 : Number(value);
 }
 
-function piecesFor(unit: Unit, quantity: number, pcsPerCarton: number, boxPieces?: number | null) {
-  const n = Math.max(1, pcsPerCarton);
-  if (unit === Unit.CARTON) return quantity * n;
-  if (unit === Unit.BOX) return quantity * effectiveBoxPieces(n, boxPieces);
-  if (unit === Unit.DOZEN) return quantity * 12;
-  return quantity; // PIECE
-}
-
-function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number, boxPieces?: number | null) {
-  const price = toNumber(salePrice);
-  const n = Math.max(1, pcsPerCarton);
-  if (unit === Unit.CARTON) return price * n;
-  if (unit === Unit.BOX) return price * effectiveBoxPieces(n, boxPieces);
-  if (unit === Unit.DOZEN) return price * 12;
-  return price; // PIECE
-}
+// Both live in utils/catalog-units.ts now: a rep's carton must mean exactly what
+// a shopper's carton means, and two copies of that rule are one edit away from
+// it not. Aliased rather than renamed at every call site to keep this change
+// behaviour-preserving and reviewable.
+const piecesFor = piecesForUnit;
+const salePriceFor = priceForUnit;
 
 /**
  * The display tag mirrored onto every customer a rep owns.
@@ -150,42 +140,6 @@ export async function assertOwnCustomer(agentId: string, customerId: string) {
     throw new AppError("هذا الزبون مو ضمن زبائنك", 404, "CUSTOMER_NOT_IN_SCOPE");
   }
   return customer;
-}
-
-export async function listMyCustomers(agentId: string, search?: string) {
-  const term = search?.trim();
-  const customers = await prisma.customer.findMany({
-    where: {
-      deletedAt: null,
-      salesAgentId: agentId,
-      ...(term
-        ? { OR: [{ name: { contains: term, mode: "insensitive" as const } }, { phone: { contains: term } }] }
-        : {}),
-    },
-    select: {
-      id: true,
-      name: true,
-      phone: true,
-      address: true,
-      area: true,
-      province: true,
-      currentBalance: true,
-      lastTransactionAt: true,
-    },
-    orderBy: [{ name: "asc" }],
-    take: 500,
-  });
-
-  return customers.map((c) => ({
-    id: c.id,
-    name: c.name,
-    phone: c.phone,
-    address: c.address,
-    area: c.area,
-    province: c.province,
-    currentBalance: toNumber(c.currentBalance),
-    lastTransactionAt: c.lastTransactionAt,
-  }));
 }
 
 /**
@@ -729,7 +683,14 @@ export async function listMyOrders(agentId: string, limit = 40) {
     where: { requestedBy: agentId, requestType: approvalRequestTypes.CATALOG_ORDER },
     orderBy: { createdAt: "desc" },
     take: Math.min(limit, 100),
-    select: { id: true, status: true, createdAt: true, reviewedAt: true, requestData: true },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      reviewedAt: true,
+      reviewNote: true,
+      requestData: true,
+    },
   });
 
   return approvals.map((a) => {
@@ -744,6 +705,8 @@ export async function listMyOrders(agentId: string, limit = 40) {
       status: a.status,
       createdAt: a.createdAt,
       reviewedAt: a.reviewedAt,
+      // Why it was refused, so the rep can fix it instead of telephoning.
+      reviewNote: a.reviewNote,
       customerName: data.customerName ?? "",
       total: Number(data.finalTotal ?? data.subtotal ?? 0),
       lineCount: Array.isArray(data.displayItems) ? data.displayItems.length : 0,
@@ -1175,4 +1138,180 @@ export async function listUsablePrices(agentId: string, customerId: string) {
     unit: r.unit,
     price: toNumber(r.requestedPrice),
   }));
+}
+
+/* ── «يومي» — the rep's own day, in three numbers ────────────────────── */
+
+/**
+ * What the rep did today.
+ *
+ * Deliberately three counts and two sums, and NOT a word about commission: the
+ * point is a rep who can see their own day going well without any figure the
+ * owner keeps private ever appearing on their phone.
+ *
+ * "Today" is local midnight to now, matching how the shop thinks about a day
+ * rather than UTC.
+ */
+export async function getAgentToday(agentId: string) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+
+  const [orders, receipts, collected, issues, newCustomers] = await Promise.all([
+    prisma.pendingApproval.findMany({
+      where: {
+        requestedBy: agentId,
+        requestType: approvalRequestTypes.CATALOG_ORDER,
+        createdAt: { gte: start },
+      },
+      select: { requestData: true },
+    }),
+    prisma.paymentVoucher.count({
+      where: {
+        salesAgentId: agentId,
+        type: "RECEIPT",
+        cancelledAt: null,
+        archivedAt: null,
+        date: { gte: start },
+      },
+    }),
+    prisma.paymentVoucher.aggregate({
+      where: {
+        salesAgentId: agentId,
+        type: "RECEIPT",
+        cancelledAt: null,
+        archivedAt: null,
+        date: { gte: start },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.salesAgentIssue.count({ where: { salesAgentId: agentId, createdAt: { gte: start } } }),
+    prisma.customer.count({ where: { salesAgentId: agentId, createdAt: { gte: start } } }),
+  ]);
+
+  // Sales value comes off the approval snapshots, not invoices: an order sent an
+  // hour ago may not be approved yet, and the rep's day should count what they
+  // SOLD, not what the owner has got round to billing.
+  const orderValue = orders.reduce((sum, a) => {
+    const d = (a.requestData ?? {}) as { subtotal?: number };
+    return sum + Number(d.subtotal ?? 0);
+  }, 0);
+
+  // Distinct customers visited: an order, a receipt or a logged refusal all
+  // count as a visit, because all three mean the rep stood in that shop.
+  const [receiptCustomers, issueCustomers] = await Promise.all([
+    prisma.paymentVoucher.findMany({
+      where: { salesAgentId: agentId, type: "RECEIPT", date: { gte: start } },
+      select: { customerId: true },
+      distinct: ["customerId"],
+    }),
+    prisma.salesAgentIssue.findMany({
+      where: { salesAgentId: agentId, createdAt: { gte: start } },
+      select: { customerId: true },
+      distinct: ["customerId"],
+    }),
+  ]);
+
+  const visited = new Set<string>();
+  for (const a of orders) {
+    const d = (a.requestData ?? {}) as { customerId?: string };
+    if (d.customerId) visited.add(d.customerId);
+  }
+  for (const r of receiptCustomers) if (r.customerId) visited.add(r.customerId);
+  for (const i of issueCustomers) visited.add(i.customerId);
+
+  return {
+    orders: orders.length,
+    orderValue,
+    receipts,
+    collected: toNumber(collected._sum.amount),
+    issues,
+    newCustomers,
+    customersVisited: visited.size,
+  };
+}
+
+/* ── «ما اشترى من زمان» — the customers going quiet ──────────────────── */
+
+/**
+ * Days since a customer last bought, for the rep's own list.
+ *
+ * The shop already tracks this for itself; the rep needs it more, because they
+ * are the one who can walk back in. Computed from the customer's last ACTIVE
+ * sale rather than `lastTransactionAt`, which also moves on a payment — a
+ * customer who pays an old debt has not bought anything.
+ */
+export async function listMyCustomers(
+  agentId: string,
+  search?: string,
+  opts?: { page?: number; limit?: number },
+) {
+  const term = search?.trim();
+  const page = Math.max(1, opts?.page ?? 1);
+  const limit = Math.min(Math.max(1, opts?.limit ?? 200), 500);
+
+  const where = {
+    deletedAt: null,
+    salesAgentId: agentId,
+    ...(term
+      ? { OR: [{ name: { contains: term, mode: "insensitive" as const } }, { phone: { contains: term } }] }
+      : {}),
+  };
+
+  const [total, customers] = await Promise.all([
+    prisma.customer.count({ where }),
+    prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        address: true,
+        area: true,
+        province: true,
+        currentBalance: true,
+        lastTransactionAt: true,
+      },
+      orderBy: [{ name: "asc" }],
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+  ]);
+
+  // One grouped query for the whole page, not one per customer.
+  const ids = customers.map((c) => c.id);
+  const lastSales = ids.length
+    ? await prisma.invoice.groupBy({
+        by: ["customerId"],
+        where: { customerId: { in: ids }, type: "SALE", status: "ACTIVE", archivedAt: null },
+        _max: { date: true },
+      })
+    : [];
+  const lastSaleBy = new Map(lastSales.map((r) => [r.customerId, r._max.date]));
+
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  return {
+    total,
+    page,
+    limit,
+    hasMore: page * limit < total,
+    customers: customers.map((c) => {
+      const last = lastSaleBy.get(c.id) ?? null;
+      return {
+        id: c.id,
+        name: c.name,
+        phone: c.phone,
+        address: c.address,
+        area: c.area,
+        province: c.province,
+        currentBalance: toNumber(c.currentBalance),
+        lastTransactionAt: c.lastTransactionAt,
+        lastSaleAt: last,
+        // null = never bought anything, which reads differently from "quiet for
+        // 40 days" and the screen says so.
+        daysSinceLastSale: last ? Math.floor((now - last.getTime()) / day) : null,
+      };
+    }),
+  };
 }

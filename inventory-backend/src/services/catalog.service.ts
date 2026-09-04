@@ -6,7 +6,7 @@ import { logger } from "../utils/logger";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { isVerified } from "./otp.service";
 import { totalStock } from "../utils/product-stock";
-import { effectiveBoxPieces } from "../utils/financial";
+import { piecesForUnit, priceForUnit } from "../utils/catalog-units";
 import {
   notifyCatalogAccessRequested,
   notifyCatalogOrderSubmitted,
@@ -66,22 +66,12 @@ function toNumber(value: unknown) {
   return Number(value);
 }
 
-function piecesFor(unit: Unit, quantity: number, pcsPerCarton: number, boxPieces?: number | null) {
-  const n = Math.max(1, pcsPerCarton);
-  if (unit === Unit.CARTON) return quantity * n;
-  if (unit === Unit.BOX) return quantity * effectiveBoxPieces(n, boxPieces);
-  if (unit === Unit.DOZEN) return quantity * 12;
-  return quantity; // PIECE
-}
-
-function salePriceFor(unit: Unit, salePrice: unknown, pcsPerCarton: number, boxPieces?: number | null) {
-  const price = toNumber(salePrice);
-  const n = Math.max(1, pcsPerCarton);
-  if (unit === Unit.CARTON) return price * n;
-  if (unit === Unit.BOX) return price * effectiveBoxPieces(n, boxPieces);
-  if (unit === Unit.DOZEN) return price * 12;
-  return price; // PIECE
-}
+// Both live in utils/catalog-units.ts now: a rep's carton must mean exactly what
+// a shopper's carton means, and two copies of that rule are one edit away from
+// it not. Aliased rather than renamed at every call site to keep this change
+// behaviour-preserving and reviewable.
+const piecesFor = piecesForUnit;
+const salePriceFor = priceForUnit;
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");

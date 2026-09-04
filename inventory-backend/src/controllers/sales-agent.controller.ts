@@ -13,6 +13,7 @@ import {
   claimCustomer,
   createAgentCustomer,
   createAgentIssue,
+  getAgentToday,
   listMyIssues,
   listMyPriceRequests,
   listUsablePrices,
@@ -47,7 +48,21 @@ export const getAgentAreas = asyncHandler(async (_req, res) => {
 export const getMyCustomers = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
-  res.json({ success: true, data: await listMyCustomers(agent.id, search) });
+  const page = Number(req.query.page);
+  const limit = Number(req.query.limit);
+  res.json({
+    success: true,
+    data: await listMyCustomers(agent.id, search, {
+      page: Number.isFinite(page) ? page : undefined,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    }),
+  });
+});
+
+/** «يومي» — three numbers the rep can read without any figure the owner keeps private. */
+export const getToday = asyncHandler(async (req, res) => {
+  const agent = requireAgent(req.user);
+  res.json({ success: true, data: await getAgentToday(agent.id) });
 });
 
 export const getCustomerHeaderCtrl = asyncHandler(async (req, res) => {

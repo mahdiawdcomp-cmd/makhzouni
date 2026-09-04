@@ -359,6 +359,8 @@ model User {
   salesAgentIssues          SalesAgentIssue[]        @relation("IssueAgent")
   salesAgentPriceRequests   SalesAgentPriceRequest[] @relation("PriceRequestAgent")
   handoversReceived         SalesAgentHandover[]     @relation("HandoverReceivedBy")
+  salesAgentSettlements     SalesAgentSettlement[]   @relation("SettlementAgent")
+  settlementsRecorded       SalesAgentSettlement[]   @relation("SettlementSettledBy")
 
   @@map("users")
 }
@@ -1401,6 +1403,9 @@ model PendingApproval {
   reviewedBy  String?        @map("reviewed_by") @db.Uuid
   reviewer    User?          @relation("ApprovalReviewedBy", fields: [reviewedBy], references: [id])
   reviewedAt  DateTime?      @map("reviewed_at")
+  /// Why it was rejected. A rep whose order comes back as a bare «مرفوض» has to
+  /// telephone to find out what to fix; this is that answer, written once.
+  reviewNote  String?        @map("review_note")
   createdAt   DateTime       @default(now()) @map("created_at")
 
   @@index([requestedBy])
@@ -1516,6 +1521,42 @@ model SalesAgentPriceRequest {
   @@index([customerId, productId, status])
   @@index([approvalId])
   @@map("sales_agent_price_requests")
+}
+
+/// «تثبيت الشهر» — the frozen commission settlement for one rep, one month.
+///
+/// The calculator reads live rows, which is right until the moment you agree a
+/// number with a person. After that, anything that touches the past — a
+/// cancelled invoice, a customer moved to another rep — silently rewrites what
+/// you already paid on. This row is the agreement: the figures as they stood
+/// when you settled, kept whatever happens next.
+///
+/// One row per rep per month (`@@unique`), so settling twice is impossible and
+/// the owner has to reopen deliberately.
+model SalesAgentSettlement {
+  id                        String   @id @default(uuid()) @db.Uuid
+  salesAgentId              String   @map("sales_agent_id") @db.Uuid
+  salesAgent                User     @relation("SettlementAgent", fields: [salesAgentId], references: [id])
+  /// "YYYY-MM".
+  month                     String
+  /// The three figures, frozen exactly as the screen showed them.
+  sold                      Decimal  @map("sold") @db.Decimal(14, 2)
+  collectedInHand           Decimal  @map("collected_in_hand") @db.Decimal(14, 2)
+  collectedFromOwnCustomers Decimal  @map("collected_from_own") @db.Decimal(14, 2)
+  /// Which of the three the owner chose to pay on, and at what rate.
+  basis                     String
+  ratePercent               Decimal  @map("rate_percent") @db.Decimal(6, 3)
+  /// The agreed payout. Stored rather than recomputed: the rate and basis could
+  /// both be edited later, and the number that was actually agreed must survive.
+  amount                    Decimal  @db.Decimal(14, 2)
+  notes                     String?
+  settledBy                 String   @map("settled_by") @db.Uuid
+  settler                   User     @relation("SettlementSettledBy", fields: [settledBy], references: [id])
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  @@unique([salesAgentId, month])
+  @@index([month])
+  @@map("sales_agent_settlements")
 }
 
 model SalesAgentHandover {

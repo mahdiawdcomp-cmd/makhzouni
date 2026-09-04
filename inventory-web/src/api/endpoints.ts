@@ -1146,7 +1146,7 @@ export async function updateBranch(id: string, payload: Partial<BranchPayload>) 
   return data
 }
 
-export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean; catalogOrderMode?: "INVOICE" | "PREPARE" }) {
+export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean; catalogOrderMode?: "INVOICE" | "PREPARE"; reviewNote?: string }) {
   const { data } = await api.put<ApiEnvelope<Approval>>(`/approvals/${id}`, {
     status,
     ...options,

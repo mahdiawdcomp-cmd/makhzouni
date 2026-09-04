@@ -46,6 +46,18 @@ const allPermissions: Array<{ id: UserPermission; label: string; hint: string; g
   { id: "SALES_AGENT",         label: "مندوب",              hint: "يفتح شاشة المندوب ويبيع لزبائنه فقط، بدون كلفة ولا أرباح", group: "agent" },
 ]
 
+// Per-rep switches, layered on the marker above. These are DENY markers stored
+// the same way HIDE_PROFIT_REPORTS is, so absence means allowed: a rep created
+// before they existed — and one the owner never configures — keeps every ability
+// they had. Shown as positive switches, because "يقدر يسجّل سندات" is what an
+// owner is actually deciding, not "لا يقدر".
+const agentAbilities: Array<{ deny: UserPermission; label: string; hint: string }> = [
+  { deny: "AGENT_NO_NEW_CUSTOMER", label: "يضيف زبائن",       hint: "يسجّل زبوناً جديداً من شاشته ويبيع له فوراً" },
+  { deny: "AGENT_NO_RECEIPT",      label: "يسجّل سند قبض",   hint: "يقبض من الزبون ويتحمّل المبلغ بذمته" },
+  { deny: "AGENT_NO_PRICE_REQUEST", label: "يطلب سعر خاص",   hint: "يرسل لك طلب سعر لمادة واحدة" },
+  { deny: "AGENT_NO_ISSUE",        label: "يسجّل مشاكل",     hint: "يسجّل سبب رفض الزبون وأسعار المنافسين" },
+]
+
 // "Grant everything" must never hand out SALES_AGENT: it is a RESTRICTION as
 // much as a capability — it locks the account into the rep screen and confines
 // it to that rep's own customers. Ticking "all permissions" on an owner account
@@ -453,6 +465,31 @@ export function UsersPage() {
             <div className="mt-1 text-xs text-slate-500">
               انتبه: هذي الصلاحية تحصر الحساب بشاشة المندوب وبزبائنه فقط. لا تعطيها لحسابك أنت.
             </div>
+
+            {(form.permissions ?? []).includes("SALES_AGENT") && (
+              <>
+                <div className="mb-2 mt-3 text-sm font-semibold text-slate-600">شنو يقدر يسوي هذا المندوب</div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {agentAbilities.map((ability) => {
+                    // A DENY marker: ticked means allowed, so absence = allowed.
+                    const allowed = !(form.permissions ?? []).includes(ability.deny)
+                    return (
+                      <label key={ability.deny} className="flex gap-3 rounded-md border border-violet-200 bg-violet-50/30 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/40">
+                        <input
+                          type="checkbox"
+                          checked={allowed}
+                          onChange={() => togglePermission(ability.deny)}
+                        />
+                        <span>
+                          <span className="block font-medium">{ability.label}</span>
+                          <span className="block text-xs text-slate-500">{ability.hint}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </>
+            )}
 
             {form.role === "ADMIN" ? (
               <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح أدناه وصلاحية المندوب.</div>

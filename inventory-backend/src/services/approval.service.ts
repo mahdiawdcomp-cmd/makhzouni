@@ -923,6 +923,14 @@ export async function reviewApproval(
      * staff mark it ready. "INVOICE" bills it now.
      */
     catalogOrderMode?: "INVOICE" | "PREPARE";
+    /**
+     * Why it was rejected, in the reviewer's own words.
+     *
+     * A rep whose order comes back as a bare «مرفوض» has to telephone to find
+     * out what to fix. Stored on the approval so the answer is written once and
+     * read by whoever asks.
+     */
+    reviewNote?: string;
   }
 ) {
   const approval = await prisma.pendingApproval.findUnique({
@@ -944,6 +952,7 @@ export async function reviewApproval(
         status: ApprovalStatus.REJECTED,
         reviewedBy,
         reviewedAt: new Date(),
+        reviewNote: options?.reviewNote?.trim() || null,
       },
     });
 

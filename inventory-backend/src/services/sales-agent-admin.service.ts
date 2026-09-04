@@ -420,10 +420,32 @@ export async function getCommission(agentId: string, month: string, ratePercent?
   const rate = Number.isFinite(Number(ratePercent)) ? Number(ratePercent) : null;
   const pct = (base: number) => (rate == null ? null : round2((base * rate) / 100));
 
+  // A settled month keeps what was agreed. The live figures are still returned
+  // beside it so the owner can SEE that the books have moved since — which is
+  // the whole reason freezing exists — without the agreed payout changing.
+  const settlement = await prisma.salesAgentSettlement.findUnique({
+    where: { salesAgentId_month: { salesAgentId: agentId, month } },
+    include: { settler: { select: { name: true } } },
+  });
+
   return {
     agentId: agent.id,
     agentName: agent.name,
     month,
+    settled: settlement
+      ? {
+          sold: toNumber(settlement.sold),
+          collectedInHand: toNumber(settlement.collectedInHand),
+          collectedFromOwnCustomers: toNumber(settlement.collectedFromOwnCustomers),
+          basis: settlement.basis,
+          basisLabel: settlementBasisLabel(settlement.basis),
+          ratePercent: toNumber(settlement.ratePercent),
+          amount: toNumber(settlement.amount),
+          notes: settlement.notes,
+          settledAt: settlement.createdAt,
+          settledBy: settlement.settler.name,
+        }
+      : null,
     // Names the basis on the screen, so nobody has to guess which date a month
     // boundary follows when an order is sent on the 30th and approved on the 1st.
     dateBasis: "INVOICE_DATE" as const,
@@ -602,6 +624,345 @@ export async function getIssueReports(opts: { from?: string; to?: string; agentI
       customerName: r.customer.name,
       area: r.customer.area,
       createdAt: r.createdAt,
+    })),
+  };
+}
+
+/**
+ * The raw refusal log behind the aggregated reports.
+ *
+ * The four reports answer "what is going wrong overall"; this answers "what
+ * exactly did he hear in that shop". Both are needed — a single competitor quote
+ * is often worth more than the count it disappears into.
+ */
+export async function listIssues(
+  opts: { from?: string; to?: string; agentId?: string; reason?: string } = {},
+) {
+  if (opts.agentId) assertUuid(opts.agentId, "المندوب غير صحيح");
+  const createdAt = issueWindow(opts.from, opts.to);
+  const rows = await prisma.salesAgentIssue.findMany({
+    where: {
+      ...(createdAt ? { createdAt } : {}),
+      ...(opts.agentId ? { salesAgentId: opts.agentId } : {}),
+      ...(opts.reason ? { reason: opts.reason } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 300,
+    select: {
+      id: true,
+      reason: true,
+      note: true,
+      competitorInfo: true,
+      createdAt: true,
+      salesAgent: { select: { name: true } },
+      customer: { select: { name: true, area: true } },
+      product: { select: { name: true } },
+    },
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    reason: r.reason,
+    reasonLabel: issueReasonLabel(r.reason),
+    note: r.note,
+    competitorInfo: r.competitorInfo,
+    createdAt: r.createdAt,
+    agentName: r.salesAgent.name,
+    customerName: r.customer.name,
+    area: r.customer.area,
+    productName: r.product?.name ?? null,
+  }));
+}
+
+/* ── «تثبيت الشهر» — freezing a month's settlement ───────────────────── */
+
+/** Which of the three figures the owner chose to pay on. */
+export const SETTLEMENT_BASES = ["SOLD", "COLLECTED_IN_HAND", "COLLECTED_FROM_OWN"] as const;
+export type SettlementBasis = (typeof SETTLEMENT_BASES)[number];
+
+const BASIS_LABEL: Record<SettlementBasis, string> = {
+  SOLD: "قيمة مبيعاته",
+  COLLECTED_IN_HAND: "الي قبضه بيده",
+  COLLECTED_FROM_OWN: "تحصيل من زبائنه",
+};
+
+export function settlementBasisLabel(basis: string) {
+  return BASIS_LABEL[basis as SettlementBasis] ?? basis;
+}
+
+/**
+ * Freeze what was agreed with a rep for one month.
+ *
+ * The calculator reads live rows, which is correct right up to the moment a
+ * number is agreed with a person. After that, anything touching the past — a
+ * cancelled invoice, a customer moved to another rep — silently rewrites the
+ * basis of a payment already made. This row is the agreement itself.
+ *
+ * The payout is STORED, not recomputed from the rate: the rate and the basis
+ * could both be edited later, and the number actually agreed has to survive
+ * that. Settling twice is impossible — reopening is a separate, deliberate act.
+ */
+export async function settleMonth(
+  input: { agentId: string; month: string; basis: string; ratePercent: number; notes?: string },
+  settledBy: string,
+) {
+  assertUuid(input.agentId, "المندوب غير صحيح");
+
+  if (!SETTLEMENT_BASES.includes(input.basis as SettlementBasis)) {
+    throw new AppError("أساس المحاسبة غير معروف", 400, "BASIS_INVALID");
+  }
+  const rate = Number(input.ratePercent);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    throw new AppError("النسبة لازم تكون بين صفر ومئة", 400, "RATE_INVALID");
+  }
+
+  const existing = await prisma.salesAgentSettlement.findUnique({
+    where: { salesAgentId_month: { salesAgentId: input.agentId, month: input.month } },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new AppError("هذا الشهر مثبّت أصلاً. افتحه أولاً إذا تريد تعيد الحساب.", 409, "ALREADY_SETTLED");
+  }
+
+  // Read the figures fresh at the moment of settling, rather than trusting
+  // numbers the client posts back: what gets frozen must be what the books say
+  // now, not what a stale screen was showing.
+  const live = await getCommission(input.agentId, input.month, rate);
+
+  const base =
+    input.basis === "SOLD"
+      ? live.sold
+      : input.basis === "COLLECTED_IN_HAND"
+        ? live.collectedInHand
+        : live.collectedFromOwnCustomers;
+
+  const amount = round2((base * rate) / 100);
+
+  const row = await prisma.salesAgentSettlement.create({
+    data: {
+      salesAgentId: input.agentId,
+      month: input.month,
+      sold: live.sold,
+      collectedInHand: live.collectedInHand,
+      collectedFromOwnCustomers: live.collectedFromOwnCustomers,
+      basis: input.basis,
+      ratePercent: rate,
+      amount,
+      notes: input.notes?.trim() || null,
+      settledBy,
+    },
+    include: { settler: { select: { name: true } } },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: settledBy,
+      action: "SALES_AGENT_MONTH_SETTLED",
+      entity: "SalesAgentSettlement",
+      recordId: row.id,
+      metadata: {
+        agentId: input.agentId,
+        month: input.month,
+        basis: input.basis,
+        ratePercent: rate,
+        amount,
+      },
+    },
+  });
+
+  return serializeSettlement(row);
+}
+
+/**
+ * Reopen a settled month.
+ *
+ * Deleting the row rather than flagging it: a reopened month means "we are
+ * negotiating again", and a half-settled state that still looks agreed is worse
+ * than none. The audit log keeps what the agreement was.
+ */
+export async function reopenMonth(agentId: string, month: string, userId: string) {
+  assertUuid(agentId, "المندوب غير صحيح");
+
+  const row = await prisma.salesAgentSettlement.findUnique({
+    where: { salesAgentId_month: { salesAgentId: agentId, month } },
+  });
+  if (!row) throw new AppError("هذا الشهر مو مثبّت", 404, "NOT_SETTLED");
+
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action: "SALES_AGENT_MONTH_REOPENED",
+      entity: "SalesAgentSettlement",
+      recordId: row.id,
+      metadata: {
+        agentId,
+        month,
+        basis: row.basis,
+        ratePercent: toNumber(row.ratePercent),
+        amount: toNumber(row.amount),
+      },
+    },
+  });
+
+  await prisma.salesAgentSettlement.delete({ where: { id: row.id } });
+  return { reopened: true, month };
+}
+
+export async function listSettlements(agentId?: string, limit = 36) {
+  if (agentId) assertUuid(agentId, "المندوب غير صحيح");
+  const rows = await prisma.salesAgentSettlement.findMany({
+    where: agentId ? { salesAgentId: agentId } : {},
+    orderBy: [{ month: "desc" }],
+    take: Math.min(limit, 120),
+    include: {
+      settler: { select: { name: true } },
+      salesAgent: { select: { name: true } },
+    },
+  });
+  return rows.map(serializeSettlement);
+}
+
+function serializeSettlement(row: {
+  id: string;
+  month: string;
+  sold: unknown;
+  collectedInHand: unknown;
+  collectedFromOwnCustomers: unknown;
+  basis: string;
+  ratePercent: unknown;
+  amount: unknown;
+  notes: string | null;
+  createdAt: Date;
+  settler: { name: string };
+  salesAgent?: { name: string };
+}) {
+  return {
+    id: row.id,
+    month: row.month,
+    sold: toNumber(row.sold),
+    collectedInHand: toNumber(row.collectedInHand),
+    collectedFromOwnCustomers: toNumber(row.collectedFromOwnCustomers),
+    basis: row.basis,
+    basisLabel: settlementBasisLabel(row.basis),
+    ratePercent: toNumber(row.ratePercent),
+    amount: toNumber(row.amount),
+    notes: row.notes,
+    settledAt: row.createdAt,
+    settledBy: row.settler.name,
+    agentName: row.salesAgent?.name,
+  };
+}
+
+/* ── «صحة الذمة» — the anomaly screen ────────────────────────────────── */
+
+/**
+ * Everything wrong with the rep money picture, in one list.
+ *
+ * These states are all individually recoverable and all individually invisible:
+ * nothing surfaces them unless someone happens to look at the right screen on
+ * the right day. Collected here so a weekly glance is enough.
+ */
+export async function getLiabilityHealth() {
+  const liability = await listAgentLiability();
+  const agentIds = liability.map((a) => a.agentId);
+
+  const [cancelledAfterHandover, staleRequests, unlinkedCollections] = await Promise.all([
+    // A receipt cancelled while its cash had already been handed over — the one
+    // way the derived liability goes negative.
+    prisma.paymentVoucher.findMany({
+      where: { salesAgentId: { in: agentIds }, type: "RECEIPT", cancelledAt: { not: null } },
+      select: {
+        id: true,
+        voucherNumber: true,
+        amount: true,
+        cancelledAt: true,
+        salesAgent: { select: { id: true, name: true } },
+        customer: { select: { name: true } },
+      },
+      orderBy: { cancelledAt: "desc" },
+      take: 50,
+    }),
+    // Price requests approved long ago and never used: either the rep forgot, or
+    // the customer walked. Either way the owner agreed a price that is still
+    // live and nobody is watching it.
+    prisma.salesAgentPriceRequest.findMany({
+      where: {
+        status: "APPROVED",
+        consumedAt: null,
+        createdAt: { lt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
+      },
+      select: {
+        id: true,
+        requestedPrice: true,
+        currentPrice: true,
+        createdAt: true,
+        product: { select: { name: true } },
+        customer: { select: { name: true } },
+        salesAgent: { select: { name: true } },
+      },
+      take: 50,
+    }),
+    // Money a rep collected from a customer who is not theirs — usually the sign
+    // that a customer was reassigned after the fact. Filtered in memory below
+    // rather than in SQL: comparing two columns of the same row across a
+    // relation is exactly where the NULL-semantics trap lives, and the row count
+    // here is small enough that reading and filtering is the safer shape.
+    prisma.paymentVoucher.findMany({
+      where: {
+        salesAgentId: { in: agentIds },
+        type: "RECEIPT",
+        cancelledAt: null,
+        archivedAt: null,
+      },
+      select: {
+        id: true,
+        voucherNumber: true,
+        amount: true,
+        date: true,
+        salesAgentId: true,
+        salesAgent: { select: { name: true } },
+        customer: { select: { name: true, salesAgentId: true } },
+      },
+      orderBy: { date: "desc" },
+      take: 200,
+    }),
+  ]);
+
+  const mismatched = unlinkedCollections.filter(
+    (v) => v.customer?.salesAgentId !== v.salesAgentId,
+  );
+
+  return {
+    negativeLiability: liability
+      .filter((a) => a.overHanded)
+      .map((a) => ({ agentId: a.agentId, name: a.name, onHand: a.onHand })),
+    inactiveWithMoney: liability
+      .filter((a) => !a.isActive && a.onHand !== 0)
+      .map((a) => ({ agentId: a.agentId, name: a.name, onHand: a.onHand })),
+    cancelledReceipts: cancelledAfterHandover.map((v) => ({
+      id: v.id,
+      voucherNumber: v.voucherNumber,
+      amount: toNumber(v.amount),
+      cancelledAt: v.cancelledAt,
+      agentName: v.salesAgent?.name ?? "—",
+      customerName: v.customer?.name ?? "—",
+    })),
+    staleApprovedPrices: staleRequests.map((r) => ({
+      id: r.id,
+      productName: r.product.name,
+      customerName: r.customer.name,
+      agentName: r.salesAgent.name,
+      currentPrice: toNumber(r.currentPrice),
+      requestedPrice: toNumber(r.requestedPrice),
+      approvedAt: r.createdAt,
+    })),
+    collectionsFromOthersCustomers: mismatched.map((v) => ({
+      id: v.id,
+      voucherNumber: v.voucherNumber,
+      amount: toNumber(v.amount),
+      date: v.date,
+      agentName: v.salesAgent?.name ?? "—",
+      customerName: v.customer?.name ?? "—",
     })),
   };
 }

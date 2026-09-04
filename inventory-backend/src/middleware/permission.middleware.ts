@@ -59,6 +59,48 @@ export function isSalesAgent(user: Express.User | undefined) {
 }
 
 /**
+ * Per-rep capability switches, on top of the SALES_AGENT marker.
+ *
+ * SALES_AGENT decides WHETHER the rep screen opens at all. These decide what the
+ * rep may do once inside, one switch per action, so an owner can let a new rep
+ * sell without letting them register customers or take cash yet.
+ *
+ * DEFAULT-ON, deliberately: these are DENY markers, so a rep created before this
+ * existed — and a rep the owner never bothered to configure — keeps working
+ * exactly as before. A default-off design would have silently disabled every
+ * existing rep on deploy.
+ */
+export const AGENT_DENY = {
+  NEW_CUSTOMER: "AGENT_NO_NEW_CUSTOMER",
+  RECEIPT: "AGENT_NO_RECEIPT",
+  PRICE_REQUEST: "AGENT_NO_PRICE_REQUEST",
+  ISSUE: "AGENT_NO_ISSUE",
+} as const;
+
+export type AgentCapability = keyof typeof AGENT_DENY;
+
+const AGENT_DENY_MESSAGE: Record<AgentCapability, string> = {
+  NEW_CUSTOMER: "ما عندك صلاحية تضيف زبائن — راجع صاحب المحل",
+  RECEIPT: "ما عندك صلاحية تسجّل سندات قبض — راجع صاحب المحل",
+  PRICE_REQUEST: "ما عندك صلاحية تطلب أسعار خاصة — راجع صاحب المحل",
+  ISSUE: "ما عندك صلاحية تسجّل مشاكل — راجع صاحب المحل",
+};
+
+export function agentCan(user: Express.User | undefined, capability: AgentCapability) {
+  return !user?.permissions.includes(AGENT_DENY[capability]);
+}
+
+/** Route guard for one rep capability. Sits after `requireSalesAgent()`. */
+export function requireAgentCapability(capability: AgentCapability) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!agentCan(req.user, capability)) {
+      return next(new AppError(AGENT_DENY_MESSAGE[capability], 403, `AGENT_DENIED_${capability}`));
+    }
+    return next();
+  };
+}
+
+/**
  * The id a query must filter customers by, or null for "no restriction".
  *
  * An ADMIN who also carries the SALES_AGENT marker is still scoped — the marker
