@@ -21,6 +21,9 @@ let links: Map<string, any>;
 let editLocks: Map<string, any>;
 let invoice: any;
 let updateInvoiceCalls: any[];
+// What each coupon code is worth, so the fake engine can double-charge it the
+// way the real one would if a count ever re-sent the code.
+const couponValues: Record<string, number> = { SAVE10: 10000 };
 let approvalCalls: any[];
 let notifyCalls: any[];
 let whatsappCalls: any[];
@@ -205,9 +208,16 @@ mock.module("./invoice.service", {
     getInvoiceById: async () => ({ ...invoice }),
     updateInvoice: async (id: string, input: any, updatedBy: string) => {
       updateInvoiceCalls.push({ id, input, updatedBy });
-      const subtotal = input.items.reduce((s: number, i: any) => s + i.unitPrice * i.quantity, 0);
-      const total = subtotal - input.discount + input.tax;
-      return { ...invoice, subtotal, totalAmount: total, paidAmount: input.paidAmount };
+      const subtotal = input.items.reduce(
+        (sum: number, i: any) => sum + Math.round(i.unitPrice * i.quantity * 100) / 100, 0,
+      );
+      // Faithful to createInvoiceInTransaction: a coupon code is charged ON TOP
+      // of the discount it is given, and paid is clamped to the total.
+      const couponValue = input.couponCode ? (couponValues[input.couponCode] ?? 0) : 0;
+      const discount = Math.min(subtotal, input.discount + couponValue);
+      const total = Math.round((subtotal - discount + input.tax) * 100) / 100;
+      const paidAmount = Math.min(input.paidAmount, Math.max(0, total));
+      return { ...invoice, subtotal, discount, totalAmount: total, paidAmount };
     },
   },
 });
@@ -719,6 +729,93 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
 
     const link = await mintLink("CUSTOMER");
     await assert.rejects(() => svc.applyCustomerCount(link.id, OWNER), /فارغ|COUNT_RESULT_EMPTY/);
+  });
+
+
+  // ── The money, audited ─────────────────────────────────────────────────────
+
+  it("a coupon is never charged a second time by a count", async () => {
+    // 240,000 of goods, 15,000 already discounted — 10,000 of it the coupon's.
+    resetInvoice({ discount: 15000, totalAmount: 225000, paidAmount: 0, coupon: { code: "SAVE10" } });
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 240 - 24 }]);
+
+    const input = updateInvoiceCalls[0].input;
+    assert.equal(input.couponCode, undefined, "the code must not be re-sent — its value is already in the discount");
+    assert.equal(input.discount, 15000, "every dinar of the original discount is carried forward");
+  });
+
+  it("the discount is clamped so a shrunken invoice can never go negative", async () => {
+    resetInvoice({ discount: 200000, totalAmount: 40000, paidAmount: 0 });
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 24 }]); // 24,000 of goods
+    assert.equal(updateInvoiceCalls[0].input.discount, 24000);
+  });
+
+  it("the price per piece survives a broken carton to the dinar", async () => {
+    // 100,000 a carton of 240 => 416.67 a piece. 210 pieces => 87,500.70.
+    resetInvoice({ items: [makeItem({ unitPrice: 100000, totalPrice: 100000 })], totalAmount: 100000, paidAmount: 0 });
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+
+    const item = updateInvoiceCalls[0].input.items[0];
+    assert.equal(item.unitPrice, 416.67, "rounded to the money scale, not to a whole dinar");
+    const exact = (100000 / 240) * 210;
+    const charged = item.unitPrice * item.quantity;
+    assert.ok(Math.abs(charged - exact) < 1, `drift must stay under a dinar (was ${Math.abs(charged - exact)})`);
+  });
+
+  it("what is owed back is read off the invoice, not off a guess", async () => {
+    resetInvoice({ paidAmount: 240000, totalAmount: 240000 });
+    const link = await mintLink("WORKER");
+    const res = await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 120 }]);
+
+    const stored = updateInvoiceCalls[0];
+    // 120 of 240 at 240,000 a carton => 120,000 of goods.
+    assert.equal(res.outcome?.totalAfter, 120000);
+    assert.equal(res.outcome?.refundDue, 120000, "240,000 paid against a 120,000 invoice");
+    assert.equal(stored.input.paidAmount, 120000, "paid is brought down to the new total");
+  });
+
+  it("two counts on one invoice never hand back the same dinar twice", async () => {
+    // Worker: 240,000 paid, invoice falls to 210,000 => 30,000 owed.
+    const first = await mintLink("WORKER");
+    const firstRes = await svc.submitCount(first.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(firstRes.outcome?.refundDue, 30000);
+
+    // The invoice now stands at 210,000 with 210,000 paid. A second count takes
+    // it to 200,000 => only the further 10,000 is owed, not another 30,000.
+    resetInvoice({
+      items: [makeItem({ unit: "PIECE", quantity: 210, unitPrice: 1000, totalPrice: 210000 })],
+      totalAmount: 210000, paidAmount: 210000,
+    });
+    const second = await mintLink("WORKER");
+    const secondRes = await svc.submitCount(second.token, [{ itemId: "item-1", receivedPieces: 200 }]);
+
+    assert.equal(secondRes.outcome?.refundDue, 10000);
+    // 30,000 + 10,000 handed back against 240,000 paid on a 200,000 invoice.
+    assert.equal(240000 - 200000, 30000 + 10000);
+  });
+
+  it("an invoice that grows owes nothing back and keeps what was paid", async () => {
+    resetInvoice({ paidAmount: 240000, totalAmount: 240000 });
+    const link = await mintLink("WORKER");
+    const res = await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 250 }]);
+
+    assert.equal(res.outcome?.refundDue, 0);
+    assert.equal(updateInvoiceCalls[0].input.paidAmount, 240000, "the customer's payment is left alone");
+  });
+
+  it("the tax rides through untouched", async () => {
+    resetInvoice({ tax: 5000, totalAmount: 245000, paidAmount: 0 });
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 120 }]);
+    assert.equal(updateInvoiceCalls[0].input.tax, 5000);
+  });
+
+  it("counting is refused on anything that is not a sale", async () => {
+    resetInvoice({ type: "PURCHASE" });
+    await assert.rejects(() => mintLink("WORKER"), /فواتير البيع فقط|NOT_A_SALE_INVOICE/);
   });
 
   it("rebuildLine picks the largest unit that divides exactly, at an unchanged piece price", () => {

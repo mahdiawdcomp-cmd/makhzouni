@@ -1,7 +1,8 @@
-import { InvoiceCountAudience } from "@prisma/client";
+import { InvoiceCountAudience, UserRole } from "@prisma/client";
 
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
+import { hasPermission } from "../middleware/permission.middleware";
 import {
   acknowledgeRefund,
   createCountLink,
@@ -19,6 +20,19 @@ function requireUser(user: Express.User | undefined) {
   return user;
 }
 
+/**
+ * Minting a link, pulling one back, and above all recording that cash was handed
+ * back are invoice-level acts. They were reachable by any signed-in account,
+ * which for the refund acknowledgement means anyone could silently close the
+ * only record saying the shop still owes a customer money.
+ */
+function requireInvoicePermission(user: Express.User) {
+  if (user.role === UserRole.STAFF && !hasPermission(user, "MANAGE_INVOICES")) {
+    throw new AppError("Invoice permission is required", 403, "PERMISSION_REQUIRED");
+  }
+  return user;
+}
+
 // ── Shop side (authenticated) ────────────────────────────────────────────────
 
 export const listInvoiceCountLinks = asyncHandler(async (req, res) => {
@@ -27,7 +41,7 @@ export const listInvoiceCountLinks = asyncHandler(async (req, res) => {
 });
 
 export const createInvoiceCountLink = asyncHandler(async (req, res) => {
-  const user = requireUser(req.user);
+  const user = requireInvoicePermission(requireUser(req.user));
   const audience = String(req.body.audience) as InvoiceCountAudience;
   if (audience !== InvoiceCountAudience.WORKER && audience !== InvoiceCountAudience.CUSTOMER) {
     throw new AppError("نوع الرابط غير صحيح", 400, "INVALID_AUDIENCE");
@@ -44,12 +58,13 @@ export const createInvoiceCountLink = asyncHandler(async (req, res) => {
 });
 
 export const revokeInvoiceCountLink = asyncHandler(async (req, res) => {
+  requireInvoicePermission(requireUser(req.user));
   const link = await revokeCountLink(String(req.params.linkId));
   res.json({ success: true, message: "تم إلغاء الرابط", data: link });
 });
 
 export const acknowledgeCountRefund = asyncHandler(async (req, res) => {
-  const user = requireUser(req.user);
+  const user = requireInvoicePermission(requireUser(req.user));
   const link = await acknowledgeRefund(String(req.params.linkId), user.id);
   res.json({ success: true, message: "تم تسجيل إرجاع المبلغ", data: link });
 });

@@ -130,6 +130,12 @@ export async function createCountLink(input: CreateCountLinkInput) {
   if (invoice.archivedAt || invoice.status !== InvoiceStatus.ACTIVE) {
     throw new AppError("لا يمكن إرسال رابط جرد لفاتورة ملغاة أو محذوفة", 400, "INVOICE_CLOSED");
   }
+  // Sales only. Every word of this feature — "what reached you", "money back to
+  // the customer" — is about goods leaving the shop; on a purchase it would be
+  // both wrong and misleading.
+  if (invoice.type !== "SALE") {
+    throw new AppError("الجرد متاح لفواتير البيع فقط", 400, "NOT_A_SALE_INVOICE");
+  }
 
   let recipientId: string | null = null;
   let recipientName: string;
@@ -382,7 +388,6 @@ export async function applyCountToInvoice(
     where: { id: invoiceId },
     include: {
       items: { include: { product: { select: { pcsPerCarton: true, boxPieces: true } } } },
-      coupon: { select: { code: true } },
     },
   });
   if (!invoice) throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
@@ -431,15 +436,25 @@ export async function applyCountToInvoice(
     );
   }
 
-  // A fixed discount larger than what is left would drive the invoice negative.
-  const newSubtotal = roundMoney(items.reduce((sum, i) => sum + (i.unitPrice ?? 0) * i.quantity, 0));
+  // Line totals are rounded per line, exactly as the invoice engine does, so the
+  // projection below lands on the same number the engine will store.
+  const newSubtotal = roundMoney(
+    items.reduce((sum, i) => sum + roundMoney((i.unitPrice ?? 0) * i.quantity), 0),
+  );
+  // `invoice.discount` is the SUM of the manual discount, any coupon and any
+  // redeemed loyalty points. Carrying it forward preserves every dinar of it —
+  // and is why the coupon code is deliberately NOT re-sent below: the engine
+  // would compute the coupon again and add it on top, discounting the invoice a
+  // second time. This mirrors what the invoice edit screen already does.
+  // Clamped so a fixed discount cannot drive a shrunken invoice negative.
   const discount = Math.min(Number(invoice.discount), newSubtotal);
   const tax = Number(invoice.tax);
   const projectedTotal = roundMoney(newSubtotal - discount + tax);
 
-  // Option (ب): the money is handed back, not parked as a credit.
-  const refundDue = Math.max(0, roundMoney(paidBefore - projectedTotal));
-  const paidAmount = refundDue > 0 ? projectedTotal : paidBefore;
+  // Option (ب): the money is handed back, not parked as a credit. Without this
+  // the engine would silently clamp paidAmount down to the new total and the
+  // overpayment would vanish with nothing to show the owner he owes it.
+  const paidAmount = Math.min(paidBefore, projectedTotal);
 
   const updated = await updateInvoice(
     invoiceId,
@@ -453,9 +468,6 @@ export async function applyCountToInvoice(
       paymentType: invoice.paymentType,
       branchId: invoice.branchId ?? undefined,
       notes: invoice.notes ?? undefined,
-      // Mirrors the invoice edit screen: a coupon is re-applied, redeemed
-      // loyalty points are not re-spent.
-      couponCode: invoice.coupon?.code,
       items,
     },
     updatedBy,
@@ -463,9 +475,15 @@ export async function applyCountToInvoice(
     db === prisma ? undefined : (db as Prisma.TransactionClient),
   );
 
+  // Read the refund off what the engine ACTUALLY stored, never off the
+  // projection: if the two ever diverge, the money owed has to follow the
+  // invoice, not the guess that preceded it.
+  const totalAfter = Number(updated.totalAmount);
+  const refundDue = Math.max(0, roundMoney(paidBefore - totalAfter));
+
   return {
     totalBefore,
-    totalAfter: Number(updated.totalAmount),
+    totalAfter,
     refundDue,
     removedLines,
     changedLines,
