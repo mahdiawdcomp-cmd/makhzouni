@@ -9,6 +9,7 @@
   VoucherType,
 } from "@prisma/client";
 import prisma from "../config/database";
+import { logger } from "../utils/logger";
 import { AppError } from "../utils/app-error";
 import {
   amountInPieces,
@@ -330,6 +331,18 @@ async function recalculateCustomerBalanceInTransaction(tx: Db, customerId: strin
     where: { id: customerId },
     data: { currentBalance, lastTransactionAt },
   });
+
+  // The balance the customer HOLDS on paper has to move with the balance we
+  // hold in the ledger. Editing an old invoice used to leave every later
+  // invoice quoting a figure that had quietly stopped being true.
+  // Guarded on purpose: this refreshes what is PRINTED, not what is owed. A
+  // failure here must never be the reason a sale rolls back.
+  try {
+    const { resyncInvoiceSnapshots } = await import("./invoice-snapshot.service");
+    await resyncInvoiceSnapshots(tx, customerId);
+  } catch (error) {
+    logger.warn(`[snapshots] resync failed for customer ${customerId}: ${String(error)}`);
+  }
 
   return currentBalance;
 }
@@ -1915,18 +1928,21 @@ async function updateInvoiceInTransaction(
       return result;
     }
 
-    // Restore the display-only previousBalance/finalBalance so the invoice shows the
-    // balance at the time it was originally created (not the balance including later invoices).
-    const delta = result.finalBalance - result.previousBalance;
-    await tx.invoice.update({
+    // The snapshot is NOT frozen back to what it was at creation any more.
+    // resyncInvoiceSnapshots (run inside the balance recalculation above) has
+    // just rewritten it by walking the ledger the same way the statement does,
+    // so the paper invoice and the statement now quote the same number. Read it
+    // back rather than returning the pre-resync value.
+    const refreshed = await tx.invoice.findUnique({
       where: { id },
-      data: {
-        previousBalance: originalPreviousBalance,
-        finalBalance: originalPreviousBalance + delta,
-      },
+      select: { previousBalance: true, finalBalance: true },
     });
 
-    return { ...result, previousBalance: originalPreviousBalance, finalBalance: originalPreviousBalance + delta };
+    return {
+      ...result,
+      previousBalance: toNumber(refreshed?.previousBalance ?? result.previousBalance),
+      finalBalance: toNumber(refreshed?.finalBalance ?? result.finalBalance),
+    };
 }
 
 /**

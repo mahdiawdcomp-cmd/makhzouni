@@ -21,6 +21,7 @@ let links: Map<string, any>;
 let editLocks: Map<string, any>;
 let invoice: any;
 let updateInvoiceCalls: any[];
+let couponRedemptionCreates: any[];
 // What each coupon code is worth, so the fake engine can double-charge it the
 // way the real one would if a count ever re-sent the code.
 const couponValues: Record<string, number> = { SAVE10: 10000 };
@@ -71,6 +72,7 @@ function resetInvoice(over: Partial<any> = {}) {
     finalBalance: 0,
     createdBy: CREATOR,
     coupon: null,
+    couponRedemptions: [],
     items: [makeItem()],
     ...over,
   };
@@ -89,6 +91,11 @@ function matchWhere(row: any, where: any): boolean {
 const fakeDb: any = {
   invoice: {
     findUnique: async ({ where }: any) => (where.id === INVOICE_ID ? { ...invoice } : null),
+    update: async ({ data }: any) => { Object.assign(invoice, data); return { ...invoice }; },
+  },
+  couponRedemption: {
+    findFirst: async () => null,
+    create: async (args: any) => { couponRedemptionCreates.push(args.data); return args.data; },
   },
   invoiceCountLink: {
     create: async ({ data }: any) => {
@@ -248,6 +255,7 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     links = new Map();
     editLocks = new Map();
     updateInvoiceCalls = [];
+    couponRedemptionCreates = [];
     approvalCalls = [];
     notifyCalls = [];
     whatsappCalls = [];
@@ -743,13 +751,35 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
 
   it("a coupon is never charged a second time by a count", async () => {
     // 240,000 of goods, 15,000 already discounted — 10,000 of it the coupon's.
-    resetInvoice({ discount: 15000, totalAmount: 225000, paidAmount: 0, coupon: { code: "SAVE10" } });
+    resetInvoice({
+      discount: 15000, totalAmount: 225000, paidAmount: 0, coupon: { code: "SAVE10" },
+      couponRedemptions: [{ couponId: "coupon-1", amount: 10000, customerId: "cust-1" }],
+    });
     const link = await mintLink("WORKER");
     await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 240 - 24 }]);
 
     const input = updateInvoiceCalls[0].input;
     assert.equal(input.couponCode, undefined, "the code must not be re-sent — its value is already in the discount");
     assert.equal(input.discount, 15000, "every dinar of the original discount is carried forward");
+  });
+
+  it("but the invoice keeps its coupon: the link is restored, not recharged", async () => {
+    resetInvoice({
+      discount: 15000, totalAmount: 225000, paidAmount: 0, coupon: { code: "SAVE10" },
+      couponRedemptions: [{ couponId: "coupon-1", amount: 10000, customerId: "cust-1" }],
+    });
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 240 - 24 }]);
+
+    assert.equal(couponRedemptionCreates.length, 1, "the coupon's use is put back, not freed");
+    assert.equal(couponRedemptionCreates[0].couponId, "coupon-1");
+    assert.equal(Number(couponRedemptionCreates[0].amount), 10000, "at the amount it already had");
+  });
+
+  it("an invoice with no coupon gains none", async () => {
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(couponRedemptionCreates.length, 0);
   });
 
   it("the discount is clamped so a shrunken invoice can never go negative", async () => {

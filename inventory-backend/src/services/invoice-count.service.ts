@@ -412,6 +412,7 @@ export async function applyCountToInvoice(
     where: { id: invoiceId },
     include: {
       items: { include: { product: { select: { pcsPerCarton: true, boxPieces: true } } } },
+      couponRedemptions: { select: { couponId: true, amount: true, customerId: true } },
     },
   });
   if (!invoice) throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
@@ -498,6 +499,26 @@ export async function applyCountToInvoice(
     // Joins the caller's transaction when there is one.
     db === prisma ? undefined : (db as Prisma.TransactionClient),
   );
+
+  // The invoice engine clears the coupon link whenever the code is not resent —
+  // and resending it would charge the discount twice. So the LINK is put back by
+  // hand, with the amount it already had: the customer keeps every dinar, the
+  // coupon keeps its use, and an expired coupon cannot block a count.
+  const redemption = invoice.couponRedemptions?.[0];
+  if (redemption?.couponId) {
+    await db.invoice.update({ where: { id: invoiceId }, data: { couponId: redemption.couponId } });
+    const stillThere = await db.couponRedemption.findFirst({ where: { invoiceId } });
+    if (!stillThere) {
+      await db.couponRedemption.create({
+        data: {
+          couponId: redemption.couponId,
+          invoiceId,
+          customerId: redemption.customerId,
+          amount: redemption.amount,
+        },
+      });
+    }
+  }
 
   // Read the refund off what the engine ACTUALLY stored, never off the
   // projection: if the two ever diverge, the money owed has to follow the
