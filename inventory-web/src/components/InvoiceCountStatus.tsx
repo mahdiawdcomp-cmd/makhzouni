@@ -20,6 +20,7 @@ import { toast } from "./ui/use-toast"
 import {
   acknowledgeCountRefund,
   getInvoiceCountLinks,
+  revokeInvoiceCountLink,
   type InvoiceCountLink,
 } from "../api/endpoints"
 import { apiErrorMessage } from "../utils/apiError"
@@ -99,6 +100,17 @@ export function InvoiceCountStatus({ invoiceId, currency = "د.ع" }: { invoiceI
     enabled: !!invoiceId,
   })
 
+  const revokeMutation = useMutation({
+    mutationFn: (linkId: string) => revokeInvoiceCountLink(linkId),
+    onSuccess: () => {
+      toast({ title: "تم إلغاء الرابط" })
+      void queryClient.invalidateQueries({ queryKey: ["invoice-count-links", invoiceId] })
+    },
+    onError: (error) => {
+      toast({ title: "تعذر الإلغاء", description: apiErrorMessage(error), variant: "destructive" })
+    },
+  })
+
   const ackMutation = useMutation({
     mutationFn: (linkId: string) => acknowledgeCountRefund(linkId),
     onSuccess: () => {
@@ -140,6 +152,8 @@ export function InvoiceCountStatus({ invoiceId, currency = "د.ع" }: { invoiceI
             links={worker}
             expanded={expanded}
             onToggle={setExpanded}
+            onRevoke={(id) => revokeMutation.mutate(id)}
+            revoking={revokeMutation.isPending}
           />
           <AudienceBlock
             title="الزبون"
@@ -147,6 +161,8 @@ export function InvoiceCountStatus({ invoiceId, currency = "د.ع" }: { invoiceI
             links={customer}
             expanded={expanded}
             onToggle={setExpanded}
+            onRevoke={(id) => revokeMutation.mutate(id)}
+            revoking={revokeMutation.isPending}
           />
         </div>
       </div>
@@ -155,13 +171,15 @@ export function InvoiceCountStatus({ invoiceId, currency = "د.ع" }: { invoiceI
 }
 
 function AudienceBlock({
-  title, icon: Icon, links, expanded, onToggle,
+  title, icon: Icon, links, expanded, onToggle, onRevoke, revoking,
 }: {
   title: string
   icon: typeof Truck
   links: InvoiceCountLink[]
   expanded: string | null
   onToggle: (id: string | null) => void
+  onRevoke: (id: string) => void
+  revoking: boolean
 }) {
   if (links.length === 0) {
     return (
@@ -176,7 +194,15 @@ function AudienceBlock({
   const [latest, ...older] = links
   return (
     <div className="space-y-1.5">
-      <LinkRow title={title} icon={Icon} link={latest} expanded={expanded} onToggle={onToggle} />
+      <LinkRow
+        title={title}
+        icon={Icon}
+        link={latest}
+        expanded={expanded}
+        onToggle={onToggle}
+        onRevoke={onRevoke}
+        revoking={revoking}
+      />
       {older.length > 0 && (
         <details className="pr-6">
           <summary className="cursor-pointer text-xs text-muted-foreground">
@@ -184,7 +210,17 @@ function AudienceBlock({
           </summary>
           <div className="mt-1.5 space-y-1.5">
             {older.map((link) => (
-              <LinkRow key={link.id} title={title} icon={Icon} link={link} expanded={expanded} onToggle={onToggle} muted />
+              <LinkRow
+                key={link.id}
+                title={title}
+                icon={Icon}
+                link={link}
+                expanded={expanded}
+                onToggle={onToggle}
+                onRevoke={onRevoke}
+                revoking={revoking}
+                muted
+              />
             ))}
           </div>
         </details>
@@ -194,13 +230,15 @@ function AudienceBlock({
 }
 
 function LinkRow({
-  title, icon: Icon, link, expanded, onToggle, muted,
+  title, icon: Icon, link, expanded, onToggle, onRevoke, revoking, muted,
 }: {
   title: string
   icon: typeof Truck
   link: InvoiceCountLink
   expanded: string | null
   onToggle: (id: string | null) => void
+  onRevoke: (id: string) => void
+  revoking: boolean
   muted?: boolean
 }) {
   const state = describe(link)
@@ -208,6 +246,9 @@ function LinkRow({
   const tone = TONE_STYLES[state.tone]
   const isOpen = expanded === link.id
   const hasDetail = !!link.result?.lines?.length
+  // Only a link nobody has counted on yet can be pulled back; a submitted one is
+  // a record, not a pending errand.
+  const canRevoke = link.status === "OPEN" || link.status === "VIEWED"
 
   return (
     <div className={cn("rounded-lg border px-3 py-2", tone.border, muted && "opacity-70")}>
@@ -223,6 +264,19 @@ function LinkRow({
             {state.text}
           </p>
         </div>
+        {canRevoke && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            disabled={revoking}
+            onClick={() => onRevoke(link.id)}
+            title="يبطل الرابط فوراً — لن يتمكن من الجرد عليه"
+          >
+            <XCircle className="h-3.5 w-3.5" />
+            إلغاء الرابط
+          </Button>
+        )}
         {hasDetail && (
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onToggle(isOpen ? null : link.id)}>
             {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}

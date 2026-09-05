@@ -1236,6 +1236,7 @@ export const updateSettingsSchema = z.object({
       productArrivalTemplateName: nullAsUndefined(z.string().trim()),
       debtReminderTemplateName: nullAsUndefined(z.string().trim()),
       inactiveCustomerTemplateName: nullAsUndefined(z.string().trim()),
+      countLinkTemplateName: nullAsUndefined(z.string().trim()),
       storefrontCredentialsTemplateName: nullAsUndefined(z.string().trim()),
       storefrontLoginCodeTemplateName: nullAsUndefined(z.string().trim()),
       storefrontInviteTemplateName: nullAsUndefined(z.string().trim()),

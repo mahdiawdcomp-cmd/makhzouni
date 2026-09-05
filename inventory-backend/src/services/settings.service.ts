@@ -50,6 +50,9 @@ export interface AppSettings {
   // number" button, via POST /whatsapp/send-templated.
   debtReminderTemplateName?: string;
   inactiveCustomerTemplateName?: string;
+  // «جرد الفاتورة» — the counting link goes to a customer who may not have
+  // written in 24h, so on Cloud it needs an approved template like the rest.
+  countLinkTemplateName?: string;
   // Meta template names for the funnel's business-initiated sends. Every one
   // of these goes out when the customer has NOT just messaged us, so without
   // an approved template Meta silently drops it past the 24h window.
@@ -478,6 +481,7 @@ export const defaultSettings: AppSettings = {
   productArrivalTemplateName: "",
   debtReminderTemplateName: "debt_reminder",
   inactiveCustomerTemplateName: "inactive_customer_reminder",
+  countLinkTemplateName: "invoice_count_link",
   // Blank on purpose: these six templates do not exist in any tenant's Meta
   // account yet. A non-empty default would make every send try a template
   // name Meta has never approved. The merchant pastes the real name from

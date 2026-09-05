@@ -149,6 +149,7 @@ const fallbackSettings: AppSettings = {
   orderSubmittedTemplateName: "",
   productArrivalTemplateName: "",
   debtReminderTemplateName: "",
+  countLinkTemplateName: "",
   inactiveCustomerTemplateName: "",
   catalogPublicUrl: "https://inventory-web-six-kohl.vercel.app/catalog",
   catalogAdminWhatsappNumber: "",
@@ -807,6 +808,14 @@ export function SettingsPage() {
               </Field>
               <Field label="قالب تذكير الديون (إرسال يدوي)">
                 <Input value={settings.debtReminderTemplateName ?? ""} onChange={(e) => upd("debtReminderTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />
+              </Field>
+              <Field label="قالب رابط جرد الفاتورة">
+                <Input
+                  value={settings.countLinkTemplateName ?? ""}
+                  onChange={(e) => upd("countLinkTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
               </Field>
               <Field label="قالب تذكير الزبائن غير النشطين (إرسال يدوي)">
                 <Input value={settings.inactiveCustomerTemplateName ?? ""} onChange={(e) => upd("inactiveCustomerTemplateName", e.target.value)} placeholder="اسم القالب بالضبط من ميتا" dir="ltr" />

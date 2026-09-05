@@ -146,6 +146,7 @@ const fallbackSettings: AppSettings = {
   orderSubmittedTemplateName: "",
   productArrivalTemplateName: "",
   debtReminderTemplateName: "",
+  countLinkTemplateName: "",
   inactiveCustomerTemplateName: "",
   storefrontCredentialsTemplateName: "",
   storefrontLoginCodeTemplateName: "",
@@ -1325,6 +1326,14 @@ export function SettingsPage() {
                 <Input
                   value={settings.debtReminderTemplateName ?? ""}
                   onChange={(e) => upd("debtReminderTemplateName", e.target.value)}
+                  placeholder="اسم القالب بالضبط من ميتا"
+                  dir="ltr"
+                />
+              </Field>
+              <Field label="قالب رابط جرد الفاتورة">
+                <Input
+                  value={settings.countLinkTemplateName ?? ""}
+                  onChange={(e) => upd("countLinkTemplateName", e.target.value)}
                   placeholder="اسم القالب بالضبط من ميتا"
                   dir="ltr"
                 />

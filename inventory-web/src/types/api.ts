@@ -1204,6 +1204,7 @@ export interface AppSettings {
   productArrivalTemplateName?: string
   debtReminderTemplateName?: string
   inactiveCustomerTemplateName?: string
+  countLinkTemplateName?: string
   storefrontCredentialsTemplateName?: string
   storefrontLoginCodeTemplateName?: string
   storefrontInviteTemplateName?: string

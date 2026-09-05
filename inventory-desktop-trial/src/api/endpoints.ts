@@ -1485,7 +1485,7 @@ export async function sendWhatsAppMessage(payload: { phone: string; message: str
 export async function sendWhatsAppTemplatedMessage(payload: {
   phone: string
   message: string
-  templateKind: "voucher" | "statement" | "portal" | "debtReminder" | "inactiveCustomer"
+  templateKind: "voucher" | "statement" | "portal" | "debtReminder" | "inactiveCustomer" | "countLink"
   bodyParams: string[]
   channel?: WhatsAppSendChannel
 }) {

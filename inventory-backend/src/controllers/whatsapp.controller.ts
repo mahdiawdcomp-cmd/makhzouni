@@ -438,6 +438,7 @@ const TEMPLATE_KIND_SETTING = {
   portal: "portalLinkTemplateName",
   debtReminder: "debtReminderTemplateName",
   inactiveCustomer: "inactiveCustomerTemplateName",
+  countLink: "countLinkTemplateName",
 } as const;
 type TemplateKind = keyof typeof TEMPLATE_KIND_SETTING;
 

@@ -942,6 +942,7 @@ export interface AppSettings {
   productArrivalTemplateName?: string
   debtReminderTemplateName?: string
   inactiveCustomerTemplateName?: string
+  countLinkTemplateName?: string
   themePreset?: ThemePreset
   backupWhatsappNumber?: string
   shopWarehouseId?: string

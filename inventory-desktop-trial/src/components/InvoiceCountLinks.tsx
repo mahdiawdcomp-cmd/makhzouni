@@ -16,7 +16,7 @@ import { WhatsAppChannelDialog, type PickedChannel } from "./WhatsAppChannelDial
 import {
   createInvoiceCountLink,
   getInvoiceCountLinks,
-  sendWhatsAppMessage,
+  sendWhatsAppTemplatedMessage,
   type CountLinkAudience,
   type InvoiceCountLink,
 } from "../api/endpoints"
@@ -95,6 +95,7 @@ export function InvoiceCountLinks({
   })
 
   const url = created ? countLinkUrl(created.token, settings?.catalogPublicUrl) : ""
+  const expiryText = created ? expiryLabel(created.expiresAt) : ""
   const message = created ? buildMessage(created, invoiceNumber, url) : ""
 
   async function copyLink() {
@@ -110,7 +111,16 @@ export function InvoiceCountLinks({
     if (!created?.recipientPhone) return
     setSending(true)
     try {
-      await sendWhatsAppMessage({ phone: created.recipientPhone, message, channel })
+      // Through Meta, a link sent to someone who has not written in 24 hours is
+      // refused as free text — so it goes as the approved template first and
+      // falls back to plain text (Green API / wa.me, or an unset template).
+      await sendWhatsAppTemplatedMessage({
+        phone: created.recipientPhone,
+        message,
+        templateKind: "countLink",
+        bodyParams: [created.recipientName, invoiceNumber, url, expiryText],
+        channel,
+      })
       toast({ title: "تم إرسال رابط الجرد ✓" })
       setChannelOpen(false)
       setCreated(null)
@@ -281,8 +291,15 @@ export function InvoiceCountLinks({
   )
 }
 
+function expiryLabel(expiresAt: string) {
+  return new Date(expiresAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
+}
+
+// The plain-text fallback. Its wording is free, but the ORDER of the values it
+// quotes must stay in step with the bodyParams above, because the same four
+// values fill the Meta template.
 function buildMessage(link: InvoiceCountLink, invoiceNumber: string, url: string) {
-  const until = new Date(link.expiresAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })
+  const until = expiryLabel(link.expiresAt)
   if (link.audience === "WORKER") {
     return (
       `مرحبا ${link.recipientName}\n` +
