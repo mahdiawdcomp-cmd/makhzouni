@@ -79,6 +79,12 @@ export interface CountResult {
   totalBefore: number;
 }
 
+/** ISO date (YYYY-MM-DD) from whatever shape the invoice's date arrives in. */
+function isoDate(value: unknown): string {
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? String(value).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
 function unitLabelAr(unit: Unit): string {
   if (unit === Unit.CARTON) return "كرتونة";
   if (unit === Unit.BOX) return "علبة";
@@ -274,7 +280,7 @@ export async function getCountLinkByToken(token: string, markViewed = false): Pr
     invoice: {
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
-      date: String(invoice.date).slice(0, 10),
+      date: isoDate(invoice.date),
       type: invoice.type,
       customerName: invoice.customer?.name ?? "",
       customerPhone: invoice.customer?.phone ?? null,

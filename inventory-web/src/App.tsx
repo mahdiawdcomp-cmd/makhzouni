@@ -64,6 +64,7 @@ const LandedCostImportPage = lazyPage(() => import("./pages/LandedCostImportPage
 const LandedCostReviewPage = lazyPage(() => import("./pages/LandedCostReviewPage"), "LandedCostReviewPage")
 const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage"), "PublicStocktakePage")
 const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage"), "PublicCycleCountPage")
+const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
@@ -110,6 +111,8 @@ const router = createBrowserRouter([
   { path: "/client/:token/invoice/:invoiceId", element: s(<PublicInvoicePage />) },
   { path: "/stocktake/:token", element: s(<PublicStocktakePage />) },
   { path: "/cycle-count/:token", element: s(<PublicCycleCountPage />) },
+  // «جرد الفاتورة» — worker/customer counting link (no login; the token is the credential)
+  { path: "/invoice-count/:token", element: s(<PublicInvoiceCountPage />) },
 
   // ── Protected routes ──
   {

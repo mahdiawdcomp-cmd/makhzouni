@@ -38,6 +38,7 @@ import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { ErrorExplain } from "../components/ui/error-explain"
 import { RecordNavigator } from "../components/RecordNavigator"
 import { WorkerSendModal } from "../components/WorkerSendModal"
+import { InvoiceCountLinks } from "../components/InvoiceCountLinks"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 import { cartonBreakdown, unitToPieces } from "../utils/units"
@@ -539,6 +540,17 @@ export function InvoiceDetailPage() {
             <Button variant="outline" size="sm" onClick={() => setWorkerModalOpen(true)}>
               <Users className="h-3.5 w-3.5 text-emerald-600" /> إرسال للعامل
             </Button>
+          )}
+          {/* «جرد الفاتورة» — count-before-it-leaves and count-on-arrival links */}
+          {invoice.type === "SALE" && (
+            <InvoiceCountLinks
+              invoiceId={invoice.id}
+              invoiceNumber={invoice.invoiceNumber}
+              customerName={invoice.customer?.name ?? ""}
+              customerPhone={invoice.customer?.phone}
+              disabled={readOnly || invoice.status !== "ACTIVE"}
+              disabledReason={readOnly ? READ_ONLY_MESSAGE : "الفاتورة غير فعّالة"}
+            />
           )}
           {invoice.type === "SALE" && (
             <>

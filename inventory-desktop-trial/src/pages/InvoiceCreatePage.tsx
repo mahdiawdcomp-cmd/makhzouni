@@ -10,6 +10,7 @@ import { applyCoupon, completeOrderPreparation, createReceipt, getBranches, getL
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { balanceForCustomer, fillTemplate } from "../utils/whatsapp"
 import { useSettings } from "../hooks/useSettings"
+import { useInvoiceEditLock } from "../hooks/useInvoiceEditLock"
 import { downloadBlobUrl } from "../utils/download"
 import { useCustomers } from "../hooks/useCustomers"
 import { useCreateInvoice, useInvoice } from "../hooks/useInvoices"
@@ -468,6 +469,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   // ── Edit mode: same page/UX as create, but loads an existing invoice and
   // saves via PUT. Drafts/tabs/autosave/coupon/WhatsApp-prompt are disabled.
   const isEdit = !!editId
+  // Hold the soft editing marker while this screen is open, so a «جرد الفاتورة»
+  // link tells its counter to wait rather than counting a moving document.
+  useInvoiceEditLock(editId)
   const invoiceQuery = useInvoice(editId)
   const editingInvoice = isEdit ? invoiceQuery.data : undefined
   const invoiceType: InvoiceType = isEdit

@@ -56,6 +56,12 @@ function paymentTypeAr(type: string) {
 // prints on paper. There is deliberately no second hardcoded template any more:
 // what the customer receives is what the shop sees.
 
+/** ISO date (YYYY-MM-DD) from whatever shape the invoice's date arrives in. */
+function isoDate(value: unknown): string {
+  const d = new Date(String(value));
+  return Number.isNaN(d.getTime()) ? String(value).slice(0, 10) : d.toISOString().slice(0, 10);
+}
+
 /** Unit label used by the print payload — matches the invoice screen. */
 function unitPrintLabel(unit: string) {
   if (unit === "CARTON") return "كرتونة";
@@ -85,7 +91,7 @@ async function buildDesignPayload(invoiceId: string, paper: PaperSize = "a4") {
 
   const inv: PrintInvoice = {
     number: invoice.invoiceNumber,
-    date: String(invoice.date).slice(0, 10),
+    date: isoDate(invoice.date),
     customerName: invoice.customer?.name ?? "",
     customerPhone: invoice.customer?.phone ?? "",
     lines: (invoice.items ?? []).map((item: any) => ({

@@ -1393,6 +1393,85 @@ export async function sendInvoiceToWorkers(invoiceId: string, phones: string[], 
   return data
 }
 
+// ── «جرد الفاتورة» — counting links ──────────────────────────────────────────
+// A worker's count is applied to the invoice the moment they submit it; a
+// customer's waits for the owner's approval. The shop side only mints, lists
+// and revokes the links.
+
+export type CountLinkAudience = "WORKER" | "CUSTOMER"
+export type CountLinkStatus = "OPEN" | "VIEWED" | "SUBMITTED" | "EXPIRED" | "REVOKED"
+
+export interface CountResultLine {
+  itemId: string
+  productId: string
+  productName: string
+  itemNumber: string | null
+  unit: string
+  quantity: number
+  expectedPieces: number
+  receivedPieces: number
+  differencePieces: number
+}
+
+export interface InvoiceCountLink {
+  id: string
+  invoiceId: string
+  audience: CountLinkAudience
+  token: string
+  status: CountLinkStatus
+  recipientId: string | null
+  recipientName: string
+  recipientPhone: string | null
+  expiresAt: string
+  createdAt: string
+  firstViewedAt: string | null
+  lastViewedAt: string | null
+  viewCount: number
+  submittedAt: string | null
+  revokedAt: string | null
+  result: { countedAt: string; lines: CountResultLine[]; differenceCount: number; totalBefore: number } | null
+  hasDifference: boolean
+  appliedAt: string | null
+  approvalId: string | null
+  refundDue: number | null
+  refundAckAt: string | null
+  creator?: { id: string; name: string } | null
+  refundAcknowledger?: { id: string; name: string } | null
+}
+
+export async function getInvoiceCountLinks(invoiceId: string) {
+  const { data } = await api.get<ApiEnvelope<InvoiceCountLink[]>>(`/invoices/${invoiceId}/count-links`)
+  return data.data
+}
+
+export async function createInvoiceCountLink(
+  invoiceId: string,
+  payload: { audience: CountLinkAudience; workerId?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<InvoiceCountLink>>(`/invoices/${invoiceId}/count-links`, payload)
+  return data.data
+}
+
+export async function revokeInvoiceCountLink(linkId: string) {
+  const { data } = await api.post<ApiEnvelope<InvoiceCountLink>>(`/invoices/count-links/${linkId}/revoke`)
+  return data.data
+}
+
+export async function acknowledgeCountRefund(linkId: string) {
+  const { data } = await api.post<ApiEnvelope<InvoiceCountLink>>(`/invoices/count-links/${linkId}/refund-ack`)
+  return data.data
+}
+
+// Heartbeat while the invoice edit screen is open, so the public counting page
+// tells its reader to wait instead of counting a document being rewritten.
+export async function heartbeatInvoiceEdit(invoiceId: string) {
+  await api.post(`/invoices/${invoiceId}/editing/heartbeat`)
+}
+
+export async function releaseInvoiceEdit(invoiceId: string) {
+  await api.post(`/invoices/${invoiceId}/editing/release`)
+}
+
 export async function sendWhatsAppMessage(payload: { phone: string; message: string; channel?: WhatsAppSendChannel }) {
   const { data } = await api.post<ApiEnvelope<never>>("/whatsapp/send", payload)
   return data
