@@ -144,6 +144,12 @@ const fakeDb: any = {
       return { count };
     },
   },
+  product: {
+    // The counting view fetches thumbnails separately (getInvoiceById never
+    // selects the base64 image columns), so the fake has to answer that too.
+    findMany: async ({ where }: any) =>
+      (where?.id?.in ?? []).map((id: string) => ({ id, thumbnailUrl: `data:image/png;base64,${id}` })),
+  },
   invoiceEditLock: {
     findUnique: async ({ where }: any) => {
       const row = editLocks.get(where.invoiceId);
@@ -322,6 +328,7 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
       assert.ok(!json.includes(forbidden), `counting view must not carry ${forbidden}`);
     }
     assert.equal(view.invoice.lines[0].expectedPieces, 240, "one carton of 240 is 240 pieces");
+    assert.ok(view.invoice.lines[0].imageUrl, "the product photo travels with the line — goods are identified by sight");
   });
 
   // ── Submission gates ───────────────────────────────────────────────────────

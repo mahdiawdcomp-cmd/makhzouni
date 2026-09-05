@@ -10,7 +10,7 @@
 import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
-import { AlertTriangle, Check, CheckCircle2, FileText, Loader2, Lock, X } from "lucide-react"
+import { AlertTriangle, Check, CheckCircle2, FileText, ImageOff, Loader2, Lock, X } from "lucide-react"
 
 import { api } from "../api/client"
 import { cn } from "../utils/cn"
@@ -32,6 +32,7 @@ interface CountLine {
   unitPrice: number
   totalPrice: number
   notes: string | null
+  imageUrl: string | null
 }
 
 interface CountLinkView {
@@ -375,22 +376,22 @@ function LineRow({
       )}
     >
       {/* ── What it is ── */}
-      <div className="flex items-baseline gap-2">
-        <span
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-extrabold text-white"
-          style={{ background: accent }}
-        >
-          {index}
-        </span>
-        <h3 className="min-w-0 flex-1 truncate text-[17px] font-extrabold leading-tight text-slate-900" title={line.productName}>
-          {line.productName}
-        </h3>
-        <span className="shrink-0 text-[15px] font-bold tabular-nums text-slate-900">
-          {fmt(line.totalPrice)}
-        </span>
-      </div>
+      <div className="flex gap-2">
+        <ProductThumb src={line.imageUrl} alt={line.productName} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-extrabold text-white"
+              style={{ background: accent }}
+            >
+              {index}
+            </span>
+            <h3 className="min-w-0 flex-1 text-[17px] font-extrabold leading-tight text-slate-900">
+              {line.productName}
+            </h3>
+          </div>
 
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[14px] leading-tight">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] leading-tight">
         {line.itemNumber && (
           <span
             className="rounded px-1.5 py-0.5 font-extrabold tabular-nums"
@@ -406,9 +407,14 @@ function LineRow({
           × {fmt(line.unitPrice)} {currency}
         </span>
         {hasCartons && <span className="text-slate-500">• {line.pcsPerCarton} ق/ك</span>}
-        <span className="font-extrabold text-slate-900">
-          المُرسل: {fmt(line.expectedPieces)} قطعة
-        </span>
+            <span className="font-extrabold text-slate-900">
+              المُرسل: {fmt(line.expectedPieces)} قطعة
+            </span>
+            <span className="font-extrabold tabular-nums text-slate-900">
+              = {fmt(line.totalPrice)}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* ── What they do about it ── */}
@@ -465,6 +471,46 @@ function LineRow({
         </span>
       </div>
     </article>
+  )
+}
+
+/**
+ * The product photo. Tapping it opens the picture on its own, because a 56px
+ * thumbnail settles most identifications but not all of them.
+ */
+function ProductThumb({ src, alt }: { src: string | null; alt: string }) {
+  const [zoomed, setZoomed] = useState(false)
+
+  if (!src) {
+    return (
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50">
+        <ImageOff className="h-5 w-5 text-slate-300" />
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => setZoomed(true)} className="shrink-0" title="اضغط لتكبير الصورة">
+        <img
+          src={src}
+          alt={alt}
+          className="h-12 w-12 rounded-lg border border-slate-200 bg-white object-cover"
+          loading="lazy"
+        />
+      </button>
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/80 p-4"
+          onClick={() => setZoomed(false)}
+        >
+          <div className="max-h-full max-w-lg overflow-hidden rounded-2xl bg-white p-2">
+            <img src={src} alt={alt} className="max-h-[75vh] w-full object-contain" />
+            <p className="px-2 py-1 text-center text-sm font-bold text-slate-700">{alt}</p>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

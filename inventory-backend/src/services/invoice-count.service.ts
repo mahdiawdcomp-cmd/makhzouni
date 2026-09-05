@@ -56,6 +56,9 @@ export interface CountLineView {
   unitPrice: number;
   totalPrice: number;
   notes: string | null;
+  /** Product thumbnail (a data URI). Someone counting cartons in a warehouse
+   *  identifies goods by sight long before they read a name. */
+  imageUrl: string | null;
 }
 
 /** One line as it comes back from the counting page. */
@@ -281,7 +284,10 @@ export async function getCountLinkByToken(token: string, markViewed = false): Pr
     });
   }
 
-  const editLock = await getActiveEditLock(link.invoiceId);
+  const [editLock, thumbnails] = await Promise.all([
+    getActiveEditLock(link.invoiceId),
+    loadThumbnails(invoice.items ?? []),
+  ]);
 
   return {
     token: link.token,
@@ -307,7 +313,7 @@ export async function getCountLinkByToken(token: string, markViewed = false): Pr
       remainingAmount: Number(invoice.remainingAmount),
       previousBalance: Number(invoice.previousBalance ?? 0),
       finalBalance: Number(invoice.finalBalance ?? 0),
-      lines: (invoice.items ?? []).map((item: any) => toCountLine(item)),
+      lines: (invoice.items ?? []).map((item: any) => toCountLine(item, thumbnails)),
     },
     store: {
       storeName: settings?.storeName ?? "",
@@ -320,7 +326,7 @@ export async function getCountLinkByToken(token: string, markViewed = false): Pr
   };
 }
 
-function toCountLine(item: any): CountLineView {
+function toCountLine(item: any, thumbnails: Map<string, string | null>): CountLineView {
   const pcsPerCarton = Math.max(1, item.product?.pcsPerCarton ?? 1);
   const boxPieces = item.product?.boxPieces ?? null;
   return {
@@ -337,7 +343,25 @@ function toCountLine(item: any): CountLineView {
     unitPrice: Number(item.unitPrice),
     totalPrice: Number(item.totalPrice),
     notes: item.notes ?? null,
+    imageUrl: thumbnails.get(item.productId) ?? null,
   };
+}
+
+/**
+ * Thumbnails only, and only for this invoice's products.
+ *
+ * getInvoiceById deliberately never selects the image columns: they hold base64
+ * data URIs, and pulling them per line is what once made opening an invoice
+ * slow. This keeps that promise — one narrow query, thumbnails and nothing else.
+ */
+async function loadThumbnails(items: Array<{ productId: string }>): Promise<Map<string, string | null>> {
+  const ids = [...new Set(items.map((i) => i.productId).filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.product.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, thumbnailUrl: true },
+  });
+  return new Map(rows.map((r) => [r.id, r.thumbnailUrl ?? null]));
 }
 
 function resolveBlockReason(
