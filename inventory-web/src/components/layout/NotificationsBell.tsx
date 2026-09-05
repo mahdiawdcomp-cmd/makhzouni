@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Bell,
   FileText,
+  ClipboardCheck,
   Info,
   Package,
   PackageMinus,
@@ -36,7 +37,7 @@ interface Notification {
 }
 
 // New AppNotification center rows (batch 23C / 23C-B / 23E-23F).
-type AppSeverity = "IMPORTANT" | "MEDIUM" | "NORMAL"
+type AppSeverity = "IMPORTANT" | "MEDIUM" | "NORMAL" | "COUNT"
 interface AppNotification {
   id: string
   type: string
@@ -63,7 +64,9 @@ const legacySeverityStyles: Record<Notification["severity"], { dot: string; row:
   info:    { dot: "bg-sky-500",     row: "bg-sky-50/60 dark:bg-sky-950/20" },
 }
 
-// The three severity buttons shown in the header.
+// The severity buttons shown in the header. «جرد» is the fourth box the owner
+// asked for: counting traffic is a running log he reads deliberately, not an
+// alarm that should compete with a debt or a negative sale.
 const SEVERITY_BUTTONS: Array<{
   key: AppSeverity
   label: string
@@ -75,6 +78,7 @@ const SEVERITY_BUTTONS: Array<{
   { key: "IMPORTANT", label: "مهم",   icon: AlertTriangle, dot: "bg-rose-500",  badge: "bg-rose-500",  active: "text-rose-600 dark:text-rose-400" },
   { key: "MEDIUM",    label: "متوسط", icon: Info,          dot: "bg-amber-500", badge: "bg-amber-500", active: "text-amber-600 dark:text-amber-400" },
   { key: "NORMAL",    label: "عادي",  icon: Bell,          dot: "bg-sky-500",   badge: "bg-sky-500",   active: "text-sky-600 dark:text-sky-400" },
+  { key: "COUNT",     label: "جرد",   icon: ClipboardCheck, dot: "bg-violet-500", badge: "bg-violet-500", active: "text-violet-600 dark:text-violet-400" },
 ]
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -87,6 +91,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   WHATSAPP: "واتساب",
   SALES_AGENT: "المندوب",
   SYSTEM: "نظام",
+  INVOICE_COUNT: "جرد الفواتير",
 }
 
 // Category sub-filters shown inside an open severity panel.
@@ -99,6 +104,7 @@ const PANEL_CATEGORIES: Array<{ key: string; label: string }> = [
   { key: "CUSTOMERS_DEBT", label: "زبائن وديون" },
   { key: "WHATSAPP", label: "واتساب" },
   { key: "SALES_AGENT", label: "المندوب" },
+  { key: "INVOICE_COUNT", label: "جرد الفواتير" },
   { key: "SYSTEM", label: "نظام" },
 ]
 
@@ -120,11 +126,16 @@ async function fetchAppNotifications(): Promise<AppNotification[]> {
   return data.items ?? []
 }
 
-async function fetchAppCounts(): Promise<{ important: number; medium: number; normal: number }> {
-  const { data } = await api.get<{ success: boolean; important: number; medium: number; normal: number }>(
+async function fetchAppCounts(): Promise<{ important: number; medium: number; normal: number; count: number }> {
+  const { data } = await api.get<{ success: boolean; important: number; medium: number; normal: number; count: number }>(
     "/notifications/app/counts",
   )
-  return { important: data.important ?? 0, medium: data.medium ?? 0, normal: data.normal ?? 0 }
+  return {
+    important: data.important ?? 0,
+    medium: data.medium ?? 0,
+    normal: data.normal ?? 0,
+    count: data.count ?? 0,
+  }
 }
 
 function timeAgo(iso: string): string {
@@ -172,7 +183,7 @@ export function NotificationsBell() {
     queryFn: fetchAppNotifications,
     refetchInterval: 30_000,
   })
-  const { data: counts = { important: 0, medium: 0, normal: 0 } } = useQuery({
+  const { data: counts = { important: 0, medium: 0, normal: 0, count: 0 } } = useQuery({
     queryKey: ["app-notification-counts"],
     queryFn: fetchAppCounts,
     refetchInterval: 30_000,
@@ -267,6 +278,7 @@ export function NotificationsBell() {
   function badgeFor(sev: AppSeverity): number {
     if (sev === "IMPORTANT") return counts.important
     if (sev === "MEDIUM") return counts.medium
+    if (sev === "COUNT") return counts.count
     return counts.normal + legacyUnread
   }
 

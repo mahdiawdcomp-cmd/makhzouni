@@ -39,6 +39,7 @@ import { ErrorExplain } from "../components/ui/error-explain"
 import { RecordNavigator } from "../components/RecordNavigator"
 import { WorkerSendModal } from "../components/WorkerSendModal"
 import { InvoiceCountLinks } from "../components/InvoiceCountLinks"
+import { InvoiceCountStatus } from "../components/InvoiceCountStatus"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { READ_ONLY_MESSAGE, useFeatureEnabled, useReadOnly } from "../hooks/useTenantConfig"
 import { cartonBreakdown, unitToPieces } from "../utils/units"
@@ -614,6 +615,10 @@ export function InvoiceDetailPage() {
           </Button>
         </div>
       </div>
+
+      {/* «جرد الفاتورة» — who counted this invoice, what came out of it, and
+          any of the customer's money still sitting in the till. */}
+      <InvoiceCountStatus invoiceId={invoice.id} currency={currency} />
 
       {/* ══════════════════════════════════════════════════════
           PRINTABLE INVOICE — matches the HTML design exactly   */}

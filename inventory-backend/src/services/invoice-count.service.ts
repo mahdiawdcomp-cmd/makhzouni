@@ -892,9 +892,22 @@ export async function listCountLinks(invoiceId: string) {
     },
   });
 
+  // The owner has to be able to tell "waiting on me" from "I already said no",
+  // and the link alone cannot say which — a rejected count leaves appliedAt null
+  // exactly like a pending one.
+  const approvalIds = links.map((l) => l.approvalId).filter((id): id is string => !!id);
+  const approvals = approvalIds.length
+    ? await prisma.pendingApproval.findMany({
+        where: { id: { in: approvalIds } },
+        select: { id: true, status: true, reviewedAt: true, reviewNote: true },
+      })
+    : [];
+  const approvalById = new Map(approvals.map((a) => [a.id, a]));
+
   const now = Date.now();
   return links.map((link) => ({
     ...link,
+    approval: link.approvalId ? approvalById.get(link.approvalId) ?? null : null,
     refundDue: link.refundDue == null ? null : Number(link.refundDue),
     // Expiry is a fact about time, not a stored state — a link that ran out
     // while nobody was looking must still read as expired.

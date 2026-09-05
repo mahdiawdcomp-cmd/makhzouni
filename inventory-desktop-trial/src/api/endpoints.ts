@@ -1437,6 +1437,8 @@ export interface InvoiceCountLink {
   refundAckAt: string | null
   creator?: { id: string; name: string } | null
   refundAcknowledger?: { id: string; name: string } | null
+  /** Joined for CUSTOMER links: tells "waiting on you" apart from "you said no". */
+  approval?: { id: string; status: "PENDING" | "APPROVED" | "REJECTED"; reviewedAt: string | null; reviewNote: string | null } | null
 }
 
 export async function getInvoiceCountLinks(invoiceId: string) {

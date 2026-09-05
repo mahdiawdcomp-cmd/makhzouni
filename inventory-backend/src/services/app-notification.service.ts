@@ -220,12 +220,15 @@ export async function countUnreadBySeverity(viewer: AppNotificationViewer) {
   const unread = (severity: string): Prisma.AppNotificationWhereInput => ({
     AND: [viewerVisibilityWhere(viewer), { archivedAt: null }, { readAt: null }, { severity }],
   });
-  const [important, medium, normal] = await Promise.all([
+  // COUNT is the fourth box beside the three — «جرد الفاتورة» traffic, kept
+  // apart so counting never competes with a debt or a negative sale.
+  const [important, medium, normal, count] = await Promise.all([
     prisma.appNotification.count({ where: unread("IMPORTANT") }),
     prisma.appNotification.count({ where: unread("MEDIUM") }),
     prisma.appNotification.count({ where: unread("NORMAL") }),
+    prisma.appNotification.count({ where: unread("COUNT") }),
   ]);
-  return { important, medium, normal };
+  return { important, medium, normal, count };
 }
 
 /** Archive one notification — only if the viewer is allowed to see it. */
