@@ -210,43 +210,39 @@ export function PublicInvoiceCountPage() {
     <div dir="rtl" className="min-h-screen bg-slate-100 pb-32 print:bg-white">
       {editingBy && <EditingOverlay name={editingBy} />}
 
-      <div className="mx-auto max-w-4xl p-3 sm:p-5 space-y-3">
+      <div className="mx-auto max-w-4xl space-y-2 p-2 sm:p-4">
         {/* ── Invoice header, in the shop's own colours ── */}
         <header className="overflow-hidden rounded-2xl bg-white shadow-sm">
           <div className="h-2" style={{ background: accent }} />
-          <div className="flex flex-wrap items-start justify-between gap-4 p-4 sm:p-5">
-            <div className="flex items-start gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-3 py-2.5 sm:px-4">
+            <div className="flex items-start gap-2">
               {store.storeLogo ? (
-                <img src={store.storeLogo} alt="" className="h-16 w-16 rounded-xl object-contain" />
+                <img src={store.storeLogo} alt="" className="h-11 w-11 rounded-lg object-contain" />
               ) : null}
-              <div>
-                <h1 className="text-xl font-extrabold sm:text-2xl" style={{ color: accent }}>
+              <div className="leading-tight">
+                <h1 className="text-lg font-extrabold sm:text-xl" style={{ color: accent }}>
                   {store.storeName || "الفاتورة"}
                 </h1>
-                {store.storePhone && <p className="text-sm text-slate-500">{store.storePhone}</p>}
-                {store.storeAddress && <p className="text-sm text-slate-500">{store.storeAddress}</p>}
+                {store.storePhone && <p className="text-[13px] text-slate-500">{store.storePhone}</p>}
+                {store.storeAddress && <p className="text-[13px] text-slate-500">{store.storeAddress}</p>}
               </div>
             </div>
-            <div className="text-left">
-              <p className="text-lg font-bold text-slate-900">فاتورة رقم {invoice.invoiceNumber}</p>
-              <p className="text-sm text-slate-500">التاريخ: {invoice.date}</p>
-              <span
-                className="mt-1 inline-block rounded-full px-3 py-1 text-xs font-bold"
-                style={{ background: `${accent}1A`, color: accent }}
-              >
-                الدفع: {paymentLabel(invoice.paymentType)}
-              </span>
+            <div className="text-left leading-tight">
+              <p className="text-base font-bold text-slate-900">فاتورة رقم {invoice.invoiceNumber}</p>
+              <p className="text-[13px] text-slate-500">
+                {invoice.date} · الدفع: <span className="font-bold" style={{ color: accent }}>{paymentLabel(invoice.paymentType)}</span>
+              </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-4 py-3 sm:px-5">
-            <div>
-              <p className="text-xs text-slate-400">الزبون</p>
-              <p className="font-bold text-slate-900">{invoice.customerName}</p>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-3 py-2 sm:px-4">
+            <p className="text-[15px]">
+              <span className="text-slate-400">الزبون: </span>
+              <span className="font-extrabold text-slate-900">{invoice.customerName}</span>
+            </p>
             <button
               type="button"
               onClick={() => setShowDesigned((v) => !v)}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >
               <FileText className="h-4 w-4" />
               {showDesigned ? "إخفاء الفاتورة الأصلية" : "شوف الفاتورة الأصلية"}
@@ -256,19 +252,18 @@ export function PublicInvoiceCountPage() {
 
         {showDesigned && <DesignedInvoiceFrame view={view} />}
 
-        {/* ── Instructions ── */}
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-bold">
+        {/* ── Instructions — one compact strip, not a paragraph ── */}
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[15px] leading-snug text-amber-900">
+          <span className="font-extrabold">
             {view.audience === "WORKER" ? "جرد الفاتورة قبل خروجها من المحل" : "اجرد المواد التي وصلتك"}
-          </p>
-          <p className="mt-1 leading-relaxed">
-            اضغط <span className="font-bold">«وصلني الكل»</span> إذا وصلت الكمية كاملة، أو اكتب العدد الذي وصلك فعلاً.
-            إذا لم تصلك مادة أبداً اكتب <span className="font-bold">صفر</span> — لا تتركها فارغة.
-          </p>
+          </span>
+          {" — "}
+          اضغط <span className="font-bold">«الكل»</span> إذا وصلت كاملة، أو اكتب العدد الواصل.
+          مادة ما وصلتك اكتب <span className="font-bold">صفر</span>، لا تتركها فارغة.
         </div>
 
         {/* ── Lines ── */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {lines.map((line, index) => (
             <LineRow
               key={line.itemId}
@@ -345,6 +340,12 @@ function Row({ label, value, bold, className }: { label: string; value: string; 
   )
 }
 
+/**
+ * One invoice line, kept to two tight rows: everything the counter has to read
+ * on the first, everything they have to touch on the second. The figures are
+ * deliberately large — this is read on a phone in a warehouse — while the
+ * chrome around them is squeezed so a six-line invoice fits on one screen.
+ */
 function LineRow({
   index, line, answer, currency, accent, onChange,
 }: {
@@ -358,101 +359,110 @@ function LineRow({
   const counted = answeredPieces(line, answer)
   const difference = counted === null ? null : counted - line.expectedPieces
   const hasCartons = line.pcsPerCarton > 1
+  const inputClass =
+    "w-20 rounded-lg border-2 border-slate-300 bg-white px-2 py-1 text-center text-lg font-extrabold tabular-nums " +
+    "focus:border-slate-600 focus:outline-none"
 
   return (
     <article
       className={cn(
-        "rounded-2xl border bg-white p-3 shadow-sm sm:p-4",
+        "rounded-xl border-2 bg-white px-2.5 py-2 shadow-sm",
         counted === null
           ? "border-slate-200"
           : difference === 0
-            ? "border-emerald-200"
-            : "border-amber-300",
+            ? "border-emerald-400"
+            : "border-amber-400",
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2">
-          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
-            {index}
-          </span>
-          <div className="min-w-0">
-            <h3 className="font-bold leading-snug text-slate-900">{line.productName}</h3>
-            <p className="mt-0.5 text-xs" style={{ color: accent }}>
-              {line.itemNumber ? `رقم الايتم: ${line.itemNumber}` : null}
-              {line.itemNumber && hasCartons ? "  •  " : null}
-              {hasCartons ? `${line.pcsPerCarton} قطعة بالكرتون` : null}
-            </p>
-          </div>
-        </div>
-        <div className="text-left text-sm">
-          <p className="font-semibold text-slate-700">
-            {line.quantity} {line.unitLabel}
-          </p>
-          <p className="text-xs text-slate-400">
-            {fmt(line.unitPrice)} {currency}
-          </p>
-        </div>
+      {/* ── What it is ── */}
+      <div className="flex items-baseline gap-2">
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-extrabold text-white"
+          style={{ background: accent }}
+        >
+          {index}
+        </span>
+        <h3 className="min-w-0 flex-1 truncate text-[17px] font-extrabold leading-tight text-slate-900" title={line.productName}>
+          {line.productName}
+        </h3>
+        <span className="shrink-0 text-[15px] font-bold tabular-nums text-slate-900">
+          {fmt(line.totalPrice)}
+        </span>
       </div>
 
-      <div className="mt-3 rounded-xl bg-slate-50 p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-bold text-slate-600">
-            المُرسل: <span className="tabular-nums">{fmt(line.expectedPieces)}</span> قطعة
-          </span>
-          <button
-            type="button"
-            onClick={() => onChange(answer.full ? { ...EMPTY } : { full: true, cartons: "", pieces: "" })}
-            className={cn(
-              "mr-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-bold transition",
-              answer.full ? "text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
-            )}
-            style={answer.full ? { background: "#059669" } : undefined}
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pr-8 text-[14px] leading-tight">
+        {line.itemNumber && (
+          <span
+            className="rounded px-1.5 py-0.5 font-extrabold tabular-nums"
+            style={{ background: `${accent}18`, color: accent }}
           >
-            <Check className="h-4 w-4" />
-            وصلني الكل
-          </button>
-        </div>
+            {line.itemNumber}
+          </span>
+        )}
+        <span className="font-bold text-slate-700">
+          {line.quantity} {line.unitLabel}
+        </span>
+        <span className="text-slate-500">
+          × {fmt(line.unitPrice)} {currency}
+        </span>
+        {hasCartons && <span className="text-slate-500">• {line.pcsPerCarton} ق/ك</span>}
+        <span className="font-extrabold text-slate-900">
+          المُرسل: {fmt(line.expectedPieces)} قطعة
+        </span>
+      </div>
 
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          {hasCartons && (
-            <label className="flex-1 min-w-[7rem]">
-              <span className="mb-1 block text-xs text-slate-500">كرتون</span>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                value={answer.cartons}
-                onChange={(e) => onChange({ cartons: e.target.value, full: false })}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg font-bold tabular-nums focus:border-slate-500 focus:outline-none"
-                placeholder="0"
-              />
-            </label>
+      {/* ── What they do about it ── */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 border-t border-dashed border-slate-200 pt-1.5">
+        <button
+          type="button"
+          onClick={() => onChange(answer.full ? { ...EMPTY } : { full: true, cartons: "", pieces: "" })}
+          className={cn(
+            "flex items-center gap-1 rounded-lg px-3 py-1.5 text-[15px] font-extrabold transition",
+            answer.full ? "bg-emerald-600 text-white" : "border-2 border-slate-300 bg-white text-slate-700",
           )}
-          <label className="flex-1 min-w-[7rem]">
-            <span className="mb-1 block text-xs text-slate-500">قطعة</span>
+        >
+          <Check className="h-4 w-4" />
+          الكل
+        </button>
+
+        {hasCartons && (
+          <label className="flex items-center gap-1">
+            <span className="text-[13px] font-bold text-slate-500">كرتون</span>
             <input
               type="number"
               inputMode="numeric"
               min={0}
-              value={answer.pieces}
-              onChange={(e) => onChange({ pieces: e.target.value, full: false })}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-center text-lg font-bold tabular-nums focus:border-slate-500 focus:outline-none"
+              value={answer.cartons}
+              onChange={(e) => onChange({ cartons: e.target.value, full: false })}
+              className={inputClass}
               placeholder="0"
             />
           </label>
-        </div>
+        )}
+        <label className="flex items-center gap-1">
+          <span className="text-[13px] font-bold text-slate-500">قطعة</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={answer.pieces}
+            onChange={(e) => onChange({ pieces: e.target.value, full: false })}
+            className={inputClass}
+            placeholder="0"
+          />
+        </label>
 
-        <p className="mt-2 text-sm font-semibold">
+        <span className="mr-auto whitespace-nowrap text-[15px] font-extrabold">
           {counted === null ? (
-            <span className="text-slate-400">لم تُجرد بعد</span>
+            <span className="text-slate-400">لم تُجرد</span>
           ) : difference === 0 ? (
-            <span className="text-emerald-600">الواصل: {fmt(counted)} قطعة — مطابق</span>
+            <span className="text-emerald-600">✓ {fmt(counted)} — مطابق</span>
           ) : (
             <span className="text-amber-700">
-              الواصل: {fmt(counted)} قطعة — {difference! > 0 ? `زيادة ${fmt(difference!)}` : `نقص ${fmt(-difference!)}`}
+              {fmt(counted)} — {difference! > 0 ? `زيادة ${fmt(difference!)}` : `نقص ${fmt(-difference!)}`}
             </span>
           )}
-        </p>
+        </span>
       </div>
     </article>
   )
