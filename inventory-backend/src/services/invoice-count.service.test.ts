@@ -21,6 +21,9 @@ let links: Map<string, any>;
 let editLocks: Map<string, any>;
 let invoice: any;
 let updateInvoiceCalls: any[];
+let approvalCalls: any[];
+let notifyCalls: any[];
+let whatsappCalls: any[];
 let idCounter: number;
 
 const nextId = () => `link-${++idCounter}`;
@@ -165,11 +168,35 @@ mock.module("./settings.service", {
     getSettings: async () => ({
       storeName: "مخزوني",
       currency: "د.ع",
+      adminApprovalWhatsappNumber: "07799999999",
       preparationWorkers: [
         { id: "w-1", name: "رسول", phone: "07711111111", active: true },
         { id: "w-2", name: "عامل موقوف", phone: "07722222222", active: false },
       ],
     }),
+  },
+});
+
+mock.module("./approval.service", {
+  exports: {
+    approvalRequestTypes: { INVOICE_COUNT_ADJUSTMENT: "INVOICE_COUNT_ADJUSTMENT" },
+    createPendingApproval: async (requestType: string, requestData: any, requestedBy: string, requesterName?: string) => {
+      approvalCalls.push({ requestType, requestData, requestedBy, requesterName });
+      return { id: `approval-${approvalCalls.length}` };
+    },
+  },
+});
+
+mock.module("./app-notification.service", {
+  exports: {
+    notifyAdmin: async (input: any) => { notifyCalls.push(input); return {}; },
+    buildDedupeKey: (type: string, entityId?: string | null) => `${type}:${entityId ?? "-"}`,
+  },
+});
+
+mock.module("./whatsapp.service", {
+  exports: {
+    sendWhatsAppText: async (to: string, message: string) => { whatsappCalls.push({ to, message }); return {}; },
   },
 });
 
@@ -205,6 +232,9 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     links = new Map();
     editLocks = new Map();
     updateInvoiceCalls = [];
+    approvalCalls = [];
+    notifyCalls = [];
+    whatsappCalls = [];
     idCounter = 0;
     resetInvoice();
   });
@@ -568,6 +598,128 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
   });
 
   // ── Unit rebuilding, directly ──────────────────────────────────────────────
+
+
+  // ── Telling the shop (phase 3) ─────────────────────────────────────────────
+
+  it("a customer's difference becomes an approval the owner has to act on", async () => {
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+
+    assert.equal(approvalCalls.length, 1);
+    assert.equal(approvalCalls[0].requestType, "INVOICE_COUNT_ADJUSTMENT");
+    assert.equal(approvalCalls[0].requestData.linkId, link.id);
+    assert.equal(approvalCalls[0].requestData.differenceCount, 1);
+    // The approvals table needs a staff member; a customer is not one, so the
+    // request is attributed to whoever wrote the invoice.
+    assert.equal(approvalCalls[0].requestedBy, CREATOR);
+    assert.equal(links.get(link.id).approvalId, "approval-1");
+  });
+
+  it("a customer's matching count raises no approval — there is nothing to decide", async () => {
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 240 }]);
+    assert.equal(approvalCalls.length, 0);
+  });
+
+  it("a worker's count never raises an approval — it already happened", async () => {
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(approvalCalls.length, 0);
+  });
+
+  it("every count lands in the counting notification box", async () => {
+    const link = await mintLink("WORKER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+
+    const submitted = notifyCalls.find((n) => n.type === "INVOICE_COUNT_SUBMITTED");
+    assert.ok(submitted, "a count is always reported");
+    assert.equal(submitted.severity, "COUNT");
+    assert.equal(submitted.category, "INVOICE_COUNT");
+    assert.match(submitted.message, /رسول/);
+    assert.match(submitted.message, /تعدّلت الفاتورة/);
+  });
+
+  it("money owed back to the customer gets its own notification", async () => {
+    const link = await mintLink("WORKER"); // paid in full
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+
+    const refund = notifyCalls.find((n) => n.type === "INVOICE_COUNT_REFUND_DUE");
+    assert.ok(refund, "a paid invoice that shrank must say so");
+    assert.match(refund.message, /30,000/);
+  });
+
+  it("only the customer's word reaches the owner's phone", async () => {
+    const worker = await mintLink("WORKER");
+    await svc.submitCount(worker.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(whatsappCalls.length, 0, "in-house counting must not buzz the phone");
+
+    resetInvoice();
+    const customer = await mintLink("CUSTOMER");
+    await svc.submitCount(customer.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(whatsappCalls.length, 1);
+    assert.equal(whatsappCalls[0].to, "07799999999");
+    assert.match(whatsappCalls[0].message, /الزبون محل الرافدين/);
+    assert.match(whatsappCalls[0].message, /لم تتغيّر بعد/);
+  });
+
+  // ── Approving the customer's count ─────────────────────────────────────────
+
+  it("approving applies the count that was frozen at submit time", async () => {
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(updateInvoiceCalls.length, 0);
+
+    const outcome = await svc.applyCustomerCount(link.id, OWNER);
+
+    assert.equal(updateInvoiceCalls.length, 1);
+    assert.equal(updateInvoiceCalls[0].input.items[0].quantity, 210);
+    assert.equal((outcome as any).refundDue, 30000);
+    assert.ok(links.get(link.id).appliedAt);
+    assert.equal(Number(links.get(link.id).refundDue), 30000);
+  });
+
+  it("the refund reminder fires on approval, not on submit — nothing was owed before", async () => {
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    assert.equal(
+      notifyCalls.filter((n) => n.type === "INVOICE_COUNT_REFUND_DUE").length, 0,
+      "no money has moved while the count is still pending",
+    );
+
+    await svc.applyCustomerCount(link.id, OWNER);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const refund = notifyCalls.find((n) => n.type === "INVOICE_COUNT_REFUND_DUE");
+    assert.ok(refund, "once approved, the cash owed back has to be surfaced");
+    assert.match(refund.message, /30,000/);
+  });
+
+  it("approving twice does not apply the count twice", async () => {
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    await svc.applyCustomerCount(link.id, OWNER);
+    const second = await svc.applyCustomerCount(link.id, OWNER);
+
+    assert.deepEqual(second, { alreadyApplied: true });
+    assert.equal(updateInvoiceCalls.length, 1);
+  });
+
+  it("rejecting changes nothing — the invoice is simply never touched", async () => {
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 210 }]);
+    // A rejection never calls applyCustomerCount at all.
+    assert.equal(updateInvoiceCalls.length, 0);
+    assert.equal(links.get(link.id).appliedAt, null);
+    assert.equal(links.get(link.id).status, "SUBMITTED");
+  });
+
+  it("an empty or unknown count record cannot be approved into effect", async () => {
+    await assert.rejects(() => svc.applyCustomerCount("nope", OWNER), /غير موجود|COUNT_LINK_NOT_FOUND/);
+
+    const link = await mintLink("CUSTOMER");
+    await assert.rejects(() => svc.applyCustomerCount(link.id, OWNER), /فارغ|COUNT_RESULT_EMPTY/);
+  });
 
   it("rebuildLine picks the largest unit that divides exactly, at an unchanged piece price", () => {
     // 240 per carton, 240,000 per carton => 1,000 per piece.

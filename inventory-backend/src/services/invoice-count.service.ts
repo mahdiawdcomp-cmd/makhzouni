@@ -13,7 +13,7 @@
 // Everything below is shared by both; the split lives in `submitCount`.
 
 import crypto from "node:crypto";
-import { InvoiceCountAudience, InvoiceCountLinkStatus, InvoiceStatus, Unit } from "@prisma/client";
+import { InvoiceCountAudience, InvoiceCountLinkStatus, InvoiceStatus, Prisma, Unit } from "@prisma/client";
 
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
@@ -30,6 +30,13 @@ export const COUNT_LINK_TTL_HOURS: Record<InvoiceCountAudience, number> = {
 
 /** A lock older than this is treated as abandoned (a closed browser tab). */
 export const EDIT_LOCK_STALE_MS = 60_000;
+
+/**
+ * Either the base client or an open transaction. Applying a count from the
+ * approvals screen happens INSIDE that screen's transaction, and opening a
+ * second one from within it is how you deadlock an invoice edit.
+ */
+type Db = Prisma.TransactionClient | typeof prisma;
 
 // ── Line shapes ──────────────────────────────────────────────────────────────
 
@@ -369,8 +376,9 @@ export async function applyCountToInvoice(
   invoiceId: string,
   countedByPieces: Map<string, number>,
   updatedBy: string,
+  db: Db = prisma,
 ): Promise<ApplyCountOutcome> {
-  const invoice = await prisma.invoice.findUnique({
+  const invoice = await db.invoice.findUnique({
     where: { id: invoiceId },
     include: {
       items: { include: { product: { select: { pcsPerCarton: true, boxPieces: true } } } },
@@ -451,6 +459,8 @@ export async function applyCountToInvoice(
       items,
     },
     updatedBy,
+    // Joins the caller's transaction when there is one.
+    db === prisma ? undefined : (db as Prisma.TransactionClient),
   );
 
   return {
@@ -529,6 +539,7 @@ export async function submitCount(
     select: {
       status: true,
       archivedAt: true,
+      invoiceNumber: true,
       totalAmount: true,
       createdBy: true,
       items: {
@@ -599,6 +610,7 @@ export async function submitCount(
     totalBefore: Number(invoice.totalAmount),
   };
 
+  const invoiceNumber = invoice.invoiceNumber;
   const isWorker = link.audience === InvoiceCountAudience.WORKER;
   let outcome: ApplyCountOutcome | null = null;
 
@@ -621,6 +633,27 @@ export async function submitCount(
     },
   });
 
+  // A customer's count only becomes an approval when something actually differs.
+  // A matching count has nothing for the owner to decide, so it is reported and
+  // left alone rather than added to a queue he has to clear.
+  let approvalId: string | null = null;
+  if (!isWorker && differenceCount > 0) {
+    approvalId = await raiseCountApproval(
+      link.id, invoice.createdBy, link.recipientName, invoiceNumber, differenceCount,
+    );
+  }
+
+  await announceCount({
+    linkId: link.id,
+    invoiceId: link.invoiceId,
+    invoiceNumber,
+    audience: link.audience,
+    recipientName: link.recipientName,
+    differenceCount,
+    outcome,
+    approvalId,
+  });
+
   return {
     applied: isWorker,
     hasDifference: differenceCount > 0,
@@ -629,6 +662,217 @@ export async function submitCount(
     linkId: link.id,
     audience: link.audience,
   };
+}
+
+/**
+ * Raise the owner's decision on a customer's count. Attributed to whoever wrote
+ * the invoice: the approvals table requires a staff member and a customer is not
+ * one — the wording makes plain who actually counted.
+ */
+async function raiseCountApproval(
+  linkId: string,
+  invoiceCreatedBy: string,
+  recipientName: string,
+  invoiceNumber: string,
+  differenceCount: number,
+): Promise<string | null> {
+  try {
+    const { approvalRequestTypes, createPendingApproval } = await import("./approval.service");
+    const approval = await createPendingApproval(
+      approvalRequestTypes.INVOICE_COUNT_ADJUSTMENT,
+      {
+        linkId,
+        invoiceNumber,
+        countedBy: recipientName,
+        differenceCount,
+        reason: `جرد الزبون «${recipientName}» لفاتورة ${invoiceNumber}`,
+      },
+      invoiceCreatedBy,
+      recipientName,
+    );
+    await prisma.invoiceCountLink.update({ where: { id: linkId }, data: { approvalId: approval.id } });
+    return approval.id;
+  } catch {
+    // The count is already stored; failing to queue it must not lose it.
+    return null;
+  }
+}
+
+/**
+ * Tell the shop what happened. The owner asked for exactly this split: a
+ * worker's count is a log entry he reads when he opens the invoice, while
+ * anything a customer writes reaches his phone.
+ */
+async function announceCount(input: {
+  linkId: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  audience: InvoiceCountAudience;
+  recipientName: string;
+  differenceCount: number;
+  outcome: ApplyCountOutcome | null;
+  approvalId: string | null;
+}) {
+  const isWorker = input.audience === InvoiceCountAudience.WORKER;
+  const who = isWorker ? `العامل ${input.recipientName}` : `الزبون ${input.recipientName}`;
+  const body = input.differenceCount > 0
+    ? `${who} جرد فاتورة ${input.invoiceNumber} — فرق في ${input.differenceCount} مادة`
+    : `${who} جرد فاتورة ${input.invoiceNumber} — كل شيء مطابق`;
+  const tail = isWorker
+    ? input.differenceCount > 0 ? " وتعدّلت الفاتورة." : ""
+    : input.differenceCount > 0 ? " بانتظار موافقتك." : "";
+  const money = (n: unknown) => Math.round(Number(n ?? 0)).toLocaleString("en-US");
+
+  try {
+    const { notifyAdmin, buildDedupeKey } = await import("./app-notification.service");
+    const { NotificationCategory, NotificationSeverity, NotificationType } = await import("../constants/notifications");
+    await notifyAdmin({
+      type: NotificationType.INVOICE_COUNT_SUBMITTED,
+      category: NotificationCategory.INVOICE_COUNT,
+      severity: NotificationSeverity.COUNT,
+      title: input.differenceCount > 0 ? "جرد فيه فرق" : "جرد مطابق",
+      message: `${body}${tail}`,
+      entityType: "INVOICE",
+      entityId: input.invoiceId,
+      actionUrl: `/invoices/${input.invoiceId}`,
+      metadata: { linkId: input.linkId, audience: input.audience, approvalId: input.approvalId },
+      dedupeKey: buildDedupeKey(NotificationType.INVOICE_COUNT_SUBMITTED, input.linkId),
+    });
+
+  } catch { /* a notification failure must never lose a count */ }
+
+  if (input.outcome && input.outcome.refundDue > 0) {
+    await notifyRefundDue(input.linkId, input.invoiceId, input.invoiceNumber, input.outcome.refundDue);
+  }
+
+  // Only the customer's word travels to the owner's phone — a worker's count is
+  // in-house and would only add noise.
+  if (isWorker) return;
+  try {
+    const { sendWhatsAppText } = await import("./whatsapp.service");
+    const settings = await getSettings().catch(() => null);
+    const target = settings?.adminApprovalWhatsappNumber?.trim() || settings?.storePhone?.trim();
+    if (!target) return;
+    const refundNote = input.outcome && input.outcome.refundDue > 0
+      ? `\n⚠️ لازم ترجع ${money(input.outcome.refundDue)} للزبون نقداً.`
+      : "";
+    const action = input.differenceCount > 0
+      ? "\nراجعه وأقرّه من صفحة (الطلبات المعلّقة) — الفاتورة لم تتغيّر بعد."
+      : "";
+    await sendWhatsAppText(target, `📋 جرد فاتورة\n${body}${action}${refundNote}`);
+  } catch { /* ignore */ }
+}
+
+/**
+ * "You are holding this customer's money." Raised whenever a paid invoice
+ * shrinks below what was paid — by a worker's count on submit, or by a
+ * customer's once it is approved. It stays until someone marks the cash
+ * returned; the owner asked to be reminded, not to be given a cash book.
+ */
+async function notifyRefundDue(linkId: string, invoiceId: string, invoiceNumber: string, amount: number) {
+  try {
+    const { notifyAdmin, buildDedupeKey } = await import("./app-notification.service");
+    const { NotificationCategory, NotificationSeverity, NotificationType } = await import("../constants/notifications");
+    await notifyAdmin({
+      type: NotificationType.INVOICE_COUNT_REFUND_DUE,
+      category: NotificationCategory.INVOICE_COUNT,
+      severity: NotificationSeverity.COUNT,
+      title: "فلوس لازم ترجع للزبون",
+      message:
+        `فاتورة ${invoiceNumber} كانت مدفوعة وصار مجموعها أقل بعد الجرد — ` +
+        `لازم ترجع ${Math.round(amount).toLocaleString("en-US")} للزبون نقداً.`,
+      entityType: "INVOICE",
+      entityId: invoiceId,
+      actionUrl: `/invoices/${invoiceId}`,
+      metadata: { linkId, refundDue: amount },
+      dedupeKey: buildDedupeKey(NotificationType.INVOICE_COUNT_REFUND_DUE, linkId),
+    });
+  } catch { /* the amount is stored on the link either way */ }
+}
+
+/**
+ * Apply a customer's frozen count once the owner approves it, and tell the
+ * customer what their account looks like now — the balance moved because of
+ * something they reported, so they are owed the answer.
+ *
+ * The count comes from the record stored at submit time, never from a re-read of
+ * the page: approving three days later must apply exactly what the customer
+ * said, not whatever the invoice has become since.
+ */
+export async function applyCustomerCount(linkId: string, reviewerId: string, db: Db = prisma) {
+  const link = await db.invoiceCountLink.findUnique({
+    where: { id: linkId },
+    include: { invoice: { select: { invoiceNumber: true } } },
+  });
+  if (!link) throw new AppError("سجل الجرد غير موجود", 404, "COUNT_LINK_NOT_FOUND");
+  if (link.appliedAt) return { alreadyApplied: true };
+
+  const result = link.result as unknown as CountResult | null;
+  if (!result?.lines?.length) throw new AppError("سجل الجرد فارغ", 400, "COUNT_RESULT_EMPTY");
+
+  const counted = new Map<string, number>();
+  for (const line of result.lines) counted.set(line.itemId, line.receivedPieces);
+
+  const outcome = await applyCountToInvoice(link.invoiceId, counted, reviewerId, db);
+
+  await db.invoiceCountLink.update({
+    where: { id: linkId },
+    data: {
+      appliedAt: new Date(),
+      refundDue: outcome.refundDue > 0 ? outcome.refundDue : null,
+    },
+  });
+
+  // Deferred past the caller's transaction: these quote the customer's new
+  // balance, which does not exist for anyone else until the commit lands.
+  const invoiceNumber = link.invoice?.invoiceNumber ?? "";
+  setImmediate(() => {
+    void notifyCustomerOfCountResult(link.invoiceId, invoiceNumber, outcome);
+    // The refund reminder is raised HERE for a customer's count, not at submit
+    // time: until the owner approved it, no money had moved and there was
+    // nothing to hand back.
+    if (outcome.refundDue > 0) {
+      void notifyRefundDue(linkId, link.invoiceId, invoiceNumber, outcome.refundDue);
+    }
+  });
+  return outcome;
+}
+
+/** Tell the customer their invoice and balance changed after their own count. */
+async function notifyCustomerOfCountResult(
+  invoiceId: string,
+  invoiceNumber: string,
+  outcome: ApplyCountOutcome,
+) {
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        totalAmount: true, paidAmount: true, remainingAmount: true, finalBalance: true,
+        customer: { select: { name: true, phone: true } },
+      },
+    });
+    const phone = invoice?.customer?.phone?.trim();
+    if (!phone) return;
+
+    const settings = await getSettings().catch(() => null);
+    const currency = settings?.currency ?? "د.ع";
+    const money = (n: unknown) => Math.round(Number(n ?? 0)).toLocaleString("en-US");
+    const refundNote = outcome.refundDue > 0
+      ? `\nلك مبلغ ${money(outcome.refundDue)} ${currency} يُعاد إليك نقداً.`
+      : "";
+
+    const { sendWhatsAppText } = await import("./whatsapp.service");
+    await sendWhatsAppText(
+      phone,
+      `مرحبا ${invoice?.customer?.name ?? ""}\n` +
+        `تمت الموافقة على جردك لفاتورة ${invoiceNumber} وعُدّلت الفاتورة.\n` +
+        `مجموع الفاتورة: ${money(invoice?.totalAmount)} ${currency}\n` +
+        `المتبقي من الفاتورة: ${money(invoice?.remainingAmount)} ${currency}\n` +
+        `رصيد حسابك: ${money(invoice?.finalBalance)} ${currency}${refundNote}\n` +
+        `شكراً لك — ${settings?.storeName ?? ""}`,
+    );
+  } catch { /* the invoice is already corrected; a message failure is not fatal */ }
 }
 
 // ── Status for the shop ──────────────────────────────────────────────────────

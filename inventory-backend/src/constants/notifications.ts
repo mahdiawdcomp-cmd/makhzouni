@@ -8,6 +8,10 @@ export const NotificationSeverity = {
   IMPORTANT: "IMPORTANT",
   MEDIUM: "MEDIUM",
   NORMAL: "NORMAL",
+  // «جرد الفاتورة» gets its own box beside the three, at the owner's request:
+  // counting traffic is a running log he reads deliberately, not an alarm that
+  // should compete with a debt or a negative sale for the same attention.
+  COUNT: "COUNT",
 } as const;
 export type NotificationSeverity =
   (typeof NotificationSeverity)[keyof typeof NotificationSeverity];
@@ -24,6 +28,7 @@ export const NotificationCategory = {
   // «الديون الشخصية» — unrelated to shop customers, see PersonalDebt model.
   PERSONAL_DEBTS: "PERSONAL_DEBTS",
   CATALOG: "CATALOG",
+  INVOICE_COUNT: "INVOICE_COUNT",
 } as const;
 export type NotificationCategory =
   (typeof NotificationCategory)[keyof typeof NotificationCategory];
@@ -43,6 +48,11 @@ export const NotificationType = {
   CYCLE_COUNT_SUBMITTED: "CYCLE_COUNT_SUBMITTED",
   PERSONAL_DEBT_DUE: "PERSONAL_DEBT_DUE",
   ABANDONED_CART: "ABANDONED_CART",
+  // Counting links: a count arrived / it was applied to the invoice / a paid
+  // invoice shrank and money has to go back to the customer.
+  INVOICE_COUNT_SUBMITTED: "INVOICE_COUNT_SUBMITTED",
+  INVOICE_COUNT_APPLIED: "INVOICE_COUNT_APPLIED",
+  INVOICE_COUNT_REFUND_DUE: "INVOICE_COUNT_REFUND_DUE",
 } as const;
 export type NotificationType =
   (typeof NotificationType)[keyof typeof NotificationType];

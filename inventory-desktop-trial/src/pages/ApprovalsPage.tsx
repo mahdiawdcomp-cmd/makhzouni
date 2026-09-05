@@ -85,6 +85,9 @@ const APPROVAL_SECTIONS: Array<{ key: string; title: string; types: string[] }> 
     ],
   },
   { key: "transfers", title: "التحويلات بين المخازن", types: ["CREATE_TRANSFER"] },
+  // «جرد الفاتورة» — a customer counted what reached them. Its own section: it
+  // is not an edit request from staff, it is a claim from outside the shop.
+  { key: "counts", title: "جرد الزبائن للفواتير", types: ["INVOICE_COUNT_ADJUSTMENT"] },
   { key: "other", title: "أخرى", types: [] },
 ]
 
@@ -128,6 +131,7 @@ function requestTypeLabel(type: string) {
     CATALOG_ACCESS: "طلب دخول كتالوج",
     CREATE_TRANSFER: "تحويل بين المخازن",
     NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة",
+    INVOICE_COUNT_ADJUSTMENT: "جرد الزبون لفاتورة",
   }
   return labels[type] ?? type
 }

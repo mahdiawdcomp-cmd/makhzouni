@@ -97,6 +97,10 @@ export const approvalRequestTypes = {
   // «اطلب سعراً خاصاً» — the rep cannot discount, so they ask through the same
   // approvals screen everything else uses.
   AGENT_PRICE_REQUEST: "AGENT_PRICE_REQUEST",
+  // «جرد الزبون» — the customer counted what reached them and it differs from
+  // the invoice. Unlike the worker's count (applied on submit), nothing moves
+  // until the owner approves this.
+  INVOICE_COUNT_ADJUSTMENT: "INVOICE_COUNT_ADJUSTMENT",
 } as const;
 
 export type ApprovalRequestType =
@@ -131,6 +135,7 @@ const approvalTypeLabels: Record<string, string> = {
   CATALOG_ACCESS: "طلب دخول كتالوج",
   CATALOG_ORDER: "طلب كتالوج",
   CREATE_TRANSFER: "تحويل بين المخازن",
+  INVOICE_COUNT_ADJUSTMENT: "جرد الزبون لفاتورة",
   NEGATIVE_STOCK_SALE: "بيع بضاعة سالبة (عجز مخزون)",
   AGENT_PRICE_REQUEST: "طلب سعر خاص من مندوب",
 };
@@ -315,6 +320,43 @@ async function buildApprovalDisplay(
         return typeof body.name === "string"
           ? { summary: String(body.name), details: [{ label: "المستخدم", value: String(body.name) }] }
           : undefined;
+      case approvalRequestTypes.INVOICE_COUNT_ADJUSTMENT: {
+        // The owner has to see WHAT the customer counted before saying yes, not
+        // just that a count happened — so the differing lines are spelled out.
+        const linkId = typeof data.linkId === "string" ? data.linkId : undefined;
+        if (!linkId) return undefined;
+        const link = await prisma.invoiceCountLink.findUnique({
+          where: { id: linkId },
+          select: {
+            recipientName: true, submittedAt: true, result: true,
+            invoice: { select: { invoiceNumber: true, totalAmount: true, customer: { select: { name: true } } } },
+          },
+        });
+        if (!link) return { summary: "⚠️ سجل الجرد غير موجود", details: [] };
+        const result = link.result as { lines?: Array<Record<string, unknown>> } | null;
+        const changed = (result?.lines ?? []).filter((l) => Number(l.differencePieces ?? 0) !== 0);
+        const details = [
+          { label: "الفاتورة", value: link.invoice?.invoiceNumber ?? "—" },
+          { label: "الزبون", value: link.invoice?.customer?.name ?? link.recipientName },
+          { label: "مجموع الفاتورة الآن", value: `${fmtMoney(link.invoice?.totalAmount)} د.ع` },
+          { label: "أصناف مختلفة", value: `${changed.length}` },
+          ...changed.slice(0, 12).map((l) => {
+            const diff = Number(l.differencePieces ?? 0);
+            const word = diff > 0 ? `زيادة ${diff}` : `نقص ${-diff}`;
+            return {
+              label: String(l.productName ?? "صنف"),
+              value: `أُرسل ${Number(l.expectedPieces ?? 0)} — وصل ${Number(l.receivedPieces ?? 0)} (${word})`,
+            };
+          }),
+        ];
+        if (changed.length > 12) {
+          details.push({ label: "…", value: `و${changed.length - 12} صنفاً آخر` });
+        }
+        return {
+          summary: `${link.recipientName} جرد فاتورة ${link.invoice?.invoiceNumber ?? ""} — ${changed.length} صنف مختلف`,
+          details,
+        };
+      }
       default:
         return undefined;
     }
@@ -899,6 +941,16 @@ async function executeApprovedRequest(
         data: { status: "APPROVED", reviewedAt: new Date() },
       });
       return { priceApproved: true };
+    }
+    case approvalRequestTypes.INVOICE_COUNT_ADJUSTMENT: {
+      // The customer's counted quantities finally land here. The count itself
+      // was frozen on the link when it was submitted, so approving days later
+      // still applies exactly what the customer reported — not a re-read of an
+      // invoice that may have moved since.
+      const { applyCustomerCount } = await import("./invoice-count.service");
+      const linkId = String(data.linkId ?? "");
+      if (!linkId) throw new AppError("طلب الجرد غير مكتمل", 400, "COUNT_APPROVAL_INVALID");
+      return applyCustomerCount(linkId, reviewerId, tx);
     }
     case approvalRequestTypes.NEGATIVE_STOCK_SALE:
       // Acknowledgment only: the sale already completed and stock already moved.
