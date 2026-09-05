@@ -382,7 +382,8 @@ function itemsTableHTML(el: El, inv: PrintInvoice, store: PrintStore): string {
   // the carton total both have to agree with what the invoice actually says.
   const linePieces = (l: PrintLine) => {
     const per = Math.max(1, l.pcsPerCarton || 1)
-    if (l.unit === "كرتون") return l.qty * per
+    // Both spellings: the print payload says "كرتونة", older callers said "كرتون".
+    if (l.unit === "كرتون" || l.unit === "كرتونة") return l.qty * per
     if (l.unit === "درزن") return l.qty * 12
     if (l.unit === "علبة") return l.qty * Math.ceil(per / 2)
     return l.qty

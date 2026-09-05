@@ -29,8 +29,8 @@ import { calculateInvoiceFinancials } from "../utils/financial"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { sortProductsByRelevance, stockState, depotPiecesOf } from "../utils/search"
 import { unitPriceFrom, unitToPieces } from "../utils/units"
-import { renderInvoiceHTML, parseTemplate } from "../print/invoiceTemplate"
-import type { PrintInvoice, PrintStore } from "../print/invoiceTemplate"
+import { renderDesignHTML, parseDesigns, printHTML } from "../print/invoiceDesign"
+import type { PrintInvoice, PrintStore } from "../print/invoiceDesign"
 
 // ── Quick panel config types ──────────────────────────────────────
 interface CategoryPanel {
@@ -88,6 +88,13 @@ const PANEL_COLORS = [
 
 // ── Cart types ────────────────────────────────────────────────────
 type PosUnit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
+
+function posUnitLabel(unit: PosUnit) {
+  if (unit === "CARTON") return "كرتونة"
+  if (unit === "DOZEN") return "درزن"
+  if (unit === "BOX") return "علبة"
+  return "قطعة"
+}
 type PosItem = {
   lineId: string
   productId: string
@@ -903,16 +910,20 @@ export function POSPage() {
             customerPhone: inv.customer?.phone,
             lines: itemsRef.current.map((it) => ({
               name: it.name,
+              unit: posUnitLabel(it.unit),
               qty: it.quantity,
               price: it.unitPrice,
             })),
+            subtotal: inv.subtotal != null ? Number(inv.subtotal) : undefined,
             discount: inv.discount != null ? Number(inv.discount) : undefined,
             tax: inv.tax != null ? Number(inv.tax) : undefined,
-            totalAmount: inv.totalAmount != null ? Number(inv.totalAmount) : undefined,
-            paidAmount: inv.paidAmount,
-            remainingAmount: inv.remainingAmount,
+            total: inv.totalAmount != null ? Number(inv.totalAmount) : undefined,
+            paid: inv.paidAmount,
+            remaining: inv.remainingAmount,
             previousBalance: inv.previousBalance,
             finalBalance: inv.finalBalance != null ? Number(inv.finalBalance) : undefined,
+            paymentType: inv.paymentType === "CASH" ? "نقد" : inv.paymentType === "PARTIAL" ? "جزئي" : "أجل",
+            invoiceType: "SALE",
             notes: inv.notes ?? undefined,
           },
           store: {
@@ -941,20 +952,13 @@ export function POSPage() {
     // returns the existing invoice instead of creating a duplicate.
   })
 
+  // The till prints the shop's own 80mm design — the same layout the invoice
+  // designer edits and the same one the customer is sent. It used to read
+  // settings.invoiceTemplate, but that key holds the WhatsApp message text, so
+  // parsing always failed and every receipt came out in the built-in default.
   function printReceipt(data: { inv: PrintInvoice; store: PrintStore }) {
-    const tmpl = parseTemplate(settings?.invoiceTemplate)
-    const html = renderInvoiceHTML(tmpl, data.inv, data.store)
-    const iframe = document.createElement("iframe")
-    iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:0"
-    document.body.appendChild(iframe)
-    iframe.contentDocument?.open()
-    iframe.contentDocument?.write(html)
-    iframe.contentDocument?.close()
-    iframe.onload = () => {
-      iframe.contentWindow?.focus()
-      iframe.contentWindow?.print()
-      setTimeout(() => document.body.removeChild(iframe), 2000)
-    }
+    const design = parseDesigns(settings?.invoiceDesign)["80mm"]
+    printHTML(renderDesignHTML(design, data.inv, data.store))
   }
 
   // Hardware barcode gun — layout-independent, works while the search box is

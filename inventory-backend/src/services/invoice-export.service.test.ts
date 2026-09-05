@@ -26,9 +26,15 @@ function fakeInvoiceDb(overrides: Record<string, unknown> = {}) {
     invoiceNumber: "INV-9001",
     date: new Date("2026-07-01"),
     type: "SALE",
+    paymentType: "PARTIAL",
+    subtotal: 50000,
+    discount: 0,
+    tax: 0,
     totalAmount: 50000,
     paidAmount: 30000,
     remainingAmount: 20000,
+    previousBalance: 0,
+    finalBalance: 20000,
     // Forbidden fields deliberately present on the raw row, simulating what
     // would happen if a future edit widened the Prisma `select`. The mapping
     // code in buildCustomerSafeInvoiceDto must not carry these through.
@@ -36,10 +42,11 @@ function fakeInvoiceDb(overrides: Record<string, unknown> = {}) {
     costPrice: 888,
     profitMargin: 0.4,
     internalNotes: "سري - لا يُرسل للزبون",
-    customer: { name: "أحمد" },
+    customer: { name: "أحمد", phone: "07700000000" },
     items: [
       {
         productName: "منتج تجريبي",
+        itemNumber: "A-1",
         unit: "PIECE",
         quantity: 2,
         unitPrice: 25000,
@@ -52,6 +59,8 @@ function fakeInvoiceDb(overrides: Record<string, unknown> = {}) {
         product: {
           thumbnailUrl: null,
           imageUrl: null,
+          itemNumber: "A-1",
+          pcsPerCarton: 12,
           purchasePrice: 14000,
           costPrice: 15000,
         },
@@ -84,11 +93,14 @@ test("customer-safe invoice DTO never includes purchase price, cost price, profi
 test("customer-safe invoice DTO only exposes the explicit customer-facing allowlist", async () => {
   const dto = await buildCustomerSafeInvoiceDto("inv-1", fakeInvoiceDb());
   assert.deepEqual(Object.keys(dto).sort(), [
-    "currency", "customerName", "date", "invoiceNumber", "lines",
-    "paidAmount", "remainingAmount", "storeLogo", "storeName", "totalAmount",
+    "accent", "currency", "customerName", "customerPhone", "date", "discount",
+    "finalBalance", "invoiceNumber", "lines", "paidAmount", "paymentType",
+    "previousBalance", "remainingAmount", "storeAddress", "storeLogo",
+    "storeName", "storePhone", "subtotal", "tax", "totalAmount",
   ].sort());
   assert.deepEqual(Object.keys(dto.lines[0]).sort(), [
-    "imageDataUrl", "productName", "quantity", "totalPrice", "unit", "unitPrice",
+    "imageDataUrl", "itemNumber", "pcsPerCarton", "productName", "quantity",
+    "totalPrice", "unit", "unitPrice",
   ].sort());
 });
 
@@ -108,7 +120,7 @@ test("generateCustomerImageInvoiceWithProducts is exported as a callable functio
   assert.equal(generateCustomerImageInvoiceWithProducts.length, 1);
 });
 
-test("embeddableImage-driven rendering: a data: URL image is embedded, a bare http(s) URL falls back to the placeholder", async () => {
+test("image resolution: a data: URL passes through, and a non-public URL falls back to the placeholder", async () => {
   const dataUrlDb = fakeInvoiceDb({
     items: [{
       productName: "منتج له صورة", unit: "PIECE", quantity: 1, unitPrice: 100, totalPrice: 100,
@@ -118,14 +130,17 @@ test("embeddableImage-driven rendering: a data: URL image is embedded, a bare ht
   const withImage = await buildCustomerSafeInvoiceDto("inv-3", dataUrlDb);
   assert.equal(withImage.lines[0].imageDataUrl, "data:image/jpeg;base64,/9j/AAAA");
 
-  const httpUrlDb = fakeInvoiceDb({
+  // Public http(s) URLs ARE fetched and inlined now (a shop that stores images
+  // as URLs used to get a grid of grey placeholders). Non-public hosts are
+  // still refused outright, without a network call.
+  const privateUrlDb = fakeInvoiceDb({
     items: [{
-      productName: "منتج رابط خارجي", unit: "PIECE", quantity: 1, unitPrice: 100, totalPrice: 100,
-      product: { thumbnailUrl: null, imageUrl: "https://example.com/product.jpg" },
+      productName: "منتج رابط داخلي", unit: "PIECE", quantity: 1, unitPrice: 100, totalPrice: 100,
+      product: { thumbnailUrl: null, imageUrl: "http://127.0.0.1/product.jpg" },
     }],
   });
-  const withHttpUrl = await buildCustomerSafeInvoiceDto("inv-4", httpUrlDb);
-  assert.equal(withHttpUrl.lines[0].imageDataUrl, null, "bare http(s) URLs cannot be rasterized offline -> must fall back to placeholder, not a broken reference");
+  const withPrivateUrl = await buildCustomerSafeInvoiceDto("inv-4", privateUrlDb);
+  assert.equal(withPrivateUrl.lines[0].imageDataUrl, null, "a private-network URL must never be fetched -> placeholder");
 });
 
 // ── Old WhatsApp PDF path (feature request: "old option must stay exactly working") ──
