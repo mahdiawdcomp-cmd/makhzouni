@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { TEMPLATE_KIND_SETTING, type TemplateKind } from "../constants/whatsapp-templates";
 import { asyncHandler } from "../utils/async-handler";
 import { AppError } from "../utils/app-error";
 import { getInvoiceById } from "../services/invoice.service";
@@ -432,15 +433,6 @@ export const sendMessage = asyncHandler(async (req, res) => {
 // link) — the client sends the exact fallback text plus the raw values as
 // bodyParams; the server picks the matching Meta template name from Settings
 // (never a client-supplied template name) and tries it first.
-const TEMPLATE_KIND_SETTING = {
-  voucher: "voucherTemplateName",
-  statement: "statementTemplateName",
-  portal: "portalLinkTemplateName",
-  debtReminder: "debtReminderTemplateName",
-  inactiveCustomer: "inactiveCustomerTemplateName",
-  countLink: "countLinkTemplateName",
-} as const;
-type TemplateKind = keyof typeof TEMPLATE_KIND_SETTING;
 
 export const sendTemplatedMessage = asyncHandler(async (req, res) => {
   const phone = String(req.body?.phone ?? "");

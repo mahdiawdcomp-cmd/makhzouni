@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TEMPLATE_KINDS } from "../constants/whatsapp-templates";
 import { IRAQI_GOVERNORATES, CUSTOMER_BUSINESS_TYPES } from "./deliveryRegion";
 
 const uuidParam = z.object({
@@ -1089,7 +1090,7 @@ export const sendWhatsAppTemplatedSchema = z.object({
   body: z.object({
     phone: z.string().trim().min(5),
     message: z.string().trim().min(1),
-    templateKind: z.enum(["voucher", "statement", "portal"]),
+    templateKind: z.enum(TEMPLATE_KINDS),
     bodyParams: z.array(z.string()).default([]),
   }),
 });
