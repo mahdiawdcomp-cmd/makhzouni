@@ -51,6 +51,11 @@ import {
 } from "../controllers/retail-public.controller";
 import { validate } from "../middleware/validate";
 import { otpLimiter, catalogLimiter } from "../middleware/rate-limit.middleware";
+import {
+  getPublicCountLink,
+  getPublicCountLinkStatus,
+  submitPublicCount,
+} from "../controllers/invoice-count.controller";
 import prisma from "../config/database";
 import { buildCatalogLayout } from "../services/catalog.service";
 import { getSettings } from "../services/settings.service";
@@ -449,5 +454,12 @@ router.get("/display-products", catalogLimiter, asyncHandler(async (_req, res) =
     },
   });
 }));
+
+// ── «جرد الفاتورة» — the public counting page ────────────────────────────────
+// Token-only: the link goes to the worker's or the customer's own phone. Behind
+// the catalog rate limiter so a leaked link cannot be hammered.
+router.get("/invoice-count/:token", catalogLimiter, getPublicCountLink);
+router.get("/invoice-count/:token/status", catalogLimiter, getPublicCountLinkStatus);
+router.post("/invoice-count/:token/submit", catalogLimiter, submitPublicCount);
 
 export default router;

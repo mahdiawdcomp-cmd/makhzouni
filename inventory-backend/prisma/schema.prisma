@@ -349,6 +349,9 @@ model User {
   cycleCountSessionsCreated CycleCountSession[]      @relation("CycleCountSessionCreatedBy")
   cycleCountItemsApproved   CycleCountItem[]         @relation("CycleCountItemApprovedBy")
   personalDebtsCreated      PersonalDebt[]
+  countLinksCreated         InvoiceCountLink[]       @relation("InvoiceCountLinkCreatedBy")
+  countRefundsAcked         InvoiceCountLink[]       @relation("InvoiceCountLinkRefundAckBy")
+  invoiceEditLocks          InvoiceEditLock[]        @relation("InvoiceEditLockUser")
   // «المندوب» — customers assigned to this rep, and the sales/receipts credited
   // to them. Stamped from day one even while a single rep exists: adding an
   // identity to historical rows later is painful, leaving it in costs nothing.
@@ -1181,6 +1184,8 @@ model Invoice {
   // an ACTIVE sale) — guards the reminder cron against re-sending.
   ratingRequestedAt   DateTime?               @map("rating_requested_at")
   productReview       ProductReview?
+  countLinks          InvoiceCountLink[]
+  editLock            InvoiceEditLock?
   // «المندوب» — the rep this sale is credited to. Distinct from createdBy: the
   // invoice is created by whoever approves the catalog order (the owner), while
   // the sale belongs to the rep who took it in the market. The commission
@@ -1204,6 +1209,98 @@ model Invoice {
   // (getDashboardReport, getDailySummaryData, getProfitReport, StoreBrain).
   @@index([status, type, date])
   @@map("invoices")
+}
+
+// ── «جرد الفاتورة» — counting links (رابط جرد) ───────────────────────────────
+//
+// One link per audience per invoice. The worker counts inside the shop before
+// the goods leave; the customer counts on arrival. They are deliberately NOT
+// symmetric:
+//   WORKER   → the counted quantities are applied to the invoice IMMEDIATELY on
+//              submit. The shop trusts its own staff; the owner reads what
+//              happened afterwards on the invoice and in the notification bell.
+//   CUSTOMER → nothing is touched. A PendingApproval is raised and a WhatsApp
+//              alert is sent; the change lands only when the owner approves.
+//
+// The link is emailed/WhatsApp'd to a personal number, so the token is the only
+// credential. It is single-submission and short-lived.
+
+enum InvoiceCountAudience {
+  WORKER
+  CUSTOMER
+}
+
+enum InvoiceCountLinkStatus {
+  OPEN // sent, never opened
+  VIEWED // opened at least once, not submitted
+  SUBMITTED // counted and sent back
+  EXPIRED // ran out of time without a submission
+  REVOKED // superseded by a newer link, or cancelled by the shop
+}
+
+model InvoiceCountLink {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  invoiceId          String                 @map("invoice_id") @db.Uuid
+  invoice            Invoice                @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  audience           InvoiceCountAudience
+  token              String                 @unique
+  status             InvoiceCountLinkStatus @default(OPEN)
+  /// Who the link was sent to. For WORKER these come from
+  /// settings.preparationWorkers (not a User row); for CUSTOMER they are the
+  /// invoice customer's own name/phone, snapshotted so the audit trail survives
+  /// a later rename.
+  recipientId        String?                @map("recipient_id")
+  recipientName      String                 @map("recipient_name")
+  recipientPhone     String?                @map("recipient_phone")
+  expiresAt          DateTime               @map("expires_at")
+  createdBy          String                 @map("created_by") @db.Uuid
+  creator            User                   @relation("InvoiceCountLinkCreatedBy", fields: [createdBy], references: [id])
+  createdAt          DateTime               @default(now()) @map("created_at")
+  firstViewedAt      DateTime?              @map("first_viewed_at")
+  lastViewedAt       DateTime?              @map("last_viewed_at")
+  viewCount          Int                    @default(0) @map("view_count")
+  submittedAt        DateTime?              @map("submitted_at")
+  revokedAt          DateTime?              @map("revoked_at")
+  /// The submitted count: per-line received quantities plus the computed
+  /// difference against what the invoice said at submit time. Frozen — never
+  /// recomputed, so the record still reads true after later edits.
+  result             Json?
+  /// True when at least one line came back different from the invoice.
+  hasDifference      Boolean                @default(false) @map("has_difference")
+  /// When the counted quantities actually hit the invoice (immediately for
+  /// WORKER, on approval for CUSTOMER). Null while pending or when rejected.
+  appliedAt          DateTime?              @map("applied_at")
+  /// CUSTOMER links only — the approval the owner has to act on.
+  approvalId         String?                @map("approval_id") @db.Uuid
+  /// Cash the shop must physically hand back because a PAID invoice shrank.
+  /// Kept here rather than in a ledger: the owner asked for a reminder, not a
+  /// second cash book. Acknowledged once the money is actually returned.
+  refundDue          Decimal?               @map("refund_due") @db.Decimal(12, 2)
+  refundAckAt        DateTime?              @map("refund_ack_at")
+  refundAckBy        String?                @map("refund_ack_by") @db.Uuid
+  refundAcknowledger User?                  @relation("InvoiceCountLinkRefundAckBy", fields: [refundAckBy], references: [id])
+
+  @@index([invoiceId])
+  @@index([status])
+  @@index([audience])
+  @@index([expiresAt])
+  @@map("invoice_count_links")
+}
+
+/// Soft "someone is editing this invoice right now" marker. The counting page
+/// polls it so a customer is told to wait instead of counting a document that
+/// is being rewritten under them. Heartbeat-based: a closed tab stops
+/// refreshing and the lock goes stale on its own.
+model InvoiceEditLock {
+  invoiceId   String   @id @map("invoice_id") @db.Uuid
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId      String   @map("user_id") @db.Uuid
+  user        User     @relation("InvoiceEditLockUser", fields: [userId], references: [id])
+  userName    String   @map("user_name")
+  heartbeatAt DateTime @map("heartbeat_at")
+
+  @@index([heartbeatAt])
+  @@map("invoice_edit_locks")
 }
 
 model InvoiceItem {
