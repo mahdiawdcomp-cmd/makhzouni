@@ -1170,7 +1170,10 @@ export async function getAgentToday(agentId: string) {
         requestType: approvalRequestTypes.CATALOG_ORDER,
         createdAt: { gte: start },
       },
-      select: { requestData: true },
+      // Status included so a REJECTED order can be excluded from the money
+      // figure below. Without it a refused order still counted as a sale, which
+      // is the number the owner sees when checking what the rep did today.
+      select: { requestData: true, status: true },
     }),
     prisma.paymentVoucher.count({
       where: {
@@ -1198,7 +1201,15 @@ export async function getAgentToday(agentId: string) {
   // Sales value comes off the approval snapshots, not invoices: an order sent an
   // hour ago may not be approved yet, and the rep's day should count what they
   // SOLD, not what the owner has got round to billing.
-  const orderValue = orders.reduce((sum, a) => {
+  //
+  // A REJECTED order is not a sale by anyone's reckoning, so it is excluded — it
+  // used to be counted, which left a refused order still showing as money in the
+  // rep's day. PENDING still counts: the rep did make the sale, and the owner
+  // simply has not reviewed it yet.
+  const rejected = orders.filter((a) => a.status === "REJECTED");
+  const counted = orders.filter((a) => a.status !== "REJECTED");
+
+  const orderValue = counted.reduce((sum, a) => {
     const d = (a.requestData ?? {}) as { subtotal?: number };
     return sum + Number(d.subtotal ?? 0);
   }, 0);
@@ -1227,7 +1238,14 @@ export async function getAgentToday(agentId: string) {
   for (const i of issueCustomers) visited.add(i.customerId);
 
   return {
-    orders: orders.length,
+    orders: counted.length,
+    // Surfaced rather than silently dropped: the rep should see that something
+    // they sent came back refused, not just a number that quietly shrank.
+    rejectedOrders: rejected.length,
+    rejectedValue: rejected.reduce((sum, a) => {
+      const d = (a.requestData ?? {}) as { subtotal?: number };
+      return sum + Number(d.subtotal ?? 0);
+    }, 0),
     orderValue,
     receipts,
     collected: toNumber(collected._sum.amount),

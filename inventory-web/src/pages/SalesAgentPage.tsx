@@ -93,6 +93,9 @@ type CustomerPage = {
 /** «يومي» — the rep's own day. Contains no figure the owner keeps private. */
 type AgentToday = {
   orders: number
+  /** Refused orders, shown separately so the number never silently shrinks. */
+  rejectedOrders: number
+  rejectedValue: number
   orderValue: number
   receipts: number
   collected: number
@@ -1883,7 +1886,14 @@ function MoneyScreen({
         <StatTile
           title="مبيعاتي اليوم"
           value={d ? money(d.orderValue) : "…"}
-          sub={d ? `${d.orders} طلب · ${d.customersVisited} زبون` : undefined}
+          sub={
+            d
+              ? `${d.orders} طلب · ${d.customersVisited} زبون` +
+                // Named rather than hidden: a rep whose figure drops should see
+                // why, not wonder whether the screen is wrong.
+                (d.rejectedOrders > 0 ? ` · ${d.rejectedOrders} مرفوض (${money(d.rejectedValue)})` : "")
+              : undefined
+          }
           color="var(--theme-accent)"
           icon={<ShoppingCart className="h-5 w-5" />}
         />
