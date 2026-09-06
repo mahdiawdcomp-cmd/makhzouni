@@ -132,8 +132,10 @@ export const postAgentOrder = asyncHandler(async (req, res) => {
     const unit = String(item.unit ?? "");
     if (!UNITS.has(unit)) throw new AppError("وحدة غير معروفة", 400, "UNIT_INVALID");
     const quantity = Number(item.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      throw new AppError("الكمية غير صحيحة", 400, "QUANTITY_INVALID");
+    // Whole units only — the service enforces this too, but rejecting it here
+    // keeps a fractional quantity from ever reaching the pricing maths.
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new AppError("الكمية لازم تكون رقم صحيح أكبر من صفر", 400, "QUANTITY_INVALID");
     }
     if (!item.productId) throw new AppError("منتج غير صحيح", 400, "PRODUCT_REQUIRED");
     return { productId: String(item.productId), unit: unit as Unit, quantity };

@@ -541,6 +541,26 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   });
   const productById = new Map(products.map((p) => [p.id, p]));
 
+  // The rep's cart is kept in their browser and can outlive a product. Refusing
+  // with a bare "منتج غير موجود" left them with a saved cart that would not send
+  // and no way to tell which line to drop — the deleted row is gone from their
+  // screen too. Name it, reading past the soft-delete so the name still exists.
+  const missing = uniqueProductIds.filter((id) => !productById.has(id));
+  if (missing.length > 0) {
+    const gone = await prisma.product.findMany({
+      where: { id: { in: missing } },
+      select: { name: true },
+    });
+    const names = gone.map((g) => `«${g.name}»`).join("، ");
+    throw new AppError(
+      names
+        ? `هذي المواد ما عادت موجودة، شيلها من السلة: ${names}`
+        : "بالسلة مادة ما عادت موجودة — شيلها وأعد الإرسال",
+      404,
+      "PRODUCT_NOT_FOUND",
+    );
+  }
+
   // Sum the requested pieces per product FIRST: the same product can appear on
   // two lines in different units, and checking each line on its own would let
   // the pair together exceed stock.
@@ -548,7 +568,15 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   for (const item of input.items) {
     const product = productById.get(item.productId);
     if (!product) throw new AppError("منتج غير موجود", 404, "PRODUCT_NOT_FOUND");
-    if (!(item.quantity > 0)) throw new AppError("الكمية لازم تكون أكبر من صفر", 400, "QUANTITY_INVALID");
+    // Whole units only, matching every other order path in this system (they all
+    // validate `.int().positive()`). This one accepted 0.5, which prices half a
+    // piece and then flows into an invoice line nobody can pick or deliver.
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new AppError("الكمية لازم تكون رقم صحيح أكبر من صفر", 400, "QUANTITY_INVALID");
+    }
+    if (item.quantity > 100_000) {
+      throw new AppError("الكمية كبيرة جداً — تأكد منها", 400, "QUANTITY_TOO_LARGE");
+    }
     const pieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(product.id, (requestedPiecesByProduct.get(product.id) ?? 0) + pieces);
   }
@@ -1195,7 +1223,12 @@ export async function getAgentToday(agentId: string) {
       _sum: { amount: true },
     }),
     prisma.salesAgentIssue.count({ where: { salesAgentId: agentId, createdAt: { gte: start } } }),
-    prisma.customer.count({ where: { salesAgentId: agentId, createdAt: { gte: start } } }),
+    // `deletedAt: null` matters: a customer entered by mistake and removed the
+    // same day kept counting toward the rep's day, which is the one number on
+    // that screen nobody would think to double-check.
+    prisma.customer.count({
+      where: { salesAgentId: agentId, deletedAt: null, createdAt: { gte: start } },
+    }),
   ]);
 
   // Sales value comes off the approval snapshots, not invoices: an order sent an

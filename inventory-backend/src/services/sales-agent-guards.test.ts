@@ -315,6 +315,39 @@ describe("«المندوب» — policy and money rules", () => {
     assert.ok(catalog.includes("piecesForUnit"), "the catalog must use the shared converter");
   });
 
+  test("summaries exclude what was refused or removed", () => {
+    // The day figure summed EVERY order the rep raised, with no filter on
+    // status, so an order the owner rejected still showed as money sold. And
+    // the new-customer count had no deletedAt filter, so a customer entered by
+    // mistake and removed the same day kept counting.
+    const fn = fnBody(service, "getAgentToday");
+    assert.ok(
+      fn.includes('a.status === "REJECTED"'),
+      "a rejected order must not count as a sale",
+    );
+    assert.ok(
+      /customer\.count\(\{[\s\S]*?deletedAt: null/.test(fn),
+      "a deleted customer must not count as a new customer",
+    );
+  });
+
+  test("order quantities are whole units", () => {
+    // Every other order path in this system validates `.int().positive()`.
+    // This one accepted 0.5, which prices half a piece and then becomes an
+    // invoice line nobody can pick or deliver.
+    const fn = fnBody(service, "submitAgentOrder");
+    assert.ok(fn.includes("Number.isInteger"), "a fractional quantity must be refused");
+  });
+
+  test("a cart holding a deleted product names it", () => {
+    // The cart lives in the rep's browser and can outlive a product. A bare
+    // "منتج غير موجود" left them with a saved cart that would not send and no
+    // way to tell which line to drop.
+    const fn = fnBody(service, "submitAgentOrder");
+    assert.ok(fn.includes("const missing"), "the missing products must be identified");
+    assert.ok(fn.includes("شيلها من السلة"), "the rep must be told which line to remove");
+  });
+
   test("orders and handovers are idempotent", () => {
     assert.ok(service.includes("clientRequestId"), "a re-sent cart must not create a second order");
     assert.ok(admin.includes("clientRequestId"), "a double-tapped handover must not book cash twice");
