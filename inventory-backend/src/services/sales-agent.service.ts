@@ -422,11 +422,18 @@ export async function listAgentCatalogProducts() {
       // data, in the street, that is the whole experience.
       hasImage: Boolean(product.thumbnailUrl),
       currentStock: totalStock(product),
-    }));
-  // NOT filtered by stock. A product at zero is still sellable — the shop's
-  // standing policy is that a shortage never blocks a sale — and hiding it
-  // would leave the rep unable to even quote something the customer is asking
-  // for. The real number is shown on the card; the decision is the rep's.
+    }))
+    // Exactly the filter the public catalog uses, and for the same reason: the
+    // rep's grid must BE the shop's catalog, not a variant of it. A product the
+    // shopkeeper cannot find in the catalog must not appear on the rep's phone
+    // either, or the two disagree about what the shop sells.
+    //
+    // This is NOT the "a shortage never blocks a sale" policy — that rule is
+    // about REFUSING an order and still holds: a product with 5 left can be sold
+    // in tens, and submitAgentOrder records the shortfall instead of throwing.
+    // Hiding a line that is fully out of stock is a display decision, and
+    // conflating the two is what put out-of-stock goods in front of the rep.
+    .filter((p) => p.currentStock > 0);
 }
 
 export async function getAgentProductThumbnails(ids: string[]) {
