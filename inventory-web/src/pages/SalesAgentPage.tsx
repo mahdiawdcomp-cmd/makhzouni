@@ -565,31 +565,44 @@ export function SalesAgentPage() {
               )}
             </p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          {/* items-center, not the default stretch: without it these two
+              buttons were squeezed to their content height (36px) and lost the
+              44px touch target they ask for. */}
+          <div className="flex shrink-0 items-center gap-2">
             {customerId && (
               <Button
                 variant="outline"
-                className="h-11 sm:h-9"
+                // 44px on every touch screen, phone and iPad both — the rep is
+                // outdoors with one thumb. The site's compact 36px starts at a
+                // real desktop, not at 640px.
+                className="h-11 lg:h-9"
                 onClick={() => { setDetailCustomerId(customerId); setScreen("customer-detail") }}
               >
                 <Receipt className="h-4 w-4" /> كشف الحساب
               </Button>
             )}
-            <Button variant="outline" className="h-11 sm:h-9" onClick={() => setScreen("customers")}>
+            <Button variant="outline" className="h-11 lg:h-9" onClick={() => setScreen("customers")}>
               <Users className="h-4 w-4" /> تبديل الزبون
             </Button>
           </div>
         </div>
 
         {/* Tab strip, identical to the customers/suppliers switch elsewhere. */}
-        <div className="mt-3 -mb-3 flex overflow-x-auto border-b" style={{ borderColor: "var(--theme-cardBorder)" }}>
+        {/* On a phone the five tabs overflowed by ~40px, so «طلباتي» sat half
+            off the edge with nothing to say the strip scrolled. Five equal
+            columns below sm: everything reachable with one thumb, no scrolling.
+            Wider screens keep the natural strip. */}
+        <div
+          className="mt-3 -mb-3 grid grid-cols-5 border-b sm:flex sm:overflow-x-auto"
+          style={{ borderColor: "var(--theme-cardBorder)" }}
+        >
           {TABS.map((t) => (
             <button
               key={t.key}
               type="button"
               onClick={() => setScreen(t.key)}
               className={cn(
-                "shrink-0 px-4 py-2 text-sm font-medium",
+                "shrink-0 px-1 py-2 text-sm font-medium sm:px-4",
                 screen === t.key
                   ? "border-b-2 border-indigo-500 text-indigo-600"
                   : "text-slate-500 hover:text-slate-700",
@@ -783,6 +796,8 @@ export function SalesAgentPage() {
 
 /* ── shared shells ───────────────────────────────────────────────────── */
 
+const dialogStack: object[] = []
+
 /**
  * Centred dialog, matching the site's modal shape.
  *
@@ -802,12 +817,28 @@ function Dialog({
   footer?: React.ReactNode
   padded?: boolean
 }) {
+  /**
+   * Escape closes the TOP dialog only.
+   *
+   * «أكو مشكلة» opens on top of the product dialog, and one Escape used to
+   * close both — the rep backing out of the note also lost the quantity they
+   * had set. Each dialog takes a place in this stack and only the last one
+   * listens.
+   */
   useEffect(() => {
+    const token = {}
+    dialogStack.push(token)
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
+      if (e.key !== "Escape") return
+      if (dialogStack[dialogStack.length - 1] !== token) return
+      onClose()
     }
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      const i = dialogStack.indexOf(token)
+      if (i >= 0) dialogStack.splice(i, 1)
+    }
   }, [onClose])
 
   return (
@@ -1052,7 +1083,7 @@ function CatalogScreen({
           onChange={(e) => onSearch(e.target.value)}
           placeholder="بحث بالاسم أو رقم المادة"
           aria-label="بحث عن مادة"
-          className="h-11 sm:h-9"
+          className="h-11 lg:h-9"
         />
 
         {loading ? (
@@ -1423,7 +1454,7 @@ function CustomersScreen({
     <Card>
       <CardHeader>
         <CardTitle>زبائني</CardTitle>
-        <Button className="h-11 sm:h-9" onClick={onNew}>
+        <Button className="h-11 lg:h-9" onClick={onNew}>
           <UserPlus className="h-4 w-4" /> زبون جديد
         </Button>
       </CardHeader>
@@ -1436,7 +1467,7 @@ function CustomersScreen({
           }}
           placeholder="بحث بالاسم أو الهاتف"
           aria-label="بحث عن زبون"
-          className="h-11 sm:h-9"
+          className="h-11 lg:h-9"
         />
 
         {customers.isPending ? (
@@ -1550,11 +1581,19 @@ function CustomersScreen({
                       )}
                     </TD>
                     <TD>
-                      <div className="flex gap-1.5">
-                        <Button size="sm" onClick={() => onPick(c.id)}>
+                      {/* The table starts at 640px, so an iPad gets it too —
+                          and these two, the buttons the rep taps all day, were
+                          28px there. Full touch height until a real desktop. */}
+                      <div className="flex items-center gap-1.5">
+                        <Button size="sm" className="h-11 lg:h-7" onClick={() => onPick(c.id)}>
                           بيع
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => onOpenStatement(c.id)}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-11 lg:h-7"
+                          onClick={() => onOpenStatement(c.id)}
+                        >
                           <Receipt className="h-3.5 w-3.5" /> كشف
                         </Button>
                       </div>

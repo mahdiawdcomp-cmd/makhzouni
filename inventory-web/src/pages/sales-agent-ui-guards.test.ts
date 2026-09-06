@@ -57,3 +57,36 @@ test("money tiles do not print zero from a failed or unfinished read", () => {
     "?? 0 turns a missing answer into a figure",
   )
 })
+
+/**
+ * «أكو مشكلة» opens on top of the product dialog and one Escape closed both —
+ * the rep backing out of the note also lost the quantity they had set.
+ */
+test("Escape closes the top dialog only", () => {
+  assert.match(src, /dialogStack/)
+  assert.match(src, /dialogStack\[dialogStack\.length - 1\] !== token/)
+})
+
+/**
+ * Two taps land in the same tick, before React can disable the button. Every
+ * save on this page produced a twin without this.
+ */
+test("every save goes through the one-tap guard", () => {
+  assert.match(src, /function useOnce\(/)
+  assert.equal(
+    /onClick=\{\(\) => (submit|save)\.mutate\(\)\}/.test(src),
+    false,
+    "a save wired straight to mutate() can fire twice on one double tap",
+  )
+})
+
+/** A decimal separator in the quantity read as a digit: «1.5» meant 15. */
+test("quantities are whole units and Arabic digits count", () => {
+  assert.match(src, /function wholeUnits\(/)
+  assert.match(src, /function toAsciiDigits\(/)
+  assert.equal(
+    /setQty\(Number\(e\.target\.value\.replace/.test(src),
+    false,
+    "stripping non-digits turns «1.5» into 15",
+  )
+})
