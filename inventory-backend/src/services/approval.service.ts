@@ -436,13 +436,20 @@ export async function createPendingApproval(
   requestType: ApprovalRequestType,
   requestData: Record<string, unknown>,
   requestedBy: string,
-  requesterName?: string
+  requesterName?: string,
+  /**
+   * Idempotency key. Unique in the database, so two taps that arrive together
+   * cannot both insert — the second one fails with P2002 and the caller hands
+   * back the first request's approval instead of creating a twin.
+   */
+  clientRequestId?: string
 ) {
   const approval = await prisma.pendingApproval.create({
     data: {
       requestType,
       requestData: requestData as Prisma.InputJsonValue,
       requestedBy,
+      clientRequestId: clientRequestId ?? null,
     },
   });
 

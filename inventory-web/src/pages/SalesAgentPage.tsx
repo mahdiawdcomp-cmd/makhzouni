@@ -422,12 +422,17 @@ export function SalesAgentPage() {
 
   // A customer that was un-assigned (or removed) since the id was cached must
   // not leave the rep selling into a ghost.
+  //
+  // Only a real answer from the server clears the selection. Any error used to
+  // count, so a dropped connection threw the rep out of the sale they were in
+  // the middle of and back to the customer list.
+  const headerStatus = (header.error as { response?: { status?: number } } | null)?.response?.status
   useEffect(() => {
-    if (customerId && header.isError) {
+    if (customerId && (headerStatus === 404 || headerStatus === 403)) {
       setCustomerId(null)
       setScreen("customers")
     }
-  }, [customerId, header.isError])
+  }, [customerId, headerStatus])
 
   const cart = customerId ? carts[customerId] ?? [] : []
   const setCart = useCallback(
@@ -470,6 +475,11 @@ export function SalesAgentPage() {
     [setCart],
   )
 
+  // Two taps land in the same tick, before React can re-render the button as
+  // disabled — a rep tapping «أرسل الطلب» twice sent the order twice. The
+  // server's unique key is the real guarantee; this just stops the round trip.
+  const sending = useRef(false)
+
   const submit = useMutation({
     mutationFn: async () => {
       const res = await api.post("/sales-agent/orders", {
@@ -508,6 +518,13 @@ export function SalesAgentPage() {
         variant: "destructive",
       }),
   })
+
+  const sendOrder = useCallback(() => {
+    if (sending.current) return
+    sending.current = true
+    submit.mutate(undefined, { onSettled: () => (sending.current = false) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submit])
 
   const filtered = useMemo(() => {
     const list = products.data ?? []
@@ -689,7 +706,7 @@ export function SalesAgentPage() {
               notes={notes}
               onNotes={setNotes}
               onChange={setCart}
-              onSubmit={() => submit.mutate()}
+              onSubmit={sendOrder}
               submitting={submit.isPending}
               specialPrice={specialPriceFor}
             />
@@ -722,7 +739,7 @@ export function SalesAgentPage() {
             notes={notes}
             onNotes={setNotes}
             onChange={setCart}
-            onSubmit={() => submit.mutate()}
+            onSubmit={sendOrder}
             submitting={submit.isPending}
             specialPrice={specialPriceFor}
           />
@@ -908,6 +925,26 @@ function Waiting({ q }: { q: { fetchStatus: string; refetch: () => unknown } }) 
     return <QueryErrorBox title="ما في اتصال" onRetry={() => void q.refetch()} />
   }
   return <Loading />
+}
+
+// Reps type on Arabic keyboards. Stripping non-ASCII digits read «١٢» as an
+// empty string, so the field silently fell back to 1.
+function toAsciiDigits(value: string) {
+  return value.replace(/[٠-٩۰-۹]/g, (d) => String(d.charCodeAt(0) & 0xf))
+}
+
+// Money is written «50.000» here and means fifty thousand, so the separator is
+// dropped. Quantities are the opposite: they are whole units and small, so a
+// separator is a typo — «1.5» must read as 1, not 15. Stripping the dot turned
+// a habit of typing a decimal point into ten times the order.
+function digitsOnly(value: string) {
+  return toAsciiDigits(value).replace(/\D/g, "")
+}
+
+function wholeUnits(value: string, max = 100_000) {
+  const n = Number(digitsOnly(toAsciiDigits(value).split(/[.,٫٬]/)[0]))
+  if (!Number.isFinite(n) || n <= 0) return 1
+  return Math.min(n, max)
 }
 
 function Loading({ label = "جاري التحميل…" }: { label?: string }) {
@@ -1205,10 +1242,7 @@ function ProductDialog({
             value={qty}
             inputMode="numeric"
             aria-label="الكمية"
-            onChange={(e) => {
-              const n = Number(e.target.value.replace(/\D/g, ""))
-              setQty(Number.isFinite(n) && n > 0 ? n : 1)
-            }}
+            onChange={(e) => setQty(wholeUnits(e.target.value))}
             className="h-11 w-20 text-center text-base font-bold tabular-nums"
           />
           <Button variant="outline" className="h-11 w-11 p-0" aria-label="زد" onClick={() => setQty((q) => q + 1)}>
@@ -1969,7 +2003,7 @@ function MoneyScreen({
               <Input
                 value={amount}
                 inputMode="numeric"
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                onChange={(e) => setAmount(digitsOnly(e.target.value))}
                 className="h-11 text-lg font-bold tabular-nums"
               />
             </Field>
@@ -2282,7 +2316,7 @@ function PriceRequestDialog({
           <Input
             value={price}
             inputMode="numeric"
-            onChange={(e) => setPrice(e.target.value.replace(/[^0-9]/g, ""))}
+            onChange={(e) => setPrice(digitsOnly(e.target.value))}
             className="h-11 text-lg font-bold tabular-nums"
           />
         </Field>

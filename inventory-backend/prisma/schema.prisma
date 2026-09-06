@@ -1491,19 +1491,24 @@ model QuotationItem {
 }
 
 model PendingApproval {
-  id          String         @id @default(uuid()) @db.Uuid
-  requestType String         @map("request_type")
-  requestData Json           @map("request_data")
-  requestedBy String         @map("requested_by") @db.Uuid
-  requester   User           @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id])
-  status      ApprovalStatus @default(PENDING)
-  reviewedBy  String?        @map("reviewed_by") @db.Uuid
-  reviewer    User?          @relation("ApprovalReviewedBy", fields: [reviewedBy], references: [id])
-  reviewedAt  DateTime?      @map("reviewed_at")
+  id              String         @id @default(uuid()) @db.Uuid
+  requestType     String         @map("request_type")
+  requestData     Json           @map("request_data")
+  requestedBy     String         @map("requested_by") @db.Uuid
+  requester       User           @relation("ApprovalRequestedBy", fields: [requestedBy], references: [id])
+  status          ApprovalStatus @default(PENDING)
+  reviewedBy      String?        @map("reviewed_by") @db.Uuid
+  reviewer        User?          @relation("ApprovalReviewedBy", fields: [reviewedBy], references: [id])
+  reviewedAt      DateTime?      @map("reviewed_at")
   /// Why it was rejected. A rep whose order comes back as a bare «مرفوض» has to
   /// telephone to find out what to fix; this is that answer, written once.
-  reviewNote  String?        @map("review_note")
-  createdAt   DateTime       @default(now()) @map("created_at")
+  reviewNote      String?        @map("review_note")
+  /// Client idempotency key. The old check read the table and then inserted, so
+  /// three taps that arrived together all read "nothing yet" and all inserted —
+  /// a rep who double-tapped «أرسل الطلب» created the same order three times.
+  /// The database decides now.
+  clientRequestId String?        @unique @map("client_request_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
 
   @@index([requestedBy])
   @@index([reviewedBy])

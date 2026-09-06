@@ -491,6 +491,35 @@ export type AgentOrderInput = {
  * discount, and the surest way to guarantee that is to never read a price they
  * sent.
  */
+/**
+ * The first request wins and every repeat of it gets the same answer.
+ *
+ * `client_request_id` is a real unique column, so this read is only the fast
+ * path — the guarantee lives in the database. The old code read the table and
+ * then inserted, and three taps that arrived together all read "nothing yet"
+ * and all inserted: one double tap on «أرسل الطلب» produced three identical
+ * orders. The JSON fallback reads orders written before the column existed.
+ */
+async function findPriorAgentOrder(agentId: string, key: string) {
+  const prior = await prisma.pendingApproval.findFirst({
+    where: {
+      requestedBy: agentId,
+      requestType: approvalRequestTypes.CATALOG_ORDER,
+      OR: [{ clientRequestId: key }, { requestData: { path: ["clientRequestId"], equals: key } }],
+    },
+    select: { id: true, requestData: true },
+  });
+  if (!prior) return null;
+  const d = (prior.requestData ?? {}) as { subtotal?: number; displayItems?: unknown[] };
+  return {
+    approvalId: prior.id,
+    subtotal: Number(d.subtotal ?? 0),
+    lineCount: Array.isArray(d.displayItems) ? d.displayItems.length : 0,
+    shortages: [] as Array<{ productId: string; productName: string; requested: number; available: number; short: number }>,
+    duplicate: true,
+  };
+}
+
 export async function submitAgentOrder(agentId: string, agentName: string, input: AgentOrderInput) {
   const customer = await assertOwnCustomer(agentId, input.customerId);
 
@@ -499,24 +528,8 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   // never hand back another rep's order.
   const key = input.clientRequestId?.trim();
   if (key) {
-    const prior = await prisma.pendingApproval.findFirst({
-      where: {
-        requestedBy: agentId,
-        requestType: approvalRequestTypes.CATALOG_ORDER,
-        requestData: { path: ["clientRequestId"], equals: key },
-      },
-      select: { id: true, requestData: true },
-    });
-    if (prior) {
-      const d = (prior.requestData ?? {}) as { subtotal?: number; displayItems?: unknown[] };
-      return {
-        approvalId: prior.id,
-        subtotal: Number(d.subtotal ?? 0),
-        lineCount: Array.isArray(d.displayItems) ? d.displayItems.length : 0,
-        shortages: [] as Array<{ productId: string; productName: string; requested: number; available: number; short: number }>,
-        duplicate: true,
-      };
-    }
+    const prior = await findPriorAgentOrder(agentId, key);
+    if (prior) return prior;
   }
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
@@ -641,44 +654,60 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
 
   const subtotal = normalizedItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
-  const approval = await createPendingApproval(
-    approvalRequestTypes.CATALOG_ORDER,
-    {
-      source: "SALES_AGENT",
-      salesAgentId: agentId,
-      salesAgentName: agentName,
-      clientRequestId: key,
+  const approvalData = {
+    source: "SALES_AGENT",
+    salesAgentId: agentId,
+    salesAgentName: agentName,
+    clientRequestId: key,
+    customerName: customer.name,
+    phone: customer.phone,
+    customerId: customer.id,
+    address: customer.address ?? undefined,
+    area: customer.area ?? undefined,
+    notes: input.notes,
+    subtotal,
+    finalTotal: subtotal,
+    // Empty on a normal order; present when the rep sold something the shop is
+    // short of, so the approvals row can say so instead of the owner finding
+    // out when stock goes negative.
+    shortages,
+    body: {
       customerName: customer.name,
       phone: customer.phone,
-      customerId: customer.id,
       address: customer.address ?? undefined,
-      area: customer.area ?? undefined,
       notes: input.notes,
-      subtotal,
-      finalTotal: subtotal,
-      // Empty on a normal order; present when the rep sold something the shop is
-      // short of, so the approvals row can say so instead of the owner finding
-      // out when stock goes negative.
-      shortages,
-      body: {
-        customerName: customer.name,
-        phone: customer.phone,
-        address: customer.address ?? undefined,
-        notes: input.notes,
-        salesAgentId: agentId,
-        items: normalizedItems.map((i) => ({
-          productId: i.productId,
-          unit: i.unit,
-          quantity: i.quantity,
-          unitPrice: i.unitPrice,
-        })),
-      },
-      displayItems: normalizedItems,
+      salesAgentId: agentId,
+      items: normalizedItems.map((i) => ({
+        productId: i.productId,
+        unit: i.unit,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
     },
-    // The rep owns the request. This is the field the public catalog wastes on
-    // a placeholder user — here it carries the real answer.
-    agentId,
-  );
+    displayItems: normalizedItems,
+  };
+
+  let approval: { id: string };
+  try {
+    approval = await createPendingApproval(
+      approvalRequestTypes.CATALOG_ORDER,
+      approvalData,
+      // The rep owns the request. This is the field the public catalog wastes
+      // on a placeholder user — here it carries the real answer.
+      agentId,
+      agentName,
+      key,
+    );
+  } catch (err) {
+    // Two taps raced past the read above and the unique index caught the second
+    // one. The rep gets back the order the first tap created — no twin, and no
+    // second notification to the owner.
+    if (key && (err as { code?: string })?.code === "P2002") {
+      const prior = await findPriorAgentOrder(agentId, key);
+      if (prior) return prior;
+    }
+    throw err;
+  }
 
   // Spend the approved prices now that they are frozen into the approval
   // snapshot. If the owner later rejects the whole order the price is spent and

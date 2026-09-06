@@ -353,3 +353,24 @@ describe("«المندوب» — policy and money rules", () => {
     assert.ok(admin.includes("clientRequestId"), "a double-tapped handover must not book cash twice");
   });
 });
+
+/**
+ * Three taps on «أرسل الطلب» created three identical orders. The old check read
+ * the table and then inserted, so requests that arrived together all read
+ * "nothing yet". The unique column is the guarantee; the read is only a fast
+ * path.
+ */
+test("the order idempotency key is enforced by the database, not by a read", () => {
+  const schema = readFileSync(join(SRC, "..", "prisma", "schema.prisma"), "utf8");
+  const model = schema.slice(schema.indexOf("model PendingApproval"));
+  const body = model.slice(0, model.indexOf("@@map"));
+  assert.match(
+    body,
+    /clientRequestId\s+String\?\s+@unique/,
+    "PendingApproval needs a unique client_request_id or two taps both insert",
+  );
+
+  const svc = code(read("services/sales-agent.service.ts"));
+  assert.match(svc, /P2002/, "the create must handle the unique-constraint race");
+  assert.match(svc, /findPriorAgentOrder/);
+});
