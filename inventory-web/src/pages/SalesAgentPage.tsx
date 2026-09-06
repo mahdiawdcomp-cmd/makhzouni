@@ -653,7 +653,8 @@ export function SalesAgentPage() {
             (customerId ? (
               <CatalogScreen
                 products={filtered}
-                loading={products.isLoading}
+                loading={products.isPending}
+                paused={products.fetchStatus === "paused"}
                 error={products.isError}
                 onRetry={() => void products.refetch()}
                 search={search}
@@ -897,6 +898,18 @@ function EmptyState({
   )
 }
 
+// TanStack pauses a retry when the browser reports itself offline or the tab
+// loses focus: the query stays `pending` with `fetchStatus: "paused"` and
+// nothing moves again on its own. Outdoors on a weak signal that is the rep's
+// normal state, so it gets a message and a button instead of a spinner that
+// never stops.
+function Waiting({ q }: { q: { fetchStatus: string; refetch: () => unknown } }) {
+  if (q.fetchStatus === "paused") {
+    return <QueryErrorBox title="ما في اتصال" onRetry={() => void q.refetch()} />
+  }
+  return <Loading />
+}
+
 function Loading({ label = "جاري التحميل…" }: { label?: string }) {
   return (
     <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
@@ -922,6 +935,7 @@ function StatusPill({ tone, children }: { tone: "ok" | "wait" | "bad" | "muted";
 function CatalogScreen({
   products,
   loading,
+  paused,
   error,
   onRetry,
   search,
@@ -931,6 +945,7 @@ function CatalogScreen({
 }: {
   products: AgentProduct[]
   loading: boolean
+  paused: boolean
   error: boolean
   onRetry: () => void
   search: string
@@ -994,7 +1009,11 @@ function CatalogScreen({
         />
 
         {loading ? (
-          <Loading />
+          paused ? (
+            <QueryErrorBox title="ما في اتصال" onRetry={onRetry} />
+          ) : (
+            <Loading />
+          )
         ) : products.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">ما اكو نتائج</p>
         ) : (
@@ -1376,8 +1395,8 @@ function CustomersScreen({
           className="h-11 sm:h-9"
         />
 
-        {customers.isLoading ? (
-          <Loading />
+        {customers.isPending ? (
+          <Waiting q={customers} />
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">
             ما عندك زبائن بعد. أضف زبون جديد من الزر فوق.
@@ -1728,8 +1747,8 @@ function OrdersScreen() {
         <span className="text-[12px] text-slate-500 tabular-nums">{rows.length} طلب</span>
       </CardHeader>
       <CardContent>
-        {orders.isLoading ? (
-          <Loading />
+        {orders.isPending ? (
+          <Waiting q={orders} />
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">ما عندك طلبات بعد</p>
         ) : (
@@ -1869,6 +1888,10 @@ function MoneyScreen({
   const canSave = Boolean(customerId) && Number(amount) > 0 && !save.isPending
   const onHand = cash.data?.onHand ?? 0
   const d = today.data
+  // A failed request must not print «معي الآن 0». Zero is a claim about the
+  // rep's own cash, and they would act on it.
+  const cashBroken = Boolean(cash.error) || cash.fetchStatus === "paused"
+  const todayBroken = Boolean(today.error) || today.fetchStatus === "paused"
 
   return (
     <div className="space-y-4">
@@ -1878,16 +1901,24 @@ function MoneyScreen({
       <div className="grid gap-4 sm:grid-cols-3">
         <StatTile
           title="معي الآن"
-          value={cash.isLoading ? "…" : money(onHand)}
-          sub={`تحصّلت ${money(cash.data?.collected ?? 0)} · سلّمت ${money(cash.data?.handedOver ?? 0)}`}
+          value={cashBroken ? "—" : cash.isPending ? "…" : money(onHand)}
+          sub={
+            cashBroken
+              ? "ما وصل الرقم — تحقق من الاتصال"
+              : cash.data
+                ? `تحصّلت ${money(cash.data.collected)} · سلّمت ${money(cash.data.handedOver)}`
+                : undefined
+          }
           color={onHand < 0 ? "#EF4444" : "var(--theme-receipt)"}
           icon={<Wallet className="h-5 w-5" />}
         />
         <StatTile
           title="مبيعاتي اليوم"
-          value={d ? money(d.orderValue) : "…"}
+          value={todayBroken ? "—" : d ? money(d.orderValue) : "…"}
           sub={
-            d
+            todayBroken
+              ? "ما وصل الرقم — تحقق من الاتصال"
+              : d
               ? `${d.orders} طلب · ${d.customersVisited} زبون` +
                 // Named rather than hidden: a rep whose figure drops should see
                 // why, not wonder whether the screen is wrong.
@@ -1899,14 +1930,20 @@ function MoneyScreen({
         />
         <StatTile
           title="قبضت اليوم"
-          value={d ? money(d.collected) : "…"}
-          sub={d ? `${d.receipts} سند · ${d.issues} مشكلة` : undefined}
+          value={todayBroken ? "—" : d ? money(d.collected) : "…"}
+          sub={
+            todayBroken
+              ? "ما وصل الرقم — تحقق من الاتصال"
+              : d
+                ? `${d.receipts} سند · ${d.issues} مشكلة`
+                : undefined
+          }
           color="var(--theme-payment)"
           icon={<Receipt className="h-5 w-5" />}
         />
       </div>
 
-      {onHand < 0 && (
+      {onHand < 0 && !cashBroken && (
         <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-[13px] font-medium text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300">
           الرصيد سالب — انلغى سند بعد ما سلّمته. راجع صاحب المحل.
         </div>
@@ -1956,8 +1993,10 @@ function MoneyScreen({
           </span>
         </CardHeader>
         <CardContent>
-          {receipts.isLoading ? (
-            <Loading />
+          {receipts.isPending ? (
+            <Waiting q={receipts} />
+          ) : receipts.error ? (
+            <QueryErrorBox title="ما وصلت السندات" onRetry={() => void receipts.refetch()} />
           ) : (receipts.data ?? []).length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">ما اكو سندات</p>
           ) : (
@@ -1993,7 +2032,11 @@ function MoneyScreen({
           <CardTitle>تسليماتي</CardTitle>
         </CardHeader>
         <CardContent>
-          {(handovers.data ?? []).length === 0 ? (
+          {handovers.isPending ? (
+            <Waiting q={handovers} />
+          ) : handovers.error ? (
+            <QueryErrorBox title="ما وصلت التسليمات" onRetry={() => void handovers.refetch()} />
+          ) : (handovers.data ?? []).length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">ما سلّمت شي بعد</p>
           ) : (
             <Table>
@@ -2295,8 +2338,10 @@ function MyIssuesScreen() {
           <CardTitle>طلبات الأسعار</CardTitle>
         </CardHeader>
         <CardContent>
-          {prices.isLoading ? (
-            <Loading />
+          {prices.isPending ? (
+            <Waiting q={prices} />
+          ) : prices.error ? (
+            <QueryErrorBox title="ما وصلت طلبات الأسعار" onRetry={() => void prices.refetch()} />
           ) : (prices.data ?? []).length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">ما طلبت أسعار</p>
           ) : (
@@ -2337,8 +2382,10 @@ function MyIssuesScreen() {
           <CardTitle>المشاكل الي سجّلتها</CardTitle>
         </CardHeader>
         <CardContent>
-          {issues.isLoading ? (
-            <Loading />
+          {issues.isPending ? (
+            <Waiting q={issues} />
+          ) : issues.error ? (
+            <QueryErrorBox title="ما وصلت المشاكل" onRetry={() => void issues.refetch()} />
           ) : (issues.data ?? []).length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">ما سجّلت مشاكل</p>
           ) : (
@@ -2431,8 +2478,8 @@ function CustomerDetailScreen({
         <Button variant="outline" onClick={onBack}>رجوع</Button>
       </CardHeader>
       <CardContent>
-        {statement.isLoading ? (
-          <Loading />
+        {statement.isPending ? (
+          <Waiting q={statement} />
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">ما اكو حركات</p>
         ) : (
