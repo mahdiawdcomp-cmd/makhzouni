@@ -31,6 +31,9 @@ export const COUNT_LINK_TTL_HOURS: Record<InvoiceCountAudience, number> = {
 /** A lock older than this is treated as abandoned (a closed browser tab). */
 export const EDIT_LOCK_STALE_MS = 60_000;
 
+/** Highest count accepted for one line — a guard against a slipped digit. */
+export const MAX_RECEIVED_PIECES = 1_000_000;
+
 /**
  * Either the base client or an open transaction. Applying a count from the
  * approvals screen happens INSIDE that screen's transaction, and opening a
@@ -711,6 +714,17 @@ export async function submitCount(
     const pieces = Number(line.receivedPieces);
     if (!Number.isFinite(pieces) || pieces < 0) {
       throw new AppError("الكمية الواصلة غير صحيحة", 400, "INVALID_RECEIVED_QUANTITY");
+    }
+    // A ceiling on the typo, not on the business. Over-counting is allowed on
+    // purpose, but a worker's count is applied the instant it is submitted, so a
+    // stray digit would multiply the invoice and the stock movement behind it.
+    // The quantity column is a 32-bit integer besides.
+    if (pieces > MAX_RECEIVED_PIECES) {
+      throw new AppError(
+        `الكمية الواصلة كبيرة بشكل غير معقول (${Math.round(pieces).toLocaleString("en-US")}). تأكد من الرقم.`,
+        400,
+        "RECEIVED_QUANTITY_TOO_LARGE",
+      );
     }
     submitted.set(line.itemId, Math.round(pieces));
   }

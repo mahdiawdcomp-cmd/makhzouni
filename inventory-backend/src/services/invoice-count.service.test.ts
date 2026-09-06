@@ -369,6 +369,23 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     );
   });
 
+  it("refuses a count with a slipped digit before it multiplies the invoice", async () => {
+    const link = await mintLink("WORKER");
+    await assert.rejects(
+      () => svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 9_999_999 }]),
+      /غير معقول|RECEIVED_QUANTITY_TOO_LARGE/,
+    );
+    assert.equal(updateInvoiceCalls.length, 0, "nothing reaches the invoice");
+  });
+
+  it("a genuine over-count well under the ceiling still goes through", async () => {
+    resetInvoice({ paidAmount: 0, paymentType: "CREDIT" });
+    const link = await mintLink("WORKER");
+    const res = await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 480 }]);
+    assert.equal(res.hasDifference, true);
+    assert.equal(updateInvoiceCalls[0].input.items[0].quantity, 2, "480 pieces is two whole cartons");
+  });
+
   it("a link can only be submitted once", async () => {
     const link = await mintLink("WORKER");
     await svc.submitCount(link.token, [{ itemId: "item-1", receivedPieces: 240 }]);
