@@ -423,6 +423,26 @@ export async function applyCountToInvoice(
   const totalBefore = Number(invoice.totalAmount);
   const paidBefore = Number(invoice.paidAmount);
 
+  // How much of this customer's money the shop is REALLY holding.
+  //
+  // A previous count that found a shortage lowered `paidAmount` and recorded the
+  // difference as cash to hand back. Until that cash actually leaves the till it
+  // is still the customer's payment — so a later count that restores the goods
+  // has to be able to give it back to the invoice.
+  //
+  // Without this, a worker who miscounted by one piece left the customer owing
+  // money he had already paid, even after the customer's own count corrected the
+  // record and the owner approved it. Refunds the owner has ALREADY handed over
+  // are excluded: that money is genuinely gone.
+  const priorLinks = await db.invoiceCountLink.findMany({
+    where: { invoiceId },
+    select: { id: true, refundDue: true, refundAckAt: true },
+  });
+  const stillHeldBack = priorLinks
+    .filter((l) => l.refundDue != null && !l.refundAckAt)
+    .reduce((sum, l) => sum + Number(l.refundDue), 0);
+  const cashInHand = roundMoney(paidBefore + stillHeldBack);
+
   let removedLines = 0;
   let changedLines = 0;
   const items: CreateInvoiceInput["items"] = [];
@@ -479,7 +499,7 @@ export async function applyCountToInvoice(
   // Option (ب): the money is handed back, not parked as a credit. Without this
   // the engine would silently clamp paidAmount down to the new total and the
   // overpayment would vanish with nothing to show the owner he owes it.
-  const paidAmount = Math.min(paidBefore, projectedTotal);
+  const paidAmount = Math.min(cashInHand, projectedTotal);
 
   const updated = await updateInvoice(
     invoiceId,
@@ -524,7 +544,16 @@ export async function applyCountToInvoice(
   // projection: if the two ever diverge, the money owed has to follow the
   // invoice, not the guess that preceded it.
   const totalAfter = Number(updated.totalAmount);
-  const refundDue = Math.max(0, roundMoney(paidBefore - totalAfter));
+  const refundDue = Math.max(0, roundMoney(cashInHand - totalAfter));
+
+  // One invoice, one outstanding figure. Every earlier un-returned refund is
+  // now folded into the number above, so the old rows are cleared instead of
+  // stacking up and telling the owner to hand back the same dinar twice. The
+  // caller writes the fresh figure onto its own link.
+  const superseded = priorLinks.filter((l) => l.refundDue != null && !l.refundAckAt);
+  for (const link of superseded) {
+    await db.invoiceCountLink.update({ where: { id: link.id }, data: { refundDue: null } });
+  }
 
   return {
     totalBefore,

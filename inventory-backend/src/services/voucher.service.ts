@@ -332,9 +332,31 @@ export async function createVoucher(
     return createVoucherInTransaction(db, input, createdBy);
   }
 
-  return prisma.$transaction((tx) =>
-    createVoucherInTransaction(tx, input, createdBy)
-  );
+  try {
+    return await prisma.$transaction((tx) =>
+      createVoucherInTransaction(tx, input, createdBy)
+    );
+  } catch (err) {
+    // The read above and this write are not one atomic step, so two saves of
+    // the same voucher can both pass the read and the unique key catches the
+    // loser. It is the same voucher — hand back the one that won. Before this,
+    // a double tap on «احفظ السند» answered the user with the raw database
+    // error, in English.
+    if (
+      input.clientRequestId &&
+      (err as { code?: string })?.code === "P2002"
+    ) {
+      const existing = await prisma.paymentVoucher.findUnique({
+        where: { clientRequestId: input.clientRequestId },
+        include: {
+          customer: true,
+          creator: { select: { id: true, name: true, username: true, role: true } },
+        },
+      });
+      if (existing) return serializeVoucher(existing);
+    }
+    throw err;
+  }
 }
 
 async function updateVoucherInTransaction(

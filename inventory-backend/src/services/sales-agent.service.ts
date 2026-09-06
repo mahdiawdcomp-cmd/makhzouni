@@ -995,6 +995,22 @@ export async function createAgentIssue(
     if (!product) throw new AppError("منتج غير موجود", 404, "PRODUCT_NOT_FOUND");
   }
 
+  // A double tap on «احفظ» wrote the same refusal twice, three milliseconds
+  // apart, and the owner's report counted it twice. Nobody records the same
+  // problem for the same customer, product and reason inside ten seconds on
+  // purpose, so the second one is the tap, not a second visit.
+  const justNow = await prisma.salesAgentIssue.findFirst({
+    where: {
+      salesAgentId: agentId,
+      customerId: input.customerId,
+      productId: input.productId ?? null,
+      reason: input.reason,
+      createdAt: { gte: new Date(Date.now() - 10_000) },
+    },
+    select: { id: true, createdAt: true },
+  });
+  if (justNow) return { id: justNow.id, createdAt: justNow.createdAt };
+
   const issue = await prisma.salesAgentIssue.create({
     data: {
       salesAgentId: agentId,
@@ -1048,6 +1064,16 @@ export async function listMyIssues(agentId: string, limit = 50) {
  * catalog price is frozen onto the request so the owner can still see the gap
  * they approved months later, after the shelf price has moved.
  */
+function priceRequestExists(status: string) {
+  return new AppError(
+    status === "PENDING"
+      ? "اكو طلب سعر لهذي المادة بانتظار الموافقة"
+      : "اكو سعر موافق عليه لهذي المادة، استعمله بالطلب",
+    409,
+    "PRICE_REQUEST_EXISTS",
+  );
+}
+
 export async function requestSpecialPrice(
   agentId: string,
   agentName: string,
@@ -1082,14 +1108,42 @@ export async function requestSpecialPrice(
     },
     select: { id: true, status: true },
   });
-  if (existing) {
-    throw new AppError(
-      existing.status === "PENDING"
-        ? "اكو طلب سعر لهذي المادة بانتظار الموافقة"
-        : "اكو سعر موافق عليه لهذي المادة، استعمله بالطلب",
-      409,
-      "PRICE_REQUEST_EXISTS",
-    );
+  if (existing) throw priceRequestExists(existing.status);
+
+  // The request is written BEFORE the approval, and a partial unique index
+  // decides who wins. The read above is only the fast path: two taps that
+  // arrived together both passed it, and the owner got two approvals for one
+  // negotiation. Writing the request first also means a loser never leaves an
+  // approval behind with nothing attached to it.
+  let request: { id: string; status: string };
+  try {
+    request = await prisma.salesAgentPriceRequest.create({
+      data: {
+        salesAgentId: agentId,
+        customerId: customer.id,
+        productId: product.id,
+        unit: input.unit,
+        currentPrice,
+        requestedPrice,
+        reason: input.reason?.trim() || null,
+      },
+      select: { id: true, status: true },
+    });
+  } catch (err) {
+    if ((err as { code?: string })?.code === "P2002") {
+      const live = await prisma.salesAgentPriceRequest.findFirst({
+        where: {
+          customerId: customer.id,
+          productId: product.id,
+          unit: input.unit,
+          status: { in: ["PENDING", "APPROVED"] },
+          consumedAt: null,
+        },
+        select: { status: true },
+      });
+      throw priceRequestExists(live?.status ?? "PENDING");
+    }
+    throw err;
   }
 
   const approval = await createPendingApproval(
@@ -1111,18 +1165,9 @@ export async function requestSpecialPrice(
     agentId,
   );
 
-  const request = await prisma.salesAgentPriceRequest.create({
-    data: {
-      salesAgentId: agentId,
-      customerId: customer.id,
-      productId: product.id,
-      unit: input.unit,
-      currentPrice,
-      requestedPrice,
-      reason: input.reason?.trim() || null,
-      approvalId: approval.id,
-    },
-    select: { id: true, status: true },
+  await prisma.salesAgentPriceRequest.update({
+    where: { id: request.id },
+    data: { approvalId: approval.id },
   });
 
   notifySalesAgentEvent("priceRequest", {

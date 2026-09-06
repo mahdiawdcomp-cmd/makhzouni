@@ -475,11 +475,6 @@ export function SalesAgentPage() {
     [setCart],
   )
 
-  // Two taps land in the same tick, before React can re-render the button as
-  // disabled — a rep tapping «أرسل الطلب» twice sent the order twice. The
-  // server's unique key is the real guarantee; this just stops the round trip.
-  const sending = useRef(false)
-
   const submit = useMutation({
     mutationFn: async () => {
       const res = await api.post("/sales-agent/orders", {
@@ -519,12 +514,7 @@ export function SalesAgentPage() {
       }),
   })
 
-  const sendOrder = useCallback(() => {
-    if (sending.current) return
-    sending.current = true
-    submit.mutate(undefined, { onSettled: () => (sending.current = false) })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submit])
+  const sendOrder = useOnce(submit)
 
   const filtered = useMemo(() => {
     const list = products.data ?? []
@@ -925,6 +915,26 @@ function Waiting({ q }: { q: { fetchStatus: string; refetch: () => unknown } }) 
     return <QueryErrorBox title="ما في اتصال" onRetry={() => void q.refetch()} />
   }
   return <Loading />
+}
+
+/**
+ * One tap, one request.
+ *
+ * Two taps land in the same tick, before React can re-render the button as
+ * disabled. Every save on this page produced a twin that way: two orders for
+ * the same cart, two receipts for the same cash, two refusals, two price
+ * requests. The server refuses duplicates too — this just stops the round trip.
+ */
+function useOnce(mutation: {
+  mutate: (vars: undefined, opts?: { onSettled?: () => void }) => void
+}) {
+  const busy = useRef(false)
+  return useCallback(() => {
+    if (busy.current) return
+    busy.current = true
+    mutation.mutate(undefined, { onSettled: () => (busy.current = false) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mutation])
 }
 
 // Reps type on Arabic keyboards. Stripping non-ASCII digits read «١٢» as an
@@ -1919,6 +1929,8 @@ function MoneyScreen({
       }),
   })
 
+  const saveReceipt = useOnce(save)
+
   const canSave = Boolean(customerId) && Number(amount) > 0 && !save.isPending
   const onHand = cash.data?.onHand ?? 0
   const d = today.data
@@ -2012,7 +2024,7 @@ function MoneyScreen({
             </Field>
           </div>
 
-          <Button className="h-11" disabled={!canSave} onClick={() => save.mutate()}>
+          <Button className="h-11" disabled={!canSave} onClick={saveReceipt}>
             {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {save.isPending ? "جاري الحفظ…" : "احفظ السند"}
           </Button>
@@ -2193,12 +2205,14 @@ function IssueDialog({
       toast({ title: "ما انسجلت", description: apiErrorMessage(err, "حاول مرة أخرى"), variant: "destructive" }),
   })
 
+  const saveOnce = useOnce(save)
+
   return (
     <Dialog
       title="أكو مشكلة"
       onClose={onClose}
       footer={
-        <Button className="h-11 w-full" disabled={!reason || save.isPending} onClick={() => save.mutate()}>
+        <Button className="h-11 w-full" disabled={!reason || save.isPending} onClick={saveOnce}>
           {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {save.isPending ? "جاري الحفظ…" : "احفظ"}
         </Button>
@@ -2288,6 +2302,8 @@ function PriceRequestDialog({
       toast({ title: "ما انرسل", description: apiErrorMessage(err, "حاول مرة أخرى"), variant: "destructive" }),
   })
 
+  const saveOnce = useOnce(save)
+
   return (
     <Dialog
       title="اطلب سعراً خاصاً"
@@ -2296,7 +2312,7 @@ function PriceRequestDialog({
         <Button
           className="h-11 w-full"
           disabled={!(Number(price) > 0) || save.isPending}
-          onClick={() => save.mutate()}
+          onClick={saveOnce}
         >
           {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {save.isPending ? "جاري الإرسال…" : "أرسل الطلب"}

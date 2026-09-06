@@ -814,14 +814,14 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     assert.equal(stored.input.paidAmount, 120000, "paid is brought down to the new total");
   });
 
-  it("two counts on one invoice never hand back the same dinar twice", async () => {
+  it("two counts on one invoice leave ONE figure owed, never two to hand back separately", async () => {
     // Worker: 240,000 paid, invoice falls to 210,000 => 30,000 owed.
     const first = await mintLink("WORKER");
     const firstRes = await svc.submitCount(first.token, [{ itemId: "item-1", receivedPieces: 210 }]);
     assert.equal(firstRes.outcome?.refundDue, 30000);
 
-    // The invoice now stands at 210,000 with 210,000 paid. A second count takes
-    // it to 200,000 => only the further 10,000 is owed, not another 30,000.
+    // The invoice now stands at 210,000 with 210,000 on the books — but the
+    // 30,000 is still in the till, so the customer's payment is still 240,000.
     resetInvoice({
       items: [makeItem({ unit: "PIECE", quantity: 210, unitPrice: 1000, totalPrice: 210000 })],
       totalAmount: 210000, paidAmount: 210000,
@@ -829,9 +829,14 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     const second = await mintLink("WORKER");
     const secondRes = await svc.submitCount(second.token, [{ itemId: "item-1", receivedPieces: 200 }]);
 
-    assert.equal(secondRes.outcome?.refundDue, 10000);
-    // 30,000 + 10,000 handed back against 240,000 paid on a 200,000 invoice.
-    assert.equal(240000 - 200000, 30000 + 10000);
+    // 240,000 paid against a 200,000 invoice: 40,000 owed, stated once.
+    assert.equal(secondRes.outcome?.refundDue, 40000);
+    assert.equal(links.get(first.id).refundDue, null, "the earlier figure is folded in, not left beside it");
+
+    const outstanding = [...links.values()]
+      .filter((l: any) => l.refundDue != null && !l.refundAckAt)
+      .reduce((sum: number, l: any) => sum + Number(l.refundDue), 0);
+    assert.equal(outstanding, 240000 - 200000, "what is owed equals what was paid minus what is billed");
   });
 
   it("an invoice that grows owes nothing back and keeps what was paid", async () => {
@@ -853,6 +858,92 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
   it("counting is refused on anything that is not a sale", async () => {
     resetInvoice({ type: "PURCHASE" });
     await assert.rejects(() => mintLink("WORKER"), /فواتير البيع فقط|NOT_A_SALE_INVOICE/);
+  });
+
+
+  // ── The shop floor case: a worker's mistake, corrected by the customer ─────
+  //
+  // Reported 2026-09-07. The worker counted one piece short, so the invoice
+  // shrank and 1,000 was recorded as owed back. Then the customer counted, found
+  // the piece present, and the owner approved — the invoice went back up, but the
+  // customer was left owing the 1,000 he had already paid, and the "hand this
+  // money back" warning stayed on screen.
+
+  it("a later count that restores the invoice gives the customer his payment back", async () => {
+    // 240 pieces at 1,000, paid in full.
+    resetInvoice({ paidAmount: 240000, totalAmount: 240000 });
+
+    // The worker counts 239 — one short.
+    const workerLink = await mintLink("WORKER");
+    const workerRes = await svc.submitCount(workerLink.token, [{ itemId: "item-1", receivedPieces: 239 }]);
+    assert.equal(workerRes.outcome?.refundDue, 1000, "1,000 is owed back after the shortage");
+    assert.equal(updateInvoiceCalls[0].input.paidAmount, 239000);
+
+    // The invoice now stands where the worker left it.
+    resetInvoice({
+      items: [makeItem({ unit: "PIECE", quantity: 239, unitPrice: 1000, totalPrice: 239000 })],
+      totalAmount: 239000,
+      paidAmount: 239000,
+    });
+
+    // The customer counts and the piece IS there. The owner approves.
+    const customerLink = await mintLink("CUSTOMER");
+    await svc.submitCount(customerLink.token, [{ itemId: "item-1", receivedPieces: 240 }]);
+    const outcome: any = await svc.applyCustomerCount(customerLink.id, OWNER);
+
+    const applied = updateInvoiceCalls[updateInvoiceCalls.length - 1].input;
+    assert.equal(
+      applied.paidAmount, 240000,
+      "the customer paid 240,000 and never got any of it back — the payment must be restored",
+    );
+    assert.equal(outcome.refundDue, 0, "nothing is owed back any more");
+    assert.equal(
+      links.get(workerLink.id).refundDue, null,
+      "the worker's stale «hand back 1,000» must be cleared, not left on screen",
+    );
+  });
+
+  it("money already handed back is NOT taken as still being in the till", async () => {
+    resetInvoice({ paidAmount: 240000, totalAmount: 240000 });
+    const workerLink = await mintLink("WORKER");
+    await svc.submitCount(workerLink.token, [{ itemId: "item-1", receivedPieces: 239 }]);
+    // The owner physically returns the 1,000 and says so.
+    await svc.acknowledgeRefund(workerLink.id, OWNER);
+
+    resetInvoice({
+      items: [makeItem({ unit: "PIECE", quantity: 239, unitPrice: 1000, totalPrice: 239000 })],
+      totalAmount: 239000,
+      paidAmount: 239000,
+    });
+
+    const customerLink = await mintLink("CUSTOMER");
+    await svc.submitCount(customerLink.token, [{ itemId: "item-1", receivedPieces: 240 }]);
+    await svc.applyCustomerCount(customerLink.id, OWNER);
+
+    const applied = updateInvoiceCalls[updateInvoiceCalls.length - 1].input;
+    assert.equal(
+      applied.paidAmount, 239000,
+      "that 1,000 left the till — the customer genuinely owes it again",
+    );
+    assert.ok(links.get(workerLink.id).refundAckAt, "the returned-money record stands as history");
+  });
+
+  it("a second shortage adds to what is owed instead of resetting it", async () => {
+    resetInvoice({ paidAmount: 240000, totalAmount: 240000 });
+    const first = await mintLink("WORKER");
+    await svc.submitCount(first.token, [{ itemId: "item-1", receivedPieces: 239 }]);
+
+    resetInvoice({
+      items: [makeItem({ unit: "PIECE", quantity: 239, unitPrice: 1000, totalPrice: 239000 })],
+      totalAmount: 239000,
+      paidAmount: 239000,
+    });
+    const second = await mintLink("WORKER");
+    const res = await svc.submitCount(second.token, [{ itemId: "item-1", receivedPieces: 230 }]);
+
+    // 240,000 was paid against a 230,000 invoice.
+    assert.equal(res.outcome?.refundDue, 10000);
+    assert.equal(links.get(first.id).refundDue, null, "superseded by the newer figure");
   });
 
   it("rebuildLine picks the largest unit that divides exactly, at an unchanged piece price", () => {
