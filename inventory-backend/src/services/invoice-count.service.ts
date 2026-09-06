@@ -378,6 +378,43 @@ function resolveBlockReason(
 
 // ── Applying a count to the invoice ──────────────────────────────────────────
 
+/**
+ * A submitted count, keyed two ways.
+ *
+ * Editing an invoice DELETES its line rows and writes new ones, so every itemId
+ * changes. A customer's count is frozen when they submit it and applied when the
+ * owner approves — possibly after a worker's count has already rewritten those
+ * rows. Matched by row id alone, such an approval quietly does nothing: the
+ * owner is told it worked and the invoice never moves.
+ *
+ * So the product is carried as a fallback key. It is only usable when it names
+ * exactly one line: the same product can sit on an invoice twice at different
+ * prices, and a count must never be dropped onto the wrong one.
+ */
+export interface CountedQuantities {
+  byItemId: Map<string, number>;
+  byProductId: Map<string, number>;
+}
+
+export function buildCountedQuantities(
+  lines: Array<{ itemId: string; productId?: string | null; receivedPieces: number }>,
+): CountedQuantities {
+  const byItemId = new Map<string, number>();
+  const byProductId = new Map<string, number>();
+  const ambiguous = new Set<string>();
+
+  for (const line of lines) {
+    byItemId.set(line.itemId, line.receivedPieces);
+    const productId = line.productId ?? undefined;
+    if (!productId) continue;
+    if (byProductId.has(productId)) ambiguous.add(productId);
+    byProductId.set(productId, line.receivedPieces);
+  }
+  for (const productId of ambiguous) byProductId.delete(productId);
+
+  return { byItemId, byProductId };
+}
+
 export interface ApplyCountOutcome {
   totalBefore: number;
   totalAfter: number;
@@ -404,7 +441,7 @@ export interface ApplyCountOutcome {
  */
 export async function applyCountToInvoice(
   invoiceId: string,
-  countedByPieces: Map<string, number>,
+  counted: CountedQuantities,
   updatedBy: string,
   db: Db = prisma,
 ): Promise<ApplyCountOutcome> {
@@ -447,19 +484,31 @@ export async function applyCountToInvoice(
   let changedLines = 0;
   const items: CreateInvoiceInput["items"] = [];
 
+  // A product sitting on two lines cannot be matched by product, so those lines
+  // fall back to what the invoice already says rather than take a guess.
+  const linesPerProduct = new Map<string, number>();
+  for (const item of invoice.items) {
+    linesPerProduct.set(item.productId, (linesPerProduct.get(item.productId) ?? 0) + 1);
+  }
+
   for (const item of invoice.items) {
     const pcsPerCarton = Math.max(1, item.product?.pcsPerCarton ?? 1);
     const boxPieces = item.product?.boxPieces ?? null;
     const expected = amountInPieces(item.unit, Number(item.quantity), pcsPerCarton, boxPieces);
-    const counted = countedByPieces.has(item.id) ? countedByPieces.get(item.id)! : expected;
+    const byProduct = linesPerProduct.get(item.productId) === 1
+      ? counted.byProductId.get(item.productId)
+      : undefined;
+    const countedPieces = counted.byItemId.has(item.id)
+      ? counted.byItemId.get(item.id)!
+      : byProduct ?? expected;
 
-    if (counted !== expected) changedLines += 1;
-    if (counted <= 0) {
+    if (countedPieces !== expected) changedLines += 1;
+    if (countedPieces <= 0) {
       removedLines += 1;
       continue;
     }
 
-    const rebuilt = rebuildLine(item.unit, Number(item.unitPrice), counted, pcsPerCarton, boxPieces);
+    const rebuilt = rebuildLine(item.unit, Number(item.unitPrice), countedPieces, pcsPerCarton, boxPieces);
     items.push({
       productId: item.productId,
       warehouseId: item.warehouseId ?? undefined,
@@ -708,7 +757,13 @@ export async function submitCount(
 
   // The worker's count is the shop's own correction — it lands immediately.
   if (isWorker && differenceCount > 0) {
-    outcome = await applyCountToInvoice(link.invoiceId, submitted, invoice.createdBy);
+    outcome = await applyCountToInvoice(
+      link.invoiceId,
+      buildCountedQuantities(resultLines.map((l) => ({
+        itemId: l.itemId, productId: l.productId, receivedPieces: l.receivedPieces,
+      }))),
+      invoice.createdBy,
+    );
   }
 
   const now = new Date();
@@ -902,8 +957,7 @@ export async function applyCustomerCount(linkId: string, reviewerId: string, db:
   const result = link.result as unknown as CountResult | null;
   if (!result?.lines?.length) throw new AppError("سجل الجرد فارغ", 400, "COUNT_RESULT_EMPTY");
 
-  const counted = new Map<string, number>();
-  for (const line of result.lines) counted.set(line.itemId, line.receivedPieces);
+  const counted = buildCountedQuantities(result.lines);
 
   const outcome = await applyCountToInvoice(link.invoiceId, counted, reviewerId, db);
 

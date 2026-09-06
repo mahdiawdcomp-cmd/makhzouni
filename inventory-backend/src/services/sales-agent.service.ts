@@ -23,7 +23,7 @@ import { logger } from "../utils/logger";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { totalStock } from "../utils/product-stock";
 import { piecesForUnit, priceForUnit } from "../utils/catalog-units";
-import { normalizePhone } from "../utils/phone";
+import { normalizePhone, phoneVariants } from "../utils/phone";
 import { getSettings } from "./settings.service";
 import { createCustomer } from "./customer.service";
 import { notifySalesAgentEvent } from "./sales-agent-notify.service";
@@ -185,8 +185,11 @@ export async function lookupPhone(agentId: string, rawPhone: string) {
   const phone = normalizePhone(String(rawPhone ?? "").trim());
   if (!phone) throw new AppError("رقم الهاتف مطلوب", 400, "PHONE_REQUIRED");
 
+  // Matched on every spelling, not just the canonical one: a row still holding
+  // «07…» is the same customer, and answering "not found" for it is how the rep
+  // ends up creating a second record for someone they already sell to.
   const existing = await prisma.customer.findFirst({
-    where: { phone },
+    where: { phone: { in: phoneVariants(rawPhone) } },
     select: { id: true, name: true, salesAgentId: true, deletedAt: true },
   });
 
@@ -311,7 +314,10 @@ export async function createAgentCustomer(
   // The duplicate check the client already ran is advisory — it can be skipped
   // by calling the API directly, and a customer can be created by someone else
   // between the check and the save. Re-run it here where it is binding.
-  const existing = await prisma.customer.findFirst({ where: { phone }, select: { id: true, name: true } });
+  const existing = await prisma.customer.findFirst({
+    where: { phone: { in: phoneVariants(input.phone) } },
+    select: { id: true, name: true },
+  });
   if (existing) {
     throw new AppError(`هذا الرقم موجود مسبقاً باسم «${existing.name}»`, 409, "PHONE_IN_USE");
   }

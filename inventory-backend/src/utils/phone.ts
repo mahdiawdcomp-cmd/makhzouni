@@ -13,3 +13,19 @@ export function normalizePhone(input: string | null | undefined): string {
   if (digits.startsWith("7")) return `964${digits}`;
   return digits;
 }
+
+/**
+ * Every spelling the same Iraqi number can be stored as.
+ *
+ * The app normalises on write, but rows predating the normalisation migration —
+ * or imported, or edited straight in SQL — still hold «07…». A duplicate check
+ * that searched only the canonical form answered "not found" for a customer
+ * sitting right there, which is the one answer it must never get wrong.
+ */
+export function phoneVariants(input: string | null | undefined): string[] {
+  const digits = String(input ?? "").replace(/[^\d]/g, "");
+  if (!digits) return [];
+  const intl = normalizePhone(digits);
+  const national = intl.startsWith("964") ? intl.slice(3) : intl;
+  return [...new Set([digits, intl, national, `0${national}`])].filter(Boolean);
+}

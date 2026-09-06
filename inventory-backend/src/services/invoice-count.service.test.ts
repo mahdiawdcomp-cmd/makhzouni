@@ -946,6 +946,91 @@ describe("invoice-count.service — «جرد الفاتورة»", () => {
     assert.equal(links.get(first.id).refundDue, null, "superseded by the newer figure");
   });
 
+
+  // ── A pending customer count, approved after the invoice moved ─────────────
+  //
+  // Editing an invoice deletes its line rows and writes new ones, so every
+  // itemId changes. A customer's count is frozen at submit time and approved
+  // later — if it is matched by row id alone, any edit in between makes the
+  // approval a silent no-op: the owner clicks approve, is told it worked, and
+  // nothing happens.
+
+  it("a customer count still applies after the worker's count replaced the line rows", async () => {
+    resetInvoice({ paidAmount: 0, paymentType: "CREDIT" });
+    const customerLink = await mintLink("CUSTOMER");
+    await svc.submitCount(customerLink.token, [{ itemId: "item-1", receivedPieces: 200 }]);
+
+    // The worker counts in between. updateInvoice deletes and recreates the
+    // lines, so the row the customer counted no longer exists under that id.
+    resetInvoice({
+      items: [makeItem({ id: "item-99", unit: "PIECE", quantity: 239, unitPrice: 1000, totalPrice: 239000 })],
+      totalAmount: 239000, paidAmount: 0, paymentType: "CREDIT",
+    });
+
+    await svc.applyCustomerCount(customerLink.id, OWNER);
+
+    const applied = updateInvoiceCalls[updateInvoiceCalls.length - 1].input;
+    assert.equal(
+      applied.items[0].quantity, 200,
+      "the customer said 200 arrived — approving must apply that, not silently keep 239",
+    );
+  });
+
+  it("a counted product that is no longer on the invoice is simply dropped", async () => {
+    resetInvoice({
+      items: [makeItem(), makeItem({ id: "item-2", productId: "prod-2" })],
+      paidAmount: 0, paymentType: "CREDIT",
+    });
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [
+      { itemId: "item-1", receivedPieces: 200 },
+      { itemId: "item-2", receivedPieces: 100 },
+    ]);
+
+    // The second product was taken off the invoice before approval.
+    resetInvoice({
+      items: [makeItem({ id: "item-77" })],
+      paidAmount: 0, paymentType: "CREDIT",
+    });
+    await svc.applyCustomerCount(link.id, OWNER);
+
+    const applied = updateInvoiceCalls[updateInvoiceCalls.length - 1].input;
+    assert.equal(applied.items.length, 1);
+    assert.equal(applied.items[0].quantity, 200, "what is still there is counted");
+  });
+
+  it("the same product on two lines is never guessed at", async () => {
+    // Two lines of prod-1 at different prices — a count cannot be matched to one
+    // of them by product, so a rewritten row is left exactly as it stands.
+    resetInvoice({
+      items: [
+        makeItem({ id: "a", unit: "PIECE", quantity: 100, unitPrice: 1000, totalPrice: 100000 }),
+        makeItem({ id: "b", unit: "PIECE", quantity: 50, unitPrice: 2000, totalPrice: 100000 }),
+      ],
+      totalAmount: 200000, paidAmount: 0, paymentType: "CREDIT",
+    });
+    const link = await mintLink("CUSTOMER");
+    await svc.submitCount(link.token, [
+      { itemId: "a", receivedPieces: 90 },
+      { itemId: "b", receivedPieces: 50 },
+    ]);
+
+    resetInvoice({
+      items: [
+        makeItem({ id: "a2", unit: "PIECE", quantity: 100, unitPrice: 1000, totalPrice: 100000 }),
+        makeItem({ id: "b2", unit: "PIECE", quantity: 50, unitPrice: 2000, totalPrice: 100000 }),
+      ],
+      totalAmount: 200000, paidAmount: 0, paymentType: "CREDIT",
+    });
+    await svc.applyCustomerCount(link.id, OWNER);
+
+    const applied = updateInvoiceCalls[updateInvoiceCalls.length - 1].input;
+    assert.deepEqual(
+      applied.items.map((i: any) => i.quantity), [100, 50],
+      "ambiguous rows keep what the invoice says rather than take a guess",
+    );
+  });
+
   it("rebuildLine picks the largest unit that divides exactly, at an unchanged piece price", () => {
     // 240 per carton, 240,000 per carton => 1,000 per piece.
     assert.deepEqual(svc.rebuildLine("CARTON" as any, 240000, 480, 240), { unit: "CARTON", quantity: 2, unitPrice: 240000 });

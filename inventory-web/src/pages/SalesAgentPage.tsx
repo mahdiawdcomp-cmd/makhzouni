@@ -1624,6 +1624,22 @@ function NewCustomerScreen({
     onError: () => setLookup(null),
   })
 
+  /**
+   * Look the number up while it is being typed, not only on blur.
+   *
+   * Waiting for blur meant the rep filled the whole form before learning the
+   * customer already exists — and if they went straight from the phone field to
+   * «احفظ», the check was still in flight while the button read as enabled.
+   */
+  const checkRef = useRef(checkPhone)
+  checkRef.current = checkPhone
+  useEffect(() => {
+    const value = phone.trim()
+    if (value.length < 10) return
+    const t = setTimeout(() => checkRef.current.mutate(value), 400)
+    return () => clearTimeout(t)
+  }, [phone])
+
   const claim = useMutation({
     mutationFn: async (customerId: string) => {
       const res = await api.post("/sales-agent/customers/claim", { customerId })
@@ -1658,7 +1674,8 @@ function NewCustomerScreen({
   })
 
   const blocked = Boolean(lookup?.found && !lookup.claimable && !lookup.mine)
-  const canSave = name.trim().length > 0 && phone.trim().length > 0 && !lookup?.found
+  const canSave =
+    name.trim().length > 0 && phone.trim().length > 0 && !lookup?.found && !checkPhone.isPending
 
   return (
     <Card>
@@ -1684,12 +1701,13 @@ function NewCustomerScreen({
               onBlur={() => {
                 if (phone.trim()) checkPhone.mutate(phone.trim())
               }}
+              aria-describedby="phone-lookup"
             />
           </Field>
         </div>
 
         {checkPhone.isPending && (
-          <p className="flex items-center gap-2 text-[13px] text-slate-500">
+          <p id="phone-lookup" className="flex items-center gap-2 text-[13px] text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" /> جاري التحقق من الرقم…
           </p>
         )}
