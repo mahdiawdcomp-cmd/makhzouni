@@ -67,6 +67,7 @@ const PublicStocktakePage = lazyPage(() => import("./pages/PublicStocktakePage")
 const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage"), "PublicCycleCountPage")
 const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
+const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage"), "SalesAgentAdminPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
 
@@ -160,6 +161,7 @@ const router = createBrowserRouter([
               { path: "branches", element: s(<BranchesPage />) },
               { path: "branches/:id", element: s(<WarehouseDetailPage />) },
               { path: "coupons", element: s(<CouponsPage />) },
+              { path: "sales-agents", element: s(<SalesAgentAdminPage />) },
               { path: "super-admin", element: s(<SuperAdminPage />) },
             ],
           },

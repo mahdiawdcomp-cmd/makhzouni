@@ -28,6 +28,7 @@ import {
   ShieldCheck,
   ShoppingCart,
   Store,
+  Truck,
   Users,
   Wallet,
   Zap,
@@ -168,6 +169,7 @@ const adminItems = [
   { to: "/approvals", label: "الموافقات", Icon: ShieldCheck },
   { to: "/error-logs", label: "صحة النظام والأخطاء", Icon: AlertTriangle },
   { to: "/personal-debts", label: "الديون الشخصية", Icon: HandCoins },
+  { to: "/sales-agents", label: "إدارة المندوبين", Icon: Truck },
   ...(isSaasOwner ? [{ to: "/super-admin", label: "إدارة التراخيص", Icon: KeyRound }] : []),
 ]
 
