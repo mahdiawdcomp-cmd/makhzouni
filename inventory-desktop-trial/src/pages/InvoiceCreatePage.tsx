@@ -604,6 +604,11 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     enabled: Boolean(selectedCustomer?.id) && invoiceType === "SALE" && !isEdit,
   })
   const loyalty = loyaltyQuery.data
+  // Redeeming is per-customer — a number typed for one must never carry over
+  // to whichever customer ends up selected next, silently or otherwise.
+  useEffect(() => {
+    setRedeemPoints(0)
+  }, [selectedCustomer?.id])
   // The applied coupon's rule (kept separately from `discount` so the amount
   // can be recomputed whenever the cart changes — see the effect below).
   const [appliedCoupon, setAppliedCoupon] = useState<{ discountType: "PERCENT" | "AMOUNT"; discountValue: number } | null>(null)
@@ -796,16 +801,21 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     isEdit && editingInvoice && selectedCustomer?.id === editingInvoice.customerId && editingInvoice.status === "ACTIVE"
       ? rawCustomerBalance - (editingInvoice.type === "PURCHASE" ? -1 : 1) * Number(editingInvoice.remainingAmount ?? 0)
       : rawCustomerBalance
+  // Redeemed loyalty points land on the server as their own discount
+  // component (on top of `discount`), so the client's own total/paid-amount
+  // math has to fold the same value in — otherwise CASH mode auto-fills the
+  // pre-redemption total and the save is rejected as overpaid.
+  const redeemValue = !isPurchase && !isEdit && redeemPoints > 0 ? redeemPoints * (loyalty?.pointValue ?? 0) : 0
   const beforePayment = calculateInvoiceFinancials({
     type: invoiceType,
     subtotal,
-    discount,
+    discount: discount + redeemValue,
     previousBalance,
   })
   const financials = calculateInvoiceFinancials({
     type: invoiceType,
     subtotal,
-    discount,
+    discount: discount + redeemValue,
     // In CASH mode the paid amount tracks the live total — correct while
     // creating, wrong while editing: adding a 50,000 line to an already-settled
     // 100,000 invoice would silently book 150,000 as collected, inventing cash
@@ -3573,6 +3583,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
             </Table>
             <div className="mt-4 space-y-1 text-sm">
               {discount > 0 ? <div className="flex justify-between"><span className="text-slate-500">الخصم</span><span>{fmt(discount)}</span></div> : null}
+              {redeemValue > 0 ? <div className="flex justify-between"><span className="text-slate-500">نقاط مستبدلة ({redeemPoints})</span><span>{fmt(redeemValue)}</span></div> : null}
               <div className="flex justify-between text-base font-bold"><span>الإجمالي</span><span>{fmt(total)}</span></div>
             </div>
           </div>

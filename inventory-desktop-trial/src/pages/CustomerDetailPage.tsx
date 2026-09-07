@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, Link2, Link2Off, MessageCircle, Pencil, Trash2 } from "lucide-react"
+import { ArrowRight, Copy, Link2, Link2Off, MessageCircle, Pencil, Trash2, TrendingUp } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
 import { LoyaltyBalanceCard } from "../components/LoyaltyBalanceCard"
+import { CustomerProfitAudit } from "../components/CustomerProfitAudit"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
@@ -46,6 +47,7 @@ export function CustomerDetailPage() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [receiptOpen, setReceiptOpen] = useState(false)
+  const [auditOpen, setAuditOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const queryClient = useQueryClient()
@@ -244,6 +246,9 @@ export function CustomerDetailPage() {
             {portalEnabled ? <Link2 className="h-4 w-4" /> : <Link2Off className="h-4 w-4 text-slate-400" />}
             {portalEnabled ? "الرابط مفعّل ✓" : "الرابط معطّل"}
           </Button>
+          <Button variant="outline" onClick={() => setAuditOpen(true)}>
+            <TrendingUp className="h-4 w-4 text-amber-600" /> تدقيق الربح
+          </Button>
           <Button onClick={() => setReceiptOpen(true)}>سند قبض</Button>
         </div>
       </div>
@@ -326,6 +331,10 @@ export function CustomerDetailPage() {
       </Card>
 
       {customer && <LoyaltyBalanceCard customerId={customer.id} />}
+
+      {auditOpen && customer && (
+        <CustomerProfitAudit customerId={customer.id} onClose={() => setAuditOpen(false)} />
+      )}
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
       {/* Channel picker — official / personal / open in WhatsApp Web */}
