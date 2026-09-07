@@ -489,7 +489,7 @@ function ProfitsTab() {
   useEffect(() => {
     if (appliedDefaultRef.current || !settingsQuery.isSuccess) return
     appliedDefaultRef.current = true
-    if (settingsQuery.data.reportsProfitStartDate) {
+    if (settingsQuery.data?.reportsProfitStartDate) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time default applied once settings load, guarded above so it can't loop
       setFrom(settingsQuery.data.reportsProfitStartDate)
     }
