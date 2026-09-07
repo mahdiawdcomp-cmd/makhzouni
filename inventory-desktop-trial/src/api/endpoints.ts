@@ -1657,6 +1657,17 @@ export async function getCatalogCustomers(params?: { search?: string; limit?: nu
 export type CatalogVisitor = {
   id: string; phone: string; visits: number; firstSeenAt: string; lastSeenAt: string
   customerId: string | null; customerName: string | null; totalTimeSeconds: number
+  /** What the visitor typed about themselves on the storefront's details step.
+   *  The server has returned these all along; the type simply never named
+   *  them, so the screen could only ever draw a phone number. */
+  name?: string | null
+  address?: string | null
+  province?: string | null
+  notes?: string | null
+  /** بند ١٠ — عدد مشاهدات المنتجات، تستخدم لترتيب أولوية الاتصال. */
+  viewCount: number
+  /** بند ١٠ — طلب رمز دخول بس لسه ما صار زبون (قريب من التسجيل). */
+  accessCodeSetAt?: string | null
 }
 
 export type CatalogVisitorProductView = {
@@ -1710,6 +1721,46 @@ export async function postVisitorHeartbeat(phone: string, seconds: number) {
   try { await api.post("/public/catalog/visitor-heartbeat", { phone, seconds }) } catch { /* best-effort */ }
 }
 
+export interface CatalogFooter {
+  enabled: boolean
+  about: string
+  phone: string
+  whatsapp: string
+  address: string
+  hours: string
+  instagram: string
+  facebook: string
+  telegram: string
+  tiktok: string
+  deliveryAreas: string
+  deliveryTime: string
+  minOrder: string
+  cashOnDelivery: boolean
+}
+
+export const EMPTY_CATALOG_FOOTER: CatalogFooter = {
+  enabled: true, about: "", phone: "", whatsapp: "", address: "", hours: "",
+  instagram: "", facebook: "", telegram: "", tiktok: "",
+  deliveryAreas: "", deliveryTime: "", minOrder: "", cashOnDelivery: true,
+}
+
+export interface CatalogTrustBadge { enabled: boolean; text: string }
+
+/** Trust strip above the grid + the shop's own low-stock threshold (cartons). */
+export interface CatalogTrust {
+  badges: CatalogTrustBadge[]
+  lowStockCartons: number
+}
+
+export const EMPTY_CATALOG_TRUST: CatalogTrust = {
+  badges: [
+    { enabled: false, text: "" },
+    { enabled: false, text: "" },
+    { enabled: false, text: "" },
+  ],
+  lowStockCartons: 0,
+}
+
 export interface CatalogDesign {
   primaryColor: string | null
   bgColor: string | null
@@ -1718,6 +1769,8 @@ export interface CatalogDesign {
   welcomeMessage: string | null
   bannerEnabled: boolean
   bannerImages: Array<{ url: string; title: string; order: number }>
+  footer: CatalogFooter
+  trust: CatalogTrust
 }
 
 export async function getCatalogDesign() {
@@ -2137,6 +2190,8 @@ export interface LandedCostConfirmSummary {
   skippedCount: number
   totalStockAdded: number
   warnings: string[]
+  /** False when part of the shipment is still on its way. */
+  batchComplete?: boolean
 }
 
 export async function confirmLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number }) {
@@ -3002,4 +3057,458 @@ export async function setLoyaltyExclusion(customerId: string, payload: { exclude
     `/reports/loyalty-points/${customerId}/exclude`, payload,
   )
   return data.data!
+}
+
+/* ── «احجز البضاعة القادمة الجديدة» ───────────────────────────────── */
+
+export interface IncomingItem {
+  id: string
+  name: string
+  description: string | null
+  imageUrl: string | null
+  expectedAt: string | null
+  price: number | null
+  active?: boolean
+  sortOrder?: number
+  arrivedAt?: string | null
+  reservationCount?: number
+  /** In pieces, with how many go in a carton — the storefront shows cartons. */
+  quantityPieces?: number | null
+  pcsPerCarton?: number | null
+  category?: string | null
+  /** Set when the row was raised from a China order that has not landed. */
+  sourceBatchId?: string | null
+  sourceBatchItemId?: string | null
+}
+
+export async function getPublicIncomingItems(phone = "") {
+  const { data } = await api.get<ApiEnvelope<{ items: IncomingItem[]; mine: Record<string, number> }>>(
+    "/public/catalog/incoming", { params: phone ? { phone } : {} },
+  )
+  return data.data ?? { items: [], mine: {} }
+}
+
+export async function reserveIncomingItem(payload: {
+  itemId: string; phone: string; name?: string; quantity?: number; note?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; quantity: number }>>(
+    "/public/catalog/incoming/reserve", payload,
+  )
+  return data.data!
+}
+
+export async function listIncomingItems() {
+  const { data } = await api.get<ApiEnvelope<IncomingItem[]>>("/catalog-management/incoming")
+  return data.data ?? []
+}
+
+export async function saveIncomingItem(payload: Partial<IncomingItem> & { name: string }, id?: string) {
+  const { data } = id
+    ? await api.put<ApiEnvelope<IncomingItem>>(`/catalog-management/incoming/${id}`, payload)
+    : await api.post<ApiEnvelope<IncomingItem>>("/catalog-management/incoming", payload)
+  return data.data!
+}
+
+export async function deleteIncomingItem(id: string) {
+  await api.delete(`/catalog-management/incoming/${id}`)
+}
+
+/** «وصلت البضاعة» — closes the loop and tells everyone who reserved. */
+export async function markIncomingArrived(id: string) {
+  const { data } = await api.post<ApiEnvelope<{ alreadyArrived: boolean; notified: number }>>(
+    `/catalog-management/incoming/${id}/arrived`, {},
+  )
+  return data.data!
+}
+
+export interface IncomingReservation {
+  id: string
+  phone: string
+  name: string | null
+  quantity: number
+  note: string | null
+  status: string
+  createdAt: string
+}
+
+export async function listIncomingReservations(itemId: string) {
+  const { data } = await api.get<ApiEnvelope<IncomingReservation[]>>(
+    `/catalog-management/incoming/${itemId}/reservations`,
+  )
+  return data.data ?? []
+}
+
+export interface ReservationRow extends IncomingReservation {
+  itemId: string
+  itemName: string
+  itemArrived: boolean
+}
+
+/** Every reservation across every item — who is waiting on the merchant. */
+export async function listAllReservations(status?: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  const { data } = await api.get<ApiEnvelope<ReservationRow[]>>(
+    "/catalog-management/incoming-reservations", { params: status ? { status } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function setIncomingReservationStatus(id: string, status: "PENDING" | "CONFIRMED" | "CANCELLED") {
+  await api.patch(`/catalog-management/incoming/reservations/${id}`, { status })
+}
+
+/** «وصلت» on one incoming card, for a shipment landing in parts. */
+export async function markIncomingItemArrived(incomingItemId: string) {
+  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(
+    `/landed-cost/incoming/${incomingItemId}/arrived`, {},
+  )
+  return data.data!
+}
+
+/* ── Storefront accounts, admin side ──────────────────────────────── */
+
+export interface StorefrontAccountRow {
+  kind: "CUSTOMER" | "VISITOR"
+  phone: string
+  name: string
+  address: string | null
+  province: string | null
+  lastLoginAt: string | null
+  detailsSubmitted: boolean
+  pricesUnlocked: boolean
+  priceRequestPending: boolean
+  customerId: string | null
+  hasCode: boolean
+  locked: boolean
+}
+
+/** What is waiting for the merchant right now — the catalog home screen. */
+export async function getCatalogDashboard() {
+  const { data } = await api.get<ApiEnvelope<{
+    priceRequests: number; reservations: number; customersNoCode: number
+    visitorsToday: number; incomingItems: number; pendingOrders: number
+  }>>("/catalog-management/dashboard")
+  return data.data!
+}
+
+export async function listStorefrontAccountsUnified(search?: string) {
+  const { data } = await api.get<ApiEnvelope<StorefrontAccountRow[]>>(
+    "/catalog-management/accounts/unified", { params: search ? { search } : {} },
+  )
+  return data.data ?? []
+}
+
+export interface PersonProfile {
+  phone: string
+  name: string
+  kind: "CUSTOMER" | "VISITOR"
+  address: string | null
+  province: string | null
+  notes: string | null
+  balance: number | null
+  customerId: string | null
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  pricesVisible: boolean
+  priceRequestPending: boolean
+  detailsSubmitted: boolean
+  visits: number
+  totalTimeSeconds: number
+  firstSeenAt: string | null
+  lastSeenAt: string | null
+  productViews: number
+  orders: Array<{ id: string; invoiceNumber: string; total: number; createdAt: string }>
+  reservations: Array<{ id: string; quantity: number; status: string; itemName: string }>
+}
+
+/** Everything the shop knows about one phone, in one reply. */
+export async function getStorefrontPersonProfile(phone: string) {
+  const { data } = await api.get<ApiEnvelope<PersonProfile>>(
+    `/catalog-management/accounts/${encodeURIComponent(phone)}/profile`,
+  )
+  return data.data!
+}
+
+export async function grantCatalogPrices(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
+    "/catalog-management/accounts/grant-prices", { phone },
+  )
+  return data.data!
+}
+
+export async function revokeCatalogPrices(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string }>>(
+    "/catalog-management/accounts/revoke-prices", { phone },
+  )
+  return data.data!
+}
+
+/**
+ * «أظهر الرمز» — get the credentials in hand instead of sending them.
+ *
+ * Mints a NEW code (the stored one is a hash nobody can read back) and returns
+ * it once, with the message and a wa.me link so the admin can send it from
+ * their own WhatsApp rather than the shop number.
+ */
+export async function revealStorefrontCredentials(
+  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{
+    phone: string; name: string; username: string; code: string
+    message: string; waLink: string; link: string
+  }>>("/catalog-management/accounts/reveal", target)
+  return data.data!
+}
+
+/** «احفظ كزبون بالمحل» — the only thing that puts a visitor on the books. */
+export async function promoteVisitorToCustomer(phone: string) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; customerName: string; created: boolean }>>(
+    "/catalog-management/accounts/promote", { phone },
+  )
+  return data.data!
+}
+
+export interface StorefrontCustomerAccount {
+  kind: "CUSTOMER"
+  id: string
+  name: string
+  phone: string
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  pricesHidden: boolean
+}
+
+export interface StorefrontVisitorAccount {
+  kind: "VISITOR"
+  phone: string
+  hasCode: boolean
+  codeSetAt: string | null
+  lastLoginAt: string | null
+  locked: boolean
+  detailsSubmitted: boolean
+}
+
+export async function listStorefrontAccounts(search?: string) {
+  const { data } = await api.get<ApiEnvelope<{
+    customers: StorefrontCustomerAccount[]
+    visitors: StorefrontVisitorAccount[]
+  }>>("/catalog-management/accounts", { params: search ? { search } : {} })
+  return data.data ?? { customers: [], visitors: [] }
+}
+
+export async function sendStorefrontCredentials(
+  target: { kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string; sent: boolean }>>(
+    "/catalog-management/accounts/send-credentials", target,
+  )
+  return data
+}
+
+export async function sendStorefrontCredentialsBulk(
+  targets: Array<{ kind: "CUSTOMER" | "VISITOR"; id?: string; phone?: string }>,
+) {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-credentials-bulk", { targets })
+  return data.data!
+}
+
+/** True recipient counts — the accounts list is paged, these are not. */
+export async function getCredentialTargetCounts() {
+  const { data } = await api.get<ApiEnvelope<{ customers: number; visitors: number }>>(
+    "/catalog-management/accounts/target-counts",
+  )
+  return data.data ?? { customers: 0, visitors: 0 }
+}
+
+/** Sends to every recipient in the group, resolved server-side. */
+export async function sendStorefrontCredentialsToAll(group: "customers" | "visitors" | "all") {
+  const { data } = await api.post<ApiEnvelope<{
+    total: number; sent: number; failed: number
+    results: Array<{ phone: string; ok: boolean; error?: string }>
+  }>>("/catalog-management/accounts/send-credentials-all", { group })
+  return data.data!
+}
+
+/**
+ * «دعوة الحساب» — the cold invite. Credentials cannot be pushed to a number
+ * that has not messaged us (Meta approves no template carrying a code), so
+ * this asks the shopper to reply; their reply is what earns the credentials.
+ */
+export async function sendStorefrontInvitesToAll(group: "customers" | "visitors" | "all") {
+  const { data } = await api.post<ApiEnvelope<{
+    queued: number; remaining: number; total: number
+  }>>("/catalog-management/accounts/send-invites-all", { group })
+  return data.data!
+}
+
+/** Push the shop-wide price default onto every live catalog link. */
+export async function applyPricesDefaultToAll() {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; visible: boolean }>>(
+    "/catalog-management/accounts/apply-prices-default",
+  )
+  return data.data!
+}
+
+export async function setCustomerPricesHidden(customerId: string, hidden: boolean) {
+  await api.patch(`/catalog-management/accounts/${customerId}/prices-hidden`, { hidden })
+}
+
+export async function unlockStorefrontAccount(kind: "CUSTOMER" | "VISITOR", idOrPhone: string) {
+  await api.post("/catalog-management/accounts/unlock", { kind, idOrPhone })
+}
+
+/* ── Catalog product content + review moderation (admin) ──────────── */
+
+export interface CatalogProductSpec { label: string; value: string }
+
+export interface AdminProductContent {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  description: string
+  specs: CatalogProductSpec[]
+  gallery: Array<{ id: string; thumbnailUrl: string | null; sortOrder: number }>
+  isOffer: boolean
+  offerEndsAt: string | null
+}
+
+export interface AdminCatalogReview {
+  id: string
+  rating: number
+  comment: string | null
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  createdAt: string
+  reviewedAt: string | null
+  product: { id: string; name: string; itemNumber: string; thumbnailUrl: string | null }
+  customer: { id: string; name: string; phone: string }
+}
+
+export interface MerchandisedProduct {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl: string | null
+  salePrice: number
+  oldPrice: number | null
+  offerEndsAt: string | null
+  isOffer: boolean
+  isNewArrival: boolean
+}
+
+/** Both storefront rows in one list, instead of one product form at a time. */
+export async function listMerchandisedProducts() {
+  const { data } = await api.get<ApiEnvelope<MerchandisedProduct[]>>("/catalog-management/merchandising")
+  return data.data ?? []
+}
+
+export async function setProductMerchandising(productId: string, patch: {
+  isOffer?: boolean; isNewArrival?: boolean; oldPrice?: number | null; offerEndsAt?: string | null
+}) {
+  const { data } = await api.patch<ApiEnvelope<{ ok: boolean }>>(
+    `/catalog-management/merchandising/${productId}`, patch,
+  )
+  return data.data!
+}
+
+export async function getProductCatalogContent(productId: string) {
+  const { data } = await api.get<ApiEnvelope<AdminProductContent>>(
+    `/catalog-management/products/${productId}/content`,
+  )
+  return data.data!
+}
+
+export async function updateProductCatalogContent(
+  productId: string,
+  payload: { description?: string; specs?: CatalogProductSpec[]; offerEndsAt?: string },
+) {
+  const { data } = await api.put<ApiEnvelope<AdminProductContent>>(
+    `/catalog-management/products/${productId}/content`, payload,
+  )
+  return data.data!
+}
+
+export async function addProductCatalogImage(
+  productId: string, payload: { url: string; thumbnailUrl?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ id: string }>>(
+    `/catalog-management/products/${productId}/images`, payload,
+  )
+  return data.data!
+}
+
+export async function deleteProductCatalogImage(productId: string, imageId: string) {
+  await api.delete(`/catalog-management/products/${productId}/images/${imageId}`)
+}
+
+export async function listCatalogReviews(status?: "PENDING" | "APPROVED" | "REJECTED") {
+  const { data } = await api.get<ApiEnvelope<AdminCatalogReview[]>>(
+    "/catalog-management/reviews", { params: status ? { status } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function setCatalogReviewStatus(id: string, status: "APPROVED" | "REJECTED") {
+  await api.patch(`/catalog-management/reviews/${id}`, { status })
+}
+
+export async function deleteCatalogReview(id: string) {
+  await api.delete(`/catalog-management/reviews/${id}`)
+}
+
+export interface VisitSession {
+  id: string
+  startedAt: string
+  lastBeatAt: string
+  seconds: number
+}
+
+/** The individual visits behind one phone's running total. */
+export async function getVisitorSessions(phone: string) {
+  const { data } = await api.get<ApiEnvelope<VisitSession[]>>(
+    `/catalog-management/visitors/${encodeURIComponent(phone)}/sessions`,
+  )
+  return data.data ?? []
+}
+
+export interface FirstOrderCouponReport {
+  issued: number
+  used: number
+  salesCount: number
+  salesTotal: number
+}
+
+// بند ٧ — تقرير كوبون أول طلب.
+export async function getFirstOrderCouponReport() {
+  const { data } = await api.get<ApiEnvelope<FirstOrderCouponReport>>("/catalog-management/promo-codes/first-order-report")
+  return data.data
+}
+
+export interface MarketingOptOut {
+  phone: string
+  name: string | null
+  reason: string | null
+  source: string
+  createdAt: string
+}
+
+export async function listMarketingOptOuts(search?: string) {
+  const { data } = await api.get<ApiEnvelope<MarketingOptOut[]>>(
+    "/catalog-management/opt-outs", { params: search ? { search } : {} },
+  )
+  return data.data ?? []
+}
+
+export async function addMarketingOptOut(phone: string, reason?: string) {
+  await api.post("/catalog-management/opt-outs", { phone, reason })
+}
+
+export async function resumeMarketingFor(phone: string) {
+  await api.post("/catalog-management/opt-outs/resume", { phone })
 }

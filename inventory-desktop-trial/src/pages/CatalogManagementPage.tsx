@@ -1,64 +1,66 @@
-import { Fragment, useState, useMemo, useRef } from "react"
+import {Fragment, useState, useMemo, useRef} from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   BarChart3,
-  BookOpen,
   Check,
-  Copy,
   Download,
   Eye,
-  EyeOff,
-  Globe,
+  ChevronUp,
+  ChevronDown,
+  Upload,
+  FileText,
   Image,
-  Lock,
-  MessageCircle,
+  Info,
+  LayoutDashboard,
+  MessageSquare,
   Palette,
   Phone,
   Plus,
   Search,
+  ShieldCheck,
+  Sliders,
   Send,
-  Shuffle,
-  ShieldOff,
-  Tag,
   Ticket,
-  Trash2,
-  Unlock,
-  UserPlus,
   Users,
+  Trash2,
+  UserPlus,
   X,
 } from "lucide-react"
 import dayjs from "dayjs"
 import relativeTime from "dayjs/plugin/relativeTime"
 import "dayjs/locale/ar"
 import {
-  broadcastCatalogLink,
-  deleteCustomer,
   getCatalogCustomers,
   getCatalogVisitors,
   getVisitorProductViews,
   convertCatalogVisitor,
   broadcastToCatalogVisitors,
+  getVisitorSessions,
+  type VisitSession,
   getCatalogProductStats,
   type CatalogProductStat,
   getCatalogDesign,
   updateCatalogDesign,
-  getSettings,
-  updateSettings,
   listAdminPromoCodes,
+  getFirstOrderCouponReport,
   createAdminPromoCode,
   deleteAdminPromoCode,
   toggleAdminPromoCode,
-  getCustomerTags,
-  getCustomersPaged,
-  grantCatalogAccess,
-  patchCatalogAccess,
-  revokeCatalogAccess,
-  sendCatalogLinkToCustomer,
   type CatalogDesign,
+  type CatalogFooter,
+  type CatalogTrust,
+  EMPTY_CATALOG_FOOTER,
+  EMPTY_CATALOG_TRUST,
   type PromoCode,
 } from "../api/endpoints"
-import type { CatalogCustomer, CatalogStockFilter } from "../types/api"
-import { useAuthStore } from "../store/authStore"
+import { CatalogContentTab } from "../components/CatalogContentTab"
+import { CatalogMerchandisingTab } from "../components/CatalogMerchandisingTab"
+import { CatalogLayoutTab } from "../components/CatalogLayoutTab"
+import { CatalogIncomingTab } from "../components/CatalogIncomingTab"
+import { CatalogHomeTab } from "../components/CatalogHomeTab"
+import { StorefrontAccountsTab } from "../components/StorefrontAccountsTab"
+import { CatalogSettingsTab } from "../components/CatalogSettingsTab"
+import { downscaleImage } from "../utils/downscaleImage"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
@@ -70,443 +72,14 @@ import { cn } from "../utils/cn"
 dayjs.extend(relativeTime)
 dayjs.locale("ar")
 
-const CATALOG_BASE = window.location.origin + "/catalog?access="
 
-function copyText(text: string) {
-  navigator.clipboard.writeText(text).catch(() => {})
-}
+/* The old «صلاحيات الزبائن» screen and its parts lived here: StatusBadge,
+   ToggleChip, GrantDialog, CustomerRow, BulkCatalogSend. It managed the
+   legacy access-link system and listed the same people the accounts screen
+   lists, with different buttons — so one customer appeared twice with
+   different levers, which is what made this section unusable. Links already
+   handed out keep working; no new ones are granted. */
 
-function StatusBadge({ customer }: { customer: CatalogCustomer }) {
-  if (!customer.hasAccess)
-    return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500"><Lock className="h-3 w-3" />بدون صلاحية</span>
-  return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700"><Unlock className="h-3 w-3" />نشط</span>
-}
-
-function ToggleChip({
-  on,
-  labelOn,
-  labelOff,
-  iconOn,
-  iconOff,
-  onClick,
-  disabled,
-}: {
-  on: boolean
-  labelOn: string
-  labelOff: string
-  iconOn: React.ReactNode
-  iconOff: React.ReactNode
-  onClick: () => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-all",
-        on
-          ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-          : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
-        disabled && "cursor-not-allowed opacity-40",
-      )}
-    >
-      {on ? iconOn : iconOff}
-      {on ? labelOn : labelOff}
-    </button>
-  )
-}
-
-function GrantDialog({
-  customer,
-  onClose,
-}: {
-  customer: CatalogCustomer
-  onClose: () => void
-}) {
-  const [allowPrices, setAllowPrices] = useState(false)
-  const [showStock, setShowStock] = useState(true)
-  const [stockFilter, setStockFilter] = useState<CatalogStockFilter>("FULL_CARTON_ONLY")
-  const qc = useQueryClient()
-
-  const mutation = useMutation({
-    mutationFn: () => grantCatalogAccess(customer.id, { allowPrices, showStock, stockFilter }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["catalog-customers"] })
-      onClose()
-    },
-  })
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-bold">منح صلاحية الكاتلوك</h3>
-          <button onClick={onClose} className="rounded-md p-1 hover:bg-slate-100"><X className="h-4 w-4" /></button>
-        </div>
-
-        <div className="mb-5 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
-          <p className="font-semibold">{customer.name}</p>
-          <p className="text-slate-500">{customer.phone}</p>
-        </div>
-
-        <div className="space-y-3 text-sm">
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border p-3 transition hover:bg-slate-50">
-            <div className="flex items-center gap-2">
-              <Tag className="h-4 w-4 text-blue-600" />
-              <span>إظهار الأسعار للزبون</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={allowPrices}
-              onChange={(e) => setAllowPrices(e.target.checked)}
-              className="h-4 w-4 accent-blue-600"
-            />
-          </label>
-
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border p-3 transition hover:bg-slate-50">
-            <div className="flex items-center gap-2">
-              <Eye className="h-4 w-4 text-emerald-600" />
-              <span>إظهار الكمية المتوفرة</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={showStock}
-              onChange={(e) => setShowStock(e.target.checked)}
-              className="h-4 w-4 accent-emerald-600"
-            />
-          </label>
-
-          <div className="rounded-lg border p-3">
-            <p className="mb-2 flex items-center gap-2 font-medium">
-              <BookOpen className="h-4 w-4 text-violet-600" />
-              المواد المعروضة
-            </p>
-            <select
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value as CatalogStockFilter)}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="FULL_CARTON_ONLY">كارتون كامل فقط (الافتراضي)</option>
-              <option value="ALL_PRODUCTS">كل المواد المتوفرة حتى لو أقل من كارتون</option>
-            </select>
-            <p className="mt-1.5 text-[11px] text-slate-400">هذا الخيار يتحكم بعرض المواد فقط، والبيع متاح بكل الوحدات (قطعة/علبة/درزن/كارتون).</p>
-          </div>
-        </div>
-
-        {mutation.isError && (
-          <p className="mt-3 rounded-md bg-rose-50 p-2 text-xs text-rose-600">تعذر منح الصلاحية. حاول مرة أخرى.</p>
-        )}
-
-        <div className="mt-5 flex gap-2">
-          <Button className="flex-1" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            {mutation.isPending ? "جاري المنح..." : "منح الصلاحية"}
-          </Button>
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CustomerRow({ customer, isAdmin }: { customer: CatalogCustomer; isAdmin: boolean }) {
-  const [grantOpen, setGrantOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [promo, setPromo] = useState("")
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const qc = useQueryClient()
-
-  const deleteMut = useMutation({
-    mutationFn: () => deleteCustomer(customer.id),
-    onSuccess: () => {
-      setConfirmDelete(false)
-      void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
-      void qc.invalidateQueries({ queryKey: ["customers"] })
-      toast({ title: `تم حذف الزبون ${customer.name}` })
-    },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الحذف"), variant: "destructive" }),
-  })
-
-  const sendLinkMut = useMutation({
-    mutationFn: () => sendCatalogLinkToCustomer(customer.id, promo.trim() || undefined),
-    onSuccess: (res) => { toast({ title: res.message ?? "تم إرسال رابط الكتلوج" }); setPromo("") },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
-  })
-
-  const patchMut = useMutation({
-    mutationFn: (patch: { allowPrices?: boolean; showStock?: boolean; stockFilter?: CatalogStockFilter }) =>
-      patchCatalogAccess(customer.id, patch),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog-customers"] }),
-  })
-
-  const revokeMut = useMutation({
-    mutationFn: () => revokeCatalogAccess(customer.id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["catalog-customers"] }),
-  })
-
-  function handleCopy() {
-    if (!customer.token) return
-    copyText(CATALOG_BASE + customer.token)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  const isLoading = patchMut.isPending || revokeMut.isPending
-
-  return (
-    <>
-      {grantOpen && <GrantDialog customer={customer} onClose={() => setGrantOpen(false)} />}
-      <ConfirmDialog
-        open={confirmDelete}
-        title={`حذف ${customer.name} نهائياً؟`}
-        description="سيُحذف الزبون وكل بياناته بشكل دائم. لا يمكن التراجع."
-        confirmLabel="حذف نهائي"
-        destructive
-        loading={deleteMut.isPending}
-        onConfirm={() => deleteMut.mutate()}
-        onCancel={() => setConfirmDelete(false)}
-      />
-
-      <tr className="border-b last:border-0 hover:bg-slate-50/60 transition-colors">
-        {/* الزبون */}
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div>
-              <p className="font-semibold text-slate-800">{customer.name}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{customer.phone}</p>
-            </div>
-            {isAdmin && (
-              <button
-                type="button"
-                title="حذف الزبون"
-                onClick={() => setConfirmDelete(true)}
-                className="mr-1 inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 text-rose-500 hover:bg-rose-50 transition-colors"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        </td>
-
-        {/* الحالة */}
-        <td className="px-4 py-3">
-          <StatusBadge customer={customer} />
-        </td>
-
-        {/* الأسعار toggle */}
-        <td className="px-4 py-3">
-          <ToggleChip
-            on={customer.hasAccess && customer.allowPrices}
-            labelOn="ظاهرة"
-            labelOff="مخفية"
-            iconOn={<Tag className="h-3 w-3" />}
-            iconOff={<Tag className="h-3 w-3 opacity-40" />}
-            disabled={!customer.hasAccess || isLoading}
-            onClick={() => patchMut.mutate({ allowPrices: !customer.allowPrices })}
-          />
-        </td>
-
-        {/* الكمية toggle */}
-        <td className="px-4 py-3">
-          <ToggleChip
-            on={customer.hasAccess && customer.showStock}
-            labelOn="ظاهرة"
-            labelOff="مخفية"
-            iconOn={<Eye className="h-3 w-3" />}
-            iconOff={<EyeOff className="h-3 w-3" />}
-            disabled={!customer.hasAccess || isLoading}
-            onClick={() => patchMut.mutate({ showStock: !customer.showStock })}
-          />
-        </td>
-
-        {/* فلتر العرض: كل المواد / كارتون كامل فقط */}
-        <td className="px-4 py-3">
-          <ToggleChip
-            on={customer.hasAccess && customer.stockFilter === "ALL_PRODUCTS"}
-            labelOn="كل المواد"
-            labelOff="كارتون كامل"
-            iconOn={<BookOpen className="h-3 w-3" />}
-            iconOff={<BookOpen className="h-3 w-3 opacity-40" />}
-            disabled={!customer.hasAccess || isLoading}
-            onClick={() =>
-              patchMut.mutate({
-                stockFilter: customer.stockFilter === "ALL_PRODUCTS" ? "FULL_CARTON_ONLY" : "ALL_PRODUCTS",
-              })
-            }
-          />
-        </td>
-
-        {/* آخر زيارة */}
-        <td className="px-4 py-3 text-xs text-slate-500">
-          {customer.lastViewedAt ? (
-            <div className="flex flex-col gap-0.5">
-              <span>{dayjs(customer.lastViewedAt).fromNow()}</span>
-              {(customer.viewCount ?? 0) > 0 && (
-                <span className="text-[11px] text-slate-400">{customer.viewCount} فتحة</span>
-              )}
-            </div>
-          ) : customer.hasAccess ? (
-            "لم يُفتح بعد"
-          ) : (
-            "—"
-          )}
-        </td>
-
-        {/* إرسال رابط الكتلوج بالواتساب + بروموكود */}
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-1.5">
-            <Input
-              value={promo}
-              onChange={(e) => setPromo(e.target.value)}
-              placeholder="بروموكود (اختياري)"
-              className="h-8 w-28 text-xs"
-            />
-            <button
-              type="button"
-              title="إرسال رابط الكتلوج بالواتساب"
-              disabled={sendLinkMut.isPending}
-              onClick={() => sendLinkMut.mutate()}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-              {sendLinkMut.isPending ? "..." : "إرسال"}
-            </button>
-          </div>
-          {customer.catalogLinkSentAt && (
-            <p className={cn("mt-1 text-[10px]", isSentNotOpened(customer) ? "text-amber-600" : "text-emerald-600")}>
-              {isSentNotOpened(customer) ? "أُرسل · لم يُفتح بعد" : "أُرسل · وفتحه ✓"}
-            </p>
-          )}
-        </td>
-
-        {/* إجراءات */}
-        <td className="px-4 py-3">
-          <div className="flex items-center gap-2">
-            {customer.hasAccess ? (
-              <>
-                <button
-                  title="نسخ رابط الكاتلوك"
-                  onClick={handleCopy}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1.5 text-xs hover:bg-slate-50"
-                >
-                  {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                  {copied ? "تم النسخ" : "نسخ الرابط"}
-                </button>
-                <button
-                  title="سحب الصلاحية"
-                  disabled={revokeMut.isPending}
-                  onClick={() => revokeMut.mutate()}
-                  className="inline-flex items-center gap-1 rounded-md border border-rose-200 px-2 py-1.5 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                >
-                  <ShieldOff className="h-3.5 w-3.5" />
-                  سحب
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={() => setGrantOpen(true)}
-                className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-              >
-                <Globe className="h-3.5 w-3.5" />
-                منح صلاحية
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
-    </>
-  )
-}
-
-// Bulk-send the catalog link to everyone carrying a chosen tag (fire-and-forget).
-function BulkCatalogSend() {
-  const tagsQuery = useQuery({ queryKey: ["customer-tags"], queryFn: getCustomerTags })
-  const tags = tagsQuery.data ?? []
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [promo, setPromo] = useState("")
-  const qc = useQueryClient()
-
-  const recipientsQuery = useQuery({
-    queryKey: ["customers-by-tags-count", selectedTags],
-    queryFn: () => getCustomersPaged({ tags: selectedTags, limit: 1 }),
-    enabled: selectedTags.length > 0,
-  })
-  const recipientCount = recipientsQuery.data?.pagination?.total ?? 0
-
-  const sendMut = useMutation({
-    mutationFn: () => broadcastCatalogLink({ tags: selectedTags, promoCode: promo.trim() || undefined }),
-    onSuccess: (res) => {
-      toast({ title: res.message ?? `جارٍ الإرسال إلى ${recipientCount} زبون` })
-      setSelectedTags([]); setPromo("")
-      void qc.invalidateQueries({ queryKey: ["catalog-customers"] })
-    },
-    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
-  })
-
-  function toggleTag(tag: string) {
-    setSelectedTags((cur) => (cur.includes(tag) ? cur.filter((t) => t !== tag) : [...cur, tag]))
-  }
-
-  return (
-    <Card className="border-emerald-200 bg-emerald-50/40">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <MessageCircle className="h-5 w-5 text-emerald-600" /> إرسال جماعي لرابط الكتلوج (حسب التاك)
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {tags.length === 0 ? (
-          <p className="text-sm text-slate-500">لا يوجد تاكات بعد. أضف تاكات للزبائن من صفحة الزبائن أولاً.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => toggleTag(tag)}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-sm font-medium transition",
-                  selectedTags.includes(tag) ? "bg-emerald-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50",
-                )}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        )}
-        {selectedTags.length > 0 && (
-          <p className="text-sm text-emerald-700">
-            {recipientsQuery.isLoading ? "جاري الحساب..." : <>سيُرسل رابط الكتلوج إلى <b>{recipientCount}</b> زبون.</>}
-          </p>
-        )}
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Input
-            value={promo}
-            onChange={(e) => setPromo(e.target.value)}
-            placeholder="بروموكود للجميع (اختياري)"
-            className="sm:max-w-xs"
-          />
-          <Button
-            disabled={selectedTags.length === 0 || recipientCount === 0 || sendMut.isPending}
-            onClick={() => sendMut.mutate()}
-          >
-            <MessageCircle className="h-4 w-4" /> {sendMut.isPending ? "جارٍ الإرسال..." : "إرسال للجميع"}
-          </Button>
-        </div>
-        <p className="text-[11px] text-slate-400">يُرسل تلقائياً بالخلفية مع تمهّل بسيط بين كل رسالة. على WhatsApp Cloud API قد لا تصل خارج نافذة ٢٤ ساعة.</p>
-      </CardContent>
-    </Card>
-  )
-}
-
-// "Sent but not opened": the catalog link was sent and the customer hasn't
-// opened the catalog since (no view, or last view predates the send).
-function isSentNotOpened(c: CatalogCustomer) {
-  if (!c.catalogLinkSentAt) return false
-  if (!c.lastViewedAt) return true
-  return new Date(c.lastViewedAt).getTime() < new Date(c.catalogLinkSentAt).getTime()
-}
 
 /* ══════════════════════════════════════════════════════════════════════
    CATALOG DESIGN TAB
@@ -570,6 +143,8 @@ function CatalogDesignTab() {
   const qc = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ["catalog-design"], queryFn: getCatalogDesign })
   const [form, setForm] = useState<Partial<CatalogDesign>>({})
+  const bannerFileRef = useRef<HTMLInputElement>(null)
+  const [bannerUploading, setBannerUploading] = useState(false)
   const [newBannerUrl, setNewBannerUrl] = useState("")
   const [newBannerTitle, setNewBannerTitle] = useState("")
 
@@ -578,6 +153,21 @@ function CatalogDesignTab() {
     welcomeMessage: null, bannerEnabled: true, bannerImages: [],
     ...data,
     ...form,
+    // Footer is a nested object, so a plain spread would replace the whole
+    // thing and lose every field the admin didn't just touch.
+    footer: { ...EMPTY_CATALOG_FOOTER, ...(data?.footer ?? {}), ...(form.footer ?? {}) },
+    trust: { ...EMPTY_CATALOG_TRUST, ...(data?.trust ?? {}), ...(form.trust ?? {}) },
+  }
+
+  function patchFooter(key: keyof CatalogFooter, value: unknown) {
+    setForm((f) => ({ ...f, footer: { ...current.footer, ...f.footer, [key]: value } }))
+  }
+
+  function patchTrust(patch: Partial<CatalogTrust>) {
+    setForm((f) => ({ ...f, trust: { ...current.trust, ...f.trust, ...patch } }))
+  }
+  function patchBadge(i: number, patch: Partial<{ enabled: boolean; text: string }>) {
+    patchTrust({ badges: current.trust.badges.map((b, j) => (j === i ? { ...b, ...patch } : b)) })
   }
 
   const saveMut = useMutation({
@@ -599,6 +189,41 @@ function CatalogDesignTab() {
 
   function removeBanner(idx: number) {
     patch("bannerImages", current.bannerImages.filter((_, i) => i !== idx).map((img, i) => ({ ...img, order: i })))
+  }
+
+  /** Move a banner one slot earlier/later — order drives the slideshow. */
+  function moveBanner(idx: number, dir: -1 | 1) {
+    const next = [...current.bannerImages]
+    const target = idx + dir
+    if (target < 0 || target >= next.length) return
+    ;[next[idx], next[target]] = [next[target], next[idx]]
+    patch("bannerImages", next.map((img, i) => ({ ...img, order: i })))
+  }
+
+  function setBannerTitle(idx: number, title: string) {
+    patch("bannerImages", current.bannerImages.map((img, i) => (i === idx ? { ...img, title } : img)))
+  }
+
+  /** Upload straight from the device instead of hunting for an image URL.
+   *  Downscaled first: banners are stored inline, same as product images. */
+  async function uploadBanners(files: FileList | null) {
+    if (!files?.length) return
+    setBannerUploading(true)
+    try {
+      const added: Array<{ url: string; title: string; order: number }> = []
+      for (const file of Array.from(files)) {
+        const url = await downscaleImage(file, 1600, 0.82)
+        if (url) added.push({ url, title: "", order: 0 })
+      }
+      const merged = [...current.bannerImages, ...added].map((img, i) => ({ ...img, order: i }))
+      patch("bannerImages", merged)
+      toast({ title: `تمت إضافة ${added.length} صورة — اضغط «حفظ التغييرات»` })
+    } catch {
+      toast({ title: "تعذر رفع الصور", variant: "destructive" })
+    } finally {
+      setBannerUploading(false)
+      if (bannerFileRef.current) bannerFileRef.current.value = ""
+    }
   }
 
   if (isLoading) return <div className="py-10 text-center text-sm text-slate-400">جاري التحميل...</div>
@@ -687,21 +312,55 @@ function CatalogDesignTab() {
             <span className="text-sm font-medium text-slate-700">إظهار البانر المتحرك</span>
           </label>
 
-          {/* Existing images */}
+          {/* Upload straight from the device — no image URL to hunt down */}
+          <input ref={bannerFileRef} type="file" accept="image/*" multiple className="hidden"
+            onChange={(e) => void uploadBanners(e.target.files)} />
+          <button
+            onClick={() => bannerFileRef.current?.click()}
+            disabled={bannerUploading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 py-3 text-sm font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:opacity-50"
+          >
+            <Upload className="h-4 w-4" />
+            {bannerUploading ? "جاري الرفع..." : "رفع صور من الجهاز"}
+          </button>
+          <p className="text-[11px] text-slate-400">
+            أفضل مقاس للبانر عرضي (16:9). الصور تُصغّر تلقائياً، وتظهر كاملة بدون قص.
+          </p>
+
+          {/* Existing images — preview, rename, reorder, delete */}
           {current.bannerImages.length > 0 && (
             <div className="space-y-2">
               {current.bannerImages.map((img, idx) => (
-                <div key={idx} className="flex items-center gap-3 rounded-xl border bg-slate-50 p-2.5">
-                  <img src={img.url} alt="" className="h-12 w-16 rounded-lg object-cover border" onError={(e) => e.currentTarget.src = ""} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{img.title || "(بدون عنوان)"}</p>
-                    <p className="truncate text-xs text-slate-400" dir="ltr">{img.url}</p>
+                <div key={idx} className="flex items-center gap-2.5 rounded-xl border bg-slate-50 p-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600">
+                    {idx + 1}
+                  </span>
+                  <div className="h-14 w-24 shrink-0 overflow-hidden rounded-lg border bg-white">
+                    <img src={img.url} alt="" className="h-full w-full object-contain"
+                      onError={(e) => { e.currentTarget.style.opacity = "0.25" }} />
                   </div>
-                  <button onClick={() => removeBanner(idx)} className="shrink-0 rounded-lg p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500">
+                  <Input
+                    value={img.title}
+                    onChange={(e) => setBannerTitle(idx, e.target.value)}
+                    placeholder="عنوان يظهر فوق الصورة (اختياري)"
+                    className="min-w-0 flex-1 text-sm"
+                  />
+                  <div className="flex shrink-0 flex-col">
+                    <button onClick={() => moveBanner(idx, -1)} disabled={idx === 0}
+                      className="rounded p-0.5 text-slate-400 transition hover:text-slate-700 disabled:opacity-25" title="تقديم">
+                      <ChevronUp className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => moveBanner(idx, 1)} disabled={idx === current.bannerImages.length - 1}
+                      className="rounded p-0.5 text-slate-400 transition hover:text-slate-700 disabled:opacity-25" title="تأخير">
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <button onClick={() => removeBanner(idx)} className="shrink-0 rounded-lg p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-500">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
+              <p className="text-[11px] text-slate-400">الترتيب هنا هو ترتيب ظهورها بالبانر المتحرك.</p>
             </div>
           )}
 
@@ -743,6 +402,155 @@ function CatalogDesignTab() {
 
           {/* Quick pick from products */}
           <BannerProductPicker onPick={(url, name) => { setNewBannerUrl(url); setNewBannerTitle(name) }} />
+        </CardContent>
+      </Card>
+
+      {/* Trust + urgency */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ShieldCheck className="h-5 w-5 text-emerald-600" />
+            شارات الثقة والندرة
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            الشارات تظهر فوق المنتجات بالكتلوك. شغّل بس اللي ينطبق على محلك فعلاً — الشارة المطفية ما تظهر إطلاقاً.
+          </p>
+
+          <div className="space-y-2">
+            {current.trust.badges.map((b, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-xl border border-slate-200 p-2.5">
+                <input type="checkbox" checked={b.enabled}
+                  onChange={(e) => patchBadge(i, { enabled: e.target.checked })}
+                  className="h-4 w-4 shrink-0 accent-emerald-600" />
+                <Input value={b.text} onChange={(e) => patchBadge(i, { text: e.target.value })}
+                  placeholder={["الدفع عند الاستلام", "ضمان الجودة", "توصيل سريع"][i] ?? "نص الشارة"}
+                  className="flex-1 text-sm" />
+              </div>
+            ))}
+          </div>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">
+              تحذير «تبقى X كارتون» يظهر لما يقل المخزون عن (بالكراتين)
+            </span>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number" min={0} max={1000}
+                value={String(current.trust.lowStockCartons)}
+                onChange={(e) => patchTrust({ lowStockCartons: Math.max(0, Number(e.target.value) || 0) })}
+                className="w-28 text-sm" dir="ltr"
+              />
+              <span className="text-xs text-slate-400">صفر = لا تظهر تحذير الندرة إطلاقاً</span>
+            </div>
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* Footer */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Info className="h-5 w-5 text-amber-600" />
+            الفوتر — معلومات المتجر أسفل الكتلوك
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-center gap-3">
+            <input type="checkbox" checked={current.footer.enabled}
+              onChange={(e) => patchFooter("enabled", e.target.checked)} className="h-4 w-4 accent-amber-600" />
+            <span className="text-sm font-medium text-slate-700">إظهار الفوتر بالكتلوك</span>
+          </label>
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            اترك أي خانة فارغة وما راح تظهر للزبون. إذا كل الخانات فارغة، الفوتر ما يظهر أصلاً.
+          </p>
+
+          {/* About */}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-slate-600">من نحن (نبذة عن المتجر — تظهر بقسم يفتح بالضغط)</span>
+            <textarea
+              value={current.footer.about}
+              onChange={(e) => patchFooter("about", e.target.value)}
+              rows={3}
+              placeholder="محل جملة متخصص بـ... نخدم السوق من سنة..."
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400"
+            />
+          </label>
+
+          {/* Contact */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-700">📞 تواصل معنا</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">رقم الهاتف</span>
+                <Input value={current.footer.phone} onChange={(e) => patchFooter("phone", e.target.value)}
+                  placeholder="0770 000 0000" dir="ltr" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">رقم واتساب (يفتح محادثة مباشرة)</span>
+                <Input value={current.footer.whatsapp} onChange={(e) => patchFooter("whatsapp", e.target.value)}
+                  placeholder="964770 000 0000" dir="ltr" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">العنوان</span>
+                <Input value={current.footer.address} onChange={(e) => patchFooter("address", e.target.value)}
+                  placeholder="بغداد — شارع..." className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">أوقات الدوام</span>
+                <Input value={current.footer.hours} onChange={(e) => patchFooter("hours", e.target.value)}
+                  placeholder="السبت — الخميس، 9 صباحاً — 6 مساءً" className="text-sm" />
+              </label>
+            </div>
+          </div>
+
+          {/* Social */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-700">🔗 روابط التواصل الاجتماعي</p>
+            <p className="text-[11px] text-slate-400">اكتب اسم الحساب فقط أو الرابط الكامل — الاثنان يشتغلون.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {([
+                ["instagram", "انستغرام", "myshop"],
+                ["facebook", "فيسبوك", "myshop"],
+                ["telegram", "تيليگرام", "myshop"],
+                ["tiktok", "تيك توك", "myshop"],
+              ] as Array<[keyof CatalogFooter, string, string]>).map(([key, label, ph]) => (
+                <label key={key} className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-slate-600">{label}</span>
+                  <Input value={String(current.footer[key])} onChange={(e) => patchFooter(key, e.target.value)}
+                    placeholder={ph} dir="ltr" className="text-sm" />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Delivery */}
+          <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+            <p className="text-xs font-bold text-slate-700">🚚 التوصيل</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">مناطق التوصيل</span>
+                <Input value={current.footer.deliveryAreas} onChange={(e) => patchFooter("deliveryAreas", e.target.value)}
+                  placeholder="بغداد وجميع المحافظات" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">مدة التوصيل</span>
+                <Input value={current.footer.deliveryTime} onChange={(e) => patchFooter("deliveryTime", e.target.value)}
+                  placeholder="24 — 48 ساعة" className="text-sm" />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold text-slate-600">أقل مبلغ للطلب</span>
+                <Input value={current.footer.minOrder} onChange={(e) => patchFooter("minOrder", e.target.value)}
+                  placeholder="100,000 د.ع" className="text-sm" />
+              </label>
+            </div>
+            <label className="flex items-center gap-3">
+              <input type="checkbox" checked={current.footer.cashOnDelivery}
+                onChange={(e) => patchFooter("cashOnDelivery", e.target.checked)} className="h-4 w-4 accent-emerald-600" />
+              <span className="text-sm font-medium text-slate-700">إظهار «الدفع عند الاستلام»</span>
+            </label>
+          </div>
         </CardContent>
       </Card>
 
@@ -813,8 +621,32 @@ function PromoCodesTab() {
 
   const customersWithAccess = customers.filter((c) => c.hasAccess)
 
+  const { data: couponReport } = useQuery({ queryKey: ["first-order-coupon-report"], queryFn: getFirstOrderCouponReport })
+
   return (
     <div className="space-y-4">
+      {/* بند ٧ — تقرير كوبون أول طلب: يُصدر تلقائياً، هذا فقط عرض للأداء */}
+      {couponReport && (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">كوبونات أول طلب صدرت</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.issued}</p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">استُخدمت</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.used}</p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">طلبات جاءت منها</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.salesCount}</p>
+          </div>
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+            <p className="text-[11px] font-bold text-rose-700">قيمة تلك الطلبات</p>
+            <p className="mt-1 text-lg font-extrabold text-rose-900">{couponReport.salesTotal.toLocaleString("en-US")}</p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-700">أكواد الخصم</p>
@@ -971,55 +803,8 @@ function PromoCodesTab() {
   )
 }
 
-const PAGE_SIZE = 50
-
-/* ── Reshuffle interval setting ──────────────────────────────────────── */
-function CatalogShuffleSettings() {
-  const qc = useQueryClient()
-  const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
-  const mode = (settingsQuery.data?.catalogShuffleMode as "hourly" | "daily" | "off" | undefined) ?? "hourly"
-
-  const saveMut = useMutation({
-    mutationFn: (value: "hourly" | "daily" | "off") => updateSettings({ catalogShuffleMode: value }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings"] }); toast({ title: "تم حفظ الإعداد" }) },
-    onError: () => toast({ title: "تعذر الحفظ", variant: "destructive" }),
-  })
-
-  const opts: Array<{ key: "hourly" | "daily" | "off"; label: string }> = [
-    { key: "hourly", label: "كل ساعة" },
-    { key: "daily", label: "كل يوم" },
-    { key: "off", label: "ثابت" },
-  ]
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-            <Shuffle className="h-4 w-4 text-slate-500" />
-            تبديل ترتيب عرض البضاعة تلقائياً
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            يعيد ترتيب المنتجات لكل الزبائن على نفس الفترة. «ثابت» يبقيها بالترتيب الأبجدي.
-          </p>
-        </div>
-        <div className="flex gap-1 rounded-xl bg-white p-1 shadow-sm">
-          {opts.map((o) => (
-            <button key={o.key} disabled={saveMut.isPending} onClick={() => saveMut.mutate(o.key)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-all",
-                mode === o.key ? "bg-blue-600 text-white" : "text-slate-500 hover:text-slate-700",
-              )}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ── Guest visitors (phone-gate leads) ──────────────────────────────── */
+/* ─── Catalog OTP re-verification toggle ──────────────────────────────── */
+/* ─── Global carton-only display toggle ─────────────────────────────── */
 function formatDuration(totalSeconds: number) {
   if (!totalSeconds) return "—"
   const minutes = Math.floor(totalSeconds / 60)
@@ -1035,7 +820,25 @@ function VisitorsTab() {
     queryFn: getCatalogVisitors,
     staleTime: 60_000,
   })
-  const visitors = data?.visitors ?? []
+  // Memoised so the `?? []` fallback does not hand the sort a fresh array
+  // identity on every render, which would re-sort each pass.
+  const visitorsRaw = useMemo(() => data?.visitors ?? [], [data])
+
+  // «شوكت دخل» first by default — the merchant asked to rank by how often
+  // someone comes back, which the old priority sort (browsing time) buried.
+  const [sortKey, setSortKey] = useState<"visits" | "time" | "recent" | "views">("visits")
+  const [sendTo, setSendTo] = useState<{ phone: string } | null>(null)
+
+  const visitors = useMemo(() => {
+    const rows = [...visitorsRaw]
+    rows.sort((a, b) => {
+      if (sortKey === "visits") return b.visits - a.visits
+      if (sortKey === "time") return b.totalTimeSeconds - a.totalTimeSeconds
+      if (sortKey === "views") return (b.viewCount ?? 0) - (a.viewCount ?? 0)
+      return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime()
+    })
+    return rows
+  }, [visitorsRaw, sortKey])
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [expandedPhone, setExpandedPhone] = useState<string | null>(null)
 
@@ -1048,12 +851,15 @@ function VisitorsTab() {
       qc.invalidateQueries({ queryKey: ["catalog-customers"] })
       toast({ title: r.created ? `تمت إضافة «${r.customerName}» كزبون` : `الرقم مسجّل مسبقاً: «${r.customerName}»` })
     },
-    onError: () => toast({ title: "تعذر التحويل", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر التحويل"), variant: "destructive" }),
   })
 
   function exportCsv() {
-    const header = ["الرقم", "عدد الزيارات", "أول زيارة", "آخر زيارة", "زبون"]
+    const header = ["الاسم", "المحافظة", "العنوان", "الرقم", "عدد الزيارات", "أول زيارة", "آخر زيارة", "زبون"]
     const rows = visitors.map((v) => [
+      v.customerName || v.name || "",
+      v.province || "",
+      v.address || "",
       v.phone, String(v.visits),
       dayjs(v.firstSeenAt).format("YYYY-MM-DD"),
       dayjs(v.lastSeenAt).format("YYYY-MM-DD HH:mm"),
@@ -1087,6 +893,22 @@ function VisitorsTab() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Users className="h-4 w-4" /> الأرقام التي دخلت الكتلوك
           </CardTitle>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {([
+              { key: "visits", label: "الأكثر دخولاً" },
+              { key: "time", label: "الأطول تصفحاً" },
+              { key: "recent", label: "آخر زيارة" },
+              { key: "views", label: "الأكثر مشاهدة" },
+            ] as const).map(({ key, label }) => (
+              <button key={key} onClick={() => setSortKey(key)}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-xs font-bold transition",
+                  sortKey === key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                )}>
+                {label}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -1098,11 +920,13 @@ function VisitorsTab() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-right text-xs text-slate-500">
+                    <th className="p-2 font-medium">الاسم</th>
                     <th className="p-2 font-medium">الرقم</th>
                     <th className="p-2 font-medium">عدد الزيارات</th>
                     <th className="p-2 font-medium">آخر زيارة</th>
                     <th className="p-2 font-medium">أول زيارة</th>
                     <th className="p-2 font-medium">مدة التصفح</th>
+                    <th className="p-2 font-medium">مشاهدات</th>
                     <th className="p-2 font-medium">الحالة</th>
                     <th className="p-2 font-medium">تواصل</th>
                     <th className="p-2 font-medium">شنو فتح</th>
@@ -1112,28 +936,60 @@ function VisitorsTab() {
                   {visitors.map((v) => (
                     <Fragment key={v.id}>
                     <tr className="border-b last:border-0">
+                      {/* A shop customer answers with the name on the books;
+                          anyone else answers with the name they typed
+                          themselves. Only a guest who never got that far is
+                          left as a bare number. */}
+                      <td className="p-2">
+                        <p className="font-bold text-slate-800">
+                          {v.customerName || v.name || "بلا اسم"}
+                        </p>
+                        {(v.address || v.province) && (
+                          <p className="text-[11px] text-slate-400">
+                            {[v.province, v.address].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </td>
                       <td className="p-2 font-mono" dir="ltr">{v.phone}</td>
                       <td className="p-2">{v.visits}</td>
-                      <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).fromNow()}</td>
+                      <td className="p-2 text-slate-500">{dayjs(v.lastSeenAt).locale("ar").fromNow()}</td>
                       <td className="p-2 text-slate-500">{dayjs(v.firstSeenAt).format("YYYY-MM-DD")}</td>
                       <td className="p-2 text-slate-500">{formatDuration(v.totalTimeSeconds)}</td>
+                      <td className="p-2 text-slate-500">{v.viewCount}</td>
                       <td className="p-2">
                         {v.customerId ? (
                           <span className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
                             <Check className="h-3 w-3" /> {v.customerName}
                           </span>
                         ) : (
-                          <button onClick={() => convertMut.mutate(v.phone)} disabled={convertMut.isPending}
-                            className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
-                            <UserPlus className="h-3 w-3" /> أضفه كزبون
-                          </button>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {v.accessCodeSetAt && (
+                              <span title="طلب رمز دخول بس لسه ما وافقنا عليه"
+                                className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
+                                🔑 طلب رمز
+                              </span>
+                            )}
+                            <button onClick={() => convertMut.mutate(v.phone)} disabled={convertMut.isPending}
+                              className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                              <UserPlus className="h-3 w-3" /> أضفه كزبون
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td className="p-2">
-                        <a href={waLink(v.phone)} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
-                          <Phone className="h-3 w-3" /> واتساب
-                        </a>
+                        <div className="flex flex-wrap gap-1">
+                          {/* From the shop number — sent by the server, logged
+                              in the chat thread like any other shop message. */}
+                          <button onClick={() => setSendTo({ phone: v.phone })}
+                            className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100">
+                            <MessageSquare className="h-3 w-3" /> من المحل
+                          </button>
+                          {/* From whichever WhatsApp the admin is signed into. */}
+                          <a href={waLink(v.phone)} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100">
+                            <Phone className="h-3 w-3" /> من رقمي
+                          </a>
+                        </div>
                       </td>
                       <td className="p-2">
                         <button
@@ -1146,8 +1002,16 @@ function VisitorsTab() {
                     </tr>
                     {expandedPhone === v.phone && (
                       <tr className="border-b bg-slate-50/60 last:border-0">
-                        <td className="p-3" colSpan={8}>
-                          <VisitorProductViewsList phone={v.phone} />
+                        <td className="p-3" colSpan={10}>
+                          {v.notes && (
+                            <p className="mb-3 rounded-lg bg-white px-3 py-2 text-xs text-slate-600">
+                              <span className="font-bold">ملاحظاته: </span>{v.notes}
+                            </p>
+                          )}
+                          <VisitorSessionsList phone={v.phone} />
+                          <div className="mt-3 border-t pt-3">
+                            <VisitorProductViewsList phone={v.phone} />
+                          </div>
                         </td>
                       </tr>
                     )}
@@ -1161,11 +1025,87 @@ function VisitorsTab() {
       </Card>
 
       {broadcastOpen && <BroadcastVisitorsModal count={data?.uniquePhones ?? 0} onClose={() => setBroadcastOpen(false)} />}
+      {sendTo && <SendOneVisitorModal phone={sendTo.phone} onClose={() => setSendTo(null)} />}
     </div>
   )
 }
 
 // Lazy-loaded per-visitor product view log — only fetched once its row is expanded.
+/**
+ * Every visit this phone made, newest first.
+ *
+ * The visitor row carries a running total; this is the log behind it, so
+ * «شوكت طب» is answered with a date and a duration instead of a counter.
+ * History necessarily starts when the log shipped — older visits were only
+ * ever counted, never timestamped.
+ */
+function VisitorSessionsList({ phone }: { phone: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["visitor-sessions", phone],
+    queryFn: () => getVisitorSessions(phone),
+  })
+  const sessions = data ?? []
+
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-bold text-slate-600">الزيارات ({sessions.length})</p>
+      {isLoading && <p className="text-xs text-slate-400">جاري التحميل...</p>}
+      {!isLoading && sessions.length === 0 && (
+        <p className="text-xs text-slate-400">
+          ما اكو زيارات مسجّلة — التسجيل التفصيلي يبدي من أول زيارة جديدة.
+        </p>
+      )}
+      <div className="space-y-1">
+        {sessions.map((sv: VisitSession) => (
+          <div key={sv.id} className="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 text-xs">
+            <span className="text-slate-700">{dayjs(sv.startedAt).format("YYYY-MM-DD HH:mm")}</span>
+            <span className="text-slate-400">{dayjs(sv.startedAt).locale("ar").fromNow()}</span>
+            <span className="font-bold text-slate-600">{formatDuration(sv.seconds)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Send to one visitor from the shop's own number.
+ *
+ * Reuses the visitor broadcast with a single recipient rather than a second
+ * send path, so one person and a hundred people go out the same way — and
+ * anything the broadcast learns about pacing applies here too.
+ */
+function SendOneVisitorModal({ phone, onClose }: { phone: string; onClose: () => void }) {
+  const [message, setMessage] = useState("")
+  const sendMut = useMutation({
+    mutationFn: () => broadcastToCatalogVisitors(message.trim(), [phone]),
+    onSuccess: () => { toast({ title: "انرسلت من رقم المحل" }); onClose() },
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" dir="rtl" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-base font-bold text-slate-900">رسالة من رقم المحل</h3>
+        <p className="mb-3 text-xs text-slate-500" dir="ltr">{phone}</p>
+        <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5}
+          placeholder="اكتب رسالتك..."
+          className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500" />
+        <p className="mt-2 text-[11px] text-slate-400">
+          إذا الزبون ما راسلك خلال ٢٤ ساعة، ميتا ممكن تسقط الرسالة الحرة. للتواصل الفوري استخدم «من رقمي».
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>إلغاء</Button>
+          <Button size="sm" disabled={message.trim().length < 2 || sendMut.isPending}
+            onClick={() => sendMut.mutate()}>
+            {sendMut.isPending ? "جاري الإرسال..." : "إرسال"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function VisitorProductViewsList({ phone }: { phone: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["catalog-visitor-views", phone],
@@ -1196,7 +1136,7 @@ function BroadcastVisitorsModal({ count, onClose }: { count: number; onClose: ()
   const sendMut = useMutation({
     mutationFn: () => broadcastToCatalogVisitors(message.trim()),
     onSuccess: (r) => { toast({ title: `بدأ الإرسال إلى ${r.total} رقم — يتم بالتتابع لتجنّب الحظر` }); onClose() },
-    onError: () => toast({ title: "تعذر الإرسال", variant: "destructive" }),
+    onError: (e) => toast({ title: apiErrorMessage(e, "تعذر الإرسال"), variant: "destructive" }),
   })
 
   return (
@@ -1269,43 +1209,65 @@ function AnalyticsTab() {
   )
 }
 
+/* ── How the screen is grouped ─────────────────────────────────────────
+   Four things a merchant comes here to do: look after people, arrange the
+   storefront, manage what is on it, and run the machinery behind it. */
+const GROUPS = [
+  {
+    key: "home" as const,
+    label: "الرئيسية",
+    icon: <LayoutDashboard className="h-4 w-4" />,
+    tabs: [{ key: "home" as const, label: "نظرة عامة" }],
+  },
+  {
+    key: "people" as const,
+    label: "الناس",
+    icon: <Users className="h-4 w-4" />,
+    tabs: [
+      { key: "accounts" as const, label: "الحسابات والصلاحيات" },
+    ],
+  },
+  {
+    key: "front" as const,
+    label: "الواجهة",
+    icon: <Palette className="h-4 w-4" />,
+    tabs: [
+      { key: "layout" as const, label: "الترتيب والنصوص" },
+      { key: "design" as const, label: "التصميم والألوان" },
+    ],
+  },
+  {
+    key: "content" as const,
+    label: "المحتوى",
+    icon: <FileText className="h-4 w-4" />,
+    tabs: [
+      { key: "content" as const, label: "محتوى المنتجات" },
+      { key: "merchandising" as const, label: "العروض ووصل حديثاً" },
+      { key: "incoming" as const, label: "البضاعة القادمة" },
+      { key: "promos" as const, label: "البروموكود" },
+    ],
+  },
+  {
+    key: "ops" as const,
+    label: "التشغيل",
+    icon: <Sliders className="h-4 w-4" />,
+    tabs: [
+      { key: "settings" as const, label: "الإعدادات" },
+      { key: "analytics" as const, label: "التحليلات" },
+      { key: "visitors" as const, label: "الزوار" },
+    ],
+  },
+]
+
 export function CatalogManagementPage() {
-  const isAdmin = useAuthStore((s) => s.user?.role === "ADMIN")
-  const [tab, setTab] = useState<"customers" | "visitors" | "analytics" | "design" | "promos">("customers")
-  const [searchInput, setSearchInput] = useState("")
-  const [search, setSearch] = useState("")       // debounced — sent to server
-  const [filter, setFilter] = useState<"all" | "active" | "inactive" | "sentNotOpened">("all")
-  const [page, setPage] = useState(0)
-
-  // Debounce search so we don't hit the server on every keystroke
-  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
-  function handleSearchChange(v: string) {
-    setSearchInput(v)
-    if (searchTimeout.current) clearTimeout(searchTimeout.current)
-    searchTimeout.current = setTimeout(() => { setSearch(v); setPage(0) }, 350)
-  }
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["catalog-customers", search, page],
-    queryFn: () => getCatalogCustomers({ search: search || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
-    staleTime: 3 * 60_000,
-    placeholderData: (prev) => prev,
-  })
-
-  const customers = data?.rows ?? []
-  const total = data?.total ?? 0
-
-  // Client-side filter for has/no access (fast, only within the current page)
-  const filtered = useMemo(() => {
-    return customers.filter((c) => {
-      if (filter === "active") return c.hasAccess
-      if (filter === "inactive") return !c.hasAccess
-      if (filter === "sentNotOpened") return isSentNotOpened(c)
-      return true
-    })
-  }, [customers, filter])
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  // Five groups with a home screen in front of them. Ten flat tabs put three
+  // people-shaped screens beside two settings-shaped ones, so finding anything
+  // meant remembering which of the ten it lived in. The customer list, its
+  // search and paging went with the retired «صلاحيات الزبائن» screen.
+  const [group, setGroup] = useState<"home" | "people" | "front" | "content" | "ops">("home")
+  const [tab, setTab] = useState<
+    "visitors" | "analytics" | "design" | "layout" | "content" | "merchandising" | "incoming" | "accounts" | "promos" | "settings" | "home"
+  >("home")
 
   return (
     <div className="space-y-6 p-6" dir="rtl">
@@ -1315,23 +1277,32 @@ export function CatalogManagementPage() {
         <p className="mt-1 text-sm text-slate-500">تحكم بصلاحيات الزبائن والتصميم وأكواد الخصم</p>
       </div>
 
-      <CatalogShuffleSettings />
-
-      {/* Tabs */}
+      {/* Tabs. The three switches that used to sit loose above these now live
+          in the «الإعدادات» tab, so the page has one shape instead of a header
+          of settings followed by tabs of settings. Scrollable because eight
+          labels no longer fit a narrow window. */}
+      {/* Group bar, then the sub-tabs of the active group. */}
       <div className="flex gap-1 rounded-2xl bg-slate-100 p-1">
-        {([
-          { key: "customers", label: "الزبائن", icon: <Globe className="h-4 w-4" /> },
-          { key: "visitors", label: "الزوار الجدد", icon: <Users className="h-4 w-4" /> },
-          { key: "analytics", label: "تحليلات الكتلوك", icon: <BarChart3 className="h-4 w-4" /> },
-          { key: "design", label: "تصميم الكتلوك", icon: <Palette className="h-4 w-4" /> },
-          { key: "promos", label: "البروموكود", icon: <Ticket className="h-4 w-4" /> },
-        ] as const).map(({ key, label, icon }) => (
+        {GROUPS.map((g) => (
+          <button key={g.key}
+            onClick={() => { setGroup(g.key); setTab(g.tabs[0].key) }}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-semibold transition-all",
+              group === g.key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+            )}>
+            {g.icon}{g.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-white p-1 ring-1 ring-slate-200">
+        {(GROUPS.find((g) => g.key === group)?.tabs ?? []).map(({ key, label }) => (
           <button key={key} onClick={() => setTab(key)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-all",
-              tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700",
+              "shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition",
+              tab === key ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-100",
             )}>
-            {icon}{label}
+            {label}
           </button>
         ))}
       </div>
@@ -1339,148 +1310,30 @@ export function CatalogManagementPage() {
       {tab === "visitors" && <VisitorsTab />}
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "design" && <CatalogDesignTab />}
+      {tab === "content" && <CatalogContentTab />}
+      {tab === "merchandising" && <CatalogMerchandisingTab />}
+      {tab === "accounts" && <StorefrontAccountsTab />}
+      {tab === "settings" && <CatalogSettingsTab />}
+      {tab === "home" && <CatalogHomeTab onGo={(g, tb) => { setGroup(g as typeof group); setTab(tb as typeof tab) }} />}
+      {tab === "layout" && <CatalogLayoutTab />}
+      {tab === "incoming" && <CatalogIncomingTab />}
       {tab === "promos" && <PromoCodesTab />}
 
-      {tab === "customers" && <>
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="إجمالي الزبائن" value={total} color="slate" />
-        <StatCard label="لديهم صلاحية" value={customers.filter(c => c.hasAccess).length} color="emerald" />
-        <StatCard label="بدون صلاحية" value={customers.filter(c => !c.hasAccess).length} color="rose" />
-      </div>
-
-      {/* Info Card */}
-      <Card className="border-blue-200 bg-blue-50">
-        <CardContent className="py-3 px-4">
-          <div className="flex items-start gap-3 text-sm text-blue-800">
-            <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-            <div>
-              <p className="font-semibold mb-1">كيف يعمل الكاتلوك؟</p>
-              <ul className="space-y-0.5 text-blue-700 text-xs list-disc list-inside">
-                <li>الزبون يفتح رابط <strong>{window.location.origin}/catalog</strong> ويكتب اسمه ورقمه ← يرسل طلب موافقة يظهر في صفحة الموافقات</li>
-                <li>أو من هنا مباشرة: اختار الزبون واضغط "منح صلاحية" وحدد الإعدادات ← انسخ الرابط وأرسله للزبون</li>
-                <li>الزبون يفتح الرابط ← يشوف المنتجات المتوفرة ويرسل طلب شراء يظهر في الموافقات</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Bulk catalog-link send by tag */}
-      <BulkCatalogSend />
-
-      {/* Search + Filter */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Globe className="h-5 w-5 text-blue-600" />
-            صلاحيات الزبائن
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="pr-9"
-                placeholder="ابحث باسم الزبون أو الهاتف"
-                value={searchInput}
-                onChange={(e) => handleSearchChange(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(["all", "active", "inactive"] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => { setFilter(f); setPage(0) }}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-semibold transition",
-                    filter === f ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-                  )}
-                >
-                  {f === "all" ? "الكل" : f === "active" ? "لديهم صلاحية" : "بدون صلاحية"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
-                <tr>
-                  <th className="px-4 py-3 text-right">الزبون</th>
-                  <th className="px-4 py-3 text-right">الحالة</th>
-                  <th className="px-4 py-3 text-right">الأسعار</th>
-                  <th className="px-4 py-3 text-right">الكمية</th>
-                  <th className="px-4 py-3 text-right">العرض</th>
-                  <th className="px-4 py-3 text-right">آخر زيارة</th>
-                  <th className="px-4 py-3 text-right">رابط الكتلوج (واتساب)</th>
-                  <th className="px-4 py-3 text-right">إجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">جاري التحميل...</td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-slate-400">لا توجد نتائج</td>
-                  </tr>
-                ) : (
-                  filtered.map((customer) => (
-                    <CustomerRow key={customer.id} customer={customer} isAdmin={!!isAdmin} />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-slate-500">
-                {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, total)} من {total} زبون
-              </span>
-              <div className="flex gap-2">
-                <button
-                  disabled={page === 0}
-                  onClick={() => setPage(p => p - 1)}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 hover:bg-slate-50"
-                >
-                  السابق
-                </button>
-                <span className="flex items-center px-2 text-xs text-slate-500">
-                  {page + 1} / {totalPages}
-                </span>
-                <button
-                  disabled={page >= totalPages - 1}
-                  onClick={() => setPage(p => p + 1)}
-                  className="rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 hover:bg-slate-50"
-                >
-                  التالي
-                </button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      </>}
     </div>
   )
 }
 
+/** Small labelled number, shared by the visitors and analytics screens. */
 function StatCard({ label, value, color }: { label: string; value: number; color: "slate" | "emerald" | "rose" }) {
-  const colors = {
-    slate: "border-slate-200 bg-slate-50 text-slate-700",
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    rose: "border-rose-200 bg-rose-50 text-rose-700",
+  const tones = {
+    slate: "bg-slate-50 text-slate-700",
+    emerald: "bg-emerald-50 text-emerald-700",
+    rose: "bg-rose-50 text-rose-700",
   }
   return (
-    <div className={cn("rounded-xl border p-4", colors[color])}>
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="mt-0.5 text-xs font-medium opacity-80">{label}</p>
+    <div className={`rounded-2xl p-4 ${tones[color]}`}>
+      <p className="text-2xl font-extrabold">{value}</p>
+      <p className="mt-1 text-xs font-semibold opacity-80">{label}</p>
     </div>
   )
 }

@@ -919,6 +919,55 @@ export interface AppSettings {
   reportsProfitStartDate?: string
   loyaltyPointValue?: number
   loyaltyExpiryDays?: number
+  storefrontInviteMessage?: string
+  storefrontInviteKeywords?: string[]
+  catalogAnnouncementEnabled?: boolean
+  catalogAnnouncementText?: string
+  catalogSections?: Array<{ key: string; enabled: boolean }>
+  catalogTexts?: Record<string, string>
+  catalogHiddenCategories?: string[]
+  catalogCategoryOrder?: string[]
+  catalogFeaturedProductIds?: string[]
+  catalogDefaultView?: "grid" | "list"
+  catalogDefaultPerRow?: number
+  catalogDefaultSort?: string
+  catalogReviewsEnabled?: boolean
+  catalogSuggestionsEnabled?: boolean
+  catalogTutorialEnabled?: boolean
+  catalogOrderTiers?: Array<{ minTotal: number; freeDelivery: boolean; discountPercent: number }>
+  catalogAutoUnlockForCustomers?: boolean
+  catalogGuestPhoneGate?: boolean
+  catalogTierNudgeEnabled?: boolean
+  catalogRequireOtp?: boolean
+  catalogFullCartonOnly?: boolean
+  catalogHideNoImage?: boolean
+  catalogNewArrivalDays?: number
+  catalogQuickTags?: string[]
+  catalogStudioEnabled?: boolean
+  catalogStudioDefault?: "store" | "studio"
+  catalogStudioPerRow?: number
+  catalogStudioShape?: "square" | "natural"
+  catalogStudioOfferAlbum?: boolean
+  catalogStudioNewAlbum?: boolean
+  catalogStudioOfferDot?: boolean
+  /** Storefront login: close anonymous browsing entirely. */
+  catalogRequireLogin?: boolean
+  /** Shop-wide price default; Customer.catalogPricesHidden overrides it. */
+  catalogPricesVisibleByDefault?: boolean
+  catalogGuestPricesVisible?: boolean
+  /** WhatsApp text carrying username + code + link. Empty = built-in default. */
+  storefrontCredentialsTemplate?: string
+  /** Message a newly approved customer gets: link + their login code. */
+  catalogAccessApprovedTemplate?: string
+  /** Words that opt a number out of marketing. Empty = built-in defaults. */
+  marketingStopKeywords?: string[]
+  /** بند ٤ — محافظات "الشمال" (توصيل حسب البضاعة)؛ الباقي وسط/جنوب/غرب. */
+  catalogNorthGovernorates?: string[]
+  /** بند ٤ — حد الشحن المجاني بالدينار لمحافظات وسط/جنوب/غرب. */
+  catalogFreeShippingThreshold?: number
+  /** بند ٧ — كوبون أول طلب. */
+  firstOrderCouponPercent?: number
+  firstOrderCouponDurationDays?: number
   storeName: string
   storeLogo: string
   storePhone: string
