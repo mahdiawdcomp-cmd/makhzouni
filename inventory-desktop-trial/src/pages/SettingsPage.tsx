@@ -427,7 +427,12 @@ export function SettingsPage() {
   }
 
   return (
-    <SettingsLoadedContext.Provider value={settingsQuery.isSuccess}>
+    // isSuccess alone stays true through a background refetch — e.g. right
+    // after another open tab (Catalog Management) PATCHes a setting and
+    // invalidates this same ["settings"] query. Save buttons must stay
+    // blocked until that refetch actually lands, or a click in that window
+    // PUTs the pre-refetch snapshot and silently reverts the other tab's edit.
+    <SettingsLoadedContext.Provider value={settingsQuery.isSuccess && !settingsQuery.isFetching}>
     <div className="space-y-4 max-w-3xl mx-auto">
       {/* Header */}
       {settingsQuery.isError ? (

@@ -619,8 +619,10 @@ function PromoCodesTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-promo-codes"] }),
   })
 
-  const customersWithAccess = customers.filter((c) => c.hasAccess)
-
+  // `hasAccess` belongs to the old link-token catalog model the storefront
+  // no longer uses (phone+code login replaced it) — filtering on it here
+  // left this dropdown permanently empty for every customer onboarded since,
+  // so a customer-specific coupon could never be issued to them.
   const { data: couponReport } = useQuery({ queryKey: ["first-order-coupon-report"], queryFn: getFirstOrderCouponReport })
 
   return (
@@ -692,7 +694,7 @@ function PromoCodesTab() {
                 <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
                   <option value="">كل الزبائن</option>
-                  {customersWithAccess.map((c) => (
+                  {customers.map((c) => (
                     <option key={c.id} value={c.id}>{c.name} — {c.phone}</option>
                   ))}
                 </select>
