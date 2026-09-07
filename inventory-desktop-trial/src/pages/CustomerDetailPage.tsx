@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
-import { ArrowRight, Copy, Link2, Link2Off, MessageCircle, Pencil, Trash2, TrendingUp } from "lucide-react"
+import { ArrowRight, Copy, FileText, Link2, MessageCircle, Pencil, Send, TrendingUp, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
-import { LoyaltyBalanceCard } from "../components/LoyaltyBalanceCard"
 import { CustomerProfitAudit } from "../components/CustomerProfitAudit"
+import { LoyaltyBalanceCard } from "../components/LoyaltyBalanceCard"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
@@ -12,10 +12,11 @@ import { useAuthStore } from "../store/authStore"
 import { useCustomers, useCustomerDetails, useUpdateCustomer } from "../hooks/useCustomers"
 import { useSettings } from "../hooks/useSettings"
 import { balanceForCustomer, fillTemplate, normalizePhone } from "../utils/whatsapp"
-import { sendWhatsAppTemplatedMessage, type WhatsAppSendChannel } from "../api/endpoints"
 import { apiErrorMessage } from "../utils/apiError"
+import { sendWhatsAppTemplatedMessage, sendCustomerStatementPdfWhatsapp, type WhatsAppSendChannel } from "../api/endpoints"
 import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
-import type { Customer, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
+import type { Customer, CustomerBusinessType, CustomerPayload, CustomerTransaction, ReceiptPayload } from "../types/api"
+import { IRAQI_GOVERNORATES, BUSINESS_TYPE_OPTIONS } from "../utils/governorates"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader } from "../components/ui/card"
 import { Input } from "../components/ui/input"
@@ -35,8 +36,10 @@ import {
   transactionTone,
 } from "../utils/customerStatementExport"
 
+// Text statement is kept intentionally short — just the current balance. The
+// full transaction detail lives in the PDF send and the interactive portal link.
 const DEFAULT_STATEMENT_TEMPLATE =
-  "كشف حساب {{customerName}} حتى {{date}}\nالرصيد الافتتاحي: {{openingBalance}} {{currency}}\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
+  "كشف حساب {{customerName}} حتى {{date}}.\nالرصيد الحالي: {{currentBalance}} {{currency}}\nمن {{storeName}}."
 
 function money(value: number | undefined | null) { return fmt(value) }
 
@@ -47,9 +50,10 @@ export function CustomerDetailPage() {
   const [from, setFrom] = useState("")
   const [to, setTo] = useState("")
   const [receiptOpen, setReceiptOpen] = useState(false)
-  const [auditOpen, setAuditOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false)
+  const [pdfDate, setPdfDate] = useState(() => localDateStr())
   const queryClient = useQueryClient()
   const details = useCustomerDetails(id)
   const updateMutation = useUpdateCustomer(id)
@@ -80,24 +84,28 @@ export function CustomerDetailPage() {
   const vouchers = details.vouchersQuery.data ?? []
   const last = details.lastTransactionQuery.data
   const settings = useSettings().data
-  const portalMutation = useMutation({
-    mutationFn: () => createCustomerPortalLink(id!, 30),
-  })
-
-  // Enable/disable the public portal link (separate from the create+share action).
+  const [auditOpen, setAuditOpen] = useState(false)
   const [portalEnabled, setPortalEnabled] = useState(customer?.portalLinkEnabled ?? false)
+
   useEffect(() => {
     setPortalEnabled(customer?.portalLinkEnabled ?? false)
   }, [customer?.portalLinkEnabled])
-  const togglePortalMutation = useMutation({
+
+  const portalMutation = useMutation({
     mutationFn: (enable: boolean) => toggleCustomerPortalLink(id!, enable),
-    onSuccess: (result: unknown) => {
-      const isEnabled = !(result as { revokedAt?: string | null } | null)?.revokedAt
+    onSuccess: (result: any) => {
+      const isEnabled = !result?.revokedAt
       setPortalEnabled(isEnabled)
-      toast({ title: isEnabled ? "✓ الرابط مفعّل" : "✓ الرابط معطّل" })
+      toast({
+        title: isEnabled ? "✓ الرابط مفعّل" : "✓ الرابط معطّل",
+        variant: "default",
+      })
     },
     onError: () => {
-      toast({ title: "✗ خطأ في تبديل الرابط", variant: "destructive" })
+      toast({
+        title: "✗ خطأ في تبديل الرابط",
+        variant: "destructive",
+      })
     },
   })
 
@@ -116,8 +124,10 @@ export function CustomerDetailPage() {
     .filter((v) => v.type === "RECEIPT")
     .reduce((sum, v) => sum + Number(v.amount ?? 0), 0)
 
-  // Channel picker for the statement send (official / personal / web).
-  const [waChannelOpen, setWaChannelOpen] = useState(false)
+  // Channel picker context — which send it confirms.
+  const [waChannel, setWaChannel] = useState<
+    null | { mode: "statement" } | { mode: "statementPdf"; date: string } | { mode: "portal" }
+  >(null)
   const [waSending, setWaSending] = useState(false)
 
   function buildStatementMessage() {
@@ -126,7 +136,6 @@ export function CustomerDetailPage() {
     return fillTemplate(tpl, {
       customerName: customer.name,
       date: localDateStr(),
-      openingBalance: money(customer.openingBalance),
       // Direction word so a customer in credit does not read a bare "-500,000".
       currentBalance: balanceForCustomer(customer.currentBalance),
       currency: settings?.currency ?? "د.ع",
@@ -137,6 +146,7 @@ export function CustomerDetailPage() {
   async function sendStatement(channel: WhatsAppSendChannel) {
     if (!customer) return
     if (!customer.phone) { toast({ title: "رقم الهاتف غير متوفر.", variant: "destructive" }); return }
+    const currency = settings?.currency ?? "د.ع"
     const msg = buildStatementMessage()
     setWaSending(true)
     try {
@@ -150,12 +160,12 @@ export function CustomerDetailPage() {
           customer.name,
           localDateStr(),
           balanceForCustomer(customer.currentBalance),
-          settings?.currency ?? "د.ع",
+          currency,
           settings?.storeName ?? "",
         ],
         channel,
       })
-      setWaChannelOpen(false)
+      setWaChannel(null)
       toast({ title: "✓ تم إرسال الكشف عبر واتساب." })
     } catch (err) {
       toast({ title: "✗ تعذر الإرسال.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
@@ -164,25 +174,52 @@ export function CustomerDetailPage() {
     }
   }
 
-  async function createPortalLinkAndShare() {
+  async function togglePortalAndShow() {
     if (!customer) return
-    const link = await portalMutation.mutateAsync()
-    if (!link) return
-    const fullUrl = `${window.location.origin}${link.urlPath}`
-    await navigator.clipboard?.writeText(fullUrl)
-    try {
-      // bodyParams order must match the approved Meta template's {{1}}..{{n}}
-      // placeholders, in this order, if/once one is configured in Settings.
-      await sendWhatsAppTemplatedMessage({
-        phone: normalizePhone(customer.phone),
-        message: `رابط كشف حسابك:\n${fullUrl}`,
-        templateKind: "portal",
-        bodyParams: [customer.name, fullUrl],
-      })
-    } catch {
-      toast({ title: "تم نسخ الرابط. تعذر الإرسال التلقائي." })
-    }
+    await portalMutation.mutateAsync(!portalEnabled)
   }
+
+  // "إرسال PDF" — server renders the full account statement up to the picked
+  // date and sends it as a WhatsApp document.
+  const sendStatementPdfMutation = useMutation({
+    mutationFn: ({ date, channel }: { date: string; channel: WhatsAppSendChannel }) =>
+      sendCustomerStatementPdfWhatsapp(id!, date, channel),
+    onSuccess: () => {
+      setWaChannel(null)
+      setPdfDialogOpen(false)
+      toast({ title: "✓ تم إرسال كشف PDF عبر واتساب." })
+    },
+    onError: (err) => toast({ title: "✗ تعذر إرسال الـ PDF.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" }),
+  })
+
+  // Sending always mints a FRESH link — once a link is revoked or already
+  // sent, its plain token can never be recovered (only its hash is stored),
+  // so there's no "old link" to resend. This also activates the portal.
+  const sendPortalLinkMutation = useMutation({
+    mutationFn: async (channel: WhatsAppSendChannel) => ({ link: await createCustomerPortalLink(id!), channel }),
+    onSuccess: async ({ link, channel }) => {
+      setPortalEnabled(true)
+      setWaChannel(null)
+      if (!customer?.phone || !link) return
+      const url = `${window.location.origin}${link.urlPath}`
+      const msg = `مرحباً ${customer.name}،\nهذا رابطك الخاص لمتابعة حسابك وفواتيرك في أي وقت:\n${url}`
+      try {
+        // bodyParams order must match the approved Meta template's {{1}}..{{n}}
+        // placeholders, in this order, if/once one is configured in Settings.
+        await sendWhatsAppTemplatedMessage({
+          phone: normalizePhone(customer.phone),
+          message: msg,
+          templateKind: "portal",
+          bodyParams: [customer.name, url],
+          channel,
+        })
+        toast({ title: "✓ تم إرسال رابط العميل عبر واتساب." })
+      } catch (err) {
+        toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
+      }
+    },
+    onError: () => toast({ title: "✗ تعذر إنشاء الرابط.", variant: "destructive" }),
+  })
 
   const lastLink = lastActivityLink(last)
   const lastTimeStr = last?.date
@@ -231,20 +268,39 @@ export function CustomerDetailPage() {
           <Button variant="outline" onClick={() => setDeleteOpen(true)}>
             <Trash2 className="h-4 w-4 text-rose-600" /> حذف الزبون
           </Button>
-          <Button variant="outline" onClick={() => setWaChannelOpen(true)} disabled={!customer.phone}>
+          <Button variant="outline" onClick={() => setWaChannel({ mode: "statement" })} disabled={!customer.phone}>
             <MessageCircle className="h-4 w-4 text-emerald-600" /> إرسال كشف واتساب
           </Button>
-          <Button variant="outline" onClick={createPortalLinkAndShare} disabled={portalMutation.isPending || !customer.phone}>
-            {portalMutation.isPending ? <Copy className="h-4 w-4 animate-pulse" /> : <Link2 className="h-4 w-4 text-sky-600" />}
-            رابط العميل
+          <Button
+            variant="outline"
+            onClick={() => { setPdfDate(localDateStr()); setPdfDialogOpen(true) }}
+            disabled={!customer.phone}
+            title="يرسل كشف الحساب كملف PDF حسب التاريخ"
+          >
+            <FileText className="h-4 w-4 text-rose-600" /> إرسال PDF
           </Button>
           <Button
             variant={portalEnabled ? "default" : "outline"}
-            onClick={() => togglePortalMutation.mutate(!portalEnabled)}
-            disabled={togglePortalMutation.isPending}
+            onClick={togglePortalAndShow}
+            disabled={portalMutation.isPending}
           >
-            {portalEnabled ? <Link2 className="h-4 w-4" /> : <Link2Off className="h-4 w-4 text-slate-400" />}
-            {portalEnabled ? "الرابط مفعّل ✓" : "الرابط معطّل"}
+            {portalMutation.isPending ? (
+              <Copy className="h-4 w-4 animate-pulse" />
+            ) : portalEnabled ? (
+              <Link2 className="h-4 w-4" />
+            ) : (
+              <Link2 className="h-4 w-4 text-slate-400" />
+            )}
+            {portalEnabled ? "رابط العميل مفعّل ✓" : "رابط العميل معطّل"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setWaChannel({ mode: "portal" })}
+            disabled={sendPortalLinkMutation.isPending || !customer.phone}
+            title="ينشئ رابطاً جديداً ويرسله عبر واتساب"
+          >
+            <Send className={`h-4 w-4 text-sky-600 ${sendPortalLinkMutation.isPending ? "animate-pulse" : ""}`} />
+            إرسال رابط العميل الإلكتروني
           </Button>
           <Button variant="outline" onClick={() => setAuditOpen(true)}>
             <TrendingUp className="h-4 w-4 text-amber-600" /> تدقيق الربح
@@ -332,20 +388,56 @@ export function CustomerDetailPage() {
 
       {customer && <LoyaltyBalanceCard customerId={customer.id} />}
 
+      <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
+
       {auditOpen && customer && (
         <CustomerProfitAudit customerId={customer.id} onClose={() => setAuditOpen(false)} />
       )}
 
-      <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
-      {/* Channel picker — official / personal / open in WhatsApp Web */}
+      <ModalForm
+        open={pdfDialogOpen}
+        onOpenChange={setPdfDialogOpen}
+        title="إرسال كشف حساب PDF"
+        description="يُرسل ملف PDF فيه كل حركات الزبون (فواتير وسندات) لحد التاريخ المختار."
+      >
+        <div className="space-y-3">
+          <div>
+            <Label>التاريخ (كل الحركات لحد هذا اليوم)</Label>
+            <Input type="date" value={pdfDate} onChange={(e) => setPdfDate(e.target.value)} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPdfDialogOpen(false)}>إلغاء</Button>
+            <Button
+              onClick={() => setWaChannel({ mode: "statementPdf", date: pdfDate })}
+              disabled={sendStatementPdfMutation.isPending || !pdfDate}
+            >
+              <Send className={`h-4 w-4 ${sendStatementPdfMutation.isPending ? "animate-pulse" : ""}`} />
+              {sendStatementPdfMutation.isPending ? "جاري الإرسال..." : "إرسال PDF"}
+            </Button>
+          </div>
+        </div>
+      </ModalForm>
+
+      {/* Channel picker — official / personal / open in WhatsApp Web.
+          Portal-link sends hide the web option (the link is minted server-side
+          only after a channel is confirmed, so there's no message to prefill). */}
       <WhatsAppChannelDialog
-        open={waChannelOpen}
-        onClose={() => setWaChannelOpen(false)}
-        sending={waSending}
-        phone={customer.phone}
+        open={waChannel !== null}
+        onClose={() => setWaChannel(null)}
+        sending={waSending || sendStatementPdfMutation.isPending || sendPortalLinkMutation.isPending}
+        phone={waChannel?.mode === "portal" ? undefined : customer.phone}
         webMessage={buildStatementMessage()}
-        title="إرسال كشف الحساب"
-        onSend={(channel) => void sendStatement(channel)}
+        title={
+          waChannel?.mode === "portal" ? "إرسال رابط العميل"
+          : waChannel?.mode === "statementPdf" ? "إرسال كشف حساب PDF"
+          : "إرسال كشف الحساب"
+        }
+        onSend={(channel) => {
+          if (!waChannel) return
+          if (waChannel.mode === "statement") void sendStatement(channel)
+          else if (waChannel.mode === "statementPdf") sendStatementPdfMutation.mutate({ date: waChannel.date, channel })
+          else sendPortalLinkMutation.mutate(channel)
+        }}
       />
       <EditCustomerModal
         open={editOpen}
@@ -356,6 +448,7 @@ export function CustomerDetailPage() {
         }
         isPending={updateMutation.isPending}
         isError={updateMutation.isError}
+        error={updateMutation.error}
       />
       <ConfirmDialog
         open={deleteOpen}
@@ -540,6 +633,7 @@ function EditCustomerModal({
   onSave,
   isPending,
   isError,
+  error,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -547,6 +641,7 @@ function EditCustomerModal({
   onSave: (payload: Partial<CustomerPayload>) => void
   isPending: boolean
   isError: boolean
+  error?: unknown
 }) {
   const [form, setForm] = useState({
     name: customer.name,
@@ -558,6 +653,9 @@ function EditCustomerModal({
     isBoth: customer.isBoth ?? false,
     creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
     openingBalance: String(customer.openingBalance ?? 0),
+    province: customer.province ?? "",
+    businessType: customer.businessType ?? "",
+    area: customer.area ?? "",
   })
 
   // Reset form to latest customer data every time the modal opens
@@ -574,6 +672,9 @@ function EditCustomerModal({
         isBoth: customer.isBoth ?? false,
         creditLimit: customer.creditLimit != null ? String(customer.creditLimit) : "",
         openingBalance: String(customer.openingBalance ?? 0),
+        province: customer.province ?? "",
+        businessType: customer.businessType ?? "",
+        area: customer.area ?? "",
       })
     }
   }, [open, customer])
@@ -585,6 +686,8 @@ function EditCustomerModal({
   function submit(event: FormEvent) {
     event.preventDefault()
     if (!form.name.trim() || !form.phone.trim()) return
+    const provinceInput = form.province.trim()
+    const businessTypeInput = form.businessType
     onSave({
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -595,6 +698,13 @@ function EditCustomerModal({
       isBoth: form.isBoth,
       creditLimit: form.creditLimit !== "" ? Number(form.creditLimit) : null,
       openingBalance: Number(form.openingBalance) || 0,
+      // بند ٤ — فاضي بعد ما كان معبّى يعني "امسحه" (null، يوصل للباكند).
+      // فاضي وكان فاضي أصلاً يعني "ما تغيّر شي" (undefined) — وإلا كل حفظ
+      // يبعث null بلا داعي. غير فاضي دايماً يعني القيمة الجديدة.
+      province: (provinceInput || (customer.province ? null : undefined)) as CustomerPayload["province"],
+      businessType: (businessTypeInput || (customer.businessType ? null : undefined)) as CustomerBusinessType | undefined,
+      // Same empty-means-clear convention as province above.
+      area: form.area.trim() || (customer.area ? null : undefined),
     })
   }
 
@@ -647,6 +757,49 @@ function EditCustomerModal({
         </div>
 
         <div className="space-y-1">
+          {/* «المنطقة» — the area inside the city, separate from the governorate
+              above. The rep fills it standing in the street; this is where the
+              owner corrects it. It was previously write-once on the rep's create
+              form and could never be fixed afterwards. */}
+          <Label>المنطقة (اختياري)</Label>
+          <Input
+            value={form.area}
+            onChange={(e) => set("area", e.target.value)}
+            placeholder="المنطقة داخل المدينة"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>المحافظة (اختياري)</Label>
+            <select
+              value={form.province}
+              onChange={(e) => set("province", e.target.value)}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            >
+              <option value="">— غير محددة —</option>
+              {IRAQI_GOVERNORATES.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500">يضيف تاك المحافظة تلقائياً عند الحفظ.</p>
+          </div>
+          <div className="space-y-1">
+            <Label>نوع العمل (اختياري)</Label>
+            <select
+              value={form.businessType}
+              onChange={(e) => set("businessType", e.target.value)}
+              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+            >
+              <option value="">— غير محدد —</option>
+              {BUSINESS_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-1">
           <Label>الرصيد الافتتاحي (حساب أول المدة) — صحّحه إذا انكتب غلط</Label>
           <Input
             type="number"
@@ -694,7 +847,7 @@ function EditCustomerModal({
 
         {isError && (
           <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            تعذر حفظ التعديلات. تأكد من المعلومات وحاول مرة أخرى.
+            تعذر حفظ التعديلات: {apiErrorMessage(error)}
           </p>
         )}
 

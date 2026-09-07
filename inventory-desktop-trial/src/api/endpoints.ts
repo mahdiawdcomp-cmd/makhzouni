@@ -276,12 +276,20 @@ export async function updateBranch(id: string, payload: Partial<BranchPayload>) 
   return data
 }
 
-export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean }) {
+export async function reviewApproval(id: string, status: "APPROVED" | "REJECTED", options?: { allowPrices?: boolean; showStock?: boolean; catalogOrderMode?: "INVOICE" | "PREPARE"; reviewNote?: string }) {
   const { data } = await api.put<ApiEnvelope<Approval>>(`/approvals/${id}`, {
     status,
     ...options,
   })
   return data
+}
+
+/** «أضفه كزبون» — the step before a stranger's catalog order can be billed. */
+export async function addApprovalCustomer(approvalId: string) {
+  const { data } = await api.post<ApiEnvelope<{ customerId: string; name: string; created: boolean }>>(
+    `/approvals/${approvalId}/add-customer`, {},
+  )
+  return data.data!
 }
 
 export async function bulkReviewApprovals(ids: string[], status: "APPROVED" | "REJECTED") {
@@ -335,6 +343,14 @@ export async function createProduct(payload: ProductPayload) {
 export async function updateProduct(id: string, payload: ProductPayload) {
   const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, payload)
   return data
+}
+
+export async function adjustProductStock(
+  id: string,
+  payload: { warehouses: Array<{ warehouseId: string; quantityPieces: number }>; note?: string; reason: StockCorrectionReason },
+) {
+  const { data } = await api.post<ApiEnvelope<Product>>(`/products/${id}/adjust-stock`, payload)
+  return data.data
 }
 
 export async function deleteProduct(id: string) {
@@ -982,6 +998,13 @@ export async function voucherImageObjectUrl(id: string): Promise<string> {
 // send). `message` is the customizable caption built from Settings → قالب السند.
 export async function sendVoucherPdfWhatsapp(id: string, message: string, channel?: WhatsAppSendChannel) {
   const { data } = await api.post<ApiEnvelope<{ to: string }>>(`/vouchers/${id}/send-whatsapp`, { message, channel })
+  return data
+}
+
+// Generate + send the customer's account statement as a WhatsApp PDF document.
+// `date` (YYYY-MM-DD) caps movements up to that day; omit for full history.
+export async function sendCustomerStatementPdfWhatsapp(customerId: string, date?: string, channel?: WhatsAppSendChannel) {
+  const { data } = await api.post<ApiEnvelope<never>>(`/customers/${customerId}/statement-pdf-whatsapp`, { date, channel })
   return data
 }
 

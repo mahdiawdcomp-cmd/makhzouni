@@ -13,6 +13,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
+import { cn } from "../utils/cn"
 import { apiErrorMessage } from "../utils/apiError"
 
 type ApprovalData = {
@@ -25,6 +26,22 @@ type ApprovalData = {
   customerId?: string
   isFirstOrder?: boolean
   isExistingCustomer?: boolean
+  // «المندوب» — present only on orders a rep took. The owner's first question
+  // on a rep order is who took it, so it is a badge on the row, not a detail
+  // buried in the expanded view.
+  salesAgentName?: string
+  /**
+   * Lines the rep sold that the shop is short of. A shortage never blocks the
+   * sale, so the owner has to be able to see it here — otherwise the first sign
+   * is stock going negative after approval.
+   */
+  shortages?: Array<{ productName: string; requested: number; available: number; short: number }>
+  // AGENT_PRICE_REQUEST
+  productName?: string
+  unit?: string
+  currentPrice?: number
+  requestedPrice?: number
+  reason?: string
   displayItems?: Array<{
     productId: string
     productName: string
@@ -66,6 +83,10 @@ type ApprovalData = {
 const APPROVAL_SECTIONS: Array<{ key: string; title: string; types: string[] }> = [
   { key: "negative", title: "بضاعة سالبة (نواقص المخزون)", types: ["NEGATIVE_STOCK_SALE"] },
   { key: "wholesale", title: "كتلوك الجملة", types: ["CATALOG_ACCESS", "CATALOG_ORDER"] },
+  // «المندوب» — a price request is a different decision from an order, so it
+  // gets its own section rather than sitting among catalog orders where it
+  // would be read as one.
+  { key: "agent", title: "طلبات المندوب", types: ["AGENT_PRICE_REQUEST"] },
   { key: "retail", title: "كتلوك المفرد", types: ["RETAIL_ORDER", "RETAIL_ACCESS"] },
   {
     key: "documents",
@@ -110,6 +131,7 @@ function unitLabel(unit: string) {
 function requestTypeLabel(type: string) {
   const labels: Record<string, string> = {
     CATALOG_ORDER: "طلب كتالوج",
+    AGENT_PRICE_REQUEST: "طلب سعر خاص من مندوب",
     CREATE_USER: "إضافة مستخدم",
     UPDATE_USER: "تعديل مستخدم",
     DEACTIVATE_USER: "تعطيل مستخدم",
@@ -141,7 +163,7 @@ function approvalData(approval: Approval | null): ApprovalData {
 }
 
 export function ApprovalsPage() {
-  const { approvalsQuery, reviewMutation, bulkReviewMutation } = useApprovals()
+  const { approvalsQuery, reviewMutation, bulkReviewMutation, addCustomerMutation } = useApprovals()
   const [selected, setSelected] = useState<Approval | null>(null)
   const [allowPricesById, setAllowPricesById] = useState<Record<string, boolean>>({})
   const [showStockById, setShowStockById] = useState<Record<string, boolean>>({})
@@ -171,17 +193,64 @@ export function ApprovalsPage() {
           if (row.original.requestType === "CATALOG_ORDER") {
             return (
               <div className="space-y-0.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-semibold">{data.customerName ?? "-"}</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-semibold">{row.original.orderer?.customerName ?? data.customerName ?? "-"}</span>
+                  {/* The one thing that decides what happens next: is this
+                      someone the shop already bills, or a phone off the street. */}
+                  {row.original.orderer && (
+                    <span className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                      row.original.orderer.known
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
+                        : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200",
+                    )}>
+                      {row.original.orderer.known ? "زبون عندك" : "رقم جديد"}
+                    </span>
+                  )}
                   {data.isFirstOrder && (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                       أول طلب
+                    </span>
+                  )}
+                  {data.salesAgentName && (
+                    <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-900 dark:text-violet-300">
+                      مندوب: {data.salesAgentName}
+                    </span>
+                  )}
+                  {(data.shortages?.length ?? 0) > 0 && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                      نقص مخزون: {data.shortages!.length}
                     </span>
                   )}
                 </div>
                 <div className="text-xs text-slate-500">
                   {data.phone ?? "-"} — {money(data.subtotal)} د.ع
                 </div>
+                {(data.shortages?.length ?? 0) > 0 && (
+                  <div className="text-xs font-medium text-amber-700 dark:text-amber-500">
+                    {data.shortages!
+                      .map((s) => `${s.productName}: ناقص ${s.short}`)
+                      .join(" · ")}
+                  </div>
+                )}
+              </div>
+            )
+          }
+          if (row.original.requestType === "AGENT_PRICE_REQUEST") {
+            return (
+              <div className="space-y-0.5">
+                <div className="font-semibold">{data.productName ?? "-"}</div>
+                <div className="text-xs">
+                  <span className="text-slate-500">{data.customerName ?? "-"}</span>
+                  {data.salesAgentName ? ` — مندوب: ${data.salesAgentName}` : ""}
+                </div>
+                <div className="text-xs font-semibold">
+                  {money(data.currentPrice)} ← {money(data.requestedPrice)}
+                  {data.unit ? ` / ${unitLabel(data.unit)}` : ""}
+                </div>
+                {data.reason ? (
+                  <div className="text-xs text-slate-500">السبب: {data.reason}</div>
+                ) : null}
               </div>
             )
           }
@@ -275,27 +344,71 @@ export function ApprovalsPage() {
                 </label>
               </div>
             )}
-            <Button
-              disabled={reviewMutation.isPending}
-              onClick={() =>
-                reviewMutation.mutate({
-                  id: row.original.id,
-                  status: "APPROVED",
-                  allowPrices: row.original.requestType === "CATALOG_ACCESS" ? Boolean(allowPricesById[row.original.id]) : undefined,
-                  showStock: row.original.requestType === "CATALOG_ACCESS" ? (showStockById[row.original.id] !== false) : undefined,
-                })
-              }
-            >
-              <Check className="h-4 w-4" />
-              وافق
-            </Button>
+            {row.original.requestType === "CATALOG_ORDER" && row.original.orderer?.known === false && (
+              <Button
+                variant="outline"
+                disabled={addCustomerMutation.isPending}
+                title="يضيفه بالاسم والرقم والمحافظة الي كتبهم"
+                onClick={() => addCustomerMutation.mutate(row.original.id)}
+              >
+                <UserPlus className="h-4 w-4" />
+                أضفه كزبون
+              </Button>
+            )}
+            {row.original.requestType === "CATALOG_ORDER" ? (
+              <>
+                <Button
+                  disabled={reviewMutation.isPending}
+                  title="ينفتح فاتورة بيع وينزل المخزون فوراً"
+                  onClick={() => reviewMutation.mutate({
+                    id: row.original.id, status: "APPROVED", catalogOrderMode: "INVOICE",
+                  })}
+                >
+                  <Check className="h-4 w-4" />
+                  فاتورة مباشرة
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={reviewMutation.isPending}
+                  title="يروح لشاشة تجهيز الطلب، والفاتورة تنفتح لمن ينجهز"
+                  onClick={() => reviewMutation.mutate({
+                    id: row.original.id, status: "APPROVED", catalogOrderMode: "PREPARE",
+                  })}
+                >
+                  <Check className="h-4 w-4" />
+                  للتجهيز
+                </Button>
+              </>
+            ) : (
+              <Button
+                disabled={reviewMutation.isPending}
+                onClick={() =>
+                  reviewMutation.mutate({
+                    id: row.original.id,
+                    status: "APPROVED",
+                    allowPrices: row.original.requestType === "CATALOG_ACCESS" ? Boolean(allowPricesById[row.original.id]) : undefined,
+                    showStock: row.original.requestType === "CATALOG_ACCESS" ? (showStockById[row.original.id] !== false) : undefined,
+                  })
+                }
+              >
+                <Check className="h-4 w-4" />
+                وافق
+              </Button>
+            )}
             <Button
               variant="destructive"
               disabled={reviewMutation.isPending}
               onClick={() => {
-                if (confirm("هل أنت متأكد من رفض الطلب؟")) {
-                  reviewMutation.mutate({ id: row.original.id, status: "REJECTED" })
-                }
+                // Asked for, not required: a blank reason still rejects, but the
+                // requester sees "مرفوض" with nothing to act on, so the prompt
+                // makes writing one the path of least resistance.
+                const reason = window.prompt("ليش ترفضه؟ (يوصل لصاحب الطلب)")
+                if (reason === null) return
+                reviewMutation.mutate({
+                  id: row.original.id,
+                  status: "REJECTED",
+                  reviewNote: reason.trim() || undefined,
+                })
               }}
             >
               <X className="h-4 w-4" />
@@ -305,7 +418,7 @@ export function ApprovalsPage() {
         ),
       },
     ],
-    [allowPricesById, showStockById, reviewMutation],
+    [allowPricesById, showStockById, reviewMutation, addCustomerMutation],
   )
 
   const table = useReactTable({

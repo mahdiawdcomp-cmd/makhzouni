@@ -25,6 +25,8 @@ import { ModalForm } from "../components/ui/modal-form"
 import { Badge } from "../components/ui/badge"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 import { ImageCropModal } from "../components/ImageCropModal"
+import { AdjustStockModal } from "../components/AdjustStockModal"
+import { useAuthStore } from "../store/authStore"
 import { deliverLabel } from "../utils/download"
 import { useBarcodeScanner, findProductByScan } from "../utils/barcode-scan"
 import { matchProduct, stockState, depotPiecesOf } from "../utils/search"
@@ -166,12 +168,12 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-function exportInventoryCsv(products: Product[]) {
+function exportInventoryCsv(products: Product[], hidePurchasePrice = false) {
   const today = new Date().toLocaleDateString("en-US")
   const bom = "﻿" // UTF-8 BOM for Excel Arabic support
   const headers = [
     "رقم الصنف", "اسم المادة", "الفئة", "الكراتين", "قطع بالكرتونة",
-    "القطع المفردة", "إجمالي القطع", "سعر الشراء", "سعر البيع",
+    "القطع المفردة", "إجمالي القطع", ...(hidePurchasePrice ? [] : ["سعر الشراء"]), "سعر البيع",
     "الحد الأدنى", "رمز القطعة", "رمز الكرتون",
     "الكمية الفعلية (للجرد)", "ملاحظات"
   ]
@@ -179,7 +181,7 @@ function exportInventoryCsv(products: Product[]) {
     const total = p.currentStock ?? (p.openingBalancePcs + p.cartonsAvailable * p.pcsPerCarton)
     return [
       p.itemNumber, p.name, p.category ?? "", p.cartonsAvailable, p.pcsPerCarton,
-      p.openingBalancePcs, total, p.purchasePrice, p.salePrice,
+      p.openingBalancePcs, total, ...(hidePurchasePrice ? [] : [p.purchasePrice]), p.salePrice,
       p.minStock, p.qrCode ?? "", p.cartonQrCode ?? "",
       "", "" // Empty columns for manual count
     ]
@@ -223,7 +225,7 @@ function downloadFile(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
-function exportInventoryDesignedHtml(products: Product[]) {
+function exportInventoryDesignedHtml(products: Product[], hidePurchasePrice = false) {
   const today = new Date().toLocaleDateString("ar-IQ")
   const rows = products.map((p, index) => {
     const total = stockOf(p)
@@ -239,9 +241,9 @@ function exportInventoryDesignedHtml(products: Product[]) {
         <td class="blue">${moneyForExport(p.cartonsAvailable)}</td>
         <td class="blue">${moneyForExport(p.pcsPerCarton)}</td>
         <td class="total">${moneyForExport(total)}</td>
-        <td class="purchase">${moneyForExport(p.purchasePrice)}</td>
+        ${hidePurchasePrice ? "" : `<td class="purchase">${moneyForExport(p.purchasePrice)}</td>`}
         <td class="sale">${moneyForExport(p.salePrice)}</td>
-        <td class="total">${moneyForExport(totalCost)}</td>
+        ${hidePurchasePrice ? "" : `<td class="total">${moneyForExport(totalCost)}</td>`}
         <td><span class="badge ${status.className}">${status.label}</span></td>
       </tr>`
   }).join("")
@@ -315,9 +317,9 @@ function exportInventoryDesignedHtml(products: Product[]) {
             <th>رصيد الكراتين</th>
             <th>عدد الحبات (بالكرتون)</th>
             <th>إجمالي الحبات</th>
-            <th>سعر الشراء</th>
+            ${hidePurchasePrice ? "" : "<th>سعر الشراء</th>"}
             <th>سعر الجملة</th>
-            <th>إجمالي التكلفة</th>
+            ${hidePurchasePrice ? "" : "<th>إجمالي التكلفة</th>"}
             <th>الحالة</th>
           </tr>
         </thead>
@@ -328,8 +330,8 @@ function exportInventoryDesignedHtml(products: Product[]) {
             <td>${moneyForExport(totalCartons)} كرتون</td>
             <td>-</td>
             <td>${moneyForExport(totalPieces)} حبة</td>
-            <td colspan="2"></td>
-            <td class="gold">${moneyForExport(totalCost)} د.ع</td>
+            <td${hidePurchasePrice ? "" : ' colspan="2"'}></td>
+            ${hidePurchasePrice ? "" : `<td class="gold">${moneyForExport(totalCost)} د.ع</td>`}
             <td></td>
           </tr>
         </tfoot>
@@ -369,6 +371,7 @@ export function ProductsPage() {
   usePageTitle("المخزن")
   const readOnly = useReadOnly()
   const navigate = useNavigate()
+  const canViewPurchasePrice = useAuthStore((s) => s.hasPermission("VIEW_PURCHASE_PRICE"))
 
   // Handle Esc key for lightbox
   useEffect(() => {
@@ -405,6 +408,7 @@ export function ProductsPage() {
   const [sorting, setSorting] = useState<SortingState>([])
   const [open, setOpen] = useState(false)
   const [showCategories, setShowCategories] = useState(false)
+  const [adjustTarget, setAdjustTarget] = useState<Product | null>(null)
   // Optional opening-stock split across warehouses (pieces per warehouse), used
   // on initial product entry only.
   const [dist, setDist] = useState<Record<string, number>>({})
@@ -459,7 +463,7 @@ export function ProductsPage() {
 
   function getMissing(product: Product): string[] {
     const missing: string[] = []
-    if (!product.purchasePrice || product.purchasePrice === 0) missing.push("purchasePrice")
+    if (canViewPurchasePrice && (!product.purchasePrice || product.purchasePrice === 0)) missing.push("purchasePrice")
     if (!product.salePrice || product.salePrice === 0) missing.push("salePrice")
     if (!product.category) missing.push("category")
     if (stockOf(product) <= 0 && product.openingBalancePcs === 0 && product.cartonsAvailable === 0) missing.push("stock")
@@ -726,14 +730,14 @@ export function ProductsPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => exportInventoryCsv(products)}
+            onClick={() => exportInventoryCsv(products, !canViewPurchasePrice)}
             title="تصدير ملف CSV للجرد — يفتح بـ Excel"
           >
             <Download className="h-4 w-4" /> جرد المخزن (Excel)
           </Button>
           <Button
             variant="outline"
-            onClick={() => exportInventoryDesignedHtml(products)}
+            onClick={() => exportInventoryDesignedHtml(products, !canViewPurchasePrice)}
             title="تحميل ملف جرد مصمم قابل للطباعة أو الحفظ PDF من المتصفح"
           >
             <Download className="h-4 w-4" /> تحميل الجرد المصمم
@@ -806,9 +810,9 @@ export function ProductsPage() {
               <option value="nameAsc">الاسم أ-ي</option>
               <option value="stockDesc">أعلى كمية</option>
               <option value="stockAsc">أقل كمية</option>
-              <option value="purchaseDesc">أعلى سعر شراء</option>
+              {canViewPurchasePrice && <option value="purchaseDesc">أعلى سعر شراء</option>}
               <option value="saleDesc">أعلى سعر بيع</option>
-              <option value="valueDesc">أعلى قيمة مخزون</option>
+              {canViewPurchasePrice && <option value="valueDesc">أعلى قيمة مخزون</option>}
             </select>
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
@@ -819,7 +823,7 @@ export function ProductsPage() {
             >
               <option value="all">كل المواد</option>
               <option value="any">⚠️ ناقصة معلومات (الكل)</option>
-              <option value="purchasePrice">⚠️ ناقص سعر الشراء</option>
+              {canViewPurchasePrice && <option value="purchasePrice">⚠️ ناقص سعر الشراء</option>}
               <option value="salePrice">⚠️ ناقص سعر البيع</option>
               <option value="stock">⚠️ ناقص الكمية</option>
               <option value="category">⚠️ ناقص الفئة</option>
@@ -926,27 +930,32 @@ export function ProductsPage() {
                     </div>
                   </button>
 
-                  <div className="grid grid-cols-3 border-y border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/60">
+                  <div className={`grid border-y border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-900/60 ${canViewPurchasePrice ? "grid-cols-3" : "grid-cols-2"}`}>
                     <div className="p-2.5 text-center">
                       <p className="text-[10px] text-slate-500">الكمية</p>
                       <p className="mt-0.5 text-sm font-extrabold text-slate-900 dark:text-white">{totalPcs.toLocaleString("en-US")}</p>
                     </div>
-                    <div className="border-x border-slate-200 p-2.5 text-center dark:border-slate-800">
-                      <p className="text-[10px] text-slate-500">سعر الشراء</p>
-                      <p className="mt-0.5 text-sm font-bold text-rose-600">{Number(p.purchasePrice).toLocaleString("en-US")}</p>
-                    </div>
+                    {canViewPurchasePrice && (
+                      <div className="border-x border-slate-200 p-2.5 text-center dark:border-slate-800">
+                        <p className="text-[10px] text-slate-500">سعر الشراء</p>
+                        <p className="mt-0.5 text-sm font-bold text-rose-600">{Number(p.purchasePrice).toLocaleString("en-US")}</p>
+                      </div>
+                    )}
                     <div className="p-2.5 text-center">
                       <p className="text-[10px] text-slate-500">سعر البيع</p>
                       <p className="mt-0.5 text-sm font-bold text-emerald-600">{Number(p.salePrice).toLocaleString("en-US")}</p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-6 gap-1 p-2">
+                  <div className="grid grid-cols-7 gap-1 p-2">
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => navigate(`/inventory/${p.id}`)}>
                       <Eye className="h-4 w-4" /> عرض
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => startEdit(p)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
                       <Edit className="h-4 w-4" /> تعديل
+                    </Button>
+                    <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => setAdjustTarget(p)} disabled={readOnly} title={readOnly ? READ_ONLY_MESSAGE : undefined}>
+                      <Boxes className="h-4 w-4" /> كمية
                     </Button>
                     <Button variant="ghost" className="h-11 flex-col gap-0.5 px-1 text-[10px]" onClick={() => void printPiece(p.id)}>
                       <ScanQrCode className="h-4 w-4" /> قطعة
@@ -995,9 +1004,9 @@ export function ProductsPage() {
                   </th>
                   <th className="py-3 px-3 border-l border-gray-300 text-center bg-blue-50">ق/كرتون</th>
                   <th className="py-3 px-3 border-l border-gray-300 text-center font-bold">إجمالي القطع</th>
-                  <th className="py-3 px-3 border-l border-gray-300 text-center text-red-600">شراء</th>
+                  {canViewPurchasePrice && <th className="py-3 px-3 border-l border-gray-300 text-center text-red-600">شراء</th>}
                   <th className="py-3 px-3 border-l border-gray-300 text-center text-green-600">بيع</th>
-                  <th className="py-3 px-3 border-l border-gray-300 text-center">تكلفة المخزون</th>
+                  {canViewPurchasePrice && <th className="py-3 px-3 border-l border-gray-300 text-center">تكلفة المخزون</th>}
                   <th className="py-3 px-3 border-l border-gray-300 text-center">الحالة</th>
                   <th className="py-3 px-3 text-center">إجراءات</th>
                 </tr>
@@ -1102,14 +1111,15 @@ export function ProductsPage() {
                       </td>
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-xs bg-blue-50/30">{p.pcsPerCarton}</td>
                       <td className={`py-2 px-3 border-l border-gray-200 text-center font-bold ${isNegative ? "text-purple-700" : ""}`}>{totalPcs.toLocaleString("en-US")}</td>
-                      <td className="py-2 px-3 border-l border-gray-200 text-center text-red-600">{Number(p.purchasePrice).toLocaleString("en-US")}</td>
+                      {canViewPurchasePrice && <td className="py-2 px-3 border-l border-gray-200 text-center text-red-600">{Number(p.purchasePrice).toLocaleString("en-US")}</td>}
                       <td className="py-2 px-3 border-l border-gray-200 text-center text-green-600">{Number(p.salePrice).toLocaleString("en-US")}</td>
-                      <td className="py-2 px-3 border-l border-gray-200 text-center font-bold">{totalCost.toLocaleString("en-US")}</td>
+                      {canViewPurchasePrice && <td className="py-2 px-3 border-l border-gray-200 text-center font-bold">{totalCost.toLocaleString("en-US")}</td>}
                       <td className="py-2 px-3 border-l border-gray-200 text-center">{badge}</td>
                       <td className="py-2 px-3 text-center">
                         <div className="flex justify-center gap-1">
                           <Button variant="outline" className="h-7 w-7 p-0" title="عرض" onClick={() => navigate(`/inventory/${p.id}`)}><Eye className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title={readOnly ? READ_ONLY_MESSAGE : "تعديل"} disabled={readOnly} onClick={() => startEdit(p)}><Edit className="h-3.5 w-3.5" /></Button>
+                          <Button variant="outline" className="h-7 w-7 p-0" title={readOnly ? READ_ONLY_MESSAGE : "تعديل الكمية"} disabled={readOnly} onClick={() => setAdjustTarget(p)}><Boxes className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز القطعة" onClick={() => void printPiece(p.id)}><ScanQrCode className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title="رمز الكرتون" onClick={() => void printCarton(p.id)}><Printer className="h-3.5 w-3.5" /></Button>
                           <Button variant="outline" className="h-7 w-7 p-0" title={readOnly ? READ_ONLY_MESSAGE : "أعد النشر بقناة تيليگرام (تنزل بالأسفل كمنشور جديد)"} disabled={readOnly || republishMutation.isPending} onClick={() => republishMutation.mutate(p.id)}><RefreshCw className="h-3.5 w-3.5" /></Button>
@@ -1131,10 +1141,12 @@ export function ProductsPage() {
                   <td className="py-3 px-3 text-center border-l border-gray-600">
                     {filtered.reduce((s, p) => s + stockOf(p), 0).toLocaleString("en-US")} قطعة
                   </td>
-                  <td colSpan={2} className="py-3 px-3 border-l border-gray-600"></td>
-                  <td className="py-3 px-3 text-center text-yellow-400 border-l border-gray-600">
-                    {filtered.reduce((s, p) => s + stockOf(p) * accountingCostOf(p), 0).toLocaleString("en-US")}
-                  </td>
+                  <td colSpan={canViewPurchasePrice ? 2 : 1} className="py-3 px-3 border-l border-gray-600"></td>
+                  {canViewPurchasePrice && (
+                    <td className="py-3 px-3 text-center text-yellow-400 border-l border-gray-600">
+                      {filtered.reduce((s, p) => s + stockOf(p) * accountingCostOf(p), 0).toLocaleString("en-US")}
+                    </td>
+                  )}
                   <td colSpan={2}></td>
                 </tr>
               </tfoot>
@@ -1703,6 +1715,10 @@ export function ProductsPage() {
         onConfirm={() => { setCloseProductConfirm(false); setForm(emptyForm); setOpen(false) }}
         onCancel={() => setCloseProductConfirm(false)}
       />
+
+      {adjustTarget && (
+        <AdjustStockModal product={adjustTarget} onClose={() => setAdjustTarget(null)} />
+      )}
 
       <ConfirmDialog
         open={!!deleteConfirm}

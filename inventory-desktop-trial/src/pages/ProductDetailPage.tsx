@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { ImageCropModal } from "../components/ImageCropModal"
-import { ArrowRight, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
+import { ArrowRight, Boxes, Camera, Download, Edit, FlipHorizontal2, Images, Printer, RotateCcw, RotateCw, ScanQrCode, Trash2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
 import { getCatalogCategories, productCartonSheetPdf, productCartonSheetPdfUrl, productCartonLabelPngObjectUrl, productCartonLabelPngUrl, productPieceLabelPdf, productPieceLabelPdfUrl, productPieceLabelPngObjectUrl, productPieceLabelPngUrl, productQrObjectUrl, openPieceLabelInDLabel, getStockHistory, type StockMovementSource } from "../api/endpoints"
@@ -17,7 +17,9 @@ import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { RecordNavigator } from "../components/RecordNavigator"
+import { AdjustStockModal } from "../components/AdjustStockModal"
 import { toast } from "../components/ui/use-toast"
+import { useAuthStore } from "../store/authStore"
 
 function stockOf(product: Product) {
   return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
@@ -72,6 +74,9 @@ async function rotateDataUrl(dataUrl: string, degrees: 90 | 180 | 270): Promise<
 export function ProductDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  // Backend already strips purchasePrice from the API for staff without this
+  // permission — this just avoids rendering a stale/blank field for them.
+  const canViewPurchasePrice = useAuthStore((s) => s.hasPermission("VIEW_PURCHASE_PRICE"))
   const { productQuery, movementQuery } = useProductDetails(id)
   const { productsQuery, updateMutation } = useProducts()
   const product = productQuery.data
@@ -130,6 +135,7 @@ export function ProductDetailPage() {
 
   // Delete confirm state
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [adjustOpen, setAdjustOpen] = useState(false)
 
   // QR preview images (the actual print/download is fetched fresh on click
   // via deliverLabel — see the buttons below).
@@ -255,6 +261,9 @@ export function ProductDetailPage() {
           <Button variant="outline" onClick={startEdit}>
             <Edit className="h-4 w-4" /> تعديل
           </Button>
+          <Button variant="outline" onClick={() => setAdjustOpen(true)}>
+            <Boxes className="h-4 w-4" /> تعديل الكمية
+          </Button>
           <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => setDeleteOpen(true)}>
             <Trash2 className="h-4 w-4" /> حذف
           </Button>
@@ -286,7 +295,7 @@ export function ProductDetailPage() {
                 <div>
                   <InfoRow label="رقم الآيتم (SKU)" value={product.itemNumber} />
                   <InfoRow label="الفئة" value={product.category ?? "—"} />
-                  <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />
+                  {canViewPurchasePrice && <InfoRow label="سعر الشراء" value={`${fmt(product.purchasePrice)} د.ع`} />}
                   <InfoRow label="سعر الكلفة" value={`${fmt(product.costPrice ?? 0)} د.ع`} />
                   <InfoRow label="سعر البيع (جملة)" value={`${fmt(product.salePrice)} د.ع`} />
                   <InfoRow label="سعر المفرد" value={`${fmt(product.retailPrice ?? 0)} د.ع`} />
@@ -646,9 +655,11 @@ export function ProductDetailPage() {
             <Field label="حد التنبيه">
               <Input type="number" value={editForm.minStock ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, minStock: Number(e.target.value) })} />
             </Field>
-            <Field label="سعر الشراء">
-              <Input type="number" value={editForm.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, purchasePrice: Number(e.target.value) })} />
-            </Field>
+            {canViewPurchasePrice && (
+              <Field label="سعر الشراء">
+                <Input type="number" value={editForm.purchasePrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, purchasePrice: Number(e.target.value) })} />
+              </Field>
+            )}
             <Field label="سعر الكلفة">
               <Input type="number" value={editForm.costPrice ?? 0} onFocus={selectAllOnFocus} onChange={(e) => setEditForm({ ...editForm, costPrice: Number(e.target.value) })} />
             </Field>
@@ -674,6 +685,14 @@ export function ProductDetailPage() {
           />
         )}
       </ModalForm>
+
+      {adjustOpen && product && (
+        <AdjustStockModal
+          product={product}
+          onClose={() => setAdjustOpen(false)}
+          onSaved={() => { setAdjustOpen(false); void productQuery.refetch() }}
+        />
+      )}
 
       {/* Delete Confirm Dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>

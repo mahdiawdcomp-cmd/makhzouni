@@ -12,11 +12,12 @@ import { Eye, Plus, Receipt, Sparkles, Trash2, Undo2 } from "lucide-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCustomers } from "../hooks/useCustomers"
 import { getDeletedCustomers, restoreCustomer } from "../api/endpoints"
-import type { Customer, CustomerPayload } from "../types/api"
+import type { Customer, CustomerPayload, CustomerBusinessType } from "../types/api"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { TagPicker } from "../components/ui/tag-picker"
+import { IRAQI_GOVERNORATES, BUSINESS_TYPE_OPTIONS } from "../utils/governorates"
 import { Input } from "../components/ui/input"
 import { ModalForm } from "../components/ui/modal-form"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
@@ -284,6 +285,47 @@ export function CustomersPage() {
           <div className="space-y-1">
             <span className="text-xs font-medium text-slate-500">التاكات</span>
             <TagPicker value={form.tags ?? []} onChange={(tags) => setForm({ ...form, tags })} />
+          </div>
+          <div className="space-y-1">
+            {/* «المنطقة» — the area inside the city. A rep types this standing in
+                the street, so the owner has to be able to correct it here; it
+                used to exist only on the rep's create form and was then frozen
+                for good. Free text, because the allowed list is per-shop
+                settings data rather than something this form should own. */}
+            <span className="text-xs font-medium text-slate-500">المنطقة (اختياري)</span>
+            <Input
+              placeholder="المنطقة داخل المدينة"
+              value={form.area ?? ""}
+              onChange={(event) => setForm({ ...form, area: event.target.value || null })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-slate-500">المحافظة (اختياري)</span>
+              <select
+                value={form.province ?? ""}
+                onChange={(event) => setForm({ ...form, province: event.target.value || undefined })}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              >
+                <option value="">— غير محددة —</option>
+                {IRAQI_GOVERNORATES.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-slate-500">نوع العمل (اختياري)</span>
+              <select
+                value={form.businessType ?? ""}
+                onChange={(event) => setForm({ ...form, businessType: (event.target.value || undefined) as CustomerBusinessType | undefined })}
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-900 shadow-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              >
+                <option value="">— غير محدد —</option>
+                {BUSINESS_TYPE_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/20">
             <label className="mb-1 block text-xs font-semibold text-amber-800 dark:text-amber-300">

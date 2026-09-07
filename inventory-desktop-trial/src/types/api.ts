@@ -86,6 +86,16 @@ export interface Approval {
     summary?: string
     details?: Array<{ label: string; value: string }>
   }
+  /** Catalog orders only: whether the phone is already on the shop's books.
+   *  Resolved fresh on every list — the stored snapshot cannot know, because
+   *  the answer changes after the order was placed. */
+  orderer?: {
+    known: boolean
+    customerId: string | null
+    customerName: string | null
+    balance: number | null
+    pastOrders: number
+  }
 }
 
 export interface PagedResponse<T> {
@@ -530,7 +540,13 @@ export interface Customer {
   updatedAt?: string
   deletedAt?: string | null
   loyaltyPoints?: number
+  province?: string | null
+  businessType?: CustomerBusinessType | null
+  /** «المنطقة» — the area inside the city, distinct from the governorate. */
+  area?: string | null
 }
+
+export type CustomerBusinessType = "STATIONERY" | "TOYS" | "MIXED"
 
 export interface CustomerPayload {
   name: string
@@ -542,6 +558,9 @@ export interface CustomerPayload {
   creditLimit?: number | null
   isSupplier?: boolean
   isBoth?: boolean
+  province?: string
+  businessType?: CustomerBusinessType
+  area?: string | null
 }
 
 export interface CustomerBroadcastPayload {
@@ -1400,6 +1419,12 @@ export interface BranchPayload {
 
 export interface OrderPreparation {
   id: string
+  /** «عروض القائمة» this order earned, in dinars. 0 when it earned nothing. */
+  tierDiscount: number
+  /** The percentage behind that discount — 2, 5, or whatever the shop set. */
+  tierPercent: number
+  isFreeDelivery: boolean
+  couponCode: string | null
   customerId: string | null
   invoiceId: string | null
   invoiceNumber: string | null
