@@ -67,6 +67,10 @@ import type {
   ProfitReport,
   WarehouseComparisonRow,
   CrossSellPair,
+  ProductReview,
+  SearchMissRow,
+  CampaignFunnelVariantStats,
+  CampaignFunnelReport,
   StoreBrainReport,
   DailyAssistantReport,
   DebtCustomer,
@@ -1145,6 +1149,12 @@ export async function deleteCampaignRecipient(id: string, recipientId: string) {
   return data.data
 }
 
+// بند ٦ — جدول القمع لكل صيغة رسالة.
+export async function getCampaignFunnelReport(params?: { from?: string; to?: string; tag?: string }) {
+  const { data } = await api.get<ApiEnvelope<CampaignFunnelReport>>("/campaigns/funnel-report", { params })
+  return data.data
+}
+
 /* ── System health + error logs ─────────────────────────────────────── */
 export async function getSystemHealth() {
   const { data } = await api.get<ApiEnvelope<SystemHealth>>("/health/system")
@@ -1896,6 +1906,16 @@ export async function getCrossSellPairs(params?: { from?: string; to?: string; p
   return data.data ?? []
 }
 
+export async function getSearchMisses() {
+  const { data } = await api.get<ApiEnvelope<SearchMissRow[]>>("/reports/search-misses")
+  return data.data ?? []
+}
+
+export async function getProductReviews(params: { page: number; limit: number }) {
+  const { data } = await api.get<PagedResponse<ProductReview>>("/product-reviews", { params })
+  return { data: data.data ?? [], pagination: data.pagination ?? { total: 0, page: 1, limit: params.limit, pages: 1 } }
+}
+
 export async function getStoreBrainReport(params?: { from?: string; to?: string }) {
   const { data } = await api.get<ApiEnvelope<StoreBrainReport>>("/reports/store-brain", { params })
   return data.data!
@@ -2053,7 +2073,7 @@ export function getImportTemplateUrl() {
 export type LandedCostAllocationMethod = "BY_QUANTITY" | "BY_VALUE" | "BY_CARTON"
 export type LandedCostMatchStatus = "MATCHED" | "NOT_FOUND" | "AMBIGUOUS"
 export type LandedCostItemAction = "PENDING" | "LINK_EXISTING" | "CREATE_NEW" | "SKIP"
-export type LandedCostBatchStatus = "DRAFT_PRICED" | "REVIEWING_ITEMS" | "PURCHASE_INVOICE_CREATED" | "CANCELLED"
+export type LandedCostBatchStatus = "DRAFT_PRICED" | "REVIEWING_ITEMS" | "AWAITING_ARRIVAL" | "PURCHASE_INVOICE_CREATED" | "CANCELLED"
 
 export interface LandedCostManualExtraCosts {
   freight?: number
@@ -2126,6 +2146,7 @@ export interface LandedCostBatch {
   purchaseInvoice: { id: string; invoiceNumber: string } | null
   createdAt: string
   appliedAt: string | null
+  expectedArrivalAt?: string | null
   /** Full rows — present on the single-batch endpoint only. */
   items?: LandedCostItem[]
   /** Row count — what the LIST endpoint returns instead of the rows. */
@@ -2196,6 +2217,18 @@ export interface LandedCostConfirmSummary {
 
 export async function confirmLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number }) {
   const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/confirm`, payload)
+  return data.data!
+}
+
+export async function holdLandedCostBatch(id: string, payload: { supplierCustomerId: string; warehouseId?: string; paymentType?: string; paidAmount?: number; expectedAt?: string | null }) {
+  const { data } = await api.post<ApiEnvelope<{ incomingCount: number; skippedCount: number; expectedAt: string | null }>>(
+    `/landed-cost/batches/${id}/hold`, payload,
+  )
+  return data.data!
+}
+
+export async function markLandedCostBatchArrived(id: string) {
+  const { data } = await api.post<ApiEnvelope<LandedCostConfirmSummary>>(`/landed-cost/batches/${id}/arrived`, {})
   return data.data!
 }
 
@@ -2559,6 +2592,14 @@ export async function submitPublicRetailOrder(payload: {
   return data.data!
 }
 
+export async function upsertCatalogCartSession(payload: { phone: string; itemCount: number; totalValue: number }) {
+  await publicApi.post("/public/retail/cart-session", payload)
+}
+
+export async function logCatalogSearchMiss(payload: { query: string; phone?: string }) {
+  await publicApi.post("/public/retail/search-miss", payload)
+}
+
 export async function getPublicRetailOrderStatus(id: string) {
   const { data } = await publicApi.get<ApiEnvelope<PublicRetailOrderStatus>>(`/public/retail/orders/${id}`)
   return data.data!
@@ -2794,6 +2835,24 @@ export async function deleteWhatsappQuickReply(id: string) {
 export async function getInstagramAccounts() {
   const { data } = await api.get<ApiEnvelope<InstagramAccount[]>>("/instagram/accounts")
   return data.data ?? []
+}
+
+export async function uploadRetailItemVideo(itemId: string, file: File, meta: { duration?: number; width?: number; height?: number }) {
+  const form = new FormData()
+  form.append("video", file)
+  if (meta.duration) form.append("duration", String(meta.duration))
+  if (meta.width) form.append("width", String(meta.width))
+  if (meta.height) form.append("height", String(meta.height))
+  const { data } = await api.post<ApiEnvelope<{ id: string; url: string; duration?: number }>>(
+    `/instagram/catalog-items/${itemId}/video`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 300000 }
+  )
+  return data.data!
+}
+
+export async function deleteRetailItemVideo(itemId: string) {
+  await api.delete(`/instagram/catalog-items/${itemId}/video`)
 }
 
 export async function getInstagramHashtagGroups() {

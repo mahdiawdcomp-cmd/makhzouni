@@ -21,6 +21,8 @@ export type UserPermission =
     | "ACCESS_WHATSAPP_CHAT"
 // DENY marker: when present, hides profit & financial reports even from an ADMIN.
   | "HIDE_PROFIT_REPORTS"
+  | "MANAGE_INSTAGRAM"
+  | "PUBLISH_INSTAGRAM"
 
 export interface ApiEnvelope<T> {
   success: boolean
@@ -159,10 +161,45 @@ export interface ProfitReport {
   topProducts: Array<{ id: string; name: string; revenue: number; cost: number; profit: number; margin: number; qty: number }>
 }
 
+export interface ProductReview {
+  id: string
+  rating: number | null
+  comment: string | null
+  createdAt: string
+  customer: { id: string; name: string; phone: string }
+  invoice: { id: string; invoiceNumber: string; date: string }
+}
+
 export interface CrossSellPair {
   productA: { id: string; name: string }
   productB: { id: string; name: string }
   count: number
+}
+
+export interface SearchMissRow {
+  query: string
+  count: number
+}
+
+// بند ٦ — جدول القمع لكل صيغة رسالة.
+export interface CampaignFunnelVariantStats {
+  variant: string
+  /** بند ٦ — نفس نص الصيغة ممكن يتكرر بأكثر من حملة؛ العدد يوضّح إذا الصف مجمّع. */
+  campaignCount: number
+  sent: number
+  replied: number
+  boughtChoice: number
+  registered: number
+  openedCatalog: number
+  firstOrder: number
+}
+
+export interface CampaignFunnelReport {
+  from: string | null
+  to: string | null
+  tag: string | null
+  totals: Omit<CampaignFunnelVariantStats, "variant">
+  byVariant: CampaignFunnelVariantStats[]
 }
 
 export interface WarehouseComparisonRow {
@@ -968,6 +1005,23 @@ export interface AppSettings {
   /** بند ٧ — كوبون أول طلب. */
   firstOrderCouponPercent?: number
   firstOrderCouponDurationDays?: number
+  /** بند ٨ — ثلاث متابعات تلقائية مستقلة. */
+  followUpNoReplyEnabled?: boolean
+  followUpNoReplyDays?: number
+  followUpNoReplyMessage?: string
+  followUpRegisteredNoOrderEnabled?: boolean
+  followUpRegisteredNoOrderDays?: number
+  followUpRegisteredNoOrderMessage?: string
+  followUpInactiveEnabled?: boolean
+  followUpInactiveDays?: number
+  followUpInactiveMessage?: string
+  followUpActiveStartHour?: number
+  followUpActiveEndHour?: number
+  /** بند ٩ — حماية جودة الرقم (وقائي). */
+  whatsappLastQualityRating?: string
+  whatsappLastPhoneStatus?: string
+  whatsappQualityCheckedAt?: string
+  campaignGlobalDailyCap?: number
   storeName: string
   storeLogo: string
   storePhone: string
@@ -1135,12 +1189,17 @@ export interface Campaign {
   messages: string[]
   productIds: string[]
   includeCatalogLink: boolean
+  offerRegistrationChoices: boolean
   minDelaySec: number
   maxDelaySec: number
   dailyMin: number
   dailyMax: number
   activeStartHour: number
   activeEndHour: number
+  useTemplate: boolean
+  templateName?: string | null
+  templateLanguage?: string | null
+  templateBodyParams?: string[]
   sentToday: number
   dailyCapToday: number
   lastSentAt?: string | null
@@ -1215,12 +1274,18 @@ export interface CampaignPayload {
   messages: string[]
   productIds?: string[]
   includeCatalogLink?: boolean
+  /** بند ٥ — appends "رد 1 للشراء / 2 للكروب" to the text body. */
+  offerRegistrationChoices?: boolean
   minDelaySec?: number
   maxDelaySec?: number
   dailyMin?: number
   dailyMax?: number
   activeStartHour?: number
   activeEndHour?: number
+  useTemplate?: boolean
+  templateName?: string
+  templateLanguage?: string
+  templateBodyParams?: string[]
 }
 
 /* ── Inbound messages (الرسائل الواردة) ── */
@@ -1236,6 +1301,8 @@ export interface InboundMessage {
   status: InboundMessageStatus
   replyText?: string | null
   repliedAt?: string | null
+  /** بند ٥ — set when the sender asked to talk to a human ("أريد أحچي مع موظف"). */
+  urgent?: boolean
   createdAt: string
 }
 

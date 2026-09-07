@@ -17,7 +17,7 @@ import { WhatsAppChannelDialog } from "../components/WhatsAppChannelDialog"
 import { localDateStr } from "../utils/date"
 import { fmt } from "../utils/fmt"
 import { useDailyAssistant } from "../hooks/useReports"
-import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings } from "../api/endpoints"
+import { getProfitReport, getWarehouseComparisonReport, getCrossSellPairs, getStoreBrainReport, getDailyAssistant, getDebtReminderList, sendDebtReminder, getInactiveReminderList, sendInactiveReminder, sendWhatsAppTemplatedMessage, getInvoices, getVouchers, getSettings, updateSettings, getProductReviews, getSearchMisses } from "../api/endpoints"
 import { useQueryClient } from "@tanstack/react-query"
 import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
@@ -25,7 +25,7 @@ import { Input } from "../components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "../components/ui/table"
 import { toast } from "../components/ui/use-toast"
 
-type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "archive"
+type Tab = "assistant" | "store-brain" | "sales" | "profits" | "top-customers" | "end-of-day" | "inventory" | "debts" | "inactive" | "reviews" | "archive"
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "assistant",    label: "المساعد الذكي",   emoji: "🤖" },
@@ -37,6 +37,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: "inventory",    label: "المخزون",         emoji: "📦" },
   { id: "debts",        label: "الديون",          emoji: "🔔" },
   { id: "inactive",     label: "غير نشطين",       emoji: "💤" },
+  { id: "reviews",      label: "تقييمات الزبائن", emoji: "⭐" },
   { id: "archive",      label: "الأرشيف",         emoji: "🗄️" },
 ]
 
@@ -87,6 +88,7 @@ export function ReportsPage() {
       {activeTab === "inventory"     && <InventoryTab />}
       {activeTab === "debts"         && <DebtsTab />}
       {activeTab === "inactive"      && <InactiveTab />}
+      {activeTab === "reviews"       && <ReviewsTab />}
       {activeTab === "archive"       && <ArchiveTab />}
     </div>
   )
@@ -1268,6 +1270,88 @@ function SummaryBox({ title, count, total, collected, color }: {
       {collected !== undefined ? (
         <div className="text-xs text-slate-600 mt-0.5">محصّل: {fmt(collected)} د.ع</div>
       ) : null}
+    </div>
+  )
+}
+
+// ─── Customer Reviews Tab ────────────────────────────────────────────────────
+// Reviews arrive via a delayed WhatsApp follow-up (~2 days after a sale) asking
+// the customer to rate their purchase — see product-review.service.ts. Purely
+// read-only here; there's no in-app way to trigger or edit a review.
+function ReviewsTab() {
+  const [page, setPage] = useState(1)
+  const query = useQuery({
+    queryKey: ["product-reviews", page],
+    queryFn: () => getProductReviews({ page, limit: 20 }),
+  })
+  const reviews = query.data?.data ?? []
+  const pages = query.data?.pagination.pages ?? 1
+  const missesQuery = useQuery({
+    queryKey: ["search-misses"],
+    queryFn: getSearchMisses,
+  })
+  const misses = missesQuery.data ?? []
+
+  return (
+    <div className="space-y-4">
+    <Card>
+      <CardHeader><CardTitle>تقييمات الزبائن ⭐</CardTitle></CardHeader>
+      <CardContent>
+        {reviews.length === 0 ? (
+          <p className="text-sm text-slate-500">لا توجد تقييمات بعد.</p>
+        ) : (
+          <>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>الزبون</TH>
+                  <TH>الفاتورة</TH>
+                  <TH>التقييم</TH>
+                  <TH>التعليق</TH>
+                  <TH>التاريخ</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {reviews.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="font-medium">{r.customer.name}</TD>
+                    <TD>{r.invoice.invoiceNumber}</TD>
+                    <TD>{r.rating ? "⭐".repeat(r.rating) : "—"}</TD>
+                    <TD className="max-w-xs truncate" title={r.comment ?? ""}>{r.comment ?? "—"}</TD>
+                    <TD className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleDateString("ar-IQ")}</TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+            {pages > 1 && (
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>السابق</Button>
+                <span className="text-xs text-slate-500">{page} / {pages}</span>
+                <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>التالي</Button>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader><CardTitle>أكثر عمليات البحث بدون نتيجة 🔍</CardTitle></CardHeader>
+      <CardContent>
+        <p className="mb-2 text-xs text-slate-500">مواد يدور عليها الزبائن بالكتالوج العام وما يلقونها — طلب فعلي مو موجود عندك.</p>
+        {misses.length === 0 ? (
+          <p className="text-sm text-slate-500">لا توجد عمليات بحث بدون نتيجة بعد.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {misses.map((m) => (
+              <span key={m.query} className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                {m.query} ({m.count})
+              </span>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
     </div>
   )
 }
