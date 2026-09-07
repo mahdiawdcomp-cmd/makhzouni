@@ -94,6 +94,8 @@ import { useTheme } from "../theme/ThemeProvider"
 import { useAuthStore } from "../store/authStore"
 import { cn } from "../utils/cn"
 import { ChangePasswordForm } from "../components/settings/ChangePasswordForm"
+import { InstagramSettings } from "../components/settings/InstagramSettings"
+import { Instagram as InstagramIcon } from "../components/instagram/InstagramIcon"
 import { CatalogCategoriesManager } from "../components/CatalogCategoriesManager"
 
 interface SeasonalAlert {
@@ -192,13 +194,14 @@ function toCsv<T extends object>(rows: T[]) {
   })].join("\n")
 }
 
-type SettingsTab = "server" | "store" | "theme" | "whatsapp" | "telegram" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
+type SettingsTab = "server" | "store" | "theme" | "whatsapp" | "instagram" | "telegram" | "alerts" | "backup" | "security" | "admin" | "archive" | "shortcuts" | "danger"
 
 const TABS: { id: SettingsTab; label: string; icon: typeof Building2 }[] = [
   { id: "server",    label: "ربط السيرفر",       icon: Server },
   { id: "store",     label: "المتجر",           icon: Building2 },
   { id: "theme",     label: "المظهر",           icon: Palette },
   { id: "whatsapp",  label: "واتساب",           icon: MessageCircle },
+  { id: "instagram", label: "انستغرام",         icon: InstagramIcon },
   { id: "telegram",  label: "قناة تيليگرام",    icon: Send },
   { id: "alerts",    label: "التنبيهات",        icon: BellRing },
   { id: "security",  label: "الأمان",           icon: KeyRound },
@@ -869,6 +872,11 @@ export function SettingsPage() {
           </CardContent>
         </Card>
         </>
+      )}
+
+      {/* ── INSTAGRAM ──────────────────────────────────────── */}
+      {activeTab === "instagram" && (
+        <Card><CardContent className="p-4"><InstagramSettings /></CardContent></Card>
       )}
 
       {/* ── ALERTS ─────────────────────────────────────────── */}

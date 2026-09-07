@@ -2855,9 +2855,38 @@ export async function deleteWhatsappQuickReply(id: string) {
   await api.delete(`/whatsapp-chat/quick-replies/${id}`)
 }
 
+export async function getInstagramAppConfig() {
+  const { data } = await api.get<ApiEnvelope<{ appId: string; hasAppSecret: boolean }>>("/instagram/app-config")
+  return data.data!
+}
+
+export async function saveInstagramAppConfig(payload: { appId?: string; appSecret?: string }) {
+  const { data } = await api.put<ApiEnvelope<{ appId: string; hasAppSecret: boolean }>>("/instagram/app-config", payload)
+  return data.data!
+}
+
 export async function getInstagramAccounts() {
   const { data } = await api.get<ApiEnvelope<InstagramAccount[]>>("/instagram/accounts")
   return data.data ?? []
+}
+
+export async function getInstagramOauthUrl(returnTo: string) {
+  const { data } = await api.get<ApiEnvelope<{ url: string }>>("/instagram/oauth-url", { params: { returnTo } })
+  return data.data!.url
+}
+
+export async function connectInstagramManual(accessToken: string) {
+  const { data } = await api.post<ApiEnvelope<InstagramAccount[]>>("/instagram/accounts/manual", { accessToken })
+  return data.data ?? []
+}
+
+export async function checkInstagramAccount(id: string) {
+  const { data } = await api.post<ApiEnvelope<InstagramAccount>>(`/instagram/accounts/${id}/check`)
+  return data.data!
+}
+
+export async function disconnectInstagramAccount(id: string) {
+  await api.post(`/instagram/accounts/${id}/disconnect`)
 }
 
 export async function uploadRetailItemVideo(itemId: string, file: File, meta: { duration?: number; width?: number; height?: number }) {
