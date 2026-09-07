@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { ArrowRight, Copy, Link2, Link2Off, MessageCircle, Pencil, Trash2 } from "lucide-react"
 import { CustomerStatementPdfButton } from "../components/CustomerStatementPdfButton"
+import { LoyaltyBalanceCard } from "../components/LoyaltyBalanceCard"
 import { ConfirmDialog } from "../components/ui/confirm-dialog"
 import { createCustomerPortalLink, toggleCustomerPortalLink, getCustomerRatings, deleteCustomer, recalculateCustomerBalance } from "../api/endpoints"
 import { fmt } from "../utils/fmt"
@@ -323,6 +324,8 @@ export function CustomerDetailPage() {
           ) : null}
         </CardContent>
       </Card>
+
+      {customer && <LoyaltyBalanceCard customerId={customer.id} />}
 
       <ReceiptModal open={receiptOpen} onOpenChange={setReceiptOpen} selectedCustomer={customer} />
       {/* Channel picker — official / personal / open in WhatsApp Web */}

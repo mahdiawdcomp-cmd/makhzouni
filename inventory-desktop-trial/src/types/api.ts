@@ -717,6 +717,8 @@ export interface CreateInvoicePayload {
   originalInvoiceId?: string
   couponCode?: string
   discount: number
+  /** «نقاط الولاء» — points to spend on this invoice, deducted with it. */
+  redeemPoints?: number
   tax: number
   paidAmount: number
   paymentType?: "CASH" | "CREDIT" | "PARTIAL"
@@ -915,6 +917,8 @@ export interface PreparationWorker {
 export interface AppSettings {
   personalDebtReminderWhatsappNumber?: string
   reportsProfitStartDate?: string
+  loyaltyPointValue?: number
+  loyaltyExpiryDays?: number
   storeName: string
   storeLogo: string
   storePhone: string

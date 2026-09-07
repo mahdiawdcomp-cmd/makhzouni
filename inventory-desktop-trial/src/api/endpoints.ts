@@ -2865,3 +2865,141 @@ export async function getWhatsappUnreadCount() {
   const { data } = await api.get<ApiEnvelope<{ count: number }>>("/whatsapp-chat/unread-count")
   return data.data?.count ?? 0
 }
+
+/* ── «تدقيق ربح الزبون» ────────────────────────────────────────────── */
+
+export interface AuditGroup {
+  productId: string
+  productName: string
+  itemNumber: string | null
+  pieces: number
+  revenue: number
+  costPerPiece: number
+  cost: number
+  profit: number
+  /** Null means there is no cost to compare against — unknown, not 100%. */
+  marginPercent: number | null
+  /** RECORDED = frozen at sale time. PRODUCT = the report is guessing with
+   *  today's product cost. NONE = the sale reads as pure profit. */
+  costSource: "RECORDED" | "PRODUCT" | "NONE"
+  productCostPrice: number
+  productPurchasePrice: number
+  lines: Array<{
+    invoiceItemId: string
+    invoiceId: string
+    invoiceNumber: string
+    date: string
+    unit: string
+    quantity: number
+    pieces: number
+    unitPrice: number
+    revenue: number
+    costPerPiece: number
+  }>
+}
+
+export interface CustomerProfitAudit {
+  customer: { id: string; name: string; phone: string }
+  minMarginPercent: number
+  totals: {
+    revenue: number
+    reportedProfit: number
+    knownProfit: number
+    revenueWithKnownCost: number
+    revenueWithoutCost: number
+    returnedRevenue: number
+    revenueEstimated: number
+    revenueNoCost: number
+    knownMarginPercent: number | null
+  }
+  highMargin: AuditGroup[]
+  noCost: AuditGroup[]
+  estimated: AuditGroup[]
+}
+
+export async function getCustomerProfitAudit(params: {
+  customerId: string; minMarginPercent?: number; from?: string; to?: string
+}) {
+  const { data } = await api.get<ApiEnvelope<CustomerProfitAudit>>("/reports/customer-profit-audit", { params })
+  return data.data!
+}
+
+export async function fixInvoiceLineCost(payload: {
+  productId: string
+  costPerPiece: number
+  scope: "INVOICE" | "CUSTOMER" | "ALL"
+  invoiceItemId?: string
+  customerId?: string
+  updateProduct?: boolean
+}) {
+  const { data } = await api.post<ApiEnvelope<{
+    linesUpdated: number
+    productUpdated: boolean
+    invoicesAffected: number
+    pointsBefore: number
+    pointsAfter: number
+    pointsDelta: number
+  }>>("/reports/customer-profit-audit/fix", payload)
+  return data.data!
+}
+
+/** How many lines a cost fix would touch, asked before it is applied. */
+export async function getCostFixScope(params: { productId: string; customerId?: string }) {
+  const { data } = await api.get<ApiEnvelope<{ thisCustomer: number; everywhere: number }>>(
+    "/reports/customer-profit-audit/fix-scope", { params },
+  )
+  return data.data!
+}
+
+/* ── «نقاط الولاء» ──────────────────────────────────────────────────── */
+
+export interface LoyaltyPointsRow {
+  id: string
+  name: string
+  phone: string
+  loyaltyPoints: number
+  balance: number
+  /** Live sale lines with no cost recorded — the reason to distrust the points. */
+  zeroCostLines: number
+}
+
+export async function getLoyaltyPointsReport() {
+  const { data } = await api.get<ApiEnvelope<{ totalPoints: number; customers: LoyaltyPointsRow[] }>>(
+    "/reports/loyalty-points",
+  )
+  return data.data!
+}
+
+export interface LoyaltyBalance {
+  lifetime: number
+  /** What can actually be spent today, after expiry and past redemptions. */
+  redeemable: number
+  expired: number
+  redeemedTotal: number
+  excluded: boolean
+  pointValue: number
+  expiryDays: number
+  redeemableValue: number
+  redemptions: Array<{
+    id: string
+    points: number
+    value: number
+    pointValue: number
+    invoiceId: string | null
+    note: string | null
+    createdAt: string
+    revertedAt: string | null
+  }>
+}
+
+export async function getLoyaltyBalance(customerId: string) {
+  const { data } = await api.get<ApiEnvelope<LoyaltyBalance>>(`/reports/loyalty-points/${customerId}`)
+  return data.data!
+}
+
+export async function setLoyaltyExclusion(customerId: string, payload: { excluded: boolean; clearPoints?: boolean }) {
+  const { data } = await api.post<ApiEnvelope<{ excluded: boolean; clearedPoints: number }>>(
+    `/reports/loyalty-points/${customerId}/exclude`, payload,
+  )
+  return data.data!
+}
