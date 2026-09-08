@@ -3,6 +3,10 @@
     "target": "ES2022",
     "useDefineForClassFields": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // Matches inventory-web. Without "node" the src/**/*.test.ts files fail to
+    // type-check on `node:test` / `node:fs`; "vite/client" keeps import.meta.env
+    // typed, which listing "types" at all would otherwise drop.
+    "types": ["vite/client", "node"],
     "allowJs": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
