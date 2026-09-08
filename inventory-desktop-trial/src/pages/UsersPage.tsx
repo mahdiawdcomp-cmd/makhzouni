@@ -412,6 +412,22 @@ export function UsersPage() {
                 )
               })}
             </div>
+            <div className="my-3 border-t border-slate-200 dark:border-slate-700" />
+            <div className="mb-2 text-sm font-semibold text-slate-600">صلاحيات انستغرام</div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {allPermissions.filter((p) => p.group === "instagram").map((permission) => {
+                const checked = form.role === "ADMIN" || (form.permissions ?? []).includes(permission.id)
+                return (
+                  <label key={permission.id} className="flex gap-3 rounded-md border border-pink-100 bg-pink-50/50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/50">
+                    <input type="checkbox" checked={checked} disabled={form.role === "ADMIN"} onChange={() => togglePermission(permission.id)} />
+                    <span>
+                      <span className="block font-medium">{permission.label}</span>
+                      <span className="block text-xs text-slate-500">{permission.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
             {form.role === "ADMIN" ? (
               <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح أدناه.</div>
             ) : null}

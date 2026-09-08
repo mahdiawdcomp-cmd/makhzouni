@@ -203,6 +203,10 @@ export function CustomerDetailPage() {
       if (!customer?.phone || !link) return
       const url = `${window.location.origin}${link.urlPath}`
       const msg = `مرحباً ${customer.name}،\nهذا رابطك الخاص لمتابعة حسابك وفواتيرك في أي وقت:\n${url}`
+      // Copied to the clipboard BEFORE the send attempt — once this link is
+      // sent or revoked, only its hash survives server-side, so a failed send
+      // must never leave the owner with nothing to fall back on.
+      try { await navigator.clipboard?.writeText(url) } catch { /* clipboard permission denied — the send attempt still proceeds */ }
       try {
         // bodyParams order must match the approved Meta template's {{1}}..{{n}}
         // placeholders, in this order, if/once one is configured in Settings.
@@ -213,9 +217,9 @@ export function CustomerDetailPage() {
           bodyParams: [customer.name, url],
           channel,
         })
-        toast({ title: "✓ تم إرسال رابط العميل عبر واتساب." })
+        toast({ title: "✓ تم إرسال رابط العميل عبر واتساب.", description: "الرابط منسوخ أيضاً بالحافظة." })
       } catch (err) {
-        toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله.", description: apiErrorMessage(err, "تحقق من إعدادات واتساب"), variant: "destructive" })
+        toast({ title: "✗ أُنشئ الرابط لكن تعذر إرساله.", description: apiErrorMessage(err, "الرابط منسوخ بالحافظة — تكدر ترسله يدوياً"), variant: "destructive" })
       }
     },
     onError: () => toast({ title: "✗ تعذر إنشاء الرابط.", variant: "destructive" }),
