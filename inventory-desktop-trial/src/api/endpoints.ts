@@ -24,6 +24,7 @@ import type {
   CatalogStockFilter,
   OrderPreparation,
   CatalogOrderPayload,
+  GuestCatalogOrderPayload,
   CatalogAccessRequestPayload,
   CatalogAccessStatus,
   CatalogSession,
@@ -221,12 +222,16 @@ export async function getGuestCatalogProducts() {
   return data.data ?? []
 }
 
-export async function guestCatalogEnter(phone: string) {
-  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>("/public/catalog/guest-enter", { phone })
+export async function guestCatalogEnter(phone: string, details?: { name?: string; province?: string }) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean; hasAccount?: boolean }>>("/public/catalog/guest-enter", {
+    phone,
+    name: details?.name?.trim() || undefined,
+    province: details?.province || undefined,
+  })
   return data.data
 }
 
-export async function submitGuestCatalogOrder(payload: { customerName: string; phone: string; address?: string; notes?: string; items: Array<{ productId: string; unit: string; quantity: number }> }) {
+export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }) {
   const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload)
   return data
 }
@@ -3622,4 +3627,223 @@ export async function addMarketingOptOut(phone: string, reason?: string) {
 
 export async function resumeMarketingFor(phone: string) {
   await api.post("/catalog-management/opt-outs/resume", { phone })
+}
+
+/* ── Public catalog (storefront) — ported from inventory-web for desktop
+   parity. The backend routes already existed and are shared; only the
+   desktop client was missing these bindings. Keep them byte-identical to
+   the web copies. ─────────────────────────────────────────────────────── */
+
+/* ── Storefront login ─────────────────────────────────────────────── */
+
+export type CustomerLoginResult =
+  | { kind: "CUSTOMER"; token: string; customer: { id: string; name: string; phone: string } }
+  | {
+      kind: "VISITOR"
+      phone: string
+      token: string
+      detailsSubmitted: boolean
+      pricesUnlocked: boolean
+      priceRequestPending: boolean
+    }
+
+export interface VisitorSession {
+  phone: string
+  name: string | null
+  address: string | null
+  notes: string | null
+  province: string | null
+  businessType: string | null
+  detailsSubmitted: boolean
+  pricesUnlocked: boolean
+  priceRequestPending: boolean
+  customerId: string | null
+}
+
+export async function customerLogin(phone: string, code: string) {
+  const { data } = await api.post<ApiEnvelope<CustomerLoginResult>>(
+    "/public/catalog/login", { phone, code },
+  )
+  return data.data!
+}
+
+/** Identified by the browsing session, never by a phone the caller supplies. */
+export async function submitStorefrontSignupDetails(payload: {
+  token: string; customerName: string; address?: string; notes?: string
+  province?: string; businessType?: string
+}) {
+  const { data } = await api.post<ApiEnvelope<{ ok: boolean }>>(
+    "/public/catalog/signup-details", payload,
+  )
+  return data
+}
+
+export async function getVisitorSession(token: string) {
+  const { data } = await api.get<ApiEnvelope<VisitorSession>>(
+    "/public/catalog/visitor-session", { params: { token } },
+  )
+  return data.data!
+}
+
+export async function getVisitorCatalogProducts(token: string) {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>(
+    "/public/catalog/visitor-products", { params: { token } },
+  )
+  return data.data ?? []
+}
+
+export async function requestCatalogPrices(token: string) {
+  const { data } = await api.post<ApiEnvelope<{ alreadyUnlocked: boolean; pending: boolean }>>(
+    "/public/catalog/request-prices", { token },
+  )
+  return data.data!
+}
+
+/* ── «حسابي» — the customer's own statement inside the storefront ──── */
+
+export interface CustomerAccountTx {
+  id: string
+  type: string
+  invoiceType?: string | null
+  date: string
+  description: string
+  referenceNumber?: string | null
+  debit: number
+  credit: number
+  runningBalance: number
+  status?: string | null
+}
+
+export interface CustomerAccount {
+  customer: {
+    id: string; name: string; phone: string; address: string | null
+    openingBalance: number; currentBalance: number
+    lastTransactionAt: string | null; loyaltyPoints: number
+  }
+  transactions: CustomerAccountTx[]
+  storeName: string
+  storePhone: string | null
+  currency: string
+}
+
+export async function getCustomerAccount(access: string) {
+  const { data } = await api.get<ApiEnvelope<CustomerAccount>>(
+    "/public/catalog/account", { params: { access } },
+  )
+  return data.data!
+}
+
+/* ── Product pictures & detail page ───────────────────────────────── */
+
+/** Gallery-sized pictures for the tiles about to be drawn. */
+export async function getCatalogMediums(ids: string[], opts?: { access?: string; visitor?: string }) {
+  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
+    "/public/catalog/mediums", { ids },
+    { params: { ...(opts?.access ? { access: opts.access } : {}), ...(opts?.visitor ? { visitor: opts.visitor } : {}) } },
+  )
+  return data.data ?? {}
+}
+
+export async function getGuestCatalogProductImage(id: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
+    "/public/catalog/guest-product-image",
+    { params: { id, ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data?.imageUrl ?? null
+}
+
+export interface CatalogProductReviewItem {
+  id: string
+  rating: number
+  comment: string | null
+  authorName: string
+  createdAt: string
+}
+
+export interface CatalogProductDetail {
+  id: string
+  itemNumber: string
+  name: string
+  thumbnailUrl: string | null
+  category: string | null
+  isNewArrival: boolean
+  isOffer: boolean
+  oldPrice: number | null
+  offerEndsAt: string | null
+  salePrice: number | null
+  pcsPerCarton: number
+  boxPieces: number | null
+  hiddenUnits: Array<"DOZEN" | "BOX" | "CARTON">
+  currentStock: number
+  showStock: boolean
+  description: string
+  specs: CatalogProductSpec[]
+  gallery: Array<{ id: string; thumbnailUrl: string | null }>
+  reviews: { average: number | null; count: number; items: CatalogProductReviewItem[] }
+  related: Array<{
+    id: string; name: string; itemNumber: string; thumbnailUrl: string | null
+    salePrice: number | null; pcsPerCarton: number; currentStock: number
+  }>
+}
+
+export interface MyCatalogReview {
+  id: string
+  rating: number
+  comment: string | null
+  status: "PENDING" | "APPROVED" | "REJECTED"
+  createdAt: string
+}
+
+/** `access` is "" for guest browsing — the backend refuses if guests are off. */
+export async function getCatalogProductDetail(productId: string, access: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<CatalogProductDetail>>(
+    `/public/catalog/product/${productId}`,
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data!
+}
+
+/**
+ * Thumbnails for the products currently on screen.
+ *
+ * The grid ships without them on purpose: a few hundred base64 thumbnails is
+ * several megabytes on the first open. `access` is "" for guest browsing.
+ *
+ * A signed-in visitor carries their own token: without it the request falls
+ * into the guest branch, which the backend refuses whenever the shop requires
+ * a login — and every card silently loses its picture.
+ */
+export async function getCatalogThumbnails(ids: string[], access: string, visitor = "") {
+  if (ids.length === 0) return {}
+  const { data } = await api.post<ApiEnvelope<Record<string, string | null>>>(
+    "/public/catalog/thumbnails", { ids },
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data ?? {}
+}
+
+export async function getCatalogGalleryImage(productId: string, imageId: string, access: string, visitor = "") {
+  const { data } = await api.get<ApiEnvelope<{ imageUrl: string | null }>>(
+    `/public/catalog/product/${productId}/image/${imageId}`,
+    { params: { ...(access ? { access } : {}), ...(visitor ? { visitor } : {}) } },
+  )
+  return data.data?.imageUrl ?? null
+}
+
+export async function getMyCatalogReview(productId: string, access: string) {
+  if (!access) return null
+  const { data } = await api.get<ApiEnvelope<MyCatalogReview | null>>(
+    `/public/catalog/product/${productId}/my-review`,
+    { params: { access } },
+  )
+  return data.data ?? null
+}
+
+export async function submitCatalogProductReview(
+  productId: string, access: string, payload: { rating: number; comment?: string },
+) {
+  const { data } = await api.post<ApiEnvelope<{ id: string; status: string }>>(
+    `/public/catalog/product/${productId}/review`, payload, { params: { access } },
+  )
+  return data
 }

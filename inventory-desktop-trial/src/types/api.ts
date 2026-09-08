@@ -423,6 +423,9 @@ export interface PublicCatalogProduct {
   name: string
   imageUrl?: string | null
   thumbnailUrl?: string | null
+  /** The grid ships without thumbnails; this says whether one exists, so a
+   *  card can show a loading box instead of a "no picture" icon. */
+  hasImage?: boolean
   category?: string | null
   categoryTags?: string[]
   typeTags?: string[]
@@ -436,6 +439,12 @@ export interface PublicCatalogProduct {
   hiddenUnits?: ("DOZEN" | "BOX" | "CARTON")[]
   currentStock: number
   showStock?: boolean
+  /** Deadline for isOffer, drives the storefront countdown. */
+  offerEndsAt?: string | null
+  /** Ranking signals for the "best selling" / "top rated" sorts. */
+  soldCount?: number
+  ratingAvg?: number | null
+  ratingCount?: number
 }
 
 export interface CatalogAccessRequestPayload {
@@ -462,12 +471,18 @@ export interface CatalogSession {
   stockFilter?: CatalogStockFilter
   // true when the access link needs a fresh OTP (never verified, or older than ~6 months)
   needsOtp?: boolean
+  // بند ٤ — جملة توصيل واحدة حسب محافظة الزبون؛ null لو محافظته غير معروفة.
+  deliveryLine?: string | null
+  // بند ٧ — كوبون أول طلب النشط لهذا الزبون، لو موجود.
+  firstOrderCoupon?: { code: string; percent: number; expiresAt: string } | null
 }
 
 export interface CatalogOrderPayload {
   customerName: string
   phone: string
   address?: string
+  /** Governorate — what the delivery rules read to price the shipping. */
+  province?: string
   notes?: string
   promoCode?: string
   items: Array<{
@@ -477,6 +492,8 @@ export interface CatalogOrderPayload {
     quantity: number
   }>
 }
+
+export type GuestCatalogOrderPayload = Omit<CatalogOrderPayload, "promoCode">
 
 export interface ProductPayload {
   // Only `name` is required; the server will auto-generate item number / QR codes if omitted.
