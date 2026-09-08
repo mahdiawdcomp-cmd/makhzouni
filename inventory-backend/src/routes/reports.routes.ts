@@ -4,6 +4,7 @@ import {
   customerDebtsReport,
   customerRatingsReport,
   customerStatementsExportReport,
+  customerStatementsExportHtml,
   dailyAssistantReport,
   dailySummaryReport,
   dashboardReport,
@@ -31,6 +32,8 @@ import {
   topCustomersReport,
 } from "../controllers/reports.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
+import { allowBackupAccess } from "../middleware/backup-access.middleware";
+import rateLimit from "express-rate-limit";
 import { requirePermission, requireProfitReports } from "../middleware/permission.middleware";
 import { validate } from "../middleware/validate";
 import {
@@ -51,6 +54,27 @@ import {
 } from "../utils/schemas";
 
 const router = Router();
+
+// «الكشف العام» as a downloadable file. Registered BEFORE the blanket
+// authMiddleware below so the nightly scheduled task — which runs with the app
+// closed and therefore holds no session — can authenticate with the backup
+// secret alone; allowBackupAccess still runs authMiddleware itself for the
+// in-app button's admin-session path, so nothing here is public.
+// Its own limiter, not the backup one: sharing that 10/hour bucket would let a
+// merchant clicking «حفظ الكشف العام» a few times lock out the night's backup.
+const statementExportLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many statement exports. Try again later.", code: "STATEMENT_EXPORT_RATE_LIMITED" },
+});
+router.get(
+  "/customers/statements-export.html",
+  statementExportLimiter,
+  allowBackupAccess,
+  customerStatementsExportHtml,
+);
 
 router.use(authMiddleware);
 

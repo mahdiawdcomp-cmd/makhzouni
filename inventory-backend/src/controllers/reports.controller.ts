@@ -24,6 +24,11 @@ import { getTopSearchMisses } from "../services/catalog-tracking.service";
 import { sendTextWithTemplateFallback } from "../services/whatsapp.service";
 import { getSettings } from "../services/settings.service";
 import { getAllCustomerStatements } from "../services/customer.service";
+import {
+  buildStatementsHtmlReport,
+  type StatementExportEntry,
+} from "../services/customer-statement-html.service";
+import { contentDisposition } from "../utils/content-disposition";
 
 const CLOUD_TEMPLATE_LANG = "ar";
 
@@ -173,6 +178,70 @@ export const customerStatementsExportReport = asyncHandler(async (req, res) => {
   const params = req.validatedQuery as Parameters<typeof getAllCustomerStatements>[0];
   const { data, total, pages } = await getAllCustomerStatements(params);
   res.json({ success: true, data, pagination: { total, page: params.page, limit: params.limit, pages } });
+});
+
+/**
+ * GET /api/reports/customers/statements-export.html — «الكشف العام» as a file.
+ *
+ * Same data as the paginated JSON above, rendered here instead of in the
+ * browser. Two callers, one output: the in-app «حفظ الكشف العام» button, and
+ * the nightly Windows scheduled task, which runs with the app closed on a
+ * machine that has no Node and so cannot render anything itself.
+ *
+ * Pages internally rather than making the caller loop — a scheduled task that
+ * has to stitch pages together is a second place for the report to go wrong.
+ * `tz` is the reader's IANA timezone: without it every row would be dated in
+ * the server's UTC and an evening invoice would land on the following day.
+ */
+export const customerStatementsExportHtml = asyncHandler(async (req, res) => {
+  const query = req.query as Record<string, string | undefined>;
+  const filter = {
+    customerFilter: (query.customerFilter as "all" | "withBalance" | "inactive") ?? "all",
+    inactiveDays: query.inactiveDays ? Number(query.inactiveDays) : undefined,
+    from: query.from || undefined,
+    to: query.to || undefined,
+    all: !query.from && !query.to,
+  };
+  // Reject a bad zone here rather than letting toLocaleString throw halfway
+  // through a report the caller has already waited minutes for.
+  let timeZone = query.tz || "UTC";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+  } catch {
+    timeZone = "UTC";
+  }
+
+  const limit = 50;
+  const entries: StatementExportEntry[] = [];
+  let page = 1;
+  let pages = 1;
+  do {
+    const result = await getAllCustomerStatements({ ...filter, page, limit });
+    entries.push(...(result.data as unknown as StatementExportEntry[]));
+    pages = result.pages;
+    page += 1;
+  } while (page <= pages);
+
+  const settings = await getSettings().catch(() => null);
+  const html = buildStatementsHtmlReport(
+    entries,
+    { storeName: settings?.storeName, storeLogo: settings?.storeLogo },
+    new Date(),
+    timeZone,
+  );
+
+  // Stamp the name in the reader's day, not the server's. toISOString() here
+  // named the file after YESTERDAY for the first three hours of every Baghdad
+  // day — precisely when a nightly export runs.
+  const stamp = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Content-Disposition", contentDisposition("attachment", `الكشف-العام-${stamp}.html`));
+  res.send(html);
 });
 
 // POST /api/reports/debt-reminder/send  — send WhatsApp to selected customers

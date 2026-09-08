@@ -3,8 +3,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { toast } from "./ui/use-toast"
-import { useSettings } from "../hooks/useSettings"
-import { fetchAllCustomerStatements, buildStatementsHtmlReport, type StatementExportFilter } from "../utils/customerStatementExport"
+import { getCustomerStatementsHtml } from "../api/endpoints"
+import type { StatementExportFilter } from "../utils/customerStatementExport"
 import { saveGeneratedTextFile } from "../utils/download"
 import { localDateStr } from "../utils/date"
 import { cn } from "../utils/cn"
@@ -32,7 +32,6 @@ export function GenerateFullStatementDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { data: settings } = useSettings()
   const [phase, setPhase] = useState<Phase>("options")
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [savedPath, setSavedPath] = useState<string | null>(null)
@@ -75,16 +74,12 @@ export function GenerateFullStatementDialog({
     cancelledRef.current = false
     try {
       setPhase("fetching")
-      const entries = await fetchAllCustomerStatements(buildFilter(), (done, total) => {
-        if (!cancelledRef.current) setProgress({ done, total })
-      })
+      // The server pages through the customers and renders the file, so there
+      // is no per-page progress to report any more — the bar runs indeterminate
+      // instead of lying about a percentage it cannot know.
+      const html = await getCustomerStatementsHtml(buildFilter())
       if (cancelledRef.current) return
       setPhase("building")
-      const html = buildStatementsHtmlReport(
-        entries,
-        { storeName: settings?.storeName, storeLogo: settings?.storeLogo },
-        new Date(),
-      )
       const filename = `كشف-حساب-عام-${localDateStr()}.html`
       const saved = await saveGeneratedTextFile(filename, html)
       if (cancelledRef.current) return

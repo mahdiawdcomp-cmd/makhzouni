@@ -18,7 +18,9 @@
     "backup:incremental:verify": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-incremental-chain.ps1",
     "backup:incremental:reconstruct": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/reconstruct-backup.ps1",
     "backup:incremental:compare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/compare-reconstructed.ps1",
-    "backup:incremental:health": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-incremental-health.ps1"
+    "backup:incremental:health": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-incremental-health.ps1",
+    "statement:daily": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/statement-export-online.ps1",
+    "statement:install-task": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-statement-task.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

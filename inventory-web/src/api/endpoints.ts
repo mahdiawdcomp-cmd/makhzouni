@@ -1649,6 +1649,34 @@ export async function getCustomerStatementsExport(params: {
   return { entries: data.data ?? [], pagination: data.pagination }
 }
 
+/**
+ * «الكشف العام» rendered server-side, as one ready-to-save HTML file.
+ *
+ * The markup used to be built here, from paged JSON. It moved to the backend so
+ * the nightly scheduled task can produce the identical file with the app closed
+ * — an installed machine has no Node to run the builder on. Keeping a second
+ * copy in the client is how this export grew three diverging implementations
+ * before, so this is now the only one.
+ *
+ * `tz` travels with the request: the server runs in UTC, and without it an
+ * evening invoice prints under the following day's date.
+ */
+export async function getCustomerStatementsHtml(params: {
+  customerFilter?: "all" | "withBalance" | "inactive"
+  inactiveDays?: number
+  from?: string
+  to?: string
+}) {
+  const { data } = await api.get<string>("/reports/customers/statements-export.html", {
+    params: { ...params, tz: Intl.DateTimeFormat().resolvedOptions().timeZone },
+    responseType: "text",
+    // The report walks every customer's whole history; the default 60s cuts
+    // off a shop with a few thousand of them.
+    timeout: 10 * 60_000,
+  })
+  return data
+}
+
 export async function recalculateCustomerBalance(id: string) {
   const { data } = await api.post<ApiEnvelope<Customer>>(`/customers/${id}/recalculate-balance`)
   return data.data
