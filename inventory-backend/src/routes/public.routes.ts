@@ -241,7 +241,12 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
         // Not catalogDesign* keys, but the code-request button below needs
         // them — without this they silently read as undefined and the button
         // fell back to a hardcoded keyword instead of the configured one.
-        { key: { in: ["storefrontInviteKeywords", "catalogAdminWhatsappNumber", "storePhone", "catalogAnnouncementEnabled", "catalogAnnouncementText"] } },
+        // `catalogPublicUrl` is the tenant's own storefront address. The page
+        // needs it to build a shareable product link: deriving one from the
+        // browser's origin is right in a browser and wrong in the desktop app,
+        // where the origin is Tauri's asset protocol and the link it produces
+        // is dead everywhere outside that one installation.
+        { key: { in: ["storefrontInviteKeywords", "catalogAdminWhatsappNumber", "storePhone", "catalogAnnouncementEnabled", "catalogAnnouncementText", "catalogPublicUrl"] } },
       ],
     },
   });
@@ -259,6 +264,18 @@ router.get("/catalog/design", catalogLimiter, asyncHandler(async (_req, res) => 
   res.json({
     success: true,
     data: {
+      // Origin only — the shop's own address, never a path. Blank when the
+      // merchant has not configured one, and the caller falls back to its own
+      // origin, which is what every browser client did before this existed.
+      publicUrl: (() => {
+        const configured = String(kv.catalogPublicUrl ?? "").trim();
+        if (!configured) return null;
+        try {
+          return new URL(configured).origin;
+        } catch {
+          return null;
+        }
+      })(),
       primaryColor: (kv.catalogDesignPrimaryColor as string) ?? null,
       bgColor: (kv.catalogDesignBgColor as string) ?? null,
       defaultTheme: (kv.catalogDesignDefaultTheme as string) ?? "clean",

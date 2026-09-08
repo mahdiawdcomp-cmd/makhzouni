@@ -72,6 +72,25 @@ const fullPermissions = allPermissions
 const HIDE_PROFIT: UserPermission = "HIDE_PROFIT_REPORTS"
 const isProfitHidden = (perms: UserPermission[] | undefined) => (perms ?? []).includes(HIDE_PROFIT)
 
+const AGENT_DENIES = agentAbilities.map((ability) => ability.deny)
+
+// Every marker that RESTRICTS instead of granting. `fullPermissions` deliberately
+// carries none of them, so each place that expands an ADMIN to "everything" has to
+// carry them across by hand. Missing one is not cosmetic: the backend honours
+// SALES_AGENT even on an ADMIN (see permission.middleware.ts), so dropping it here
+// hands an account that the owner just confined to the rep screen the run of the
+// whole shop — and the checkbox stays ticked in the dialog, so nothing says so.
+function keepRestrictions(perms: UserPermission[] | undefined): UserPermission[] {
+  const current = perms ?? []
+  const kept: UserPermission[] = current.includes(HIDE_PROFIT) ? [HIDE_PROFIT] : []
+  if (!current.includes("SALES_AGENT")) return kept
+  return [...kept, "SALES_AGENT", ...AGENT_DENIES.filter((deny) => current.includes(deny))]
+}
+
+/** An ADMIN's stored permission set: every grant, plus the restrictions they carry. */
+const adminPermissions = (perms: UserPermission[] | undefined) =>
+  Array.from(new Set<UserPermission>([...fullPermissions, ...keepRestrictions(perms)]))
+
 const emptyForm: UserForm = {
   name: "",
   username: "",
@@ -113,12 +132,10 @@ export function UsersPage() {
       username: user.username,
       password: "",
       role: user.role,
-      // Admins are shown as holding every grant, but we must preserve the profit DENY
-      // marker if it was set on this account (fullPermissions doesn't carry it).
+      // Admins are shown as holding every grant, but we must preserve the DENY
+      // markers set on this account (fullPermissions carries none of them).
       permissions:
-        user.role === "ADMIN"
-          ? [...fullPermissions, ...(isProfitHidden(user.permissions) ? [HIDE_PROFIT] : [])]
-          : user.permissions ?? [],
+        user.role === "ADMIN" ? adminPermissions(user.permissions) : user.permissions ?? [],
       phone: user.phone ?? "",
       isActive: user.isActive,
     })
@@ -127,15 +144,11 @@ export function UsersPage() {
   }
 
   function setRole(role: Role) {
-    const profitHidden = isProfitHidden(form.permissions)
     setForm({
       ...form,
       role,
-      // Switching to ADMIN grants everything but must keep the profit DENY marker if set.
-      permissions:
-        role === "ADMIN"
-          ? [...fullPermissions, ...(profitHidden ? [HIDE_PROFIT] : [])]
-          : form.permissions,
+      // Switching to ADMIN grants everything but must keep the DENY markers if set.
+      permissions: role === "ADMIN" ? adminPermissions(form.permissions) : form.permissions,
     })
   }
 
@@ -143,6 +156,10 @@ export function UsersPage() {
     const current = new Set(form.permissions ?? [])
     if (current.has(permission)) current.delete(permission)
     else current.add(permission)
+    // Untick «مندوب» and the per-rep switches go with it. Left behind they are
+    // invisible (their panel only renders for a rep) but still stored, so the
+    // account silently comes back short-handed if it is ever made a rep again.
+    if (!current.has("SALES_AGENT")) for (const deny of AGENT_DENIES) current.delete(deny)
     setForm({ ...form, permissions: Array.from(current) })
   }
 
@@ -157,12 +174,12 @@ export function UsersPage() {
   function submit(event: FormEvent) {
     event.preventDefault()
     setError("")
-    // Admins get every grant; both roles additionally carry the profit DENY marker when set.
-    const profitHidden = isProfitHidden(form.permissions)
-    const basePermissions = form.role === "ADMIN" ? fullPermissions : form.permissions ?? []
-    const permissions = Array.from(
-      new Set<UserPermission>([...basePermissions, ...(profitHidden ? [HIDE_PROFIT] : [])]),
-    )
+    // Admins get every grant plus whatever DENY markers they carry; a STAFF form
+    // already holds its own markers, so it is stored exactly as ticked.
+    const permissions =
+      form.role === "ADMIN"
+        ? adminPermissions(form.permissions)
+        : Array.from(new Set<UserPermission>(form.permissions ?? []))
     if (!editing && form.password.trim().length < 4) {
       setError("كلمة المرور لازم تكون 4 أحرف على الأقل")
       return
@@ -492,7 +509,7 @@ export function UsersPage() {
             )}
 
             {form.role === "ADMIN" ? (
-              <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح أدناه وصلاحية المندوب.</div>
+              <div className="mt-2 text-xs text-slate-500">المدير الكامل يحصل على كل الصلاحيات تلقائياً — عدا التحكم بالأرباح وصلاحية المندوب، هذولي تبقى بيدك وتنحفظ متل ما تأشّرها.</div>
             ) : null}
 
             <div className="my-3 border-t border-slate-200 dark:border-slate-700" />

@@ -109,7 +109,6 @@ function ReadOnlySaasBanner() {
 }
 
 export function AppLayout() {
-  const isSalesAgent = useAuthStore((s) => s.isSalesAgent())
   const isPosOnly = useAuthStore((s) => s.isPosOnly())
   const refreshUser = useAuthStore((s) => s.refreshUser)
   const token = useAuthStore((s) => s.token)
@@ -187,10 +186,8 @@ export function AppLayout() {
   }, [darkMode])
 
   // All hooks above run unconditionally; only now may we bail out of rendering.
-  // «المندوب» — the rep has one screen. Any other URL bounces there, the same
-  // treatment POS-only accounts already get. The server enforces the real
-  // scope; this just stops the rep landing on a page built for someone else.
-  if (isSalesAgent) return <Navigate to="/sales-agent" replace />
+  // «المندوب» is bounced to its own screen by ProtectedRoute, not here: /pos
+  // renders under a sibling layout this component never sees.
   if (isPosOnly && pathname !== "/pos") return <Navigate to="/pos" replace />
 
   return (

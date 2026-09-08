@@ -327,7 +327,69 @@ const key = (productId: string, unit: CatalogUnit, isSample = false) =>
 /* ══════════════════════════════════════════════════════════════════════
    ROOT
 ══════════════════════════════════════════════════════════════════════ */
+/* ── Restarting the storefront ─────────────────────────────────────────
+   Signing in, signing out and switching identity all want the same thing: a
+   clean slate at a chosen entry point. They used to get it with
+   `window.location.href = "/catalog?…"`.
+
+   A full-document load of a deep path only works where something serves
+   index.html for it. A dev server and the hosted site both do; the packaged
+   desktop build is served by Tauri's embedded-asset protocol, which has no
+   history fallback — the webview landed on a blank document with no in-app way
+   back, right after the new token had already been written to localStorage.
+
+   Rewriting the query and remounting the tree is the same clean slate without
+   the load: every piece of state below lives in CatalogEntry, whose useState
+   initialisers re-read localStorage and the URL exactly as a fresh page would.
+──────────────────────────────────────────────────────────────────────── */
+type CatalogRestart = {
+  /** Forget every stored identity and reopen at the login gate or as a guest. */
+  restart: (mode: "login" | "browse") => void
+  /** Adopt an access token that has just been proved, and re-enter with it. */
+  enterWithAccess: (token: string) => void
+}
+const CatalogRestartContext = React.createContext<CatalogRestart | null>(null)
+
+function useCatalogRestart(): CatalogRestart {
+  const ctx = React.useContext(CatalogRestartContext)
+  if (!ctx) throw new Error("useCatalogRestart used outside PublicCatalogPage")
+  return ctx
+}
+
+/** Everything that identifies the person browsing, in one place so no caller forgets a key. */
+function clearStoredIdentity() {
+  for (const key of [storageKey, VISITOR_TOKEN_KEY, GUEST_PHONE_KEY, GUEST_NAME_KEY, GUEST_PROVINCE_KEY, SIGNUP_PHONE_KEY]) {
+    localStorage.removeItem(key)
+  }
+}
+
 export function PublicCatalogPage() {
+  const [, setSearchParams] = useSearchParams()
+  // Bumped to remount CatalogEntry — see the note above.
+  const [restartKey, setRestartKey] = useState(0)
+
+  const restart = useCallback((mode: "login" | "browse") => {
+    clearStoredIdentity()
+    setSearchParams(mode === "login" ? { login: "1" } : {}, { replace: true })
+    setRestartKey((n) => n + 1)
+  }, [setSearchParams])
+
+  const enterWithAccess = useCallback((token: string) => {
+    localStorage.setItem(storageKey, token)
+    setSearchParams({ access: token }, { replace: true })
+    setRestartKey((n) => n + 1)
+  }, [setSearchParams])
+
+  const restartValue = useMemo(() => ({ restart, enterWithAccess }), [restart, enterWithAccess])
+
+  return (
+    <CatalogRestartContext.Provider value={restartValue}>
+      <CatalogEntry key={restartKey} />
+    </CatalogRestartContext.Provider>
+  )
+}
+
+function CatalogEntry() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [accessToken, setAccessToken] = useState<string>(
     () => searchParams.get("access") || localStorage.getItem(storageKey) || "",
@@ -825,6 +887,7 @@ const STUDIO_COLS_KEY = "catalog_studio_cols"
 const STUDIO_SHAPE_KEY = "catalog_studio_shape"
 
 function GuestPhoneGate({ children }: { children: React.ReactNode }) {
+  const { restart } = useCatalogRestart()
   const [entered, setEntered] = useState<boolean>(() => Boolean(localStorage.getItem(GUEST_PHONE_KEY)))
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
@@ -867,7 +930,7 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
             سجّل دخولك برمزك حتى تشوف أسعارك وحسابك وفواتيرك. أو كمّل تصفّح بدون حساب.
           </p>
           <button
-            onClick={() => { localStorage.removeItem(GUEST_PHONE_KEY); window.location.href = "/catalog?login=1" }}
+            onClick={() => restart("login")}
             className="mt-4 w-full rounded-xl bg-emerald-600 py-3 text-sm font-bold text-white shadow-md transition active:scale-95"
           >
             سجّل دخول
@@ -932,6 +995,7 @@ function GuestPhoneGate({ children }: { children: React.ReactNode }) {
    GUEST PRICE-ACCESS REQUEST (no OTP — guest mode only)
 ══════════════════════════════════════════════════════════════════════ */
 function GuestAccessRequestModal({ tk, onClose }: { tk: ThemeTokens; onClose: () => void }) {
+  const { enterWithAccess } = useCatalogRestart()
   const [step, setStep] = useState<"form" | "sent">("form")
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
@@ -949,8 +1013,7 @@ function GuestAccessRequestModal({ tk, onClose }: { tk: ThemeTokens; onClose: ()
     mutationFn: () => getCatalogAccessStatus(phone.trim()),
     onSuccess: (s) => {
       if (s?.approved && s.token) {
-        localStorage.setItem(storageKey, s.token)
-        window.location.href = `/catalog?access=${s.token}`
+        enterWithAccess(s.token)
       } else {
         setMsg("طلبك لم يُوافق عليه بعد، حاول لاحقاً.")
       }
@@ -1042,7 +1105,9 @@ function CatalogShop({
   // Three different doors lead into the storefront — a customer link, a visitor
   // code, and the guest phone gate. Whichever they came through, they are
   // signed in as somebody, and signing out has to clear all three or the next
-  // visit silently walks back in as the previous person.
+  // visit silently walks back in as the previous person. clearStoredIdentity()
+  // inside restart() is the one place that knows all of them.
+  const { restart } = useCatalogRestart()
   const signedInName = customerName.trim()
   const signedInPhone = customerPhone.trim()
   // An account is a customer link or a visitor code. The guest gate is not one
@@ -1050,24 +1115,8 @@ function CatalogShop({
   // something to walk back out of, so it earns the sign-out and not the name.
   const hasAccount = Boolean(accessToken || visitorToken)
   const isSignedIn = hasAccount || Boolean(localStorage.getItem(GUEST_PHONE_KEY))
-  function goToLogin() {
-    localStorage.removeItem(storageKey)
-    localStorage.removeItem(VISITOR_TOKEN_KEY)
-    localStorage.removeItem(GUEST_PHONE_KEY)
-    localStorage.removeItem(GUEST_NAME_KEY)
-    localStorage.removeItem(GUEST_PROVINCE_KEY)
-    localStorage.removeItem(SIGNUP_PHONE_KEY)
-    window.location.href = "/catalog?login=1"
-  }
-  function signOut() {
-    localStorage.removeItem(storageKey)
-    localStorage.removeItem(VISITOR_TOKEN_KEY)
-    localStorage.removeItem(GUEST_PHONE_KEY)
-    localStorage.removeItem(GUEST_NAME_KEY)
-    localStorage.removeItem(GUEST_PROVINCE_KEY)
-    localStorage.removeItem(SIGNUP_PHONE_KEY)
-    window.location.href = "/catalog"
-  }
+  const goToLogin = () => restart("login")
+  const signOut = () => restart("browse")
 
   // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
   // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
@@ -1288,7 +1337,7 @@ function CatalogShop({
 
   const designQuery = useQuery({
     queryKey: ["catalog-design-public"],
-    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust>; delivery?: { northGovernorates: string[]; freeShippingThreshold: number } } & Partial<CatalogLayout> }).data ?? {}),
+    queryFn: () => api.get("/public/catalog/design").then(r => (r.data as { data?: { publicUrl?: string | null; primaryColor?: string | null; bgColor?: string | null; defaultTheme?: Theme; logoUrl?: string | null; welcomeMessage?: string | null; bannerEnabled?: boolean; bannerImages?: Array<{ url: string; title: string; order: number }>; footer?: Partial<CatalogFooter>; trust?: Partial<CatalogTrust>; delivery?: { northGovernorates: string[]; freeShippingThreshold: number } } & Partial<CatalogLayout> }).data ?? {}),
     staleTime: 5 * 60_000,
   })
   const design = designQuery.data
@@ -2773,6 +2822,7 @@ function CatalogShop({
           tk={tk}
           allowPrices={allowPrices}
           lowStockCartons={design?.trust?.lowStockCartons ?? 0}
+          publicOrigin={design?.publicUrl ?? ""}
           onClose={closeProduct}
           onAdd={(p, unit) => { add(p, unit); closeProduct() }}
           onSample={(p) => { addSample(p); closeProduct() }}
@@ -3140,11 +3190,13 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 
 function ProductDetailSheet({
   productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onSample, onOpenProduct,
-  reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "",
+  reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "", publicOrigin = "",
 }: {
   productId: string
   accessToken: string
   guestMode: boolean
+  /** The shop's own storefront origin, for building a link others can open. */
+  publicOrigin?: string
   /** A signed-in visitor's session — without it the page falls to the guest
    *  branch, which is refused whenever the shop requires a login. */
   visitorToken?: string
@@ -3234,7 +3286,13 @@ function ProductDetailSheet({
   async function share() {
     // Deep link back into the catalog — the phone gate still applies, so a
     // forwarded link never leaks the shop to someone who hasn't identified.
-    const url = `${window.location.origin}/catalog?product=${productId}`
+    //
+    // The shop's configured address comes first and the browser's origin is
+    // only the fallback. In the packaged desktop app the origin is Tauri's
+    // asset protocol (tauri.localhost), and a link built from it is dead on
+    // every device except that one installation — while the copy still
+    // succeeds, so nobody finds out until the customer says the link is broken.
+    const url = `${publicOrigin || window.location.origin}/catalog?product=${productId}`
     const text = product ? `${product.name}\n${url}` : url
     try {
       if (navigator.share) { await navigator.share({ title: product?.name, url }); return }
