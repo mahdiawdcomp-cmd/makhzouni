@@ -68,6 +68,7 @@ const PublicCycleCountPage = lazyPage(() => import("./pages/PublicCycleCountPage
 const PublicInvoiceCountPage = lazyPage(() => import("./pages/PublicInvoiceCountPage"), "PublicInvoiceCountPage")
 const SuperAdminPage = lazyPage(() => import("./pages/SuperAdminPage"), "SuperAdminPage")
 const SalesAgentAdminPage = lazyPage(() => import("./pages/SalesAgentAdminPage"), "SalesAgentAdminPage")
+const SalesAgentPage = lazyPage(() => import("./pages/SalesAgentPage"), "SalesAgentPage")
 const DisplayPage = lazyPage(() => import("./pages/DisplayPage"), "DisplayPage")
 const LossesPage = lazyPage(() => import("./pages/LossesPage"), "LossesPage")
 
@@ -173,6 +174,11 @@ const router = createBrowserRouter([
         element: <PosLayout />,
         children: [{ path: "pos", element: f("pos", "نقطة البيع", <POSPage />) }],
       },
+
+      // «المندوب»: fullscreen too, but for the opposite reason to POS — this
+      // one is used one-handed in the street, so a sidebar would eat the
+      // width the product grid needs and put controls out of thumb reach.
+      { path: "sales-agent", element: s(<SalesAgentPage />) },
     ],
   },
 

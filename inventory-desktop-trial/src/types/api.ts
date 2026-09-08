@@ -23,6 +23,16 @@ export type UserPermission =
   | "HIDE_PROFIT_REPORTS"
   | "MANAGE_INSTAGRAM"
   | "PUBLISH_INSTAGRAM"
+  // «المندوب». Both a power and a RESTRICTION: it opens the rep screen and, on
+  // the server, confines the account to its own customers. Never give it to an
+  // owner account.
+  | "SALES_AGENT"
+  // Per-rep DENY markers layered on top of SALES_AGENT. Default-ON by absence:
+  // a rep created before these existed keeps working exactly as before.
+  | "AGENT_NO_NEW_CUSTOMER"
+  | "AGENT_NO_RECEIPT"
+  | "AGENT_NO_PRICE_REQUEST"
+  | "AGENT_NO_ISSUE"
 
 export interface ApiEnvelope<T> {
   success: boolean
