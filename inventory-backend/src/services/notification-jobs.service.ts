@@ -21,6 +21,7 @@ import { runWhatsAppQualityCheckJob } from "./whatsapp-quality.service";
 import { runNoReplyFollowUpJob, runRegisteredNoOrderFollowUpJob, runInactiveFollowUpJob, runTierNudgeJob } from "./follow-up.service";
 import { runAbandonedCartCheckJob } from "./catalog-tracking.service";
 import { runInstagramQueueTick } from "./instagram-queue.service";
+import { runWholesaleInstagramQueueTick } from "./wholesale-instagram-queue.service";
 import {
   runTelegramChannelSyncTick,
   runDailyChannelRotationJob,
@@ -491,6 +492,15 @@ export function startNotificationJobs() {
   cron.schedule("* * * * *", () => {
     runInstagramQueueTick().catch((error) => {
       reportCronFailure("INSTAGRAM_QUEUE_TICK", error);
+    });
+  }, CRON_OPTIONS);
+
+  // «إنستغرام الجملة» — independent tick, own schedule model (exact per-post
+  // scheduledAt, not the retail queue's FIXED_TIMES/INTERVAL cycling). Never
+  // calls into instagram-queue.service or touches a retail InstagramPost row.
+  cron.schedule("* * * * *", () => {
+    runWholesaleInstagramQueueTick().catch((error) => {
+      reportCronFailure("WHOLESALE_INSTAGRAM_QUEUE_TICK", error);
     });
   }, CRON_OPTIONS);
 

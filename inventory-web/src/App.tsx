@@ -57,6 +57,7 @@ const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "Campaigns
 const WhatsappChatPage = lazyPage(() => import("./pages/WhatsappChatPage"), "WhatsappChatPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 const InstagramPage = lazyPage(() => import("./pages/InstagramPage"), "InstagramPage")
+const WholesaleInstagramPage = lazyPage(() => import("./pages/WholesaleInstagramPage"), "WholesaleInstagramPage")
 const RetailShopPage = lazyPage(() => import("./pages/RetailShopPage"), "RetailShopPage")
 const StocktakePage = lazyPage(() => import("./pages/StocktakePage"), "StocktakePage")
 const CycleCountPage = lazyPage(() => import("./pages/CycleCountPage"), "CycleCountPage")
@@ -152,6 +153,7 @@ const router = createBrowserRouter([
           { path: "catalog-management", element: f("catalogWholesale", "كتلوگ الجملة", <CatalogManagementPage />) },
           { path: "retail-catalog", element: f("retailShop", "متجر المفرد", <RetailCatalogPage />) },
           { path: "instagram", element: f("retailShop", "إدارة إنستغرام", <InstagramPage />) },
+          { path: "wholesale-instagram", element: s(<WholesaleInstagramPage />) },
           { path: "reports", element: s(<ReportsPage />) },
           // Settings holds the WhatsApp/Telegram/Meta credentials — the sidebar
           // already hides it behind MANAGE_SETTINGS, so the route must enforce

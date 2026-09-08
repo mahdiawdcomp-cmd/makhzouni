@@ -23,6 +23,9 @@ export type UserPermission =
   | "ACCESS_WHATSAPP_CHAT"
   | "MANAGE_INSTAGRAM"
   | "PUBLISH_INSTAGRAM"
+  // «إنستغرام الجملة» — independent from the two above (retail/كتلوك المفرد).
+  | "MANAGE_WHOLESALE_INSTAGRAM"
+  | "PUBLISH_WHOLESALE_INSTAGRAM"
   // «المندوب». Both a power and a RESTRICTION: it opens the rep screen and, on
   // the server, confines the account to its own customers. Never give it to an
   // owner account.

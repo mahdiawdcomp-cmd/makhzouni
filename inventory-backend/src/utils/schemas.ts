@@ -41,6 +41,9 @@ const userPermissionSchema = z.enum([
   "ACCESS_WHATSAPP_CHAT",
   "MANAGE_INSTAGRAM",
   "PUBLISH_INSTAGRAM",
+  // «إنستغرام الجملة» — independent from the two above (retail/كتلوك المفرد).
+  "MANAGE_WHOLESALE_INSTAGRAM",
+  "PUBLISH_WHOLESALE_INSTAGRAM",
   // «المندوب» — opens the rep screen AND confines the account to its own
   // customers. `User.permissions` is an open String[] in the database, but this
   // enum is what the create/update user API actually accepts, so a capability

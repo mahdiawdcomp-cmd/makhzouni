@@ -3753,6 +3753,127 @@ export async function getInstagramQueuePosts(queueId: string) {
   return data.data ?? []
 }
 
+// ── إنستغرام الجملة (wholesale Product auto-publish — independent system) ────
+
+export interface WholesaleInstagramMedia {
+  id: string
+  source: "product_image" | "uploaded"
+  url: string
+  mime: string
+}
+
+export interface WholesaleInstagramPost {
+  id: string
+  productId?: string | null
+  productTitle: string
+  accountId: string
+  postType: "IMAGE" | "CAROUSEL"
+  status: "DRAFT" | "SCHEDULED" | "PUBLISHING" | "PUBLISHED" | "FAILED" | "SKIPPED_OUT_OF_STOCK"
+  caption: string
+  notes?: string | null
+  scheduledAt?: string | null
+  permalink?: string | null
+  errorMessage?: string | null
+  skipReason?: string | null
+  attemptCount: number
+  publishedAt?: string | null
+  createdAt: string
+  updatedAt: string
+  media: WholesaleInstagramMedia[]
+  account: { id: string; username: string; profilePictureUrl?: string | null }
+}
+
+export async function getWholesaleInstagramAccounts() {
+  const { data } = await api.get<ApiEnvelope<InstagramAccount[]>>("/wholesale-instagram/accounts")
+  return data.data ?? []
+}
+
+export async function getWholesaleInstagramQuota(accountId: string) {
+  const { data } = await api.get<ApiEnvelope<{ used: number; total: number }>>(`/wholesale-instagram/accounts/${accountId}/quota`)
+  return data.data!
+}
+
+export async function getWholesaleInstagramSuggestedTimes() {
+  const { data } = await api.get<ApiEnvelope<{ times: string[] }>>("/wholesale-instagram/suggested-times")
+  return data.data?.times ?? []
+}
+
+export async function saveWholesaleInstagramSuggestedTimes(times: string[]) {
+  const { data } = await api.put<ApiEnvelope<{ times: string[] }>>("/wholesale-instagram/suggested-times", { times })
+  return data.data?.times ?? []
+}
+
+export async function getWholesaleProductGallery(productId: string) {
+  const { data } = await api.get<ApiEnvelope<{ images: string[] }>>(`/wholesale-instagram/products/${productId}/gallery`)
+  return data.data?.images ?? []
+}
+
+export async function createWholesaleInstagramPost(payload: { productId: string; accountId: string; caption?: string; notes?: string }) {
+  const { data } = await api.post<ApiEnvelope<WholesaleInstagramPost>>("/wholesale-instagram/posts", payload)
+  return data.data!
+}
+
+export async function getWholesaleInstagramPosts(params?: { status?: string; productId?: string }) {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramPost[]>>("/wholesale-instagram/posts", { params })
+  return data.data ?? []
+}
+
+export async function getWholesaleInstagramPost(id: string) {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramPost>>(`/wholesale-instagram/posts/${id}`)
+  return data.data!
+}
+
+export async function updateWholesaleInstagramPost(id: string, payload: { accountId?: string; caption?: string; notes?: string | null }) {
+  const { data } = await api.put<ApiEnvelope<WholesaleInstagramPost>>(`/wholesale-instagram/posts/${id}`, payload)
+  return data.data!
+}
+
+export async function deleteWholesaleInstagramPost(id: string) {
+  await api.delete(`/wholesale-instagram/posts/${id}`)
+}
+
+export async function addWholesaleInstagramMediaFromProduct(postId: string, dataUrl: string) {
+  const { data } = await api.post<ApiEnvelope<WholesaleInstagramMedia>>(`/wholesale-instagram/posts/${postId}/media/from-product`, { dataUrl })
+  return data.data!
+}
+
+export async function uploadWholesaleInstagramMedia(postId: string, file: File) {
+  const form = new FormData()
+  form.append("image", file)
+  const { data } = await api.post<ApiEnvelope<WholesaleInstagramMedia>>(
+    `/wholesale-instagram/posts/${postId}/media/upload`,
+    form,
+    { headers: { "Content-Type": "multipart/form-data" }, timeout: 120000 }
+  )
+  return data.data!
+}
+
+export async function removeWholesaleInstagramMedia(postId: string, mediaId: string) {
+  await api.delete(`/wholesale-instagram/posts/${postId}/media/${mediaId}`)
+}
+
+export async function reorderWholesaleInstagramMedia(postId: string, order: string[]) {
+  await api.put(`/wholesale-instagram/posts/${postId}/media/reorder`, { order })
+}
+
+export async function scheduleWholesaleInstagramPost(id: string, scheduledAtIso: string) {
+  const { data } = await api.post<ApiEnvelope<{ warning?: string }>>(`/wholesale-instagram/posts/${id}/schedule`, { scheduledAt: scheduledAtIso })
+  return data.data ?? {}
+}
+
+export async function cancelWholesaleInstagramSchedule(id: string) {
+  await api.post(`/wholesale-instagram/posts/${id}/cancel-schedule`)
+}
+
+export async function rescheduleWholesaleInstagramPost(id: string, scheduledAtIso: string) {
+  const { data } = await api.post<ApiEnvelope<{ warning?: string }>>(`/wholesale-instagram/posts/${id}/reschedule`, { scheduledAt: scheduledAtIso })
+  return data.data ?? {}
+}
+
+export async function publishWholesaleInstagramPostNow(id: string) {
+  await api.post(`/wholesale-instagram/posts/${id}/publish-now`)
+}
+
 /* ── «تدقيق ربح الزبون» ─────────────────────────────────────────────── */
 
 export interface AuditGroup {

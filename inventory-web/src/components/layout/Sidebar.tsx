@@ -61,6 +61,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/catalog-management")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/campaigns")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
+  if (path.startsWith("/wholesale-instagram")) return "MANAGE_WHOLESALE_INSTAGRAM"
   if (path.startsWith("/instagram")) return "MANAGE_INSTAGRAM"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
@@ -161,6 +162,7 @@ const navItems: Item[] = [
   { to: "/catalog-management", label: "الكاتلوك", icon: Globe },
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/instagram", label: "إدارة إنستغرام", icon: Instagram },
+  { to: "/wholesale-instagram", label: "إنستغرام الجملة", icon: Megaphone },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },

@@ -434,6 +434,7 @@ model Product {
   salesAgentIssues        SalesAgentIssue[]
   salesAgentPriceRequests SalesAgentPriceRequest[]
   retailItems             RetailCatalogItem[]          @relation("RetailItemProduct")
+  wholesaleInstagramPosts WholesaleInstagramPost[]
   stockLossItems          StockLossItem[]              @relation("StockLossItems")
   arrivalSubscriptions    ProductArrivalSubscription[]
   landedCostImportItems   LandedCostImportItem[]
@@ -2452,6 +2453,24 @@ enum InstagramScheduleType {
   INTERVAL // every N minutes
 }
 
+// «إنستغرام الجملة» — independent system, wholesale Product only. Deliberately
+// separate from InstagramPost/RetailCatalogItem above (never touched by this
+// feature): each wholesale post carries its own exact scheduledAt instead of
+// the retail Queue's cyclical FIXED_TIMES/INTERVAL abstraction.
+enum WholesaleInstagramPostStatus {
+  DRAFT // being prepared, not scheduled yet
+  SCHEDULED // has a scheduledAt, waiting for the per-minute tick
+  PUBLISHING // claimed by the tick (or "publish now"), Meta call in flight
+  PUBLISHED
+  FAILED // errorMessage holds the reason
+  SKIPPED_OUT_OF_STOCK // stock was 0 (or product gone) at publish time — never retried automatically
+}
+
+enum WholesaleInstagramPostType {
+  IMAGE
+  CAROUSEL
+}
+
 model MediaAsset {
   id          String   @id @default(uuid()) @db.Uuid
   kind        String   @default("video")
@@ -2464,7 +2483,8 @@ model MediaAsset {
   publicToken String   @unique @default(uuid()) @map("public_token")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  retailItem RetailCatalogItem?
+  retailItem              RetailCatalogItem?
+  wholesaleInstagramMedia WholesaleInstagramPostMedia[]
 
   @@map("media_assets")
 }
@@ -2487,6 +2507,7 @@ model InstagramAccount {
 
   posts  InstagramPost[]
   queues InstagramQueue[]
+  wholesalePosts WholesaleInstagramPost[]
 
   @@map("instagram_accounts")
 }
@@ -2556,6 +2577,60 @@ model InstagramHashtagGroup {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("instagram_hashtag_groups")
+}
+
+/// «إنستغرام الجملة» — one scheduled/published post for one wholesale Product.
+/// Independent of InstagramPost; reuses only InstagramAccount (the already-
+/// connected accounts) and MediaAsset (the same permanent public-file store).
+model WholesaleInstagramPost {
+  id           String                       @id @default(uuid()) @db.Uuid
+  productId    String?                      @map("product_id") @db.Uuid
+  product      Product?                     @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productTitle String                       @map("product_title") // snapshot, survives product deletion
+  accountId    String                       @map("account_id") @db.Uuid
+  account      InstagramAccount             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  postType     WholesaleInstagramPostType   @map("post_type")
+  status       WholesaleInstagramPostStatus @default(DRAFT)
+  caption      String                       @default("") // never auto-filled — the admin always writes/reviews it
+  notes        String?                      // internal notes, never sent to Meta
+  // Exact instant the tick must fire this post — Baghdad time is a display/
+  // input concern only (see utils in the service), this column is a plain UTC instant.
+  scheduledAt  DateTime?                    @map("scheduled_at")
+  igCreationId String?                      @map("ig_creation_id") // container id — stored ASAP, retry-safe
+  igMediaId    String?                      @map("ig_media_id") // published media id — stored ASAP, never double-posts
+  permalink    String?
+  errorMessage String?                      @map("error_message")
+  skipReason   String?                      @map("skip_reason")
+  attemptCount Int                          @default(0) @map("attempt_count")
+  publishedAt  DateTime?                    @map("published_at")
+  createdById  String?                      @map("created_by_id") @db.Uuid
+  createdAt    DateTime                     @default(now()) @map("created_at")
+  updatedAt    DateTime                     @updatedAt @map("updated_at")
+
+  media WholesaleInstagramPostMedia[]
+
+  @@index([status])
+  @@index([productId])
+  @@index([accountId])
+  @@index([status, scheduledAt])
+  @@map("wholesale_instagram_posts")
+}
+
+/// Ordered media for one WholesaleInstagramPost. Every row points at a
+/// permanent MediaAsset (public-token URL, never auto-deleted) whether the
+/// image came from the product's own gallery or was uploaded just for the ad.
+model WholesaleInstagramPostMedia {
+  id           String                 @id @default(uuid()) @db.Uuid
+  postId       String                 @map("post_id") @db.Uuid
+  post         WholesaleInstagramPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  mediaAssetId String                 @map("media_asset_id") @db.Uuid
+  mediaAsset   MediaAsset             @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+  sortOrder    Int                    @default(0) @map("sort_order")
+  source       String                 // "product_image" | "uploaded" — informational only
+  createdAt    DateTime               @default(now()) @map("created_at")
+
+  @@index([postId, sortOrder])
+  @@map("wholesale_instagram_post_media")
 }
 
 /// One redemption of loyalty points for invoice discount.
