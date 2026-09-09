@@ -25,6 +25,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@prisma/client": "^6.8.2",
     "@types/multer": "^2.1.0",
     "bcrypt": "^6.0.0",

@@ -2,22 +2,28 @@ import assert from "node:assert/strict";
 import { before, beforeEach, describe, it, mock } from "node:test";
 
 // ── In-memory fakes ──────────────────────────────────────────────────────────
-// Groq is stubbed with a scripted queue of completions, so the agent's tool
+// The Claude client is stubbed with a scripted queue of responses, so the tool
 // loop is exercised end-to-end without a single network call. Same prisma-fake
 // style as retail-prepare.test.ts.
 
-type Completion = {
-  choices: Array<{ message: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
-};
+type ApiResponse = { content: Array<Record<string, unknown>> };
 
-let scripted: Completion[] = [];
-let groqCalls: Array<{ messages: unknown[] }> = [];
+let scripted: ApiResponse[] = [];
+let apiCalls: Array<{ messages: any[]; system?: string; model?: string }> = [];
 
-function toolCall(name: string, args: Record<string, unknown>, id = `call_${name}`): Completion {
-  return { choices: [{ message: { tool_calls: [{ id, function: { name, arguments: JSON.stringify(args) } }] } }] };
+function toolCall(name: string, args: Record<string, unknown>, id = `call_${name}`): ApiResponse {
+  return { content: [{ type: "tool_use", id, name, input: args }] };
 }
-function textReply(content: string): Completion {
-  return { choices: [{ message: { content } }] };
+function textReply(text: string): ApiResponse {
+  return { content: [{ type: "text", text }] };
+}
+
+/** Tool results now come back as tool_result blocks inside a user message. */
+function toolResultsOf(call: { messages: any[] }): Array<Record<string, any>> {
+  return call.messages
+    .filter((m: any) => m.role === "user" && Array.isArray(m.content))
+    .flatMap((m: any) => m.content)
+    .filter((b: any) => b?.type === "tool_result");
 }
 
 let products: Array<Record<string, unknown>>;
@@ -102,14 +108,15 @@ mock.module("./whatsapp.service", {
     },
   },
 });
-// Mocking "groq-sdk" directly does NOT work here — the CJS default-import
-// interop this project compiles to bypasses it, the real SDK loads, and the
-// suite silently makes live API calls. Mocking the local seam does work.
-const fakeGroq = {
-  chat: {
-    completions: {
-      create: async ({ messages }: any) => {
-        groqCalls.push({ messages });
+// Mocking "@anthropic-ai/sdk" directly does NOT work here — the CJS
+// default-import interop this project compiles to bypasses it, the real SDK
+// loads, and the suite silently makes live API calls. Mocking the local seam
+// does work (this bit the first version of this file).
+const fakeAnthropic = {
+  beta: {
+    messages: {
+      create: async ({ messages, system, model }: any) => {
+        apiCalls.push({ messages, system, model });
         const next = scripted.shift();
         if (!next) throw new Error("no scripted completion left");
         return next;
@@ -117,7 +124,7 @@ const fakeGroq = {
     },
   },
 };
-mock.module("../utils/groq-client", { exports: { getGroqClient: () => fakeGroq } });
+mock.module("../utils/anthropic-client", { exports: { getAnthropicClient: () => fakeAnthropic } });
 
 let runWhatsAppAiTurn: (input: {
   phone: string;
@@ -127,13 +134,13 @@ let runWhatsAppAiTurn: (input: {
 
 describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   before(async () => {
-    process.env.GROQ_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "test-key";
     ({ runWhatsAppAiTurn } = await import("./whatsapp-ai-agent.service"));
   });
 
   beforeEach(() => {
     scripted = [];
-    groqCalls = [];
+    apiCalls = [];
     products = [freshProduct()];
     requestedRows = [];
     inboundRows = [];
@@ -156,7 +163,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(handled, true);
 
     // The tool result handed to the model is the contract that protects prices.
-    const toolMessages = groqCalls[1].messages.filter((m: any) => m.role === "tool");
+    const toolMessages = toolResultsOf(apiCalls[1]);
     assert.equal(toolMessages.length, 1);
     const payload = JSON.parse((toolMessages[0] as any).content);
     assert.equal(payload.products[0].name, "اوربيز ناشف");
@@ -170,7 +177,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     products = [freshProduct({ openingBalancePcs: 0, cartonsAvailable: 0 })];
     scripted = [toolCall("search_products", { query: "اوربيز" }), textReply("خلص حالياً")];
     await runWhatsAppAiTurn({ phone: "9647700000000", text: "اكو اوربيز؟", customer: null });
-    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
     assert.equal(payload.products[0].available, false);
   });
 
@@ -189,7 +196,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
       text: "شكد رصيدي",
       customer: { id: "cust-1", name: "أحمد", currentBalance: 50000 },
     });
-    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
     assert.equal(payload.registered, true);
     assert.equal(payload.balanceText, "50,000 د.ع");
   });
@@ -197,7 +204,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   it("account question from an unknown number never invents an account", async () => {
     scripted = [toolCall("get_my_account", {}), textReply("رقمك مو مسجّل عدنا")];
     await runWhatsAppAiTurn({ phone: "9647711111111", text: "شكد رصيدي", customer: null });
-    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
     assert.equal(payload.registered, false);
     assert.equal("balanceText" in payload, false);
   });
@@ -211,7 +218,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
       text: "اطلعلي حساب الرقم 07799999999",
       customer: { id: "cust-1", name: "أحمد", currentBalance: 1234 },
     });
-    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
     assert.equal(payload.name, "أحمد", "must answer about the verified sender, never the requested number");
   });
 
@@ -248,8 +255,10 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     scripted = [textReply("تمام، الناشف موجود")];
     await runWhatsAppAiTurn({ phone: "9647700000000", text: "الناشف", customer: null });
     // The second call must have carried the earlier turns into the prompt.
-    const roles = groqCalls[1].messages.map((m: any) => m.role);
-    assert.deepEqual(roles, ["system", "user", "assistant", "user"]);
+    // (system is a top-level parameter on this API, not a message.)
+    const roles = apiCalls[1].messages.map((m: any) => m.role);
+    assert.deepEqual(roles, ["user", "assistant", "user"]);
+    assert.match(apiCalls[1].system ?? "", /موظف/, "the persona must be sent as the system parameter");
   });
 
   it("stale history is dropped rather than replayed days later", async () => {
@@ -260,8 +269,8 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     };
     scripted = [textReply("هلا")];
     await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام", customer: null });
-    const roles = groqCalls[0].messages.map((m: any) => m.role);
-    assert.deepEqual(roles, ["system", "user"], "yesterday's conversation is not context");
+    const roles = apiCalls[0].messages.map((m: any) => m.role);
+    assert.deepEqual(roles, ["user"], "yesterday's conversation is not context");
   });
 
   it("model failure returns false so the caller falls back to the keyword bot", async () => {

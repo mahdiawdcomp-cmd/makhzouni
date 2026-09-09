@@ -1,7 +1,7 @@
-import type Groq from "groq-sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import prisma from "../config/database";
 import { logger } from "../utils/logger";
-import { getGroqClient } from "../utils/groq-client";
+import { getAnthropicClient } from "../utils/anthropic-client";
 import { normalizeArabic, scoreProduct } from "../utils/arabic-search";
 import { totalStock } from "../utils/product-stock";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
@@ -32,7 +32,15 @@ import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 //    human handoff / registration / rating capture). Those are compliance and
 //    state machines, not chat, and an LLM must never get a vote on them.
 
-const MODEL = "llama-3.3-70b-versatile"; // same model the storefront assistant already uses
+// Claude, not the storefront assistant's Groq model: the shop's verdict on
+// that one was "كلش غبي ويقفل وميرد جواب صحيح" — it stalled and answered
+// wrong. Customer-facing replies in Iraqi Arabic with multi-step tool use is
+// exactly where the weaker model fell over.
+const MODEL = "claude-opus-5";
+// Chat-shaped work: low effort keeps WhatsApp replies quick and cheap, and is
+// still far above where the previous model topped out. Raise it if answers
+// ever feel shallow.
+const EFFORT = "low" as const;
 const MAX_TOOL_ROUNDS = 4;
 const HISTORY_TURNS = 8;
 const HISTORY_MAX_AGE_MS = 6 * 60 * 60 * 1000; // a conversation from yesterday is not context
@@ -56,82 +64,64 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 // Note what is absent: no phone parameter anywhere, and no price field in any
 // result. The contract itself is the guardrail.
 
-const TOOLS: Groq.Chat.Completions.ChatCompletionTool[] = [
+const TOOLS: Anthropic.Tool[] = [
   {
-    type: "function",
-    function: {
-      name: "search_products",
-      description:
-        "ابحث عن منتجات بالمحل باسم أو جزء من اسم أو رقم صنف. استخدمها كل مرة يذكر الزبون منتج. ترجع الأسماء والتوفر وعدد القطع بالكارتون — بدون أسعار.",
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string", description: "اسم المنتج أو جزء منه كما ذكره الزبون" } },
-        required: ["query"],
-      },
+    name: "search_products",
+    description:
+      "ابحث عن منتجات بالمحل باسم أو جزء من اسم أو رقم صنف. استخدمها كل مرة يذكر الزبون منتج. ترجع الأسماء والتوفر وعدد القطع بالكارتون — بدون أسعار.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "اسم المنتج أو جزء منه كما ذكره الزبون" } },
+      required: ["query"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_product_details",
-      description: "تفاصيل منتج محدد بعد ما تلكيه بالبحث: التوفر، عدد القطع بالكارتون، الوصف إن وجد.",
-      parameters: {
-        type: "object",
-        properties: { productId: { type: "string", description: "معرّف المنتج من نتيجة البحث" } },
-        required: ["productId"],
-      },
+    name: "get_product_details",
+    description: "تفاصيل منتج محدد بعد ما تلكيه بالبحث: التوفر، عدد القطع بالكارتون، الوصف إن وجد.",
+    input_schema: {
+      type: "object",
+      properties: { productId: { type: "string", description: "معرّف المنتج من نتيجة البحث" } },
+      required: ["productId"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "send_product_image",
-      description: "أرسل صورة المنتج للزبون بالواتساب فعلياً. استخدمها إذا طلب صورة.",
-      parameters: {
-        type: "object",
-        properties: {
-          productId: { type: "string", description: "معرّف المنتج من نتيجة البحث" },
-          caption: { type: "string", description: "تعليق قصير يرافق الصورة" },
-        },
-        required: ["productId"],
+    name: "send_product_image",
+    description: "أرسل صورة المنتج للزبون بالواتساب فعلياً. استخدمها إذا طلب صورة.",
+    input_schema: {
+      type: "object",
+      properties: {
+        productId: { type: "string", description: "معرّف المنتج من نتيجة البحث" },
+        caption: { type: "string", description: "تعليق قصير يرافق الصورة" },
       },
+      required: ["productId"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_my_account",
-      description:
-        "رصيد وكشف حساب الزبون صاحب هذه المحادثة نفسه. ما تحتاج تمرر رقم — النظام يعرف مين يحچي. استخدمها إذا سأل عن رصيده أو كشفه.",
-      parameters: { type: "object", properties: {} },
+    name: "get_my_account",
+    description:
+      "رصيد وكشف حساب الزبون صاحب هذه المحادثة نفسه. ما تحتاج تمرر رقم — النظام يعرف مين يحچي. استخدمها إذا سأل عن رصيده أو كشفه.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "request_missing_product",
+    description: "سجّل طلب منتج غير موجود بالمحل حتى الإدارة تشوفه وتوفره. استخدمها بعد ما يوافق الزبون.",
+    input_schema: {
+      type: "object",
+      properties: {
+        productName: { type: "string", description: "اسم المنتج المطلوب كما ذكره الزبون" },
+        note: { type: "string", description: "أي تفصيل إضافي ذكره الزبون (كمية، مواصفة)" },
+      },
+      required: ["productName"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "request_missing_product",
-      description: "سجّل طلب منتج غير موجود بالمحل حتى الإدارة تشوفه وتوفره. استخدمها بعد ما يوافق الزبون.",
-      parameters: {
-        type: "object",
-        properties: {
-          productName: { type: "string", description: "اسم المنتج المطلوب كما ذكره الزبون" },
-          note: { type: "string", description: "أي تفصيل إضافي ذكره الزبون (كمية، مواصفة)" },
-        },
-        required: ["productName"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "escalate_to_admin",
-      description:
-        "حوّل الموضوع للإدارة (سعر، اتفاق خاص، شكوى، أي شي يحتاج قرار). الرسالة راح تظهر بصندوق الوارد كمستعجلة.",
-      parameters: {
-        type: "object",
-        properties: { reason: { type: "string", description: "ملخص قصير لسبب التحويل" } },
-        required: ["reason"],
-      },
+    name: "escalate_to_admin",
+    description:
+      "حوّل الموضوع للإدارة (سعر، اتفاق خاص، شكوى، أي شي يحتاج قرار). الرسالة راح تظهر بصندوق الوارد كمستعجلة.",
+    input_schema: {
+      type: "object",
+      properties: { reason: { type: "string", description: "ملخص قصير لسبب التحويل" } },
+      required: ["reason"],
     },
   },
 ];
@@ -361,47 +351,60 @@ export async function runWhatsAppAiTurn(input: {
   text: string;
   customer: { id: string; name: string; currentBalance: unknown } | null;
 }): Promise<boolean> {
-  const groq = getGroqClient();
-  if (!groq) return false;
+  const anthropic = getAnthropicClient();
+  if (!anthropic) return false;
 
   const sender: Sender = { phone: input.phone, customer: input.customer };
   const history = await loadHistory(input.phone);
 
-  const messages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: `${SYSTEM_PROMPT}\n\nحالة المرسل: ${input.customer ? `زبون مسجّل باسم ${input.customer.name}` : "رقم غير مسجّل كزبون"}.` },
-    ...history.map((h) => ({ role: h.role, content: h.content }) as Groq.Chat.Completions.ChatCompletionMessageParam),
+  const messages: Anthropic.MessageParam[] = [
+    ...history.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
     { role: "user", content: input.text },
   ];
+  const system = `${SYSTEM_PROMPT}\n\nحالة المرسل: ${
+    input.customer ? `زبون مسجّل باسم ${input.customer.name}` : "رقم غير مسجّل كزبون"
+  }.`;
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const completion = await groq.chat.completions.create({
+      const response = await anthropic.beta.messages.create({
         model: MODEL,
+        max_tokens: 8000,
+        system,
         messages,
         tools: TOOLS,
-        tool_choice: "auto",
-        temperature: 0.3,
-        max_tokens: 600,
+        thinking: { type: "adaptive" },
+        output_config: { effort: EFFORT },
+        // A policy decline on a shop conversation is far-fetched, but if it
+        // ever happens the customer must still get an answer rather than
+        // silence — the API retries the same request on a fallback model.
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
       });
-      const choice = completion.choices[0]?.message;
-      if (!choice) return false;
 
-      if (choice.tool_calls?.length) {
-        messages.push(choice as Groq.Chat.Completions.ChatCompletionMessageParam);
-        for (const call of choice.tool_calls) {
-          let args: Record<string, unknown> = {};
-          try {
-            args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
-          } catch {
-            /* malformed args → tool sees empty object and answers with its own error */
-          }
-          const result = await runTool(call.function.name, args, sender, input.text);
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
+      const toolUses = response.content.filter(
+        (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use",
+      );
+
+      if (toolUses.length) {
+        messages.push({ role: "assistant", content: response.content as unknown as Anthropic.ContentBlockParam[] });
+        // All results for one assistant turn go back in a SINGLE user message —
+        // splitting them trains the model out of parallel tool calls.
+        const results: Anthropic.ToolResultBlockParam[] = [];
+        for (const call of toolUses) {
+          const result = await runTool(call.name, (call.input ?? {}) as Record<string, unknown>, sender, input.text);
+          results.push({ type: "tool_result", tool_use_id: call.id, content: JSON.stringify(result) });
         }
+        messages.push({ role: "user", content: results });
         continue;
       }
 
-      const reply = choice.content?.trim();
+      const reply = response.content
+        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n")
+        .trim();
+      // Covers a refused turn too (no text content) — caller falls back.
       if (!reply) return false;
       await sendWhatsAppText(input.phone, reply);
       await saveHistory(input.phone, [...history, { role: "user", content: input.text }, { role: "assistant", content: reply }]);
