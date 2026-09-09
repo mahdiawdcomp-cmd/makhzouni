@@ -3953,6 +3953,43 @@ export async function deleteRequestedProduct(id: string) {
   await api.delete(`/requested-products/${id}`)
 }
 
+// ── تنبيهات الموظف الذكي — anything the agent handed to a human ─────────────
+
+export interface AiEscalation {
+  id: string
+  phone: string
+  customerId?: string | null
+  customerName?: string | null
+  summary: string
+  customerText: string
+  status: "OPEN" | "HANDLED"
+  handledAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getAiEscalations(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
+  const { data } = await api.get<ApiEnvelope<AiEscalation[]>>("/requested-products/escalations", { params: { status } })
+  return data.data ?? []
+}
+
+export async function getAiEscalationsOpenCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/escalations/open-count")
+  return data.data?.count ?? 0
+}
+
+export async function markAiEscalationHandled(id: string) {
+  await api.post(`/requested-products/escalations/${id}/handled`)
+}
+
+export async function reopenAiEscalation(id: string) {
+  await api.post(`/requested-products/escalations/${id}/reopen`)
+}
+
+export async function deleteAiEscalation(id: string) {
+  await api.delete(`/requested-products/escalations/${id}`)
+}
+
 /* ── «تدقيق ربح الزبون» ─────────────────────────────────────────────── */
 
 export interface AuditGroup {

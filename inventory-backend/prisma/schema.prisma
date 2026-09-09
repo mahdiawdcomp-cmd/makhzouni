@@ -743,6 +743,31 @@ model WhatsappAiChat {
 /// Aggregated by normalized name while still OPEN, so ten people asking for
 /// the same thing is one row with requestCount = 10 — the point of the list
 /// is to show demand, not to collect ten identical tickets.
+/// «تنبيهات الموظف الذكي» — anything the agent handed to a human: an order to
+/// register, a price question, a complaint, anything needing a decision.
+///
+/// Deliberately NOT an InboundMessage: those share one long list with every
+/// ordinary "شكرا" and "وك", and the shop's verdict on that was blunt —
+/// "يروح يندفن". This is its own list with its own unread count, so a real
+/// request cannot be lost between pleasantries.
+model AiEscalation {
+  id           String    @id @default(uuid()) @db.Uuid
+  phone        String
+  customerId   String?   @map("customer_id") @db.Uuid
+  customerName String?   @map("customer_name")
+  /// What the agent needs from the admin, in its own words.
+  summary      String
+  /// The customer's message that triggered it — context the summary can't replace.
+  customerText String    @map("customer_text")
+  status       String    @default("OPEN") // OPEN | HANDLED
+  handledAt    DateTime? @map("handled_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("ai_escalations")
+}
+
 model RequestedProduct {
   id             String    @id @default(uuid()) @db.Uuid
   /// Normalized (Arabic-folded) name used only for grouping repeats.

@@ -279,14 +279,19 @@ async function toolRequestMissingProduct(sender: Sender, productName: string, no
   return { saved: true, timesRequested: 1 };
 }
 
+/**
+ * Hands the conversation to a human — into «تنبيهات الموظف الذكي», its own
+ * list, NOT the inbound-message inbox. An order sitting between two "شكرا"
+ * rows is an order nobody sees.
+ */
 async function toolEscalate(sender: Sender, reason: string, originalText: string) {
-  await prisma.inboundMessage.create({
+  await prisma.aiEscalation.create({
     data: {
       phone: sender.phone,
-      name: sender.customer?.name ?? null,
-      source: sender.customer ? "CUSTOMER_UNMATCHED" : "UNKNOWN",
-      messageText: `[الموظف الذكي] ${reason.trim().slice(0, 300)}\n— رسالة الزبون: ${originalText.slice(0, 500)}`,
-      urgent: true,
+      customerId: sender.customer?.id ?? null,
+      customerName: sender.customer?.name ?? null,
+      summary: reason.trim().slice(0, 500),
+      customerText: originalText.slice(0, 1000),
     },
   });
   return { escalated: true };

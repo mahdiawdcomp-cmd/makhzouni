@@ -28,7 +28,7 @@ function toolResultsOf(call: { messages: any[] }): Array<Record<string, any>> {
 
 let products: Array<Record<string, unknown>>;
 let requestedRows: Array<Record<string, unknown>>;
-let inboundRows: Array<Record<string, unknown>>;
+let escalationRows: Array<Record<string, unknown>>;
 let aiChatRow: { phone: string; messages: unknown; updatedAt: Date } | null;
 let sentTexts: Array<{ phone: string; text: string }>;
 let sentImages: Array<{ phone: string; caption: string; bytes: number }>;
@@ -76,9 +76,9 @@ const fakePrisma = {
       return row;
     },
   },
-  inboundMessage: {
+  aiEscalation: {
     create: async ({ data }: any) => {
-      inboundRows.push(data);
+      escalationRows.push(data);
       return data;
     },
   },
@@ -141,7 +141,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     apiCalls = [];
     products = [freshProduct()];
     requestedRows = [];
-    inboundRows = [];
+    escalationRows = [];
     aiChatRow = null;
     sentTexts = [];
     sentImages = [];
@@ -233,12 +233,12 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(requestedRows[0].lastPhone, "9647722222222");
   });
 
-  it("price question path: escalation lands in the inbox as urgent", async () => {
+  it("price question path: escalation lands in its own alerts list, not the shared inbox", async () => {
     scripted = [toolCall("escalate_to_admin", { reason: "سؤال عن السعر" }), textReply("الإدارة راح تردلك بالسعر 🙏")];
     await runWhatsAppAiTurn({ phone: "9647700000000", text: "شكد سعر الكارتون؟", customer: null });
-    assert.equal(inboundRows.length, 1);
-    assert.equal(inboundRows[0].urgent, true);
-    assert.match(String(inboundRows[0].messageText), /السعر/);
+    assert.equal(escalationRows.length, 1, "must land in «تنبيهات الموظف الذكي», not the shared inbox");
+    assert.match(String(escalationRows[0].summary), /السعر/);
+    assert.match(String(escalationRows[0].customerText), /شكد سعر/);
   });
 
   it("conversation memory is kept for follow-up turns", async () => {
@@ -287,8 +287,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     ];
     const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "؟؟؟", customer: null });
     assert.equal(handled, true);
-    assert.equal(inboundRows.length, 1, "must hand off to a human");
-    assert.equal(inboundRows[0].urgent, true);
+    assert.equal(escalationRows.length, 1, "must hand off to a human");
     assert.equal(sentTexts.length, 1);
   });
 });

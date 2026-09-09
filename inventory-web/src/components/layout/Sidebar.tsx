@@ -35,7 +35,7 @@ import {
 } from "lucide-react"
 import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
-import { getApprovals, getInboundMessages, getRequestedProductsOpenCount, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
+import { getAiEscalationsOpenCount, getApprovals, getInboundMessages, getRequestedProductsOpenCount, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
 import { useTenantConfig } from "../../hooks/useTenantConfig"
@@ -164,7 +164,7 @@ const navItems: Item[] = [
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/instagram", label: "إدارة إنستغرام", icon: Instagram },
   { to: "/wholesale-instagram", label: "إنستغرام الجملة", icon: Megaphone },
-  { to: "/requested-products", label: "المنتجات المطلوبة", icon: Search },
+  { to: "/requested-products", label: "تنبيهات الموظف الذكي", icon: Zap },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },
@@ -209,15 +209,22 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
   })
   const stockAlertCount = stockAlertsQuery.data?.length ?? 0
 
-  // «المنتجات المطلوبة» — demand the WhatsApp agent collected, same treatment.
+  // «تنبيهات الموظف الذكي» — escalations + product demand from the WhatsApp
+  // agent. One badge for both, so the count is "things waiting on you".
   const isRequestedProducts = item.to === "/requested-products"
-  const requestedProductsQuery = useQuery({
-    queryKey: ["requested-products-open-count"],
-    queryFn: getRequestedProductsOpenCount,
-    refetchInterval: 60_000,
+  const aiAlertsQuery = useQuery({
+    queryKey: ["ai-alerts-open-count"],
+    queryFn: async () => {
+      const [escalations, products] = await Promise.all([
+        getAiEscalationsOpenCount(),
+        getRequestedProductsOpenCount(),
+      ])
+      return escalations + products
+    },
+    refetchInterval: 30_000,
     enabled: isRequestedProducts,
   })
-  const requestedCount = requestedProductsQuery.data ?? 0
+  const requestedCount = aiAlertsQuery.data ?? 0
 
   return (
     <motion.div
