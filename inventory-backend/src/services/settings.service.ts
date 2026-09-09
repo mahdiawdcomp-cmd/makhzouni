@@ -366,6 +366,10 @@ export interface AppSettings {
   // a known customer matching no rule) gets botUnknownMessage and lands in
   // the الرسائل الواردة inbox for a manual reply.
   whatsappBotEnabled?: boolean;
+  // «الموظف الذكي» — the AI agent answers first (real understanding, product
+  // lookups, images); the keyword rules above stay as the fallback for when
+  // it is off or unavailable. Never quotes prices — those stay with the admin.
+  whatsappAiAgentEnabled?: boolean;
   botUnknownMessage?: string;
   botRules?: BotRule[];
   // Barcode label dimensions (mm) for the label/thermal printer.
@@ -590,6 +594,8 @@ export const defaultSettings: AppSettings = {
   prospectAutoReplyMessage: "تمام 👍 هذا رابط كروبنا على الواتساب:\n{{link}}",
   prospectAutoReplyEnabled: false,
   whatsappBotEnabled: false,
+  // Ships OFF: turning the AI loose on real customers is the shop's decision.
+  whatsappAiAgentEnabled: false,
   botUnknownMessage: "هلا 👋 استلمنا رسالتك، الإدارة رح ترد عليك قريباً.",
   botRules: [
     { id: "statement", builtin: true, replyType: "STATEMENT", keywords: ["كشف حساب", "كشف حسابي", "ابعث الكشف", "ارسل الكشف", "كشف"] },

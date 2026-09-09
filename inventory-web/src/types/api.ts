@@ -1355,6 +1355,8 @@ export interface AppSettings {
   prospectAutoReplyEnabled?: boolean
   // WhatsApp customer-service bot — owner-editable list of rules
   whatsappBotEnabled?: boolean
+  // «الموظف الذكي» — AI agent answers first; the rules above stay as fallback.
+  whatsappAiAgentEnabled?: boolean
   botUnknownMessage?: string
   botRules?: BotRule[]
   // Barcode label sizes (mm)

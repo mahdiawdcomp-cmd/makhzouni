@@ -35,7 +35,7 @@ import {
 } from "lucide-react"
 import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
-import { getApprovals, getInboundMessages, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
+import { getApprovals, getInboundMessages, getRequestedProductsOpenCount, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
 import { useTenantConfig } from "../../hooks/useTenantConfig"
@@ -62,6 +62,7 @@ function permissionForItem(item: Item): UserPermission | null {
   if (path.startsWith("/campaigns")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/retail-catalog")) return "MANAGE_PRODUCTS"
   if (path.startsWith("/wholesale-instagram")) return "MANAGE_WHOLESALE_INSTAGRAM"
+  if (path.startsWith("/requested-products")) return "MANAGE_CUSTOMERS"
   if (path.startsWith("/instagram")) return "MANAGE_INSTAGRAM"
   if (path.startsWith("/reports")) return "VIEW_REPORTS"
   if (path.startsWith("/settings")) return "MANAGE_SETTINGS"
@@ -163,6 +164,7 @@ const navItems: Item[] = [
   { to: "/retail-catalog", label: "كتلوك المفرد", icon: Store },
   { to: "/instagram", label: "إدارة إنستغرام", icon: Instagram },
   { to: "/wholesale-instagram", label: "إنستغرام الجملة", icon: Megaphone },
+  { to: "/requested-products", label: "المنتجات المطلوبة", icon: Search },
   { to: "/reports", label: "التقارير", icon: BarChart3 },
   { to: "/invoice-designer", label: "مصمّم الفاتورة", icon: FileText },
   { to: "/settings", label: "الإعدادات", icon: Settings },
@@ -207,6 +209,16 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
   })
   const stockAlertCount = stockAlertsQuery.data?.length ?? 0
 
+  // «المنتجات المطلوبة» — demand the WhatsApp agent collected, same treatment.
+  const isRequestedProducts = item.to === "/requested-products"
+  const requestedProductsQuery = useQuery({
+    queryKey: ["requested-products-open-count"],
+    queryFn: getRequestedProductsOpenCount,
+    refetchInterval: 60_000,
+    enabled: isRequestedProducts,
+  })
+  const requestedCount = requestedProductsQuery.data ?? 0
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 8 }}
@@ -249,6 +261,11 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
         {isWholesaleInstagram && stockAlertCount > 0 && (
           <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
             {stockAlertCount}
+          </span>
+        )}
+        {isRequestedProducts && requestedCount > 0 && (
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+            {requestedCount}
           </span>
         )}
       </NavLink>

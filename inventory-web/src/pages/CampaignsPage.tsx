@@ -387,6 +387,7 @@ function CustomerBotSettings() {
   const botFeatureEnabled = useFeatureEnabled("whatsappBot")
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const [enabled, setEnabled] = useState(false)
+  const [aiEnabled, setAiEnabled] = useState(false)
   const [unknownMessage, setUnknownMessage] = useState("")
   const [rules, setRules] = useState<BotRule[]>([])
 
@@ -397,6 +398,7 @@ function CustomerBotSettings() {
     const s = settingsQuery.data
     setSeeded(s)
     setEnabled(s.whatsappBotEnabled ?? false)
+    setAiEnabled(s.whatsappAiAgentEnabled ?? false)
     setUnknownMessage(s.botUnknownMessage ?? "")
     setRules(s.botRules ?? [])
   }
@@ -404,6 +406,7 @@ function CustomerBotSettings() {
   const saveMut = useMutation({
     mutationFn: () => updateSettings({
       whatsappBotEnabled: enabled,
+      whatsappAiAgentEnabled: aiEnabled,
       botUnknownMessage: unknownMessage.trim(),
       botRules: rules.map((r) => ({ ...r, replyText: r.replyText?.trim() })),
     }),
@@ -480,6 +483,21 @@ function CustomerBotSettings() {
           onChange={(e) => setEnabled(e.target.checked)} className="h-4 w-4" />
         تفعيل البوت
       </label>
+
+      <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+        <label className="flex items-center gap-2 text-sm font-bold text-gray-800">
+          <input type="checkbox" checked={aiEnabled} disabled={!botFeatureEnabled}
+            onChange={(e) => setAiEnabled(e.target.checked)} className="h-4 w-4" />
+          🧠 «الموظف الذكي» — رد ذكي يفهم كلام الزبون
+        </label>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-gray-600">
+          يرد على الزبون مثل موظف حقيقي: يفهم السؤال حتى لو مو مكتوب بنفس الكلمات، يدوّر على المنتج بالاسم،
+          يكلّه شكد بالكارتون، يرسل صورة المنتج، ويعرض تسجيل طلب إذا المنتج مو موجود.
+        </p>
+        <p className="mt-1 text-[11px] font-semibold text-emerald-800">
+          ما يذكر أي سعر أبداً — أسئلة الأسعار تنحوّل للإدارة. وجدول الردود فوق يبقى احتياط إذا الموظف الذكي متوقف.
+        </p>
+      </div>
       <button disabled={saveMut.isPending || !botFeatureEnabled} onClick={() => saveMut.mutate()}
         className="mt-3 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
         {saveMut.isPending ? "..." : "حفظ"}

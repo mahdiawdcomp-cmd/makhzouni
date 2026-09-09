@@ -3915,6 +3915,44 @@ export async function dismissWholesaleInstagramStockAlert(id: string) {
   await api.post(`/wholesale-instagram/posts/${id}/dismiss-stock-alert`)
 }
 
+// ── «المنتجات المطلوبة» — demand collected by the WhatsApp AI agent ─────────
+
+export interface RequestedProduct {
+  id: string
+  productName: string
+  normalizedName: string
+  requestCount: number
+  lastPhone: string
+  lastCustomerId?: string | null
+  lastNote?: string | null
+  status: "OPEN" | "HANDLED"
+  handledAt?: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getRequestedProducts(status: "OPEN" | "HANDLED" | "ALL" = "OPEN") {
+  const { data } = await api.get<ApiEnvelope<RequestedProduct[]>>("/requested-products", { params: { status } })
+  return data.data ?? []
+}
+
+export async function getRequestedProductsOpenCount() {
+  const { data } = await api.get<ApiEnvelope<{ count: number }>>("/requested-products/open-count")
+  return data.data?.count ?? 0
+}
+
+export async function markRequestedProductHandled(id: string) {
+  await api.post(`/requested-products/${id}/handled`)
+}
+
+export async function reopenRequestedProduct(id: string) {
+  await api.post(`/requested-products/${id}/reopen`)
+}
+
+export async function deleteRequestedProduct(id: string) {
+  await api.delete(`/requested-products/${id}`)
+}
+
 /* ── «تدقيق ربح الزبون» ─────────────────────────────────────────────── */
 
 export interface AuditGroup {

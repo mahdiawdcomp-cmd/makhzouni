@@ -719,6 +719,50 @@ model WhatsappBotChat {
   @@map("whatsapp_bot_chats")
 }
 
+/// «الموظف الذكي» — short-term memory for the AI WhatsApp agent, so a reply
+/// like «تقصد هذا لو هذا؟» can be understood when the customer answers it.
+///
+/// Deliberately NOT stored inside WhatsappBotChat above: that row belongs to
+/// the registration state machine, which deletes it wholesale on human
+/// handoff. Losing AI context is harmless; corrupting a half-finished
+/// registration is not.
+model WhatsappAiChat {
+  id        String   @id @default(uuid()) @db.Uuid
+  phone     String   @unique
+  /// [{ role, content }] — trimmed to the last few turns and ignored once stale.
+  messages  Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("whatsapp_ai_chats")
+}
+
+/// «المنتجات المطلوبة» — a product a customer asked for over WhatsApp that
+/// the shop does not carry (or could not be found by name).
+///
+/// Aggregated by normalized name while still OPEN, so ten people asking for
+/// the same thing is one row with requestCount = 10 — the point of the list
+/// is to show demand, not to collect ten identical tickets.
+model RequestedProduct {
+  id             String    @id @default(uuid()) @db.Uuid
+  /// Normalized (Arabic-folded) name used only for grouping repeats.
+  normalizedName String    @map("normalized_name")
+  /// The product name as the customer actually wrote it (first request wins).
+  productName    String    @map("product_name")
+  requestCount   Int       @default(1) @map("request_count")
+  lastPhone      String    @map("last_phone")
+  lastCustomerId String?   @map("last_customer_id") @db.Uuid
+  lastNote       String?   @map("last_note")
+  status         String    @default("OPEN") // OPEN | HANDLED
+  handledAt      DateTime? @map("handled_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, updatedAt])
+  @@index([normalizedName, status])
+  @@map("requested_products")
+}
+
 // Full two-way WhatsApp conversation log (Meta Cloud API "messenger" screen) —
 // completely separate from InboundMessage above (which only logs messages the
 // bot couldn't auto-answer). Every outbound send (manual reply, bot reply,

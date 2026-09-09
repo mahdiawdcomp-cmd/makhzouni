@@ -12,6 +12,7 @@ import { DEFAULT_STOP_CONFIRMATION, isStopRequest, optOutOfMarketing } from "./m
 import { handleRegistrationReply, startRegistration } from "./whatsapp-registration.service";
 import { handleStorefrontInviteReply } from "./storefront-invite.service";
 import { normalizeArabic } from "../utils/arabic-search";
+import { clearAiConversation, runWhatsAppAiTurn } from "./whatsapp-ai-agent.service";
 
 // بند ٥ — "أريد أحچي مع موظف" يوقف البوت لهذا الرقم بأي لحظة (حتى وسط
 // محادثة تسجيل) ويرفعه لصندوق الوارد بعلامة مستعجل. عبارات متعددة الكلمات
@@ -134,6 +135,9 @@ export async function routeIncomingMessage(
   // the bot had already decided not to send.
   if (isHumanHandoffRequest(text)) {
     await prisma.whatsappBotChat.deleteMany({ where: { phone } });
+    // A human is taking over — the agent's short-term context is dead weight
+    // and must not resurface mid-way through someone else's conversation.
+    await clearAiConversation(phone).catch(() => {});
     await sendWhatsAppText(phone, "تمام 👍 موظف راح يتواصل معك قريباً.").catch((err) =>
       logger.warn(`[WhatsAppBot] handoff ack failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`),
     );
@@ -168,7 +172,47 @@ export async function routeIncomingMessage(
     }
   }
 
-  // 1) Known customer + customer-service bot enabled → try a command auto-reply.
+  // 1) Not a customer → بند ٥ numeric funnel trigger ("1" = buy → start the
+  // registration conversation), only for a known prospect (a campaign reply,
+  // not a random unrelated "1" from an unknown number). Then the existing
+  // prospect group-link auto-reply — "2" (the campaign's "join the group"
+  // option) always matches it too, regardless of configured keywords.
+  //
+  // These sit ABOVE «الموظف الذكي» on purpose: a bare "1" here is an answer to
+  // a campaign message the shop sent, not conversation. Letting the agent
+  // interpret it would quietly break the registration funnel.
+  if (!customer && prospect && normalizeArabic(text) === "1") {
+    await startRegistration(phone);
+    return;
+  }
+  if (!customer) {
+    const handledAsProspect = await handleIncomingProspectReply(phone, text).catch(() => false);
+    if (handledAsProspect) return;
+  }
+
+  // 2) «الموظف الذكي» — the AI agent takes everything that is actual
+  // conversation: greetings, "شكو عدكم من...", "شكد بالكارتون", "ارسلي صورة",
+  // "شكد رصيدي". It answers customers and strangers alike (with different
+  // tools available to each — see whatsapp-ai-agent.service.ts).
+  //
+  // A `false` return means the agent could not run at all (key missing, model
+  // error) — never a silent shop: we fall through to the keyword rules below,
+  // which is exactly the behaviour this system had before the agent existed.
+  if (settings.whatsappAiAgentEnabled && botEntitled) {
+    const handled = await runWhatsAppAiTurn({
+      phone,
+      text,
+      customer: customer ? { id: customer.id, name: customer.name, currentBalance: customer.currentBalance } : null,
+    }).catch((err) => {
+      logger.warn(`[WhatsAppBot] AI agent threw for ${phone}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    });
+    if (handled) return;
+  }
+
+  // 3) Known customer + keyword bot enabled → the original command auto-reply.
+  // Still here as the fallback for shops that keep the agent off, and as the
+  // safety net for when it is on but unavailable.
   if (customer && settings.whatsappBotEnabled && botEntitled) {
     const reply = await composeCustomerReply(customer, text, settings);
     if (reply) {
@@ -178,20 +222,6 @@ export async function routeIncomingMessage(
       return;
     }
     // Matched no rule — fall through to log it for a manual reply.
-  }
-
-  // 2) Not a customer → بند ٥ numeric funnel trigger ("1" = buy → start the
-  // registration conversation), only for a known prospect (a campaign reply,
-  // not a random unrelated "1" from an unknown number). Then the existing
-  // prospect group-link auto-reply — "2" (the campaign's "join the group"
-  // option) always matches it too, regardless of configured keywords.
-  if (!customer && prospect && normalizeArabic(text) === "1") {
-    await startRegistration(phone);
-    return;
-  }
-  if (!customer) {
-    const handledAsProspect = await handleIncomingProspectReply(phone, text).catch(() => false);
-    if (handledAsProspect) return;
   }
 
   // 3) Fallback: always log to the inbox so the owner can reply by hand —

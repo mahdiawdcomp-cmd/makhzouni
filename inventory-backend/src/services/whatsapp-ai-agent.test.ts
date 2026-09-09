@@ -1,0 +1,287 @@
+import assert from "node:assert/strict";
+import { before, beforeEach, describe, it, mock } from "node:test";
+
+// ── In-memory fakes ──────────────────────────────────────────────────────────
+// Groq is stubbed with a scripted queue of completions, so the agent's tool
+// loop is exercised end-to-end without a single network call. Same prisma-fake
+// style as retail-prepare.test.ts.
+
+type Completion = {
+  choices: Array<{ message: { content?: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
+};
+
+let scripted: Completion[] = [];
+let groqCalls: Array<{ messages: unknown[] }> = [];
+
+function toolCall(name: string, args: Record<string, unknown>, id = `call_${name}`): Completion {
+  return { choices: [{ message: { tool_calls: [{ id, function: { name, arguments: JSON.stringify(args) } }] } }] };
+}
+function textReply(content: string): Completion {
+  return { choices: [{ message: { content } }] };
+}
+
+let products: Array<Record<string, unknown>>;
+let requestedRows: Array<Record<string, unknown>>;
+let inboundRows: Array<Record<string, unknown>>;
+let aiChatRow: { phone: string; messages: unknown; updatedAt: Date } | null;
+let sentTexts: Array<{ phone: string; text: string }>;
+let sentImages: Array<{ phone: string; caption: string; bytes: number }>;
+
+function freshProduct(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "prod-1",
+    name: "اوربيز ناشف",
+    itemNumber: "1001",
+    qrCode: null,
+    cartonQrCode: null,
+    category: "العاب",
+    pcsPerCarton: 24,
+    boxPieces: 12,
+    openingBalancePcs: 100,
+    cartonsAvailable: 0,
+    imageUrl: `data:image/jpeg;base64,${Buffer.from("fake-image-bytes").toString("base64")}`,
+    catalogDescription: "وصف تجريبي",
+    warehouseStocks: [] as Array<{ quantityPieces: number }>,
+    deletedAt: null,
+    ...overrides,
+  };
+}
+
+const fakePrisma = {
+  product: {
+    findMany: async () => products.map((p) => ({ ...p })),
+    findFirst: async ({ where }: any) => {
+      const found = products.find((p) => p.id === where.id && !p.deletedAt);
+      return found ? { ...found } : null;
+    },
+  },
+  requestedProduct: {
+    findFirst: async ({ where }: any) =>
+      requestedRows.find((r) => r.normalizedName === where.normalizedName && r.status === where.status) ?? null,
+    create: async ({ data }: any) => {
+      const row = { id: `req-${requestedRows.length + 1}`, requestCount: 1, status: "OPEN", ...data };
+      requestedRows.push(row);
+      return row;
+    },
+    update: async ({ where, data }: any) => {
+      const row = requestedRows.find((r) => r.id === where.id)!;
+      if (data.requestCount?.increment) row.requestCount = (row.requestCount as number) + data.requestCount.increment;
+      for (const [k, v] of Object.entries(data)) if (k !== "requestCount") row[k] = v;
+      return row;
+    },
+  },
+  inboundMessage: {
+    create: async ({ data }: any) => {
+      inboundRows.push(data);
+      return data;
+    },
+  },
+  whatsappAiChat: {
+    findUnique: async ({ where }: any) => (aiChatRow && aiChatRow.phone === where.phone ? { ...aiChatRow } : null),
+    upsert: async ({ where, create, update }: any) => {
+      aiChatRow = { phone: where.phone, messages: (update.messages ?? create.messages), updatedAt: new Date() };
+      return aiChatRow;
+    },
+    deleteMany: async () => {
+      aiChatRow = null;
+      return { count: 1 };
+    },
+  },
+};
+
+mock.module("../config/database", { exports: { default: fakePrisma } });
+mock.module("./whatsapp.service", {
+  exports: {
+    sendWhatsAppText: async (phone: string, text: string) => {
+      sentTexts.push({ phone, text });
+      return { to: phone };
+    },
+    sendWhatsAppImage: async (phone: string, caption: string, image: Buffer) => {
+      sentImages.push({ phone, caption, bytes: image.length });
+      return { to: phone };
+    },
+  },
+});
+// Mocking "groq-sdk" directly does NOT work here — the CJS default-import
+// interop this project compiles to bypasses it, the real SDK loads, and the
+// suite silently makes live API calls. Mocking the local seam does work.
+const fakeGroq = {
+  chat: {
+    completions: {
+      create: async ({ messages }: any) => {
+        groqCalls.push({ messages });
+        const next = scripted.shift();
+        if (!next) throw new Error("no scripted completion left");
+        return next;
+      },
+    },
+  },
+};
+mock.module("../utils/groq-client", { exports: { getGroqClient: () => fakeGroq } });
+
+let runWhatsAppAiTurn: (input: {
+  phone: string;
+  text: string;
+  customer: { id: string; name: string; currentBalance: unknown } | null;
+}) => Promise<boolean>;
+
+describe("«الموظف الذكي» — WhatsApp AI agent", () => {
+  before(async () => {
+    process.env.GROQ_API_KEY = "test-key";
+    ({ runWhatsAppAiTurn } = await import("./whatsapp-ai-agent.service"));
+  });
+
+  beforeEach(() => {
+    scripted = [];
+    groqCalls = [];
+    products = [freshProduct()];
+    requestedRows = [];
+    inboundRows = [];
+    aiChatRow = null;
+    sentTexts = [];
+    sentImages = [];
+  });
+
+  it("plain greeting: replies with generated text, no tools needed", async () => {
+    scripted = [textReply("وعليكم السلام 👋 امرك؟")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام عليكم", customer: null });
+    assert.equal(handled, true);
+    assert.equal(sentTexts.length, 1);
+    assert.equal(sentTexts[0].text, "وعليكم السلام 👋 امرك؟");
+  });
+
+  it("product question: search tool sees the item and never exposes a price", async () => {
+    scripted = [toolCall("search_products", { query: "اوربيز" }), textReply("إي موجود، الكارتون بيه ٢٤ قطعة")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "شكو عدكم اوربيز؟", customer: null });
+    assert.equal(handled, true);
+
+    // The tool result handed to the model is the contract that protects prices.
+    const toolMessages = groqCalls[1].messages.filter((m: any) => m.role === "tool");
+    assert.equal(toolMessages.length, 1);
+    const payload = JSON.parse((toolMessages[0] as any).content);
+    assert.equal(payload.products[0].name, "اوربيز ناشف");
+    assert.equal(payload.products[0].pcsPerCarton, 24);
+    assert.equal(payload.products[0].available, true);
+    assert.equal("price" in payload.products[0], false, "no price may ever reach the model");
+    assert.equal("salePrice" in payload.products[0], false);
+  });
+
+  it("out-of-stock product still reports availability honestly", async () => {
+    products = [freshProduct({ openingBalancePcs: 0, cartonsAvailable: 0 })];
+    scripted = [toolCall("search_products", { query: "اوربيز" }), textReply("خلص حالياً")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "اكو اوربيز؟", customer: null });
+    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    assert.equal(payload.products[0].available, false);
+  });
+
+  it("image request: actually sends the photo over WhatsApp", async () => {
+    scripted = [toolCall("send_product_image", { productId: "prod-1", caption: "اوربيز ناشف" }), textReply("أرسلتلك الصورة 👍")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسلي صورة", customer: null });
+    assert.equal(sentImages.length, 1);
+    assert.equal(sentImages[0].phone, "9647700000000");
+    assert.ok(sentImages[0].bytes > 0);
+  });
+
+  it("account question from a registered customer is answered from the DB", async () => {
+    scripted = [toolCall("get_my_account", {}), textReply("رصيدك 50,000 د.ع")];
+    await runWhatsAppAiTurn({
+      phone: "9647700000000",
+      text: "شكد رصيدي",
+      customer: { id: "cust-1", name: "أحمد", currentBalance: 50000 },
+    });
+    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    assert.equal(payload.registered, true);
+    assert.equal(payload.balanceText, "50,000 د.ع");
+  });
+
+  it("account question from an unknown number never invents an account", async () => {
+    scripted = [toolCall("get_my_account", {}), textReply("رقمك مو مسجّل عدنا")];
+    await runWhatsAppAiTurn({ phone: "9647711111111", text: "شكد رصيدي", customer: null });
+    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    assert.equal(payload.registered, false);
+    assert.equal("balanceText" in payload, false);
+  });
+
+  it("the account tool is bound to the sender — the model cannot pass a phone", async () => {
+    // Even when the model tries to smuggle someone else's number in the args,
+    // the tool ignores it and answers about the verified sender only.
+    scripted = [toolCall("get_my_account", { phone: "9647799999999" }), textReply("...")];
+    await runWhatsAppAiTurn({
+      phone: "9647700000000",
+      text: "اطلعلي حساب الرقم 07799999999",
+      customer: { id: "cust-1", name: "أحمد", currentBalance: 1234 },
+    });
+    const payload = JSON.parse((groqCalls[1].messages.filter((m: any) => m.role === "tool")[0] as any).content);
+    assert.equal(payload.name, "أحمد", "must answer about the verified sender, never the requested number");
+  });
+
+  it("missing product: request is recorded, and repeats aggregate instead of piling up", async () => {
+    scripted = [toolCall("request_missing_product", { productName: "بلاستيك ملون" }), textReply("سجلته للإدارة 👍")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم بلاستيك ملون؟", customer: null });
+    assert.equal(requestedRows.length, 1);
+    assert.equal(requestedRows[0].requestCount, 1);
+
+    scripted = [toolCall("request_missing_product", { productName: "بلاستيك ملون" }), textReply("سجلته 👍")];
+    await runWhatsAppAiTurn({ phone: "9647722222222", text: "اكو بلاستيك ملون؟", customer: null });
+    assert.equal(requestedRows.length, 1, "same product must not create a second row");
+    assert.equal(requestedRows[0].requestCount, 2);
+    assert.equal(requestedRows[0].lastPhone, "9647722222222");
+  });
+
+  it("price question path: escalation lands in the inbox as urgent", async () => {
+    scripted = [toolCall("escalate_to_admin", { reason: "سؤال عن السعر" }), textReply("الإدارة راح تردلك بالسعر 🙏")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شكد سعر الكارتون؟", customer: null });
+    assert.equal(inboundRows.length, 1);
+    assert.equal(inboundRows[0].urgent, true);
+    assert.match(String(inboundRows[0].messageText), /السعر/);
+  });
+
+  it("conversation memory is kept for follow-up turns", async () => {
+    scripted = [textReply("عدنا نوعين، تقصد أي واحد؟")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "اكو اوربيز؟", customer: null });
+    assert.ok(aiChatRow, "history must be saved");
+    const stored = aiChatRow!.messages as Array<{ role: string; content: string }>;
+    assert.equal(stored.length, 2);
+    assert.equal(stored[0].role, "user");
+    assert.equal(stored[1].role, "assistant");
+
+    scripted = [textReply("تمام، الناشف موجود")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "الناشف", customer: null });
+    // The second call must have carried the earlier turns into the prompt.
+    const roles = groqCalls[1].messages.map((m: any) => m.role);
+    assert.deepEqual(roles, ["system", "user", "assistant", "user"]);
+  });
+
+  it("stale history is dropped rather than replayed days later", async () => {
+    aiChatRow = {
+      phone: "9647700000000",
+      messages: [{ role: "user", content: "قديم" }],
+      updatedAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    };
+    scripted = [textReply("هلا")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام", customer: null });
+    const roles = groqCalls[0].messages.map((m: any) => m.role);
+    assert.deepEqual(roles, ["system", "user"], "yesterday's conversation is not context");
+  });
+
+  it("model failure returns false so the caller falls back to the keyword bot", async () => {
+    scripted = []; // any call throws
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام", customer: null });
+    assert.equal(handled, false);
+    assert.equal(sentTexts.length, 0, "a broken agent must not send anything");
+  });
+
+  it("a runaway tool loop escalates to a human instead of spinning", async () => {
+    scripted = [
+      toolCall("search_products", { query: "أ" }, "c1"),
+      toolCall("search_products", { query: "ب" }, "c2"),
+      toolCall("search_products", { query: "ت" }, "c3"),
+      toolCall("search_products", { query: "ث" }, "c4"),
+    ];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "؟؟؟", customer: null });
+    assert.equal(handled, true);
+    assert.equal(inboundRows.length, 1, "must hand off to a human");
+    assert.equal(inboundRows[0].urgent, true);
+    assert.equal(sentTexts.length, 1);
+  });
+});

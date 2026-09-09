@@ -1167,6 +1167,9 @@ export const updateSettingsSchema = z.object({
       prospectAutoReplyMessage: z.string().optional(),
       prospectAutoReplyEnabled: z.boolean().optional(),
       whatsappBotEnabled: z.boolean().optional(),
+      // «الموظف الذكي» — when on, the AI agent answers first and the keyword
+      // rules below become the fallback. Off means today's behaviour exactly.
+      whatsappAiAgentEnabled: z.boolean().optional(),
       botUnknownMessage: z.string().optional(),
       catalogRequireOtp: z.boolean().optional(),
       catalogFullCartonOnly: z.boolean().optional(),
