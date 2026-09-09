@@ -41,6 +41,8 @@ function freshProduct(overrides: Record<string, unknown> = {}) {
     qrCode: null,
     cartonQrCode: null,
     category: "العاب",
+    categoryTags: [] as string[],
+    typeTags: [] as string[],
     pcsPerCarton: 24,
     boxPieces: 12,
     openingBalancePcs: 100,
@@ -169,6 +171,40 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(payload.products[0].available, true);
     assert.equal("price" in payload.products[0], false, "no price may ever reach the model");
     assert.equal("salePrice" in payload.products[0], false);
+  });
+
+  it("colloquial wording finds the shop's descriptive name (سلاح كبريت → بندقية طلق كبريت جنطة)", async () => {
+    // The shop's real complaint: the strict shared scorer required EVERY word,
+    // so "سلاح كبريت" scored 0 against "بندقية طلق كبريت جنطة" and the agent
+    // told a customer it didn't exist.
+    products = [freshProduct({ id: "gun-1", name: "بندقية طلق كبريت جنطة", itemNumber: "2001" })];
+    scripted = [toolCall("search_products", { query: "سلاح كبريت" }), textReply("تقصد بندقية طلق كبريت جنطة؟ موجودة")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "اريد سلاح كبريت", customer: null });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.found, 1, "a partial word match must still surface the product");
+    assert.equal(payload.products[0].name, "بندقية طلق كبريت جنطة");
+    assert.ok(payload.hint, "a partial match must warn the model to verify, not assume");
+  });
+
+  it("no match at all hands back the shop's own category words instead of giving up", async () => {
+    products = [freshProduct({ name: "بندقية طلق كبريت جنطة", category: "أسلحة أطفال", categoryTags: ["العاب"], typeTags: ["كبريت"] })];
+    scripted = [toolCall("search_products", { query: "دراجة هوائية" }), textReply("ما لكيت، تريد أبلغ الإدارة؟")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم دراجة هوائية؟", customer: null });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.found, 0);
+    assert.ok(Array.isArray(payload.shopCategories), "the model needs the shop's vocabulary to retry with");
+    assert.ok(payload.shopCategories.includes("أسلحة أطفال"));
+  });
+
+  it("a concept word matches through category/tags even when the name never uses it", async () => {
+    products = [freshProduct({ name: "بندقية طلق كبريت جنطة", category: "أسلحة أطفال", categoryTags: [], typeTags: [] })];
+    scripted = [toolCall("search_products", { query: "أسلحة" }), textReply("عدنا هاي")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شنو عدكم بالاسلحة؟", customer: null });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.found, 1, "category text must be searchable, not just the name");
   });
 
   it("out-of-stock product still reports availability honestly", async () => {

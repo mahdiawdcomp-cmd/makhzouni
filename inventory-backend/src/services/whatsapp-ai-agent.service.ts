@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import prisma from "../config/database";
 import { logger } from "../utils/logger";
 import { getAnthropicClient } from "../utils/anthropic-client";
-import { normalizeArabic, scoreProduct } from "../utils/arabic-search";
+import { normalizeArabic } from "../utils/arabic-search";
 import { totalStock } from "../utils/product-stock";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 
@@ -57,8 +57,11 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 قواعد لازم تلتزم بيها:
 - ممنوع تذكر أي سعر أبداً. إذا الزبون سأل عن السعر، قله بلطف إن الأسعار تجي من الإدارة وراح يردون عليه، أو استخدم أداة التصعيد للإدارة. لا تخمّن ولا تقول "تقريباً".
 - ممنوع تخترع أي معلومة. كل شي تقوله عن منتج (موجود لو لا، شكد بالكارتون، التفاصيل) لازم يجي من نتيجة أداة استعملتها للتو. إذا ما عندك المعلومة، قول ما عندي وأسأل الإدارة.
+- أسماء المنتجات بالمحل طويلة ووصفية، والزبون يحچي بكلمة قصيرة أو عامية. مثال: المحل مسجّل «بندقية طلق كبريت جنطة» والزبون يكول «اريد سلاح كبريت». هذا نفس الشي.
+  • إذا البحث ما رجّع نتيجة، **لا تقول للزبون مو موجود من أول محاولة**. جرّب مرادف («سلاح» ← «بندقية» / «مسدس» / «طلق»)، أو كلمة من قائمة shopCategories اللي ترجعلك الأداة، أو جزء واحد من كلامه بدل الجملة كاملة.
+  • حاول محاولتين أو ثلاث بألفاظ مختلفة قبل ما تحكم إنه مو موجود.
 - إذا الزبون ذكر منتج ولكيت أكثر من واحد قريب من اسمه، اسأله يحدد أي واحد يقصد واذكرلهم الأسماء — لا تختار أنت.
-- إذا المنتج مو موجود بالمحل، اعرض عليه تبلّغ الإدارة حتى توفره، وإذا وافق استخدم أداة تسجيل الطلب.
+- إذا المنتج فعلاً مو موجود بالمحل بعد ما جرّبت ألفاظ مختلفة، اعرض عليه تبلّغ الإدارة حتى توفره، وإذا وافق استخدم أداة تسجيل الطلب.
 - إذا طلب صورة لمنتج، استخدم أداة إرسال الصورة (هي ترسلها فعلاً)، وبعدها قوله إنك أرسلتها.
 - الزبون المسجّل يكدر يسأل عن رصيده أو كشف حسابه، واستخدم الأداة المخصصة. إذا الرقم مو مسجّل زبون، وضّحله بلطف إنه غير مسجّل عدنا ويكدر يراجع الإدارة.
 - ردودك قصيرة: سطر أو سطرين بالعادة، بدون قوائم طويلة ولا رموز زايدة.
@@ -139,6 +142,8 @@ type ProductRow = {
   qrCode: string | null;
   cartonQrCode: string | null;
   category: string | null;
+  categoryTags: string[];
+  typeTags: string[];
   pcsPerCarton: number;
   boxPieces: number | null;
   openingBalancePcs: number;
@@ -158,6 +163,8 @@ async function loadSearchableProducts(): Promise<ProductRow[]> {
       qrCode: true,
       cartonQrCode: true,
       category: true,
+      categoryTags: true,
+      typeTags: true,
       pcsPerCarton: true,
       boxPieces: true,
       openingBalancePcs: true,
@@ -167,6 +174,53 @@ async function loadSearchableProducts(): Promise<ProductRow[]> {
       warehouseStocks: { select: { quantityPieces: true } },
     },
   });
+}
+
+/**
+ * Recall-first scoring, deliberately looser than the shared scoreProduct().
+ *
+ * That one requires EVERY query word to appear, which is right for the
+ * products screen — a human typing there wants a short, exact list. It is
+ * wrong here. A customer writes «اريد سلاح كبريت» for a product the shop
+ * called «بندقية طلق كبريت جنطة»: "كبريت" matches, "سلاح" does not, and the
+ * strict scorer returns 0 — the shop's own test case, and it looked stupid.
+ *
+ * Here the model is the filter: it reads the candidates and decides which one
+ * the customer meant, so a few extra rows cost nothing and a missing row
+ * costs a sale. Category and tags are searched too, so a concept word can
+ * find a product whose name never uses it.
+ */
+function scoreForAgent(p: ProductRow, query: string): number {
+  const full = normalizeArabic(query);
+  if (!full) return 0;
+  const tokens = full.split(" ").filter(Boolean);
+
+  const name = normalizeArabic(p.name);
+  const codes = [p.itemNumber, p.qrCode ?? "", p.cartonQrCode ?? ""].map((c) => normalizeArabic(c)).filter(Boolean);
+  const context = [name, normalizeArabic(p.category ?? ""), ...[...p.categoryTags, ...p.typeTags].map((t) => normalizeArabic(t))]
+    .filter(Boolean)
+    .join(" ");
+
+  if (codes.some((c) => c === full)) return 100;
+  if (name === full) return 90;
+  if (name.startsWith(full)) return 80;
+  if (name.includes(full)) return 70;
+
+  const matched = tokens.filter((t) => context.includes(t)).length;
+  if (matched === 0) return 0;
+  if (matched === tokens.length) return 60;
+  // Partial: rank by how much of what the customer said actually landed.
+  return 20 + Math.round((matched / tokens.length) * 30);
+}
+
+/** The shop's own vocabulary, so the model can map a concept word onto it. */
+async function shopVocabulary(products: ProductRow[]): Promise<string[]> {
+  const set = new Set<string>();
+  for (const p of products) {
+    if (p.category) set.add(p.category);
+    for (const t of [...p.categoryTags, ...p.typeTags]) if (t) set.add(t);
+  }
+  return [...set].slice(0, 60);
 }
 
 /** Public product facts the agent may see. Deliberately contains no price field. */
@@ -187,12 +241,33 @@ function productFacts(p: ProductRow) {
 async function toolSearchProducts(query: string) {
   const products = await loadSearchableProducts();
   const ranked = products
-    .map((p) => ({ p, score: scoreProduct(p, query) }))
+    .map((p) => ({ p, score: scoreForAgent(p, query) }))
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, SEARCH_RESULT_LIMIT);
-  if (!ranked.length) return { found: 0, products: [], hint: "ماكو منتج بهذا الاسم — اعرض على الزبون تسجيل طلب للإدارة." };
-  return { found: ranked.length, products: ranked.map((r) => productFacts(r.p)) };
+
+  if (!ranked.length) {
+    // Don't conclude "we don't have it" yet — hand the model the shop's own
+    // category words so it can retry with the vocabulary the shop actually
+    // uses, instead of the word the customer happened to pick.
+    return {
+      found: 0,
+      products: [],
+      shopCategories: await shopVocabulary(products),
+      hint: "ماكو نتيجة بهذا اللفظ. جرّب مرادف أو كلمة من shopCategories قبل ما تقول للزبون إنه مو موجود. إذا فعلاً ماكو، اعرض تسجيل طلب للإدارة.",
+    };
+  }
+
+  // A weak top score means the words only partly landed — the model must read
+  // the names and decide, not assume the first row is what the customer meant.
+  const weak = ranked[0].score < 60;
+  return {
+    found: ranked.length,
+    products: ranked.map((r) => productFacts(r.p)),
+    ...(weak
+      ? { hint: "النتائج تطابق جزء من كلام الزبون فقط. اقرأ الأسماء واختر المناسب، وإذا مو واضح اسأل الزبون يحدد." }
+      : {}),
+  };
 }
 
 async function toolProductDetails(productId: string) {
@@ -200,6 +275,7 @@ async function toolProductDetails(productId: string) {
     where: { id: productId, deletedAt: null },
     select: {
       id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true,
+      categoryTags: true, typeTags: true,
       pcsPerCarton: true, boxPieces: true, openingBalancePcs: true, cartonsAvailable: true,
       imageUrl: true, catalogDescription: true, warehouseStocks: { select: { quantityPieces: true } },
     },
