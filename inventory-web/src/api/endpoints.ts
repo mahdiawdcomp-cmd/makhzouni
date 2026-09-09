@@ -3805,6 +3805,7 @@ export interface WholesaleInstagramPost {
   skipReason?: string | null
   attemptCount: number
   publishedAt?: string | null
+  stockAlertAt?: string | null
   createdAt: string
   updatedAt: string
   media: WholesaleInstagramMedia[]
@@ -3900,6 +3901,18 @@ export async function rescheduleWholesaleInstagramPost(id: string, scheduledAtIs
 
 export async function publishWholesaleInstagramPostNow(id: string) {
   await api.post(`/wholesale-instagram/posts/${id}/publish-now`)
+}
+
+// Persistent "product ran out after the post already went live" alert — Meta
+// gives no way to delete a live post from this OAuth flow, so this stays
+// visible until an admin explicitly dismisses it (never auto-clears).
+export async function getWholesaleInstagramStockAlerts() {
+  const { data } = await api.get<ApiEnvelope<WholesaleInstagramPost[]>>("/wholesale-instagram/posts/stock-alerts")
+  return data.data ?? []
+}
+
+export async function dismissWholesaleInstagramStockAlert(id: string) {
+  await api.post(`/wholesale-instagram/posts/${id}/dismiss-stock-alert`)
 }
 
 /* ── «تدقيق ربح الزبون» ─────────────────────────────────────────────── */

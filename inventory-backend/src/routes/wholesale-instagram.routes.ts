@@ -23,6 +23,8 @@ import {
   cancelSchedule,
   reschedulePost,
   publishNow,
+  listStockAlerts,
+  dismissStockAlert,
 } from "../services/wholesale-instagram.service";
 
 // «إنستغرام الجملة» — routes completely independent of /instagram (retail).
@@ -92,6 +94,16 @@ router.get("/posts", requireAnyPermission(...READ), asyncHandler(async (req, res
   const status = typeof req.query.status === "string" ? req.query.status : undefined;
   const productId = typeof req.query.productId === "string" ? req.query.productId : undefined;
   res.json({ success: true, data: await listPosts({ status, productId }) });
+}));
+
+// Registered before /posts/:id — otherwise "stock-alerts" would be swallowed as an :id.
+router.get("/posts/stock-alerts", requireAnyPermission(...READ), asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listStockAlerts() });
+}));
+
+router.post("/posts/:id/dismiss-stock-alert", requireAnyPermission(...READ), asyncHandler(async (req, res) => {
+  await dismissStockAlert(String(req.params.id));
+  res.json({ success: true, data: { ok: true } });
 }));
 
 router.get("/posts/:id", requireAnyPermission(...READ), asyncHandler(async (req, res) => {

@@ -2603,6 +2603,18 @@ model WholesaleInstagramPost {
   skipReason   String?                      @map("skip_reason")
   attemptCount Int                          @default(0) @map("attempt_count")
   publishedAt  DateTime?                    @map("published_at")
+  // Set ONCE, the first moment a PUBLISHED post's product is found out of
+  // stock (checked on the same per-minute tick) — and never touched again.
+  // Meta's API cannot delete a live post from this OAuth flow (Instagram
+  // Login, not Facebook Login) — see checkPublishedStockAlerts() — so this is
+  // a persistent, admin-dismissed flag instead. Because it is immutable once
+  // set, it doubles as a one-shot marker: a post is only ever a detection
+  // candidate while this is still null, so dismissing the alert (below) can
+  // never cause it to silently reappear on the next tick.
+  stockAlertAt         DateTime?             @map("stock_alert_at")
+  // The admin has opened the live post and handled it. Independent of
+  // stockAlertAt above so dismissal never re-opens the detection window.
+  stockAlertDismissed  Boolean               @default(false) @map("stock_alert_dismissed")
   createdById  String?                      @map("created_by_id") @db.Uuid
   createdAt    DateTime                     @default(now()) @map("created_at")
   updatedAt    DateTime                     @updatedAt @map("updated_at")
@@ -2612,6 +2624,7 @@ model WholesaleInstagramPost {
   @@index([status])
   @@index([productId])
   @@index([accountId])
+  @@index([stockAlertAt])
   @@index([status, scheduledAt])
   @@map("wholesale_instagram_posts")
 }

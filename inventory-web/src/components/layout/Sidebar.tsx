@@ -35,7 +35,7 @@ import {
 } from "lucide-react"
 import { Instagram } from "../instagram/InstagramIcon"
 import { useQuery } from "@tanstack/react-query"
-import { getApprovals, getInboundMessages } from "../../api/endpoints"
+import { getApprovals, getInboundMessages, getWholesaleInstagramStockAlerts } from "../../api/endpoints"
 import { useAuthStore } from "../../store/authStore"
 import { useSettings } from "../../hooks/useSettings"
 import { useTenantConfig } from "../../hooks/useTenantConfig"
@@ -196,6 +196,17 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
   })
   const unreadCount = inboxQuery.data?.unreadCount ?? 0
 
+  // Persistent "product ran out after the post went live" alert — surfaced
+  // here too so it's visible from anywhere, not just on the page itself.
+  const isWholesaleInstagram = item.to === "/wholesale-instagram"
+  const stockAlertsQuery = useQuery({
+    queryKey: ["wig-stock-alerts"],
+    queryFn: getWholesaleInstagramStockAlerts,
+    refetchInterval: 30_000,
+    enabled: isWholesaleInstagram,
+  })
+  const stockAlertCount = stockAlertsQuery.data?.length ?? 0
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 8 }}
@@ -233,6 +244,11 @@ function SideLeaf({ item, index = 0 }: { item: Leaf; index?: number }) {
         {isCampaigns && unreadCount > 0 && (
           <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
             {unreadCount}
+          </span>
+        )}
+        {isWholesaleInstagram && stockAlertCount > 0 && (
+          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+            {stockAlertCount}
           </span>
         )}
       </NavLink>

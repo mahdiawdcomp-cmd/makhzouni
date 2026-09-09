@@ -4,9 +4,11 @@ import { usePageTitle } from "../hooks/usePageTitle"
 import {
   createWholesaleInstagramPost,
   deleteWholesaleInstagramPost,
+  dismissWholesaleInstagramStockAlert,
   getProducts,
   getWholesaleInstagramAccounts,
   getWholesaleInstagramPosts,
+  getWholesaleInstagramStockAlerts,
   type WholesaleInstagramPost,
 } from "../api/endpoints"
 import type { Product } from "../types/api"
@@ -18,7 +20,7 @@ import { toast } from "../components/ui/use-toast"
 import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 import { WholesaleInstagramPrepareModal } from "../components/wholesale-instagram/WholesaleInstagramPrepareModal"
-import { CheckCircle2, ExternalLink, Loader2, Trash2 } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Trash2 } from "lucide-react"
 import { Instagram } from "../components/instagram/InstagramIcon"
 
 // «إنستغرام الجملة» — standalone management page for wholesale Product
@@ -79,6 +81,8 @@ export function WholesaleInstagramPage() {
         </div>
       </div>
 
+      <StockAlertBanner />
+
       <div className="flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-700">
         {TABS.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -93,6 +97,65 @@ export function WholesaleInstagramPage() {
       {tab === "scheduled" && <PostsTab status="SCHEDULED" emptyText="ماكو منشورات مجدولة" />}
       {tab === "published" && <PostsTab status="PUBLISHED" emptyText="ماكو منشورات ناجحة بعد" />}
       {tab === "failed" && <FailedTab />}
+    </div>
+  )
+}
+
+// ── تنبيه "نفدت الكمية" لمنشور منشور فعلاً ────────────────────────────────────
+// ثابت وما يختفي وحده — يبقى فوق كل التبويبات لحد ما تضغط "علّمته — راجعته"
+// يدوياً، لأن ميتا ما تسمح بحذف المنشور تلقائياً من هذا النوع من الربط.
+
+function StockAlertBanner() {
+  const qc = useQueryClient()
+  const { data: alerts = [] } = useQuery({
+    queryKey: ["wig-stock-alerts"],
+    queryFn: getWholesaleInstagramStockAlerts,
+    refetchInterval: 30000,
+  })
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  async function dismiss(id: string) {
+    if (!window.confirm("راجعت المنشور بانستغرام وحسمت أمره (حذفته يدوياً أو قررت تبقيه)؟")) return
+    setBusyId(id)
+    try {
+      await dismissWholesaleInstagramStockAlert(id)
+      void qc.invalidateQueries({ queryKey: ["wig-stock-alerts"] })
+    } catch (error) {
+      toast({ title: apiErrorMessage(error), variant: "destructive" })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (alerts.length === 0) return null
+
+  return (
+    <div className="space-y-2 rounded-lg border-2 border-red-300 bg-red-50 p-3 dark:border-red-700 dark:bg-red-900/30">
+      <p className="flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-200">
+        <AlertTriangle className="h-4 w-4" /> منشورات منشورة فعلاً على انستغرام ونفدت كميتها بالمحل ({alerts.length}) — تحتاج مراجعتك اليدوية
+      </p>
+      <p className="text-xs text-red-700 dark:text-red-300">
+        انستغرام ما يسمح بحذف منشور منشور عبر النظام تلقائياً — افتح المنشور واحذفه بنفسك من تطبيق انستغرام إذا تريد، وبعدها علّمه هنا كـ"تمت المراجعة".
+      </p>
+      <div className="space-y-2">
+        {alerts.map((post) => (
+          <div key={post.id} className="flex flex-wrap items-center gap-2 rounded-md bg-white p-2 text-sm dark:bg-slate-900">
+            {post.media[0] && <img src={post.media[0].url} className="h-10 w-10 shrink-0 rounded object-cover" />}
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium">{post.productTitle}</p>
+              <p className="text-xs text-slate-500">نفدت الكمية منذ: {formatBaghdad(post.stockAlertAt)}</p>
+            </div>
+            {post.permalink && (
+              <a href={post.permalink} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-pink-600">
+                <ExternalLink className="h-3 w-3" /> فتح المنشور
+              </a>
+            )}
+            <Button size="sm" variant="outline" onClick={() => void dismiss(post.id)} disabled={busyId === post.id}>
+              {busyId === post.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "✔ راجعته"}
+            </Button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

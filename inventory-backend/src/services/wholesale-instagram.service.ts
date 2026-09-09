@@ -269,6 +269,51 @@ async function checkStock(productId: string | null): Promise<{ available: boolea
   return { available: true, stock };
 }
 
+/**
+ * Flags already-PUBLISHED posts whose product just ran out — Meta gives no
+ * way to delete the live post from this OAuth flow (Instagram Login, not
+ * Facebook Login; see the DELETE /{ig-media-id} requirement), so the only
+ * honest thing the system can do is surface it somewhere that does not
+ * disappear until a human dismisses it. Called every minute from the same
+ * tick that runs scheduled posts (see wholesale-instagram-queue.service.ts) —
+ * cheap: only PUBLISHED posts not already flagged are ever checked.
+ */
+export async function checkPublishedStockAlerts(): Promise<void> {
+  const candidates = await prisma.wholesaleInstagramPost.findMany({
+    where: { status: "PUBLISHED", stockAlertAt: null, productId: { not: null } },
+    select: { id: true, productId: true },
+  });
+  for (const post of candidates) {
+    const stock = await checkStock(post.productId);
+    if (!stock.available) {
+      await prisma.wholesaleInstagramPost.update({ where: { id: post.id }, data: { stockAlertAt: new Date() } });
+    }
+  }
+}
+
+export async function listStockAlerts() {
+  const posts = await prisma.wholesaleInstagramPost.findMany({
+    where: { status: "PUBLISHED", stockAlertAt: { not: null }, stockAlertDismissed: false },
+    orderBy: { stockAlertAt: "desc" },
+    include: postInclude,
+  });
+  return posts.map(serializePost);
+}
+
+/**
+ * Admin has opened the live post and handled it (deleted it manually, or
+ * chose to leave it). Only flips the `dismissed` flag — stockAlertAt itself
+ * is immutable, which is what stops checkPublishedStockAlerts() from ever
+ * re-flagging this same post once it is gone from the candidate query.
+ */
+export async function dismissStockAlert(id: string): Promise<void> {
+  const res = await prisma.wholesaleInstagramPost.updateMany({
+    where: { id, stockAlertAt: { not: null }, stockAlertDismissed: false },
+    data: { stockAlertDismissed: true },
+  });
+  if (res.count !== 1) throw new AppError("ماكو تنبيه نشط لهذا المنشور", 400, "WHOLESALE_IG_NO_ALERT");
+}
+
 // ── Scheduling ────────────────────────────────────────────────────────────────
 
 function assertPublishReady(post: { accountId: string; caption: string }, mediaCount: number) {

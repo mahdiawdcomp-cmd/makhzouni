@@ -1,5 +1,5 @@
 import prisma from "../config/database";
-import { runWholesalePublish } from "./wholesale-instagram.service";
+import { runWholesalePublish, checkPublishedStockAlerts } from "./wholesale-instagram.service";
 
 // «إنستغرام الجملة» — per-minute tick. Runs as its OWN cron.schedule entry
 // (see notification-jobs.service.ts), completely separate from the retail
@@ -27,7 +27,6 @@ export async function runWholesaleInstagramQueueTick() {
     orderBy: { scheduledAt: "asc" },
     take: 50, // safety cap — a normal shop schedules a handful of posts a day
   });
-  if (!due.length) return;
 
   for (const { id } of due) {
     try {
@@ -37,5 +36,14 @@ export async function runWholesaleInstagramQueueTick() {
     } catch (error) {
       console.error("[wholesale-instagram-queue] tick failed for post", id, error);
     }
+  }
+
+  // Same minute, same tick: flag any already-PUBLISHED post whose product
+  // just ran out, so it surfaces on the page instead of silently staying
+  // live forever. Runs regardless of whether anything was due above.
+  try {
+    await checkPublishedStockAlerts();
+  } catch (error) {
+    console.error("[wholesale-instagram-queue] stock-alert check failed", error);
   }
 }

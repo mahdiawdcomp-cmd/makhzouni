@@ -22,6 +22,8 @@ type Post = {
   skipReason: string | null;
   attemptCount: number;
   publishedAt: Date | null;
+  stockAlertAt: Date | null;
+  stockAlertDismissed: boolean;
 };
 
 function freshPost(overrides: Partial<Post> = {}): Post {
@@ -42,6 +44,8 @@ function freshPost(overrides: Partial<Post> = {}): Post {
     skipReason: null,
     attemptCount: 0,
     publishedAt: null,
+    stockAlertAt: null,
+    stockAlertDismissed: false,
     ...overrides,
   };
 }
@@ -75,6 +79,8 @@ const fakePrisma = {
       if (where.id !== post.id) return { count: 0 };
       const allowed: string[] | null = where.status?.in ?? (where.status ? [where.status] : null);
       if (allowed && !allowed.includes(post.status)) return { count: 0 };
+      if (where.stockAlertAt?.not === null && post.stockAlertAt === null) return { count: 0 };
+      if (where.stockAlertDismissed === false && post.stockAlertDismissed !== false) return { count: 0 };
       applyData(post as unknown as Record<string, unknown>, data);
       return { count: 1 };
     },
@@ -90,9 +96,25 @@ const fakePrisma = {
       if (include?.media) result.media = mediaRows.map((m) => ({ ...m }));
       return result;
     },
-    findMany: async ({ where }: any) => {
+    findMany: async ({ where, include }: any) => {
       if (where.status === "SCHEDULED" && post.status === "SCHEDULED" && post.scheduledAt && post.scheduledAt.getTime() <= Date.now()) {
         return [{ id: post.id }];
+      }
+      if (where.status === "PUBLISHED" && where.stockAlertAt === null && post.status === "PUBLISHED" && post.stockAlertAt === null) {
+        return [{ id: post.id, productId: post.productId }];
+      }
+      if (
+        where.status === "PUBLISHED" &&
+        where.stockAlertAt?.not === null &&
+        where.stockAlertDismissed === false &&
+        post.status === "PUBLISHED" &&
+        post.stockAlertAt !== null &&
+        post.stockAlertDismissed === false
+      ) {
+        const result: any = { ...post };
+        if (include?.account) result.account = { ...account };
+        if (include?.media) result.media = mediaRows.map((m) => ({ ...m }));
+        return [result];
       }
       return [];
     },
@@ -203,5 +225,79 @@ describe("wholesale Instagram — publish pipeline + stock gate", () => {
     await runWholesaleInstagramQueueTick();
     assert.equal(post.status, "FAILED");
     assert.match(post.errorMessage ?? "", /غير مربوط|منتهي/);
+  });
+});
+
+describe("wholesale Instagram — persistent stock alert on an already-published post", () => {
+  let checkPublishedStockAlerts: () => Promise<void>;
+  let listStockAlerts: () => Promise<unknown[]>;
+  let dismissStockAlert: (id: string) => Promise<void>;
+  let runWholesaleInstagramQueueTick2: () => Promise<void>;
+
+  before(async () => {
+    ({ checkPublishedStockAlerts, listStockAlerts, dismissStockAlert } = await import("./wholesale-instagram.service"));
+    ({ runWholesaleInstagramQueueTick: runWholesaleInstagramQueueTick2 } = await import("./wholesale-instagram-queue.service"));
+  });
+
+  beforeEach(() => {
+    post = freshPost({ status: "PUBLISHED", scheduledAt: null, publishedAt: new Date() });
+    account = { id: "acc-1", igUserId: "ig-user-1", accessTokenEnc: "enc", status: "connected" };
+    mediaRows = [{ id: "media-1", mediaAssetId: "asset-1", sortOrder: 0, mediaAsset: { publicToken: "tok-1" } }];
+    product = { id: "prod-1", deletedAt: null, openingBalancePcs: 5, cartonsAvailable: 0, pcsPerCarton: 1, warehouseStocks: [] };
+    installFetchStub();
+  });
+
+  afterEach(() => {
+    (globalThis as any).fetch = originalFetch;
+  });
+
+  it("a published post is flagged (not touched on Meta) the moment its product hits zero stock", async () => {
+    product.openingBalancePcs = 0;
+    await checkPublishedStockAlerts();
+    assert.ok(post.stockAlertAt, "stockAlertAt must be set");
+    assert.equal(post.status, "PUBLISHED", "the live post itself is never touched — Meta gives no delete path here");
+    assert.equal(fetchCalls.length, 0, "flagging must never call Meta");
+  });
+
+  it("a well-stocked published post is never flagged", async () => {
+    await checkPublishedStockAlerts();
+    assert.equal(post.stockAlertAt, null);
+  });
+
+  it("the per-minute tick also runs the stock-alert check, even with nothing scheduled", async () => {
+    product.openingBalancePcs = 0;
+    await runWholesaleInstagramQueueTick2();
+    assert.ok(post.stockAlertAt);
+  });
+
+  it("once flagged, a second check does not re-touch it (no duplicate flapping)", async () => {
+    product.openingBalancePcs = 0;
+    await checkPublishedStockAlerts();
+    const firstFlagTime = post.stockAlertAt;
+    await checkPublishedStockAlerts();
+    assert.equal(post.stockAlertAt, firstFlagTime, "already-flagged posts are excluded from the candidate query");
+  });
+
+  it("listStockAlerts surfaces the flagged post; dismissing hides it and it never silently reappears", async () => {
+    product.openingBalancePcs = 0;
+    await checkPublishedStockAlerts();
+    const alerts = (await listStockAlerts()) as Array<{ id: string }>;
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0].id, post.id);
+
+    await dismissStockAlert(post.id);
+    assert.equal(post.stockAlertDismissed, true);
+    assert.ok(post.stockAlertAt, "the original flag timestamp is kept, not erased");
+    assert.deepEqual(await listStockAlerts(), [], "a dismissed alert must not still be listed");
+
+    // Stock is still 0, but a dismissed alert must not silently reappear —
+    // the admin's decision stands until something explicit changes it.
+    await checkPublishedStockAlerts();
+    assert.equal(post.stockAlertDismissed, true);
+    assert.deepEqual(await listStockAlerts(), []);
+  });
+
+  it("dismissing a post with no active alert is rejected, not a silent no-op", async () => {
+    await assert.rejects(() => dismissStockAlert(post.id), /تنبيه/);
   });
 });
