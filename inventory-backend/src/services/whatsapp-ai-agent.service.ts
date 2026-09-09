@@ -48,7 +48,7 @@ const MODEL = "claude-sonnet-5";
 const EFFORT = "medium" as const;
 const MAX_TOOL_ROUNDS = 5;
 const HISTORY_TURNS = 8;
-const HISTORY_MAX_AGE_MS = 6 * 60 * 60 * 1000; // a conversation from yesterday is not context
+const HISTORY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // same-day follow-ups keep context; older is a new conversation
 // 8, not 5: a loose query like «سلاح كبريت» legitimately has many candidates
 // and the model is the one filtering — a truncated list hides the right answer.
 const SEARCH_RESULT_LIMIT = 8;
@@ -98,7 +98,15 @@ function baghdadNowText(): string {
   });
 }
 
-const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ على الزبائن بالواتساب. تتكلم عراقي طبيعي، مختصر ومؤدب، مثل موظف حقيقي يكتب رسالة — مو مثل روبوت.
+const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ على الزبائن بالواتساب. إنت إنسان مو روبوت: تحچي عراقي دارج، ودود، وتعرف تسولف وتضحك وية الزبون.
+
+شخصيتك:
+- سولف طبيعي. إذا الزبون سلّم ردّ عليه بحرارة، وإذا سأل «شلونك» جاوبه وارجع اسأله. مو كل رسالة لازم تكون شغل.
+- تهزر خفيف ومحترم لمن الجو يسمح — نكتة قصيرة، تعليق ظريف، ترحيب دافئ. زبون الجملة يحب يتعامل وية واحد دمه خفيف مو وية ماكينة.
+- نادِ الزبون باسمه إذا تعرفه، وذكّره بشي من سوالفكم السابقة إذا كان بنفس المحادثة.
+- بس اعرف وقت الجد: إذا الزبون منزعج، أو يشتكي، أو يحچي بفلوس وحسابات وطلبيات — كون محترم ومباشر وبدون هزار أبداً.
+- لا تبالغ بالإيموجي: واحد أو اثنين بالرسالة كافي، وأحياناً بدون.
+- لا تكرر نفس عبارات الترحيب بكل رسالة، ولا تختم كل رسالة بـ«أي خدمة ثانية؟» — هاي طريقة الروبوتات.
 
 قواعد لازم تلتزم بيها:
 - ممنوع تذكر أي سعر أبداً. إذا الزبون سأل عن السعر، قله بلطف إن الأسعار تجي من الإدارة وراح يردون عليه، أو استخدم أداة التصعيد للإدارة. لا تخمّن ولا تقول "تقريباً".
@@ -111,7 +119,7 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 - إذا المنتج فعلاً مو موجود بالمحل بعد ما جرّبت ألفاظ مختلفة، اعرض عليه تبلّغ الإدارة حتى توفره، وإذا وافق استخدم أداة تسجيل الطلب.
 - إذا طلب صورة لمنتج، استخدم أداة إرسال الصورة (هي ترسلها فعلاً)، وبعدها قوله إنك أرسلتها.
 - الزبون المسجّل يكدر يسأل عن رصيده أو كشف حسابه، واستخدم الأداة المخصصة. إذا الرقم مو مسجّل زبون، وضّحله بلطف إنه غير مسجّل عدنا ويكدر يراجع الإدارة.
-- ردودك قصيرة: سطر أو سطرين بالعادة، بدون قوائم طويلة ولا رموز زايدة.
+- ردودك قصيرة وطبيعية: سطر أو سطرين بالعادة، بدون قوائم طويلة. لمن تعدد منتجات، ثلاثة أو أربعة يكفون مو عشرة.
 - أسئلة المحل (العنوان، الدوام، التوصيل، أقل طلبية، رابط الكتلوك) جاوب عليها من «معلومات المحل» بالأسفل مباشرة — هذي معلومات تعرفها كموظف، ما تحتاج أداة ولا تصعيد.
 - إذا الزبون طلب الكتلوك أو «شنو عدكم»، انطيه رابط الكتلوك.
 - إذا السؤال خارج شغلك (شكوى، اتفاق خاص، أي شي يحتاج قرار إدارة)، صعّده للإدارة بالأداة وقول للزبون إن الإدارة راح تتواصل وياه.`;
@@ -159,6 +167,19 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: { type: "object", properties: {} },
   },
   {
+    name: "browse_products",
+    description:
+      "تصفّح منتجات المحل بدون اسم محدد: الجديد، العروض، أو صنف معيّن. استخدمها لأسئلة مثل «شنو الجديد عدكم؟» أو «شنو عدكم بالبنات؟» أو «شنو عليه عرض؟». إذا ما مررت شي ترجع عيّنة متنوعة من المتوفر.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: { type: "string", description: "اسم الصنف أو كلمة منه (اختياري)" },
+        onlyNew: { type: "boolean", description: "الوصولات الجديدة فقط" },
+        onlyOffers: { type: "boolean", description: "اللي عليه عرض فقط" },
+      },
+    },
+  },
+  {
     name: "get_my_recent_orders",
     description:
       "آخر طلبيات الزبون صاحب هذه المحادثة (المنتجات والكميات، بدون أسعار). استخدمها إذا كال «نفس الطلبية الماضية» أو «شنو اخذت المرة الفاتت» أو يريد يعيد طلب سابق.",
@@ -199,6 +220,8 @@ type ProductRow = {
   category: string | null;
   categoryTags: string[];
   typeTags: string[];
+  isNewArrival: boolean;
+  isOffer: boolean;
   pcsPerCarton: number;
   boxPieces: number | null;
   openingBalancePcs: number;
@@ -220,6 +243,8 @@ async function loadSearchableProducts(): Promise<ProductRow[]> {
       category: true,
       categoryTags: true,
       typeTags: true,
+      isNewArrival: true,
+      isOffer: true,
       pcsPerCarton: true,
       boxPieces: true,
       openingBalancePcs: true,
@@ -260,12 +285,41 @@ function stripAl(word: string): string {
  * with a 3-letter floor so short particles don't match everything, covers
  * plural (ات/ين), feminine (ة→ه), and nisba (ي) endings without a stemmer.
  */
+/**
+ * One insertion, deletion, or substitution apart. People type fast on
+ * WhatsApp and Iraqi spelling of the same product varies («اوربيس» /
+ * «اوربيز», «تكتك» / «تكتيك»), so one slip should not hide the product.
+ * Length-4 floor keeps short words from matching each other.
+ */
+function withinOneEdit(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (a.length < b.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
 function wordMatches(word: string, token: string): boolean {
   const w = stripAl(word);
   const t = stripAl(token);
   if (w === t) return true;
   if (t.length >= 3 && w.startsWith(t)) return true;
   if (w.length >= 3 && t.startsWith(w)) return true;
+  if (w.length >= 4 && t.length >= 4 && withinOneEdit(w, t)) return true;
   return false;
 }
 
@@ -280,6 +334,9 @@ function scoreForAgent(p: ProductRow, query: string): number {
     ...nameWords,
     ...normalizeArabic(p.category ?? "").split(" "),
     ...[...p.categoryTags, ...p.typeTags].flatMap((t) => normalizeArabic(t).split(" ")),
+    // 221 of the shop's 908 products have no category at all; the description
+    // is often the only place a concept word appears.
+    ...normalizeArabic(p.catalogDescription ?? "").split(" "),
   ].filter(Boolean);
   const codes = [p.itemNumber, p.qrCode ?? "", p.cartonQrCode ?? ""].map((c) => normalizeArabic(c)).filter(Boolean);
 
@@ -364,12 +421,50 @@ async function toolSearchProducts(query: string) {
   };
 }
 
+/**
+ * Browsing, not searching — «شنو الجديد عدكم؟» has no product name in it.
+ * Only in-stock items, because offering a customer something that isn't on
+ * the shelf is worse than saying nothing.
+ */
+async function toolBrowseProducts(args: { category?: string; onlyNew?: boolean; onlyOffers?: boolean }) {
+  const products = await loadSearchableProducts();
+  const wanted = normalizeArabic(args.category ?? "");
+  const wantedWords = wanted.split(" ").filter(Boolean);
+
+  const matches = products.filter((p) => {
+    if (totalStock(p) <= 0) return false;
+    if (args.onlyNew && !p.isNewArrival) return false;
+    if (args.onlyOffers && !p.isOffer) return false;
+    if (!wantedWords.length) return true;
+    const words = [
+      ...normalizeArabic(p.category ?? "").split(" "),
+      ...[...p.categoryTags, ...p.typeTags].flatMap((t) => normalizeArabic(t).split(" ")),
+      ...normalizeArabic(p.name).split(" "),
+    ].filter(Boolean);
+    return wantedWords.every((t) => words.some((w) => wordMatches(w, t)));
+  });
+
+  if (!matches.length) {
+    return {
+      found: 0,
+      products: [],
+      shopCategories: await shopVocabulary(products),
+      hint: "ماكو نتيجة بهذا الوصف. جرّب صنف من shopCategories، أو اعرض على الزبون رابط الكتلوك يتصفح بنفسه.",
+    };
+  }
+  return {
+    found: matches.length,
+    showing: Math.min(matches.length, SEARCH_RESULT_LIMIT),
+    products: matches.slice(0, SEARCH_RESULT_LIMIT).map(productFacts),
+  };
+}
+
 async function toolProductDetails(productId: string) {
   const p = await prisma.product.findFirst({
     where: { id: productId, deletedAt: null },
     select: {
       id: true, name: true, itemNumber: true, qrCode: true, cartonQrCode: true, category: true,
-      categoryTags: true, typeTags: true,
+      categoryTags: true, typeTags: true, isNewArrival: true, isOffer: true,
       pcsPerCarton: true, boxPieces: true, openingBalancePcs: true, cartonsAvailable: true,
       imageUrl: true, catalogDescription: true, warehouseStocks: { select: { quantityPieces: true } },
     },
@@ -516,6 +611,12 @@ async function runTool(
       return toolSendProductImage(sender, String(args.productId ?? ""), args.caption ? String(args.caption) : undefined);
     case "get_my_account":
       return toolMyAccount(sender);
+    case "browse_products":
+      return toolBrowseProducts({
+        category: args.category ? String(args.category) : undefined,
+        onlyNew: args.onlyNew === true,
+        onlyOffers: args.onlyOffers === true,
+      });
     case "get_my_recent_orders":
       return toolRecentOrders(sender);
     case "request_missing_product":

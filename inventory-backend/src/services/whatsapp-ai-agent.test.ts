@@ -44,6 +44,8 @@ function freshProduct(overrides: Record<string, unknown> = {}) {
     category: "العاب",
     categoryTags: [] as string[],
     typeTags: [] as string[],
+    isNewArrival: false,
+    isOffer: false,
     pcsPerCarton: 24,
     boxPieces: 12,
     openingBalancePcs: 100,
@@ -399,6 +401,39 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     await runWhatsAppAiTurn({ phone: "9647700000000", text: "شكد عدك اوربيز؟", customer: null });
     const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
     assert.equal(payload.products[0].cartonsAvailable, 4, "100 pieces ÷ 24 per carton");
+  });
+
+  it("a typo still finds the product (اوربيس → اوربيز)", async () => {
+    scripted = [toolCall("search_products", { query: "اوربيس" }), textReply("تقصد اوربيز؟ موجود")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيس؟", customer: null });
+    assert.equal(JSON.parse(toolResultsOf(apiCalls[1])[0].content).found, 1);
+  });
+
+  it("«شنو الجديد عدكم؟» browses without a product name, in-stock only", async () => {
+    products = [
+      freshProduct({ id: "new-1", name: "لعبة جديدة", isNewArrival: true }),
+      freshProduct({ id: "old-1", name: "لعبة قديمة", isNewArrival: false }),
+      freshProduct({ id: "new-empty", name: "جديدة بس خالصة", isNewArrival: true, openingBalancePcs: 0 }),
+    ];
+    scripted = [toolCall("browse_products", { onlyNew: true }), textReply("وصلنا لعبة جديدة")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شنو الجديد عدكم؟", customer: null });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.found, 1, "only new arrivals that are actually in stock");
+    assert.equal(payload.products[0].name, "لعبة جديدة");
+  });
+
+  it("browsing by category works even when the name says nothing about it", async () => {
+    products = [
+      freshProduct({ id: "g-1", name: "دبدوب صغير", category: "بنات" }),
+      freshProduct({ id: "b-1", name: "سيارة حديد", category: "اولاد" }),
+    ];
+    scripted = [toolCall("browse_products", { category: "بنات" }), textReply("عدنا دبدوب صغير")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شنو عدكم بالبنات؟", customer: null });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.found, 1);
+    assert.equal(payload.products[0].name, "دبدوب صغير");
   });
 
   it("model failure returns false so the caller falls back to the keyword bot", async () => {
