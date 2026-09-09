@@ -9,6 +9,7 @@ import { getSettings, updateSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
 import { applyMessageReaction, fillConversationContactName, logChatMessage, updateMessageStatus } from "../services/whatsapp-chat.service";
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
+import { dataUrlToAudio, transcribeVoiceNote } from "../services/audio-transcribe.service";
 import { logger } from "../utils/logger";
 import { recordError } from "../services/error-log.service";
 import { handleQualityWebhookEvent, handleAccountRestrictionEvent } from "../services/whatsapp-quality.service";
@@ -171,6 +172,35 @@ type CloudInboundMessage = {
  * at least a readable placeholder — nothing is ever silently dropped, even if
  * the actual media download fails or the type is one Meta adds later.
  */
+// Synthetic text for messages that carry no words. The agent is told plainly
+// what arrived so it can answer like a person ("ما أكدر أسمعها، اكتبها لو
+// تريد") instead of the shop going quiet, which reads as being ignored.
+const VOICE_NOTE_UNREADABLE = "[الزبون دزّ رسالة صوتية بس ما نكدر نفرّغها]";
+const STICKER_MARKER = "[الزبون دزّ ملصق بدون كلام]";
+const IMAGE_MARKER = "[الزبون دزّ صورة بدون كلام]";
+
+/**
+ * Voice note → text → the normal bot pipeline.
+ *
+ * Silent on failure by design: if transcription is unavailable or the audio is
+ * unintelligible, the agent is still told a voice note arrived so it can ask
+ * the customer to type it, rather than the shop appearing to ignore them.
+ */
+async function routeTranscribedVoiceNote(phone: string, dataUrl: string | undefined, msg: CloudInboundMessage) {
+  try {
+    const audio = dataUrlToAudio(dataUrl);
+    const spoken = audio ? await transcribeVoiceNote(audio.buffer, audio.mime) : null;
+    if (spoken) {
+      logger.info(`[WhatsAppMeta] transcribed voice note from ${phone}: ${spoken.slice(0, 80)}`);
+      await routeIncomingMessage(phone, spoken, msg.id, { replyToWaMessageId: msg.context?.id });
+      return;
+    }
+    await routeIncomingMessage(phone, VOICE_NOTE_UNREADABLE, msg.id, { replyToWaMessageId: msg.context?.id });
+  } catch (error) {
+    logger.warn(`[WhatsAppMeta] voice-note routing failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
   const waMessageId = msg.id;
   const base = { phone, direction: "IN" as const, waMessageId, replyToWaMessageId: msg.context?.id ?? null };
@@ -178,6 +208,9 @@ async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
   switch (msg.type) {
     case "image": {
       const media = msg.image?.id ? await fetchCloudMedia(msg.image.id) : null;
+      await routeIncomingMessage(phone, msg.image?.caption?.trim() || IMAGE_MARKER, msg.id, {
+        replyToWaMessageId: msg.context?.id,
+      }).catch(() => {});
       await logChatMessage({
         ...base,
         text: msg.image?.caption ?? "",
@@ -208,6 +241,10 @@ async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
         mediaDataUrl: media?.dataUrl,
         mediaMimeType: media?.mimeType ?? msg.audio?.mime_type,
       });
+      // A voice note is a message, not an attachment to file away. Transcribe
+      // it and send the words down the same pipeline as typed text, so the
+      // customer who talks instead of typing gets an answer like everyone else.
+      await routeTranscribedVoiceNote(phone, media?.dataUrl, msg);
       return;
     }
     case "video": {
@@ -223,6 +260,7 @@ async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
     }
     case "sticker": {
       const media = msg.sticker?.id ? await fetchCloudMedia(msg.sticker.id) : null;
+      await routeIncomingMessage(phone, STICKER_MARKER, msg.id, { replyToWaMessageId: msg.context?.id }).catch(() => {});
       await logChatMessage({
         ...base,
         text: "",
