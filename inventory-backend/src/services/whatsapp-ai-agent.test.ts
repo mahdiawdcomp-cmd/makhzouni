@@ -29,6 +29,7 @@ function toolResultsOf(call: { messages: any[] }): Array<Record<string, any>> {
 let products: Array<Record<string, unknown>>;
 let requestedRows: Array<Record<string, unknown>>;
 let escalationRows: Array<Record<string, unknown>>;
+let invoiceRows: Array<Record<string, any>>;
 let aiChatRow: { phone: string; messages: unknown; updatedAt: Date } | null;
 let sentTexts: Array<{ phone: string; text: string }>;
 let sentImages: Array<{ phone: string; caption: string; bytes: number }>;
@@ -78,6 +79,9 @@ const fakePrisma = {
       return row;
     },
   },
+  invoice: {
+    findMany: async () => invoiceRows,
+  },
   aiEscalation: {
     create: async ({ data }: any) => {
       escalationRows.push(data);
@@ -124,6 +128,22 @@ const fakeAnthropic = {
     },
   },
 };
+mock.module("./settings.service", {
+  exports: {
+    getSettings: async () => ({
+      storeName: "مهدي عوض",
+      catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
+      catalogDesignFooterAddress: "كربلاء شارع العباس",
+      catalogDesignFooterHours: "كل يوم من الساعة 7 صباحا الى الساعة 12 ليلاً",
+      catalogDesignFooterPhone: "07860333033",
+      catalogDesignFooterDeliveryAreas: "جميع المحافظات",
+      catalogDesignFooterDeliveryTime: "من يوم الى يومين",
+      catalogDesignFooterMinOrder: "150000",
+      catalogDesignFooterCashOnDelivery: true,
+      catalogDesignFooterAbout: "",
+    }),
+  },
+});
 mock.module("../utils/anthropic-client", { exports: { getAnthropicClient: () => fakeAnthropic } });
 
 let runWhatsAppAiTurn: (input: {
@@ -144,6 +164,11 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     products = [freshProduct()];
     requestedRows = [];
     escalationRows = [];
+    invoiceRows = [{
+      invoiceNumber: "INV-1",
+      createdAt: new Date("2026-09-01T10:00:00Z"),
+      items: [{ quantity: 2, unit: "CARTON", productName: "تكتك كبير", product: { name: "تكتك كبير" } }],
+    }];
     aiChatRow = null;
     sentTexts = [];
     sentImages = [];
@@ -333,6 +358,49 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.deepEqual(roles, ["user"], "yesterday's conversation is not context");
   });
 
+  it("knows where it works: shop facts reach the system prompt, no tool needed", async () => {
+    scripted = [textReply("محلنا بكربلاء شارع العباس، الدوام 7 صباحاً لـ12 ليلاً")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "وين محلكم وشنو الدوام؟", customer: null });
+
+    const system = String(apiCalls[0].system ?? "");
+    assert.match(system, /كربلاء شارع العباس/, "the address must be in the prompt");
+    assert.match(system, /جميع المحافظات/, "delivery areas too");
+    assert.match(system, /mahdi\.mazbwoni\.com\/catalog/, "and the catalog link");
+    assert.match(system, /الوقت الحالي/, "and today's Baghdad date/time");
+    assert.equal(apiCalls.length, 1, "shop questions must not cost a tool round");
+  });
+
+  it("«نفس الطلبية الماضية»: recent orders come back with quantities and no prices", async () => {
+    scripted = [toolCall("get_my_recent_orders", {}), textReply("آخر طلبية كانت ٢ كارتون تكتك")];
+    await runWhatsAppAiTurn({
+      phone: "9647700000000",
+      text: "شنو اخذت المرة الفاتت؟",
+      customer: { id: "cust-1", name: "أحمد", currentBalance: 0 },
+    });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.registered, true);
+    assert.equal(payload.orders[0].items[0].product, "تكتك كبير");
+    assert.equal(payload.orders[0].items[0].quantity, 2);
+    assert.equal(JSON.stringify(payload).includes("unitPrice"), false, "no price may reach the model");
+  });
+
+  it("recent orders for an unknown number never invent a history", async () => {
+    scripted = [toolCall("get_my_recent_orders", {}), textReply("رقمك مو مسجّل عدنا")];
+    await runWhatsAppAiTurn({ phone: "9647711111111", text: "شنو طلبياتي؟", customer: null });
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.registered, false);
+    assert.equal("orders" in payload, false);
+  });
+
+  it("stock is reported in cartons — the unit a wholesale customer buys in", async () => {
+    products = [freshProduct({ openingBalancePcs: 100, pcsPerCarton: 24 })];
+    scripted = [toolCall("search_products", { query: "اوربيز" }), textReply("عدنا ٤ كراتين")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شكد عدك اوربيز؟", customer: null });
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.products[0].cartonsAvailable, 4, "100 pieces ÷ 24 per carton");
+  });
+
   it("model failure returns false so the caller falls back to the keyword bot", async () => {
     scripted = []; // any call throws
     const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام", customer: null });
@@ -346,6 +414,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
       toolCall("search_products", { query: "ب" }, "c2"),
       toolCall("search_products", { query: "ت" }, "c3"),
       toolCall("search_products", { query: "ث" }, "c4"),
+      toolCall("search_products", { query: "ج" }, "c5"),
     ];
     const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "؟؟؟", customer: null });
     assert.equal(handled, true);

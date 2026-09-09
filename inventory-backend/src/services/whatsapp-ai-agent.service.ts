@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import prisma from "../config/database";
 import { logger } from "../utils/logger";
 import { getAnthropicClient } from "../utils/anthropic-client";
+import { getSettings } from "./settings.service";
 import { normalizeArabic } from "../utils/arabic-search";
 import { totalStock } from "../utils/product-stock";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
@@ -41,16 +42,61 @@ import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 // WhatsApp message, and Sonnet is plenty for short shop conversations at
 // half the cost.
 const MODEL = "claude-sonnet-5";
-// Chat-shaped work: low effort keeps WhatsApp replies quick and cheap, and is
-// still far above where the previous model topped out. Raise it if answers
-// ever feel shallow.
-const EFFORT = "low" as const;
-const MAX_TOOL_ROUNDS = 4;
+// Raised from "low" after the shop's early tests: a customer conversation that
+// needs two or three searches with different wording before answering is not
+// the trivial chat "low" is meant for. Latency stays fine on WhatsApp.
+const EFFORT = "medium" as const;
+const MAX_TOOL_ROUNDS = 5;
 const HISTORY_TURNS = 8;
 const HISTORY_MAX_AGE_MS = 6 * 60 * 60 * 1000; // a conversation from yesterday is not context
-const SEARCH_RESULT_LIMIT = 5;
+// 8, not 5: a loose query like «سلاح كبريت» legitimately has many candidates
+// and the model is the one filtering — a truncated list hides the right answer.
+const SEARCH_RESULT_LIMIT = 8;
+const RECENT_ORDERS_LIMIT = 5;
 
 type Sender = { phone: string; customer: { id: string; name: string; currentBalance: unknown } | null };
+
+/**
+ * What an employee would simply know: where the shop is, when it opens, where
+ * it delivers, the catalog link. All of it already lives in settings and was
+ * being withheld from the agent, so «وين محلكم؟» and «توصلون للبصرة؟» — the
+ * most ordinary questions a customer asks — had no answer.
+ *
+ * Read fresh each turn: the shop edits these from the settings screen and a
+ * cached copy would answer with yesterday's opening hours.
+ */
+async function shopFacts(): Promise<string> {
+  const s = await getSettings();
+  const lines: string[] = [];
+  const add = (label: string, value?: string | null) => {
+    const v = typeof value === "string" ? value.trim() : "";
+    if (v) lines.push(`- ${label}: ${v}`);
+  };
+  add("اسم المحل", s.storeName);
+  add("العنوان", s.catalogDesignFooterAddress);
+  add("الدوام", s.catalogDesignFooterHours);
+  add("هاتف المحل", s.catalogDesignFooterPhone);
+  add("مناطق التوصيل", s.catalogDesignFooterDeliveryAreas);
+  add("مدة التوصيل", s.catalogDesignFooterDeliveryTime);
+  add("أقل مبلغ طلبية", s.catalogDesignFooterMinOrder);
+  if (s.catalogDesignFooterCashOnDelivery) lines.push("- الدفع عند الاستلام: متوفر");
+  add("رابط الكتلوك", s.catalogPublicUrl);
+  add("نبذة عن المحل", s.catalogDesignFooterAbout);
+  return lines.length ? lines.join("\n") : "- (ما مضبوطة معلومات المحل بالإعدادات بعد)";
+}
+
+/** Baghdad wall-clock, so «اليوم» and «الدوام هسه» mean something. */
+function baghdadNowText(): string {
+  return new Date().toLocaleString("ar-IQ", {
+    timeZone: "Asia/Baghdad",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ على الزبائن بالواتساب. تتكلم عراقي طبيعي، مختصر ومؤدب، مثل موظف حقيقي يكتب رسالة — مو مثل روبوت.
 
@@ -66,6 +112,8 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 - إذا طلب صورة لمنتج، استخدم أداة إرسال الصورة (هي ترسلها فعلاً)، وبعدها قوله إنك أرسلتها.
 - الزبون المسجّل يكدر يسأل عن رصيده أو كشف حسابه، واستخدم الأداة المخصصة. إذا الرقم مو مسجّل زبون، وضّحله بلطف إنه غير مسجّل عدنا ويكدر يراجع الإدارة.
 - ردودك قصيرة: سطر أو سطرين بالعادة، بدون قوائم طويلة ولا رموز زايدة.
+- أسئلة المحل (العنوان، الدوام، التوصيل، أقل طلبية، رابط الكتلوك) جاوب عليها من «معلومات المحل» بالأسفل مباشرة — هذي معلومات تعرفها كموظف، ما تحتاج أداة ولا تصعيد.
+- إذا الزبون طلب الكتلوك أو «شنو عدكم»، انطيه رابط الكتلوك.
 - إذا السؤال خارج شغلك (شكوى، اتفاق خاص، أي شي يحتاج قرار إدارة)، صعّده للإدارة بالأداة وقول للزبون إن الإدارة راح تتواصل وياه.`;
 
 // ── Tool schemas exposed to the model ────────────────────────────────────────
@@ -108,6 +156,12 @@ const TOOLS: Anthropic.Tool[] = [
     name: "get_my_account",
     description:
       "رصيد وكشف حساب الزبون صاحب هذه المحادثة نفسه. ما تحتاج تمرر رقم — النظام يعرف مين يحچي. استخدمها إذا سأل عن رصيده أو كشفه.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_my_recent_orders",
+    description:
+      "آخر طلبيات الزبون صاحب هذه المحادثة (المنتجات والكميات، بدون أسعار). استخدمها إذا كال «نفس الطلبية الماضية» أو «شنو اخذت المرة الفاتت» أو يريد يعيد طلب سابق.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -254,14 +308,23 @@ async function shopVocabulary(products: ProductRow[]): Promise<string[]> {
   return [...set].slice(0, 60);
 }
 
-/** Public product facts the agent may see. Deliberately contains no price field. */
+/**
+ * Public product facts the agent may see. Deliberately contains no price field.
+ *
+ * Quantity is reported in CARTONS, the unit a wholesale customer actually
+ * buys in — "عدنا ٤ كراتين" is the answer to "شكد عدك", and a raw piece count
+ * would be both less useful and a more precise disclosure than the shop needs
+ * to make.
+ */
 function productFacts(p: ProductRow) {
   const stock = totalStock(p);
+  const cartons = p.pcsPerCarton > 0 ? Math.floor(stock / p.pcsPerCarton) : 0;
   return {
     id: p.id,
     name: p.name,
     itemNumber: p.itemNumber,
     available: stock > 0,
+    cartonsAvailable: cartons,
     pcsPerCarton: p.pcsPerCarton,
     boxPieces: p.boxPieces ?? undefined,
     hasImage: Boolean(p.imageUrl),
@@ -358,6 +421,40 @@ async function toolMyAccount(sender: Sender) {
   };
 }
 
+/**
+ * The customer's own recent orders — bound to the verified sender like the
+ * account tool, and priced-out on the way. «نفس الطلبية الماضية» is how a
+ * wholesale customer actually reorders, and the agent could not answer it.
+ */
+async function toolRecentOrders(sender: Sender) {
+  if (!sender.customer) {
+    return { registered: false, note: "هذا الرقم مو مسجّل كزبون، فما عدنا طلبيات سابقة إله." };
+  }
+  const invoices = await prisma.invoice.findMany({
+    where: { customerId: sender.customer.id, type: "SALE", status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    take: RECENT_ORDERS_LIMIT,
+    select: {
+      invoiceNumber: true,
+      createdAt: true,
+      items: { select: { quantity: true, unit: true, productName: true, product: { select: { name: true } } } },
+    },
+  });
+  if (!invoices.length) return { registered: true, orders: [], note: "ماكو طلبيات سابقة مسجّلة لهذا الزبون." };
+  return {
+    registered: true,
+    orders: invoices.map((inv) => ({
+      number: inv.invoiceNumber,
+      date: inv.createdAt.toLocaleDateString("ar-IQ", { timeZone: "Asia/Baghdad" }),
+      items: inv.items.map((it) => ({
+        product: it.product?.name ?? it.productName ?? "—",
+        quantity: it.quantity,
+        unit: it.unit,
+      })),
+    })),
+  };
+}
+
 async function toolRequestMissingProduct(sender: Sender, productName: string, note?: string) {
   const normalized = normalizeArabic(productName);
   if (!normalized) return { saved: false, error: "اسم غير واضح" };
@@ -419,6 +516,8 @@ async function runTool(
       return toolSendProductImage(sender, String(args.productId ?? ""), args.caption ? String(args.caption) : undefined);
     case "get_my_account":
       return toolMyAccount(sender);
+    case "get_my_recent_orders":
+      return toolRecentOrders(sender);
     case "request_missing_product":
       return toolRequestMissingProduct(sender, String(args.productName ?? ""), args.note ? String(args.note) : undefined);
     case "escalate_to_admin":
@@ -477,9 +576,12 @@ export async function runWhatsAppAiTurn(input: {
     ...history.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
     { role: "user", content: input.text },
   ];
-  const system = `${SYSTEM_PROMPT}\n\nحالة المرسل: ${
-    input.customer ? `زبون مسجّل باسم ${input.customer.name}` : "رقم غير مسجّل كزبون"
-  }.`;
+  const system = [
+    SYSTEM_PROMPT,
+    `\nمعلومات المحل:\n${await shopFacts()}`,
+    `\nالوقت الحالي (بغداد): ${baghdadNowText()}`,
+    `\nحالة المرسل: ${input.customer ? `زبون مسجّل باسم ${input.customer.name}` : "رقم غير مسجّل كزبون"}.`,
+  ].join("\n");
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
