@@ -113,14 +113,12 @@ mock.module("./whatsapp.service", {
 // loads, and the suite silently makes live API calls. Mocking the local seam
 // does work (this bit the first version of this file).
 const fakeAnthropic = {
-  beta: {
-    messages: {
-      create: async ({ messages, system, model }: any) => {
-        apiCalls.push({ messages, system, model });
-        const next = scripted.shift();
-        if (!next) throw new Error("no scripted completion left");
-        return next;
-      },
+  messages: {
+    create: async ({ messages, system, model }: any) => {
+      apiCalls.push({ messages, system, model });
+      const next = scripted.shift();
+      if (!next) throw new Error("no scripted completion left");
+      return next;
     },
   },
 };

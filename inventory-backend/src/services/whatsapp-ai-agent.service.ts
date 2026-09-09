@@ -36,7 +36,11 @@ import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
 // that one was "كلش غبي ويقفل وميرد جواب صحيح" — it stalled and answered
 // wrong. Customer-facing replies in Iraqi Arabic with multi-step tool use is
 // exactly where the weaker model fell over.
-const MODEL = "claude-opus-5";
+//
+// Sonnet over Opus by the shop's own call: this runs on every inbound
+// WhatsApp message, and Sonnet is plenty for short shop conversations at
+// half the cost.
+const MODEL = "claude-sonnet-5";
 // Chat-shaped work: low effort keeps WhatsApp replies quick and cheap, and is
 // still far above where the previous model topped out. Raise it if answers
 // ever feel shallow.
@@ -367,7 +371,7 @@ export async function runWhatsAppAiTurn(input: {
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const response = await anthropic.beta.messages.create({
+      const response = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 8000,
         system,
@@ -375,19 +379,14 @@ export async function runWhatsAppAiTurn(input: {
         tools: TOOLS,
         thinking: { type: "adaptive" },
         output_config: { effort: EFFORT },
-        // A policy decline on a shop conversation is far-fetched, but if it
-        // ever happens the customer must still get an answer rather than
-        // silence — the API retries the same request on a fallback model.
-        betas: ["server-side-fallback-2026-07-01"],
-        fallbacks: "default",
       });
 
       const toolUses = response.content.filter(
-        (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use",
+        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
       );
 
       if (toolUses.length) {
-        messages.push({ role: "assistant", content: response.content as unknown as Anthropic.ContentBlockParam[] });
+        messages.push({ role: "assistant", content: response.content });
         // All results for one assistant turn go back in a SINGLE user message —
         // splitting them trains the model out of parallel tool calls.
         const results: Anthropic.ToolResultBlockParam[] = [];
@@ -400,7 +399,7 @@ export async function runWhatsAppAiTurn(input: {
       }
 
       const reply = response.content
-        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n")
         .trim();
