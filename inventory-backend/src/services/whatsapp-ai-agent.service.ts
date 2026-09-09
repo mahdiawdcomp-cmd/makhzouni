@@ -56,6 +56,71 @@ const RECENT_ORDERS_LIMIT = 5;
 
 type Sender = { phone: string; customer: { id: string; name: string; currentBalance: unknown } | null };
 
+// ── Cost guards: decided BEFORE any API call, so a skip costs nothing ───────
+//
+// The shop's rule, in their words: «ليش اصرف فلوس على امور تافهه؟» They send a
+// daily "." from their own phone to hold the 24-hour window open, and a
+// message with no content in it should never reach a paid model.
+
+/** Acknowledgements that need no answer — replying to these is pure spend. */
+const ACK_WORDS = new Set(
+  [
+    "تم", "وك", "اوك", "ok", "okay", "k", "تمام", "زين", "ماشي", "خلص", "شكرا", "شكراً",
+    "مشكور", "مشكوره", "تسلم", "ثانكس", "thanks", "thx", "ty", "👍", "🙏", "❤️",
+  ].map((w) => normalizeArabic(w)),
+);
+
+/**
+ * True when a message carries nothing to answer: punctuation only, a bare
+ * emoji, one or two characters, or a plain acknowledgement. Deliberately
+ * conservative — anything with real words in it goes to the model.
+ */
+export function isLowValueMessage(text: string): boolean {
+  const raw = text.trim();
+  if (!raw) return true;
+
+  // Strip emoji, punctuation and symbols; what's left is actual language.
+  const letters = raw.replace(/[\p{Extended_Pictographic}\p{P}\p{S}\p{M}\s‍️]/gu, "");
+  if (!letters) return true; // "." / "؟" / "🙂" / "..."
+  if (letters.length <= 2) return true; // a stray letter or two
+
+  const normalized = normalizeArabic(raw);
+  if (ACK_WORDS.has(normalized)) return true;
+  // "تم شكرا" — two acks and nothing else.
+  const words = normalized.split(" ").filter(Boolean);
+  if (words.length <= 2 && words.every((w) => ACK_WORDS.has(w))) return true;
+
+  return false;
+}
+
+/**
+ * Per-number daily ceiling on paid replies. A real buying conversation is a
+ * handful of messages; this only ever bites someone who just wants to chat,
+ * and it fails open on a bad clock/day boundary rather than muting the shop.
+ */
+const MAX_AI_REPLIES_PER_DAY = 25;
+
+/**
+ * "replied"     — the customer got an answer.
+ * "skipped"     — deliberately not answered (no content, or over the daily
+ *                 cap). The caller must stop: this is not a failure and must
+ *                 not fall through to the keyword bot or the inbox.
+ * "unavailable" — the agent could not run at all, so the old keyword bot
+ *                 should answer instead. Never a silent shop.
+ */
+export type AiTurnResult = "replied" | "skipped" | "unavailable";
+
+function baghdadDayKey(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Baghdad",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 /**
  * What an employee would simply know: where the shop is, when it opens, where
  * it delivers, the catalog link. All of it already lives in settings and was
@@ -124,11 +189,9 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 - إذا الزبون طلب الكتلوك أو «شنو عدكم»، انطيه رابط الكتلوك.
 - إذا السؤال خارج شغلك (شكوى، اتفاق خاص، أي شي يحتاج قرار إدارة)، صعّده للإدارة بالأداة وقول للزبون إن الإدارة راح تتواصل وياه.
 
-الرسائل الفارغة والوسائط:
-- إذا وصلتك رسالة تافهة أو فارغة — نقطة، حرف، «؟»، «هلا» بلا شي بعدها، ملصق — **لا تتجاهلها ولا ترد رد جاف**. ردّ رد خفيف يغلس عليه بلطف ويفتح سالفة: عايره بالنقطة، اسأله شنو يحتاج، هزر وياه. هذي فرصة تسولف مو إزعاج.
+الرسائل الصوتية والصور:
 - الرسالة الصوتية توصلك مفرّغة نص. تعامل وياها كأنها مكتوبة عادي.
-- إذا وصلك إن التفريغ فشل، اعتذر بلطف واطلب منه يكتبها أو يعيد التسجيل بمكان أهدأ.
-- إنت ما تشوف الصور. إذا دزّ صورة بدون كلام، قوله بصراحة إنك ما تشوفها واطلب منه يكتب اسم المنتج، أو ذكّره برابط الكتلوك.`;
+- إنت ما تشوف الصور. إذا وصلك إن الزبون دزّ صورة، قوله بصراحة إنك ما تشوفها واطلب منه يكتب اسم المنتج، أو ذكّره برابط الكتلوك.`;
 
 // ── Tool schemas exposed to the model ────────────────────────────────────────
 // Note what is absent: no phone parameter anywhere, and no price field in any
@@ -636,6 +699,33 @@ async function runTool(
 
 // ── Short-term conversation memory ───────────────────────────────────────────
 
+/**
+ * Counts one paid reply against today's ceiling for this number, resetting on
+ * the Baghdad day change. Returns false when the number is over its cap.
+ * Fails OPEN on a database error — losing a reply matters more than the few
+ * cents a miscount could cost.
+ */
+async function claimDailyReply(phone: string): Promise<boolean> {
+  const today = baghdadDayKey();
+  try {
+    const row = await prisma.whatsappAiChat.findUnique({
+      where: { phone },
+      select: { repliesToday: true, todayKey: true },
+    });
+    const used = row && row.todayKey === today ? row.repliesToday : 0;
+    if (used >= MAX_AI_REPLIES_PER_DAY) return false;
+    await prisma.whatsappAiChat.upsert({
+      where: { phone },
+      create: { phone, messages: [], repliesToday: 1, todayKey: today },
+      update: { repliesToday: used + 1, todayKey: today },
+    });
+    return true;
+  } catch (error) {
+    logger.warn(`[whatsapp-ai] reply-cap check failed for ${phone}: ${error instanceof Error ? error.message : String(error)}`);
+    return true;
+  }
+}
+
 type StoredTurn = { role: "user" | "assistant"; content: string };
 
 async function loadHistory(phone: string): Promise<StoredTurn[]> {
@@ -651,7 +741,7 @@ async function saveHistory(phone: string, turns: StoredTurn[]) {
   await prisma.whatsappAiChat.upsert({
     where: { phone },
     create: { phone, messages: trimmed },
-    update: { messages: trimmed },
+    update: { messages: trimmed }, // counter columns deliberately untouched
   });
 }
 
@@ -672,12 +762,28 @@ export async function runWhatsAppAiTurn(input: {
   phone: string;
   text: string;
   customer: { id: string; name: string; currentBalance: unknown } | null;
-}): Promise<boolean> {
+}): Promise<AiTurnResult> {
+  // Free checks first — a message we won't answer must not cost a token.
+  if (isLowValueMessage(input.text)) {
+    logger.info(`[whatsapp-ai] skipped low-value message from ${input.phone}`);
+    return "skipped";
+  }
+
   const anthropic = getAnthropicClient();
-  if (!anthropic) return false;
+  if (!anthropic) return "unavailable";
 
   const sender: Sender = { phone: input.phone, customer: input.customer };
+  // History BEFORE the cap claim, and not the other way round: the claim
+  // upserts the same row, which bumps updatedAt — the very field staleness is
+  // measured on. Claiming first made every conversation look fresh and the
+  // 24-hour expiry never fired. A test caught it.
   const history = await loadHistory(input.phone);
+
+  const budget = await claimDailyReply(input.phone);
+  if (!budget) {
+    logger.info(`[whatsapp-ai] daily reply cap reached for ${input.phone}`);
+    return "skipped";
+  }
 
   const messages: Anthropic.MessageParam[] = [
     ...history.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
@@ -725,20 +831,20 @@ export async function runWhatsAppAiTurn(input: {
         .join("\n")
         .trim();
       // Covers a refused turn too (no text content) — caller falls back.
-      if (!reply) return false;
+      if (!reply) return "unavailable";
       await sendWhatsAppText(input.phone, reply);
       await saveHistory(input.phone, [...history, { role: "user", content: input.text }, { role: "assistant", content: reply }]);
       logger.info(`[whatsapp-ai] replied to ${input.phone} in ${round + 1} round(s)`);
-      return true;
+      return "replied";
     }
 
     // Ran out of tool rounds without settling on an answer — hand it to a human
     // rather than looping or guessing.
     await toolEscalate(sender, "المحادثة احتاجت خطوات أكثر من اللازم", input.text);
     await sendWhatsAppText(input.phone, "خليني أتأكد من الإدارة وأرجعلك 🙏");
-    return true;
+    return "replied";
   } catch (error) {
     logger.warn(`[whatsapp-ai] turn failed for ${input.phone}: ${error instanceof Error ? error.message : String(error)}`);
-    return false;
+    return "unavailable";
   }
 }

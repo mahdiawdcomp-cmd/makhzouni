@@ -30,7 +30,7 @@ let products: Array<Record<string, unknown>>;
 let requestedRows: Array<Record<string, unknown>>;
 let escalationRows: Array<Record<string, unknown>>;
 let invoiceRows: Array<Record<string, any>>;
-let aiChatRow: { phone: string; messages: unknown; updatedAt: Date } | null;
+let aiChatRow: { phone: string; messages: unknown; updatedAt: Date; repliesToday?: number; todayKey?: string | null } | null;
 let sentTexts: Array<{ phone: string; text: string }>;
 let sentImages: Array<{ phone: string; caption: string; bytes: number }>;
 
@@ -93,7 +93,14 @@ const fakePrisma = {
   whatsappAiChat: {
     findUnique: async ({ where }: any) => (aiChatRow && aiChatRow.phone === where.phone ? { ...aiChatRow } : null),
     upsert: async ({ where, create, update }: any) => {
-      aiChatRow = { phone: where.phone, messages: (update.messages ?? create.messages), updatedAt: new Date() };
+      const prev = aiChatRow && aiChatRow.phone === where.phone ? aiChatRow : null;
+      aiChatRow = {
+        phone: where.phone,
+        messages: update.messages ?? prev?.messages ?? create.messages,
+        updatedAt: new Date(),
+        repliesToday: update.repliesToday ?? prev?.repliesToday ?? create.repliesToday ?? 0,
+        todayKey: update.todayKey ?? prev?.todayKey ?? create.todayKey ?? null,
+      };
       return aiChatRow;
     },
     deleteMany: async () => {
@@ -148,11 +155,20 @@ mock.module("./settings.service", {
 });
 mock.module("../utils/anthropic-client", { exports: { getAnthropicClient: () => fakeAnthropic } });
 
+/** Same Baghdad day key the service computes, so cap tests line up. */
+function baghdadToday(): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Baghdad", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 let runWhatsAppAiTurn: (input: {
   phone: string;
   text: string;
   customer: { id: string; name: string; currentBalance: unknown } | null;
-}) => Promise<boolean>;
+}) => Promise<"replied" | "skipped" | "unavailable">;
 
 describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   before(async () => {
@@ -179,7 +195,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   it("plain greeting: replies with generated text, no tools needed", async () => {
     scripted = [textReply("وعليكم السلام 👋 امرك؟")];
     const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام عليكم", customer: null });
-    assert.equal(handled, true);
+    assert.equal(handled, "replied");
     assert.equal(sentTexts.length, 1);
     assert.equal(sentTexts[0].text, "وعليكم السلام 👋 امرك؟");
   });
@@ -187,7 +203,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   it("product question: search tool sees the item and never exposes a price", async () => {
     scripted = [toolCall("search_products", { query: "اوربيز" }), textReply("إي موجود، الكارتون بيه ٢٤ قطعة")];
     const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "شكو عدكم اوربيز؟", customer: null });
-    assert.equal(handled, true);
+    assert.equal(handled, "replied");
 
     // The tool result handed to the model is the contract that protects prices.
     const toolMessages = toolResultsOf(apiCalls[1]);
@@ -436,10 +452,46 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(payload.products[0].name, "دبدوب صغير");
   });
 
+  it("a bare dot never reaches the model — the shop's daily window-keeper is free", async () => {
+    // «ليش اصرف فلوس على امور تافهه؟» — the shop sends a "." from their own
+    // phone every day to hold the 24h window open. It must cost nothing.
+    for (const trivial of [".", "..", "؟", "🙂", "👍", "ok", "تم", "وك", "شكرا", "تم شكرا", "ا"]) {
+      scripted = [];
+      apiCalls = [];
+      const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: trivial, customer: null });
+      assert.equal(outcome, "skipped", `"${trivial}" should be skipped`);
+      assert.equal(apiCalls.length, 0, `"${trivial}" must not reach the model`);
+      assert.equal(sentTexts.length, 0, `"${trivial}" must not get a reply`);
+    }
+  });
+
+  it("a real question is never mistaken for a trivial one", async () => {
+    for (const real of ["عدكم اوربيز؟", "شكد رصيدي", "هلا شلونك", "بندقية"]) {
+      scripted = [textReply("جواب")];
+      apiCalls = [];
+      const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: real, customer: null });
+      assert.equal(outcome, "replied", `"${real}" must be answered`);
+    }
+  });
+
+  it("daily cap stops a chatter, and the shop is never muted by a DB hiccup", async () => {
+    aiChatRow = { phone: "9647700000000", messages: [], updatedAt: new Date(), repliesToday: 25, todayKey: baghdadToday() };
+    const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سولفني شوية", customer: null });
+    assert.equal(outcome, "skipped");
+    assert.equal(apiCalls.length, 0, "over the cap, nothing is paid for");
+  });
+
+  it("yesterday's count doesn't carry into today", async () => {
+    aiChatRow = { phone: "9647700000000", messages: [], updatedAt: new Date(), repliesToday: 25, todayKey: "2020-01-01" };
+    scripted = [textReply("هلا بيك")];
+    const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null });
+    assert.equal(outcome, "replied", "a new Baghdad day resets the ceiling");
+  });
+
   it("model failure returns false so the caller falls back to the keyword bot", async () => {
     scripted = []; // any call throws
-    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام", customer: null });
-    assert.equal(handled, false);
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "سلام عليكم شلونكم", customer: null });
+    assert.equal(handled, "unavailable", "the keyword bot must get a chance to answer");
     assert.equal(sentTexts.length, 0, "a broken agent must not send anything");
   });
 
@@ -451,8 +503,8 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
       toolCall("search_products", { query: "ث" }, "c4"),
       toolCall("search_products", { query: "ج" }, "c5"),
     ];
-    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "؟؟؟", customer: null });
-    assert.equal(handled, true);
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "دوّرلي على شي ما موجود", customer: null });
+    assert.equal(handled, "replied");
     assert.equal(escalationRows.length, 1, "must hand off to a human");
     assert.equal(sentTexts.length, 1);
   });

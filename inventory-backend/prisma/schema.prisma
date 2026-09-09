@@ -731,6 +731,11 @@ model WhatsappAiChat {
   phone     String   @unique
   /// [{ role, content }] — trimmed to the last few turns and ignored once stale.
   messages  Json     @default("[]")
+  /// Paid replies sent to this number today, and the Baghdad day they count
+  /// for. A daily ceiling is the only real protection against someone who
+  /// just wants to chat quietly spending the shop's API balance.
+  repliesToday Int    @default(0) @map("replies_today")
+  todayKey     String? @map("today_key")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

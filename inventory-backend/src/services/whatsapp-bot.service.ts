@@ -199,15 +199,19 @@ export async function routeIncomingMessage(
   // error) — never a silent shop: we fall through to the keyword rules below,
   // which is exactly the behaviour this system had before the agent existed.
   if (settings.whatsappAiAgentEnabled && botEntitled) {
-    const handled = await runWhatsAppAiTurn({
+    const outcome = await runWhatsAppAiTurn({
       phone,
       text,
       customer: customer ? { id: customer.id, name: customer.name, currentBalance: customer.currentBalance } : null,
     }).catch((err) => {
       logger.warn(`[WhatsAppBot] AI agent threw for ${phone}: ${err instanceof Error ? err.message : String(err)}`);
-      return false;
+      return "unavailable" as const;
     });
-    if (handled) return;
+    // "skipped" means the agent decided this message isn't worth answering (no
+    // content in it, or the number is over its daily cap). That is a finished
+    // decision, not a failure: falling through would put a bare "." in the
+    // inbox and defeat the point of not spending on it.
+    if (outcome === "replied" || outcome === "skipped") return;
   }
 
   // 3) Known customer + keyword bot enabled → the original command auto-reply.

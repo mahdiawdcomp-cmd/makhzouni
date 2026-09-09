@@ -172,12 +172,9 @@ type CloudInboundMessage = {
  * at least a readable placeholder — nothing is ever silently dropped, even if
  * the actual media download fails or the type is one Meta adds later.
  */
-// Synthetic text for messages that carry no words. The agent is told plainly
-// what arrived so it can answer like a person ("ما أكدر أسمعها، اكتبها لو
-// تريد") instead of the shop going quiet, which reads as being ignored.
-const VOICE_NOTE_UNREADABLE = "[الزبون دزّ رسالة صوتية بس ما نكدر نفرّغها]";
-const STICKER_MARKER = "[الزبون دزّ ملصق بدون كلام]";
-const IMAGE_MARKER = "[الزبون دزّ صورة بدون كلام]";
+// A voice note we couldn't transcribe still deserves an answer, but always
+// the same one — so it is sent as fixed text rather than costing a model call.
+const VOICE_NOTE_UNREADABLE = "عذراً، ما وصلتنا الرسالة الصوتية واضحة 🙏 تكدر تكتبها أو تعيد التسجيل؟";
 
 /**
  * Voice note → text → the normal bot pipeline.
@@ -195,7 +192,9 @@ async function routeTranscribedVoiceNote(phone: string, dataUrl: string | undefi
       await routeIncomingMessage(phone, spoken, msg.id, { replyToWaMessageId: msg.context?.id });
       return;
     }
-    await routeIncomingMessage(phone, VOICE_NOTE_UNREADABLE, msg.id, { replyToWaMessageId: msg.context?.id });
+    // Fixed text, deliberately not the model: the reply is always the same
+    // sentence, so there is nothing to pay a token for.
+    await sendWhatsAppText(phone, VOICE_NOTE_UNREADABLE).catch(() => {});
   } catch (error) {
     logger.warn(`[WhatsAppMeta] voice-note routing failed: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -208,9 +207,13 @@ async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
   switch (msg.type) {
     case "image": {
       const media = msg.image?.id ? await fetchCloudMedia(msg.image.id) : null;
-      await routeIncomingMessage(phone, msg.image?.caption?.trim() || IMAGE_MARKER, msg.id, {
-        replyToWaMessageId: msg.context?.id,
-      }).catch(() => {});
+      // Only when the customer actually wrote something with it. A bare photo
+      // can't be answered (the agent has no vision) so paying for a reply that
+      // can only say "I can't see it" is spend for nothing.
+      const imageCaption = msg.image?.caption?.trim();
+      if (imageCaption) {
+        await routeIncomingMessage(phone, imageCaption, msg.id, { replyToWaMessageId: msg.context?.id }).catch(() => {});
+      }
       await logChatMessage({
         ...base,
         text: msg.image?.caption ?? "",
@@ -260,7 +263,6 @@ async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
     }
     case "sticker": {
       const media = msg.sticker?.id ? await fetchCloudMedia(msg.sticker.id) : null;
-      await routeIncomingMessage(phone, STICKER_MARKER, msg.id, { replyToWaMessageId: msg.context?.id }).catch(() => {});
       await logChatMessage({
         ...base,
         text: "",
