@@ -60,7 +60,8 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 - أسماء المنتجات بالمحل طويلة ووصفية، والزبون يحچي بكلمة قصيرة أو عامية. مثال: المحل مسجّل «بندقية طلق كبريت جنطة» والزبون يكول «اريد سلاح كبريت». هذا نفس الشي.
   • إذا البحث ما رجّع نتيجة، **لا تقول للزبون مو موجود من أول محاولة**. جرّب مرادف («سلاح» ← «بندقية» / «مسدس» / «طلق»)، أو كلمة من قائمة shopCategories اللي ترجعلك الأداة، أو جزء واحد من كلامه بدل الجملة كاملة.
   • حاول محاولتين أو ثلاث بألفاظ مختلفة قبل ما تحكم إنه مو موجود.
-- إذا الزبون ذكر منتج ولكيت أكثر من واحد قريب من اسمه، اسأله يحدد أي واحد يقصد واذكرلهم الأسماء — لا تختار أنت.
+- إنت موظف بالمحل، مو زائر. ممنوع تخمّن أو تعلّق على طبيعة المحل («شكله هذا المحل مختص بـ...») — هذا كلام واحد برّاني. إذا منتج مو موجود، قول «ما عدنا هذا حالياً» وبس.
+- إذا الزبون ذكر منتج ولكيت أكثر من واحد قريب من اسمه، اسأله يحدد أي واحد يقصد واذكرلهم الأسماء — لا تختار أنت. وإذا سأل عن «أحجام» أو «أنواع» وعندك أكثر من مقاس، اذكرهم كلهم.
 - إذا المنتج فعلاً مو موجود بالمحل بعد ما جرّبت ألفاظ مختلفة، اعرض عليه تبلّغ الإدارة حتى توفره، وإذا وافق استخدم أداة تسجيل الطلب.
 - إذا طلب صورة لمنتج، استخدم أداة إرسال الصورة (هي ترسلها فعلاً)، وبعدها قوله إنك أرسلتها.
 - الزبون المسجّل يكدر يسأل عن رصيده أو كشف حسابه، واستخدم الأداة المخصصة. إذا الرقم مو مسجّل زبون، وضّحله بلطف إنه غير مسجّل عدنا ويكدر يراجع الإدارة.
@@ -190,23 +191,53 @@ async function loadSearchableProducts(): Promise<ProductRow[]> {
  * costs a sale. Category and tags are searched too, so a concept word can
  * find a product whose name never uses it.
  */
+/** Drop the definite article so «الحلقات» and «حلقات» are the same word. */
+function stripAl(word: string): string {
+  return word.length > 4 && word.startsWith("ال") ? word.slice(2) : word;
+}
+
+/**
+ * Arabic word match, both directions.
+ *
+ * Plain `includes` only works when the customer's word is the SHORTER one.
+ * Real customers write the longer inflected form: «حلقات» for a product named
+ * «حلق», «ايرانية» for «ايراني». Both scored 0 and the shop was told it
+ * doesn't stock rings it had two of on the shelf. Prefix matching either way,
+ * with a 3-letter floor so short particles don't match everything, covers
+ * plural (ات/ين), feminine (ة→ه), and nisba (ي) endings without a stemmer.
+ */
+function wordMatches(word: string, token: string): boolean {
+  const w = stripAl(word);
+  const t = stripAl(token);
+  if (w === t) return true;
+  if (t.length >= 3 && w.startsWith(t)) return true;
+  if (w.length >= 3 && t.startsWith(w)) return true;
+  return false;
+}
+
 function scoreForAgent(p: ProductRow, query: string): number {
   const full = normalizeArabic(query);
   if (!full) return 0;
   const tokens = full.split(" ").filter(Boolean);
 
   const name = normalizeArabic(p.name);
+  const nameWords = name.split(" ").filter(Boolean);
+  const contextWords = [
+    ...nameWords,
+    ...normalizeArabic(p.category ?? "").split(" "),
+    ...[...p.categoryTags, ...p.typeTags].flatMap((t) => normalizeArabic(t).split(" ")),
+  ].filter(Boolean);
   const codes = [p.itemNumber, p.qrCode ?? "", p.cartonQrCode ?? ""].map((c) => normalizeArabic(c)).filter(Boolean);
-  const context = [name, normalizeArabic(p.category ?? ""), ...[...p.categoryTags, ...p.typeTags].map((t) => normalizeArabic(t))]
-    .filter(Boolean)
-    .join(" ");
 
   if (codes.some((c) => c === full)) return 100;
   if (name === full) return 90;
   if (name.startsWith(full)) return 80;
   if (name.includes(full)) return 70;
 
-  const matched = tokens.filter((t) => context.includes(t)).length;
+  const matchedInName = tokens.filter((t) => nameWords.some((w) => wordMatches(w, t))).length;
+  if (matchedInName === tokens.length) return 65;
+
+  const matched = tokens.filter((t) => contextWords.some((w) => wordMatches(w, t))).length;
   if (matched === 0) return 0;
   if (matched === tokens.length) return 60;
   // Partial: rank by how much of what the customer said actually landed.

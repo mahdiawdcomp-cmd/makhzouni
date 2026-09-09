@@ -187,6 +187,32 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.ok(payload.hint, "a partial match must warn the model to verify, not assume");
   });
 
+  it("plural and feminine forms match the singular/masculine name (حلقات ايرانية → حلق ايراني)", async () => {
+    // Live failure: the shop stocks «حلق كبير ايراني» and «حلق صغير ايراني»,
+    // a customer asked «متوفر حلقات ايرانية بمختلف احجام», and the agent said
+    // there were none. `includes` only matched when the CUSTOMER's word was
+    // the shorter one, and here it was the longer inflected form.
+    products = [
+      freshProduct({ id: "ring-big", name: "حلق كبير ايراني", itemNumber: "3001", category: null }),
+      freshProduct({ id: "ring-small", name: "حلق صغير ايراني", itemNumber: "3002", category: "اولاد" }),
+    ];
+    scripted = [toolCall("search_products", { query: "حلقات ايرانية" }), textReply("عدنا حلق ايراني كبير وصغير")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "متوفر حلقات ايرانية بمختلف احجام", customer: null });
+
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.found, 2, "both sizes must come back, not zero results");
+    const names = payload.products.map((p: any) => p.name).sort();
+    assert.deepEqual(names, ["حلق صغير ايراني", "حلق كبير ايراني"]);
+    assert.equal(payload.hint, undefined, "a full word match is not a weak match");
+  });
+
+  it("the definite article doesn't break matching (الحلقات → حلق)", async () => {
+    products = [freshProduct({ name: "حلق كبير ايراني", itemNumber: "3001" })];
+    scripted = [toolCall("search_products", { query: "الحلقات" }), textReply("عدنا")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم الحلقات؟", customer: null });
+    assert.equal(JSON.parse(toolResultsOf(apiCalls[1])[0].content).found, 1);
+  });
+
   it("no match at all hands back the shop's own category words instead of giving up", async () => {
     products = [freshProduct({ name: "بندقية طلق كبريت جنطة", category: "أسلحة أطفال", categoryTags: ["العاب"], typeTags: ["كبريت"] })];
     scripted = [toolCall("search_products", { query: "دراجة هوائية" }), textReply("ما لكيت، تريد أبلغ الإدارة؟")];
