@@ -384,17 +384,23 @@ export async function createAgentCustomer(
 /**
  * What the rep can actually sell: the pieces sitting in المحل.
  *
- * Mirrors serializeProduct() on the products page, so the number under a
- * product on the rep's phone is the same number the merchant reads on his own
- * screen. A product with no per-warehouse rows at all is legacy data — there is
- * no shop row to read, so its old total stands rather than reading as zero and
- * vanishing.
+ * Warehouse rows are the only source. `openingBalancePcs`/`cartonsAvailable` are
+ * legacy fields that are NOT decremented by a sale — a product emptied out of
+ * every warehouse still carried its original opening figure there, and reading
+ * it put long-finished goods on the rep's phone at their day-one quantity. The
+ * merchant's own screen already reports such a product as صفر, because the
+ * products page reads the same shop row this does.
+ *
+ * No row for المحل means none of it is on the shop floor, which is zero — not
+ * "unknown, use the old number".
  */
 function sellableStock(
   product: { warehouseStocks: Array<{ quantityPieces: number; warehouseId: string }> } & Parameters<typeof totalStock>[0],
   shopWarehouseId: string | null,
 ) {
-  if (!shopWarehouseId || product.warehouseStocks.length === 0) return totalStock(product);
+  // Only when the shop keeps no warehouses at all is there nothing better to
+  // read; every real shop resolves one.
+  if (!shopWarehouseId) return totalStock(product);
   return product.warehouseStocks.find((row) => row.warehouseId === shopWarehouseId)?.quantityPieces ?? 0;
 }
 

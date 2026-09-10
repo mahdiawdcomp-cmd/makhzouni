@@ -408,7 +408,19 @@ test("the rep catalog counts shop-floor stock, not every warehouse", () => {
   // The row it reads has to carry warehouseId, or the shop row cannot be found.
   assert.match(agent, /warehouseStocks: \{ select: \{ quantityPieces: true, warehouseId: true \} \}/);
 
-  // Legacy products with no per-warehouse rows keep their old total instead of
-  // reading as zero and vanishing from the catalog entirely.
-  assert.match(agent, /warehouseStocks\.length === 0\) return totalStock\(product\)/);
+  // openingBalancePcs/cartonsAvailable are NOT decremented by a sale. Reading
+  // them for a product with no shop row showed long-finished goods at their
+  // day-one quantity — «عروسة باربي» sat in the rep's catalog at 50 with zero
+  // in every warehouse. No row means zero, not "use the old number".
+  const sellable = (() => {
+    const from = agent.indexOf("function sellableStock(");
+    assert.ok(from >= 0, "sellableStock not found");
+    const to = agent.indexOf("export async function listAgentCatalogProducts", from);
+    return agent.slice(from, to === -1 ? undefined : to);
+  })();
+  assert.doesNotMatch(
+    sellable,
+    /openingBalancePcs|warehouseStocks\.length === 0/,
+    "the shop row is the only source; the legacy fields are stale by design",
+  );
 });
