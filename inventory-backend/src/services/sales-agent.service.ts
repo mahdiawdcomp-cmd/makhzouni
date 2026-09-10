@@ -22,6 +22,7 @@ import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
 import { approvalRequestTypes, createPendingApproval } from "./approval.service";
 import { totalStock } from "../utils/product-stock";
+import { resolveShopWarehouseId } from "./warehouse-stock.service";
 import { piecesForUnit, priceForUnit } from "../utils/catalog-units";
 import { normalizePhone, phoneVariants } from "../utils/phone";
 import { getSettings } from "./settings.service";
@@ -380,6 +381,23 @@ export async function createAgentCustomer(
  * and "the rep can't see it in the UI" is not a control — devtools shows the
  * raw response.
  */
+/**
+ * What the rep can actually sell: the pieces sitting in المحل.
+ *
+ * Mirrors serializeProduct() on the products page, so the number under a
+ * product on the rep's phone is the same number the merchant reads on his own
+ * screen. A product with no per-warehouse rows at all is legacy data — there is
+ * no shop row to read, so its old total stands rather than reading as zero and
+ * vanishing.
+ */
+function sellableStock(
+  product: { warehouseStocks: Array<{ quantityPieces: number; warehouseId: string }> } & Parameters<typeof totalStock>[0],
+  shopWarehouseId: string | null,
+) {
+  if (!shopWarehouseId || product.warehouseStocks.length === 0) return totalStock(product);
+  return product.warehouseStocks.find((row) => row.warehouseId === shopWarehouseId)?.quantityPieces ?? 0;
+}
+
 export async function listAgentCatalogProducts() {
   // «الكارتون الكامل فقط» is the merchant's one global switch and it governs
   // what the shop sells, not merely how the customer catalog looks. The rep's
@@ -388,6 +406,13 @@ export async function listAgentCatalogProducts() {
   // Reading the same switch is what keeps the two catalogs the same catalog.
   const settings = await getSettings().catch(() => null);
   const fullCartonOnly = Boolean(settings?.catalogFullCartonOnly);
+
+  // The rep sells out of المحل, and «الرصيد» on the merchant's own products page
+  // is the المحل figure for exactly that reason. The catalog helper sums EVERY
+  // warehouse instead, so goods that had run out on the shop floor but still sat
+  // in the depot read as available — the merchant saw «صفر» on his screen while
+  // the same item was still being offered on the rep's phone.
+  const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
 
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
@@ -411,7 +436,7 @@ export async function listAgentCatalogProducts() {
       // zero stock and hide it from the rep entirely.
       openingBalancePcs: true,
       cartonsAvailable: true,
-      warehouseStocks: { select: { quantityPieces: true } },
+      warehouseStocks: { select: { quantityPieces: true, warehouseId: true } },
     },
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
@@ -435,7 +460,7 @@ export async function listAgentCatalogProducts() {
       // hundred base64 images would be megabytes on the first open — on mobile
       // data, in the street, that is the whole experience.
       hasImage: Boolean(product.thumbnailUrl),
-      currentStock: totalStock(product),
+      currentStock: sellableStock(product, shopWarehouseId),
     }))
     // Exactly the filter the public catalog uses, and for the same reason: the
     // rep's grid must BE the shop's catalog, not a variant of it. A product the

@@ -393,3 +393,22 @@ test("the rep catalog obeys the same full-carton switch as the customer catalog"
   assert.match(catalog, rule);
   assert.match(agent, rule);
 });
+
+/**
+ * The rep sells off the shop floor, and «الرصيد» on the merchant's own products
+ * page is the المحل figure for that reason. Summing every warehouse instead put
+ * depot-only goods on the rep's phone: the merchant read «صفر» on his screen
+ * while the same item was still being offered to customers.
+ */
+test("the rep catalog counts shop-floor stock, not every warehouse", () => {
+  const agent = code(read("services/sales-agent.service.ts"));
+  assert.match(agent, /resolveShopWarehouseId/, "the rep list must resolve المحل");
+  assert.match(agent, /function sellableStock\(/);
+
+  // The row it reads has to carry warehouseId, or the shop row cannot be found.
+  assert.match(agent, /warehouseStocks: \{ select: \{ quantityPieces: true, warehouseId: true \} \}/);
+
+  // Legacy products with no per-warehouse rows keep their old total instead of
+  // reading as zero and vanishing from the catalog entirely.
+  assert.match(agent, /warehouseStocks\.length === 0\) return totalStock\(product\)/);
+});
