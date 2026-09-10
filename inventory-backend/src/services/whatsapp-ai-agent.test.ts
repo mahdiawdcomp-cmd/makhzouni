@@ -30,9 +30,12 @@ let products: Array<Record<string, unknown>>;
 let requestedRows: Array<Record<string, unknown>>;
 let escalationRows: Array<Record<string, unknown>>;
 let invoiceRows: Array<Record<string, any>>;
+let recordedErrors: Array<Record<string, any>>;
 let aiChatRow: { phone: string; messages: unknown; updatedAt: Date; repliesToday?: number; todayKey?: string | null } | null;
 let sentTexts: Array<{ phone: string; text: string }>;
 let sentImages: Array<{ phone: string; caption: string; bytes: number }>;
+/** Set to simulate a send that never resolves (the real bug). */
+let sendImageImpl: null | (() => Promise<unknown>) = null;
 
 function freshProduct(overrides: Record<string, unknown> = {}) {
   return {
@@ -50,7 +53,8 @@ function freshProduct(overrides: Record<string, unknown> = {}) {
     boxPieces: 12,
     openingBalancePcs: 100,
     cartonsAvailable: 0,
-    imageUrl: `data:image/jpeg;base64,${Buffer.from("fake-image-bytes").toString("base64")}`,
+    imageUrl: `data:image/jpeg;base64,${Buffer.from("fake-image-bytes-full-size").toString("base64")}`,
+    mediumUrl: `data:image/jpeg;base64,${Buffer.from("smaller").toString("base64")}`,
     catalogDescription: "وصف تجريبي",
     warehouseStocks: [] as Array<{ quantityPieces: number }>,
     deletedAt: null,
@@ -83,6 +87,11 @@ const fakePrisma = {
   },
   invoice: {
     findMany: async () => invoiceRows,
+  },
+  errorLog: {
+    findFirst: async () => null,
+    create: async ({ data }: any) => { recordedErrors.push(data); return data; },
+    update: async () => ({}),
   },
   aiEscalation: {
     create: async ({ data }: any) => {
@@ -118,6 +127,7 @@ mock.module("./whatsapp.service", {
       return { to: phone };
     },
     sendWhatsAppImage: async (phone: string, caption: string, image: Buffer) => {
+      if (sendImageImpl) return sendImageImpl();
       sentImages.push({ phone, caption, bytes: image.length });
       return { to: phone };
     },
@@ -173,6 +183,8 @@ let runWhatsAppAiTurn: (input: {
 describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   before(async () => {
     process.env.ANTHROPIC_API_KEY = "test-key";
+    // Short deadline so the hang test doesn't sit for the production 25s.
+    process.env.AI_IMAGE_SEND_TIMEOUT_MS = "50";
     ({ runWhatsAppAiTurn } = await import("./whatsapp-ai-agent.service"));
   });
 
@@ -182,6 +194,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     products = [freshProduct()];
     requestedRows = [];
     escalationRows = [];
+    recordedErrors = [];
     invoiceRows = [{
       invoiceNumber: "INV-1",
       createdAt: new Date("2026-09-01T10:00:00Z"),
@@ -190,6 +203,7 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     aiChatRow = null;
     sentTexts = [];
     sentImages = [];
+    sendImageImpl = null;
   });
 
   it("plain greeting: replies with generated text, no tools needed", async () => {
@@ -486,6 +500,42 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     scripted = [textReply("هلا بيك")];
     const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null });
     assert.equal(outcome, "replied", "a new Baghdad day resets the ceiling");
+  });
+
+  it("a stalled image upload can no longer swallow the whole turn", async () => {
+    // The live failure: a customer asked «اريد صورة» and got nothing at all —
+    // no photo, no text, no error row. Meta's media upload has no timeout, so
+    // the turn hung on it forever. The tool must fail, not hang.
+    let released: (() => void) | null = null;
+    sendImageImpl = () => new Promise((resolve) => { released = () => resolve(undefined); });
+
+    scripted = [
+      toolCall("send_product_image", { productId: "prod-1" }),
+      textReply("ما كدرت أدزها، تريد اسمها مكتوب؟"),
+    ];
+    const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: "اريد صورة", customer: null });
+    released?.();
+
+    assert.equal(outcome, "replied", "the customer must still get an answer");
+    const payload = JSON.parse(toolResultsOf(apiCalls[1])[0].content);
+    assert.equal(payload.sent, false, "the hung send is reported as failed, not awaited forever");
+    assert.equal(sentTexts.length, 1, "and the model's apology actually goes out");
+  });
+
+  it("sends the smaller medium image, not the full-size one", async () => {
+    scripted = [toolCall("send_product_image", { productId: "prod-1" }), textReply("دزيتها")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "دزلي صورة", customer: null });
+    assert.equal(sentImages.length, 1);
+    assert.equal(sentImages[0].bytes, Buffer.from("smaller").length, "mediumUrl is ~5x smaller than imageUrl");
+  });
+
+  it("a broken turn is recorded where the shop can still read it tomorrow", async () => {
+    scripted = []; // any call throws
+    const outcome = await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null });
+    assert.equal(outcome, "unavailable");
+    assert.equal(recordedErrors.length, 1, "must reach «صحة النظام والأخطاء», not just the log buffer");
+    assert.equal(recordedErrors[0].code, "AI_AGENT_TURN_FAILED");
+    assert.equal(sentTexts.length, 0, "the apology is the caller's job, so nobody gets two messages");
   });
 
   it("model failure returns false so the caller falls back to the keyword bot", async () => {

@@ -6,6 +6,8 @@ import { getSettings } from "./settings.service";
 import { normalizeArabic } from "../utils/arabic-search";
 import { totalStock } from "../utils/product-stock";
 import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
+import { recordError } from "./error-log.service";
+import { ErrorLogSource } from "@prisma/client";
 
 // «الموظف الذكي» — an actual conversational agent on WhatsApp, not a keyword
 // table. The shop's own words for it: a customer should be able to talk to it
@@ -53,6 +55,23 @@ const HISTORY_MAX_AGE_MS = 24 * 60 * 60 * 1000; // same-day follow-ups keep cont
 // and the model is the one filtering — a truncated list hides the right answer.
 const SEARCH_RESULT_LIMIT = 8;
 const RECENT_ORDERS_LIMIT = 5;
+// Meta's media upload has no timeout of its own; without this a stalled upload
+// hangs the entire turn and the customer gets nothing at all.
+const IMAGE_SEND_TIMEOUT_MS = Number(process.env.AI_IMAGE_SEND_TIMEOUT_MS) || 25_000;
+/** Said once, deterministically, when a turn breaks — costs nothing to send. */
+export const AGENT_FALLBACK_REPLY =
+  "عذراً، صارت عندنا مشكلة تقنية بالرد 🙏 الإدارة راح تتواصل وياك، أو تكدر تعيد سؤالك.";
+
+/** Rejects if the promise outlives the deadline. The work is abandoned, not cancelled. */
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      timer.unref?.();
+    }),
+  ]);
+}
 
 type Sender = { phone: string; customer: { id: string; name: string; currentBalance: unknown } | null };
 
@@ -548,21 +567,38 @@ function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | nu
   return { mime: match[1], buffer: Buffer.from(match[2], "base64") };
 }
 
+/**
+ * Sends the product photo, under a hard time limit.
+ *
+ * A customer asked for a picture and got total silence — no image, no text, no
+ * error row. The Meta media upload uses fetch with no timeout, so when it
+ * stalled the whole agent turn hung on it forever: nothing sent, nothing
+ * logged, the customer ghosted mid-conversation. A tool that reaches the
+ * network must never be able to swallow the turn.
+ *
+ * Prefers mediumUrl (~44KB) over the full imageUrl (~226KB): five times less
+ * to upload, and far more than WhatsApp needs to show a product.
+ */
 async function toolSendProductImage(sender: Sender, productId: string, caption?: string) {
   const p = await prisma.product.findFirst({
     where: { id: productId, deletedAt: null },
-    select: { name: true, imageUrl: true },
+    select: { name: true, imageUrl: true, mediumUrl: true },
   });
   if (!p) return { sent: false, error: "المنتج مو موجود" };
-  if (!p.imageUrl) return { sent: false, error: "ما عدنا صورة لهذا المنتج" };
-  const parsed = dataUrlToBuffer(p.imageUrl);
+  const source = p.mediumUrl || p.imageUrl;
+  if (!source) return { sent: false, error: "ما عدنا صورة لهذا المنتج" };
+  const parsed = dataUrlToBuffer(source);
   if (!parsed) return { sent: false, error: "الصورة غير صالحة" };
   try {
-    await sendWhatsAppImage(sender.phone, (caption || p.name).slice(0, 300), parsed.buffer, parsed.mime);
+    await withTimeout(
+      sendWhatsAppImage(sender.phone, (caption || p.name).slice(0, 300), parsed.buffer, parsed.mime),
+      IMAGE_SEND_TIMEOUT_MS,
+      "image send",
+    );
     return { sent: true };
   } catch (error) {
     logger.warn(`[whatsapp-ai] image send failed to ${sender.phone}: ${error instanceof Error ? error.message : String(error)}`);
-    return { sent: false, error: "تعذر إرسال الصورة" };
+    return { sent: false, error: "تعذر إرسال الصورة، اعتذر للزبون واعرض عليه تكتبله الاسم أو تنطيه رابط الكتلوك" };
   }
 }
 
@@ -831,7 +867,7 @@ export async function runWhatsAppAiTurn(input: {
         .join("\n")
         .trim();
       // Covers a refused turn too (no text content) — caller falls back.
-      if (!reply) return "unavailable";
+      if (!reply) return failTurn(input.phone, "الموديل ما رجّع نص للرد");
       await sendWhatsAppText(input.phone, reply);
       await saveHistory(input.phone, [...history, { role: "user", content: input.text }, { role: "assistant", content: reply }]);
       logger.info(`[whatsapp-ai] replied to ${input.phone} in ${round + 1} round(s)`);
@@ -844,7 +880,27 @@ export async function runWhatsAppAiTurn(input: {
     await sendWhatsAppText(input.phone, "خليني أتأكد من الإدارة وأرجعلك 🙏");
     return "replied";
   } catch (error) {
-    logger.warn(`[whatsapp-ai] turn failed for ${input.phone}: ${error instanceof Error ? error.message : String(error)}`);
-    return "unavailable";
+    return failTurn(input.phone, error instanceof Error ? error.message : String(error));
   }
+}
+
+/**
+ * The turn broke mid-conversation. Records it where the shop can still read it
+ * tomorrow — a warn line lives as long as the log buffer, which is minutes,
+ * and the first real instance of this (a stalled image upload that hung the
+ * whole turn) left no trace at all by the time anyone looked.
+ *
+ * Deliberately does NOT reply here. It returns "unavailable" so the keyword
+ * bot gets its chance first; the caller sends the apology only if nothing
+ * else answered, so the customer receives exactly one message.
+ */
+async function failTurn(phone: string, reason: string): Promise<AiTurnResult> {
+  logger.warn(`[whatsapp-ai] turn failed for ${phone}: ${reason}`);
+  await recordError({
+    source: ErrorLogSource.WHATSAPP,
+    code: "AI_AGENT_TURN_FAILED",
+    message: `فشل رد «الموظف الذكي» على ${phone} — ${reason}`,
+    context: { phone },
+  }).catch(() => {});
+  return "unavailable";
 }

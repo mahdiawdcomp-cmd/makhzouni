@@ -12,7 +12,7 @@ import { DEFAULT_STOP_CONFIRMATION, isStopRequest, optOutOfMarketing } from "./m
 import { handleRegistrationReply, startRegistration } from "./whatsapp-registration.service";
 import { handleStorefrontInviteReply } from "./storefront-invite.service";
 import { normalizeArabic } from "../utils/arabic-search";
-import { clearAiConversation, runWhatsAppAiTurn } from "./whatsapp-ai-agent.service";
+import { AGENT_FALLBACK_REPLY, clearAiConversation, runWhatsAppAiTurn } from "./whatsapp-ai-agent.service";
 
 // بند ٥ — "أريد أحچي مع موظف" يوقف البوت لهذا الرقم بأي لحظة (حتى وسط
 // محادثة تسجيل) ويرفعه لصندوق الوارد بعلامة مستعجل. عبارات متعددة الكلمات
@@ -78,6 +78,7 @@ export async function routeIncomingMessage(
   if (!phone || !text?.trim()) return;
 
   const settings = await getSettings();
+  let aiFailed = false;
   // Visibility log so we can confirm Green API actually reaches the server.
   logger.info(`[WhatsAppBot] incoming from ${phone}: ${text.slice(0, 80)}`);
 
@@ -212,6 +213,11 @@ export async function routeIncomingMessage(
     // decision, not a failure: falling through would put a bare "." in the
     // inbox and defeat the point of not spending on it.
     if (outcome === "replied" || outcome === "skipped") return;
+    // "unavailable" — it broke or isn't configured. The keyword rules below
+    // still get their chance; this only records that nobody has answered yet,
+    // so the fallback at the end knows to apologise instead of leaving a
+    // mid-conversation customer in silence.
+    aiFailed = true;
   }
 
   // 3) Known customer + keyword bot enabled → the original command auto-reply.
@@ -236,6 +242,16 @@ export async function routeIncomingMessage(
 
   // Send the generic "wait for admin" reply only on the FIRST contact from this
   // number — otherwise a chatty sender gets the same message on every message.
+  // A customer the agent was already talking to must never be met with
+  // silence just because they aren't a first-time sender.
+  if (aiFailed) {
+    await sendWhatsAppText(phone, AGENT_FALLBACK_REPLY).catch((err) =>
+      logger.warn(`[WhatsAppBot] fallback reply failed to ${phone}: ${err instanceof Error ? err.message : String(err)}`),
+    );
+    await logInbound({ phone, name: customer?.name ?? prospect?.name ?? null, source, messageText: text, urgent: true });
+    return;
+  }
+
   const priorMessages = await prisma.inboundMessage.count({ where: { phone } });
   if (settings.whatsappBotEnabled && botEntitled && priorMessages === 0) {
     const unknownMsg = settings.botUnknownMessage?.trim() || "هلا، استلمنا رسالتك، الإدارة رح ترد عليك قريباً.";
