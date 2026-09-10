@@ -381,6 +381,14 @@ export async function createAgentCustomer(
  * raw response.
  */
 export async function listAgentCatalogProducts() {
+  // «الكارتون الكامل فقط» is the merchant's one global switch and it governs
+  // what the shop sells, not merely how the customer catalog looks. The rep's
+  // grid ignored it, so leftovers of less than a carton — hidden from every
+  // customer — kept showing up on the rep's phone as if they were for sale.
+  // Reading the same switch is what keeps the two catalogs the same catalog.
+  const settings = await getSettings().catch(() => null);
+  const fullCartonOnly = Boolean(settings?.catalogFullCartonOnly);
+
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     select: {
@@ -439,7 +447,11 @@ export async function listAgentCatalogProducts() {
     // in tens, and submitAgentOrder records the shortfall instead of throwing.
     // Hiding a line that is fully out of stock is a display decision, and
     // conflating the two is what put out-of-stock goods in front of the rep.
-    .filter((p) => p.currentStock > 0);
+    .filter((p) =>
+      fullCartonOnly
+        ? p.pcsPerCarton >= 1 && p.currentStock >= p.pcsPerCarton
+        : p.currentStock > 0,
+    );
 }
 
 export async function getAgentProductThumbnails(ids: string[]) {

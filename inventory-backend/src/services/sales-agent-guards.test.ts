@@ -374,3 +374,22 @@ test("the order idempotency key is enforced by the database, not by a read", () 
   assert.match(svc, /P2002/, "the create must handle the unique-constraint race");
   assert.match(svc, /findPriorAgentOrder/);
 });
+
+/**
+ * The rep's grid must BE the shop's catalog.
+ *
+ * «الكارتون الكامل فقط» hides every leftover under a full carton from the
+ * customer catalog. The rep's list ignored the switch, so goods the shop no
+ * longer sells kept appearing on the rep's phone as available.
+ */
+test("the rep catalog obeys the same full-carton switch as the customer catalog", () => {
+  const agent = code(read("services/sales-agent.service.ts"));
+  const catalog = code(read("services/catalog.service.ts"));
+
+  assert.match(agent, /catalogFullCartonOnly/, "the rep list must read the merchant's switch");
+
+  // Same expression on both sides, or the two catalogs drift apart again.
+  const rule = /pcsPerCarton >= 1 && \w+\.currentStock >= \w+\.pcsPerCarton/;
+  assert.match(catalog, rule);
+  assert.match(agent, rule);
+});
