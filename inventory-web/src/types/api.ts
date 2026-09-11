@@ -1299,6 +1299,7 @@ export interface AppSettings {
   campaignGlobalDailyCap?: number
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
+  purchaseInvoiceNotifyWhatsappNumber?: string
   salesAgentWhatsappNumber?: string
   salesAgentNotifyNewOrder?: boolean
   salesAgentNotifyNewCustomer?: boolean

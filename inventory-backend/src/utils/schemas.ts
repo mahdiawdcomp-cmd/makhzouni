@@ -1126,6 +1126,7 @@ export const updateSettingsSchema = z.object({
       catalogAdminWhatsappNumber: z.string().trim().optional(),
       orderPreparationWhatsappNumbers: z.string().trim().optional(),
       adminApprovalWhatsappNumber: z.string().trim().optional(),
+      purchaseInvoiceNotifyWhatsappNumber: z.string().trim().optional(),
       // «إشعارات المندوب». Plain z.boolean(), never z.coerce.boolean(): coerce
       // turns the string "false" into true, which is exactly how a toggle ends
       // up impossible to switch off.

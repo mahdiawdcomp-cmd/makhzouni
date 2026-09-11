@@ -1104,6 +1104,7 @@ export interface AppSettings {
   catalogShuffleMode?: "hourly" | "daily" | "off"
   orderPreparationWhatsappNumbers?: string
   adminApprovalWhatsappNumber?: string
+  purchaseInvoiceNotifyWhatsappNumber?: string
   autoSendDailySummary?: boolean
   dailySummaryWhatsappNumber?: string
   dailySummaryHour?: number

@@ -126,6 +126,14 @@ export const addInvoice = asyncHandler(async (req, res) => {
 
   const invoice = await createInvoice(req.body, user.id);
 
+  // Fire-and-forget, after the invoice's own transaction has fully committed —
+  // never awaited, never allowed to affect the response.
+  if (invoice.type === "PURCHASE") {
+    import("../services/purchase-invoice-notify.service")
+      .then((m) => m.notifyPurchaseInvoiceCreated(invoice.id))
+      .catch(() => null);
+  }
+
   res.status(201).json({
     success: true,
     message: "Invoice created successfully",

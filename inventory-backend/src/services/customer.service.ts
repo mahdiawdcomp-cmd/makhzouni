@@ -1260,8 +1260,10 @@ export async function broadcastToCustomers(input: {
       // salePrice, not retailPrice which is the مفرد/retail price), then the
       // typed message is sent on its own as the final, separate message.
       for (const { product, image } of productImages) {
+        const codeLine = product.itemNumber ? `\nكود: ${product.itemNumber}` : "";
+        const cartonLine = product.pcsPerCarton > 1 ? `\n${product.pcsPerCarton} قطعة/كرتون` : "";
         const priceLine = product.salePrice ? `\n${Number(product.salePrice)} د.ع` : "";
-        const caption = `📦 ${product.name}${priceLine}`;
+        const caption = `📦 ${product.name}${codeLine}${cartonLine}${priceLine}`;
         await sendWhatsAppImage(customer.phone, caption, image.buffer, image.mime);
         await new Promise((r) => setTimeout(r, 400));
       }

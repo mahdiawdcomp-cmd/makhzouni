@@ -163,6 +163,14 @@ export interface AppSettings {
   // Dedicated number that receives staff approval requests (delete/cancel).
   // Falls back to storePhone when empty.
   adminApprovalWhatsappNumber?: string;
+  // «إشعار فواتير الشراء» — fires only for a REGULAR purchase invoice saved
+  // from the invoices screen (invoices.controller.ts::addInvoice, no nested
+  // transaction). Deliberately excludes the China/landed-cost import (can run
+  // to thousands of lines — see LandedCostImportBatch) and the staff-approval
+  // queue (createInvoice there runs inside an outer tx that may still roll
+  // back). Empty = feature off, no fallback to storePhone — this is a personal
+  // line, not a customer-facing number.
+  purchaseInvoiceNotifyWhatsappNumber?: string;
   // ── «إشعارات المندوب» — the fourth notification box ────────────────────
   // One nominated number for everything the sales rep does, kept separate from
   // the three above so rep traffic can be routed (or muted) on its own. Each
@@ -561,6 +569,7 @@ export const defaultSettings: AppSettings = {
   campaignGlobalDailyCap: 100,
   orderPreparationWhatsappNumbers: "",
   adminApprovalWhatsappNumber: "",
+  purchaseInvoiceNotifyWhatsappNumber: "",
   salesAgentWhatsappNumber: "",
   salesAgentNotifyNewOrder: true,
   salesAgentNotifyNewCustomer: true,

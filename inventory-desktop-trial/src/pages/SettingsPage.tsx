@@ -724,6 +724,19 @@ export function SettingsPage() {
                   يصله إشعار واتساب بكل طلب حذف/تعطيل من الموظفين (اسم الموظف، العملية، السجل، الوقت). إذا تركته فارغ يُرسل لرقم المتجر.
                 </p>
               </div>
+              <div className="md:col-span-2">
+                <Field label="رقم إشعار فواتير الشراء (واتساب)">
+                  <Input
+                    value={settings.purchaseInvoiceNotifyWhatsappNumber ?? ""}
+                    onChange={(e) => upd("purchaseInvoiceNotifyWhatsappNumber", e.target.value)}
+                    placeholder="9647xxxxxxxx"
+                    dir="ltr"
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-slate-500">
+                  عند حفظ فاتورة شراء عادية (منك أو من موظف) يوصله صورة كل مادة بالفاتورة مع الكود والسعر وعدد القطع بالكرتون. اتركه فارغ لإيقاف الإشعار. لا ينطبق على أوردر الصين ولا على فواتير الموافقة المعلّقة.
+                </p>
+              </div>
             </div>
             <SaveRow
               onSave={() => saveSettings.mutate({
@@ -731,6 +744,7 @@ export function SettingsPage() {
                 catalogPublicUrl: settings.catalogPublicUrl,
                 orderPreparationWhatsappNumbers: settings.orderPreparationWhatsappNumbers,
                 adminApprovalWhatsappNumber: settings.adminApprovalWhatsappNumber,
+                purchaseInvoiceNotifyWhatsappNumber: settings.purchaseInvoiceNotifyWhatsappNumber,
               })}
               isPending={saveSettings.isPending}
               saved={saved}
