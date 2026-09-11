@@ -1,15 +1,7 @@
-import { Unit } from "@prisma/client";
 import prisma from "../config/database";
 import { getSettings } from "./settings.service";
 import { sendWhatsAppText, sendWhatsAppImage } from "./whatsapp.service";
 import { logger } from "../utils/logger";
-
-const UNIT_LABELS_AR: Record<Unit, string> = {
-  PIECE: "قطعة",
-  DOZEN: "درزن",
-  BOX: "علبة",
-  CARTON: "كرتون",
-};
 
 function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | null {
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
@@ -18,10 +10,11 @@ function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } | nu
 }
 
 /**
- * «إشعار فواتير الشراء» — the owner's personal copy of every regular purchase
- * invoice: a photo of each product with its item number, its price, and how
- * many pieces per carton, so the owner can eyeball what actually came in
- * without opening the app.
+ * «إشعار فواتير الشراء» — fires on every regular purchase invoice: a photo of
+ * each product with its item number, its SALE price (not what was paid on the
+ * purchase line), and how many pieces per carton — written to be forwarded
+ * straight into a customer group, not as an internal receiving log. No arrived
+ * quantity, no cost price.
  *
  * Fire-and-forget by design: called AFTER the invoice's own transaction has
  * committed, and every failure inside here is swallowed — a WhatsApp hiccup
@@ -49,9 +42,6 @@ export async function notifyPurchaseInvoiceCreated(invoiceId: string) {
             productId: true,
             productName: true,
             itemNumber: true,
-            unit: true,
-            quantity: true,
-            unitPrice: true,
           },
         },
       },
@@ -61,7 +51,7 @@ export async function notifyPurchaseInvoiceCreated(invoiceId: string) {
     const productIds = [...new Set(invoice.items.map((it) => it.productId))];
     const products = await prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, imageUrl: true, pcsPerCarton: true },
+      select: { id: true, imageUrl: true, pcsPerCarton: true, salePrice: true },
     });
     const productById = new Map(products.map((p) => [p.id, p]));
 
@@ -75,9 +65,11 @@ export async function notifyPurchaseInvoiceCreated(invoiceId: string) {
       const product = productById.get(item.productId);
       const codeLine = item.itemNumber ? `\nكود: ${item.itemNumber}` : "";
       const cartonLine = product && product.pcsPerCarton > 1 ? `\n${product.pcsPerCarton} قطعة/كرتون` : "";
-      const priceLine = `\n${Number(item.unitPrice)} د.ع`;
-      const qtyLine = `\n${item.quantity} ${UNIT_LABELS_AR[item.unit]}`;
-      const caption = `📦 ${item.productName}${codeLine}${cartonLine}${priceLine}${qtyLine}`;
+      // Sale price, not what was paid on this purchase line — this message is
+      // meant to be forwarded straight into a customer group, and the cost
+      // price has no business leaving the shop.
+      const priceLine = product?.salePrice ? `\n${Number(product.salePrice)} د.ع` : "";
+      const caption = `📦 ${item.productName}${codeLine}${cartonLine}${priceLine}`;
 
       const image = product?.imageUrl ? dataUrlToBuffer(product.imageUrl) : null;
       try {
