@@ -588,6 +588,12 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   const uniqueProductIds = [...new Set(input.items.map((i) => i.productId))];
   for (const id of uniqueProductIds) assertUuid(id, "مادة غير صحيحة بالطلب");
 
+  // Same source as the catalog grid: the shortage the owner sees on the
+  // approval must mean the same thing «المتوفر» means on the rep's screen, or
+  // "no shortage" can be reported for a product the shop floor genuinely does
+  // not have — the depot (or a stale legacy figure) covering for it silently.
+  const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
+
   const products = await prisma.product.findMany({
     where: { id: { in: uniqueProductIds }, deletedAt: null },
     select: {
@@ -598,7 +604,7 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       boxPieces: true,
       openingBalancePcs: true,
       cartonsAvailable: true,
-      warehouseStocks: { select: { quantityPieces: true } },
+      warehouseStocks: { select: { quantityPieces: true, warehouseId: true } },
     },
   });
   const productById = new Map(products.map((p) => [p.id, p]));
@@ -654,7 +660,7 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   const shortages = products
     .map((product) => {
       const requested = requestedPiecesByProduct.get(product.id) ?? 0;
-      const available = totalStock(product);
+      const available = sellableStock(product, shopWarehouseId);
       return requested > available
         ? { productId: product.id, productName: product.name, requested, available, short: requested - available }
         : null;
@@ -694,7 +700,7 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       quantity: item.quantity,
       unitPrice: special ? special.price : catalogPrice,
       totalPrice: (special ? special.price : catalogPrice) * item.quantity,
-      availableStock: totalStock(product),
+      availableStock: sellableStock(product, shopWarehouseId),
       // Surfaced on the approval so the owner sees WHY a line is below the
       // shelf price, instead of wondering whether something is broken.
       specialPrice: special ? { catalogPrice } : undefined,

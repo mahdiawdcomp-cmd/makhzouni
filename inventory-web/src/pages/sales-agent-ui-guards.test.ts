@@ -90,3 +90,20 @@ test("quantities are whole units and Arabic digits count", () => {
     "stripping non-digits turns «1.5» into 15",
   )
 })
+
+/**
+ * A from-scratch copy of the BOX conversion once lived on this page and
+ * rounded DOWN for an odd carton size instead of up — pcsPerCarton=5 showed a
+ * box as 5 pieces (a full carton) here while the server billed it at 3. The
+ * rep read a wrong preview price, and the picker's max-quantity was wrong off
+ * the same broken number. Every other order-taking page already shares one
+ * implementation in utils/units.ts; this page must too.
+ */
+test("box-size math comes from the shared unit util, not a local copy", () => {
+  assert.match(src, /from "\.\.\/utils\/units"/, "must import the shared conversion, not reimplement it")
+  assert.equal(
+    /function effectiveBoxPieces\(/.test(src),
+    false,
+    "a local effectiveBoxPieces is exactly the copy that drifted from the server before",
+  )
+})

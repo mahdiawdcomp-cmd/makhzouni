@@ -47,6 +47,7 @@ import { QueryErrorBox } from "../components/ui/query-error"
 import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 import { useAuthStore } from "../store/authStore"
+import { piecesPerUnit as sharedPiecesPerUnit } from "../utils/units"
 
 /* ── types ───────────────────────────────────────────────────────────── */
 
@@ -204,6 +205,14 @@ type IssueReason = { code: string; label: string; aboutProduct: boolean }
  * Mirrors the server's conversion exactly. The server recomputes every price
  * from the database when the order is submitted — what is shown here is a
  * preview, never the number that gets billed.
+ *
+ * `piecesPerUnit` is imported from the shared util, not reimplemented here.
+ * A from-scratch copy of this once existed on this page and rounded a BOX
+ * DOWN for any odd carton size instead of up — pcsPerCarton=5 showed a box as
+ * 5 pieces (a full carton) here while the server billed it at 3. The rep read
+ * a wrong preview price and the picker's max-quantity was wrong too, off the
+ * same broken number. `utils/units.ts` is the copy every other order-taking
+ * page in the app already uses; this page just was not one of them.
  */
 
 const UNIT_LABEL: Record<Unit, string> = {
@@ -215,18 +224,10 @@ const UNIT_LABEL: Record<Unit, string> = {
 
 const ALL_UNITS: Unit[] = ["CARTON", "BOX", "DOZEN", "PIECE"]
 
-function effectiveBoxPieces(pcsPerCarton: number, boxPieces: number | null) {
-  if (boxPieces && boxPieces > 0) return boxPieces
-  const n = Math.max(1, pcsPerCarton)
-  return n % 2 === 0 ? n / 2 : n
-}
-
 function piecesPerUnit(product: AgentProduct, unit: Unit) {
-  const n = Math.max(1, product.pcsPerCarton)
-  if (unit === "CARTON") return n
-  if (unit === "BOX") return effectiveBoxPieces(n, product.boxPieces)
-  if (unit === "DOZEN") return 12
-  return 1
+  // Only these two fields matter to the conversion; passed explicitly so a
+  // wider (or narrower) AgentProduct shape can never trip up the shared util.
+  return sharedPiecesPerUnit(unit, { pcsPerCarton: product.pcsPerCarton, boxPieces: product.boxPieces })
 }
 
 function unitPrice(product: AgentProduct, unit: Unit) {

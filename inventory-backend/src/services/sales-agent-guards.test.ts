@@ -424,3 +424,32 @@ test("the rep catalog counts shop-floor stock, not every warehouse", () => {
     "the shop row is the only source; the legacy fields are stale by design",
   );
 });
+
+/**
+ * The shortage warning on the approval and the «available» stock shown to the
+ * owner have to mean the same thing «المتوفر» means on the rep's own screen —
+ * shop-floor stock. Before this, submitAgentOrder summed every warehouse (and
+ * fell back to the stale opening-balance fields), so a product with 50 sitting
+ * in the depot and 0 on the shelf reported "no shortage" while the shop floor
+ * genuinely did not have it.
+ */
+test("the order's shortage/available figures use shop-floor stock, not every warehouse", () => {
+  const agent = code(read("services/sales-agent.service.ts"));
+  const submit = agent.slice(
+    agent.indexOf("export async function submitAgentOrder("),
+    agent.indexOf("export async function listMyOrders("),
+  );
+  assert.match(submit, /resolveShopWarehouseId/, "submitAgentOrder must resolve المحل itself");
+  assert.doesNotMatch(
+    submit,
+    /available\s*=\s*totalStock\(/,
+    "the shortage check reverted to summing every warehouse",
+  );
+  assert.doesNotMatch(
+    submit,
+    /availableStock:\s*totalStock\(/,
+    "the approval's displayed availableStock reverted to summing every warehouse",
+  );
+  assert.match(submit, /available\s*=\s*sellableStock\(/);
+  assert.match(submit, /availableStock:\s*sellableStock\(/);
+});
