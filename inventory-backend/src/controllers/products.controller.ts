@@ -21,6 +21,7 @@ import {
   adjustProductStockManual,
   listManualStockAdjustments,
   listStockHistory,
+  listProductsMissingCartonPrice,
   ensureCartonQrCode,
 } from "../services/product.service";
 import { renderPieceLabelPng, renderCartonLabelPng } from "../services/piece-label.service";
@@ -66,6 +67,11 @@ export const getProducts = asyncHandler(async (req, res) => {
 export const getStale = asyncHandler(async (req, res) => {
   const days = req.query.days ? Math.max(7, Math.min(365, Number(req.query.days))) : 60;
   const result = await getStaleProducts(days, hideAllPricesFor(req.user));
+  res.json({ success: true, ...result });
+});
+
+export const getMissingCartonPrice = asyncHandler(async (_req, res) => {
+  const result = await listProductsMissingCartonPrice();
   res.json({ success: true, ...result });
 });
 

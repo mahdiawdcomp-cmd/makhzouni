@@ -19,6 +19,7 @@ import {
   getProductQr,
   getProducts,
   getStale,
+  getMissingCartonPrice,
   removeProduct,
   restoreProductCtrl,
 } from "../controllers/products.controller";
@@ -55,6 +56,9 @@ router.post("/backfill-qr", requirePermission("MANAGE_PRODUCTS"), backfillProduc
 router.post("/backfill-thumbnails", requirePermission("MANAGE_PRODUCTS"), backfillThumbs);
 router.post("/variety-convert", requireAnyPermission("VARIETY_CONVERT", "MANAGE_PRODUCTS"), validate(varietyConvertSchema), convertVariety);
 router.get("/stale", getStale);
+// Prices are the whole point of this page, so it's gated on MANAGE_PRODUCTS —
+// which also means the inline save applies immediately instead of queueing an approval.
+router.get("/missing-carton-price", requirePermission("MANAGE_PRODUCTS"), getMissingCartonPrice);
 router.post("/bulk-delete", requirePermission("MANAGE_PRODUCTS"), bulkDelete);
 router.get("/deleted", requirePermission("MANAGE_PRODUCTS"), getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);

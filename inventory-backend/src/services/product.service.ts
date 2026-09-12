@@ -975,6 +975,39 @@ export async function getStaleProducts(days = 60, hideAllPrices = false) {
   return { days, cutoff, count: stale.length, data: stale };
 }
 
+/**
+ * «البضاعة بدون سعر كارتون» — products that CAN be sold by the carton (more than
+ * one piece per carton) and have at least one full carton in stock, but carry no
+ * carton piece price yet, so they fall back to the wholesale price and the shop
+ * silently loses the carton discount as a selling argument.
+ *
+ * Stock is the ALL-warehouse total (not just المحل): a carton sitting in a depot
+ * still needs a price. Sorted by how many full cartons are on hand, descending —
+ * the biggest missing prices get set first.
+ */
+export async function listProductsMissingCartonPrice() {
+  const shopWarehouseId = await resolveShopWarehouseId(prisma).catch(() => null);
+
+  const products = await prisma.product.findMany({
+    where: {
+      deletedAt: null,
+      cartonPiecePrice: null, // NOT zero — zero is a deliberate price, null is a gap
+      pcsPerCarton: { gt: 1 }, // 1 piece/carton = no carton to price
+    },
+    include: productWarehouseInclude,
+    omit: { imageUrl: true },
+    orderBy: { name: "asc" },
+  });
+
+  const data = products
+    .map((p) => serializeProduct(p, shopWarehouseId))
+    .map((p) => ({ ...p, fullCartons: Math.floor((p.currentStock ?? 0) / p.pcsPerCarton) }))
+    .filter((p) => p.fullCartons >= 1)
+    .sort((a, b) => b.fullCartons - a.fullCartons || a.name.localeCompare(b.name, "ar"));
+
+  return { count: data.length, data };
+}
+
 /** Soft-delete many products at once (used by the stale-products cleanup). */
 export async function bulkDeleteProducts(ids: string[]) {
   if (!ids.length) return { deleted: 0 };

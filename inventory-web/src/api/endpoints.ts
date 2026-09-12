@@ -1287,6 +1287,27 @@ export async function getStaleProducts(days = 60) {
   return { days: data.days, count: data.count, data: data.data ?? [] }
 }
 
+/** A product with a full carton in stock and no carton price yet. */
+export interface MissingCartonPriceProduct extends Product {
+  fullCartons: number
+}
+
+export async function getProductsMissingCartonPrice() {
+  const { data } = await api.get<{ success: boolean; count: number; data: MissingCartonPriceProduct[] }>(
+    "/products/missing-carton-price",
+  )
+  return { count: data.count ?? 0, data: data.data ?? [] }
+}
+
+/**
+ * Partial product update — the carton price alone. Goes through the normal
+ * product update so the "must not exceed wholesale" rule stays in one place.
+ */
+export async function setCartonPiecePrice(id: string, cartonPiecePrice: number | null) {
+  const { data } = await api.put<ApiEnvelope<Product>>(`/products/${id}`, { cartonPiecePrice })
+  return data
+}
+
 export async function bulkDeleteProducts(ids: string[]) {
   const { data } = await api.post<{ success: boolean; deleted: number; message?: string }>("/products/bulk-delete", { ids })
   return data
