@@ -1256,6 +1256,8 @@ export interface AppSettings {
   shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string
+  aiAgentMuteMinutes?: number
+  aiUpsetAlertPhone?: string
   catalogRequireOtp?: boolean
   catalogFullCartonOnly?: boolean
   catalogHideNoImage?: boolean

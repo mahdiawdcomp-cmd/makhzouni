@@ -9,6 +9,9 @@ import { sendWhatsAppImage, sendWhatsAppPdf, sendWhatsAppText } from "./whatsapp
 import { generateInvoicePdf } from "./invoice-export.service";
 import { generateVoucherPdf } from "./voucher-export.service";
 import { createCustomerPortalLink } from "./customer-portal.service";
+import { generateCustomerStatementPdf } from "./statement-export.service";
+import { normalizePhone } from "../utils/phone";
+import sharp from "sharp";
 import { recordError } from "./error-log.service";
 import { ErrorLogSource } from "@prisma/client";
 
@@ -69,6 +72,24 @@ const DOC_SEND_TIMEOUT_MS = Number(process.env.AI_DOC_SEND_TIMEOUT_MS) || 45_000
 
 /** Ceiling on one «ارسل لي آخر فواتيري» request, so nobody can ask for 50. */
 const MAX_INVOICES_PER_REQUEST = 3;
+
+// Vision costs several times a plain text turn, so photos get their own daily
+// ceiling next to the reply ceiling rather than sharing it.
+const MAX_AI_IMAGES_PER_DAY = Number(process.env.AI_VISION_MAX_PER_DAY) || 10;
+/** What the model is shown: long edge 1024px, re-encoded JPEG. */
+const VISION_MAX_EDGE = 1024;
+
+// Long-term memory. Twelve short lines is a person's worth of "I know this
+// customer" and costs almost nothing on every turn; a hundred would be a
+// second conversation history and would drift.
+const MAX_MEMORIES = 12;
+const MEMORY_MAX_LEN = 160;
+
+/** One «زبون منزعج» text per number per three hours — an angry conversation
+ *  is one alert, not twenty. */
+const UPSET_ALERT_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+/** Default quiet window after a human replies, when settings say nothing. */
+const DEFAULT_MUTE_MINUTES = 60;
 /** Said once, deterministically, when a turn breaks — costs nothing to send. */
 export const AGENT_FALLBACK_REPLY =
   "عذراً، صارت عندنا مشكلة تقنية بالرد 🙏 الإدارة راح تتواصل وياك، أو تكدر تعيد سؤالك.";
@@ -213,7 +234,7 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 - إذا الزبون ذكر منتج ولكيت أكثر من واحد قريب من اسمه، اسأله يحدد أي واحد يقصد واذكرلهم الأسماء — لا تختار أنت. وإذا سأل عن «أحجام» أو «أنواع» وعندك أكثر من مقاس، اذكرهم كلهم.
 - إذا المنتج فعلاً مو موجود بالمحل بعد ما جرّبت ألفاظ مختلفة، اعرض عليه تبلّغ الإدارة حتى توفره، وإذا وافق استخدم أداة تسجيل الطلب.
 - إذا طلب صورة لمنتج، استخدم أداة إرسال الصورة (هي ترسلها فعلاً)، وبعدها قوله إنك أرسلتها.
-- إذا طلب فاتورته («ارسل لي آخر فاتورة»، «آخر فاتورتين»، أو نطاك رقم فاتورة) استخدم أداة إرسال الفواتير — هي ترسل الملف فعلاً، وما يوصل غير فواتير هذا الزبون نفسه. وإذا طلب رابط كشف حسابه أو آخر سند قبض استخدم الأداة المخصصة لكل وحدة.
+- إذا طلب فاتورته («ارسل لي آخر فاتورة»، «آخر فاتورتين»، أو نطاك رقم فاتورة) استخدم أداة إرسال الفواتير — هي ترسل الملف فعلاً، وما يوصل غير فواتير هذا الزبون نفسه. وإذا طلب كشف حسابه: ملف PDF بأداة الكشف أو رابط بأداة الرابط، حسب شنو طلب. وإذا طلب آخر سند قبض استخدم أداته.
 - الفواتير والسندات تنرسل كملف جاهز — لا تكتب أنت أي مبلغ أو سعر من داخلها، بس قول إنك دزيتله الملف.
 - الزبون المسجّل يكدر يسأل عن رصيده أو كشف حسابه، واستخدم الأداة المخصصة. إذا الرقم مو مسجّل زبون، وضّحله بلطف إنه غير مسجّل عدنا ويكدر يراجع الإدارة.
 - ردودك قصيرة وطبيعية: سطر أو سطرين بالعادة، بدون قوائم طويلة. لمن تعدد منتجات، ثلاثة أو أربعة يكفون مو عشرة.
@@ -223,7 +244,180 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 
 الرسائل الصوتية والصور:
 - الرسالة الصوتية توصلك مفرّغة نص. تعامل وياها كأنها مكتوبة عادي.
-- إنت ما تشوف الصور. إذا وصلك إن الزبون دزّ صورة، قوله بصراحة إنك ما تشوفها واطلب منه يكتب اسم المنتج، أو ذكّره برابط الكتلوك.`;
+- إنت **تشوف** الصور اللي يدزها الزبون. إذا دزّ صورة منتج، شوفها زين وطلّع منها كلمات تدور بيها بالبحث (النوع، اللون، الحجم، أي كتابة عليها)، وجرّب أكثر من لفظ قبل ما تحكم إنه مو موجود عدنا.
+- لا تدّعي إنك متأكد إنها نفس المادة. قول «شكله نفس النوع» أو «عدنا شي قريب منه» واعرض الأسماء اللي لكيتها.
+- إذا الصورة ما بيها منتج (سكرين شوت، صورة شخصية، ورقة)، وصّفها بهدوء واسأل شنو يريد منها.
+- إذا الصورة وصل تحويل أو دفع أو إشعار بنكي: **ممنوع** تأكد استلام أي مبلغ أو تقول إن الدفعة وصلت. صعّدها للإدارة وبس.
+
+الذاكرة:
+- تحت بالأسفل «اللي تعرفه عن هذا الزبون» — هذي معلومات جمعتها من محادثات سابقة. استعملها حتى ما يعيد كلامه كل مرة.
+- إذا عرفت شي جديد يستاهل يتذكر (شنو يبيع، شنو يشتري دائماً، تفضيل بالتعامل)، احفظه بأداة الحفظ. ممنوع تحفظ مبالغ أو أسعار أو أرصدة.
+
+الزبون المنزعج:
+- إذا حسيت الزبون زعلان أو يشتكي أو عصبي أو يحچي إنه راح يترك المحل، استخدم أداة تنبيه صاحب المحل فوراً — قبل ما تجاوب على أي شي ثاني. بعدها اعتذر بهدوء وقله إن صاحب المحل راح يتواصل وياه شخصياً، وخلص. ولا كلمة هزار.`;
+
+// ── The agent stands down when a human steps in ─────────────────────────────
+//
+// The shop replies from the chat screen and the agent replies from here, and
+// the customer gets two answers to one message — one of them wrong, because
+// only one of the two knows what was just agreed. So any human reply stamps a
+// quiet window on that number and the agent skips its turn until it passes.
+//
+// Only a human reply stamps it. The agent's own sends, invoices, vouchers and
+// every other automated message go out the same door and must not silence it.
+
+async function muteMinutes(): Promise<number> {
+  try {
+    const settings = await getSettings();
+    const raw = Number(settings.aiAgentMuteMinutes);
+    return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_MUTE_MINUTES;
+  } catch {
+    return DEFAULT_MUTE_MINUTES;
+  }
+}
+
+/** Called when a human sends from the chat screen. `minutes` overrides settings. */
+export async function muteAiAgent(rawPhone: string, minutes?: number): Promise<Date | null> {
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return null;
+  const span = minutes ?? (await muteMinutes());
+  if (span <= 0) return null; // the shop turned the mute off
+  const until = new Date(Date.now() + span * 60 * 1000);
+  try {
+    await prisma.whatsappAiChat.upsert({
+      where: { phone },
+      create: { phone, messages: [], aiMutedUntil: until },
+      update: { aiMutedUntil: until },
+    });
+    return until;
+  } catch (error) {
+    // Never fail the human's send because the mute bookkeeping failed.
+    logger.warn(`[whatsapp-ai] mute failed for ${phone}: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/** «رجّع الموظف الذكي» — the shop hands the conversation back. */
+export async function unmuteAiAgent(rawPhone: string) {
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return;
+  await prisma.whatsappAiChat.updateMany({ where: { phone }, data: { aiMutedUntil: null } }).catch(() => {});
+}
+
+/** Null when the agent is free to answer, otherwise when it wakes up again. */
+export async function aiMutedUntil(rawPhone: string): Promise<Date | null> {
+  const phone = normalizePhone(rawPhone);
+  if (!phone) return null;
+  try {
+    const row = await prisma.whatsappAiChat.findUnique({ where: { phone }, select: { aiMutedUntil: true } });
+    if (!row?.aiMutedUntil) return null;
+    return row.aiMutedUntil.getTime() > Date.now() ? row.aiMutedUntil : null;
+  } catch {
+    // Fail OPEN: a database hiccup must not mute the shop's only responder.
+    return null;
+  }
+}
+
+// ── Long-term memory ─────────────────────────────────────────────────────────
+//
+// Short-term history dies after 24 hours on purpose — a day-old thread is a new
+// conversation. These are the few durable lines worth carrying past that: what
+// the customer sells, what they always buy, how they like to be dealt with.
+//
+// Never money. A remembered balance or price goes stale the moment the next
+// invoice is written, and a confidently wrong number from memory is worse than
+// no memory at all. The tools read those live; memory holds preferences.
+
+async function loadMemories(phone: string): Promise<string[]> {
+  try {
+    const rows = await prisma.whatsappAiMemory.findMany({
+      where: { phone },
+      orderBy: { createdAt: "asc" },
+      take: MAX_MEMORIES,
+      select: { fact: true },
+    });
+    return rows.map((r) => r.fact);
+  } catch {
+    return [];
+  }
+}
+
+async function toolRemember(sender: Sender, fact: string) {
+  const clean = fact.trim().replace(/\s+/g, " ").slice(0, MEMORY_MAX_LEN);
+  if (clean.length < 4) return { saved: false, error: "المعلومة قصيرة أو فارغة" };
+  const normalized = normalizeArabic(clean);
+  if (!normalized) return { saved: false, error: "المعلومة غير صالحة" };
+  try {
+    await prisma.whatsappAiMemory.upsert({
+      where: { phone_normalized: { phone: sender.phone, normalized } },
+      create: { phone: sender.phone, customerId: sender.customer?.id ?? null, fact: clean, normalized },
+      update: { fact: clean, customerId: sender.customer?.id ?? null },
+    });
+    // Oldest out first once the shelf is full, so the newest picture of the
+    // customer is the one that survives.
+    const all = await prisma.whatsappAiMemory.findMany({
+      where: { phone: sender.phone },
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    const excess = all.length - MAX_MEMORIES;
+    if (excess > 0) {
+      await prisma.whatsappAiMemory.deleteMany({ where: { id: { in: all.slice(0, excess).map((r) => r.id) } } });
+    }
+    return { saved: true };
+  } catch (error) {
+    logger.warn(`[whatsapp-ai] memory save failed for ${sender.phone}: ${error instanceof Error ? error.message : String(error)}`);
+    return { saved: false, error: "تعذر الحفظ" };
+  }
+}
+
+// ── Photos the customer sends ────────────────────────────────────────────────
+
+const VISION_MIME = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/**
+ * Re-encodes an inbound photo down to something worth paying for: long edge
+ * 1024px, JPEG. A modern phone camera sends several megabytes, and the model
+ * reads a product off a 1024px frame just as well.
+ */
+async function prepareVisionImage(dataUrl: string): Promise<{ media_type: string; data: string } | null> {
+  const parsed = dataUrlToBuffer(dataUrl);
+  if (!parsed) return null;
+  if (!VISION_MIME.has(parsed.mime)) return null;
+  try {
+    const shrunk = await sharp(parsed.buffer)
+      .rotate()
+      .resize({ width: VISION_MAX_EDGE, height: VISION_MAX_EDGE, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 72 })
+      .toBuffer();
+    return { media_type: "image/jpeg", data: shrunk.toString("base64") };
+  } catch (error) {
+    logger.warn(`[whatsapp-ai] image prepare failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+/** Separate ceiling from the reply cap — vision is the expensive half. */
+async function claimDailyImage(phone: string): Promise<boolean> {
+  const today = baghdadDayKey();
+  try {
+    const row = await prisma.whatsappAiChat.findUnique({
+      where: { phone },
+      select: { imagesToday: true, todayKey: true },
+    });
+    const used = row && row.todayKey === today ? row.imagesToday : 0;
+    if (used >= MAX_AI_IMAGES_PER_DAY) return false;
+    await prisma.whatsappAiChat.upsert({
+      where: { phone },
+      create: { phone, messages: [], imagesToday: 1, todayKey: today },
+      update: { imagesToday: used + 1, todayKey: today },
+    });
+    return true;
+  } catch (error) {
+    logger.warn(`[whatsapp-ai] image-cap check failed for ${phone}: ${error instanceof Error ? error.message : String(error)}`);
+    return true; // fail open, same as the reply cap
+  }
+}
 
 // ── Tool schemas exposed to the model ────────────────────────────────────────
 // Note what is absent: no phone parameter anywhere, and no price field in any
@@ -327,6 +521,32 @@ const TOOLS: Anthropic.Tool[] = [
     description:
       "أرسل آخر سند قبض للزبون صاحب هذه المحادثة كملف PDF بالواتساب. استخدمها إذا طلب «ارسلي آخر سند قبض» أو «وصل الدفع مالتي».",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "send_my_statement_pdf",
+    description:
+      "أرسل كشف حساب الزبون صاحب هذه المحادثة كملف PDF كامل (كل الحركات والرصيد). استخدمها إذا طلب «دزلي كشف حسابي» أو «كشف حسابي PDF». إذا طلب رابط بدل ملف استخدم أداة الرابط.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "remember_about_customer",
+    description:
+      "احفظ معلومة دائمة عن هذا الزبون تنفعك بالمحادثات الجاية: شنو يبيع، شنو يشتري دائماً، شلون يحب يتعامل، أي تفضيل ذكره. سطر واحد قصير. ممنوع تحفظ أي مبلغ أو سعر أو رصيد أو وعد — هذي تتغير وتجيبها من الأدوات كل مرة. لا تحفظ شي إلا إذا فعلاً يفيدك بالمستقبل.",
+    input_schema: {
+      type: "object",
+      properties: { fact: { type: "string", description: "المعلومة بسطر واحد قصير" } },
+      required: ["fact"],
+    },
+  },
+  {
+    name: "alert_upset_customer",
+    description:
+      "الزبون منزعج أو يشتكي أو عصبي أو يهدد يترك المحل. استخدمها فوراً — ترسل تنبيه مباشر لموبايل صاحب المحل حتى يتدخل بنفسه. استخدمها مرة وحدة بالمحادثة، وبعدها كون هادي ومحترم وبدون أي هزار.",
+    input_schema: {
+      type: "object",
+      properties: { reason: { type: "string", description: "شنو المشكلة بالضبط، بسطر أو سطرين" } },
+      required: ["reason"],
+    },
   },
   {
     name: "escalate_to_admin",
@@ -866,6 +1086,122 @@ async function toolSendMyLastVoucher(sender: Sender) {
   }
 }
 
+async function toolSendMyStatementPdf(sender: Sender) {
+  if (!sender.customer) {
+    return { sent: false, registered: false, note: "هذا الرقم مو مسجّل كزبون عدنا — ما عدنا كشف حساب إله." };
+  }
+  try {
+    const pdf = await withTimeout(
+      generateCustomerStatementPdf(sender.customer.id),
+      DOC_SEND_TIMEOUT_MS,
+      "statement pdf",
+    );
+    const safeName = sender.customer.name.replace(/[\\/:*?"<>|]/g, "").slice(0, 40) || "customer";
+    await withTimeout(
+      sendWhatsAppPdf(sender.phone, "📄 كشف حسابك", pdf, `statement-${safeName}.pdf`),
+      DOC_SEND_TIMEOUT_MS,
+      "statement send",
+    );
+    return { sent: true };
+  } catch (error) {
+    logger.warn(
+      `[whatsapp-ai] statement pdf failed for ${sender.phone}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { sent: false, error: "تعذر إرسال الكشف حالياً، اعتذر للزبون وصعّد للإدارة." };
+  }
+}
+
+/**
+ * «زبون منزعج» — the one escalation that does not wait to be noticed.
+ *
+ * An angry customer read off a list tomorrow morning is a customer already
+ * gone, so this texts the owner's own phone the moment the agent hears it,
+ * with enough context to pick the conversation up cold: who, what, their own
+ * words, and a link that opens the chat.
+ *
+ * Then the agent stands down on that number for the normal quiet window. The
+ * shop is on its way — two voices answering an upset customer is exactly the
+ * wrong second impression.
+ */
+async function toolAlertUpset(sender: Sender, reason: string, originalText: string) {
+  const summary = reason.trim().slice(0, 500) || "زبون منزعج";
+  const row = await prisma.aiEscalation.create({
+    data: {
+      phone: sender.phone,
+      customerId: sender.customer?.id ?? null,
+      customerName: sender.customer?.name ?? null,
+      kind: "UPSET",
+      summary,
+      customerText: originalText.slice(0, 1000),
+    },
+  });
+
+  // One alert per number per few hours. The escalation row is always written;
+  // only the text to the owner is rate-limited.
+  const recent = await prisma.aiEscalation.findFirst({
+    where: {
+      phone: sender.phone,
+      kind: "UPSET",
+      alertedAt: { gte: new Date(Date.now() - UPSET_ALERT_COOLDOWN_MS) },
+    },
+    select: { id: true },
+  });
+  if (recent) {
+    await muteAiAgent(sender.phone).catch(() => {});
+    return { alerted: true, note: "الإدارة متنبهة أصلاً لهذه المحادثة." };
+  }
+
+  let settings: Awaited<ReturnType<typeof getSettings>> | null = null;
+  try {
+    settings = await getSettings();
+  } catch {
+    settings = null;
+  }
+  const target =
+    settings?.aiUpsetAlertPhone?.trim() ||
+    settings?.catalogAdminWhatsappNumber?.trim() ||
+    settings?.backupWhatsappNumber?.trim() ||
+    settings?.storePhone?.trim() ||
+    "";
+  if (!target) {
+    logger.warn("[whatsapp-ai] upset customer but no alert number is configured");
+    await muteAiAgent(sender.phone).catch(() => {});
+    return { alerted: true, note: "انسجّل تنبيه بالنظام." };
+  }
+
+  const who = sender.customer?.name ? `${sender.customer.name} (${sender.phone})` : sender.phone;
+  const alert = [
+    "🚨 زبون منزعج",
+    "",
+    `الزبون: ${who}`,
+    `الحالة: ${summary}`,
+    "",
+    `كلامه: «${originalText.slice(0, 300)}»`,
+    "",
+    `افتح المحادثة: https://wa.me/${sender.phone.replace(/[^\d]/g, "")}`,
+    "",
+    "الموظف الذكي وقف الرد على هذا الرقم حتى تتدخل إنت.",
+  ].join("\n");
+
+  try {
+    await withTimeout(sendWhatsAppText(target, alert), DOC_SEND_TIMEOUT_MS, "upset alert");
+    await prisma.aiEscalation.update({ where: { id: row.id }, data: { alertedAt: new Date() } });
+  } catch (error) {
+    logger.warn(
+      `[whatsapp-ai] upset alert to ${target} failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    await recordError({
+      source: ErrorLogSource.WHATSAPP,
+      code: "AI_UPSET_ALERT_FAILED",
+      message: `تعذر إرسال تنبيه «زبون منزعج» إلى ${target}`,
+      context: { phone: sender.phone },
+    }).catch(() => {});
+  }
+
+  await muteAiAgent(sender.phone).catch(() => {});
+  return { alerted: true };
+}
+
 /**
  * Hands the conversation to a human — into «تنبيهات الموظف الذكي», its own
  * list, NOT the inbound-message inbox. An order sitting between two "شكرا"
@@ -918,6 +1254,12 @@ async function runTool(
       return toolSendMyStatementLink(sender);
     case "send_my_last_voucher":
       return toolSendMyLastVoucher(sender);
+    case "send_my_statement_pdf":
+      return toolSendMyStatementPdf(sender);
+    case "remember_about_customer":
+      return toolRemember(sender, String(args.fact ?? ""));
+    case "alert_upset_customer":
+      return toolAlertUpset(sender, String(args.reason ?? ""), originalText);
     case "escalate_to_admin":
       return toolEscalate(sender, String(args.reason ?? ""), originalText);
     default:
@@ -990,10 +1332,23 @@ export async function runWhatsAppAiTurn(input: {
   phone: string;
   text: string;
   customer: { id: string; name: string; currentBalance: unknown } | null;
+  /** Photos that arrived with this message, as data URLs. */
+  images?: string[];
 }): Promise<AiTurnResult> {
+  const photos = (input.images ?? []).filter(Boolean);
+
   // Free checks first — a message we won't answer must not cost a token.
-  if (isLowValueMessage(input.text)) {
+  // A photo is content even when the caption is a single emoji, so the
+  // low-value filter only applies to messages that are text and nothing else.
+  if (!photos.length && isLowValueMessage(input.text)) {
     logger.info(`[whatsapp-ai] skipped low-value message from ${input.phone}`);
+    return "skipped";
+  }
+
+  // A human is already on this conversation — stay out of it.
+  const mutedUntil = await aiMutedUntil(input.phone);
+  if (mutedUntil) {
+    logger.info(`[whatsapp-ai] muted for ${input.phone} until ${mutedUntil.toISOString()}`);
     return "skipped";
   }
 
@@ -1006,6 +1361,7 @@ export async function runWhatsAppAiTurn(input: {
   // measured on. Claiming first made every conversation look fresh and the
   // 24-hour expiry never fired. A test caught it.
   const history = await loadHistory(input.phone);
+  const memories = await loadMemories(input.phone);
 
   const budget = await claimDailyReply(input.phone);
   if (!budget) {
@@ -1013,16 +1369,50 @@ export async function runWhatsAppAiTurn(input: {
     return "skipped";
   }
 
+  // Photos are attached to THIS turn only. What goes into history is the text
+  // shape «[صورة] …», so tomorrow's turn doesn't re-upload today's picture.
+  const visionBlocks: Anthropic.ImageBlockParam[] = [];
+  if (photos.length) {
+    for (const photo of photos.slice(0, 2)) {
+      if (!(await claimDailyImage(input.phone))) {
+        logger.info(`[whatsapp-ai] daily image cap reached for ${input.phone}`);
+        break;
+      }
+      const prepared = await prepareVisionImage(photo);
+      if (prepared) {
+        visionBlocks.push({
+          type: "image",
+          source: { type: "base64", media_type: prepared.media_type as "image/jpeg", data: prepared.data },
+        });
+      }
+    }
+  }
+
+  const spokenText = input.text.trim();
+  const historyText = photos.length ? `[صورة] ${spokenText}`.trim() : spokenText;
+  const turnContent: Anthropic.ContentBlockParam[] = visionBlocks.length
+    ? [
+        ...visionBlocks,
+        {
+          type: "text",
+          text: spokenText || "الزبون دزّ هذه الصورة بدون نص — شوفها وجاوبه.",
+        },
+      ]
+    : [{ type: "text", text: spokenText }];
+
   const messages: Anthropic.MessageParam[] = [
     ...history.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
-    { role: "user", content: input.text },
+    { role: "user", content: turnContent },
   ];
   const system = [
     SYSTEM_PROMPT,
     `\nمعلومات المحل:\n${await shopFacts()}`,
     `\nالوقت الحالي (بغداد): ${baghdadNowText()}`,
     `\nحالة المرسل: ${input.customer ? `زبون مسجّل باسم ${input.customer.name}` : "رقم غير مسجّل كزبون"}.`,
-  ].join("\n");
+    memories.length ? `\nاللي تعرفه عن هذا الزبون من محادثات سابقة:\n- ${memories.join("\n- ")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -1061,7 +1451,7 @@ export async function runWhatsAppAiTurn(input: {
       // Covers a refused turn too (no text content) — caller falls back.
       if (!reply) return failTurn(input.phone, "الموديل ما رجّع نص للرد");
       await sendWhatsAppText(input.phone, reply);
-      await saveHistory(input.phone, [...history, { role: "user", content: input.text }, { role: "assistant", content: reply }]);
+      await saveHistory(input.phone, [...history, { role: "user", content: historyText }, { role: "assistant", content: reply }]);
       logger.info(`[whatsapp-ai] replied to ${input.phone} in ${round + 1} round(s)`);
       return "replied";
     }

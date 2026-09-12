@@ -388,6 +388,8 @@ function CustomerBotSettings() {
   const settingsQuery = useQuery({ queryKey: ["settings"], queryFn: getSettings })
   const [enabled, setEnabled] = useState(false)
   const [aiEnabled, setAiEnabled] = useState(false)
+  const [aiMuteMinutes, setAiMuteMinutes] = useState(60)
+  const [aiUpsetPhone, setAiUpsetPhone] = useState("")
   const [unknownMessage, setUnknownMessage] = useState("")
   const [rules, setRules] = useState<BotRule[]>([])
 
@@ -399,6 +401,8 @@ function CustomerBotSettings() {
     setSeeded(s)
     setEnabled(s.whatsappBotEnabled ?? false)
     setAiEnabled(s.whatsappAiAgentEnabled ?? false)
+    setAiMuteMinutes(s.aiAgentMuteMinutes ?? 60)
+    setAiUpsetPhone(s.aiUpsetAlertPhone ?? "")
     setUnknownMessage(s.botUnknownMessage ?? "")
     setRules(s.botRules ?? [])
   }
@@ -407,6 +411,8 @@ function CustomerBotSettings() {
     mutationFn: () => updateSettings({
       whatsappBotEnabled: enabled,
       whatsappAiAgentEnabled: aiEnabled,
+      aiAgentMuteMinutes: aiMuteMinutes,
+      aiUpsetAlertPhone: aiUpsetPhone.trim(),
       botUnknownMessage: unknownMessage.trim(),
       botRules: rules.map((r) => ({ ...r, replyText: r.replyText?.trim() })),
     }),
@@ -497,6 +503,39 @@ function CustomerBotSettings() {
         <p className="mt-1 text-[11px] font-semibold text-emerald-800">
           ما يذكر أي سعر أبداً — أسئلة الأسعار تنحوّل للإدارة. وجدول الردود فوق يبقى احتياط إذا الموظف الذكي متوقف.
         </p>
+
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[11px] font-bold text-gray-600">يسكت بعد ما ترد إنت (بالدقائق)</label>
+            <input
+              type="number"
+              min={0}
+              max={1440}
+              value={aiMuteMinutes}
+              onChange={(e) => setAiMuteMinutes(Math.max(0, Math.min(1440, Number(e.target.value) || 0)))}
+              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400"
+              dir="ltr"
+            />
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+              أول ما ترد على زبون من شاشة المحادثات، الموظف الذكي يسكت على هذا الرقم هالمدة حتى ما يوصل الزبون ردين.
+              صفر = لا يسكت أبداً.
+            </p>
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-bold text-gray-600">رقمك لتنبيه «زبون منزعج»</label>
+            <input
+              value={aiUpsetPhone}
+              onChange={(e) => setAiUpsetPhone(e.target.value)}
+              placeholder="9647xxxxxxxx"
+              className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-400"
+              dir="ltr"
+            />
+            <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
+              إذا حس الزبون زعلان أو يشتكي، توصلك رسالة واتساب فوراً بالاسم والرقم وكلامه ورابط يفتح المحادثة،
+              والموظف الذكي يوقف الرد حتى تتدخل إنت. اتركه فارغ لاستخدام رقم طلبات الكتالوج.
+            </p>
+          </div>
+        </div>
       </div>
       <button disabled={saveMut.isPending || !botFeatureEnabled} onClick={() => saveMut.mutate()}
         className="mt-3 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">

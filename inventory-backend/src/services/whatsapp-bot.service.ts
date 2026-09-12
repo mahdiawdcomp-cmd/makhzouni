@@ -72,10 +72,13 @@ export async function routeIncomingMessage(
   rawPhone: string,
   text: string,
   waMessageId?: string,
-  opts?: { replyToWaMessageId?: string | null },
+  opts?: { replyToWaMessageId?: string | null; images?: string[] },
 ) {
   const phone = normalizePhone(rawPhone);
-  if (!phone || !text?.trim()) return;
+  // A photo is a message even with nothing written on it — «الموظف الذكي» can
+  // see it now, so an empty caption is no longer an empty message.
+  const images = opts?.images ?? [];
+  if (!phone || (!text?.trim() && !images.length)) return;
 
   const settings = await getSettings();
   let aiFailed = false;
@@ -99,6 +102,41 @@ export async function routeIncomingMessage(
   const botEntitled = await hasFeature("whatsappBot");
   if (!botEntitled) {
     logger.info("[whatsapp-bot] skipped: feature not enabled for this tenant");
+    return;
+  }
+
+  // A photo with no words at all. None of the keyword gates below can match an
+  // empty string, and the agent is the only thing that can answer a picture —
+  // so it takes this message directly.
+  //
+  // Except while a funnel conversation is open: a registration or prospect
+  // flow owns the thread, and a picture must never be read as the answer to
+  // «شنو اسمك؟». There we log it and stay out of the way.
+  if (!text.trim() && images.length) {
+    const funnelOpen = await prisma.whatsappBotChat.findUnique({ where: { phone } }).catch(() => null);
+    const photoCustomer = funnelOpen ? null : await prisma.customer.findUnique({ where: { phone } });
+    if (!funnelOpen && settings.whatsappAiAgentEnabled) {
+      const outcome = await runWhatsAppAiTurn({
+        phone,
+        text: "",
+        images,
+        customer: photoCustomer
+          ? { id: photoCustomer.id, name: photoCustomer.name, currentBalance: photoCustomer.currentBalance }
+          : null,
+      }).catch((err) => {
+        logger.warn(`[WhatsAppBot] AI agent threw on photo from ${phone}: ${err instanceof Error ? err.message : String(err)}`);
+        return "unavailable" as const;
+      });
+      if (outcome === "replied" || outcome === "skipped") return;
+    }
+    // Nobody answered a picture — make sure a human sees that it arrived.
+    await logInbound({
+      phone,
+      name: photoCustomer?.name ?? null,
+      source: photoCustomer ? "CUSTOMER_UNMATCHED" : "UNKNOWN",
+      messageText: "📷 صورة بدون نص",
+      urgent: true,
+    }).catch(() => {});
     return;
   }
 
@@ -203,6 +241,7 @@ export async function routeIncomingMessage(
     const outcome = await runWhatsAppAiTurn({
       phone,
       text,
+      images,
       customer: customer ? { id: customer.id, name: customer.name, currentBalance: customer.currentBalance } : null,
     }).catch((err) => {
       logger.warn(`[WhatsAppBot] AI agent threw for ${phone}: ${err instanceof Error ? err.message : String(err)}`);

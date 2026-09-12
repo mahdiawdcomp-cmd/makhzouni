@@ -160,6 +160,12 @@ export interface AppSettings {
   catalogPublicUrl?: string;
   catalogAdminWhatsappNumber?: string;
   orderPreparationWhatsappNumbers?: string;
+  // «الموظف الذكي» — how long it stays quiet on a number after a human replies
+  // from the chat screen, in minutes. 0 disables the mute entirely.
+  aiAgentMuteMinutes?: number;
+  // Where the «زبون منزعج» alert is texted. Empty falls back to
+  // catalogAdminWhatsappNumber, then backupWhatsappNumber.
+  aiUpsetAlertPhone?: string;
   // Dedicated number that receives staff approval requests (delete/cancel).
   // Falls back to storePhone when empty.
   adminApprovalWhatsappNumber?: string;
@@ -535,6 +541,8 @@ export const defaultSettings: AppSettings = {
   // here leaks one shop's customers into another shop's catalog.
   catalogPublicUrl: "",
   catalogAdminWhatsappNumber: "",
+  aiAgentMuteMinutes: 60,
+  aiUpsetAlertPhone: "",
   catalogRequireOtp: true,
   catalogFullCartonOnly: false,
   catalogGuestPricesVisible: false,

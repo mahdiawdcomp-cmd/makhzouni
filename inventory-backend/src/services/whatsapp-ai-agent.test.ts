@@ -39,6 +39,11 @@ let voucherRows: Array<Record<string, any>>;
 let portalLinksMinted: string[];
 /** Set to make an invoice PDF render blow up (the failure path). */
 let invoicePdfImpl: null | (() => Promise<Buffer>) = null;
+let memoryRows: Array<Record<string, any>>;
+let settingsRow: Record<string, any>;
+/** A real 1x1 PNG — sharp actually re-encodes it, no image mocking needed. */
+const TINY_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 /** Set to simulate a send that never resolves (the real bug). */
 let sendImageImpl: null | (() => Promise<unknown>) = null;
 
@@ -113,8 +118,46 @@ const fakePrisma = {
   },
   aiEscalation: {
     create: async ({ data }: any) => {
-      escalationRows.push(data);
-      return data;
+      const row = { id: `esc-${escalationRows.length + 1}`, alertedAt: null, ...data };
+      escalationRows.push(row);
+      return row;
+    },
+    findFirst: async ({ where }: any) =>
+      escalationRows.find(
+        (r) =>
+          r.phone === where.phone &&
+          r.kind === where.kind &&
+          r.alertedAt &&
+          r.alertedAt.getTime() >= where.alertedAt.gte.getTime(),
+      ) ?? null,
+    update: async ({ where, data }: any) => {
+      const row = escalationRows.find((r) => r.id === where.id)!;
+      Object.assign(row, data);
+      return row;
+    },
+  },
+  whatsappAiMemory: {
+    findMany: async ({ where, take }: any) => {
+      const rows = memoryRows
+        .filter((r) => r.phone === where.phone)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      return take ? rows.slice(0, take) : rows;
+    },
+    upsert: async ({ where, create, update }: any) => {
+      const key = where.phone_normalized;
+      const found = memoryRows.find((r) => r.phone === key.phone && r.normalized === key.normalized);
+      if (found) {
+        Object.assign(found, update);
+        return found;
+      }
+      const row = { id: `mem-${memoryRows.length + 1}`, createdAt: memoryRows.length, ...create };
+      memoryRows.push(row);
+      return row;
+    },
+    deleteMany: async ({ where }: any) => {
+      const ids: string[] = where.id.in;
+      memoryRows = memoryRows.filter((r) => !ids.includes(r.id));
+      return { count: ids.length };
     },
   },
   whatsappAiChat: {
@@ -127,8 +170,15 @@ const fakePrisma = {
         updatedAt: new Date(),
         repliesToday: update.repliesToday ?? prev?.repliesToday ?? create.repliesToday ?? 0,
         todayKey: update.todayKey ?? prev?.todayKey ?? create.todayKey ?? null,
+        imagesToday: update.imagesToday ?? prev?.imagesToday ?? create.imagesToday ?? 0,
+        aiMutedUntil:
+          "aiMutedUntil" in update ? update.aiMutedUntil : prev?.aiMutedUntil ?? create.aiMutedUntil ?? null,
       };
       return aiChatRow;
+    },
+    updateMany: async ({ where, data }: any) => {
+      if (aiChatRow && aiChatRow.phone === where.phone) Object.assign(aiChatRow, data);
+      return { count: 1 };
     },
     deleteMany: async () => {
       aiChatRow = null;
@@ -172,6 +222,7 @@ const fakeAnthropic = {
 mock.module("./settings.service", {
   exports: {
     getSettings: async () => ({
+      ...settingsRow,
       storeName: "مهدي عوض",
       catalogPublicUrl: "https://mahdi.mazbwoni.com/catalog",
       catalogDesignFooterAddress: "كربلاء شارع العباس",
@@ -194,6 +245,9 @@ mock.module("./invoice-export.service", {
 mock.module("./voucher-export.service", {
   exports: { generateVoucherPdf: async () => Buffer.from("fake-voucher-pdf") },
 });
+mock.module("./statement-export.service", {
+  exports: { generateCustomerStatementPdf: async () => Buffer.from("fake-statement-pdf") },
+});
 mock.module("./customer-portal.service", {
   exports: {
     createCustomerPortalLink: async (customerId: string) => {
@@ -215,15 +269,18 @@ function baghdadToday(): string {
 let runWhatsAppAiTurn: (input: {
   phone: string;
   text: string;
+  images?: string[];
   customer: { id: string; name: string; currentBalance: unknown } | null;
 }) => Promise<"replied" | "skipped" | "unavailable">;
+let muteAiAgent: (phone: string, minutes?: number) => Promise<Date | null>;
+let unmuteAiAgent: (phone: string) => Promise<void>;
 
 describe("«الموظف الذكي» — WhatsApp AI agent", () => {
   before(async () => {
     process.env.ANTHROPIC_API_KEY = "test-key";
     // Short deadline so the hang test doesn't sit for the production 25s.
     process.env.AI_IMAGE_SEND_TIMEOUT_MS = "50";
-    ({ runWhatsAppAiTurn } = await import("./whatsapp-ai-agent.service"));
+    ({ runWhatsAppAiTurn, muteAiAgent, unmuteAiAgent } = await import("./whatsapp-ai-agent.service"));
   });
 
   beforeEach(() => {
@@ -257,6 +314,8 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     sentPdfs = [];
     portalLinksMinted = [];
     invoicePdfImpl = null;
+    memoryRows = [];
+    settingsRow = { aiAgentMuteMinutes: 60, aiUpsetAlertPhone: "9647800000000" };
     aiChatRow = null;
     sentTexts = [];
     sentImages = [];
@@ -702,5 +761,185 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(sentPdfs.length, 0);
     const result = JSON.parse(String(toolResultsOf(apiCalls[1])[0].content));
     assert.equal(result.sent, false);
+  });
+
+  // ── The agent stands down when a human steps in ───────────────────────────
+
+  it("a human reply silences the agent on that number", async () => {
+    await muteAiAgent("07700000000");
+    scripted = [textReply("ما لازم يوصل")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null });
+    assert.equal(handled, "skipped");
+    assert.equal(apiCalls.length, 0, "a muted number must not cost a token");
+    assert.equal(sentTexts.length, 0);
+  });
+
+  it("the agent comes back when the quiet window passes", async () => {
+    await muteAiAgent("9647700000000", 1);
+    aiChatRow!.aiMutedUntil = new Date(Date.now() - 1000); // window already over
+    scripted = [textReply("هلا بيك")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null });
+    assert.equal(handled, "replied");
+  });
+
+  it("«رجّع الموظف الذكي» clears the mute at once", async () => {
+    await muteAiAgent("9647700000000");
+    await unmuteAiAgent("9647700000000");
+    scripted = [textReply("رجعت 👋")];
+    assert.equal(await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null }), "replied");
+  });
+
+  it("a shop that set the mute to zero is never silenced", async () => {
+    settingsRow = { aiAgentMuteMinutes: 0 };
+    assert.equal(await muteAiAgent("9647700000000"), null);
+    scripted = [textReply("هلا")];
+    assert.equal(await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز؟", customer: null }), "replied");
+  });
+
+  // ── Long-term memory ──────────────────────────────────────────────────────
+
+  it("remembers a durable fact and knows it on the next conversation", async () => {
+    scripted = [toolCall("remember_about_customer", { fact: "عنده محل العاب بالكاظمية ويشتري اوربيز كل اسبوع" }), textReply("تمام 👍")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "اني صاحب محل العاب بالكاظمية", customer: null });
+    assert.equal(memoryRows.length, 1);
+
+    apiCalls = [];
+    scripted = [textReply("هلا بصاحب محل الالعاب")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شلونك", customer: null });
+    assert.match(String(apiCalls[0].system), /محل العاب بالكاظمية/);
+  });
+
+  it("the same fact written twice is stored once", async () => {
+    scripted = [toolCall("remember_about_customer", { fact: "يحب التوصيل الصبح" }), textReply("تمام")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "وصلولي الصبح", customer: null });
+    scripted = [toolCall("remember_about_customer", { fact: "يحب التوصيل الصبح" }), textReply("تمام")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "دائما الصبح", customer: null });
+    assert.equal(memoryRows.length, 1);
+  });
+
+  it("memory is capped — the oldest fact falls off, the newest survives", async () => {
+    for (let i = 0; i < 14; i++) {
+      scripted = [toolCall("remember_about_customer", { fact: `معلومة رقم ${i} عن الزبون` }), textReply("ok")];
+      await runWhatsAppAiTurn({ phone: "9647700000000", text: `خبر ${i}`, customer: null });
+    }
+    assert.equal(memoryRows.length, 12);
+    assert.ok(!memoryRows.some((r) => r.fact.includes("رقم 0")));
+    assert.ok(memoryRows.some((r) => r.fact.includes("رقم 13")));
+  });
+
+  it("an empty scrap is not worth remembering", async () => {
+    scripted = [toolCall("remember_about_customer", { fact: "اه" }), textReply("تمام")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "عدكم اوربيز لو لا؟", customer: null });
+    assert.equal(memoryRows.length, 0);
+    const result = JSON.parse(String(toolResultsOf(apiCalls[1])[0].content));
+    assert.equal(result.saved, false);
+  });
+
+  // ── Photos ────────────────────────────────────────────────────────────────
+
+  it("a photo reaches the model as an image, not as an apology", async () => {
+    scripted = [textReply("شكله نفس نوع الاوربيز مالتنا")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "", images: [TINY_PNG], customer: null });
+    assert.equal(handled, "replied");
+    const content = apiCalls[0].messages.at(-1).content;
+    assert.ok(Array.isArray(content));
+    assert.equal(content[0].type, "image");
+    assert.equal(content[0].source.media_type, "image/jpeg", "photos are re-encoded before they are paid for");
+  });
+
+  it("a photo with no caption is never dismissed as a trivial message", async () => {
+    scripted = [textReply("شفت الصورة")];
+    assert.equal(
+      await runWhatsAppAiTurn({ phone: "9647700000000", text: "👍", images: [TINY_PNG], customer: null }),
+      "replied",
+    );
+  });
+
+  it("tomorrow's turn does not re-upload today's photo", async () => {
+    scripted = [textReply("شفتها")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شنو هذا؟", images: [TINY_PNG], customer: null });
+    const stored = aiChatRow!.messages as Array<{ role: string; content: string }>;
+    assert.match(stored[0].content, /^\[صورة\]/);
+  });
+
+  it("photos have their own daily ceiling", async () => {
+    aiChatRow = {
+      phone: "9647700000000",
+      messages: [],
+      updatedAt: new Date(),
+      repliesToday: 0,
+      todayKey: baghdadToday(),
+      imagesToday: 99,
+    } as any;
+    scripted = [textReply("ما اكدر اشوف صور اليوم بعد")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شنو هذا؟", images: [TINY_PNG], customer: null });
+    const content = apiCalls[0].messages.at(-1).content;
+    assert.ok(!content.some((b: any) => b.type === "image"), "over the cap, no image is paid for");
+  });
+
+  // ── The upset customer ────────────────────────────────────────────────────
+
+  it("an upset customer texts the owner's phone immediately", async () => {
+    scripted = [toolCall("alert_upset_customer", { reason: "الطلبية تأخرت ثلاث ايام وزعلان" }), textReply("اعتذرلك، صاحب المحل راح يتواصل وياك")];
+    const handled = await runWhatsAppAiTurn({
+      phone: "9647700000000",
+      text: "شنو هالتأخير! خلص ما اريد اتعامل وياكم",
+      customer: { id: "cust-1", name: "أبو علي", currentBalance: 0 },
+    });
+    assert.equal(handled, "replied");
+    const alert = sentTexts.find((t) => t.phone === "9647800000000");
+    assert.ok(alert, "the owner was not texted");
+    assert.match(alert!.text, /زبون منزعج/);
+    assert.match(alert!.text, /أبو علي/);
+    assert.match(alert!.text, /wa\.me\/9647700000000/);
+    assert.equal(escalationRows[0].kind, "UPSET");
+    assert.ok(escalationRows[0].alertedAt, "the alert was not recorded as sent");
+  });
+
+  it("the agent stands down after alerting, so the shop answers alone", async () => {
+    scripted = [toolCall("alert_upset_customer", { reason: "زبون زعلان" }), textReply("اعتذرلك")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "خلص تعبت منكم", customer: null });
+    apiCalls = [];
+    scripted = [textReply("ما لازم يوصل")];
+    assert.equal(await runWhatsAppAiTurn({ phone: "9647700000000", text: "هاه؟", customer: null }), "skipped");
+    assert.equal(apiCalls.length, 0);
+  });
+
+  it("one angry conversation is one alert, not twenty", async () => {
+    scripted = [toolCall("alert_upset_customer", { reason: "زعلان" }), textReply("اعتذر")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "زعلان", customer: null });
+    await unmuteAiAgent("9647700000000");
+    const first = sentTexts.filter((t) => t.phone === "9647800000000").length;
+    scripted = [toolCall("alert_upset_customer", { reason: "بعده زعلان" }), textReply("اعتذر")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "بعدني زعلان", customer: null });
+    assert.equal(sentTexts.filter((t) => t.phone === "9647800000000").length, first, "the owner was texted twice");
+    assert.equal(escalationRows.length, 2, "but both are still recorded for the list");
+  });
+
+  it("with no alert number configured the escalation is still written", async () => {
+    settingsRow = { aiAgentMuteMinutes: 60 };
+    scripted = [toolCall("alert_upset_customer", { reason: "زعلان" }), textReply("اعتذر")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "زعلان", customer: null });
+    assert.equal(escalationRows.length, 1);
+    assert.equal(escalationRows[0].kind, "UPSET");
+  });
+
+  // ── Statement as a file ───────────────────────────────────────────────────
+
+  it("sends the account statement as a PDF", async () => {
+    scripted = [toolCall("send_my_statement_pdf", {}), textReply("دزيتلك الكشف")];
+    await runWhatsAppAiTurn({
+      phone: "9647700000000",
+      text: "دزلي كشف حسابي PDF",
+      customer: { id: "cust-1", name: "أبو علي", currentBalance: 250000 },
+    });
+    assert.equal(sentPdfs.length, 1);
+    assert.match(sentPdfs[0].filename, /^statement-/);
+  });
+
+  it("an unregistered number gets no statement file", async () => {
+    scripted = [toolCall("send_my_statement_pdf", {}), textReply("رقمك مو مسجّل")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "دزلي كشف حسابي", customer: null });
+    assert.equal(sentPdfs.length, 0);
   });
 });

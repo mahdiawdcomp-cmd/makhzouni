@@ -164,6 +164,11 @@ function EscalationList({
           <CardContent className="space-y-2 p-3">
             <div className="flex flex-wrap items-start gap-3">
               <div className="min-w-0 flex-1">
+                {row.kind === "UPSET" && (
+                  <p className="mb-1 inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700 dark:bg-red-950 dark:text-red-300">
+                    🚨 زبون منزعج{row.alertedAt ? " — انرسل تنبيه لموبايلك" : ""}
+                  </p>
+                )}
                 <p className="font-medium">{row.summary}</p>
                 <p className="mt-1 rounded bg-slate-50 p-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                   رسالة الزبون: {row.customerText || "—"}

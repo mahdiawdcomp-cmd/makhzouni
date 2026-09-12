@@ -704,8 +704,8 @@ export async function getGuestCatalogProductImage(id: string, visitor = "") {
   return data.data?.imageUrl ?? null
 }
 
-export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload)
+export async function submitGuestCatalogOrder(payload: GuestCatalogOrderPayload & { visitorToken?: string }, sessionId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/guest-orders", payload, { headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
   return data
 }
 
@@ -747,6 +747,28 @@ export async function getWhatsappMessages(phone: string, params?: { before?: str
 export async function sendWhatsappChatMessage(phone: string, text: string, replyToWaMessageId?: string) {
   const { data } = await api.post<ApiEnvelope<WhatsappChatMessage>>(`/whatsapp-chat/conversations/${encodeURIComponent(phone)}/messages`, { text, replyToWaMessageId })
   return data.data
+}
+
+// «الموظف الذكي» — what it is doing on one conversation: standing down after
+// a human reply, and the durable facts it has learned about this number.
+export type AiConversationState = {
+  phone: string
+  mutedUntil: string | null
+  memories: Array<{ id: string; fact: string; createdAt: string }>
+}
+
+export async function getAiConversationState(phone: string) {
+  const { data } = await api.get<ApiEnvelope<AiConversationState>>(`/whatsapp/ai/state`, { params: { phone } })
+  return data.data
+}
+
+export async function setAiConversationMute(phone: string, minutes?: number) {
+  const { data } = await api.post<ApiEnvelope<{ phone: string; mutedUntil: string | null }>>(`/whatsapp/ai/mute`, { phone, minutes })
+  return data.data
+}
+
+export async function deleteAiMemory(id: string) {
+  await api.delete(`/whatsapp/ai/memories/${id}`)
 }
 
 export async function sendWhatsappChatMedia(phone: string, payload: { dataUrl: string; filename?: string; caption?: string }) {
@@ -1104,8 +1126,8 @@ export async function deleteCatalogReview(id: string) {
   await api.delete(`/catalog-management/reviews/${id}`)
 }
 
-export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string) {
-  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access } })
+export async function submitPublicCatalogOrder(payload: CatalogOrderPayload, access: string, sessionId?: string) {
+  const { data } = await api.post<ApiEnvelope<{ approvalId: string }>>("/public/catalog/orders", payload, { params: { access }, headers: sessionId ? { "X-Catalog-Session": sessionId } : undefined })
   return data
 }
 
@@ -3964,6 +3986,9 @@ export interface AiEscalation {
   summary: string
   customerText: string
   status: "OPEN" | "HANDLED"
+  /** UPSET = an angry customer; the owner's phone was texted the moment it happened. */
+  kind?: "GENERAL" | "UPSET"
+  alertedAt?: string | null
   handledAt?: string | null
   createdAt: string
   updatedAt: string

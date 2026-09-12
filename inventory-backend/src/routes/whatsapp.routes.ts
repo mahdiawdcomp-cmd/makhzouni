@@ -15,6 +15,9 @@ import {
   regenerateVerifyToken,
   getWhatsappSubscribedApps,
   postWhatsappSubscribeApp,
+  getAiConversationState,
+  setAiConversationMute,
+  deleteAiMemory,
 } from "../controllers/whatsapp.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 import { adminOnly } from "../middleware/admin-only.middleware";
@@ -48,6 +51,11 @@ router.post(
 );
 
 // Admin test / diagnostics endpoints (no real Meta account needed for webhook check)
+// «الموظف الذكي» — same permission as the chat screen these are read from.
+router.get("/ai/state", requirePermission("MANAGE_CUSTOMERS"), getAiConversationState);
+router.post("/ai/mute", requirePermission("MANAGE_CUSTOMERS"), setAiConversationMute);
+router.delete("/ai/memories/:id", requirePermission("MANAGE_CUSTOMERS"), deleteAiMemory);
+
 router.post("/test/text", adminOnly, testWhatsAppText);
 router.post("/test/image", adminOnly, testWhatsAppImage);
 router.post("/test/pdf", adminOnly, testWhatsAppPdf);

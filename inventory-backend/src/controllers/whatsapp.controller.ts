@@ -8,6 +8,9 @@ import { renderTemplateByType } from "../services/message-template.service";
 import { getSettings, updateSettings } from "../services/settings.service";
 import { routeIncomingMessage } from "../services/whatsapp-bot.service";
 import { applyMessageReaction, fillConversationContactName, logChatMessage, updateMessageStatus } from "../services/whatsapp-chat.service";
+import { aiMutedUntil, muteAiAgent, unmuteAiAgent } from "../services/whatsapp-ai-agent.service";
+import { normalizePhone } from "../utils/phone";
+import prisma from "../config/database";
 import { sendInvoiceToWorkers } from "../services/worker-notify.service";
 import { dataUrlToAudio, transcribeVoiceNote } from "../services/audio-transcribe.service";
 import { logger } from "../utils/logger";
@@ -207,12 +210,16 @@ async function logInboundMediaMessage(phone: string, msg: CloudInboundMessage) {
   switch (msg.type) {
     case "image": {
       const media = msg.image?.id ? await fetchCloudMedia(msg.image.id) : null;
-      // Only when the customer actually wrote something with it. A bare photo
-      // can't be answered (the agent has no vision) so paying for a reply that
-      // can only say "I can't see it" is spend for nothing.
-      const imageCaption = msg.image?.caption?.trim();
-      if (imageCaption) {
-        await routeIncomingMessage(phone, imageCaption, msg.id, { replyToWaMessageId: msg.context?.id }).catch(() => {});
+      // The agent can see photos now, so a bare picture is routed too — a
+      // customer showing you what they want is the most common message in this
+      // trade. Without the bytes there is still nothing to look at, so a media
+      // fetch that failed falls back to the old caption-only behaviour.
+      const imageCaption = msg.image?.caption?.trim() ?? "";
+      if (imageCaption || media?.dataUrl) {
+        await routeIncomingMessage(phone, imageCaption, msg.id, {
+          replyToWaMessageId: msg.context?.id,
+          images: media?.dataUrl ? [media.dataUrl] : [],
+        }).catch(() => {});
       }
       await logChatMessage({
         ...base,
@@ -461,10 +468,14 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const channel = parseChannel((req.body as { channel?: unknown })?.channel);
   const result = await sendWhatsAppText(phone, message, { channel });
 
+  // Also a person sending by hand (behind auth + MANAGE_CUSTOMERS), so the
+  // agent stands down here too — same reason as the chat screen's own send.
+  const mutedUntil = await muteAiAgent(phone).catch(() => null);
+
   res.json({
     success: true,
     message: "WhatsApp message sent successfully",
-    data: result,
+    data: { ...result, aiMutedUntil: mutedUntil },
   });
 });
 
@@ -705,4 +716,56 @@ export const postWhatsappSubscribeApp = asyncHandler(async (req, res) => {
   await subscribeAppToWaba(wabaId);
   const apps = await getWabaSubscribedApps(wabaId);
   res.json({ success: true, message: "تم اشتراك التطبيق بنجاح", data: { wabaId, apps } });
+});
+
+// ── «الموظف الذكي» per-conversation state, for the chat screen ───────────────
+//
+// Two things the shop needs to see next to a conversation: whether the agent is
+// currently standing down (because somebody replied by hand), and what it has
+// learned to remember about this number. Both are readable and both are
+// reversible — a memory the shop disagrees with is one click from gone.
+
+/** GET /whatsapp/ai/state?phone=… */
+export const getAiConversationState = asyncHandler(async (req, res) => {
+  const phone = normalizePhone(String(req.query.phone ?? ""));
+  if (!phone) throw new AppError("رقم الهاتف مطلوب", 400, "AI_STATE_PHONE_REQUIRED");
+
+  const [mutedUntil, memories] = await Promise.all([
+    aiMutedUntil(phone),
+    prisma.whatsappAiMemory.findMany({
+      where: { phone },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, fact: true, createdAt: true },
+    }),
+  ]);
+
+  res.json({ success: true, data: { phone, mutedUntil, memories } });
+});
+
+/** POST /whatsapp/ai/mute — { phone, minutes? }. minutes 0 wakes it up. */
+export const setAiConversationMute = asyncHandler(async (req, res) => {
+  const phone = normalizePhone(String(req.body?.phone ?? ""));
+  if (!phone) throw new AppError("رقم الهاتف مطلوب", 400, "AI_MUTE_PHONE_REQUIRED");
+
+  const raw = req.body?.minutes;
+  const minutes = raw === undefined || raw === null || raw === "" ? undefined : Number(raw);
+  if (minutes !== undefined && (!Number.isFinite(minutes) || minutes < 0 || minutes > 1440)) {
+    throw new AppError("مدة غير صالحة", 400, "AI_MUTE_INVALID_MINUTES");
+  }
+
+  if (minutes === 0) {
+    await unmuteAiAgent(phone);
+    res.json({ success: true, message: "رجع الموظف الذكي", data: { phone, mutedUntil: null } });
+    return;
+  }
+
+  const until = await muteAiAgent(phone, minutes);
+  res.json({ success: true, message: "الموظف الذكي صامت", data: { phone, mutedUntil: until } });
+});
+
+/** DELETE /whatsapp/ai/memories/:id */
+export const deleteAiMemory = asyncHandler(async (req, res) => {
+  const id = String(req.params.id ?? "");
+  await prisma.whatsappAiMemory.deleteMany({ where: { id } });
+  res.json({ success: true, message: "انحذفت المعلومة" });
 });

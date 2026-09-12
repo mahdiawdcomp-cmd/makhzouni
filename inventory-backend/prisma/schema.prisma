@@ -737,6 +737,13 @@ model WhatsappAiChat {
   /// just wants to chat quietly spending the shop's API balance.
   repliesToday Int    @default(0) @map("replies_today")
   todayKey     String? @map("today_key")
+  /// Photos the agent looked at today. Vision costs several times a text turn,
+  /// so it gets its own ceiling instead of sharing the reply one.
+  imagesToday  Int    @default(0) @map("images_today")
+  /// Set when a human replies from the chat screen: until this moment passes
+  /// the agent stays quiet on this number, so the customer never gets the
+  /// shop's answer and the agent's answer to the same message.
+  aiMutedUntil DateTime? @map("ai_muted_until")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -766,12 +773,41 @@ model AiEscalation {
   /// The customer's message that triggered it — context the summary can't replace.
   customerText String    @map("customer_text")
   status       String    @default("OPEN") // OPEN | HANDLED
+  /// GENERAL — a price, a special deal, anything needing a decision.
+  /// UPSET — an angry or complaining customer; the owner is texted at once.
+  kind         String    @default("GENERAL")
+  /// When the owner's phone was actually texted about this one. Also the
+  /// rate-limit anchor: one alert per number per few hours, so a single angry
+  /// conversation cannot turn into twenty notifications.
+  alertedAt    DateTime? @map("alerted_at")
   handledAt    DateTime? @map("handled_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
   @@index([status, createdAt])
   @@map("ai_escalations")
+}
+
+/// What «الموظف الذكي» still knows about a number tomorrow.
+///
+/// Short-term history expires after 24 hours by design (a day-old thread is a
+/// new conversation, not context). These are the few durable facts worth
+/// carrying forever instead: what the customer sells, what they always buy,
+/// how they like to be dealt with. Preferences only — never money, never a
+/// price, never a balance; those change and the shop is their source.
+model WhatsappAiMemory {
+  id         String   @id @default(uuid()) @db.Uuid
+  phone      String
+  customerId String?  @map("customer_id") @db.Uuid
+  fact       String
+  /// Arabic-folded copy, so the same fact in two spellings is stored once.
+  normalized String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([phone, normalized])
+  @@index([phone, createdAt])
+  @@map("whatsapp_ai_memories")
 }
 
 model RequestedProduct {
@@ -2750,4 +2786,16 @@ model LoyaltyRedemption {
   @@index([customerId, createdAt])
   @@index([invoiceId])
   @@map("loyalty_redemptions")
+}
+
+// Anonymous catalog milestones, one occurrence per session and stage.
+// Stage 4 is written only after an order has actually been saved.
+model CatalogFunnelEvent {
+  sessionId String   @map("session_id") @db.Uuid
+  stage     Int      @db.SmallInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([sessionId, stage])
+  @@index([createdAt], map: "catalog_funnel_events_created_at_idx")
+  @@map("catalog_funnel_events")
 }

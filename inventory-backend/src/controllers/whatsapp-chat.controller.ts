@@ -33,6 +33,12 @@ export const getWhatsappConversationMessages = asyncHandler(async (req, res) => 
   res.json({ success: true, data });
 });
 
+// Anything sent from this controller is a person typing in the chat screen
+// (it sits behind auth + the chat permission). That is the one signal that
+// «الموظف الذكي» must stand down on this number: automated sends — invoices,
+// vouchers, campaigns, the agent's own replies — never pass through here.
+import { muteAiAgent } from "../services/whatsapp-ai-agent.service";
+
 const MAX_MESSAGE_LENGTH = 4096; // WhatsApp's own free-text message cap
 
 export const sendWhatsappConversationMessage = asyncHandler(async (req, res) => {
@@ -45,8 +51,12 @@ export const sendWhatsappConversationMessage = asyncHandler(async (req, res) => 
 
   const replyToWaMessageId = typeof req.body?.replyToWaMessageId === "string" ? req.body.replyToWaMessageId : undefined;
   await sendWhatsAppText(phone, text, { replyToWaMessageId });
+  // The shop answered by hand — the agent stays out of this conversation for
+  // the configured window so the customer never gets two replies to one
+  // message. Never fails the send.
+  const aiMutedUntil = await muteAiAgent(phone).catch(() => null);
   const data = await getMessages(phone, { limit: 1 });
-  res.json({ success: true, data: data.messages[0] ?? null });
+  res.json({ success: true, data: data.messages[0] ?? null, meta: { aiMutedUntil } });
 });
 
 /** React to a message with an emoji ("" removes it). Mirrors real WhatsApp. */
@@ -86,6 +96,8 @@ export const sendWhatsappConversationMedia = asyncHandler(async (req, res) => {
   else if (mime.startsWith("audio/")) await sendWhatsAppAudio(phone, buffer, mime);
   else await sendWhatsAppDocument(phone, caption, buffer, filename, mime);
 
+  // Sending a photo by hand is a human reply too — same stand-down.
+  await muteAiAgent(phone).catch(() => null);
   const data = await getMessages(phone, { limit: 1 });
   res.json({ success: true, data: data.messages[0] ?? null });
 });
