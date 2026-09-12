@@ -1253,6 +1253,8 @@ export interface AppSettings {
   backupWhatsappNumber?: string
   personalDebtReminderWhatsappNumber?: string
   reportsProfitStartDate?: string
+  /** إقفال الفترة المحاسبية — YYYY-MM-DD، وفارغ يعني لا يوجد إقفال. */
+  accountingCloseDate?: string
   shopWarehouseId?: string
   catalogPublicUrl?: string
   catalogAdminWhatsappNumber?: string

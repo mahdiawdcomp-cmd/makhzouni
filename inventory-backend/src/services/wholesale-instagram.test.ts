@@ -159,7 +159,7 @@ describe("wholesale Instagram — publish pipeline + stock gate", () => {
     post = freshPost();
     account = { id: "acc-1", igUserId: "ig-user-1", accessTokenEnc: "enc", status: "connected" };
     mediaRows = [{ id: "media-1", mediaAssetId: "asset-1", sortOrder: 0, mediaAsset: { publicToken: "tok-1" } }];
-    product = { id: "prod-1", deletedAt: null, openingBalancePcs: 5, cartonsAvailable: 0, pcsPerCarton: 1, warehouseStocks: [] };
+    product = { id: "prod-1", deletedAt: null, openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1, warehouseStocks: [{ quantityPieces: 5 }] };
     installFetchStub();
   });
 
@@ -177,7 +177,7 @@ describe("wholesale Instagram — publish pipeline + stock gate", () => {
   });
 
   it("zero-stock product: tick skips without ever calling Meta", async () => {
-    product.openingBalancePcs = 0;
+    product.warehouseStocks = [];
     await runWholesaleInstagramQueueTick();
     assert.equal(post.status, "SKIPPED_OUT_OF_STOCK");
     assert.equal(post.skipReason, "الكمية صفر بالمخزون");
@@ -193,11 +193,11 @@ describe("wholesale Instagram — publish pipeline + stock gate", () => {
   });
 
   it("skipped post is never picked up again automatically (no auto-retry)", async () => {
-    product.openingBalancePcs = 0;
+    product.warehouseStocks = [];
     await runWholesaleInstagramQueueTick();
     assert.equal(post.status, "SKIPPED_OUT_OF_STOCK");
     // Stock comes back, but the post is no longer SCHEDULED — another tick must not touch it.
-    product.openingBalancePcs = 10;
+    product.warehouseStocks = [{ quantityPieces: 10 }];
     await runWholesaleInstagramQueueTick();
     assert.equal(post.status, "SKIPPED_OUT_OF_STOCK", "must stay skipped until an explicit reschedule/publish-now");
   });
@@ -243,7 +243,7 @@ describe("wholesale Instagram — persistent stock alert on an already-published
     post = freshPost({ status: "PUBLISHED", scheduledAt: null, publishedAt: new Date() });
     account = { id: "acc-1", igUserId: "ig-user-1", accessTokenEnc: "enc", status: "connected" };
     mediaRows = [{ id: "media-1", mediaAssetId: "asset-1", sortOrder: 0, mediaAsset: { publicToken: "tok-1" } }];
-    product = { id: "prod-1", deletedAt: null, openingBalancePcs: 5, cartonsAvailable: 0, pcsPerCarton: 1, warehouseStocks: [] };
+    product = { id: "prod-1", deletedAt: null, openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1, warehouseStocks: [{ quantityPieces: 5 }] };
     installFetchStub();
   });
 
@@ -252,7 +252,7 @@ describe("wholesale Instagram — persistent stock alert on an already-published
   });
 
   it("a published post is flagged (not touched on Meta) the moment its product hits zero stock", async () => {
-    product.openingBalancePcs = 0;
+    product.warehouseStocks = [];
     await checkPublishedStockAlerts();
     assert.ok(post.stockAlertAt, "stockAlertAt must be set");
     assert.equal(post.status, "PUBLISHED", "the live post itself is never touched — Meta gives no delete path here");
@@ -265,13 +265,13 @@ describe("wholesale Instagram — persistent stock alert on an already-published
   });
 
   it("the per-minute tick also runs the stock-alert check, even with nothing scheduled", async () => {
-    product.openingBalancePcs = 0;
+    product.warehouseStocks = [];
     await runWholesaleInstagramQueueTick2();
     assert.ok(post.stockAlertAt);
   });
 
   it("once flagged, a second check does not re-touch it (no duplicate flapping)", async () => {
-    product.openingBalancePcs = 0;
+    product.warehouseStocks = [];
     await checkPublishedStockAlerts();
     const firstFlagTime = post.stockAlertAt;
     await checkPublishedStockAlerts();
@@ -279,7 +279,7 @@ describe("wholesale Instagram — persistent stock alert on an already-published
   });
 
   it("listStockAlerts surfaces the flagged post; dismissing hides it and it never silently reappears", async () => {
-    product.openingBalancePcs = 0;
+    product.warehouseStocks = [];
     await checkPublishedStockAlerts();
     const alerts = (await listStockAlerts()) as Array<{ id: string }>;
     assert.equal(alerts.length, 1);

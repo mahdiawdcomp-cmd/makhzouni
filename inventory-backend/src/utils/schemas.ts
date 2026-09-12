@@ -1237,6 +1237,8 @@ export const updateSettingsSchema = z.object({
       cycleCountStrategy: z.enum(["RANDOM", "HIGH_VALUE", "FAST_MOVING", "LOW_STOCK", "LEAST_RECENTLY_COUNTED"]).optional(),
       personalDebtReminderWhatsappNumber: z.string().trim().optional(),
       reportsProfitStartDate: z.string().trim().optional(),
+      // Empty string reopens everything; otherwise a plain YYYY-MM-DD day.
+      accountingCloseDate: z.string().trim().regex(/^(\d{4}-\d{2}-\d{2})?$/, "تاريخ الإقفال يجب أن يكون بصيغة YYYY-MM-DD").optional(),
       // Telegram backup delivery (fields existed in the UI but were silently
       // stripped here — validate() replaces req.body with the parsed object).
       telegramBotToken: nullAsUndefined(z.string().trim()),

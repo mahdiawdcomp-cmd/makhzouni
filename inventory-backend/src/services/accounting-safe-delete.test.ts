@@ -53,6 +53,10 @@ function makeTx() {
 
 const fakePrisma = {
   $transaction: async (cb: any) => cb(tx),
+  // hardDeleteInvoice reads the invoice's own date first, to refuse the delete
+  // when it falls inside a closed accounting period (utils/accounting-period).
+  invoice: { findUnique: async () => (invoiceRow ? { ...invoiceRow } : null) },
+  setting: { findUnique: async () => null },
 };
 
 mock.module("../config/database", { exports: { default: fakePrisma } });

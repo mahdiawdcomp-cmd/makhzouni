@@ -12,6 +12,7 @@ import { piecePriceFor, type PriceMode } from "../utils/sale-pricing";
 import prisma from "../config/database";
 import { logger } from "../utils/logger";
 import { AppError } from "../utils/app-error";
+import { assertPeriodOpen } from "../utils/accounting-period";
 import {
   amountInPieces,
   effectiveBoxPieces,
@@ -1708,6 +1709,18 @@ export async function getInvoiceById(id: string) {
   return serializeInvoice(invoice);
 }
 
+/**
+ * Loads a document's own date and refuses the operation when it sits inside a
+ * closed accounting period. Runs BEFORE the transaction opens — a closed period
+ * is a flat refusal, not a rollback.
+ */
+async function assertInvoicePeriodOpen(id: string, db?: Db) {
+  // Reads through the caller's transaction client when there is one, so the
+  // date checked is the one the rest of the operation will act on.
+  const invoice = await (db ?? prisma).invoice.findUnique({ where: { id }, select: { date: true } });
+  if (invoice) await assertPeriodOpen(invoice.date);
+}
+
 export async function createInvoice(
   input: CreateInvoiceInput,
   createdBy: string,
@@ -1719,6 +1732,11 @@ export async function createInvoice(
   // asked when the order was placed.
   allowedUnitPairs?: Set<string>
 ) {
+  // Back-dating a new invoice into a closed month is the same violation as
+  // editing one that is already there. A missing date means "today", and today
+  // is refused too when the owner closed the books through today — skipping the
+  // check on an absent date would have left the lock trivially bypassable.
+  await assertPeriodOpen(input.date ?? new Date());
   let result: Awaited<ReturnType<typeof createInvoiceInTransaction>>;
   if (db) {
     result = await createInvoiceInTransaction(db, input, createdBy, undefined, undefined, allowedUnitPairs);
@@ -1977,6 +1995,11 @@ export async function updateInvoice(
   updatedBy: string,
   db?: Db
 ) {
+  // Both ends are guarded: the invoice as it stands today, and the date the
+  // edit is trying to move it to — otherwise an edit could push a live invoice
+  // back into a closed month.
+  await assertInvoicePeriodOpen(id, db);
+  if (input.date) await assertPeriodOpen(input.date);
   const result = db
     ? await updateInvoiceInTransaction(db, id, input, updatedBy)
     : await prisma.$transaction(
@@ -2032,6 +2055,7 @@ async function cancelInvoiceInTransaction(tx: Db, id: string, returnWarehouseId?
 }
 
 export async function cancelInvoice(id: string, db?: Db, returnWarehouseId?: string) {
+  await assertInvoicePeriodOpen(id, db);
   const result = db
     ? await cancelInvoiceInTransaction(db, id, returnWarehouseId)
     : await prisma.$transaction(
@@ -2081,6 +2105,7 @@ async function reactivateInvoiceInTransaction(tx: Db, id: string) {
 }
 
 export async function reactivateInvoice(id: string, db?: Db) {
+  await assertInvoicePeriodOpen(id, db);
   if (db) {
     return reactivateInvoiceInTransaction(db, id);
   }
@@ -2104,6 +2129,7 @@ export async function listRecentlyDeletedInvoices() {
 }
 
 export async function restoreArchivedInvoice(id: string) {
+  await assertInvoicePeriodOpen(id);
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUnique({ where: { id }, include: { items: true } });
     if (!invoice) throw new AppError("الفاتورة غير موجودة", 404, "INVOICE_NOT_FOUND");
@@ -2138,6 +2164,7 @@ export async function hardDeleteInvoice(
   returnWarehouseId?: string,
   db?: Db
 ) {
+  await assertInvoicePeriodOpen(id, db);
   // When called from the approval flow we're already inside a transaction —
   // opening a second independent one could commit the delete even if the
   // approval-status update rolls back.

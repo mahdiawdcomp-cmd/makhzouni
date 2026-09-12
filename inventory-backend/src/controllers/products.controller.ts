@@ -22,6 +22,7 @@ import {
   listManualStockAdjustments,
   listStockHistory,
   listProductsMissingCartonPrice,
+  getProductDataHealth,
   ensureCartonQrCode,
 } from "../services/product.service";
 import { renderPieceLabelPng, renderCartonLabelPng } from "../services/piece-label.service";
@@ -72,6 +73,11 @@ export const getStale = asyncHandler(async (req, res) => {
 
 export const getMissingCartonPrice = asyncHandler(async (_req, res) => {
   const result = await listProductsMissingCartonPrice();
+  res.json({ success: true, ...result });
+});
+
+export const getDataHealth = asyncHandler(async (_req, res) => {
+  const result = await getProductDataHealth();
   res.json({ success: true, ...result });
 });
 

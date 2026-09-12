@@ -1308,6 +1308,21 @@ export async function setCartonPiecePrice(id: string, cartonPiecePrice: number |
   return data
 }
 
+export interface DataHealthReport {
+  checkedProducts: number
+  unmigratedStock: Array<{ id: string; name: string; itemNumber: string; legacyPieces: number; pcsPerCarton: number }>
+  costIssues: Array<{
+    id: string; name: string; itemNumber: string; currentStock: number
+    costPrice: number; purchasePrice: number; salePrice: number
+    issue: "MISSING_COST" | "COST_ABOVE_SALE"
+  }>
+}
+
+export async function getProductDataHealth() {
+  const { data } = await api.get<DataHealthReport & { success: boolean }>("/products/data-health")
+  return { checkedProducts: data.checkedProducts ?? 0, unmigratedStock: data.unmigratedStock ?? [], costIssues: data.costIssues ?? [] }
+}
+
 export async function bulkDeleteProducts(ids: string[]) {
   const { data } = await api.post<{ success: boolean; deleted: number; message?: string }>("/products/bulk-delete", { ids })
   return data

@@ -22,7 +22,7 @@ import { toast } from "../components/ui/use-toast"
 import { useAuthStore } from "../store/authStore"
 
 function stockOf(product: Product) {
-  return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
+  return product.currentStock ?? 0
 }
 
 function selectAllOnFocus(e: React.FocusEvent<HTMLInputElement>) {

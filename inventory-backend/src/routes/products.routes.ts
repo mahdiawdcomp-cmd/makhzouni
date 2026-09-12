@@ -20,6 +20,7 @@ import {
   getProducts,
   getStale,
   getMissingCartonPrice,
+  getDataHealth,
   removeProduct,
   restoreProductCtrl,
 } from "../controllers/products.controller";
@@ -59,6 +60,8 @@ router.get("/stale", getStale);
 // Prices are the whole point of this page, so it's gated on MANAGE_PRODUCTS —
 // which also means the inline save applies immediately instead of queueing an approval.
 router.get("/missing-carton-price", requirePermission("MANAGE_PRODUCTS"), getMissingCartonPrice);
+// Read-only diagnostics over costs and un-migrated stock — money data, so same gate.
+router.get("/data-health", requirePermission("MANAGE_PRODUCTS"), getDataHealth);
 router.post("/bulk-delete", requirePermission("MANAGE_PRODUCTS"), bulkDelete);
 router.get("/deleted", requirePermission("MANAGE_PRODUCTS"), getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);

@@ -424,6 +424,12 @@ export interface AppSettings {
   // view. Purely a display default: never touches invoices, balances, or
   // stock, and picking an earlier date on the tab still shows full history.
   reportsProfitStartDate?: string;
+  // «إقفال الفترة المحاسبية» — YYYY-MM-DD, empty = nothing is closed. Invoices
+  // and vouchers DATED on or before this day can no longer be created, edited,
+  // cancelled or deleted by anyone, so a closed month's profit stays fixed.
+  // Only an ADMIN can move the date, and moving it is audit-logged like any
+  // other settings change. Reports and history stay fully readable.
+  accountingCloseDate?: string;
   // بند ٤ — قمع الواتساب: أي محافظة تُصنَّف "الشمال" (توصيل حسب البضاعة).
   // أي محافظة غائبة عن هذي القائمة تُعتبر ضمن وسط/جنوب/غرب (توصيل مجاني فوق
   // catalogFreeShippingThreshold). قابلة للتعديل من تبويب إعدادات الكتلوك.
@@ -665,6 +671,7 @@ export const defaultSettings: AppSettings = {
   telegramFeaturedLastMessageId: 0,
   telegramFeaturedLastDate: "",
   reportsProfitStartDate: "",
+  accountingCloseDate: "",
 };
 
 const OLD_INVOICE_TEMPLATE =

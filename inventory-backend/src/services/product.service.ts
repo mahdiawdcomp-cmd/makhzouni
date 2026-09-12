@@ -1,4 +1,5 @@
 import { assertCartonPrice } from "../utils/sale-pricing";
+import { legacyOnlyStock, totalStock } from "../utils/product-stock";
 import { LossReason, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import prisma from "../config/database";
@@ -51,14 +52,6 @@ type ProductInput = {
   warehouseDistribution?: { warehouseId: string; pieces: number }[];
 };
 
-function stockFrom(product: {
-  openingBalancePcs: number;
-  cartonsAvailable: number;
-  pcsPerCarton: number;
-}) {
-  return product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton;
-}
-
 export function serializeProduct<T extends {
   openingBalancePcs: number;
   cartonsAvailable: number;
@@ -70,13 +63,14 @@ export function serializeProduct<T extends {
   hidePurchasePrice = false,
   hideAllPrices = false
 ) {
-  // `.reduce` on a present-but-EMPTY warehouseStocks array returns 0, which is
-  // NOT nullish — `?? stockFrom(product)` would never fire for such a product
-  // and it'd wrongly show currentStock 0 instead of falling back to the legacy
-  // total. Check length explicitly, matching utils/product-stock.ts's totalStock().
-  const warehouseTotal = product.warehouseStocks?.length
+  // Warehouse rows are the ONLY stock source. The legacy
+  // `openingBalancePcs + cartonsAvailable * pcsPerCarton` fallback that used to
+  // sit here never decremented on a sale, so it reported day-one quantities for
+  // ever — see utils/product-stock.ts. Every caller now loads warehouseStocks;
+  // no rows means zero pieces, which is the truth.
+  const warehouseTotal = product.warehouseStocks
     ? product.warehouseStocks.reduce((sum, stock) => sum + stock.quantityPieces, 0)
-    : undefined;
+    : 0;
   // shopStock = pieces in المحل (the default sale warehouse). Sales come out of
   // here only, so the UI must show this rather than the all-warehouse total.
   const shopStock = shopWarehouseId
@@ -84,7 +78,7 @@ export function serializeProduct<T extends {
     : undefined;
   const result = {
     ...product,
-    currentStock: warehouseTotal ?? stockFrom(product),
+    currentStock: warehouseTotal,
     ...(shopStock === undefined ? {} : { shopStock }),
     // Lets clients identify which WarehouseStock row is المحل without having to
     // guess by name — the frontend previously did `.includes("محل")` in several
@@ -897,6 +891,7 @@ export async function deleteProduct(id: string, db: Db = prisma) {
   const product = await db.product.update({
     where: { id },
     data: { deletedAt: new Date() },
+    include: productWarehouseInclude,
   });
 
   return serializeProduct(product);
@@ -909,6 +904,7 @@ export async function getDeletedProducts(db: Db = prisma) {
   const products = await db.product.findMany({
     where: { deletedAt: { not: null, gte: cutoff } },
     orderBy: { deletedAt: "desc" },
+    include: productWarehouseInclude,
   });
   return products.map((p) => serializeProduct(p));
 }
@@ -924,6 +920,7 @@ export async function restoreProduct(id: string, db: Db = prisma) {
   const restored = await db.product.update({
     where: { id },
     data: { deletedAt: null },
+    include: productWarehouseInclude,
   });
   return serializeProduct(restored);
 }
@@ -1006,6 +1003,76 @@ export async function listProductsMissingCartonPrice() {
     .sort((a, b) => b.fullCartons - a.fullCartons || a.name.localeCompare(b.name, "ar"));
 
   return { count: data.length, data };
+}
+
+/**
+ * «فحص صحة البيانات» — read-only. Two families of silent accounting damage:
+ *
+ * 1. `unmigratedStock` — products with no ProductWarehouseStock row at all that
+ *    still carry a legacy `openingBalancePcs`/`cartonsAvailable` quantity. These
+ *    used to be reported as available forever (the legacy fields never decrement
+ *    on a sale); they now correctly read zero, so this list is exactly the set of
+ *    products whose real quantity has to be re-entered per warehouse.
+ * 2. `costIssues` — cost price is only ever updated by a PURCHASE, so a product
+ *    that was never purchased through the system, or was entered wrong, produces
+ *    a fake profit on every sale. Two precise, non-guessable cases only.
+ *
+ * Nothing is written and nothing is hidden — this only names what is already wrong.
+ */
+export async function getProductDataHealth() {
+  const products = await prisma.product.findMany({
+    where: { deletedAt: null },
+    include: productWarehouseInclude,
+    omit: { imageUrl: true },
+    orderBy: { name: "asc" },
+  });
+
+  const unmigratedStock: Array<{ id: string; name: string; itemNumber: string; legacyPieces: number; pcsPerCarton: number }> = [];
+  const costIssues: Array<{
+    id: string; name: string; itemNumber: string; currentStock: number;
+    costPrice: number; purchasePrice: number; salePrice: number;
+    issue: "MISSING_COST" | "COST_ABOVE_SALE";
+  }> = [];
+
+  for (const product of products) {
+    const legacyPieces = legacyOnlyStock(product);
+    if (legacyPieces > 0) {
+      unmigratedStock.push({
+        id: product.id,
+        name: product.name,
+        itemNumber: product.itemNumber,
+        legacyPieces,
+        pcsPerCarton: product.pcsPerCarton,
+      });
+    }
+
+    const currentStock = totalStock(product);
+    const costPrice = Number(product.costPrice ?? 0);
+    const salePrice = Number(product.salePrice ?? 0);
+    const purchasePrice = Number(product.purchasePrice ?? 0);
+    // A zero cost on a product with nothing in stock is noise, not a problem.
+    const issue = costPrice <= 0 && currentStock > 0
+      ? "MISSING_COST" as const
+      : costPrice > 0 && salePrice > 0 && costPrice > salePrice
+        ? "COST_ABOVE_SALE" as const
+        : null;
+    if (issue) {
+      costIssues.push({
+        id: product.id, name: product.name, itemNumber: product.itemNumber,
+        currentStock, costPrice, purchasePrice, salePrice, issue,
+      });
+    }
+  }
+
+  // Worst first: the biggest phantom quantity, and the biggest loss per piece.
+  unmigratedStock.sort((a, b) => b.legacyPieces - a.legacyPieces);
+  costIssues.sort((a, b) => (b.costPrice - b.salePrice) - (a.costPrice - a.salePrice));
+
+  return {
+    checkedProducts: products.length,
+    unmigratedStock,
+    costIssues,
+  };
 }
 
 /** Soft-delete many products at once (used by the stale-products cleanup). */

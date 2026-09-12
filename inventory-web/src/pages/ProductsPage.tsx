@@ -45,7 +45,7 @@ function accountingCostOf(product: Product) {
 }
 
 function stockOf(product: Product) {
-  return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
+  return product.currentStock ?? 0
 }
 
 type ProductSort = "updatedDesc" | "nameAsc" | "stockDesc" | "stockAsc" | "purchaseDesc" | "saleDesc" | "valueDesc"
@@ -219,7 +219,7 @@ function exportInventoryCsv(products: Product[], hidePurchasePrice = false) {
     "الكمية الفعلية (للجرد)", "ملاحظات"
   ]
   const rows = products.map((p) => {
-    const total = p.currentStock ?? (p.openingBalancePcs + p.cartonsAvailable * p.pcsPerCarton)
+    const total = p.currentStock ?? 0
     return [
       p.itemNumber, p.name, p.category ?? "", p.cartonsAvailable, p.pcsPerCarton,
       p.openingBalancePcs, total, ...(hidePurchasePrice ? [] : [p.purchasePrice]), p.salePrice,

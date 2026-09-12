@@ -28,8 +28,9 @@ describe("inventory valuation uses costPrice first, purchasePrice as fallback", 
     products.length = 0;
     products.push({
       id: "p1", itemNumber: "AB0001", name: "ماء", category: null,
-      // currentStock = openingBalancePcs + cartonsAvailable × pcsPerCarton = 20
+      // Stock comes from the warehouse rows — the legacy fields are ignored.
       openingBalancePcs: 20, cartonsAvailable: 0, pcsPerCarton: 1,
+      warehouseStocks: [{ quantityPieces: 20 }],
       costPrice: 250, purchasePrice: 300, salePrice: 400,
     });
 
@@ -46,6 +47,7 @@ describe("inventory valuation uses costPrice first, purchasePrice as fallback", 
     products.push({
       id: "p2", itemNumber: "AB0002", name: "علبة", category: null,
       openingBalancePcs: 10, cartonsAvailable: 0, pcsPerCarton: 1,
+      warehouseStocks: [{ quantityPieces: 10 }],
       costPrice: 0, purchasePrice: 300, salePrice: 500,
     });
 
@@ -53,5 +55,21 @@ describe("inventory valuation uses costPrice first, purchasePrice as fallback", 
     const row = report.products[0];
     assert.equal(row.costPrice, 300, "fallback to purchasePrice");
     assert.equal(row.purchaseValue, 3000, "10 × 300 fallback");
+  });
+
+  it("لا يقيّم مادة بلا صفوف مخازن رغم رصيدها القديم", async () => {
+    // The legacy fields never decrement on a sale, so a product whose stock was
+    // never migrated to a warehouse row is worth zero — not its day-one quantity.
+    products.length = 0;
+    products.push({
+      id: "p3", itemNumber: "AB0003", name: "قديمة", category: null,
+      openingBalancePcs: 999, cartonsAvailable: 5, pcsPerCarton: 12,
+      warehouseStocks: [],
+      costPrice: 250, purchasePrice: 300, salePrice: 400,
+    });
+
+    const report = await getInventoryValuationReport();
+    assert.equal(report.products[0].currentStock, 0);
+    assert.equal(report.totals.purchaseValue, 0);
   });
 });

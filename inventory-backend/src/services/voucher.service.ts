@@ -1,6 +1,7 @@
 import { InvoiceStatus, InvoiceType, Prisma, VoucherType } from "@prisma/client";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
+import { assertPeriodOpen } from "../utils/accounting-period";
 import { calculateCustomerBalance, roundMoney } from "../utils/financial";
 import { assistantTimezone, zonedDayRange } from "./daily-assistant.service";
 
@@ -323,11 +324,19 @@ async function createVoucherInTransaction(
   return serializeVoucher(voucher);
 }
 
+/** Same closed-period rule as invoices — see utils/accounting-period.ts. */
+async function assertVoucherPeriodOpen(id: string, db?: Db) {
+  const voucher = await (db ?? prisma).paymentVoucher.findUnique({ where: { id }, select: { date: true } });
+  if (voucher) await assertPeriodOpen(voucher.date);
+}
+
 export async function createVoucher(
   input: CreateVoucherInput,
   createdBy: string,
   db?: Db
 ) {
+  // Absent date means today — checked, not skipped (see createInvoice).
+  await assertPeriodOpen(input.date ?? new Date());
   if (db) {
     return createVoucherInTransaction(db, input, createdBy);
   }
@@ -426,6 +435,8 @@ async function updateVoucherInTransaction(
 }
 
 export async function updateVoucher(id: string, input: UpdateVoucherInput, db?: Db) {
+  await assertVoucherPeriodOpen(id, db);
+  if (input.date) await assertPeriodOpen(input.date);
   if (db) return updateVoucherInTransaction(db, id, input);
   return prisma.$transaction((tx) => updateVoucherInTransaction(tx, id, input));
 }
@@ -458,6 +469,7 @@ async function deleteVoucherInTransaction(tx: Db, id: string, deletedBy?: string
 }
 
 export async function deleteVoucher(id: string, db?: Db, deletedBy?: string, reason?: string) {
+  await assertVoucherPeriodOpen(id, db);
   if (db) return deleteVoucherInTransaction(db, id, deletedBy, reason);
   return prisma.$transaction((tx) => deleteVoucherInTransaction(tx, id, deletedBy, reason));
 }
@@ -481,6 +493,7 @@ async function cancelVoucherInTransaction(tx: Db, id: string) {
 }
 
 export async function cancelVoucher(id: string, db?: Db) {
+  await assertVoucherPeriodOpen(id, db);
   if (db) return cancelVoucherInTransaction(db, id);
   return prisma.$transaction((tx) => cancelVoucherInTransaction(tx, id));
 }
@@ -505,6 +518,7 @@ async function restoreVoucherInTransaction(tx: Db, id: string) {
 }
 
 export async function restoreVoucher(id: string, db?: Db) {
+  await assertVoucherPeriodOpen(id, db);
   if (db) return restoreVoucherInTransaction(db, id);
   return prisma.$transaction((tx) => restoreVoucherInTransaction(tx, id));
 }

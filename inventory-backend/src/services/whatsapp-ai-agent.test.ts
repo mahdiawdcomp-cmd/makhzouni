@@ -48,7 +48,7 @@ const TINY_PNG =
 let sendImageImpl: null | (() => Promise<unknown>) = null;
 
 function freshProduct(overrides: Record<string, unknown> = {}) {
-  return {
+  const product = {
     id: "prod-1",
     name: "اوربيز ناشف",
     itemNumber: "1001",
@@ -70,6 +70,15 @@ function freshProduct(overrides: Record<string, unknown> = {}) {
     deletedAt: null,
     ...overrides,
   };
+  // Stock lives in the warehouse rows only. Fixtures still express quantity as
+  // `openingBalancePcs` for readability, so mirror it into one warehouse row
+  // unless a test set the rows itself.
+  if (!("warehouseStocks" in overrides)) {
+    product.warehouseStocks = product.openingBalancePcs > 0
+      ? [{ quantityPieces: product.openingBalancePcs }]
+      : [];
+  }
+  return product;
 }
 
 const fakePrisma = {

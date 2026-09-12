@@ -271,7 +271,7 @@ describe("listPublicRetailItems — storefront stock display", () => {
         isNew: false,
         isOffer: false,
         lowStockBadge: false,
-        product: { name: "لعبة", openingBalancePcs: 10, cartonsAvailable: 0, pcsPerCarton: 1 },
+        product: { name: "لعبة", openingBalancePcs: 0, cartonsAvailable: 0, pcsPerCarton: 1, warehouseStocks: [{ quantityPieces: 10 }] },
       },
     ];
     openOrders = [];

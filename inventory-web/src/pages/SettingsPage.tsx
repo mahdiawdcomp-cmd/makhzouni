@@ -660,6 +660,7 @@ export function SettingsPage() {
                 { to: "/audit-logs", label: "سجل التدقيق",  desc: "مراجعة جميع العمليات والتغييرات",     Icon: ClipboardList },
                 { to: "/branches",   label: "الفروع",        desc: "إضافة وتعديل الفروع",                 Icon: Building2 },
                 { to: "/coupons",    label: "الكوبونات",     desc: "إنشاء وإدارة كوبونات الخصم",          Icon: BadgePercent },
+                { to: "/inventory/data-health", label: "فحص صحة البيانات", desc: "مواد بلا كلفة، ورصيد قديم لم يُنقل", Icon: AlertTriangle },
               ] as const).map(({ to, label, desc, Icon }) => (
                 <Link key={to} to={to}
                   className="flex items-center gap-3 rounded-xl border border-slate-200 p-4 transition hover:border-indigo-300 hover:bg-indigo-50 dark:border-slate-700 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20">
@@ -673,6 +674,55 @@ export function SettingsPage() {
                 </Link>
               ))}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <SectionTitle>إقفال الفترة المحاسبية</SectionTitle>
+            <p className="text-sm text-slate-500">
+              بعد ما تقفل حتى تاريخ معيّن، ما يبقى ممكن إضافة أو تعديل أو إلغاء أو حذف أي فاتورة أو سند مؤرّخ بذلك التاريخ أو قبله — لا للموظف ولا للمدير.
+              أرباح الشهر المقفول تثبت ولا تتغيّر وراك. التاريخ يتغيّر من هنا فقط، والتغيير يُسجّل بسجل التدقيق.
+            </p>
+            <p className="text-sm text-slate-500">
+              ما ينحذف ولا ينخفي شي: كل الفواتير والسندات القديمة تظل معروضة وكل التقارير تشملها. اتركه فارغاً إذا ما تريد إقفال.
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-slate-500">مقفل حتى تاريخ (شامل)</span>
+                <input
+                  type="date"
+                  value={settings.accountingCloseDate ?? ""}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, accountingCloseDate: e.target.value }))}
+                  className="h-11 rounded-lg border px-3 dark:bg-slate-900"
+                />
+              </label>
+              <Button
+                onClick={() => saveSettings.mutate({ accountingCloseDate: settings.accountingCloseDate ?? "" })}
+                disabled={saveSettings.isPending || !settingsQuery.isSuccess}
+                className="h-11"
+              >
+                حفظ تاريخ الإقفال
+              </Button>
+              {settings.accountingCloseDate ? (
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  onClick={() => {
+                    setSettings((prev) => ({ ...prev, accountingCloseDate: "" }))
+                    saveSettings.mutate({ accountingCloseDate: "" })
+                  }}
+                  disabled={saveSettings.isPending}
+                >
+                  إلغاء الإقفال
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-sm font-semibold">
+              {settings.accountingCloseDate
+                ? <span className="text-amber-600">الوضع الحالي: مقفل حتى {settings.accountingCloseDate}</span>
+                : <span className="text-slate-400">الوضع الحالي: لا يوجد إقفال — كل الفترات مفتوحة للتعديل.</span>}
+            </p>
           </CardContent>
         </Card>
         </>

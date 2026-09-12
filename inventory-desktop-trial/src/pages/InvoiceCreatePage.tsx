@@ -97,7 +97,7 @@ interface DraftItem {
 }
 
 function stockOf(product: Product) {
-  return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
+  return product.currentStock ?? 0
 }
 
 // The backend resolves which WarehouseStock row is المحل (settings-based, with a
@@ -1458,7 +1458,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   function maybePromptWarehouse(product: Product, unit: Unit, qty = 1): boolean {
     if (isPurchase) return false
     const shopStock = product.shopStock ?? 0
-    const totalStock = product.currentStock ?? (product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton)
+    const totalStock = product.currentStock ?? 0
     const othersHaveStock = (product.warehouseStocks ?? []).some((ws) => ws.quantityPieces > 0)
     if (shopStock === 0 && (totalStock > 0 || othersHaveStock)) {
       setShopStockAlert(product)
@@ -3326,7 +3326,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       {scanPreview && (() => {
         const p = scanPreview.product
         const img = p.thumbnailUrl || p.imageUrl
-        const totalStock = p.currentStock ?? (p.openingBalancePcs + p.cartonsAvailable * p.pcsPerCarton)
+        const totalStock = p.currentStock ?? 0
         const shopId = shopWarehouseIdOf(p)
         const shopStock = p.shopStock ?? p.warehouseStocks?.find((ws) => ws.warehouseId === shopId)?.quantityPieces
         const unitPrice = unitPriceFor(p, scanPreview.unit)

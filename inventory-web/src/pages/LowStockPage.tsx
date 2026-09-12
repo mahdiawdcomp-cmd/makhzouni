@@ -7,7 +7,7 @@ import { Button } from "../components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 
 function stockOf(product: Product) {
-  return product.currentStock ?? product.openingBalancePcs + product.cartonsAvailable * product.pcsPerCarton
+  return product.currentStock ?? 0
 }
 
 async function openBlob(url: string) {

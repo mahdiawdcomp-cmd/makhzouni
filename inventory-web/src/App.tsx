@@ -53,6 +53,7 @@ const TransfersPage = lazyPage(() => import("./pages/TransfersPage"), "Transfers
 const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), "VarietyConvertPage")
 const StaleProductsPage = lazyPage(() => import("./pages/StaleProductsPage"), "StaleProductsPage")
 const MissingCartonPricePage = lazyPage(() => import("./pages/MissingCartonPricePage"), "MissingCartonPricePage")
+const DataHealthPage = lazyPage(() => import("./pages/DataHealthPage"), "DataHealthPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
 const CampaignsPage = lazyPage(() => import("./pages/CampaignsPage"), "CampaignsPage")
 const WhatsappChatPage = lazyPage(() => import("./pages/WhatsappChatPage"), "WhatsappChatPage")
@@ -133,6 +134,7 @@ const router = createBrowserRouter([
           { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stale", element: s(<StaleProductsPage />) },
           { path: "inventory/missing-carton-price", element: s(<MissingCartonPricePage />) },
+          { path: "inventory/data-health", element: s(<DataHealthPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
           { path: "inventory/cycle-count", element: s(<CycleCountPage />) },
           { path: "inventory/landed-cost", element: s(<LandedCostImportPage />) },
