@@ -872,9 +872,15 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
       imagesToday: 99,
     } as any;
     scripted = [textReply("ما اكدر اشوف صور اليوم بعد")];
-    await runWhatsAppAiTurn({ phone: "9647700000000", text: "شنو هذا؟", images: [TINY_PNG], customer: null });
+    // No caption either — the worst case, and the one that used to break.
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "", images: [TINY_PNG], customer: null });
     const content = apiCalls[0].messages.at(-1).content;
     assert.ok(!content.some((b: any) => b.type === "image"), "over the cap, no image is paid for");
+    // And the turn must still carry something to say. A bare photo over the
+    // ceiling used to leave an empty text block, which the API refuses — the
+    // customer got the generic apology instead of an answer.
+    const text = content.find((b: any) => b.type === "text");
+    assert.ok(text && text.text.trim().length > 0, "an empty text block would be rejected by the API");
   });
 
   // ── The upset customer ────────────────────────────────────────────────────

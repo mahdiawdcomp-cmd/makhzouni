@@ -753,6 +753,8 @@ export async function sendWhatsappChatMessage(phone: string, text: string, reply
 // a human reply, and the durable facts it has learned about this number.
 export type AiConversationState = {
   phone: string
+  /** The shop-wide switch — false means the agent answers nobody right now. */
+  enabled: boolean
   mutedUntil: string | null
   memories: Array<{ id: string; fact: string; createdAt: string }>
 }

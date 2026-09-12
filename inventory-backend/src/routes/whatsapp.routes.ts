@@ -51,10 +51,12 @@ router.post(
 );
 
 // Admin test / diagnostics endpoints (no real Meta account needed for webhook check)
-// «الموظف الذكي» — same permission as the chat screen these are read from.
-router.get("/ai/state", requirePermission("MANAGE_CUSTOMERS"), getAiConversationState);
-router.post("/ai/mute", requirePermission("MANAGE_CUSTOMERS"), setAiConversationMute);
-router.delete("/ai/memories/:id", requirePermission("MANAGE_CUSTOMERS"), deleteAiMemory);
+// «الموظف الذكي» — the chat screen's own permission, not MANAGE_CUSTOMERS:
+// someone who answers WhatsApp all day may well not manage customers, and
+// every conversation they opened would otherwise answer 403.
+router.get("/ai/state", requirePermission("ACCESS_WHATSAPP_CHAT"), getAiConversationState);
+router.post("/ai/mute", requirePermission("ACCESS_WHATSAPP_CHAT"), setAiConversationMute);
+router.delete("/ai/memories/:id", requirePermission("ACCESS_WHATSAPP_CHAT"), deleteAiMemory);
 
 router.post("/test/text", adminOnly, testWhatsAppText);
 router.post("/test/image", adminOnly, testWhatsAppImage);

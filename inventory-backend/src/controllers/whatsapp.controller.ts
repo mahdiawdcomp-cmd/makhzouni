@@ -730,7 +730,8 @@ export const getAiConversationState = asyncHandler(async (req, res) => {
   const phone = normalizePhone(String(req.query.phone ?? ""));
   if (!phone) throw new AppError("رقم الهاتف مطلوب", 400, "AI_STATE_PHONE_REQUIRED");
 
-  const [mutedUntil, memories] = await Promise.all([
+  const [settings, mutedUntil, memories] = await Promise.all([
+    getSettings().catch(() => null),
     aiMutedUntil(phone),
     prisma.whatsappAiMemory.findMany({
       where: { phone },
@@ -739,7 +740,10 @@ export const getAiConversationState = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  res.json({ success: true, data: { phone, mutedUntil, memories } });
+  res.json({
+    success: true,
+    data: { phone, enabled: Boolean(settings?.whatsappAiAgentEnabled), mutedUntil, memories },
+  });
 });
 
 /** POST /whatsapp/ai/mute — { phone, minutes? }. minutes 0 wakes it up. */

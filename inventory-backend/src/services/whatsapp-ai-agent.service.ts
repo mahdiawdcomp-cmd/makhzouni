@@ -1398,7 +1398,19 @@ export async function runWhatsAppAiTurn(input: {
           text: spokenText || "الزبون دزّ هذه الصورة بدون نص — شوفها وجاوبه.",
         },
       ]
-    : [{ type: "text", text: spokenText }];
+    : [
+        {
+          type: "text",
+          // Never an empty text block — the API refuses those. A photo we could
+          // not look at (over the daily ceiling, or an unreadable file) with no
+          // caption on it would otherwise leave nothing here at all.
+          text:
+            spokenText ||
+            (photos.length
+              ? "الزبون دزّ صورة بس ما وصلتك. اعتذرله بلطف واطلب منه يكتب اسم المنتج أو ينطيك تفاصيله."
+              : ""),
+        },
+      ];
 
   const messages: Anthropic.MessageParam[] = [
     ...history.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),

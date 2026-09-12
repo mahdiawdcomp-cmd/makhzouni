@@ -516,7 +516,8 @@ export function WhatsappChatPage() {
     refetchInterval: 60_000,
   })
   const aiState = aiStateQuery.data ?? null
-  const aiMuted = Boolean(aiState?.mutedUntil && new Date(aiState.mutedUntil).getTime() > Date.now())
+  const aiEnabled = Boolean(aiState?.enabled)
+  const aiMuted = aiEnabled && Boolean(aiState?.mutedUntil && new Date(aiState.mutedUntil).getTime() > Date.now())
   const aiMuteMutation = useMutation({
     mutationFn: ({ phone, minutes }: { phone: string; minutes?: number }) => setAiConversationMute(phone, minutes),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-conversation-state"] }),
@@ -1212,7 +1213,7 @@ export function WhatsappChatPage() {
                 </button>
               </div>
             )}
-            {!aiMuted && selectedPhone && (
+            {aiEnabled && !aiMuted && selectedPhone && (
               <div className="flex flex-wrap items-center gap-2 border-t px-3 py-1.5 text-[11px]" style={{ borderColor: "var(--theme-cardBorder)", color: "var(--theme-textMuted)" }}>
                 <span>🧠 الموظف الذكي يرد على هذا الرقم</span>
                 <button
