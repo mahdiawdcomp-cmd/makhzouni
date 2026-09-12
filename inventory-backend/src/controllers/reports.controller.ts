@@ -11,6 +11,7 @@ import {
   getSalesReport,
   getTopCustomersReport,
   getProfitReport,
+  getMarginReport,
   getWarehouseComparisonReport,
   getCrossSellPairs,
   getStoreBrainReport,
@@ -118,6 +119,11 @@ export const profitReport = asyncHandler(async (req, res) => {
   const data = await getProfitReport(
     req.validatedQuery as Parameters<typeof getProfitReport>[0]
   );
+  res.json({ success: true, data });
+});
+
+export const marginReport = asyncHandler(async (req, res) => {
+  const data = await getMarginReport(req.validatedQuery as Parameters<typeof getMarginReport>[0]);
   res.json({ success: true, data });
 });
 

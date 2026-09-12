@@ -17,6 +17,7 @@ import {
   inventoryValuationReport,
   productMovementReport,
   profitReport,
+  marginReport,
   customerProfitAudit,
   costFixScopePreview,
   loyaltyPointsReport,
@@ -42,6 +43,7 @@ import {
   dailyAssistantSchema,
   productMovementReportSchema,
   profitReportSchema,
+  marginReportSchema,
   customerProfitAuditSchema,
   costFixScopePreviewSchema,
   loyaltyExclusionSchema,
@@ -98,6 +100,9 @@ router.get("/customers/statements-export", validate(customerStatementsExportSche
 // Profit + store-brain expose full financial margins — gated by the profit-visibility
 // capability, which (unlike every other permission) can be revoked even from an ADMIN.
 router.get("/profit", requireProfitReports(), validate(profitReportSchema), profitReport);
+// Per-product and per-customer margins — the same cost data as /profit, cut two
+// other ways, so it sits behind the identical gate.
+router.get("/margins", requireProfitReports(), validate(marginReportSchema), marginReport);
 // Exposes per-line cost and margin, so it sits behind the same profit gate.
 // The fix WRITES a recorded cost onto historical invoice lines, which is a
 // product-data change on top of a profit read — hence both guards.

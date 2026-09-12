@@ -2816,6 +2816,38 @@ export async function getProfitReport(params?: { from?: string; to?: string; gro
   return data.data!
 }
 
+export interface MarginRow {
+  id: string
+  name: string
+  detail: string
+  revenue: number
+  cost: number
+  profit: number
+  margin: number
+  qty: number
+  invoices: number
+  /** Revenue whose cost is unknown — margin on this part is not real. */
+  revenueWithoutCost: number
+}
+
+export interface MarginReport {
+  from: string | null
+  to: string | null
+  totals: {
+    revenue: number; cost: number; profit: number; margin: number
+    revenueWithoutCost: number
+    /** Share of revenue that HAS a known cost, as a percentage. */
+    costCoverage: number
+  }
+  products: MarginRow[]
+  customers: MarginRow[]
+}
+
+export async function getMarginReport(params: { from?: string; to?: string }) {
+  const { data } = await api.get<ApiEnvelope<MarginReport>>("/reports/margins", { params })
+  return data.data
+}
+
 export async function getWarehouseComparisonReport(params?: { from?: string; to?: string }) {
   const { data } = await api.get<ApiEnvelope<WarehouseComparisonRow[]>>("/reports/warehouse-comparison", { params })
   return data.data ?? []

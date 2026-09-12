@@ -1103,6 +1103,130 @@ export interface ProfitReportQuery {
   groupBy?: "day" | "week" | "month";
 }
 
+/**
+ * «هامش الربح لكل مادة ولكل زبون» — the two questions the period-level profit
+ * chart cannot answer: which goods actually earn, and which customers actually
+ * pay for the service they get.
+ *
+ * Deliberately reuses `itemCostPrice`/`invoiceRevenueRatio`, the same helpers
+ * the Profits tab uses, so the totals here and there can never drift apart.
+ * Sales returns subtract from both sides, exactly as they do in the profit chart.
+ *
+ * Every row also carries `revenueWithoutCost`: the part of the revenue whose
+ * cost is unknown because the line, the product and the last purchase price were
+ * all zero. Margin on that part is fiction, and hiding it would make this report
+ * the most confidently wrong screen in the app.
+ */
+export async function getMarginReport(query: { from?: string; to?: string }) {
+  const df = dateFilter(query.from, query.to);
+  const select = {
+    product: { select: { costPrice: true, purchasePrice: true, pcsPerCarton: true, boxPieces: true } },
+    invoice: {
+      select: {
+        date: true, subtotal: true, totalAmount: true, customerId: true,
+        customer: { select: { name: true, phone: true } },
+      },
+    },
+  } as const;
+
+  const [saleItems, returnItems] = await Promise.all([
+    prisma.invoiceItem.findMany({
+      where: { invoice: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALE, archivedAt: null, ...(df ? { date: df } : {}) } },
+      include: select,
+    }),
+    prisma.invoiceItem.findMany({
+      where: { invoice: { status: InvoiceStatus.ACTIVE, type: InvoiceType.SALES_RETURN, archivedAt: null, ...(df ? { date: df } : {}) } },
+      include: select,
+    }),
+  ]);
+
+  type Bucket = {
+    name: string;
+    detail: string;
+    revenue: number;
+    cost: number;
+    qty: number;
+    revenueWithoutCost: number;
+    invoices: Set<string>;
+  };
+  const products = new Map<string, Bucket>();
+  const customers = new Map<string, Bucket>();
+  const empty = (name: string, detail: string): Bucket =>
+    ({ name, detail, revenue: 0, cost: 0, qty: 0, revenueWithoutCost: 0, invoices: new Set() });
+
+  // `sign` is +1 for a sale and −1 for a return, so one pass covers both.
+  const accumulate = (items: typeof saleItems, sign: 1 | -1) => {
+    for (const item of items) {
+      const revenue = toNumber(item.totalPrice) * invoiceRevenueRatio(item.invoice);
+      const cost = itemCostPrice({ ...item, product: item.product });
+      const pieces = amountInPieces(item.unit, item.quantity, item.product.pcsPerCarton, item.product.boxPieces);
+      // cost === 0 on a line that sold something means no cost was known —
+      // a genuinely free item would still be flagged, and that is the safer error.
+      const blind = cost <= 0 && pieces > 0 ? revenue : 0;
+
+      const product = products.get(item.productId) ?? empty(item.productName, item.itemNumber ?? "");
+      product.revenue += sign * revenue;
+      product.cost += sign * cost;
+      product.qty += sign * pieces;
+      product.revenueWithoutCost += sign * blind;
+      product.invoices.add(item.invoiceId);
+      products.set(item.productId, product);
+
+      const customerId = item.invoice.customerId;
+      if (customerId) {
+        const customer = customers.get(customerId)
+          ?? empty(item.invoice.customer?.name ?? "زبون محذوف", item.invoice.customer?.phone ?? "");
+        customer.revenue += sign * revenue;
+        customer.cost += sign * cost;
+        customer.qty += sign * pieces;
+        customer.revenueWithoutCost += sign * blind;
+        customer.invoices.add(item.invoiceId);
+        customers.set(customerId, customer);
+      }
+    }
+  };
+  accumulate(saleItems, 1);
+  accumulate(returnItems, -1);
+
+  const shape = (source: Map<string, Bucket>) =>
+    Array.from(source.entries())
+      .map(([id, b]) => ({
+        id,
+        name: b.name,
+        detail: b.detail,
+        revenue: Math.round(b.revenue),
+        cost: Math.round(b.cost),
+        profit: Math.round(b.revenue - b.cost),
+        margin: b.revenue > 0 ? Math.round(((b.revenue - b.cost) / b.revenue) * 1000) / 10 : 0,
+        qty: Math.round(b.qty),
+        invoices: b.invoices.size,
+        revenueWithoutCost: Math.round(b.revenueWithoutCost),
+      }))
+      .sort((a, b) => b.profit - a.profit);
+
+  const productRows = shape(products);
+  const customerRows = shape(customers);
+  const revenue = productRows.reduce((sum, row) => sum + row.revenue, 0);
+  const cost = productRows.reduce((sum, row) => sum + row.cost, 0);
+  const blindRevenue = productRows.reduce((sum, row) => sum + row.revenueWithoutCost, 0);
+
+  return {
+    from: query.from ?? null,
+    to: query.to ?? null,
+    totals: {
+      revenue,
+      cost,
+      profit: revenue - cost,
+      margin: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 1000) / 10 : 0,
+      revenueWithoutCost: blindRevenue,
+      // How much of this report can be trusted, as a plain percentage.
+      costCoverage: revenue > 0 ? Math.round(((revenue - blindRevenue) / revenue) * 1000) / 10 : 100,
+    },
+    products: productRows,
+    customers: customerRows,
+  };
+}
+
 export async function getProfitReport(query: ProfitReportQuery) {
   const df = dateFilter(query.from, query.to);
   const gBy = query.groupBy ?? "month";
@@ -1113,6 +1237,11 @@ export async function getProfitReport(query: ProfitReportQuery) {
         invoice: {
           status: InvoiceStatus.ACTIVE,
           type: InvoiceType.SALE,
+          // An archived invoice was deleted (the row is kept for audit only) and
+          // is already excluded from lists, statements and balances — it was
+          // still being counted as revenue here, and the margins report would
+          // otherwise disagree with this tab on the same period.
+          archivedAt: null,
           ...(df ? { date: df } : {}),
         },
       },
@@ -1129,6 +1258,7 @@ export async function getProfitReport(query: ProfitReportQuery) {
         invoice: {
           status: InvoiceStatus.ACTIVE,
           type: InvoiceType.SALES_RETURN,
+          archivedAt: null,
           ...(df ? { date: df } : {}),
         },
       },

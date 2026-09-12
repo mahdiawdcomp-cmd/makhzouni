@@ -1034,6 +1034,13 @@ export const profitReportSchema = z.object({
   }),
 });
 
+export const marginReportSchema = z.object({
+  query: z.object({
+    from: dateString.optional(),
+    to: dateString.optional(),
+  }),
+});
+
 export const warehouseComparisonReportSchema = z.object({
   query: z.object({
     from: dateString.optional(),
