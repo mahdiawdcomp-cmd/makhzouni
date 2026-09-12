@@ -1,4 +1,5 @@
 import { requirePermission } from "../middleware/permission.middleware";
+import { getCatalogFunnel } from "../controllers/catalog-experience.controller";
 import { Router } from "express";
 import { authMiddleware } from "../middleware/auth.middleware";
 import {
@@ -105,6 +106,7 @@ router.post("/visitors/:phone/convert", convertVisitorCtrl);
 
 // Catalog product analytics
 router.get("/product-stats", getCatalogProductStatsCtrl);
+router.get("/funnel", requirePermission("MANAGE_CUSTOMERS"), getCatalogFunnel);
 
 // Customers
 router.get("/", getCatalogCustomers);

@@ -1,10 +1,18 @@
 {
   "functions": {
+    "api/catalog-product.js": {
+      "maxDuration": 30
+    },
     "api/proxy.js": {
       "maxDuration": 30
     }
   },
   "rewrites": [
+    { "source": "/catalog/product/:id/image", "destination": "/api/catalog-product?id=:id&resource=image" },
+    { "source": "/catalog/product/:id", "destination": "/api/catalog-product?id=:id" },
+    { "source": "/sitemap.xml", "destination": "/api/catalog-product?resource=sitemap" },
+    { "source": "/sitemap-products/:page.xml", "destination": "/api/catalog-product?resource=sitemap-page&page=:page" },
+    { "source": "/robots.txt", "destination": "/api/catalog-product?resource=robots" },
     { "source": "/api/:path*", "destination": "/api/proxy" },
     { "source": "/(.*)", "destination": "/" }
   ]

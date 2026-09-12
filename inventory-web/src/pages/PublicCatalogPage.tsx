@@ -83,6 +83,8 @@ import {
 } from "../api/endpoints"
 import type { CatalogStockFilter, PublicCatalogProduct } from "../types/api"
 import { catalogProductForMode } from "../utils/salePricing"
+import { loadCatalog, saveCatalog, restoreCatalogLines } from "../utils/catalogPersonalization"
+import { catalogSessionId, getCatalogPurchaseHistory, trackCatalogStage } from "../api/catalogExperience"
 import { cn } from "../utils/cn"
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -372,6 +374,7 @@ function clearStoredIdentity() {
 }
 
 export function PublicCatalogPage() {
+  useEffect(() => { void trackCatalogStage("OPEN") }, [])
   const [, setSearchParams] = useSearchParams()
   // Bumped to remount CatalogEntry — see the note above.
   const [restartKey, setRestartKey] = useState(0)
@@ -1115,7 +1118,13 @@ function CatalogShop({
   // signed in as somebody, and signing out has to clear all three or the next
   // visit silently walks back in as the previous person. clearStoredIdentity()
   // inside restart() is the one place that knows all of them.
-  const [purchaseMode, setPurchaseMode] = useState<"WHOLESALE" | "CARTON" | null>(null)
+  const storageKey = `catalog-personal-v1:${customerId || (visitorToken ? `verified:${customerPhone}` : `guest:${customerPhone || localStorage.getItem(GUEST_PHONE_KEY) || "anonymous"}`)}`
+  const [saved] = useState(() => loadCatalog(storageKey))
+  const [purchaseMode, setPurchaseMode] = useState<"WHOLESALE" | "CARTON" | null>(saved.mode)
+  const [favorites, setFavorites] = useState<string[]>(saved.favorites)
+  const [personalShelf, setPersonalShelf] = useState<"all" | "favorites" | "purchased">("all")
+  const [cartHydrated, setCartHydrated] = useState(false)
+  const [storageWarning, setStorageWarning] = useState(false)
   const effectiveMode = purchaseMode ?? "WHOLESALE"
   const { restart } = useCatalogRestart()
   const signedInName = customerName.trim()
@@ -1124,6 +1133,14 @@ function CatalogShop({
   // — the phone was left at the door, not signed in with — but it is still
   // something to walk back out of, so it earns the sign-out and not the name.
   const hasAccount = Boolean(accessToken || visitorToken)
+  const historyQuery = useQuery({
+    queryKey: ["catalog-purchase-history", accessToken, visitorToken],
+    queryFn: () => getCatalogPurchaseHistory(accessToken, visitorToken),
+    enabled: hasAccount && personalShelf === "purchased",
+    staleTime: 60_000,
+    retry: false,
+  })
+  const purchasedIds = useMemo(() => new Set(historyQuery.data ?? []), [historyQuery.data])
   const isSignedIn = hasAccount || Boolean(localStorage.getItem(GUEST_PHONE_KEY))
   const goToLogin = () => restart("login")
   const signOut = () => restart("browse")
@@ -1249,6 +1266,7 @@ function CatalogShop({
   )
 
   function openProduct(id: string) {
+    void trackCatalogStage("VIEW")
     setOpenProductId(id)
     const url = new URL(window.location.href)
     url.searchParams.set("product", id)
@@ -1427,6 +1445,23 @@ function CatalogShop({
 
   const products = useMemo(() => (productsQuery.data ?? []).map(p => catalogProductForMode(p, effectiveMode)), [productsQuery.data, effectiveMode])
 
+  useEffect(() => {
+    if (cartHydrated || !productsQuery.isSuccess || productsQuery.isFetching) return
+    // Restore only after a fresh authorised grid; saved data contains no prices.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from a fresh server snapshot
+    setCart(restoreCatalogLines(saved.lines, products, effectiveMode))
+    setCartHydrated(true)
+  }, [cartHydrated, productsQuery.isSuccess, productsQuery.isFetching, saved.lines, products, effectiveMode])
+  useEffect(() => {
+    if (!cartHydrated) return // Never overwrite a saved basket with the initial empty state.
+    const ok = saveCatalog(storageKey, { version: 1, mode: purchaseMode, favorites, lines: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity, isSample: l.isSample })) })
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- show an actionable browser storage failure
+    setStorageWarning(!ok)
+  }, [cartHydrated, storageKey, purchaseMode, favorites, cart])
+  useEffect(() => {
+    if (openProductId) void trackCatalogStage("VIEW")
+  }, [openProductId])
+
   // The shop's arrangement, already merged with the built-in order by the
   // backend — an unknown key here simply renders nothing.
   // Seed the grid from the shop's defaults exactly once, when the design
@@ -1534,6 +1569,8 @@ function CatalogShop({
     const hasMax = filters.maxPrice.trim() !== "" && Number.isFinite(max)
 
     let result = products.filter((p) => {
+      if (personalShelf === "favorites" && !favorites.includes(p.id)) return false
+      if (personalShelf === "purchased" && !purchasedIds.has(p.id)) return false
       if (!canDisplay(p)) return false
       if (justArrivedOnly && !isJustArrived(p)) return false
       if (quickTag && !hasTag(p, quickTag)) return false
@@ -1574,7 +1611,7 @@ function CatalogShop({
     }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode, justArrivedOnly, arrivalCutoff, quickTag])
+  }, [products, search, category, typeFilter, sortKey, stockFilter, filters, allowPrices, hideNoImage, noImageMode, justArrivedOnly, arrivalCutoff, quickTag, personalShelf, favorites, purchasedIds])
 
   // ── Paging ──
   // `visible` above is the WHOLE catalog after search, filters and sorting —
@@ -1709,7 +1746,7 @@ function CatalogShop({
   // The "عروض"/"وصل حديثاً" rows ignore the filters by design, so hide them
   // once any filter is on — otherwise they'd show products the shopper just
   // filtered out, right above the filtered grid.
-  const showSections = !noImageMode && category === "all" && typeFilter === "all" && !search.trim() && activeFilterCount === 0
+  const showSections = personalShelf === "all" && !noImageMode && category === "all" && typeFilter === "all" && !search.trim() && activeFilterCount === 0
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const newArrivals = useMemo(() => products.filter(p => p.isNewArrival && canDisplay(p)).slice(0, 12), [products, stockFilter, hideNoImage, noImageMode])
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1767,6 +1804,8 @@ function CatalogShop({
   const studioProducts = useMemo(() => {
     const q = search.trim().toLowerCase()
     return studioPool.filter((p) => {
+      if (personalShelf === "favorites" && !favorites.includes(p.id)) return false
+      if (personalShelf === "purchased" && !purchasedIds.has(p.id)) return false
       if (studioAlbum === "__offers" && !p.isOffer) return false
       if (studioAlbum === "__new" && !p.isNewArrival) return false
       if (studioAlbum !== "all" && !studioAlbum.startsWith("__")) {
@@ -1777,9 +1816,12 @@ function CatalogShop({
       if (!q) return true
       return [p.name, p.itemNumber, p.category ?? ""].some((x) => x.toLowerCase().includes(q))
     })
-  }, [studioPool, studioAlbum, search])
+  }, [studioPool, studioAlbum, search, personalShelf, favorites, purchasedIds])
 
   const studioProduct = studioIndex != null ? studioProducts[studioIndex] ?? null : null
+  useEffect(() => {
+    if (studioProduct) void trackCatalogStage("VIEW")
+  }, [studioProduct])
   // The shopper's own gallery preferences, on top of the shop's defaults —
   // same three-state shape as the theme: null means "follow the shop".
   // The full-resolution picture for whatever is open, reusing the cache the
@@ -1856,6 +1898,7 @@ function CatalogShop({
   }
 
   const orderMut = useMutation({
+    onMutate: () => { void trackCatalogStage("CHECKOUT") },
     mutationFn: () =>
       guestMode
         ? submitGuestCatalogOrder({
@@ -1867,7 +1910,7 @@ function CatalogShop({
             // is what tells the server they are not an anonymous guest.
             ...(visitorToken ? { visitorToken } : {}),
             items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity, isSample: l.isSample })),
-          })
+          }, catalogSessionId())
         : submitPublicCatalogOrder(
             {
               customerName, phone: customerPhone, notes: notes.trim() || undefined,
@@ -1876,6 +1919,7 @@ function CatalogShop({
               promoCode: promoResult?.code,
             },
             accessToken,
+            catalogSessionId(),
           ),
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
@@ -1894,10 +1938,13 @@ function CatalogShop({
   }
 
   function add(product: PublicCatalogProduct, unit: CatalogUnit = defaultUnitFor(product)) {
+    if (!cartHydrated) return
     product = catalogProductForMode(product, effectiveMode)
     if (effectiveMode === "CARTON" && unit !== "CARTON") return
     const max = maxQty(product, unit)
     if (max < 1) return
+    void trackCatalogStage("VIEW")
+    void trackCatalogStage("ADD")
     setSubmitted(null)
     setCart((prev) => {
       const id = key(product.id, unit)
@@ -1916,9 +1963,11 @@ function CatalogShop({
    * the cart must never hold more than the warehouse has.
    */
   function addMany(product: PublicCatalogProduct, lines: Array<{ unit: CatalogUnit; quantity: number }>) {
+    if (!cartHydrated) return
     product = catalogProductForMode(product, effectiveMode)
     lines = lines.filter(l => effectiveMode !== "CARTON" || l.unit === "CARTON")
     if (lines.length === 0) return
+    if (lines.some(l => l.quantity > 0 && maxQty(product, l.unit) > 0)) { void trackCatalogStage("VIEW"); void trackCatalogStage("ADD") }
     setSubmitted(null)
     setCart((prev) => {
       let next = prev
@@ -1943,7 +1992,10 @@ function CatalogShop({
    * accumulate would turn it into an order nobody meant to place.
    */
   function addSample(product: PublicCatalogProduct) {
+    if (!cartHydrated) return
     if (maxQty(product, "PIECE") < 1) return
+    void trackCatalogStage("VIEW")
+    void trackCatalogStage("ADD")
     setSubmitted(null)
     setCart((prev) => {
       const id = key(product.id, "PIECE", true)
@@ -2003,6 +2055,13 @@ function CatalogShop({
     const cartUnit = productLines.length === 1 && !productLines[0].isSample ? productLines[0].unit : null
     const firstLine = productLines[0] ?? null
     return (
+      <div key={product.id} className="relative min-w-0">
+      <button type="button" aria-label={favorites.includes(product.id) ? `إزالة ${product.name} من المفضلة` : `إضافة ${product.name} للمفضلة`} aria-pressed={favorites.includes(product.id)}
+        className="absolute left-2 top-2 z-10 flex h-10 w-10 items-center justify-center rounded-full border bg-white shadow-sm"
+        style={{ color: favorites.includes(product.id) ? "#e11d48" : "#64748b" }}
+        onClick={() => setFavorites(prev => prev.includes(product.id) ? prev.filter(id => id !== product.id) : [...prev, product.id].slice(-1000))}>
+        <span aria-hidden="true" className="text-2xl">{favorites.includes(product.id) ? "♥" : "♡"}</span>
+      </button>
       <ProductCard
         key={product.id}
         product={product}
@@ -2019,8 +2078,9 @@ function CatalogShop({
         onRemoveOne={() => firstLine && changeQty(firstLine.id, -1)}
         onOpenPicker={() => setPickerProduct(product)}
         onOpen={() => { void trackCatalogProductView(product.id, visitorPhone); openProduct(product.id) }}
-        onOpenImage={() => { void trackCatalogProductView(product.id, visitorPhone); setImageProduct(product) }}
+        onOpenImage={() => { void trackCatalogStage("VIEW"); void trackCatalogProductView(product.id, visitorPhone); setImageProduct(product) }}
       />
+      </div>
     )
   }
 
@@ -2560,6 +2620,19 @@ function CatalogShop({
         )}
       </header>
 
+      <nav aria-label="قوائمك" className="flex flex-wrap gap-2 px-4 py-3" style={{ background: tk.cardBg, color: tk.text }}>
+        {([['all', 'كل المواد'], ['favorites', `المفضلة (${favorites.length})`], ['purchased', 'اشتريتها سابقاً']] as const).map(([id, label]) => (
+          <button key={id} aria-pressed={personalShelf === id} className="min-h-11 rounded-xl border-2 px-3 py-2 text-sm font-bold"
+            style={personalShelf === id ? { background: tk.accent, color: '#fff' } : {}}
+            onClick={() => { setPersonalShelf(id); setPage(0); setStudioIndex(null) }}>{label}</button>
+        ))}
+      </nav>
+      {storageWarning && <p role="status" className="px-4 py-2 text-sm text-amber-700">المتصفح منع الحفظ؛ السلة والمفضلة حالياً مؤقتة. اسمح بتخزين بيانات الموقع.</p>}
+      {!cartHydrated && saved.lines.length > 0 && <p role="status" className="px-4 py-2 text-sm" style={{ color: tk.text }}>سلتك محفوظة بهذا الجهاز؛ {productsQuery.isError ? <button className="underline" onClick={() => void productsQuery.refetch()}>تعذر تحديث الأسعار والمخزون — إعادة المحاولة</button> : "جاري تحديث الأسعار والمخزون قبل استرجاعها…"}</p>}
+      {cartHydrated && saved.lines.length > 0 && <p className="px-4 py-2 text-xs" style={{ color: tk.text }}>استرجعنا السلة حسب الأسعار والمخزون الحالي؛ المواد غير المتاحة تُحذف والكميات تُضبط تلقائياً.</p>}
+      {personalShelf === "purchased" && <p role="status" className="px-4 py-2 text-sm" style={{ color: tk.text }}>
+        {!hasAccount ? <><button className="underline" onClick={goToLogin}>سجّل الدخول</button> حتى تشوف مشتريات حسابك السابقة.</> : historyQuery.isLoading ? "جاري تحميل مشترياتك…" : historyQuery.isError ? <button className="underline" onClick={() => void historyQuery.refetch()}>تعذر تحميل مشترياتك — إعادة المحاولة</button> : "مواد من فواتير البيع الفعّالة السابقة؛ تظهر منها المتاحة حسب طريقة الشراء والفلاتر الحالية."}
+      </p>}
       <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: tk.cardBg, color: tk.text }}>
         <span className="font-bold">{effectiveMode === "CARTON" ? "شراء كراتين كاملة" : "شراء جملة — درازن وعلب وقطع"}</span>
         <button className="rounded-xl border px-3 py-2 text-sm font-bold" onClick={() => changePurchaseMode(effectiveMode === "CARTON" ? "WHOLESALE" : "CARTON")}>تغيير طريقة الشراء</button>
@@ -2594,7 +2667,7 @@ function CatalogShop({
       )}
 
       {/* ── Arranged blocks, in the shop's own order ── */}
-      {!isStudio && !noImageMode && layoutSections.map(({ key, enabled }) => (
+      {!isStudio && !noImageMode && personalShelf === "all" && layoutSections.map(({ key, enabled }) => (
         enabled ? <React.Fragment key={key}>{sectionNodes[key]}</React.Fragment> : null
       ))}
 
@@ -2800,7 +2873,7 @@ function CatalogShop({
           onChangeQty={changeQty} onChangeUnit={changeUnit}
           onRemove={(id) => setCart(prev => prev.filter(l => l.id !== id))}
           onClose={() => setCartOpen(false)}
-          onSubmit={() => orderMut.mutate()}
+          onSubmit={() => { if (cartHydrated) orderMut.mutate() }}
           isPending={orderMut.isPending} submitted={submitted} isError={orderMut.isError}
           tk={tk}
           promoCode={promoCode} onPromoCode={setPromoCode}
@@ -2861,6 +2934,8 @@ function CatalogShop({
           reviewsEnabled={design?.reviewsEnabled !== false}
           suggestionsEnabled={design?.suggestionsEnabled !== false}
           productId={openProductId}
+          isFavorite={favorites.includes(openProductId)}
+          onToggleFavorite={() => setFavorites(prev => prev.includes(openProductId) ? prev.filter(id => id !== openProductId) : [...prev, openProductId].slice(-1000))}
           accessToken={accessToken}
           guestMode={guestMode}
           tk={tk}
@@ -2901,6 +2976,11 @@ function CatalogShop({
           onClose={() => setStudioIndex(null)}
         >
           <div className="space-y-3 p-4">
+            <button className="min-h-11 rounded-xl border-2 px-3" aria-pressed={favorites.includes(studioProduct.id)}
+              style={{ color: tk.accent }}
+              onClick={() => setFavorites(prev => prev.includes(studioProduct.id) ? prev.filter(id => id !== studioProduct.id) : [...prev, studioProduct.id].slice(-1000))}>
+              {favorites.includes(studioProduct.id) ? "♥ بالمفضلة — إزالة" : "♡ أضف للمفضلة"}
+            </button>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="font-extrabold" style={{ color: tk.text, fontSize: tk.fs.lg }}>
@@ -3233,10 +3313,13 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 
 function ProductDetailSheet({
   productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onSample, onOpenProduct,
+  isFavorite, onToggleFavorite,
   reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "", publicOrigin = "", purchaseMode = "WHOLESALE",
 }: {
   purchaseMode?: "WHOLESALE" | "CARTON"
   productId: string
+  isFavorite?: boolean
+  onToggleFavorite?: () => void
   accessToken: string
   guestMode: boolean
   /** The shop's own storefront origin, for building a link others can open. */
@@ -3336,7 +3419,7 @@ function ProductDetailSheet({
     // asset protocol (tauri.localhost), and a link built from it is dead on
     // every device except that one installation — while the copy still
     // succeeds, so nobody finds out until the customer says the link is broken.
-    const url = `${publicOrigin || window.location.origin}/catalog?product=${productId}`
+    const url = `${publicOrigin || window.location.origin}/catalog/product/${encodeURIComponent(productId)}`
     const text = product ? `${product.name}\n${url}` : url
     try {
       if (navigator.share) { await navigator.share({ title: product?.name, url }); return }
@@ -3359,6 +3442,7 @@ function ProductDetailSheet({
           <ChevronRight className="h-3.5 w-3.5" />
           رجوع
         </button>
+        {onToggleFavorite && <button aria-pressed={isFavorite} onClick={onToggleFavorite} className="min-h-11 px-3 font-bold text-white">{isFavorite ? "♥ بالمفضلة" : "♡ المفضلة"}</button>}
         <button onClick={share} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 font-bold text-white transition active:scale-95"
           style={{ background: "rgba(255,255,255,0.2)", fontSize: tk.fs.xs }}>
           <Share2 className="h-3.5 w-3.5" />

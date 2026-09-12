@@ -15,6 +15,7 @@ import {
   validatePromoCode,
 } from "../services/catalog.service";
 import { asyncHandler } from "../utils/async-handler";
+import { recordOrderSuccess } from "../services/catalog-experience.service";
 
 export const guestCatalogEnter = asyncHandler(async (req, res) => {
   const body = (req.body ?? {}) as { phone?: string; name?: string; province?: string };
@@ -75,6 +76,7 @@ export const getCatalogProductImageCtrl = asyncHandler(async (req, res) => {
 
 export const createCatalogOrder = asyncHandler(async (req, res) => {
   const result = await submitCatalogOrder(req.body, String(req.query.access ?? ""));
+  await recordOrderSuccess(req.get("X-Catalog-Session"));
   res.status(201).json({
     success: true,
     message: "Catalog order submitted for approval",
@@ -108,6 +110,7 @@ export const getGuestCatalogProductImageCtrl = asyncHandler(async (req, res) => 
 
 export const createGuestCatalogOrder = asyncHandler(async (req, res) => {
   const result = await submitGuestCatalogOrder(req.body);
+  await recordOrderSuccess(req.get("X-Catalog-Session"));
   res.status(201).json({
     success: true,
     message: "Guest catalog order submitted for approval",

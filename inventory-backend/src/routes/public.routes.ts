@@ -1,4 +1,6 @@
 import { Router, type Request } from "express";
+import { postCatalogFunnel, getCatalogPurchaseHistory } from "../controllers/catalog-experience.controller";
+import { getCatalogSeoProduct, getCatalogSeoImage, getCatalogSeoIndex } from "../controllers/catalog-seo.controller";
 import { timingSafeEqual } from "node:crypto";
 import {
   createCatalogAccessRequest,
@@ -115,6 +117,11 @@ import {
 } from "../controllers/catalog-product-page.controller";
 
 const router = Router();
+router.post("/catalog/funnel", catalogLimiter, postCatalogFunnel);
+router.get("/catalog/purchase-history", catalogLimiter, getCatalogPurchaseHistory);
+router.get("/catalog/seo-index", catalogLimiter, getCatalogSeoIndex);
+router.get("/catalog/seo/:id/image", catalogLimiter, getCatalogSeoImage);
+router.get("/catalog/seo/:id", catalogLimiter, getCatalogSeoProduct);
 
 // Incoming WhatsApp webhook (Green API) — set this URL in the Green API console.
 //

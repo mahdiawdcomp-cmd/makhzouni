@@ -252,6 +252,14 @@ self.addEventListener("fetch", (event) => {
 
   if (url.origin !== self.location.origin) return
 
+  // Private purchase history must not survive revocation in a service-worker
+  // cache. Restored baskets also require live stock/prices, not an offline grid.
+  if (/^\/api\/public\/catalog\/(purchase-history|products|guest-products|visitor-products)(?:\/|$)/.test(url.pathname)
+      || url.pathname.startsWith("/catalog/product/") || url.pathname.startsWith("/sitemap-products/") || url.pathname === "/sitemap.xml") {
+    event.respondWith(fetch(request).catch(() => jsonResponse({ success: false, offline: true, message: "يلزم اتصال لتحديث بيانات الكتلوك" }, 503)))
+    return
+  }
+
   if (url.pathname.startsWith("/api/")) {
     if (MUTATING_METHODS.has(request.method)) {
       event.respondWith(

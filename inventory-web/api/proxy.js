@@ -56,6 +56,7 @@ export default function handler(req, res) {
       headers: { "Content-Type": "application/json" },
     };
     if (req.headers.authorization) opts.headers["Authorization"] = req.headers.authorization;
+    if (typeof req.headers["x-catalog-session"] === "string") opts.headers["X-Catalog-Session"] = req.headers["x-catalog-session"];
     if (body) opts.headers["Content-Length"] = Buffer.byteLength(body);
 
     const pr = https.request(opts, (pres) => {
