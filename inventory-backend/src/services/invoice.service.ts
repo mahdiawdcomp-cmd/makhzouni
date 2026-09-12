@@ -8,6 +8,7 @@
   Unit,
   VoucherType,
 } from "@prisma/client";
+import { piecePriceFor, type PriceMode } from "../utils/sale-pricing";
 import prisma from "../config/database";
 import { logger } from "../utils/logger";
 import { AppError } from "../utils/app-error";
@@ -60,6 +61,8 @@ const STOCK_PRODUCT_SELECT = {
   boxPieces: true,
   purchasePrice: true,
   salePrice: true,
+  retailPrice: true,
+  cartonPiecePrice: true,
   costPrice: true,
   openingBalancePcs: true,
   cartonsAvailable: true,
@@ -98,6 +101,7 @@ export interface InvoiceItemInput {
 }
 
 export interface CreateInvoiceInput {
+  priceMode?: PriceMode;
   customerId: string;
   type?: InvoiceType;
   date?: string;
@@ -356,7 +360,8 @@ async function applyStockMovement(
   createdBy = "system",
   // Kept in the signature: callers still pass it, and the audit/notification
   // block below distinguishes an edit from a fresh sale.
-  isEdit = false
+  isEdit = false,
+  priceMode: PriceMode = "WHOLESALE"
 ) {
   const product = await tx.product.findUnique({
     where: { id: item.productId },
@@ -535,7 +540,7 @@ async function applyStockMovement(
   });
 
   // Default unit price: SALE/SALES_RETURN use sale price; PURCHASE uses purchase price.
-  const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : product.salePrice;
+  const defaultPriceSource = invoiceType === InvoiceType.PURCHASE ? product.purchasePrice : piecePriceFor(product, priceMode);
   // For PURCHASE, treat an explicit 0 / negative the SAME as "missing" and fall back to the
   // product's purchase price. A real purchase line is never priced at 0; a stray 0 (e.g. a new
   // product whose purchasePrice still defaults to 0, pre-filled into the edit form) would flow
@@ -1104,6 +1109,7 @@ async function createInvoiceInTransaction(
         where: { id: existingInvoiceId },
         data: {
           type: invoiceType,
+          priceMode: input.priceMode ?? "WHOLESALE",
           customerId: input.customerId,
           branchId,
           date,
@@ -1125,6 +1131,7 @@ async function createInvoiceInTransaction(
         data: {
           invoiceNumber,
           type: invoiceType,
+          priceMode: input.priceMode ?? "WHOLESALE",
           customerId: input.customerId,
           branchId,
           date,
@@ -1169,7 +1176,7 @@ async function createInvoiceInTransaction(
   }> = [];
 
   for (const item of input.items) {
-    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId));
+    const pricedItem = await applyStockMovement(tx, invoice.id, item, invoiceType, branchId, createdBy, Boolean(existingInvoiceId), input.priceMode);
     subtotal = roundMoney(subtotal + pricedItem.totalPrice);
 
     if (pricedItem.wentNegative) {
@@ -1899,7 +1906,7 @@ async function updateInvoiceInTransaction(
     const customerChanged = newCustomerId !== invoice.customerId;
     const result = await createInvoiceInTransaction(
       tx,
-      { ...input, items: rebuildItems, type: effectiveType, customerId: newCustomerId },
+      { ...input, priceMode: input.priceMode ?? (invoice.priceMode as PriceMode) ?? "WHOLESALE", items: rebuildItems, type: effectiveType, customerId: newCustomerId },
       updatedBy,
       id,
       invoice.invoiceNumber,

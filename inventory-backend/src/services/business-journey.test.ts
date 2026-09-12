@@ -363,6 +363,26 @@ describe("end-to-end business journey (real services, shared in-memory DB)", () 
 // Reuses the same faithful in-memory harness above. Verifies the exact example
 // the operator asked for: 10 pcs @ cost 200, then buy 10 pcs @ 300 → costPrice
 // must become the weighted average 250, and purchasePrice the latest unit cost 300.
+describe("carton pricing through the invoice service", () => {
+  it("persists the selected mode, prices smaller invoice units, and freezes old prices", async () => {
+    const { createInvoice, cancelInvoice } = await import("./invoice.service");
+    product.cartonPiecePrice = 750;
+    product.retailPrice = 2000;
+    const input = { customerId: CUST, discount: 0, tax: 0, paidAmount: 0, priceMode: "CARTON" as const,
+      items: [{ productId: PROD, unit: Unit.PIECE, quantity: 2 }, { productId: PROD, unit: Unit.CARTON, quantity: 1 }] };
+    const inv = await createInvoice(input, "user-1", tx);
+    assert.equal(inv.priceMode, "CARTON");
+    assert.equal(inv.subtotal, 10500, "2 pieces + 12-piece carton at 750/piece");
+    product.cartonPiecePrice = 700;
+    assert.equal(inv.items[0].unitPrice, 750, "existing invoice prices remain frozen");
+    await cancelInvoice(inv.id, tx);
+    product.cartonPiecePrice = null;
+    const legacy = await createInvoice({ ...input, items: [{ productId: PROD, unit: Unit.PIECE, quantity: 1 }] }, "user-1", tx);
+    assert.equal(legacy.subtotal, 1000, "unpriced carton falls back to wholesale");
+    await cancelInvoice(legacy.id, tx);
+  });
+});
+
 describe("purchase weighted-average cost", () => {
   let createInvoice: Function;
 

@@ -1,3 +1,4 @@
+import { assertCartonPrice } from "../utils/sale-pricing";
 import { LossReason, Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import prisma from "../config/database";
@@ -39,6 +40,7 @@ type ProductInput = {
   purchasePrice?: number;
   salePrice?: number;
   retailPrice?: number;
+  cartonPiecePrice?: number | null;
   costPrice?: number;
   expiryDate?: string | null;
   minStock?: number;
@@ -94,13 +96,13 @@ export function serializeProduct<T extends {
   // leak via devtools or direct API calls.
   if (hideAllPrices) {
     const {
-      purchasePrice, salePrice, retailPrice, costPrice, oldPrice,
+      purchasePrice, salePrice, retailPrice, cartonPiecePrice, costPrice, oldPrice,
       ...rest
     } = result as typeof result & {
-      purchasePrice?: unknown; salePrice?: unknown; retailPrice?: unknown;
+      purchasePrice?: unknown; salePrice?: unknown; retailPrice?: unknown; cartonPiecePrice?: unknown;
       costPrice?: unknown; oldPrice?: unknown;
     };
-    void purchasePrice; void salePrice; void retailPrice; void costPrice; void oldPrice;
+    void purchasePrice; void salePrice; void retailPrice; void cartonPiecePrice; void costPrice; void oldPrice;
     return rest;
   }
   // Staff without VIEW_PURCHASE_PRICE must never see cost price — stripped
@@ -582,6 +584,7 @@ export async function createProduct(
   db: Db = prisma,
   user?: { id?: string; name?: string }
 ) {
+  assertCartonPrice(input.salePrice ?? 0, input.cartonPiecePrice);
   // Auto-generate item number / QR codes if not provided.
   const runner = async (tx: Db) => {
     const itemNumber = input.itemNumber?.trim() || (await nextItemNumber(tx));
@@ -616,6 +619,7 @@ export async function createProduct(
         purchasePrice: input.purchasePrice ?? 0,
         salePrice: input.salePrice ?? 0,
         retailPrice: input.retailPrice ?? 0,
+        cartonPiecePrice: input.cartonPiecePrice ?? null,
         costPrice: input.costPrice ?? 0,
         expiryDate: input.expiryDate ? new Date(input.expiryDate) : null,
         minStock: input.minStock ?? 0,
@@ -709,6 +713,7 @@ export async function updateProduct(
 ) {
   const runner = async (tx: Db) => {
   const existing = await getProductById(id, tx);
+  assertCartonPrice(input.salePrice ?? ("salePrice" in existing ? existing.salePrice : 0), input.cartonPiecePrice === undefined ? ("cartonPiecePrice" in existing ? existing.cartonPiecePrice : null) : input.cartonPiecePrice);
   // Snapshot per-warehouse pieces BEFORE the edit so we can log each change.
   const beforeByWarehouse = new Map<string, number>();
   for (const s of existing.warehouseStocks ?? []) {
@@ -751,6 +756,7 @@ export async function updateProduct(
   if (input.purchasePrice !== undefined) data.purchasePrice = input.purchasePrice;
   if (input.salePrice !== undefined) data.salePrice = input.salePrice;
   if (input.retailPrice !== undefined) data.retailPrice = input.retailPrice;
+  if (input.cartonPiecePrice !== undefined) data.cartonPiecePrice = input.cartonPiecePrice;
   if (input.costPrice !== undefined) data.costPrice = input.costPrice;
   if (input.expiryDate !== undefined) data.expiryDate = input.expiryDate ? new Date(input.expiryDate) : null;
   if (input.minStock !== undefined) data.minStock = input.minStock;

@@ -41,6 +41,9 @@ import { apiErrorMessage } from "../utils/apiError"
 import { CameraScanModal } from "../components/CameraScanModal"
 import { UNIT_LABELS, cartonBreakdown, piecesPerUnit, unitToPieces, visibleUnits } from "../utils/units"
 
+import { piecePriceFor, PRICE_MODE_LABELS } from "../utils/salePricing"
+import type { PriceMode } from "../types/api"
+
 type Unit = "PIECE" | "DOZEN" | "BOX" | "CARTON"
 type PaymentMode = "CREDIT" | "CASH"
 type InvoiceType = "SALE" | "PURCHASE"
@@ -422,6 +425,7 @@ function getDraftKey(userId: string | undefined, type: InvoiceType) {
 }
 
 interface PersistedDraft {
+  priceMode?: PriceMode
   customerId: string | null
   date: string
   paymentMode: PaymentMode
@@ -581,13 +585,13 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const [productHighlight, setProductHighlight] = useState(0)
   const [showPurchase, setShowPurchase] = useState(false)
   const [showStock, setShowStock] = useState(false)
-  const [useRetailPrice, setUseRetailPrice] = useState(false)
+  const [priceMode, setPriceMode] = useState<PriceMode>("WHOLESALE")
   const [rowDensity, setRowDensityRaw] = useState<RowDensity>(loadRowDensity)
   const setRowDensity = (d: RowDensity) => { setRowDensityRaw(d); saveRowDensity(d) }
   const dz = ROW_DENSITY[rowDensity]
   // When the clerk flips جملة/مفرد while rows already exist we ask what to do
   // with the existing lines. Holds the *target* useRetailPrice value, or null.
-  const [priceModePrompt, setPriceModePrompt] = useState<boolean | null>(null)
+  const [priceModePrompt, setPriceModePrompt] = useState<PriceMode | null>(null)
 
   // ---- totals state ----
   const [discount, setDiscount] = useState(0)
@@ -671,6 +675,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     setSelectedCustomer(null)
     setCustomerQuery("")
     setInvoiceNotes("")
+    setPriceMode("WHOLESALE")
     setItems([])
     setDiscount(0)
     setCouponCode("")
@@ -710,6 +715,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
   const serializeEditState = () =>
     JSON.stringify({
       customerId: selectedCustomer?.id ?? null,
+      priceMode,
       discount,
       paidAmount,
       paymentMode,
@@ -840,15 +846,15 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   // Per-unit price for an explicit retail/wholesale mode (used when re-pricing
   // existing rows after the جملة/مفرد toggle, where the state flag hasn't flipped yet).
-  function unitPriceForMode(product: Product, unit: Unit, retail: boolean) {
+  function unitPriceForMode(product: Product, unit: Unit, mode: PriceMode) {
     const base = isPurchase
       ? product.purchasePrice
-      : (retail && product.retailPrice > 0 ? product.retailPrice : product.salePrice)
+      : piecePriceFor(product, mode)
     return base * piecesPerUnit(unit, product)
   }
 
   function unitPriceFor(product: Product, unit: Unit) {
-    return unitPriceForMode(product, unit, useRetailPrice)
+    return unitPriceForMode(product, unit, priceMode)
   }
 
   // Items selling below purchase price — compare in the SAME unit as unitPrice
@@ -990,10 +996,12 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       setSelectedCustomer(cust)
       setCustomerQuery(cust.name)
     }
+    setPriceMode(inv.priceMode ?? "WHOLESALE")
     setItems(nextItems)
     // Snapshot AFTER init — the unsaved-warning fires only on real changes.
     editSnapshotRef.current = JSON.stringify({
       customerId: cust?.id ?? null,
+      priceMode: inv.priceMode ?? "WHOLESALE",
       discount: nextDiscount,
       paidAmount: nextPaid,
       paymentMode: nextPaymentMode,
@@ -1043,6 +1051,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
         if (p) restoredItems.push({ product: p, unit: it.unit, quantity: it.quantity, unitPrice: it.unitPrice, warehouseId: it.warehouseId, warehouseName: it.warehouseName, allowNegativeStock: it.allowNegativeStock, notes: it.notes, prepared: it.prepared })
         else dropped += 1
       }
+      setPriceMode(draft.priceMode ?? "WHOLESALE")
       setItems(restoredItems)
       // A line can only vanish now if its product was really deleted — say so
       // instead of letting the row disappear without a word.
@@ -1073,6 +1082,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     if (!prep) return                 // already prepared/cancelled or unknown id
 
     prefillAppliedRef.current = true
+    setPriceMode(prep.priceMode ?? "WHOLESALE")
     if (prep.tierDiscount > 0 || prep.isFreeDelivery) {
       setOrderOffer({
         discount: prep.tierDiscount,
@@ -1109,7 +1119,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const activeWhs = allWhs.filter((ws) => ws.quantityPieces > 0)
 
       // Fall back to the product's catalog price when the order didn't carry one.
-      const linePrice = (pi.unitPrice ?? 0) > 0 ? pi.unitPrice! : unitPriceFor(product, unit)
+      const linePrice = pi.unitPrice != null ? pi.unitPrice : unitPriceForMode(product, unit, prep.priceMode ?? "WHOLESALE")
 
       if (activeWhs.length <= 1) {
         // Single warehouse (or no warehouse data) — one row
@@ -1193,6 +1203,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       if (invoiceSavedRef.current) return
       if (items.length === 0 && !selectedCustomer) return
       const draft: PersistedDraft = {
+        priceMode,
         customerId: selectedCustomer?.id ?? null,
         date,
         paymentMode,
@@ -1234,7 +1245,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     }, 3000)
     return () => window.clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit, draftLoaded])
+  }, [items, selectedCustomer, date, paymentMode, paidAmount, discount, invoiceNotes, draftKey, savedInvoiceId, activeTid, uid, invoiceType, isEdit, draftLoaded, priceMode])
 
   function clearDraft() {
     try { localStorage.removeItem(draftKey) } catch {}
@@ -1876,6 +1887,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       try {
         await updateInvoice(editId, {
           type: invoiceType,
+          priceMode,
           customerId: selectedCustomer.id,
           discount,
           tax: 0,
@@ -1917,6 +1929,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       const response = await createMutation.mutateAsync({
       customerId: selectedCustomer.id,
       type: invoiceType,
+      priceMode,
       date,
       clientRequestId: clientRequestIdRef.current,
       // ONLY send a coupon that was actually applied (✓ pressed). The raw
@@ -2106,10 +2119,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
 
   // ---- جملة/مفرد (wholesale/retail) price-mode toggle ----
   // If rows already exist we ask the clerk what to do; otherwise flip silently.
-  function requestPriceModeToggle() {
-    const target = !useRetailPrice
+  function requestPriceModeToggle(target: PriceMode) {
     if (items.length > 0) setPriceModePrompt(target)
-    else setUseRetailPrice(target)
+    else setPriceMode(target)
   }
 
   // Resolve the prompt. scope: "all" reprices existing rows to the new mode
@@ -2118,7 +2130,7 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
     const target = priceModePrompt
     setPriceModePrompt(null)
     if (target === null || scope === "cancel") return
-    setUseRetailPrice(target)
+    setPriceMode(target)
     if (scope === "all") {
       setItems((current) =>
         current.map((item) => ({ ...item, unitPrice: unitPriceForMode(item.product, item.unit, target) })),
@@ -2418,13 +2430,9 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
               <Camera className="h-3.5 w-3.5" /> 📷 باركود
             </button>
             {!isPurchase && (
-              <button
-                type="button"
-                className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", useRetailPrice ? "border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-700 dark:bg-orange-950/30 dark:text-orange-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")}
-                onClick={requestPriceModeToggle}
-              >
-                {useRetailPrice ? "مفرد" : "جملة"}
-              </button>
+              <select aria-label="نوع التسعير" className="rounded border px-2 py-1 text-sm dark:bg-slate-900" value={priceMode} onChange={(e) => requestPriceModeToggle(e.target.value as PriceMode)}>
+                {Object.entries(PRICE_MODE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
             )}
             {canViewPurchasePrice && (
               <button type="button" className={cn("rounded border px-2 py-1 text-[11px] font-medium transition", showPurchase ? "border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-700 dark:bg-sky-950/30 dark:text-sky-400" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300")} onClick={() => setShowPurchase((v) => !v)}>شراء</button>
@@ -3303,10 +3311,10 @@ export function InvoiceCreatePage({ editId }: { editId?: string } = {}) {
       <Dialog open={priceModePrompt !== null} onOpenChange={(open) => { if (!open) setPriceModePrompt(null) }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>تغيير التسعير إلى {priceModePrompt ? "المفرد" : "الجملة"}</DialogTitle>
+            <DialogTitle>تغيير التسعير إلى {priceModePrompt ? PRICE_MODE_LABELS[priceModePrompt] : ""}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            يوجد {items.length} صنف بالفاتورة. كيف تريد تطبيق سعر {priceModePrompt ? "المفرد" : "الجملة"}؟
+            يوجد {items.length} صنف بالفاتورة. كيف تريد تطبيق سعر {priceModePrompt ? PRICE_MODE_LABELS[priceModePrompt] : ""}؟
           </p>
           <div className="mt-3 flex flex-col gap-2">
             <Button onClick={() => resolvePriceMode("all")}>تطبيق على كل الأصناف الحالية</Button>

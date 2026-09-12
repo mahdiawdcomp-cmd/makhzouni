@@ -129,6 +129,7 @@ async function buildProductDetail(
       itemNumber: p.itemNumber,
       thumbnailUrl: p.thumbnailUrl,
       salePrice: opts.allowPrices ? toNumber(p.salePrice) : null,
+      cartonPiecePrice: opts.allowPrices && p.cartonPiecePrice != null ? Number(p.cartonPiecePrice) : null,
       pcsPerCarton: p.pcsPerCarton,
       currentStock: totalStock(p),
     }))
@@ -148,6 +149,7 @@ async function buildProductDetail(
     oldPrice: opts.allowPrices && product.oldPrice !== null ? toNumber(product.oldPrice) : null,
     offerEndsAt: product.offerEndsAt,
     salePrice: opts.allowPrices ? toNumber(product.salePrice) : null,
+    cartonPiecePrice: opts.allowPrices && product.cartonPiecePrice != null ? Number(product.cartonPiecePrice) : null,
     pcsPerCarton: product.pcsPerCarton,
     boxPieces: product.boxPieces,
     hiddenUnits: product.hiddenUnits,

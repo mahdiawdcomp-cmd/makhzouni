@@ -571,6 +571,18 @@ describe("product.service", () => {
   // ──────────────────────────────────────────────────────────────────────────
   //  deleteProduct — حذف ناعم
   // ──────────────────────────────────────────────────────────────────────────
+  describe("carton pricing validation on edits", () => {
+    it("stores carton price and rejects lowering wholesale beneath it", async () => {
+      await updateProduct(PROD_ID, { cartonPiecePrice: 6000 });
+      assert.equal(productStore.cartonPiecePrice, 6000);
+      await assert.rejects(() => updateProduct(PROD_ID, { salePrice: 5000 }), /سعر القطعة بالكارتون/);
+      assert.equal(productStore.salePrice, 7000);
+      await updateProduct(PROD_ID, { cartonPiecePrice: null, salePrice: 5000 });
+      assert.equal(productStore.cartonPiecePrice, null);
+      assert.equal(productStore.salePrice, 5000);
+    });
+  });
+
   describe("deleteProduct", () => {
     it("يضبط deletedAt بدلاً من الحذف الفيزيائي", async () => {
       assert.equal(productStore.deletedAt, null, "قبل الحذف: deletedAt = null");

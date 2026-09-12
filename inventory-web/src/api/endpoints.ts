@@ -268,9 +268,9 @@ export async function getVisitorSession(token: string) {
   return data.data!
 }
 
-export async function getVisitorCatalogProducts(token: string) {
+export async function getVisitorCatalogProducts(token: string, priceMode?: "WHOLESALE" | "CARTON") {
   const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>(
-    "/public/catalog/visitor-products", { params: { token } },
+    "/public/catalog/visitor-products", { params: { token, priceMode } },
   )
   return data.data ?? []
 }
@@ -644,8 +644,8 @@ export async function verifyCatalogAccess(access: string) {
   return data.data
 }
 
-export async function getPublicCatalogProducts(access: string) {
-  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access } })
+export async function getPublicCatalogProducts(access: string, priceMode?: "WHOLESALE" | "CARTON") {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/products", { params: { access, priceMode } })
   return data.data ?? []
 }
 
@@ -660,8 +660,8 @@ export async function getCatalogMediums(ids: string[], opts?: { access?: string;
   return data.data ?? {}
 }
 
-export async function getGuestCatalogProducts() {
-  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products")
+export async function getGuestCatalogProducts(priceMode?: "WHOLESALE" | "CARTON") {
+  const { data } = await api.get<ApiEnvelope<PublicCatalogProduct[]>>("/public/catalog/guest-products", { params: { priceMode } })
   return data.data ?? []
 }
 
@@ -918,6 +918,7 @@ export interface CatalogProductReviewItem {
 }
 
 export interface CatalogProductDetail {
+  cartonPiecePrice?: number | null
   id: string
   itemNumber: string
   name: string
@@ -939,7 +940,7 @@ export interface CatalogProductDetail {
   reviews: { average: number | null; count: number; items: CatalogProductReviewItem[] }
   related: Array<{
     id: string; name: string; itemNumber: string; thumbnailUrl: string | null
-    salePrice: number | null; pcsPerCarton: number; currentStock: number
+    cartonPiecePrice?: number | null; salePrice: number | null; pcsPerCarton: number; currentStock: number
   }>
 }
 

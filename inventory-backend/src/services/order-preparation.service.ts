@@ -237,6 +237,7 @@ export async function listPendingPreparations() {
 
   return rows.map((row) => {
     const od = row.orderData as {
+      priceMode?: "WHOLESALE" | "RETAIL" | "CARTON";
       items?: PreparationItem[];
       discount?: number;
       tierPercent?: number;
@@ -246,6 +247,7 @@ export async function listPendingPreparations() {
     const subtotal = od?.items?.reduce((s, it) => s + (it.quantity * (it.unitPrice ?? 0)), 0) ?? 0;
     return {
       id: row.id,
+      priceMode: od?.priceMode ?? "WHOLESALE",
       // What «عروض القائمة» granted this order. It was computed from server
       // prices when the order was placed and stored on the preparation — but
       // it never left the server, so an invoice built by hand from this order
@@ -399,6 +401,7 @@ async function splitOrderItemsAcrossWarehouses(
 }
 
 type OrderData = {
+  priceMode?: "WHOLESALE" | "RETAIL" | "CARTON";
   customerName: string;
   phone: string;
   address?: string;
@@ -515,6 +518,7 @@ export async function markPrepared(
       {
         customerId: customer.id,
         type: "SALE",
+        priceMode: od.priceMode === "CARTON" || od.priceMode === "RETAIL" ? od.priceMode : "WHOLESALE",
         discount: od.discount ?? 0,
         tax: od.tax ?? 0,
         paidAmount: od.paidAmount ?? 0,

@@ -61,7 +61,7 @@ export const verifyCatalogAccessCtrl = asyncHandler(async (req, res) => {
 });
 
 export const getCatalogProducts = asyncHandler(async (req, res) => {
-  const products = await listCatalogProducts(String(req.query.access ?? ""));
+  const products = await listCatalogProducts(String(req.query.access ?? ""), req.query.priceMode === "CARTON" ? "CARTON" : req.query.priceMode === "WHOLESALE" ? "WHOLESALE" : undefined);
   res.json({ success: true, data: products });
 });
 
@@ -82,8 +82,8 @@ export const createCatalogOrder = asyncHandler(async (req, res) => {
   });
 });
 
-export const getGuestCatalogProducts = asyncHandler(async (_req, res) => {
-  const products = await listGuestCatalogProducts();
+export const getGuestCatalogProducts = asyncHandler(async (req, res) => {
+  const products = await listGuestCatalogProducts(req.query.priceMode === "WHOLESALE" ? "WHOLESALE" : "CARTON");
   res.json({ success: true, data: products });
 });
 
@@ -94,7 +94,7 @@ export const getVisitorCatalogProducts = asyncHandler(async (req, res) => {
   const { requireVisitorSession } = await import("../services/catalog-visitor.service");
   const { listVisitorCatalogProducts } = await import("../services/catalog.service");
   const session = await requireVisitorSession(String(req.query.token ?? ""));
-  const products = await listVisitorCatalogProducts({ pricesUnlocked: session.pricesUnlocked });
+  const products = await listVisitorCatalogProducts({ pricesUnlocked: session.pricesUnlocked, priceMode: req.query.priceMode === "WHOLESALE" ? "WHOLESALE" : "CARTON" });
   res.json({ success: true, data: products });
 });
 

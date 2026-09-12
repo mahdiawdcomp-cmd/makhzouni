@@ -414,6 +414,7 @@ model Product {
   pcsPerCarton            Int                          @default(1) @map("pcs_per_carton")
   purchasePrice           Decimal                      @default(0) @map("purchase_price") @db.Decimal(12, 2)
   salePrice               Decimal                      @default(0) @map("sale_price") @db.Decimal(12, 2)
+  cartonPiecePrice        Decimal?                     @map("carton_piece_price") @db.Decimal(12, 2)
   retailPrice             Decimal                      @default(0) @map("retail_price") @db.Decimal(12, 2)
   costPrice               Decimal                      @default(0) @map("cost_price") @db.Decimal(12, 2)
   expiryDate              DateTime?                    @map("expiry_date")
@@ -1204,6 +1205,7 @@ model CatalogProductStat {
 model Invoice {
   id                  String                  @id @default(uuid()) @db.Uuid
   invoiceNumber       String                  @unique @map("invoice_number")
+  priceMode           String                  @default("WHOLESALE") @map("price_mode")
   type                InvoiceType             @default(SALE)
   customerId          String                  @map("customer_id") @db.Uuid
   customer            Customer                @relation(fields: [customerId], references: [id])

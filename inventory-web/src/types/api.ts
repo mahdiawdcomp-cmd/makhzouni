@@ -163,7 +163,10 @@ export interface WarehouseStock {
   minStock?: number | null
 }
 
+export type PriceMode = "WHOLESALE" | "RETAIL" | "CARTON"
+
 export interface Product {
+  cartonPiecePrice?: number | null
   id: string
   itemNumber: string
   name: string
@@ -590,6 +593,9 @@ export interface CampaignPayload {
 }
 
 export interface PublicCatalogProduct {
+  cartonPiecePrice?: number | null
+  purchaseMode?: "WHOLESALE" | "CARTON"
+  wholesalePiecePrice?: number | null
   id: string
   itemNumber: string
   name: string
@@ -657,6 +663,7 @@ export interface FirstOrderCouponReport {
 }
 
 export interface CatalogOrderPayload {
+  priceMode?: "WHOLESALE" | "CARTON"
   customerName: string
   phone: string
   address?: string
@@ -675,6 +682,7 @@ export interface CatalogOrderPayload {
 export type GuestCatalogOrderPayload = Omit<CatalogOrderPayload, "promoCode">
 
 export interface ProductPayload {
+  cartonPiecePrice?: number | null
   // Only `name` is required; the server will auto-generate item number / QR codes if omitted.
   name: string
   itemNumber?: string
@@ -893,6 +901,7 @@ export interface LastTransaction {
 }
 
 export interface Invoice {
+  priceMode?: PriceMode
   id: string
   invoiceNumber: string
   type?: InvoiceType
@@ -973,6 +982,7 @@ export interface StockLoss {
 }
 
 export interface CreateInvoicePayload {
+  priceMode?: PriceMode
   customerId: string
   type?: InvoiceType
   date?: string
@@ -1555,6 +1565,7 @@ export interface BranchPayload {
 }
 
 export interface OrderPreparation {
+  priceMode?: PriceMode
   id: string
   /** «عروض القائمة» this order earned, in dinars. 0 when it earned nothing. */
   tierDiscount: number

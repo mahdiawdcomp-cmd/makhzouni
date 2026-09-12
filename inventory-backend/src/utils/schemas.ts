@@ -209,6 +209,7 @@ export const catalogAccessStatusSchema = z.object({
 
 export const catalogAccessQuerySchema = z.object({
   query: z.object({
+    priceMode: z.enum(["WHOLESALE", "CARTON"]).optional(),
     access: z.string().trim().min(20),
   }),
 });
@@ -223,6 +224,7 @@ export const createCatalogOrderSchema = z.object({
     address: z.string().trim().max(240).optional(),
     notes: z.string().trim().max(500).optional(),
     promoCode: z.string().trim().max(60).optional(),
+    priceMode: z.enum(["WHOLESALE", "CARTON"]).optional(),
     items: z.array(catalogOrderItemSchema).min(1).max(200),
   }),
 });
@@ -241,6 +243,7 @@ export const createGuestCatalogOrderSchema = z.object({
     // Where to deliver, and what the free-delivery promise is worth to them.
     province: z.string().trim().max(60).optional(),
     notes: z.string().trim().max(500).optional(),
+    priceMode: z.enum(["WHOLESALE", "CARTON"]).optional(),
     items: z.array(catalogOrderItemSchema).min(1).max(200),
     // Present when a signed-in visitor is ordering; absent for a true guest.
     visitorToken: z.string().trim().min(10).max(200).optional(),
@@ -292,7 +295,10 @@ export const visitorTokenSchema = z.object({
 });
 
 export const visitorTokenQuerySchema = z.object({
-  query: z.object({ token: z.string().trim().min(10).max(200) }),
+  query: z.object({
+    priceMode: z.enum(["WHOLESALE", "CARTON"]).optional(),
+    token: z.string().trim().min(10).max(200),
+  }),
 });
 
 const incomingItemBody = z.object({
@@ -723,6 +729,7 @@ export const createProductSchema = z.object({
     purchasePrice: z.coerce.number().nonnegative().default(0),
     salePrice: z.coerce.number().nonnegative().default(0),
     retailPrice: z.coerce.number().nonnegative().default(0),
+    cartonPiecePrice: z.coerce.number().positive().nullable().optional(),
     costPrice: z.coerce.number().nonnegative().default(0),
     expiryDate: z.string().nullable().optional(),
     minStock: z.coerce.number().int().min(0).default(0),
@@ -844,6 +851,7 @@ export const createInvoiceSchema = z.object({
   body: z.object({
     customerId: z.string().uuid(),
     branchId: z.string().uuid().optional(),
+    priceMode: z.enum(["WHOLESALE", "RETAIL", "CARTON"]).optional(),
     type: invoiceTypeSchema.default("SALE"),
     date: dateString.optional(),
     originalInvoiceId: z.string().uuid().optional(),
@@ -865,6 +873,7 @@ export const createInvoiceSchema = z.object({
 export const updateInvoiceSchema = z.object({
   params: uuidParam,
   body: z.object({
+    priceMode: z.enum(["WHOLESALE", "RETAIL", "CARTON"]).optional(),
     type: invoiceTypeSchema.optional(),
     // validate() REPLACES req.body with the parsed result, so a field absent
     // here is silently dropped. Both edit UIs send customerId; without this the

@@ -82,6 +82,7 @@ import {
   type CatalogTrust,
 } from "../api/endpoints"
 import type { CatalogStockFilter, PublicCatalogProduct } from "../types/api"
+import { catalogProductForMode } from "../utils/salePricing"
 import { cn } from "../utils/cn"
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
@@ -120,18 +121,17 @@ const UNIT_DESC: Record<CatalogUnit, (pcsInUnit: number) => string> = {
 }
 const UNITS: CatalogUnit[] = ["PIECE", "DOZEN", "BOX", "CARTON"]
 /**
- * Every unit, always. Availability is what greys one out, not a setting.
+ * Wholesale offers every unit; carton purchasing deliberately offers cartons only.
  *
  * This used to obey the product's «الوحدات المخفية» list — a field whose own
  * description promises it only affects invoices. Hiding a unit to keep it off
  * the invoice screen silently emptied it out of the catalog too, which is how
  * 104 products ended up offering the shopper one unit or two instead of four.
- * The shopper sees all four and the stock decides which are clickable.
+ * In wholesale mode stock decides which units are clickable.
  */
-const unitsFor = (): CatalogUnit[] => UNITS
-// UNITS is ascending PIECE→CARTON, so the last entry is the largest bulk unit
-// — the carton, which is what a wholesale shopper means by "one".
-const defaultUnitFor = (): CatalogUnit => UNITS[UNITS.length - 1] ?? "PIECE"
+const unitsFor = (product: PublicCatalogProduct): CatalogUnit[] => product.purchaseMode === "CARTON" ? ["CARTON"] : UNITS
+// Default follows the shopper's choice; the picker still checks available stock.
+const defaultUnitFor = (product?: PublicCatalogProduct): CatalogUnit => product?.purchaseMode === "WHOLESALE" ? (product.currentStock >= 12 ? "DOZEN" : "PIECE") : "CARTON"
 
 /* ─── Theme system ───────────────────────────────────────────────────── */
 /* ─── Design system ──────────────────────────────────────────────────
@@ -307,6 +307,14 @@ const pcs = (product: PublicCatalogProduct, unit: CatalogUnit): number => {
   if (unit === "BOX") return product.boxPieces != null && product.boxPieces > 0 ? product.boxPieces : Math.ceil(n / 2)
   if (unit === "DOZEN") return 12
   return 1 // PIECE
+}
+
+function CatalogPrice({ product }: { product: PublicCatalogProduct }) {
+  const carton = product.purchaseMode === "CARTON"
+  return <span>
+    {money(Number(product.salePrice ?? 0) * (carton ? product.pcsPerCarton : 1))} د.ع/{carton ? "كارتون" : "قطعة"}
+    {carton && <small className="block text-xs font-normal">{product.pcsPerCarton} قطعة · {money(product.salePrice)} د.ع للقطعة</small>}
+  </span>
 }
 
 const linePrice = (product: PublicCatalogProduct, unit: CatalogUnit) =>
@@ -1107,6 +1115,8 @@ function CatalogShop({
   // signed in as somebody, and signing out has to clear all three or the next
   // visit silently walks back in as the previous person. clearStoredIdentity()
   // inside restart() is the one place that knows all of them.
+  const [purchaseMode, setPurchaseMode] = useState<"WHOLESALE" | "CARTON" | null>(null)
+  const effectiveMode = purchaseMode ?? "WHOLESALE"
   const { restart } = useCatalogRestart()
   const signedInName = customerName.trim()
   const signedInPhone = customerPhone.trim()
@@ -1118,22 +1128,20 @@ function CatalogShop({
   const goToLogin = () => restart("login")
   const signOut = () => restart("browse")
 
-  // Per-customer display filter: FULL_CARTON_ONLY hides sub-carton products
-  // (historical behavior); ALL_PRODUCTS shows everything the backend sent.
-  // Ordering is still carton-only either way. Guests are always carton-only.
+  // The explicit purchase choice controls stock visibility for every shopper.
   const inStock = (p: PublicCatalogProduct) =>
-    guestMode ? hasFullCarton(p) : stockFilter === "ALL_PRODUCTS" ? p.currentStock > 0 : hasFullCarton(p)
+    effectiveMode === "CARTON" ? hasFullCarton(p) : p.currentStock > 0
   // The rule itself lives in utils/catalogAccess, where it is tested — this
   // only supplies the four switches it reads.
   const canDisplay = (p: PublicCatalogProduct) =>
-    shouldDisplay(p, { guestMode, stockFilter, hideNoImage, noImageMode })
+    shouldDisplay(p, { guestMode: false, stockFilter: effectiveMode === "CARTON" ? "FULL_CARTON_ONLY" : "ALL_PRODUCTS", hideNoImage, noImageMode })
   const productsQuery = useQuery({
     queryKey: visitorToken
-      ? ["visitor-catalog-products", visitorToken]
-      : guestMode ? ["guest-catalog-products"] : ["public-catalog-products", accessToken],
+      ? ["visitor-catalog-products", visitorToken, effectiveMode]
+      : guestMode ? ["guest-catalog-products", effectiveMode] : ["public-catalog-products", accessToken, effectiveMode],
     queryFn: () => visitorToken
-      ? getVisitorCatalogProducts(visitorToken)
-      : guestMode ? getGuestCatalogProducts() : getPublicCatalogProducts(accessToken),
+      ? getVisitorCatalogProducts(visitorToken, effectiveMode)
+      : guestMode ? getGuestCatalogProducts(effectiveMode) : getPublicCatalogProducts(accessToken, effectiveMode),
     refetchOnMount: "always",
     staleTime: 0,
   })
@@ -1417,7 +1425,7 @@ function CatalogShop({
   })
   const catalogCatsList = useMemo(() => (catsQuery.data ?? []) as Array<{ name: string; types: string[] }>, [catsQuery.data])
 
-  const products = useMemo(() => productsQuery.data ?? [], [productsQuery.data])
+  const products = useMemo(() => (productsQuery.data ?? []).map(p => catalogProductForMode(p, effectiveMode)), [productsQuery.data, effectiveMode])
 
   // The shop's arrangement, already merged with the built-in order by the
   // backend — an unknown key here simply renders nothing.
@@ -1853,6 +1861,7 @@ function CatalogShop({
         ? submitGuestCatalogOrder({
             customerName: guestName.trim(), phone: guestPhone.trim(), address: guestAddress.trim() || undefined,
             province: guestProvince || undefined,
+            priceMode: effectiveMode,
             notes: notes.trim() || undefined,
             // A signed-in visitor orders through the same endpoint; the token
             // is what tells the server they are not an anonymous guest.
@@ -1862,6 +1871,7 @@ function CatalogShop({
         : submitPublicCatalogOrder(
             {
               customerName, phone: customerPhone, notes: notes.trim() || undefined,
+              priceMode: effectiveMode,
               items: cart.map(l => ({ productId: l.product.id, unit: l.unit, quantity: l.quantity, isSample: l.isSample })),
               promoCode: promoResult?.code,
             },
@@ -1870,7 +1880,22 @@ function CatalogShop({
     onSuccess: (r) => { setSubmitted(r.data?.approvalId ?? "ok"); setCart([]); setNotes(""); setPromoResult(null); setPromoCode("") },
   })
 
-  function add(product: PublicCatalogProduct, unit: CatalogUnit = defaultUnitFor()) {
+  function changePurchaseMode(next: "WHOLESALE" | "CARTON") {
+    if (purchaseMode === next) return
+    if (cart.length && !window.confirm("تغيير طريقة الشراء يعيد حساب أسعار السلة ويحذف المواد غير المتوافقة. تريد تكمل؟")) return
+    setCart(prev => prev.filter(l => next !== "CARTON" || (hasFullCarton(l.product) && (l.unit === "CARTON" || l.isSample))).map(l => ({ ...l, product: catalogProductForMode(l.product, l.isSample ? "WHOLESALE" : next) })))
+    setPurchaseMode(next)
+    setPage(0)
+    setFilters(EMPTY_FILTERS)
+    setPromoResult(null)
+    setPickerProduct(null)
+    setOpenProductId(null)
+    setStudioIndex(null)
+  }
+
+  function add(product: PublicCatalogProduct, unit: CatalogUnit = defaultUnitFor(product)) {
+    product = catalogProductForMode(product, effectiveMode)
+    if (effectiveMode === "CARTON" && unit !== "CARTON") return
     const max = maxQty(product, unit)
     if (max < 1) return
     setSubmitted(null)
@@ -1891,6 +1916,8 @@ function CatalogShop({
    * the cart must never hold more than the warehouse has.
    */
   function addMany(product: PublicCatalogProduct, lines: Array<{ unit: CatalogUnit; quantity: number }>) {
+    product = catalogProductForMode(product, effectiveMode)
+    lines = lines.filter(l => effectiveMode !== "CARTON" || l.unit === "CARTON")
     if (lines.length === 0) return
     setSubmitted(null)
     setCart((prev) => {
@@ -1921,7 +1948,7 @@ function CatalogShop({
     setCart((prev) => {
       const id = key(product.id, "PIECE", true)
       if (prev.some((l) => l.id === id)) return prev
-      return [...prev, { id, product, unit: "PIECE", quantity: 1, isSample: true }]
+      return [...prev, { id, product: catalogProductForMode(product, "WHOLESALE"), unit: "PIECE", quantity: 1, isSample: true }]
     })
     setCartOpen(true)
   }
@@ -1930,6 +1957,7 @@ function CatalogShop({
     setCart((prev) =>
       prev.flatMap((l) => {
         if (l.id !== lineId) return [l]
+        if (l.isSample) return delta < 0 ? [] : [l]
         const q = l.quantity + delta
         if (q < 1) return []
         return [{ ...l, quantity: Math.min(q, maxQty(l.product, l.unit)) }]
@@ -1938,9 +1966,10 @@ function CatalogShop({
   }
 
   function changeUnit(lineId: string, unit: CatalogUnit) {
+    if (effectiveMode === "CARTON" && unit !== "CARTON") return
     setCart((prev) => {
       const target = prev.find(l => l.id === lineId)
-      if (!target) return prev
+      if (!target || target.isSample) return prev
       const max = maxQty(target.product, unit)
       if (max < 1) return prev.filter(l => l.id !== lineId)
       const newId = key(target.product.id, unit)
@@ -1971,7 +2000,7 @@ function CatalogShop({
     // Total pieces already in cart for this product (for stock-ceiling check)
     const pcsInCart = productLines.reduce((s, l) => s + l.quantity * pcs(product, l.unit), 0)
     // If exactly one unit type in cart → reuse it on "+" without reopening picker
-    const cartUnit = productLines.length === 1 ? productLines[0].unit : null
+    const cartUnit = productLines.length === 1 && !productLines[0].isSample ? productLines[0].unit : null
     const firstLine = productLines[0] ?? null
     return (
       <ProductCard
@@ -2091,7 +2120,7 @@ function CatalogShop({
                   .filter(p => p.thumbnailUrl || p.imageUrl)
                   .map(p => ({
                   src: (p.thumbnailUrl || p.imageUrl)!, title: p.name,
-                  subtitle: allowPrices ? `${money(p.salePrice)} د.ع` : undefined,
+                  subtitle: allowPrices ? `${money(linePrice(p, effectiveMode === "CARTON" ? "CARTON" : "PIECE"))} د.ع/${effectiveMode === "CARTON" ? "كارتون" : "قطعة"}` : undefined,
                 }))
           if (slides.length < 2) return null
           const total = slides.length
@@ -2219,7 +2248,7 @@ function CatalogShop({
               })()}
               <span className="truncate font-semibold" style={{ color: tk.text, fontSize: tk.fs.xs }}>{fp.name}</span>
               {allowPrices && (
-                <span className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xs }}>{money(fp.salePrice)} د.ع</span>
+                <span className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xs }}><CatalogPrice product={fp} /></span>
               )}
             </button>
           ))}
@@ -2531,6 +2560,20 @@ function CatalogShop({
         )}
       </header>
 
+      <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: tk.cardBg, color: tk.text }}>
+        <span className="font-bold">{effectiveMode === "CARTON" ? "شراء كراتين كاملة" : "شراء جملة — درازن وعلب وقطع"}</span>
+        <button className="rounded-xl border px-3 py-2 text-sm font-bold" onClick={() => changePurchaseMode(effectiveMode === "CARTON" ? "WHOLESALE" : "CARTON")}>تغيير طريقة الشراء</button>
+      </div>
+      {!purchaseMode && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="purchase-mode-title" dir="rtl">
+          <div className="w-full max-w-md rounded-2xl p-6 shadow-xl" style={{ background: tk.cardBg, color: tk.text }}>
+            <h2 id="purchase-mode-title" className="mb-2 text-xl font-bold">شلون تريد تشتري؟</h2>
+            <p className="mb-5 text-sm">اختار طريقة الشراء حتى نعرض لك الأسعار والمواد المناسبة.</p>
+            <button autoFocus className="mb-3 min-h-14 w-full rounded-xl px-4 py-3 font-bold text-white" style={{ background: tk.accent }} onClick={() => changePurchaseMode("CARTON")}>كراتين كاملة — سعر خاص للكارتون</button>
+            <button className="min-h-14 w-full rounded-xl border px-4 py-3 font-bold" onClick={() => changePurchaseMode("WHOLESALE")}>درازن — قطعة وعلبة ودرزن</button>
+          </div>
+        </div>
+      )}
       {/* ── «المعرض»: pictures, and the picture opened over them ── */}
       {isStudio && (
         <StudioGallery
@@ -2813,6 +2856,7 @@ function CatalogShop({
       {/* ── Product page ── */}
       {openProductId && (
         <ProductDetailSheet
+          purchaseMode={effectiveMode}
           visitorToken={visitorToken}
           reviewsEnabled={design?.reviewsEnabled !== false}
           suggestionsEnabled={design?.suggestionsEnabled !== false}
@@ -2824,7 +2868,7 @@ function CatalogShop({
           lowStockCartons={design?.trust?.lowStockCartons ?? 0}
           publicOrigin={design?.publicUrl ?? ""}
           onClose={closeProduct}
-          onAdd={(p, unit) => { add(p, unit); closeProduct() }}
+          onAdd={(p) => { closeProduct(); setPickerProduct(p) }}
           onSample={(p) => { addSample(p); closeProduct() }}
           onOpenProduct={openProduct}
         />
@@ -2875,8 +2919,7 @@ function CatalogShop({
                     </p>
                   )}
                   <p className="font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.xl }}>
-                    {money(studioProduct.salePrice)}
-                    <span className="font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}> د.ع/قطعة</span>
+                    <CatalogPrice product={studioProduct} />
                   </p>
                 </div>
               )}
@@ -2939,7 +2982,7 @@ function CatalogShop({
       )}
 
       {/* ── First-visit onboarding tutorial ── */}
-      {showTutorial && design?.tutorialEnabled !== false && (
+      {purchaseMode && showTutorial && design?.tutorialEnabled !== false && (
         <CatalogOnboardingTutorial
           tk={tk}
           onClose={() => { localStorage.setItem(TUTORIAL_SEEN_KEY, "1"); setShowTutorial(false) }}
@@ -3190,8 +3233,9 @@ function Stars({ value, size, onPick }: { value: number; size: string; onPick?: 
 
 function ProductDetailSheet({
   productId, accessToken, guestMode, tk, allowPrices, lowStockCartons, onClose, onAdd, onSample, onOpenProduct,
-  reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "", publicOrigin = "",
+  reviewsEnabled = true, suggestionsEnabled = true, visitorToken = "", publicOrigin = "", purchaseMode = "WHOLESALE",
 }: {
+  purchaseMode?: "WHOLESALE" | "CARTON"
   productId: string
   accessToken: string
   guestMode: boolean
@@ -3241,7 +3285,7 @@ function ProductDetailSheet({
     queryFn: () => getMyCatalogReview(productId, access),
     enabled: Boolean(access),
   })
-  const product = detailQuery.data
+  const product = detailQuery.data ? catalogProductForMode(detailQuery.data, purchaseMode) : undefined
 
   const myReview = myReviewQuery.data
   const seedId = myReview?.id ?? null
@@ -3301,7 +3345,7 @@ function ProductDetailSheet({
     } catch { /* user dismissed the share sheet */ }
   }
 
-  const outOfStock = (product?.currentStock ?? 0) <= 0
+  const outOfStock = !product || (purchaseMode === "CARTON" ? !hasFullCarton(product) : product.currentStock <= 0)
   const cartons = product ? Math.floor(product.currentStock / Math.max(1, product.pcsPerCarton)) : 0
   const lowStock = !outOfStock && lowStockCartons > 0 && cartons <= lowStockCartons
 
@@ -3399,8 +3443,7 @@ function ProductDetailSheet({
               {allowPrices && !outOfStock && (
                 <div className="mt-3 flex items-end gap-2">
                   <span className="font-extrabold leading-none" style={{ color: tk.accent, fontSize: tk.fs.xxl }}>
-                    {money(product.salePrice)}
-                    <span className="font-normal mr-1" style={{ color: tk.subtext, fontSize: tk.fs.sm }}>د.ع / قطعة</span>
+                    <CatalogPrice product={product} />
                   </span>
                   {product.isOffer && product.oldPrice ? (
                     <span className="line-through" style={{ color: tk.subtext, fontSize: tk.fs.md }}>{money(product.oldPrice)}</span>
@@ -3524,7 +3567,7 @@ function ProductDetailSheet({
               <section className="mt-4 px-3">
                 <h2 className="mb-2 font-extrabold" style={{ color: tk.text, fontSize: tk.fs.md }}>منتجات مشابهة</h2>
                 <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide">
-                  {product.related.map((r) => (
+                  {product.related.filter(r => purchaseMode !== "CARTON" || hasFullCarton(r)).map((r) => (
                     <button key={r.id} onClick={() => onOpenProduct(r.id)}
                       className="w-[124px] shrink-0 overflow-hidden text-right transition active:scale-95"
                       style={{ background: tk.cardBg, borderRadius: tk.radiusMd, border: `1px solid ${tk.divider}`, boxShadow: tk.shadowSm }}>
@@ -3536,7 +3579,7 @@ function ProductDetailSheet({
                       <div className="p-2">
                         <p className="line-clamp-2 font-bold leading-snug" style={{ color: tk.text, fontSize: tk.fs.xs }}>{r.name}</p>
                         {allowPrices && r.salePrice != null && (
-                          <p className="mt-0.5 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{money(r.salePrice)} د.ع</p>
+                          <p className="mt-0.5 font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}><CatalogPrice product={catalogProductForMode(r, purchaseMode)} /></p>
                         )}
                       </div>
                     </button>
@@ -3557,7 +3600,7 @@ function ProductDetailSheet({
               onClick={() => {
                 // The detail payload is a superset of the grid's product shape —
                 // reuse the same add() so unit logic stays in one place.
-                onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor())
+                onAdd(product as unknown as PublicCatalogProduct, defaultUnitFor(product))
               }}
               className="flex flex-1 items-center justify-center gap-2 py-4 font-extrabold text-white transition active:scale-95"
               style={{ background: tk.accent, borderRadius: tk.radiusLg, boxShadow: tk.shadowMd, fontSize: tk.fs.lg }}>
@@ -4109,7 +4152,7 @@ function UnitPickerSheet({
   onAdd: (lines: Array<{ unit: CatalogUnit; quantity: number }>) => void
   onClose: () => void
 }) {
-  const units = unitsFor()
+  const units = unitsFor(product)
 
   // Every unit starts at zero. Opening the sheet pre-loaded with one carton
   // meant a shopper who only wanted to look at a product had already been
@@ -4586,7 +4629,7 @@ function ProductCard({
   // never fired. 0 = the shop has not opted into scarcity warnings.
   const lowStock = !outOfStock && lowStockCartons > 0 && cartonsLeft <= lowStockCartons
   // Price shown is per PIECE by default (when not in cart) or the cart unit
-  const displayUnit = cartUnit ?? "PIECE"
+  const displayUnit = cartUnit ?? (product.purchaseMode === "CARTON" ? "CARTON" : "PIECE")
   const displayPrice = linePrice(product, displayUnit)
   // canAddMore: if single unit type in cart, check that unit's limit; else check total pieces vs stock
   const canAddMore = !outOfStock && (
@@ -4638,7 +4681,7 @@ function ProductCard({
             <div>
               {allowPrices && (
                 <p className="font-extrabold leading-none" style={{ color: tk.accent, fontSize: tk.fs.xl }}>
-                  {money(displayPrice)} <span className="font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>د.ع/{UNIT_LABELS[displayUnit]}</span>
+                  {product.purchaseMode === "CARTON" ? <CatalogPrice product={product} /> : <>{money(displayPrice)} <span className="font-normal" style={{ color: tk.subtext, fontSize: tk.fs.xs }}>د.ع/{UNIT_LABELS[displayUnit]}</span></>}
                 </p>
               )}
               {showStock && !outOfStock && (
@@ -4716,7 +4759,7 @@ function ProductCard({
         <div className="px-1.5 pb-1.5 pt-1">
           <p onClick={onOpen} className="truncate cursor-pointer font-bold leading-tight" style={{ color: tk.text, fontSize: tk.fs.xs }}>{product.name}</p>
           {allowPrices && !outOfStock && (
-            <p className="truncate font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{money(displayPrice)} د.ع</p>
+            <p className="truncate font-extrabold" style={{ color: tk.accent, fontSize: tk.fs.sm }}>{product.purchaseMode === "CARTON" ? <CatalogPrice product={product} /> : <>{money(displayPrice)} د.ع</>}</p>
           )}
           {outOfStock && <p className="font-bold text-red-500" style={{ fontSize: tk.fs.xs }}>نفد</p>}
         </div>
@@ -4786,7 +4829,7 @@ function ProductCard({
                   <p className="text-white/60 line-through leading-none" style={{ fontSize: tk.fs.xs }}>{money(Number(product.oldPrice))}</p>
                 )}
                 <p className="font-extrabold text-white leading-none drop-shadow" style={{ fontSize: cardFs.price }}>
-                  {money(displayPrice)}<span className="font-normal text-white/75 mr-0.5" style={{ fontSize: tk.fs.xs }}>د.ع</span>
+                  {product.purchaseMode === "CARTON" ? <CatalogPrice product={product} /> : <>{money(displayPrice)}<span className="font-normal text-white/75 mr-0.5" style={{ fontSize: tk.fs.xs }}>د.ع</span></>}
                 </p>
                 {cartUnit && cartUnit !== "PIECE" && (
                   <p className="text-white/75 leading-none mt-0.5" style={{ fontSize: tk.fs.xs }}>للـ{UNIT_LABELS[cartUnit]}</p>
@@ -5206,7 +5249,7 @@ function CartItem({
       <div className="mt-2.5 flex items-center justify-between gap-2">
         {/* Unit switcher */}
         <div className="flex gap-1 flex-wrap">
-          {unitsFor().map((u) =>
+          {(line.isSample ? ["PIECE" as CatalogUnit] : unitsFor(line.product)).map((u) =>
             maxQty(line.product, u) > 0 ? (
               <button key={u} onClick={() => onChangeUnit(line.id, u)}
                 className="rounded-lg px-2.5 py-1 font-bold transition"

@@ -1,5 +1,6 @@
 import { CatalogStockFilter, PromoCodeType, Unit } from "@prisma/client";
 import { createHash, randomBytes } from "crypto";
+import { piecePriceFor, assertCatalogUnits, type PriceMode } from "../utils/sale-pricing";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
@@ -21,6 +22,7 @@ import { buildDeliveryLine } from "../utils/deliveryRegion";
 import { normalizeOrderTiers, resolveOrderTier, DEFAULT_ORDER_TIERS } from "../utils/orderTiers";
 
 type CatalogOrderInput = {
+  priceMode?: PriceMode;
   customerName: string;
   phone: string;
   address?: string;
@@ -1045,7 +1047,7 @@ export async function confirmCatalogVerification(token: string) {
   return getCatalogAccess(token);
 }
 
-export async function listCatalogProducts(token: string) {
+export async function listCatalogProducts(token: string, priceMode?: PriceMode) {
   const access = await getCatalogAccess(token);
   // Count one catalog open per grid load (this runs once when the shopper opens
   // the catalog, unlike getCatalogAccess which fires on every sub-request).
@@ -1065,7 +1067,7 @@ export async function listCatalogProducts(token: string) {
     orderBy: [{ category: "asc" }, { name: "asc" }],
   });
 
-  const fullCartonOnly = access.stockFilter === CatalogStockFilter.FULL_CARTON_ONLY;
+  const fullCartonOnly = priceMode ? priceMode === "CARTON" : access.stockFilter === CatalogStockFilter.FULL_CARTON_ONLY;
   const signals = await getCatalogRankingSignals();
 
   const mapped = products
@@ -1090,6 +1092,7 @@ export async function listCatalogProducts(token: string) {
         offerEndsAt: product.offerEndsAt,
         createdAt: product.createdAt,
         salePrice: access.allowPrices ? toNumber(product.salePrice) : null,
+        cartonPiecePrice: access.allowPrices && product.cartonPiecePrice != null ? Number(product.cartonPiecePrice) : null,
         pcsPerCarton: product.pcsPerCarton,
         boxPieces: product.boxPieces,
         hiddenUnits: product.hiddenUnits,
@@ -1147,7 +1150,7 @@ async function assertGuestCatalogEnabled() {
  * whether prices are shown. Keeping one body means the two can never drift
  * into showing different products.
  */
-async function listOpenCatalogProducts(opts: { withPrices: boolean }) {
+async function listOpenCatalogProducts(opts: { withPrices: boolean; priceMode?: PriceMode }) {
   const products = await prisma.product.findMany({
     where: { deletedAt: null },
     omit: { imageUrl: true },
@@ -1181,6 +1184,7 @@ async function listOpenCatalogProducts(opts: { withPrices: boolean }) {
         // Hidden until the shop unlocks them for this visitor; a guest with
         // no account never gets them at all.
         salePrice: opts.withPrices ? Number(product.salePrice ?? 0) : null,
+        cartonPiecePrice: opts.withPrices && product.cartonPiecePrice != null ? Number(product.cartonPiecePrice) : null,
         pcsPerCarton: product.pcsPerCarton,
         boxPieces: product.boxPieces,
         hiddenUnits: product.hiddenUnits,
@@ -1188,7 +1192,7 @@ async function listOpenCatalogProducts(opts: { withPrices: boolean }) {
         showStock: true,
       }, signals);
     })
-    .filter((product) => product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
+    .filter((product) => opts.priceMode === "WHOLESALE" ? product.currentStock > 0 : product.pcsPerCarton >= 1 && product.currentStock >= product.pcsPerCarton);
 
   return applyCatalogOrder(mapped, await catalogOrderSeed());
 }
@@ -1217,17 +1221,17 @@ export async function guestPricesVisible() {
   return settings.catalogGuestPricesVisible === true;
 }
 
-export async function listGuestCatalogProducts() {
+export async function listGuestCatalogProducts(priceMode?: PriceMode) {
   await assertGuestCatalogEnabled();
-  return listOpenCatalogProducts({ withPrices: await guestPricesVisible() });
+  return listOpenCatalogProducts({ withPrices: await guestPricesVisible(), priceMode });
 }
 
 /**
  * The grid for a signed-in visitor. No guest-mode gate: they proved a code,
  * so browsing is theirs whether or not the shop leaves anonymous browsing on.
  */
-export async function listVisitorCatalogProducts(opts: { pricesUnlocked: boolean }) {
-  return listOpenCatalogProducts({ withPrices: opts.pricesUnlocked });
+export async function listVisitorCatalogProducts(opts: { pricesUnlocked: boolean; priceMode?: PriceMode }) {
+  return listOpenCatalogProducts({ withPrices: opts.pricesUnlocked, priceMode: opts.priceMode });
 }
 
 export async function getGuestCatalogProductImage(productId: string, visitorToken?: string) {
@@ -1245,10 +1249,12 @@ export type GuestCatalogOrderInput = {
   address?: string;
   province?: string;
   notes?: string;
+  priceMode?: PriceMode;
   items: Array<{ productId: string; unit: Unit; quantity: number; isSample?: boolean }>;
 };
 
 export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { visitorToken?: string }) {
+  assertCatalogUnits(input.items, input.priceMode);
   // A signed-in visitor ordering is the whole point of letting them browse
   // without prices — refusing it because anonymous browsing is off left them
   // with a cart they could fill and never send.
@@ -1283,6 +1289,9 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
     const product = productById.get(item.productId);
     if (!product) {
       throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
+    }
+    if (input.priceMode === "CARTON" && (product.pcsPerCarton < 1 || totalStock(product) < product.pcsPerCarton)) {
+      throw new AppError(`المادة "${product.name}" لا يتوفر منها كارتون كامل`, 400, "CATALOG_STOCK_NOT_ENOUGH");
     }
     const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(
@@ -1323,7 +1332,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
         "CATALOG_STOCK_NOT_ENOUGH"
       );
     }
-    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+    const unitPrice = salePriceFor(item.unit, piecePriceFor(product, item.isSample ? "WHOLESALE" : input.priceMode), product.pcsPerCarton, product.boxPieces);
     return {
       productId: product.id,
       productName: product.name,
@@ -1360,6 +1369,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
       tierPercent: guestTier.discountPercent,
       finalTotal: subtotal - guestTier.discountAmount,
       body: {
+        priceMode: input.priceMode ?? "WHOLESALE",
         customerName,
         phone,
         address: input.address,
@@ -1401,6 +1411,7 @@ export async function submitGuestCatalogOrder(input: GuestCatalogOrderInput & { 
 }
 
 export async function submitCatalogOrder(input: CatalogOrderInput, token: string) {
+  assertCatalogUnits(input.items, input.priceMode);
   const access = await getCatalogAccess(token);
 
   const uniqueProductIds = [...new Set(input.items.map((item) => item.productId))];
@@ -1415,6 +1426,9 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
     const product = productById.get(item.productId);
     if (!product) {
       throw new AppError("المادة غير موجودة أو محذوفة", 404, "PRODUCT_NOT_FOUND");
+    }
+    if (input.priceMode === "CARTON" && (product.pcsPerCarton < 1 || totalStock(product) < product.pcsPerCarton)) {
+      throw new AppError(`المادة "${product.name}" لا يتوفر منها كارتون كامل`, 400, "CATALOG_STOCK_NOT_ENOUGH");
     }
     const requestedPieces = piecesFor(item.unit, item.quantity, product.pcsPerCarton, product.boxPieces);
     requestedPiecesByProduct.set(
@@ -1457,7 +1471,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       );
     }
 
-    const unitPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
+    const unitPrice = salePriceFor(item.unit, piecePriceFor(product, item.isSample ? "WHOLESALE" : input.priceMode), product.pcsPerCarton, product.boxPieces);
     return {
       productId: product.id,
       productName: product.name,
@@ -1545,6 +1559,7 @@ export async function submitCatalogOrder(input: CatalogOrderInput, token: string
       tierPercent: tier.discountPercent,
       finalTotal: subtotal - promoDiscount - tierDiscount,
       body: {
+        priceMode: input.priceMode ?? "WHOLESALE",
         customerName: access.customer.name,
         phone: access.customer.phone,
         address: input.address,

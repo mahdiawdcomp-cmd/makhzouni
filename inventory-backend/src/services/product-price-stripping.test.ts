@@ -13,6 +13,7 @@ const baseProduct = {
   purchasePrice: 1000,
   salePrice: 1500,
   retailPrice: 1600,
+  cartonPiecePrice: 1200,
   costPrice: 950,
   oldPrice: 1700,
   warehouseStocks: [
@@ -43,7 +44,7 @@ describe("serializeProduct price stripping", () => {
 
   test("hideAllPrices strips EVERY money field, keeps stock and identity", () => {
     const out = serializeProduct({ ...baseProduct }, undefined, false, true) as Record<string, unknown>;
-    for (const field of ["salePrice", "purchasePrice", "retailPrice", "costPrice", "oldPrice"]) {
+    for (const field of ["salePrice", "purchasePrice", "retailPrice", "cartonPiecePrice", "costPrice", "oldPrice"]) {
       assert.equal(field in out, false, `${field} must be stripped`);
     }
     assert.equal(out.name, "مادة تجريبية");

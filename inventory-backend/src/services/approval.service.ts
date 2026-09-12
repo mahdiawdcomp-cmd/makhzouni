@@ -670,6 +670,7 @@ async function executeApprovedRequest(
     }
     case approvalRequestTypes.CATALOG_ORDER: {
       const body = data.body as {
+        priceMode?: "WHOLESALE" | "RETAIL" | "CARTON";
         customerName?: string;
         phone?: string;
         address?: string;
@@ -729,6 +730,7 @@ async function executeApprovedRequest(
           customerPhone: phone,
           items: prepItems as unknown as import("@prisma/client").Prisma.InputJsonValue,
           orderData: {
+            priceMode: body.priceMode ?? "WHOLESALE",
             customerName,
             phone,
             address: body.address,
