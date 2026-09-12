@@ -1,19 +1,10 @@
 import "dotenv/config";
+import { reportStartupEnvIssues, validateStartupEnv } from "./config/validate-env";
 
-// ── Startup environment validation ─────────────────────────────────────────
-const WEAK_JWT = "change-this-secret-before-production";
-if (!process.env.DATABASE_URL) {
-  console.error("[FATAL] DATABASE_URL is not set. Server cannot start.");
-  process.exit(1);
-}
-if (!process.env.JWT_SECRET || process.env.JWT_SECRET === WEAK_JWT) {
-  if (process.env.NODE_ENV === "production") {
-    console.error("[FATAL] JWT_SECRET must be set to a strong random value in production.");
-    process.exit(1);
-  } else {
-    console.warn("[WARN] JWT_SECRET is weak or missing. Set a strong secret before deploying.");
-  }
-}
+// Validate names and presence only. Never print environment values.
+const startupEnvIssues = validateStartupEnv();
+reportStartupEnvIssues(startupEnvIssues);
+if (startupEnvIssues.some((item) => item.level === "fatal")) process.exit(1);
 
 import express from "express";
 import cors from "cors";
@@ -43,7 +34,10 @@ const port = Number(process.env.PORT ?? 5000);
 const allowedOrigins = (
   process.env.ALLOWED_ORIGINS ??
   process.env.ALLOWED_ORIGIN ??
-  "https://mahdi.mazbwoni.com,https://inventory-web-six-kohl.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080,http://localhost:1421,http://127.0.0.1:1421"
+  // No tenant domain is hardcoded — every `*.mazbwoni.com` subdomain is matched by
+  // regex below, so this default must never name a single shop. The Vercel alias is
+  // the SHARED web app's own origin (all tenants load from it), not a tenant.
+  "https://inventory-web-six-kohl.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:4173,http://127.0.0.1:4173,http://localhost:8080,http://localhost:1421,http://127.0.0.1:1421"
 )
   .split(",")
   .map((origin) => origin.trim())

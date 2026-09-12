@@ -1,4 +1,9 @@
 import { PrismaClient } from "@prisma/client";
+import { assertSafeTestDatabaseUrl } from "./test-database-safety";
+
+if (process.env.NODE_ENV === "test") {
+  assertSafeTestDatabaseUrl(process.env.DATABASE_URL);
+}
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
