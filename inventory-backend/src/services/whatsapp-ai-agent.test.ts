@@ -34,6 +34,11 @@ let recordedErrors: Array<Record<string, any>>;
 let aiChatRow: { phone: string; messages: unknown; updatedAt: Date; repliesToday?: number; todayKey?: string | null } | null;
 let sentTexts: Array<{ phone: string; text: string }>;
 let sentImages: Array<{ phone: string; caption: string; bytes: number }>;
+let sentPdfs: Array<{ phone: string; caption: string; filename: string }>;
+let voucherRows: Array<Record<string, any>>;
+let portalLinksMinted: string[];
+/** Set to make an invoice PDF render blow up (the failure path). */
+let invoicePdfImpl: null | (() => Promise<Buffer>) = null;
 /** Set to simulate a send that never resolves (the real bug). */
 let sendImageImpl: null | (() => Promise<unknown>) = null;
 
@@ -86,7 +91,20 @@ const fakePrisma = {
     },
   },
   invoice: {
-    findMany: async () => invoiceRows,
+    // Every agent invoice read is scoped by customerId — the fake enforces it
+    // too, so a test that forgets the scope fails instead of quietly passing.
+    findMany: async ({ where, take }: any) =>
+      invoiceRows.filter((r) => r.customerId === where.customerId).slice(0, take ?? invoiceRows.length),
+    findFirst: async ({ where }: any) =>
+      invoiceRows.find(
+        (r) => r.customerId === where.customerId && (!where.invoiceNumber || r.invoiceNumber === where.invoiceNumber),
+      ) ?? null,
+  },
+  paymentVoucher: {
+    findFirst: async ({ where }: any) =>
+      voucherRows.find(
+        (v) => v.customerId === where.customerId && v.type === where.type && !v.cancelledAt && !v.archivedAt,
+      ) ?? null,
   },
   errorLog: {
     findFirst: async () => null,
@@ -131,6 +149,10 @@ mock.module("./whatsapp.service", {
       sentImages.push({ phone, caption, bytes: image.length });
       return { to: phone };
     },
+    sendWhatsAppPdf: async (phone: string, caption: string, _pdf: Buffer, filename: string) => {
+      sentPdfs.push({ phone, caption, filename });
+      return { to: phone, filename };
+    },
   },
 });
 // Mocking "@anthropic-ai/sdk" directly does NOT work here — the CJS
@@ -164,6 +186,22 @@ mock.module("./settings.service", {
   },
 });
 mock.module("../utils/anthropic-client", { exports: { getAnthropicClient: () => fakeAnthropic } });
+mock.module("./invoice-export.service", {
+  exports: {
+    generateInvoicePdf: async () => (invoicePdfImpl ? invoicePdfImpl() : Buffer.from("fake-invoice-pdf")),
+  },
+});
+mock.module("./voucher-export.service", {
+  exports: { generateVoucherPdf: async () => Buffer.from("fake-voucher-pdf") },
+});
+mock.module("./customer-portal.service", {
+  exports: {
+    createCustomerPortalLink: async (customerId: string) => {
+      portalLinksMinted.push(customerId);
+      return { token: "cpl_test", urlPath: "/client/cpl_test", expiresAt: null, customer: { id: customerId } };
+    },
+  },
+});
 
 /** Same Baghdad day key the service computes, so cap tests line up. */
 function baghdadToday(): string {
@@ -196,10 +234,29 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     escalationRows = [];
     recordedErrors = [];
     invoiceRows = [{
+      id: "inv-1",
+      customerId: "cust-1",
       invoiceNumber: "INV-1",
       createdAt: new Date("2026-09-01T10:00:00Z"),
       items: [{ quantity: 2, unit: "CARTON", productName: "تكتك كبير", product: { name: "تكتك كبير" } }],
+    }, {
+      id: "inv-2",
+      customerId: "cust-1",
+      invoiceNumber: "INV-2",
+      createdAt: new Date("2026-08-20T10:00:00Z"),
+      items: [{ quantity: 1, unit: "CARTON", productName: "اوربيز", product: { name: "اوربيز ناشف" } }],
+    }, {
+      // Belongs to somebody else — nothing the agent does may ever reach it.
+      id: "inv-other",
+      customerId: "cust-2",
+      invoiceNumber: "INV-999",
+      createdAt: new Date("2026-09-05T10:00:00Z"),
+      items: [],
     }];
+    voucherRows = [{ id: "vou-1", customerId: "cust-1", voucherNumber: "REC-77", type: "RECEIPT", cancelledAt: null, archivedAt: null }];
+    sentPdfs = [];
+    portalLinksMinted = [];
+    invoicePdfImpl = null;
     aiChatRow = null;
     sentTexts = [];
     sentImages = [];
@@ -557,5 +614,93 @@ describe("«الموظف الذكي» — WhatsApp AI agent", () => {
     assert.equal(handled, "replied");
     assert.equal(escalationRows.length, 1, "must hand off to a human");
     assert.equal(sentTexts.length, 1);
+  });
+
+  // ── Documents the customer asks for by name ───────────────────────────────
+  // «ارسل لي اخر فاتورة» / «اخر فاتورتين» / برقم الفاتورة / رابط الكشف / سند قبض.
+
+  const CUSTOMER = { id: "cust-1", name: "أبو علي", currentBalance: 250000 };
+
+  it("sends the customer's last invoice as a PDF", async () => {
+    scripted = [toolCall("send_my_invoices", {}), textReply("دزيتلك الفاتورة 👍")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسل لي اخر فاتورة", customer: CUSTOMER });
+    assert.equal(handled, "replied");
+    assert.deepEqual(sentPdfs.map((d) => d.filename), ["INV-1.pdf"]);
+    assert.equal(sentPdfs[0].phone, "9647700000000");
+  });
+
+  it("«اخر فاتورتين» sends exactly two, newest first", async () => {
+    scripted = [toolCall("send_my_invoices", { count: 2 }), textReply("دزيتلك الثنتين")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسل لي اخر فاتورتين", customer: CUSTOMER });
+    assert.deepEqual(sentPdfs.map((d) => d.filename), ["INV-1.pdf", "INV-2.pdf"]);
+  });
+
+  it("caps a greedy count at three invoices", async () => {
+    invoiceRows = Array.from({ length: 6 }, (_, i) => ({
+      id: `inv-${i}`, customerId: "cust-1", invoiceNumber: `INV-${i}`, createdAt: new Date(), items: [],
+    }));
+    scripted = [toolCall("send_my_invoices", { count: 50 }), textReply("تفضل")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "دزلي كل فواتيري", customer: CUSTOMER });
+    assert.equal(sentPdfs.length, 3);
+  });
+
+  it("sends a specific invoice by number when it belongs to the sender", async () => {
+    scripted = [toolCall("send_my_invoices", { invoiceNumber: "INV-2" }), textReply("تفضل")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "دزلي فاتورة INV-2", customer: CUSTOMER });
+    assert.deepEqual(sentPdfs.map((d) => d.filename), ["INV-2.pdf"]);
+  });
+
+  it("never sends another customer's invoice, and does not confirm it exists", async () => {
+    scripted = [toolCall("send_my_invoices", { invoiceNumber: "INV-999" }), textReply("ما لكيت فاتورة بهذا الرقم")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "دزلي فاتورة INV-999", customer: CUSTOMER });
+    assert.equal(handled, "replied");
+    assert.equal(sentPdfs.length, 0);
+    const result = JSON.parse(String(toolResultsOf(apiCalls[1])[0].content));
+    assert.equal(result.sent, false);
+    assert.match(result.error, /ما لكيت فاتورة بهذا الرقم/);
+    // Same wording as a number that exists nowhere — no existence leak.
+    assert.ok(!JSON.stringify(result).includes("INV-999"));
+  });
+
+  it("an unregistered number gets no documents at all", async () => {
+    scripted = [toolCall("send_my_invoices", {}), textReply("رقمك مو مسجّل عدنا")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسل لي اخر فاتورة", customer: null });
+    assert.equal(sentPdfs.length, 0);
+    const result = JSON.parse(String(toolResultsOf(apiCalls[1])[0].content));
+    assert.equal(result.registered, false);
+  });
+
+  it("a failed PDF render tells the model to apologise instead of claiming a send", async () => {
+    invoicePdfImpl = async () => { throw new Error("render died"); };
+    scripted = [toolCall("send_my_invoices", {}), textReply("اعتذر، الإدارة راح تدزهالك")];
+    const handled = await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسل لي اخر فاتورة", customer: CUSTOMER });
+    assert.equal(handled, "replied");
+    assert.equal(sentPdfs.length, 0);
+    const result = JSON.parse(String(toolResultsOf(apiCalls[1])[0].content));
+    assert.equal(result.sent, false);
+  });
+
+  it("sends a statement link built from the public frontend URL", async () => {
+    scripted = [toolCall("send_my_statement_link", {}), textReply("دزيتلك الرابط")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسل لي رابط الكشف مالتي", customer: CUSTOMER });
+    assert.deepEqual(portalLinksMinted, ["cust-1"]);
+    const link = sentTexts.find((t) => t.text.includes("/client/cpl_test"));
+    assert.ok(link, "statement link was not sent");
+    assert.ok(link!.text.includes("https://mahdi.mazbwoni.com/client/cpl_test"));
+  });
+
+  it("sends the customer's last receipt voucher", async () => {
+    scripted = [toolCall("send_my_last_voucher", {}), textReply("دزيتلك السند")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسلي اخر سند قبض", customer: CUSTOMER });
+    assert.deepEqual(sentPdfs.map((d) => d.filename), ["REC-77.pdf"]);
+  });
+
+  it("says there is no voucher rather than inventing one", async () => {
+    voucherRows = [];
+    scripted = [toolCall("send_my_last_voucher", {}), textReply("ماكو سند قبض مسجّل الك")];
+    await runWhatsAppAiTurn({ phone: "9647700000000", text: "ارسلي اخر سند قبض", customer: CUSTOMER });
+    assert.equal(sentPdfs.length, 0);
+    const result = JSON.parse(String(toolResultsOf(apiCalls[1])[0].content));
+    assert.equal(result.sent, false);
   });
 });

@@ -5,7 +5,10 @@ import { getAnthropicClient } from "../utils/anthropic-client";
 import { getSettings } from "./settings.service";
 import { normalizeArabic } from "../utils/arabic-search";
 import { totalStock } from "../utils/product-stock";
-import { sendWhatsAppImage, sendWhatsAppText } from "./whatsapp.service";
+import { sendWhatsAppImage, sendWhatsAppPdf, sendWhatsAppText } from "./whatsapp.service";
+import { generateInvoicePdf } from "./invoice-export.service";
+import { generateVoucherPdf } from "./voucher-export.service";
+import { createCustomerPortalLink } from "./customer-portal.service";
 import { recordError } from "./error-log.service";
 import { ErrorLogSource } from "@prisma/client";
 
@@ -58,6 +61,14 @@ const RECENT_ORDERS_LIMIT = 5;
 // Meta's media upload has no timeout of its own; without this a stalled upload
 // hangs the entire turn and the customer gets nothing at all.
 const IMAGE_SEND_TIMEOUT_MS = Number(process.env.AI_IMAGE_SEND_TIMEOUT_MS) || 25_000;
+
+// Rendering an invoice or a voucher is an SVG render plus a PDF wrap, heavier
+// than pushing an already-stored product image — but it still must not be able
+// to hang the turn. Same contract as the image send, longer ceiling.
+const DOC_SEND_TIMEOUT_MS = Number(process.env.AI_DOC_SEND_TIMEOUT_MS) || 45_000;
+
+/** Ceiling on one «ارسل لي آخر فواتيري» request, so nobody can ask for 50. */
+const MAX_INVOICES_PER_REQUEST = 3;
 /** Said once, deterministically, when a turn breaks — costs nothing to send. */
 export const AGENT_FALLBACK_REPLY =
   "عذراً، صارت عندنا مشكلة تقنية بالرد 🙏 الإدارة راح تتواصل وياك، أو تكدر تعيد سؤالك.";
@@ -202,6 +213,8 @@ const SYSTEM_PROMPT = `أنت موظف بمحل جملة عراقي، تردّ �
 - إذا الزبون ذكر منتج ولكيت أكثر من واحد قريب من اسمه، اسأله يحدد أي واحد يقصد واذكرلهم الأسماء — لا تختار أنت. وإذا سأل عن «أحجام» أو «أنواع» وعندك أكثر من مقاس، اذكرهم كلهم.
 - إذا المنتج فعلاً مو موجود بالمحل بعد ما جرّبت ألفاظ مختلفة، اعرض عليه تبلّغ الإدارة حتى توفره، وإذا وافق استخدم أداة تسجيل الطلب.
 - إذا طلب صورة لمنتج، استخدم أداة إرسال الصورة (هي ترسلها فعلاً)، وبعدها قوله إنك أرسلتها.
+- إذا طلب فاتورته («ارسل لي آخر فاتورة»، «آخر فاتورتين»، أو نطاك رقم فاتورة) استخدم أداة إرسال الفواتير — هي ترسل الملف فعلاً، وما يوصل غير فواتير هذا الزبون نفسه. وإذا طلب رابط كشف حسابه أو آخر سند قبض استخدم الأداة المخصصة لكل وحدة.
+- الفواتير والسندات تنرسل كملف جاهز — لا تكتب أنت أي مبلغ أو سعر من داخلها، بس قول إنك دزيتله الملف.
 - الزبون المسجّل يكدر يسأل عن رصيده أو كشف حسابه، واستخدم الأداة المخصصة. إذا الرقم مو مسجّل زبون، وضّحله بلطف إنه غير مسجّل عدنا ويكدر يراجع الإدارة.
 - ردودك قصيرة وطبيعية: سطر أو سطرين بالعادة، بدون قوائم طويلة. لمن تعدد منتجات، ثلاثة أو أربعة يكفون مو عشرة.
 - أسئلة المحل (العنوان، الدوام، التوصيل، أقل طلبية، رابط الكتلوك) جاوب عليها من «معلومات المحل» بالأسفل مباشرة — هذي معلومات تعرفها كموظف، ما تحتاج أداة ولا تصعيد.
@@ -284,6 +297,36 @@ const TOOLS: Anthropic.Tool[] = [
       },
       required: ["productName"],
     },
+  },
+  {
+    name: "send_my_invoices",
+    description:
+      "أرسل فاتورة (أو آخر فاتورتين/ثلاث فواتير) للزبون صاحب هذه المحادثة كملف PDF بالواتساب فعلياً. استخدمها إذا طلب «ارسل لي آخر فاتورة» أو «آخر فاتورتين» أو نطاك رقم فاتورة. ما تحتاج تمرر رقم هاتف — النظام يعرف مين يحچي، وما يوصله غير فواتيره هو.",
+    input_schema: {
+      type: "object",
+      properties: {
+        count: {
+          type: "number",
+          description: `عدد آخر الفواتير المطلوبة (1 إلى ${MAX_INVOICES_PER_REQUEST}). الافتراضي 1، وتنلغى إذا مررت invoiceNumber.`,
+        },
+        invoiceNumber: {
+          type: "string",
+          description: "رقم فاتورة محدد إذا ذكره الزبون بالنص",
+        },
+      },
+    },
+  },
+  {
+    name: "send_my_statement_link",
+    description:
+      "أرسل للزبون صاحب هذه المحادثة رابط كشف حسابه (كل فواتيره وسنداته وحركاته). استخدمها إذا طلب «رابط الكشف مالتي» أو «كشف حسابي». الرابط خاص بيه وحده.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "send_my_last_voucher",
+    description:
+      "أرسل آخر سند قبض للزبون صاحب هذه المحادثة كملف PDF بالواتساب. استخدمها إذا طلب «ارسلي آخر سند قبض» أو «وصل الدفع مالتي».",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "escalate_to_admin",
@@ -683,6 +726,146 @@ async function toolRequestMissingProduct(sender: Sender, productName: string, no
   return { saved: true, timesRequested: 1 };
 }
 
+// ── Documents the customer asks for by name ──────────────────────────────────
+//
+// «ارسل لي اخر فاتورة» / «رابط الكشف مالتي» / «ارسلي اخر سند قبض». Every one of
+// these is bound to the verified sender exactly like get_my_account: the query
+// itself carries `customerId: sender.customer.id`, so a customer who hands the
+// model someone else's invoice number gets «ما لكيت فاتورة بهذا الرقم» — the
+// same answer as for a number that exists nowhere, which is deliberate: the
+// reply must never confirm that another customer's invoice is real.
+//
+// The no-prices rule is untouched. These tools return no money to the model at
+// all; they render a PDF server-side, push it to WhatsApp, and hand back only
+// `{ sent: true }`. The document itself is the customer's own invoice, which
+// they were already sent the day it was issued.
+
+async function sendInvoicePdfs(sender: Sender, invoices: Array<{ id: string; invoiceNumber: string }>) {
+  let sent = 0;
+  for (const inv of invoices) {
+    try {
+      const pdf = await withTimeout(generateInvoicePdf(inv.id), DOC_SEND_TIMEOUT_MS, "invoice pdf");
+      await withTimeout(
+        sendWhatsAppPdf(sender.phone, `فاتورة ${inv.invoiceNumber}`, pdf, `${inv.invoiceNumber}.pdf`),
+        DOC_SEND_TIMEOUT_MS,
+        "invoice send",
+      );
+      sent += 1;
+    } catch (error) {
+      logger.warn(
+        `[whatsapp-ai] invoice ${inv.invoiceNumber} send failed to ${sender.phone}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      break;
+    }
+  }
+  if (!sent) {
+    return { sent: false, error: "تعذر إرسال الفاتورة حالياً، اعتذر للزبون وقله إن الإدارة راح تدزهاله." };
+  }
+  return {
+    sent: true,
+    count: sent,
+    invoiceNumbers: invoices.slice(0, sent).map((i) => i.invoiceNumber).join("، "),
+  };
+}
+
+async function toolSendMyInvoices(sender: Sender, args: { count?: number; invoiceNumber?: string }) {
+  if (!sender.customer) {
+    return {
+      sent: false,
+      registered: false,
+      note: "هذا الرقم مو مسجّل كزبون عدنا، فما عدنا فواتير إله — وجّهه للإدارة.",
+    };
+  }
+  const scope = { customerId: sender.customer.id, type: "SALE" as const, status: "ACTIVE" as const };
+  const wanted = (args.invoiceNumber ?? "").trim();
+
+  if (wanted) {
+    const inv = await prisma.invoice.findFirst({
+      where: { ...scope, invoiceNumber: wanted },
+      select: { id: true, invoiceNumber: true },
+    });
+    if (!inv) return { sent: false, error: "ما لكيت فاتورة بهذا الرقم على حساب هذا الزبون." };
+    return sendInvoicePdfs(sender, [inv]);
+  }
+
+  const requested = Number(args.count);
+  const take = Number.isFinite(requested)
+    ? Math.min(Math.max(Math.trunc(requested), 1), MAX_INVOICES_PER_REQUEST)
+    : 1;
+  const invoices = await prisma.invoice.findMany({
+    where: scope,
+    orderBy: { createdAt: "desc" },
+    take,
+    select: { id: true, invoiceNumber: true },
+  });
+  if (!invoices.length) return { sent: false, error: "ماكو فواتير مسجّلة لهذا الزبون." };
+  return sendInvoicePdfs(sender, invoices);
+}
+
+/**
+ * A fresh portal link every time, by design: only a link's hash is stored, so
+ * an existing one's plain token can never be read back to re-send it. Older
+ * links stay valid — the Telegram bot's «كشف حسابي» works exactly the same way.
+ */
+async function toolSendMyStatementLink(sender: Sender) {
+  if (!sender.customer) {
+    return { sent: false, registered: false, note: "هذا الرقم مو مسجّل كزبون عدنا — ما عدنا كشف حساب إله." };
+  }
+  let origin = (process.env.FRONTEND_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+  if (!origin) {
+    try {
+      const settings = await getSettings();
+      origin = new URL(settings.catalogPublicUrl || "").origin;
+    } catch {
+      origin = "";
+    }
+  }
+  if (!origin) {
+    logger.warn("[whatsapp-ai] statement link requested but no public frontend URL is configured");
+    return { sent: false, error: "رابط الكشف مو مهيّأ بالنظام، صعّد الموضوع للإدارة." };
+  }
+  try {
+    const link = await withTimeout(createCustomerPortalLink(sender.customer.id), DOC_SEND_TIMEOUT_MS, "portal link");
+    await withTimeout(
+      sendWhatsAppText(sender.phone, `📄 هذا رابط كشف حسابك (فواتيرك وسنداتك وكل حركاتك):\n${origin}${link.urlPath}`),
+      DOC_SEND_TIMEOUT_MS,
+      "statement link send",
+    );
+    return { sent: true };
+  } catch (error) {
+    logger.warn(
+      `[whatsapp-ai] statement link failed for ${sender.phone}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { sent: false, error: "تعذر إرسال رابط الكشف حالياً، اعتذر للزبون وصعّد للإدارة." };
+  }
+}
+
+async function toolSendMyLastVoucher(sender: Sender) {
+  if (!sender.customer) {
+    return { sent: false, registered: false, note: "هذا الرقم مو مسجّل كزبون عدنا، فما عدنا سندات إله." };
+  }
+  const voucher = await prisma.paymentVoucher.findFirst({
+    where: { customerId: sender.customer.id, type: "RECEIPT", cancelledAt: null, archivedAt: null },
+    orderBy: { date: "desc" },
+    select: { id: true, voucherNumber: true },
+  });
+  if (!voucher) return { sent: false, error: "ماكو سند قبض مسجّل لهذا الزبون." };
+  try {
+    const pdf = await withTimeout(generateVoucherPdf(voucher.id), DOC_SEND_TIMEOUT_MS, "voucher pdf");
+    await withTimeout(
+      sendWhatsAppPdf(sender.phone, `سند قبض ${voucher.voucherNumber}`, pdf, `${voucher.voucherNumber}.pdf`),
+      DOC_SEND_TIMEOUT_MS,
+      "voucher send",
+    );
+    return { sent: true, voucherNumber: voucher.voucherNumber };
+  } catch (error) {
+    logger.warn(
+      `[whatsapp-ai] voucher send failed to ${sender.phone}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { sent: false, error: "تعذر إرسال السند حالياً، اعتذر للزبون وصعّد للإدارة." };
+  }
+}
+
 /**
  * Hands the conversation to a human — into «تنبيهات الموظف الذكي», its own
  * list, NOT the inbound-message inbox. An order sitting between two "شكرا"
@@ -726,6 +909,15 @@ async function runTool(
       return toolRecentOrders(sender);
     case "request_missing_product":
       return toolRequestMissingProduct(sender, String(args.productName ?? ""), args.note ? String(args.note) : undefined);
+    case "send_my_invoices":
+      return toolSendMyInvoices(sender, {
+        count: args.count === undefined ? undefined : Number(args.count),
+        invoiceNumber: args.invoiceNumber ? String(args.invoiceNumber) : undefined,
+      });
+    case "send_my_statement_link":
+      return toolSendMyStatementLink(sender);
+    case "send_my_last_voucher":
+      return toolSendMyLastVoucher(sender);
     case "escalate_to_admin":
       return toolEscalate(sender, String(args.reason ?? ""), originalText);
     default:
