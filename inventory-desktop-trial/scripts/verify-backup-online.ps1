@@ -1,7 +1,12 @@
 ﻿<#
   makhzouni — Verify latest ONLINE backup ZIP (read-only)
   ---------------------------------------------------------------------------
-  Inspects the most recent online backup ZIP and confirms it is restorable.
+  Inspects the most recent online backup ZIP: that it opens, and that its JSON
+  parses and carries the expected fields.
+
+  This does NOT prove the backup can be restored — it never writes a row. The
+  real restore test lives in inventory-backend:
+    npm run backup:restore -- --file <zip> --target <local postgres url> --wipe
   Read-only: never modifies any backup, never contacts the server.
 
   Checks:

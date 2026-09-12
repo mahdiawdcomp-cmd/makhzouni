@@ -62,6 +62,8 @@ export interface BackupData {
     auditLogsLimit: number;
     auditLogsExported: number;
     auditLogsTotal: number;
+    /** Named so a reader never assumes this file is the whole database. */
+    excludes?: string[];
     /** Present only when an optional (non-restore-critical) section was skipped. */
     warnings?: string[];
   };
@@ -78,6 +80,24 @@ export interface BackupData {
   stockMovements: unknown[];
   transfers: unknown[];
   auditLogs: unknown[];
+  // ── State that cannot be recomputed from the tables above ────────────────
+  /** THE stock. Since the legacy product-field fallback was removed, a restore
+   *  without these rows gives every product zero pieces. */
+  warehouseStocks: unknown[];
+  /** Document numbering. Without it, invoice/voucher numbers restart and collide. */
+  counters: unknown[];
+  stockLosses: unknown[];
+  couponRedemptions: unknown[];
+  customerTags: unknown[];
+  personalDebts: unknown[];
+  pendingApprovals: unknown[];
+  stocktakeSessions: unknown[];
+  cycleCountSessions: unknown[];
+  salesAgentIssues: unknown[];
+  salesAgentPriceRequests: unknown[];
+  salesAgentSettlements: unknown[];
+  salesAgentHandovers: unknown[];
+  orderPreparations: unknown[];
 }
 
 /** AuditLog is history-only and can grow huge; cap it but record the cap in meta.
@@ -88,8 +108,24 @@ export interface BackupData {
  *  even runs) — see backup-status "download" outage 2026-07-08..07-12. */
 const AUDIT_LOG_LIMIT = 200;
 
+/** Recorded in every backup so the gap is documented, not discovered later. */
+const EXCLUDED_FROM_BACKUP = [
+  "catalog (visitors, sessions, reviews, images, funnel)",
+  "messaging (WhatsApp, Telegram, campaigns, notifications)",
+  "instagram",
+  "media assets",
+  "user password hashes",
+];
+
 /**
- * Exports every table for a complete, restorable backup.
+ * Exports the tables needed to rebuild the shop's books and stock.
+ *
+ * This is NOT a copy of the whole database — the schema has far more tables and
+ * the catalog/marketing/messaging/AI side is deliberately out. What IS covered
+ * is everything a restore needs to put back the money and the goods: products,
+ * customers, invoices, vouchers, the stock ledger, per-warehouse stock, losses,
+ * counters, approvals, stocktakes and the sales-rep records. `meta.excludes`
+ * names what is knowingly left out so nobody mistakes this for a disk image.
  * - passwordHash excluded (security).
  * - products/customers: ALL rows including soft-deleted (old invoices reference them).
  * - stockMovements: FULL (no cap) so stock ledger can be reconstructed.
@@ -142,6 +178,40 @@ export async function generateFullBackup(_lean = false): Promise<BackupData> {
     }),
   ]);
 
+  // Small, restore-critical tables. Separate round-trip keeps the big
+  // Promise.all above readable and its memory profile unchanged.
+  const [
+    warehouseStocks,
+    counters,
+    stockLosses,
+    couponRedemptions,
+    customerTags,
+    personalDebts,
+    pendingApprovals,
+    stocktakeSessions,
+    cycleCountSessions,
+    salesAgentIssues,
+    salesAgentPriceRequests,
+    salesAgentSettlements,
+    salesAgentHandovers,
+    orderPreparations,
+  ] = await Promise.all([
+    prisma.productWarehouseStock.findMany(),
+    prisma.counter.findMany(),
+    prisma.stockLoss.findMany({ include: { items: true } }),
+    prisma.couponRedemption.findMany(),
+    prisma.customerTag.findMany(),
+    prisma.personalDebt.findMany(),
+    prisma.pendingApproval.findMany(),
+    prisma.stocktakeSession.findMany({ include: { items: true } }),
+    prisma.cycleCountSession.findMany({ include: { items: true } }),
+    prisma.salesAgentIssue.findMany(),
+    prisma.salesAgentPriceRequest.findMany(),
+    prisma.salesAgentSettlement.findMany(),
+    prisma.salesAgentHandover.findMany(),
+    prisma.orderPreparation.findMany(),
+  ]);
+
   // AuditLog is history-only (not needed to restore state) — kept OUT of the
   // Promise.all above and isolated in its own try/catch so a single corrupt
   // row (e.g. an unreadable string the Prisma engine can't convert) skips
@@ -163,7 +233,10 @@ export async function generateFullBackup(_lean = false): Promise<BackupData> {
   }
 
   return {
-    version: "2.1",
+    // 2.2 added the restore-critical tables (per-warehouse stock, counters,
+    // losses, approvals, stocktakes, sales-rep records). A 2.1 file restores the
+    // books but leaves every product at zero stock — see scripts/restore-from-backup.
+    version: "2.2",
     exportedAt: new Date().toISOString(),
     storeName: settings.storeName,
     counts: {
@@ -178,6 +251,20 @@ export async function generateFullBackup(_lean = false): Promise<BackupData> {
       stockMovements: stockMovements.length,
       transfers: transfers.length,
       auditLogs: auditLogs.length,
+      warehouseStocks: warehouseStocks.length,
+      counters: counters.length,
+      stockLosses: stockLosses.length,
+      couponRedemptions: couponRedemptions.length,
+      customerTags: customerTags.length,
+      personalDebts: personalDebts.length,
+      pendingApprovals: pendingApprovals.length,
+      stocktakeSessions: stocktakeSessions.length,
+      cycleCountSessions: cycleCountSessions.length,
+      salesAgentIssues: salesAgentIssues.length,
+      salesAgentPriceRequests: salesAgentPriceRequests.length,
+      salesAgentSettlements: salesAgentSettlements.length,
+      salesAgentHandovers: salesAgentHandovers.length,
+      orderPreparations: orderPreparations.length,
     },
     meta: {
       stockMovementsComplete: true,
@@ -186,6 +273,7 @@ export async function generateFullBackup(_lean = false): Promise<BackupData> {
       auditLogsLimit: AUDIT_LOG_LIMIT,
       auditLogsExported: auditLogs.length,
       auditLogsTotal,
+      excludes: EXCLUDED_FROM_BACKUP,
       ...(auditLogWarning ? { warnings: [auditLogWarning] } : {}),
     },
     users,
@@ -204,6 +292,20 @@ export async function generateFullBackup(_lean = false): Promise<BackupData> {
     // near-full record copies incl. image fields, and callers weren't passing
     // ?lean=1 anyway. AuditLog is history-only — never needed to restore state.
     auditLogs: leanAuditLogs(auditLogs as Array<Record<string, unknown>>),
+    warehouseStocks,
+    counters,
+    stockLosses,
+    couponRedemptions,
+    customerTags,
+    personalDebts,
+    pendingApprovals,
+    stocktakeSessions,
+    cycleCountSessions,
+    salesAgentIssues,
+    salesAgentPriceRequests,
+    salesAgentSettlements,
+    salesAgentHandovers,
+    orderPreparations,
   };
 }
 
