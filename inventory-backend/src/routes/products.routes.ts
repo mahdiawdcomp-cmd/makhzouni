@@ -21,6 +21,7 @@ import {
   getStale,
   getMissingCartonPrice,
   getDataHealth,
+  getNegativeStock,
   removeProduct,
   restoreProductCtrl,
 } from "../controllers/products.controller";
@@ -62,6 +63,8 @@ router.get("/stale", getStale);
 router.get("/missing-carton-price", requirePermission("MANAGE_PRODUCTS"), getMissingCartonPrice);
 // Read-only diagnostics over costs and un-migrated stock — money data, so same gate.
 router.get("/data-health", requirePermission("MANAGE_PRODUCTS"), getDataHealth);
+// Stock figures only, no prices — an inventory permission is the right gate here.
+router.get("/negative-stock", requireAnyPermission("INVENTORY_MANAGE", "MANAGE_PRODUCTS"), getNegativeStock);
 router.post("/bulk-delete", requirePermission("MANAGE_PRODUCTS"), bulkDelete);
 router.get("/deleted", requirePermission("MANAGE_PRODUCTS"), getDeletedProductsList);
 router.get("/by-qr/:qrCode", getProductByQr);

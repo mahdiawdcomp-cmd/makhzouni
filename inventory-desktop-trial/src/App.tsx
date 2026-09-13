@@ -50,6 +50,7 @@ const VouchersPage = lazyPage(() => import("./pages/VouchersPage"), "VouchersPag
 const TransfersPage = lazyPage(() => import("./pages/TransfersPage"), "TransfersPage")
 const VarietyConvertPage = lazyPage(() => import("./pages/VarietyConvertPage"), "VarietyConvertPage")
 const StaleProductsPage = lazyPage(() => import("./pages/StaleProductsPage"), "StaleProductsPage")
+const NegativeStockPage = lazyPage(() => import("./pages/NegativeStockPage"), "NegativeStockPage")
 const CatalogManagementPage = lazyPage(() => import("./pages/CatalogManagementPage"), "CatalogManagementPage")
 const RetailCatalogPage = lazyPage(() => import("./pages/RetailCatalogPage"), "RetailCatalogPage")
 // Desktop parity with inventory-web: the backend routes were already shared,
@@ -117,6 +118,7 @@ const router = createBrowserRouter([
           { path: "inventory/transfers", element: f("transfers", "التحويلات بين المخازن", <TransfersPage />) },
           { path: "inventory/variety", element: s(<VarietyConvertPage />) },
           { path: "inventory/stale", element: s(<StaleProductsPage />) },
+          { path: "inventory/negative-stock", element: s(<NegativeStockPage />) },
           { path: "inventory/stocktake", element: f("stocktake", "الجرد", <StocktakePage />) },
           { path: "inventory/cycle-count", element: s(<CycleCountPage />) },
           { path: "inventory/landed-cost", element: s(<LandedCostImportPage />) },

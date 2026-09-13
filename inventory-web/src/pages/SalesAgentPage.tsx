@@ -19,7 +19,7 @@
  *    beside the catalog on a tablet.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
   BadgePercent,
@@ -48,6 +48,7 @@ import { apiErrorMessage } from "../utils/apiError"
 import { cn } from "../utils/cn"
 import { useAuthStore } from "../store/authStore"
 import { piecesPerUnit as sharedPiecesPerUnit } from "../utils/units"
+import { cartonEligible, cleanAgentLines, draftKey, EMPTY_DRAFT, isDefinitiveOrderRejection, mergeAgentDrafts, readAgentWorkspace, workspaceKey, type AgentDraft, type AgentMode, type AgentWorkspace, type OrderPayload } from "../utils/salesAgentDrafts"
 
 /* ── types ───────────────────────────────────────────────────────────── */
 
@@ -59,6 +60,7 @@ type AgentProduct = {
   name: string
   category: string | null
   salePrice: number
+  cartonPiecePrice?: number | null
   oldPrice: number | null
   isOffer: boolean
   isNewArrival: boolean
@@ -230,15 +232,16 @@ function piecesPerUnit(product: AgentProduct, unit: Unit) {
   return sharedPiecesPerUnit(unit, { pcsPerCarton: product.pcsPerCarton, boxPieces: product.boxPieces })
 }
 
-function unitPrice(product: AgentProduct, unit: Unit) {
-  return product.salePrice * piecesPerUnit(product, unit)
+function unitPrice(product: AgentProduct, unit: Unit, mode: AgentMode = "WHOLESALE") {
+  return (mode === "CARTON" ? Number(product.cartonPiecePrice ?? 0) : product.salePrice) * piecesPerUnit(product, unit)
 }
 
 function maxQty(product: AgentProduct, unit: Unit) {
   return Math.floor(product.currentStock / piecesPerUnit(product, unit))
 }
 
-function availableUnits(product: AgentProduct): Unit[] {
+function availableUnits(product: AgentProduct, mode: AgentMode = "WHOLESALE"): Unit[] {
+  if (mode === "CARTON") return cartonEligible(product) ? ["CARTON"] : []
   const hidden = new Set(product.hiddenUnits ?? [])
   const units = ALL_UNITS.filter((u) => !hidden.has(u))
   return units.length > 0 ? units : ["PIECE"]
@@ -262,12 +265,12 @@ function useAgentProducts() {
   })
 }
 
-function useMyCustomers(search: string, page: number) {
+function useMyCustomers(search: string, page: number, followUp = "") {
   return useQuery({
-    queryKey: ["sales-agent", "customers", search, page],
+    queryKey: ["sales-agent", "customers", search, page, followUp],
     queryFn: async () => {
       const res = await api.get<{ data: CustomerPage }>("/sales-agent/customers", {
-        params: { page, limit: 200, ...(search ? { search } : {}) },
+        params: { page, limit: 200, ...(search ? { search } : {}), ...(followUp ? { followUp } : {}) },
       })
       return res.data.data
     },
@@ -298,51 +301,23 @@ function useCustomerHeader(customerId: string | null) {
  * scroll produces a handful of calls rather than one per card.
  */
 function useThumbnails(visibleIds: string[]) {
-  const [thumbs, setThumbs] = useState<Record<string, string | null>>({})
-  const pending = useRef<Set<string>>(new Set())
-  const requested = useRef<Set<string>>(new Set())
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    const fresh = visibleIds.filter((id) => !requested.current.has(id))
-    if (fresh.length === 0) return
-
-    for (const id of fresh) {
-      requested.current.add(id)
-      pending.current.add(id)
-    }
-
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => {
-      const ids = [...pending.current]
-      pending.current.clear()
-      if (ids.length === 0) return
-      api
-        .post<{ data: Record<string, string | null> }>("/sales-agent/products/thumbnails", { ids })
-        .then((res) => setThumbs((prev) => ({ ...prev, ...(res.data.data ?? {}) })))
-        .catch(() => {
-          // A failed batch must be retryable — otherwise those cards stay blank
-          // for the rest of the session.
-          for (const id of ids) requested.current.delete(id)
-        })
-    }, 120)
-  }, [visibleIds])
-
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
-
-  return thumbs
+  const batches = Array.from({ length: Math.ceil(visibleIds.length / 80) }, (_, index) => visibleIds.slice(index * 80, (index + 1) * 80))
+  const queries = useQueries({ queries: batches.map(ids => ({
+    queryKey: ["sales-agent", "thumbnails", ids],
+    queryFn: async () => (await api.post<{ data: Record<string, string | null> }>("/sales-agent/products/thumbnails", { ids })).data.data,
+    staleTime: 5 * 60 * 1000, retry: 2,
+  })) })
+  return Object.assign({}, ...queries.map(query => query.data ?? {})) as Record<string, string | null>
 }
 
 /* ── page ────────────────────────────────────────────────────────────── */
 
 type Screen = "catalog" | "customers" | "new-customer" | "orders" | "money" | "customer-detail" | "issues"
 
-type CartsByCustomer = Record<string, CartLine[]>
-
 const CARTS_KEY = "sales_agent_carts"
 
 const TABS: Array<{ key: Screen; label: string }> = [
-  { key: "catalog", label: "المواد" },
+  { key: "catalog", label: "الكتلوك" },
   { key: "customers", label: "زبائني" },
   { key: "money", label: "فلوسي" },
   { key: "issues", label: "المشاكل" },
@@ -351,54 +326,74 @@ const TABS: Array<{ key: Screen; label: string }> = [
 
 export function SalesAgentPage() {
   const user = useAuthStore((s) => s.user)
+  return <SalesAgentWorkspace key={user?.id} />
+}
+
+type OrderReview = { reviewToken: string; customerName: string; subtotal: number; items: Array<CartLine & { productName: string; unitPrice: number; totalPrice: number; availableStock: number }>; shortages: Array<{ productName: string; short: number }> }
+
+function SalesAgentWorkspace() {
+  const user = useAuthStore((s) => s.user)
   const qc = useQueryClient()
-
-  const [screen, setScreen] = useState<Screen>("customers")
-  const [customerId, setCustomerId] = useState<string | null>(
-    () => localStorage.getItem("sales_agent_customer") || null,
-  )
-
-  // Carts survive a closed browser, a dropped connection, a phone that slept
-  // until the tab was evicted. A rep who has walked three shops and loses the
-  // lot has to redo the whole round.
-  const [carts, setCarts] = useState<CartsByCustomer>(() => {
+  const storageKey = workspaceKey(user?.id ?? "signed-out")
+  const [workspace, setWorkspace] = useState<AgentWorkspace>(() => {
     try {
-      const raw = localStorage.getItem(CARTS_KEY)
-      const parsed = raw ? (JSON.parse(raw) as CartsByCustomer) : {}
-      return parsed && typeof parsed === "object" ? parsed : {}
-    } catch {
-      // A private window, cleared site data, or a browser that blocks storage —
-      // an empty cart is the right answer, never a crashed screen.
-      return {}
-    }
+      return readAgentWorkspace(localStorage.getItem(storageKey))
+    } catch { return readAgentWorkspace(null) }
   })
-
+  const [storageFailed, setStorageFailed] = useState(false)
+  const [online, setOnline] = useState(navigator.onLine)
   useEffect(() => {
+    const update = () => setOnline(navigator.onLine)
+    window.addEventListener("online", update)
+    window.addEventListener("offline", update)
+    return () => { window.removeEventListener("online", update); window.removeEventListener("offline", update) }
+  }, [])
+  // Commit synchronously before network writes so a lost response can be retried after reload.
+  const persist = (next: AgentWorkspace) => {
     try {
-      const kept = Object.fromEntries(Object.entries(carts).filter(([, lines]) => lines.length > 0))
-      localStorage.setItem(CARTS_KEY, JSON.stringify(kept))
-    } catch {
-      /* storage unavailable — the cart still works for this session */
+      localStorage.setItem(storageKey, JSON.stringify(next))
+      setStorageFailed(false)
+    } catch { setStorageFailed(true); setWorkspace(next); return false }
+    setWorkspace(next)
+    return true
+  }
+  const customerId = workspace.customerId
+  const mode = workspace.mode
+  const activeKey = draftKey(mode, customerId)
+  const draft = workspace.drafts[activeKey] ?? EMPTY_DRAFT
+  const cart = draft.items
+  const notes = draft.notes
+  const [screen, setScreen] = useState<Screen>("catalog")
+  const setCustomerId = (id: string | null) => persist({ ...workspace, customerId: id })
+  const updateDraft = (next: AgentDraft) => persist({ ...workspace, drafts: { ...workspace.drafts, [activeKey]: next } })
+  const setCart = (updater: (prev: CartLine[]) => CartLine[]) => {
+    if (!draft.pending) updateDraft({ ...draft, items: updater(cart) })
+  }
+  const setNotes = (value: string) => {
+    if (!draft.pending) updateDraft({ ...draft, notes: value })
+  }
+  const [mergeCustomer, setMergeCustomer] = useState<string | null>(null)
+  const [review, setReview] = useState<OrderReview | null>(null)
+  const [reviewChanged, setReviewChanged] = useState(false)
+  const [category, setCategory] = useState("")
+  const [catalogFilter, setCatalogFilter] = useState("")
+  const can = (cap: "NEW_CUSTOMER" | "ISSUE" | "PRICE_REQUEST") => !user?.permissions.includes(`AGENT_NO_${cap}`)
+  const existingDraft = (id: string): AgentDraft => {
+    const saved = workspace.drafts[draftKey(mode, id)]
+    if (saved) return saved
+    // Import the old wholesale cart only after choosing an owned customer. Keep the old storage untouched.
+    if (mode === "WHOLESALE") {
+      try { return { items: cleanAgentLines(JSON.parse(localStorage.getItem(CARTS_KEY) || "{}")[id]), notes: "" } } catch { /* no legacy cart */ }
     }
-  }, [carts])
+    return EMPTY_DRAFT
+  }
 
   const [cartOpen, setCartOpen] = useState(false)
   const [openProduct, setOpenProduct] = useState<AgentProduct | null>(null)
   const [search, setSearch] = useState("")
-  const [notes, setNotes] = useState("")
   const [detailCustomerId, setDetailCustomerId] = useState<string | null>(null)
   const [issueFor, setIssueFor] = useState<{ product: AgentProduct | null; unit: Unit | null } | null>(null)
   const [priceFor, setPriceFor] = useState<{ product: AgentProduct; unit: Unit } | null>(null)
-
-  // One key per cart attempt. A rep on a bad connection taps «أرسل الطلب», sees
-  // nothing, and taps again — the retry carries the same key and gets the first
-  // order back rather than creating a second.
-  const orderKey = useRef(crypto.randomUUID())
-
-  useEffect(() => {
-    if (customerId) localStorage.setItem("sales_agent_customer", customerId)
-    else localStorage.removeItem("sales_agent_customer")
-  }, [customerId])
 
   const products = useAgentProducts()
   const header = useCustomerHeader(customerId)
@@ -417,8 +412,8 @@ export function SalesAgentPage() {
 
   const specialPriceFor = useCallback(
     (productId: string, unit: Unit) =>
-      (usablePrices.data ?? []).find((p) => p.productId === productId && p.unit === unit)?.price ?? null,
-    [usablePrices.data],
+      mode === "CARTON" ? null : (usablePrices.data ?? []).find((p) => p.productId === productId && p.unit === unit)?.price ?? null,
+    [usablePrices.data, mode],
   )
 
   // A customer that was un-assigned (or removed) since the id was cached must
@@ -428,21 +423,6 @@ export function SalesAgentPage() {
   // count, so a dropped connection threw the rep out of the sale they were in
   // the middle of and back to the customer list.
   const headerStatus = (header.error as { response?: { status?: number } } | null)?.response?.status
-  useEffect(() => {
-    if (customerId && (headerStatus === 404 || headerStatus === 403)) {
-      setCustomerId(null)
-      setScreen("customers")
-    }
-  }, [customerId, headerStatus])
-
-  const cart = customerId ? carts[customerId] ?? [] : []
-  const setCart = useCallback(
-    (updater: (prev: CartLine[]) => CartLine[]) => {
-      if (!customerId) return
-      setCarts((prev) => ({ ...prev, [customerId]: updater(prev[customerId] ?? []) }))
-    },
-    [customerId],
-  )
 
   const productById = useMemo(
     () => new Map((products.data ?? []).map((p) => [p.id, p])),
@@ -455,13 +435,15 @@ export function SalesAgentPage() {
         const product = productById.get(line.productId)
         if (!product) return sum
         const special = specialPriceFor(line.productId, line.unit)
-        return sum + (special ?? unitPrice(product, line.unit)) * line.quantity
+        return sum + (special ?? unitPrice(product, line.unit, mode)) * line.quantity
       }, 0),
-    [cart, productById, specialPriceFor],
+    [cart, productById, specialPriceFor, mode],
   )
 
-  const addToCart = useCallback(
-    (product: AgentProduct, unit: Unit, quantity: number) => {
+  const addToCart = (product: AgentProduct, unit: Unit, quantity: number) => {
+      if (draft.pending) { toast({ title: "تحقق من الطلب المرسل أولاً" }); return }
+      const existingQuantity = cart.find(l => l.productId === product.id && l.unit === unit)?.quantity ?? 0
+      if (existingQuantity + quantity > 100000) { toast({ title: "الكمية كبيرة جداً", variant: "destructive" }); return }
       setCart((prev) => {
         const idx = prev.findIndex((l) => l.productId === product.id && l.unit === unit)
         if (idx >= 0) {
@@ -472,21 +454,15 @@ export function SalesAgentPage() {
         return [...prev, { productId: product.id, unit, quantity }]
       })
       toast({ title: `انضاف: ${product.name}` })
-    },
-    [setCart],
-  )
+    }
 
   const submit = useMutation({
-    mutationFn: async () => {
-      const res = await api.post("/sales-agent/orders", {
-        customerId,
-        notes: notes.trim() || undefined,
-        clientRequestId: orderKey.current,
-        items: cart,
-      })
+    networkMode: "always",
+    mutationFn: async (payload: OrderPayload) => {
+      const res = await api.post("/sales-agent/orders", payload)
       return res.data as { data?: { shortages?: Array<{ productName: string; short: number }> } }
     },
-    onSuccess: (res) => {
+    onSuccess: (res, payload) => {
       const short = res?.data?.shortages ?? []
       toast({
         title: "انرسل الطلب ✓",
@@ -497,9 +473,8 @@ export function SalesAgentPage() {
             ? `انتبه: ${short.map((x) => x.productName).join("، ")} — الكمية ناقصة بالمخزن`
             : "راح يوصلك إشعار بعد الموافقة",
       })
-      orderKey.current = crypto.randomUUID()
-      if (customerId) setCarts((prev) => ({ ...prev, [customerId]: [] }))
-      setNotes("")
+      persist({ ...workspace, drafts: { ...workspace.drafts, [draftKey(payload.priceMode, payload.customerId)]: { items: [], notes: "" } } })
+      setReview(null)
       setCartOpen(false)
       void qc.invalidateQueries({ queryKey: ["sales-agent", "orders"] })
       // Approved prices are spent by the order that used them.
@@ -507,18 +482,63 @@ export function SalesAgentPage() {
       void qc.invalidateQueries({ queryKey: ["sales-agent", "price-requests"] })
       void qc.invalidateQueries({ queryKey: ["sales-agent", "today"] })
     },
-    onError: (err) =>
+    onError: (err) => {
+      const status = (err as { response?: { status: number } }).response?.status
+      const code = (err as { response?: { data?: { code?: string } } }).response?.data?.code
+      if (isDefinitiveOrderRejection(code)) {
+        updateDraft({ ...draft, pending: undefined })
+        setReview(null)
+        void products.refetch()
+      }
       toast({
-        title: "ما انرسل الطلب",
+        title: status && status < 500 ? "تعذر إرسال الطلب" : "لم يصل تأكيد — المسودة محفوظة",
         description: apiErrorMessage(err, "تحقق من الاتصال وحاول مرة أخرى"),
         variant: "destructive",
-      }),
+      })
+    },
   })
 
-  const sendOrder = useOnce(submit)
+  const submitLock = useRef(false)
+  const confirmOrder = async () => {
+    if (submitLock.current || !online || !customerId || (!review && !draft.pending)) return
+    submitLock.current = true
+    const payload: OrderPayload = draft.pending ?? { customerId, priceMode: mode, notes: notes.trim() || undefined, clientRequestId: crypto.randomUUID(), items: cart, reviewToken: review!.reviewToken }
+    if (!updateDraft({ ...draft, pending: payload })) {
+      submitLock.current = false
+      toast({ title: "تعذر حفظ محاولة الإرسال؛ حرّر مساحة بالجهاز وأعد المحاولة", variant: "destructive" })
+      return
+    }
+    try { await submit.mutateAsync(payload) } catch { /* mutation presents error */ } finally { submitLock.current = false }
+  }
+  const preview = useMutation({
+    networkMode: "always",
+    mutationFn: async () => {
+      if (!online) throw new Error("OFFLINE")
+      const res = await api.post<{ data: OrderReview }>("/sales-agent/orders/preview", { customerId, priceMode: mode, items: cart, notes: notes.trim() || undefined })
+      return res.data.data
+    },
+    onSuccess: (data) => {
+      setReviewChanged(data.subtotal !== cartTotal || data.items.some(item => {
+        const product = productById.get(item.productId)
+        return !product || item.availableStock !== product.currentStock
+          || item.unitPrice !== (specialPriceFor(item.productId, item.unit) ?? unitPrice(product, item.unit, mode))
+      }))
+      setReview(data)
+      setCartOpen(false)
+    },
+    onError: err => { toast({ title: "ما كدرنا نراجع الطلب؛ المسودة باقية", description: apiErrorMessage(err), variant: "destructive" }); void products.refetch() },
+  })
+  const prepareReview = useOnce(preview)
+  const sendOrder = () => {
+    if (draft.pending) { void confirmOrder(); return }
+    if (!customerId) { setCartOpen(false); setScreen("customers"); toast({ title: "اختَر زبون الطلب أو أضف زبون جديد" }); return }
+    if (!online) { toast({ title: "ماكو اتصال؛ الطلب مسودة وغير مُرسل" }); return }
+    prepareReview()
+  }
 
   const filtered = useMemo(() => {
-    const list = products.data ?? []
+    const list = (products.data ?? []).filter(p => p.currentStock > 0 && (mode !== "CARTON" || cartonEligible(p))
+      && (!category || p.category === category) && (!catalogFilter || (catalogFilter === "new" ? p.isNewArrival : p.isOffer)))
     const term = search.trim().toLowerCase()
     if (!term) return list
     return list.filter(
@@ -527,14 +547,24 @@ export function SalesAgentPage() {
         p.itemNumber.toLowerCase().includes(term) ||
         (p.category ?? "").toLowerCase().includes(term),
     )
-  }, [products.data, search])
+  }, [products.data, search, mode, category, catalogFilter])
 
   const pickCustomer = (id: string) => {
-    setCustomerId(id)
+    if (draft.pending || submit.isPending || preview.isPending) { toast({ title: "تحقق من الطلب الحالي قبل تبديل الزبون" }); return }
+    const target = existingDraft(id)
+    const guestKey = draftKey(mode, null)
+    const guest = workspace.drafts[guestKey] ?? EMPTY_DRAFT
+    if (!customerId && (guest.items.length || guest.notes) && (target.items.length || target.notes || target.pending)) {
+      setMergeCustomer(id); return
+    }
+    const next = !customerId && (guest.items.length || guest.notes) ? guest : target
+    persist({ ...workspace, customerId: id, drafts: { ...workspace.drafts, [draftKey(mode, id)]: next,
+      ...(!customerId && next === guest ? { [guestKey]: { items: [], notes: "" } } : {}) } })
     setScreen("catalog")
+    setCartOpen(true)
   }
 
-  const showCart = screen === "catalog" && Boolean(customerId)
+  const showCart = screen === "catalog"
 
   return (
     <div
@@ -549,11 +579,11 @@ export function SalesAgentPage() {
         style={{ backgroundColor: "var(--theme-cardBg)", borderColor: "var(--theme-cardBorder)" }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-2xl font-bold">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-lg font-bold sm:text-xl">
               {header.data ? header.data.name : user?.name ?? "المندوب"}
             </h1>
-            <p className="truncate text-slate-500">
+            <p className="truncate text-xs text-slate-500 sm:text-sm">
               {header.data ? (
                 <>
                   الرصيد {money(header.data.currentBalance)}
@@ -562,7 +592,7 @@ export function SalesAgentPage() {
                     : " · ما عنده دفعات"}
                 </>
               ) : (
-                "اختر الزبون قبل ما تبدأ البيع."
+                "تصفح بحرية · اختَر الزبون وقت الطلب"
               )}
             </p>
           </div>
@@ -576,14 +606,15 @@ export function SalesAgentPage() {
                 // 44px on every touch screen, phone and iPad both — the rep is
                 // outdoors with one thumb. The site's compact 36px starts at a
                 // real desktop, not at 640px.
-                className="h-11 lg:h-9"
+                className="h-11"
                 onClick={() => { setDetailCustomerId(customerId); setScreen("customer-detail") }}
               >
                 <Receipt className="h-4 w-4" /> كشف الحساب
               </Button>
             )}
-            <Button variant="outline" className="h-11 lg:h-9" onClick={() => setScreen("customers")}>
-              <Users className="h-4 w-4" /> تبديل الزبون
+            {customerId && <Button variant="outline" className="h-11" disabled={Boolean(draft.pending) || submit.isPending || preview.isPending} onClick={() => { setCustomerId(null); setScreen("catalog") }}>بدون زبون</Button>}
+            <Button variant="outline" className="h-11" disabled={Boolean(draft.pending) || submit.isPending || preview.isPending} onClick={() => setScreen("customers")}>
+              <Users className="h-4 w-4" /> {customerId ? "تبديل" : "اختَر زبون"}
             </Button>
           </div>
         </div>
@@ -601,9 +632,10 @@ export function SalesAgentPage() {
             <button
               key={t.key}
               type="button"
+              disabled={submit.isPending || preview.isPending}
               onClick={() => setScreen(t.key)}
               className={cn(
-                "shrink-0 px-1 py-2 text-sm font-medium sm:px-4",
+                "min-h-11 shrink-0 px-1 py-2 text-sm font-medium sm:px-4",
                 screen === t.key
                   ? "border-b-2 border-indigo-500 text-indigo-600"
                   : "text-slate-500 hover:text-slate-700",
@@ -620,12 +652,18 @@ export function SalesAgentPage() {
         </div>
       </div>
 
+      <div className={cn("shrink-0 px-4 py-2 text-xs", !online || storageFailed || draft.pending ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800")} role="status">
+        {storageFailed ? "تعذر الحفظ بالجهاز؛ لا تغلق الصفحة قبل تأكيد الطلب" : draft.pending ? "بانتظار تأكيد الطلب — لا تنشئ طلباً آخر؛ أعد التحقق بنفس المحاولة" : !online ? "بدون اتصال — السلة مسودة محفوظة، لم تُرسل" : "السلة والملاحظات محفوظة بهذا الجهاز — غير مُرسلة حتى التأكيد"}
+        {draft.pending && <Button className="ms-3 h-11" disabled={!online || submit.isPending} onClick={() => void confirmOrder()}>تحقق من إرسال الطلب</Button>}
+      </div>
+      {(headerStatus === 404 || headerStatus === 403) && <div role="alert" className="bg-red-50 p-3 text-red-800">الزبون المختار لم يعد ضمن زبائنك. السلة محفوظة؛ اختَر زبوناً آخر قبل الإرسال.</div>}
       <div className="flex min-h-0 flex-1">
-        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-5">
           {screen === "customers" && (
             <CustomersScreen
               currentId={customerId}
               onPick={pickCustomer}
+              canCreate={can("NEW_CUSTOMER")}
               onNew={() => setScreen("new-customer")}
               onOpenStatement={(id) => {
                 setDetailCustomerId(id)
@@ -670,9 +708,29 @@ export function SalesAgentPage() {
               />
             ))}
 
-          {screen === "catalog" &&
-            (customerId ? (
+          {screen === "catalog" && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-2xl bg-slate-100 p-1 dark:bg-slate-800" aria-label="نوع التسعير">
+                  {(["WHOLESALE", "CARTON"] as const).map(value => <Button key={value} className="h-11 rounded-xl" variant={mode === value ? "default" : "ghost"} aria-pressed={mode === value}
+                    disabled={Boolean(draft.pending) || submit.isPending || preview.isPending}
+                    onClick={() => { persist({ ...workspace, mode: value }); setOpenProduct(null); setReview(null) }}>
+                    {value === "WHOLESALE" ? "جملة" : "توزيع كراتين"}
+                    {(workspace.drafts[draftKey(value, customerId)]?.items.length ?? 0) > 0 && <span className="ms-1 rounded-full bg-black/10 px-2 text-xs">{workspace.drafts[draftKey(value, customerId)].items.length}</span>}
+                  </Button>)}
+                </div>
+                <span className="text-xs text-slate-500">{mode === "CARTON" ? "كارتون كامل فقط · بسعر التوزيع" : "قطعة · درزن · علبة · كارتون بسعر الجملة"}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <select aria-label="قسم المواد" className="h-11 max-w-full rounded-xl border bg-[var(--theme-cardBg)] px-3" value={category} onChange={e => setCategory(e.target.value)}>
+                  <option value="">كل الأقسام</option>
+                  {[...new Set((products.data ?? []).map(p => p.category).filter(Boolean))].map(c => <option key={c} value={c!}>{c}</option>)}
+                </select>
+                <Button className="h-11" variant={catalogFilter === "new" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "new" ? "" : "new")}>الجديد</Button>
+                <Button className="h-11" variant={catalogFilter === "offer" ? "default" : "outline"} onClick={() => setCatalogFilter(catalogFilter === "offer" ? "" : "offer")}>العروض</Button>
+              </div>
               <CatalogScreen
+                mode={mode}
                 products={filtered}
                 loading={products.isPending}
                 paused={products.fetchStatus === "paused"}
@@ -680,30 +738,26 @@ export function SalesAgentPage() {
                 onRetry={() => void products.refetch()}
                 search={search}
                 onSearch={setSearch}
-                onOpen={setOpenProduct}
+                onOpen={p => { if (!submit.isPending && !preview.isPending) setOpenProduct(p) }}
                 specialPrice={specialPriceFor}
               />
-            ) : (
-              <EmptyState
-                title="اختر الزبون أول"
-                body="الأسعار والرصيد مربوطة بالزبون، فلازم تختاره قبل ما تفتح المواد."
-                actionLabel="روح لزبائني"
-                onAction={() => setScreen("customers")}
-              />
-            ))}
+            </div>
+          )}
         </main>
 
         {/* Tablet and up: the order builds beside the catalog, facing the
             shopkeeper. Below lg it is the bottom bar + dialog instead. */}
         {showCart && (
           <aside
-            className="hidden w-[22rem] shrink-0 flex-col border-e lg:flex"
+            className="hidden w-[20rem] shrink-0 flex-col border-e lg:flex"
             style={{ backgroundColor: "var(--theme-cardBg)", borderColor: "var(--theme-cardBorder)" }}
           >
             <div className="border-b px-5 py-4" style={{ borderColor: "var(--theme-cardBorder)" }}>
               <h3 className="text-[15px] font-semibold tracking-tight">الطلب</h3>
             </div>
             <CartPanel
+              mode={mode}
+              locked={Boolean(draft.pending)}
               cart={cart}
               productById={productById}
               total={cartTotal}
@@ -711,7 +765,7 @@ export function SalesAgentPage() {
               onNotes={setNotes}
               onChange={setCart}
               onSubmit={sendOrder}
-              submitting={submit.isPending}
+              submitting={submit.isPending || preview.isPending}
               specialPrice={specialPriceFor}
             />
           </aside>
@@ -723,7 +777,7 @@ export function SalesAgentPage() {
         <button
           type="button"
           onClick={() => setCartOpen(true)}
-          className="flex h-14 shrink-0 cursor-pointer items-center justify-between border-t bg-[var(--theme-primaryBtn)] px-5 text-white transition-colors duration-200 hover:bg-[var(--theme-primaryBtnHover)] lg:hidden"
+          className="flex min-h-14 shrink-0 cursor-pointer items-center justify-between border-t bg-[var(--theme-primaryBtn)] px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white transition-colors duration-200 hover:bg-[var(--theme-primaryBtnHover)] lg:hidden"
           style={{ borderColor: "var(--theme-cardBorder)" }}
         >
           <span className="flex items-center gap-2 text-sm font-semibold">
@@ -734,9 +788,11 @@ export function SalesAgentPage() {
         </button>
       )}
 
-      {cartOpen && customerId && (
+      {cartOpen && (
         <Dialog title="الطلب" onClose={() => setCartOpen(false)} padded={false}>
           <CartPanel
+            mode={mode}
+            locked={Boolean(draft.pending)}
             cart={cart}
             productById={productById}
             total={cartTotal}
@@ -744,7 +800,7 @@ export function SalesAgentPage() {
             onNotes={setNotes}
             onChange={setCart}
             onSubmit={sendOrder}
-            submitting={submit.isPending}
+            submitting={submit.isPending || preview.isPending}
             specialPrice={specialPriceFor}
           />
         </Dialog>
@@ -752,6 +808,11 @@ export function SalesAgentPage() {
 
       {openProduct && (
         <ProductDialog
+          key={`${openProduct.id}:${mode}`}
+          mode={mode}
+          canIssue={Boolean(customerId) && can("ISSUE")}
+          canAskPrice={Boolean(customerId) && mode === "WHOLESALE" && can("PRICE_REQUEST")}
+          locked={Boolean(draft.pending)}
           product={openProduct}
           onClose={() => setOpenProduct(null)}
           onAdd={(unit, qty) => {
@@ -763,6 +824,39 @@ export function SalesAgentPage() {
           specialPrice={(unit) => specialPriceFor(openProduct.id, unit)}
         />
       )}
+
+      {mergeCustomer && <Dialog title="هذا الزبون عنده سلة محفوظة" onClose={() => setMergeCustomer(null)}>
+        <p className="mb-4 text-sm">نحافظ على السلتين؛ اختَر دمجهن أو افتح سلة الزبون واترك المؤقتة محفوظة.</p>
+        <div className="space-y-3">
+          <Button className="h-11 w-full" disabled={Boolean(existingDraft(mergeCustomer).pending)} onClick={() => {
+            try {
+              const targetKey = draftKey(mode, mergeCustomer)
+              const guestKey = draftKey(mode, null)
+              persist({ ...workspace, customerId: mergeCustomer, drafts: { ...workspace.drafts, [targetKey]: mergeAgentDrafts(existingDraft(mergeCustomer), workspace.drafts[guestKey] ?? EMPTY_DRAFT), [guestKey]: { items: [], notes: "" } } })
+              setMergeCustomer(null); setScreen("catalog"); setCartOpen(true)
+            } catch (err) { toast({ title: (err as Error).message, variant: "destructive" }) }
+          }}>ادمج السلتين</Button>
+          <Button variant="outline" className="h-11 w-full" onClick={() => {
+            persist({ ...workspace, customerId: mergeCustomer, drafts: { ...workspace.drafts, [draftKey(mode, mergeCustomer)]: existingDraft(mergeCustomer) } })
+            setMergeCustomer(null); setScreen("catalog"); setCartOpen(true)
+          }}>افتح سلة الزبون واترك المؤقتة</Button>
+        </div>
+      </Dialog>}
+
+      {review && <Dialog title="راجع الطلب قبل الإرسال" onClose={() => { if (!submit.isPending) setReview(null) }} footer={
+        <Button className="h-12 w-full" disabled={submit.isPending || !online} onClick={() => void confirmOrder()}>{submit.isPending ? "بانتظار تأكيد السيرفر…" : draft.pending ? "تحقق من الطلب بنفس المحاولة" : "تأكيد وإرسال الطلب"}</Button>
+      }>
+        <p className="text-lg font-bold">{review.customerName}</p>
+        <p className="mb-4 text-sm text-slate-500">{mode === "CARTON" ? "توزيع كراتين" : "جملة"} · الطلب يُرسل للموافقة، مو فاتورة نهائية</p>
+        {reviewChanged && <p role="alert" className="mb-3 rounded-xl bg-amber-50 p-3 text-amber-900">تغيّر السعر أو المتوفر عن العرض السابق؛ راجع القيم المحدّثة أدناه.</p>}
+        <ul className="space-y-3">{review.items.map((item, i) => <li key={i} className="rounded-xl border p-3">
+          <p className="font-semibold">{item.productName}</p>
+          <p className="mt-1 text-sm">{item.quantity} {UNIT_LABEL[item.unit]} × {money(item.unitPrice)} = {money(item.totalPrice)}</p>
+        </li>)}</ul>
+        {review.shortages.length > 0 && <div className="mt-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">نقص مخزون، سيظهر للمالك: {review.shortages.map(s => `${s.productName}: ${s.short} قطعة`).join("، ")}</div>}
+        {notes && <p className="mt-3 whitespace-pre-wrap text-sm">الملاحظة: {notes}</p>}
+        <p className="mt-5 text-xl font-bold">المجموع: {money(review.subtotal)}</p>
+      </Dialog>}
 
       {issueFor && customerId && (
         <IssueDialog
@@ -965,7 +1059,6 @@ function useOnce(mutation: {
     if (busy.current) return
     busy.current = true
     mutation.mutate(undefined, { onSettled: () => (busy.current = false) })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mutation])
 }
 
@@ -1012,6 +1105,7 @@ function StatusPill({ tone, children }: { tone: "ok" | "wait" | "bad" | "muted";
 /* ── catalog ─────────────────────────────────────────────────────────── */
 
 function CatalogScreen({
+  mode,
   products,
   loading,
   paused,
@@ -1022,6 +1116,7 @@ function CatalogScreen({
   onOpen,
   specialPrice,
 }: {
+  mode: AgentMode
   products: AgentProduct[]
   loading: boolean
   paused: boolean
@@ -1067,25 +1162,21 @@ function CatalogScreen({
 
   const observe = useCallback((node: HTMLElement | null) => {
     if (node) getObserver().observe(node)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  if (error) return <QueryErrorBox title="ما وصلت المواد" onRetry={onRetry} />
+  if (error && products.length === 0) return <QueryErrorBox title="ما وصلت المواد" onRetry={onRetry} />
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>المواد</CardTitle>
-        <span className="text-[12px] text-slate-500 tabular-nums">{products.length} مادة</span>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <section aria-label="كتلوك المندوب" className="space-y-3">
+      <div className="space-y-3">
         <Input
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="بحث بالاسم أو رقم المادة"
           aria-label="بحث عن مادة"
-          className="h-11 lg:h-9"
+          className="h-11"
         />
+        <p className="text-xs text-slate-500">{products.length} مادة متوفرة · اضغط الصورة للتفاصيل والإضافة</p>
 
         {loading ? (
           paused ? (
@@ -1096,7 +1187,7 @@ function CatalogScreen({
         ) : products.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">ما اكو نتائج</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {products.map((product) => {
               const special = availableUnits(product).some((u) => specialPrice(product.id, u) !== null)
               return (
@@ -1106,7 +1197,7 @@ function CatalogScreen({
                   data-pid={product.id}
                   ref={observe}
                   onClick={() => onOpen(product)}
-                  className="flex cursor-pointer flex-col overflow-hidden rounded-lg border text-start transition-colors duration-150 hover:border-[var(--theme-accent)]"
+                  className="group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl border bg-[var(--theme-cardBg)] text-start shadow-sm transition duration-150 active:scale-[0.98] hover:border-[var(--theme-accent)] hover:shadow-md"
                   style={{ borderColor: "var(--theme-cardBorder)" }}
                 >
                   <div className="relative aspect-square w-full bg-slate-100 dark:bg-slate-800">
@@ -1115,7 +1206,8 @@ function CatalogScreen({
                         src={thumbs[product.id] as string}
                         alt={product.name}
                         loading="lazy"
-                        className="h-full w-full object-cover"
+                        decoding="async"
+                        className="h-full w-full object-contain bg-white p-1"
                       />
                     ) : (
                       <div className="grid h-full w-full place-items-center text-slate-400">
@@ -1128,24 +1220,27 @@ function CatalogScreen({
                         سعر خاص
                       </span>
                     )}
+                    {(product.isNewArrival || product.isOffer) && <span className="absolute start-2 bottom-2 rounded-full bg-indigo-600 px-2 py-1 text-[11px] font-bold text-white">{product.isNewArrival ? "جديد" : "عرض"}</span>}
                   </div>
 
                   <div className="flex flex-1 flex-col gap-1 p-3">
-                    <p className="line-clamp-2 text-[13px] font-medium leading-snug">{product.name}</p>
+                    <p className="line-clamp-2 min-h-10 text-sm font-semibold leading-snug">{product.name}</p>
+                    <p className="text-[11px] text-slate-500">{product.itemNumber}</p>
                     <p className="mt-auto text-base font-bold tabular-nums">
-                      {money(product.salePrice)}
+                      {money(mode === "CARTON" ? unitPrice(product, "CARTON", mode) : product.salePrice)} <span className="text-xs font-normal">/ {mode === "CARTON" ? "كارتون" : "قطعة"}</span>
                     </p>
                     <span className="text-[12px] text-slate-500 tabular-nums">
-                      المتوفر {product.currentStock}
+                      {mode === "CARTON" ? `${product.pcsPerCarton} قطعة · القطعة ${money(Number(product.cartonPiecePrice))}` : `المتوفر ${product.currentStock} قطعة`}
                     </span>
+                    <span className="mt-2 flex min-h-11 items-center justify-center gap-1 rounded-xl bg-[var(--theme-accentSoft)] text-sm font-semibold text-[var(--theme-accent)]"><Plus className="h-4 w-4" /> عرض وإضافة</span>
                   </div>
                 </button>
               )
             })}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }
 
@@ -1157,6 +1252,10 @@ function CatalogScreen({
  * price. All three sit in the footer, within thumb reach.
  */
 function ProductDialog({
+  mode,
+  canIssue,
+  canAskPrice,
+  locked,
   product,
   onClose,
   onAdd,
@@ -1164,6 +1263,10 @@ function ProductDialog({
   onAskPrice,
   specialPrice,
 }: {
+  mode: AgentMode
+  canIssue: boolean
+  canAskPrice: boolean
+  locked: boolean
   product: AgentProduct
   onClose: () => void
   onAdd: (unit: Unit, quantity: number) => void
@@ -1171,7 +1274,7 @@ function ProductDialog({
   onAskPrice: (unit: Unit) => void
   specialPrice: (unit: Unit) => number | null
 }) {
-  const units = availableUnits(product)
+  const units = availableUnits(product, mode)
   const [unit, setUnit] = useState<Unit>(units[0])
   const [qty, setQty] = useState(1)
   const [image, setImage] = useState<string | null>(null)
@@ -1195,7 +1298,7 @@ function ProductDialog({
   // Preview only. `submitAgentOrder` re-resolves the approved price from the
   // database when the order is priced, so what is shown here can never become
   // what gets billed.
-  const line = (approved ?? unitPrice(product, unit)) * qty
+  const line = (approved ?? unitPrice(product, unit, mode)) * qty
 
   return (
     <Dialog
@@ -1203,21 +1306,21 @@ function ProductDialog({
       onClose={onClose}
       footer={
         <div className="space-y-2">
-          <Button className="h-11 w-full" onClick={() => onAdd(unit, qty)}>
+          <Button className="h-12 w-full" disabled={locked || !unit || qty > 100000} onClick={() => onAdd(unit, qty)}>
             <Plus className="h-4 w-4" /> أضف للطلب · {money(line)}
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" className="h-11 flex-1" onClick={() => onIssue(unit)}>
+            <Button variant="outline" disabled={!canIssue} className="h-11 flex-1" onClick={() => onIssue(unit)}>
               <AlertTriangle className="h-4 w-4" /> أكو مشكلة
             </Button>
-            <Button variant="outline" className="h-11 flex-1" onClick={() => onAskPrice(unit)}>
+            <Button variant="outline" disabled={!canAskPrice} className="h-11 flex-1" onClick={() => onAskPrice(unit)}>
               <BadgePercent className="h-4 w-4" /> اطلب سعر
             </Button>
           </div>
         </div>
       }
     >
-      <div className="mx-auto aspect-square w-full max-w-[15rem] shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-slate-800">
+      <div className="mx-auto aspect-square w-full max-w-[26rem] shrink-0 overflow-hidden rounded-2xl bg-white">
         {image ? (
           <img src={image} alt={product.name} className="h-full w-full object-contain" />
         ) : (
@@ -1229,7 +1332,7 @@ function ProductDialog({
 
       <div className="mt-4 flex flex-wrap gap-2 text-[13px]">
         <span className="rounded bg-slate-100 px-2.5 py-1.5 font-medium tabular-nums dark:bg-slate-800">
-          القطعة {money(product.salePrice)}
+          القطعة {money(mode === "CARTON" ? Number(product.cartonPiecePrice) : product.salePrice)}
         </span>
         <span className="rounded bg-slate-100 px-2.5 py-1.5 font-medium tabular-nums dark:bg-slate-800">
           المتوفر {product.currentStock} قطعة
@@ -1238,6 +1341,8 @@ function ProductDialog({
           {product.itemNumber}
         </span>
       </div>
+
+      {mode === "CARTON" && <p className="mt-3 text-sm text-slate-500">الكارتون {product.pcsPerCarton} قطعة · السعر الخاص بالموافقة متاح بوضع الجملة فقط.</p>}
 
       {approved != null && (
         <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-800 dark:bg-emerald-950/30">
@@ -1287,7 +1392,7 @@ function ProductDialog({
             onChange={(e) => setQty(wholeUnits(e.target.value))}
             className="h-11 w-20 text-center text-base font-bold tabular-nums"
           />
-          <Button variant="outline" className="h-11 w-11 p-0" aria-label="زد" onClick={() => setQty((q) => q + 1)}>
+          <Button variant="outline" className="h-11 w-11 p-0" aria-label="زد" onClick={() => setQty((q) => Math.min(100000, q + 1))}>
             <Plus className="h-4 w-4" />
           </Button>
         </div>
@@ -1301,6 +1406,8 @@ function ProductDialog({
 /* ── cart ────────────────────────────────────────────────────────────── */
 
 function CartPanel({
+  mode,
+  locked,
   cart,
   productById,
   total,
@@ -1311,6 +1418,8 @@ function CartPanel({
   submitting,
   specialPrice,
 }: {
+  mode: AgentMode
+  locked: boolean
   cart: CartLine[]
   productById: Map<string, AgentProduct>
   total: number
@@ -1323,7 +1432,7 @@ function CartPanel({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <fieldset disabled={locked || submitting} className="min-h-0 flex-1 overflow-y-auto p-4">
         {cart.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 text-center">
             <ShoppingCart className="h-8 w-8 text-slate-300" />
@@ -1333,9 +1442,9 @@ function CartPanel({
           <ul className="space-y-2">
             {cart.map((line, idx) => {
               const product = productById.get(line.productId)
-              if (!product) return null
+              if (!product) return <li key={line.productId} className="rounded-xl border border-red-300 p-3 text-sm text-red-700">مادة غير متاحة حالياً ({line.quantity} {UNIT_LABEL[line.unit]}) — السطر محفوظ للمراجعة.<Button variant="outline" className="mt-2 h-11" onClick={() => onChange(prev => prev.filter((_, i) => i !== idx))}>إزالة المادة غير المتاحة</Button></li>
               const special = specialPrice(line.productId, line.unit)
-              const lineTotal = (special ?? unitPrice(product, line.unit)) * line.quantity
+              const lineTotal = (special ?? unitPrice(product, line.unit, mode)) * line.quantity
               return (
                 <li
                   key={`${line.productId}:${line.unit}`}
@@ -1385,7 +1494,7 @@ function CartPanel({
                         aria-label="زد"
                         onClick={() =>
                           onChange((prev) =>
-                            prev.map((l, i) => (i === idx ? { ...l, quantity: l.quantity + 1 } : l)),
+                            prev.map((l, i) => (i === idx ? { ...l, quantity: Math.min(100000, l.quantity + 1) } : l)),
                           )
                         }
                       >
@@ -1407,9 +1516,10 @@ function CartPanel({
           placeholder="ملاحظة على الطلب…"
           aria-label="ملاحظة على الطلب"
           rows={2}
+          maxLength={4000}
           className="mt-3 w-full rounded border border-slate-300 bg-white p-3 text-[13.5px] placeholder:text-slate-400 focus:border-[var(--theme-accent)] focus:outline-none dark:border-slate-700 dark:bg-slate-900"
         />
-      </div>
+      </fieldset>
 
       <div
         className="shrink-0 space-y-3 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
@@ -1421,7 +1531,7 @@ function CartPanel({
         </div>
         <Button className="h-11 w-full" disabled={cart.length === 0 || submitting} onClick={onSubmit}>
           {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {submitting ? "جاري الإرسال…" : "أرسل الطلب"}
+          {submitting ? "جاري التحقق…" : locked ? "تحقق من إرسال الطلب" : "مراجعة الطلب واختيار الزبون"}
         </Button>
       </div>
     </div>
@@ -1431,11 +1541,13 @@ function CartPanel({
 /* ── customers ───────────────────────────────────────────────────────── */
 
 function CustomersScreen({
+  canCreate,
   currentId,
   onPick,
   onNew,
   onOpenStatement,
 }: {
+  canCreate: boolean
   currentId: string | null
   onPick: (id: string) => void
   onNew: () => void
@@ -1443,7 +1555,8 @@ function CustomersScreen({
 }) {
   const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
-  const customers = useMyCustomers(search, page)
+  const [followUp, setFollowUp] = useState("")
+  const customers = useMyCustomers(search, page, followUp)
   const rows = customers.data?.customers ?? []
   const pages = Math.max(1, Math.ceil((customers.data?.total ?? 0) / (customers.data?.limit || 200)))
 
@@ -1455,11 +1568,15 @@ function CustomersScreen({
     <Card>
       <CardHeader>
         <CardTitle>زبائني</CardTitle>
-        <Button className="h-11 lg:h-9" onClick={onNew}>
+        <Button disabled={!canCreate} className="h-11" onClick={onNew}>
           <UserPlus className="h-4 w-4" /> زبون جديد
         </Button>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2" aria-label="زبائن يحتاجون متابعة">
+          {[["", "كل زبائني"], ["quiet", "متابعة: 30 يوم بلا شراء"], ["balance", "عليهم مبالغ"], ["never", "ما اشتروا بعد"]].map(([value, label]) => <Button key={value} className="h-11" variant={followUp === value ? "default" : "outline"} onClick={() => { setFollowUp(value); setPage(1) }}>{label}</Button>)}
+        </div>
+        {followUp === "balance" && <p className="text-xs text-slate-500">أرصدة موجبة على الزبائن؛ ليست بالضرورة ديوناً متأخرة عن موعد استحقاق.</p>}
         <Input
           value={search}
           onChange={(e) => {
@@ -1468,14 +1585,14 @@ function CustomersScreen({
           }}
           placeholder="بحث بالاسم أو الهاتف"
           aria-label="بحث عن زبون"
-          className="h-11 lg:h-9"
+          className="h-11"
         />
 
         {customers.isPending ? (
           <Waiting q={customers} />
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-slate-500">
-            ما عندك زبائن بعد. أضف زبون جديد من الزر فوق.
+            {followUp || search ? "ماكو زبائن مطابقين لهذا الفلتر." : "ما عندك زبائن بعد. أضف زبون جديد من الزر فوق."}
           </p>
         ) : (
           <>
@@ -1586,13 +1703,13 @@ function CustomersScreen({
                           and these two, the buttons the rep taps all day, were
                           28px there. Full touch height until a real desktop. */}
                       <div className="flex items-center gap-1.5">
-                        <Button size="sm" className="h-11 lg:h-7" onClick={() => onPick(c.id)}>
+                        <Button size="sm" className="h-11" onClick={() => onPick(c.id)}>
                           بيع
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-11 lg:h-7"
+                          className="h-11"
                           onClick={() => onOpenStatement(c.id)}
                         >
                           <Receipt className="h-3.5 w-3.5" /> كشف
@@ -1672,7 +1789,7 @@ function NewCustomerScreen({
    * «احفظ», the check was still in flight while the button read as enabled.
    */
   const checkRef = useRef(checkPhone)
-  checkRef.current = checkPhone
+  useEffect(() => { checkRef.current = checkPhone }, [checkPhone])
   useEffect(() => {
     const value = phone.trim()
     if (value.length < 10) return

@@ -31,6 +31,7 @@ import {
   postAgentCustomer,
   postAgentIssue,
   postAgentOrder,
+  previewAgentOrder,
   postAgentReceipt,
   postPriceRequest,
   postAgentThumbnails,
@@ -57,6 +58,7 @@ router.post("/products/thumbnails", postAgentThumbnails);
 router.get("/products/:id/image", getAgentImage);
 
 router.post("/orders", postAgentOrder);
+router.post("/orders/preview", previewAgentOrder);
 router.get("/orders", getMyOrders);
 
 router.get("/cash-on-hand", getCashOnHand);

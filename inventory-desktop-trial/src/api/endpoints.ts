@@ -385,6 +385,40 @@ export async function getStaleProducts(days = 60) {
   return { days: data.days, count: data.count, data: data.data ?? [] }
 }
 
+export interface NegativeStockWarehouse {
+  warehouseId: string
+  warehouseName: string
+  quantityPieces: number
+}
+
+export interface NegativeStockSuggestion {
+  toWarehouseId: string
+  toWarehouseName: string
+  neededPieces: number
+  fromWarehouseId: string | null
+  fromWarehouseName: string | null
+  transferablePieces: number
+}
+
+export interface NegativeStockProduct {
+  id: string
+  name: string
+  itemNumber: string
+  thumbnailUrl?: string | null
+  pcsPerCarton: number
+  totalPieces: number
+  deficitPieces: number
+  warehouses: NegativeStockWarehouse[]
+  suggestions: NegativeStockSuggestion[]
+}
+
+export async function getProductsWithNegativeStock() {
+  const { data } = await api.get<{ success: boolean; count: number; unfixableCount: number; data: NegativeStockProduct[] }>(
+    "/products/negative-stock",
+  )
+  return { count: data.count ?? 0, unfixableCount: data.unfixableCount ?? 0, data: data.data ?? [] }
+}
+
 export async function bulkDeleteProducts(ids: string[]) {
   const { data } = await api.post<{ success: boolean; deleted: number; message?: string }>("/products/bulk-delete", { ids })
   return data

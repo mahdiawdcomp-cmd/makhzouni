@@ -55,6 +55,8 @@ export const getMyCustomers = asyncHandler(async (req, res) => {
     data: await listMyCustomers(agent.id, search, {
       page: Number.isFinite(page) ? page : undefined,
       limit: Number.isFinite(limit) ? limit : undefined,
+      followUp: ["quiet", "balance", "never"].includes(String(req.query.followUp))
+        ? req.query.followUp as "quiet" | "balance" | "never" : undefined,
     }),
   });
 });
@@ -115,12 +117,14 @@ export const getAgentImage = asyncHandler(async (req, res) => {
 
 const UNITS = new Set<string>([Unit.PIECE, Unit.CARTON, Unit.BOX, Unit.DOZEN]);
 
-export const postAgentOrder = asyncHandler(async (req, res) => {
+function agentOrderHandler(preview: boolean) { return asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);
   const body = (req.body ?? {}) as {
     customerId?: string;
     notes?: string;
     clientRequestId?: string;
+    priceMode?: "WHOLESALE" | "CARTON";
+    reviewToken?: string;
     items?: Array<{ productId?: string; unit?: string; quantity?: number }>;
   };
 
@@ -145,11 +149,16 @@ export const postAgentOrder = asyncHandler(async (req, res) => {
     customerId: String(body.customerId),
     notes: body.notes,
     clientRequestId: body.clientRequestId,
+    priceMode: body.priceMode,
+    reviewToken: body.reviewToken,
     items,
-  });
+  }, preview);
 
-  res.status(201).json({ success: true, message: "انرسل الطلب للموافقة", data: result });
-});
+  res.status(preview ? 200 : 201).json({ success: true, message: preview ? "مراجعة الطلب بدون إرسال" : "انرسل الطلب للموافقة", data: result });
+}); }
+
+export const postAgentOrder = agentOrderHandler(false);
+export const previewAgentOrder = agentOrderHandler(true);
 
 export const getMyOrders = asyncHandler(async (req, res) => {
   const agent = requireAgent(req.user);

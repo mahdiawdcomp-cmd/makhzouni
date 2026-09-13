@@ -17,6 +17,7 @@
  *     start shipping to a rep's phone the day someone adds it.
  */
 import { Unit } from "@prisma/client";
+import { createHash } from "node:crypto";
 import prisma from "../config/database";
 import { AppError } from "../utils/app-error";
 import { logger } from "../utils/logger";
@@ -431,6 +432,7 @@ export async function listAgentCatalogProducts() {
       typeTags: true,
       salePrice: true,
       oldPrice: true,
+      cartonPiecePrice: true,
       isOffer: true,
       isNewArrival: true,
       pcsPerCarton: true,
@@ -456,6 +458,7 @@ export async function listAgentCatalogProducts() {
       categoryTags: product.categoryTags,
       typeTags: product.typeTags,
       salePrice: toNumber(product.salePrice),
+      cartonPiecePrice: product.cartonPiecePrice == null ? null : toNumber(product.cartonPiecePrice),
       oldPrice: product.oldPrice != null ? toNumber(product.oldPrice) : null,
       isOffer: product.isOffer,
       isNewArrival: product.isNewArrival,
@@ -510,6 +513,8 @@ export async function getAgentProductImage(productId: string) {
 
 export type AgentOrderInput = {
   customerId: string;
+  priceMode?: "WHOLESALE" | "CARTON";
+  reviewToken?: string;
   notes?: string;
   items: Array<{ productId: string; unit: Unit; quantity: number }>;
   /**
@@ -569,14 +574,17 @@ async function findPriorAgentOrder(agentId: string, key: string) {
   };
 }
 
-export async function submitAgentOrder(agentId: string, agentName: string, input: AgentOrderInput) {
+export async function submitAgentOrder(agentId: string, agentName: string, input: AgentOrderInput, preview = false) {
   const customer = await assertOwnCustomer(agentId, input.customerId);
+  if (input.priceMode !== undefined && !["WHOLESALE", "CARTON"].includes(input.priceMode)) {
+    throw new AppError("المندوب يبيع جملة أو توزيع كراتين فقط", 400, "PRICE_MODE_INVALID");
+  }
 
   // Idempotency first, before any work: a repeat of the same attempt returns the
   // approval the first one created. Matched on the rep too, so one rep's key can
   // never hand back another rep's order.
   const key = input.clientRequestId?.trim();
-  if (key) {
+  if (key && !preview) {
     const prior = await findPriorAgentOrder(agentId, key);
     if (prior) return prior;
   }
@@ -600,6 +608,8 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
       id: true,
       name: true,
       salePrice: true,
+      cartonPiecePrice: true,
+      hiddenUnits: true,
       pcsPerCarton: true,
       boxPieces: true,
       openingBalancePcs: true,
@@ -636,6 +646,19 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
   for (const item of input.items) {
     const product = productById.get(item.productId);
     if (!product) throw new AppError("منتج غير موجود", 404, "PRODUCT_NOT_FOUND");
+    if (!Object.values(Unit).includes(item.unit)) throw new AppError("وحدة غير صحيحة", 400, "UNIT_INVALID");
+    // The new catalog is opt-in; older clients keep their existing shortage policy.
+    if (input.priceMode) {
+      const stock = sellableStock(product, shopWarehouseId);
+      if (stock <= 0) throw new AppError(`«${product.name}» نفدت من المحل؛ عدّل السلة`, 409, "PRODUCT_UNAVAILABLE");
+      if (product.hiddenUnits.includes(item.unit)) throw new AppError(`وحدة «${product.name}» لم تعد متاحة`, 409, "UNIT_UNAVAILABLE");
+      if (input.priceMode === "CARTON" && (item.unit !== "CARTON" ||
+          !Number.isInteger(product.pcsPerCarton) || product.pcsPerCarton < 1 ||
+          stock < product.pcsPerCarton || !Number.isFinite(Number(product.cartonPiecePrice)) ||
+          Number(product.cartonPiecePrice) <= 0)) {
+        throw new AppError(`«${product.name}» غير متاحة لتوزيع الكراتين: تحقق من السعر والرصيد والوحدة`, 409, "CARTON_UNAVAILABLE");
+      }
+    }
     // Whole units only, matching every other order path in this system (they all
     // validate `.int().positive()`). This one accepted 0.5, which prices half a
     // piece and then flows into an invoice line nobody can pick or deliver.
@@ -690,8 +713,9 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
 
   const normalizedItems = input.items.map((item) => {
     const product = productById.get(item.productId)!;
-    const catalogPrice = salePriceFor(item.unit, product.salePrice, product.pcsPerCarton, product.boxPieces);
-    const special = priceByKey.get(`${product.id}:${item.unit}`);
+    const catalogPrice = salePriceFor(item.unit, input.priceMode === "CARTON" ? product.cartonPiecePrice : product.salePrice, product.pcsPerCarton, product.boxPieces);
+    // Existing negotiated prices belong to wholesale; do not silently apply them to distribution.
+    const special = input.priceMode === "CARTON" ? undefined : priceByKey.get(`${product.id}:${item.unit}`);
     if (special) spentPriceIds.push(special.id);
     return {
       productId: product.id,
@@ -709,8 +733,19 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
 
   const subtotal = normalizedItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
+  const reviewToken = createHash("sha256").update(JSON.stringify({
+    agentId, customerId: customer.id, customerName: customer.name,
+    priceMode: input.priceMode ?? "WHOLESALE", notes: input.notes ?? "",
+    items: normalizedItems, spentPriceIds,
+  })).digest("hex");
+  if (preview) return { reviewToken, customerName: customer.name, subtotal, items: normalizedItems, shortages };
+  if (input.priceMode && input.reviewToken !== reviewToken) {
+    throw new AppError("تغيّرت الأسعار أو الكميات المتوفرة؛ راجع الطلب مرة ثانية قبل الإرسال", 409, "ORDER_REVIEW_CHANGED");
+  }
+
   const approvalData = {
     source: "SALES_AGENT",
+    priceMode: input.priceMode ?? "WHOLESALE",
     salesAgentId: agentId,
     salesAgentName: agentName,
     clientRequestId: key,
@@ -727,6 +762,7 @@ export async function submitAgentOrder(agentId: string, agentName: string, input
     // out when stock goes negative.
     shortages,
     body: {
+      priceMode: input.priceMode ?? "WHOLESALE",
       customerName: customer.name,
       phone: customer.phone,
       address: customer.address ?? undefined,
@@ -1430,7 +1466,7 @@ export async function getAgentToday(agentId: string) {
 export async function listMyCustomers(
   agentId: string,
   search?: string,
-  opts?: { page?: number; limit?: number },
+  opts?: { page?: number; limit?: number; followUp?: "quiet" | "balance" | "never" },
 ) {
   const term = search?.trim();
   const page = Math.max(1, opts?.page ?? 1);
@@ -1439,6 +1475,13 @@ export async function listMyCustomers(
   const where = {
     deletedAt: null,
     salesAgentId: agentId,
+    ...(opts?.followUp === "balance" ? { currentBalance: { gt: 0 } } : {}),
+    ...(opts?.followUp === "quiet" || opts?.followUp === "never" ? {
+      invoices: { none: {
+        type: "SALE" as const, status: "ACTIVE" as const, archivedAt: null,
+        ...(opts.followUp === "quiet" ? { date: { gt: new Date(Date.now() - 30 * 86400000) } } : {}),
+      } },
+    } : {}),
     ...(term
       ? { OR: [{ name: { contains: term, mode: "insensitive" as const } }, { phone: { contains: term } }] }
       : {}),

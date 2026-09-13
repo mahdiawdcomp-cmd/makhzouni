@@ -1075,6 +1075,84 @@ export async function getProductDataHealth() {
   };
 }
 
+/**
+ * «تعديل المخزون» — products whose stock went negative in one warehouse.
+ *
+ * A negative row almost always means the goods were sold out of the shop while
+ * the paperwork still says they sit in a depot: the sale deducted where it was
+ * made, the transfer was never recorded. Nothing is wrong with the total — it is
+ * in the wrong place. So each product is returned with its FULL per-warehouse
+ * breakdown plus a ready-made suggestion: move exactly the missing pieces from
+ * the warehouse that can spare them.
+ *
+ * Read-only. The fix is an ordinary transfer the merchant confirms.
+ */
+export async function listProductsWithNegativeStock() {
+  const products = await prisma.product.findMany({
+    where: {
+      deletedAt: null,
+      warehouseStocks: { some: { quantityPieces: { lt: 0 } } },
+    },
+    include: productWarehouseInclude,
+    omit: { imageUrl: true },
+    orderBy: { name: "asc" },
+  });
+
+  const data = products.map((product) => {
+    const warehouses = product.warehouseStocks.map((row) => ({
+      warehouseId: row.warehouseId,
+      warehouseName: row.warehouse.name,
+      quantityPieces: row.quantityPieces,
+    }));
+
+    const shortages = warehouses.filter((w) => w.quantityPieces < 0);
+    const deficit = shortages.reduce((sum, w) => sum + Math.abs(w.quantityPieces), 0);
+    // Only a warehouse with a real surplus can cover a shortage; the largest one
+    // first so a single transfer is usually enough.
+    const donors = warehouses
+      .filter((w) => w.quantityPieces > 0)
+      .sort((a, b) => b.quantityPieces - a.quantityPieces);
+
+    const suggestions = shortages.map((shortage) => {
+      const needed = Math.abs(shortage.quantityPieces);
+      const donor = donors.find((d) => d.quantityPieces >= needed) ?? donors[0] ?? null;
+      return {
+        toWarehouseId: shortage.warehouseId,
+        toWarehouseName: shortage.warehouseName,
+        neededPieces: needed,
+        fromWarehouseId: donor?.warehouseId ?? null,
+        fromWarehouseName: donor?.warehouseName ?? null,
+        // Capped at what the donor actually holds: a transfer that pushes the
+        // SOURCE negative just moves the problem instead of solving it.
+        transferablePieces: donor ? Math.min(needed, donor.quantityPieces) : 0,
+      };
+    });
+
+    return {
+      id: product.id,
+      name: product.name,
+      itemNumber: product.itemNumber,
+      thumbnailUrl: product.thumbnailUrl,
+      pcsPerCarton: product.pcsPerCarton,
+      totalPieces: warehouses.reduce((sum, w) => sum + w.quantityPieces, 0),
+      deficitPieces: deficit,
+      warehouses,
+      suggestions,
+    };
+  });
+
+  // Worst shortage first.
+  data.sort((a, b) => b.deficitPieces - a.deficitPieces);
+
+  return {
+    count: data.length,
+    // A product whose total is negative too cannot be fixed by moving stock —
+    // the merchant has to count it. Surfaced so the page can say so plainly.
+    unfixableCount: data.filter((p) => p.totalPieces < 0).length,
+    data,
+  };
+}
+
 /** Soft-delete many products at once (used by the stale-products cleanup). */
 export async function bulkDeleteProducts(ids: string[]) {
   if (!ids.length) return { deleted: 0 };
